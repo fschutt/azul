@@ -1,0 +1,7 @@
+[package]
+name = "azul"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+
+[dependencies]
+webrender = { git = "https://github.com/servo/webrender", rev = "39abbda0203e385c021b5ddee29e23b365f92377" }

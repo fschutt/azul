@@ -1,0 +1,7 @@
+target/
+**/*.rs.bk
+Cargo.lock
+*.pdf
+*.sublime-project
+.vscode/*
+*.log
