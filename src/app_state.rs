@@ -4,7 +4,7 @@ use input::InputEvent;
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 
 pub struct AppState<T: LayoutScreen> {
-	function_callbacks: FastHashMap<String, FnCallback<T>>,
+	pub function_callbacks: FastHashMap<String, FnCallback<T>>,
 	pub data: T,
 }
 
@@ -24,11 +24,18 @@ impl<T: LayoutScreen> AppState<T> {
 		}
 	}
 
+	/// Convenience method to insert a new function callback
 	pub fn register_function_callback(&mut self, id: String, callback: FnCallback<T>) {
 		self.function_callbacks.insert(id, callback);
 	}
 
-	pub fn update(&mut self, input: &[InputEvent])
+	/// Convenience method to delete a new function callback
+	pub fn delete_function_callback(&mut self, id: &str) {
+		self.function_callbacks.remove(id);
+	}
+
+	#[doc(hidden)]
+	pub(crate) fn update(&mut self, input: &[InputEvent])
 		where T: LayoutScreen
 	{
 

@@ -7,12 +7,13 @@ extern crate twox_hash;
 extern crate glium;
 extern crate gleam;
 extern crate euclid;
+extern crate simplecss;
 
 pub mod css;
 pub mod traits;
 pub mod window;
-mod ui_state;
-mod app_state;
+pub mod ui_state;
+pub mod app_state;
 mod input;
 mod ui_description;
 
@@ -25,12 +26,17 @@ use ui_description::UiDescription;
 
 use std::sync::{Arc, Mutex};
 use std::collections::BTreeMap;
-use window::{Window, CreateWindowOptions, WindowCreateError};
+use window::{Window, WindowCreateOptions, WindowCreateError};
+
+pub use kuchiki::NodeRef;
+
+#[derive(Debug, Copy, Clone, Ord, Eq, PartialEq, PartialOrd)]
+pub struct WindowId(u32);
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
 	/// The graphical windows, indexed by ID
-	windows: BTreeMap<u32, Window>,
+	windows: BTreeMap<WindowId, Window>,
 	/// The global application state
 	pub app_state: Arc<Mutex<AppState<T>>>,
 }
@@ -44,16 +50,16 @@ impl<T: LayoutScreen> App<T> {
 		}
 	}
 
-	pub fn create_window(&mut self, options: CreateWindowOptions) -> Result<u32, WindowCreateError> {
+	pub fn create_window(&mut self, options: WindowCreateOptions) -> Result<WindowId, WindowCreateError> {
 		let window = Window::new(options)?;
 		if self.windows.len() == 0 {
-			self.windows.insert(0, window);
-			Ok(0)
+			self.windows.insert(WindowId(0), window);
+			Ok(WindowId(0))
 		} else {
 			let highest_id = *self.windows.iter().next_back().unwrap().0;
-			let new_id = highest_id.saturating_add(1);
-			self.windows.insert(new_id, window);
-			Ok(new_id)
+			let new_id = highest_id.0.saturating_add(1);
+			self.windows.insert(WindowId(new_id), window);
+			Ok(WindowId(new_id))
 		}
 	}
 
@@ -72,23 +78,19 @@ impl<T: LayoutScreen> App<T> {
 				if should_break == ShouldBreakUpdateLoop::Break {
 					break 'render_loop;
 				} else {
-					render(&ui_description);
+					let (window_id, window) = window;
+					render(window_id, window, &ui_description);
 				}
 			}
 		}
-
-
 	}
 }
-
 
 #[derive(PartialEq, Eq)]
 enum ShouldBreakUpdateLoop {
 	Break,
 	Continue,
 }
-
-
 
 fn update<T>(app_state: &mut AppState<T>,
 		     ui_state: &mut UiState,
@@ -117,8 +119,68 @@ fn update<T>(app_state: &mut AppState<T>,
 	ShouldBreakUpdateLoop::Break
 }
 
-fn render(ui_description: &UiDescription) {
+fn render(_window_id: &WindowId, window: &mut Window, ui_description: &UiDescription) {
+	use webrender::api::*;
 
+	// todo: convert the UIDescription into the webrender display list
+
+	let mut builder = DisplayListBuilder::new(window.internal.pipeline_id, window.internal.layout_size);
+	let mut resources = ResourceUpdates::new();
+
+	// Create a 200x200 stacking context with an animated transform property.
+	let bounds = LayoutRect::new(
+	    LayoutPoint::new(0.0, 0.0),
+	    LayoutSize::new(200.0, 200.0),
+	);
+
+	let complex_clip = ComplexClipRegion {
+	    rect: bounds,
+	    radii: BorderRadius::uniform(50.0),
+	    mode: ClipMode::Clip,
+	};
+
+	let info = LayoutPrimitiveInfo {
+	    local_clip: LocalClip::RoundedRect(bounds, complex_clip),
+	    .. LayoutPrimitiveInfo::new(bounds)
+	};
+
+	let opacity = 34.0;
+	let opacity_key = PropertyBindingKey::new(43); // arbitrary magic number
+	let property_key = PropertyBindingKey::new(42); // arbitrary magic number
+
+	let filters = vec![
+	    FilterOp::Opacity(PropertyBinding::Binding(opacity_key), opacity),
+	];
+
+	builder.push_stacking_context(
+	    &info,
+	    ScrollPolicy::Scrollable,
+	    Some(PropertyBinding::Binding(property_key)),
+	    TransformStyle::Flat,
+	    None,
+	    MixBlendMode::Normal,
+	    filters,
+	);
+
+	// Fill it with a white rect
+	builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
+	builder.pop_stacking_context();
+
+	// create new frame
+	window.internal.api.set_display_list(
+	    window.internal.document_id,
+	    window.internal.epoch,
+	    None,
+	    window.internal.layout_size,
+	    builder.finalize(),
+	    true,
+	    resources,
+	);
+
+	window.internal.api.generate_frame(window.internal.document_id, None);
+	window.renderer.as_mut().unwrap().update();
+	window.renderer.as_mut().unwrap().render(window.internal.framebuffer_size).unwrap();
+	window.display.swap_buffers().unwrap();
 }
 
 fn app_state_to_ui_state<T>(app_state: &AppState<T>, old_ui_state: Option<&UiState>)

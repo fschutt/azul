@@ -1,5 +1,6 @@
 use webrender::api::*;
 use webrender::{Renderer, ExternalImageHandler, OutputImageHandler, RendererOptions};
+use glium::Display;
 use glium::glutin::{self, EventsLoop, AvailableMonitorsIter,
 						  MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder};
 use gleam::gl;
@@ -16,7 +17,8 @@ const HEIGHT: u32 = 1080;
 pub struct WindowId(u32);
 
 /// Options on how to initially create the window
-pub struct CreateWindowOptions {
+#[derive(Default, Clone)]
+pub struct WindowCreateOptions {
 	/// How should the screen be updated - as fast as possible
 	/// or retained & energy saving?
 	pub update_mode: UpdateMode,
@@ -36,6 +38,7 @@ pub struct CreateWindowOptions {
 }
 
 /// How should the window be decorated
+#[derive(Copy, Clone)]
 pub enum WindowDecorations {
 	/// Regular window decorations
 	Normal,
@@ -53,7 +56,14 @@ pub enum WindowDecorations {
 	NoDecorations,
 }
 
+impl Default for WindowDecorations {
+	fn default() -> Self {
+		WindowDecorations::Normal
+	}
+}
+
 /// Where the window should be positioned
+#[derive(Copy, Clone)]
 pub struct WindowPlacement {
 	pub x: u32,
 	pub y: u32,
@@ -61,6 +71,18 @@ pub struct WindowPlacement {
 	pub height: u32,
 }
 
+impl Default for WindowPlacement {
+	fn default() -> Self {
+		Self {
+			x: 0,
+			y: 0,
+			width: 800,
+			height: 600,
+		}
+	}
+}
+
+#[derive(Copy, Clone)]
 pub enum WindowClass {
 	/// Regular desktop window
 	Normal,
@@ -82,6 +104,13 @@ pub enum WindowClass {
 	Hidden,
 }
 
+impl Default for WindowClass {
+	fn default() -> Self {
+		WindowClass::Normal
+	}
+}
+
+#[derive(Copy, Clone)]
 pub enum UpdateBehaviour {
 	/// Redraw the window only if the mouse cursor is
 	/// on top of the window
@@ -91,7 +120,14 @@ pub enum UpdateBehaviour {
 	UpdateAlways,
 }
 
+impl Default for UpdateBehaviour {
+	fn default() -> Self {
+		UpdateBehaviour::UpdateOnHover
+	}
+}
+
 /// In which intervals should the screen be updated
+#[derive(Copy, Clone)]
 pub enum UpdateMode {
 	/// Retained = the screen is only updated when necessary.
 	/// Underlying GlImages will be ignored and only updated when the UI changes
@@ -102,7 +138,14 @@ pub enum UpdateMode {
 	AsFastAsPossible,
 }
 
+impl Default for UpdateMode {
+	fn default() -> Self {
+		UpdateMode::Retained
+	}
+}
+
 /// Configuration of the mouse
+#[derive(Copy, Clone)]
 pub enum MouseMode {
 	/// A mouse event is only fired if the cursor has moved at least 1px.
 	/// More energy saving, but less precision.
@@ -114,6 +157,13 @@ pub enum MouseMode {
 	DirectInput,
 }
 
+impl Default for MouseMode {
+	fn default() -> Self {
+		MouseMode::Normal
+	}
+}
+
+#[derive(Debug)]
 pub enum WindowCreateError {
 	WebGlNotSupported,
 	DisplayCreateError(DisplayCreationError),
@@ -176,6 +226,7 @@ impl Iterator for MonitorIter {
 }
 
 /// Select, on which monitor the window should pop up.
+#[derive(Clone)]
 pub enum WindowMonitorTarget {
 	/// Window should appear on the primary monitor
 	Primary,
@@ -185,15 +236,34 @@ pub enum WindowMonitorTarget {
 	Custom(MonitorId)
 }
 
+impl Default for WindowMonitorTarget {
+	fn default() -> Self {
+		WindowMonitorTarget::Current
+	}
+}
+
 /// Represents one graphical window to be rendered.
 pub struct Window {
-	events_loop: EventsLoop,
+	pub(crate) events_loop: EventsLoop,
+	pub(crate) creation_options: WindowCreateOptions,
+	pub(crate) renderer: Option<Renderer>,
+	pub(crate) display: Display,
+	pub(crate) internal: WindowInternal,
+}
+
+pub struct WindowInternal {
+	pub(crate) layout_size: LayoutSize,
+	pub(crate) api: RenderApi,
+	pub(crate) epoch: Epoch,
+	pub(crate) framebuffer_size: DeviceUintSize,
+	pub(crate) pipeline_id: PipelineId,
+	pub(crate) document_id: DocumentId,
 }
 
 impl Window {
 
 	/// Creates a new window
-	pub fn new(options: CreateWindowOptions) -> Result<Self, WindowCreateError>  {
+	pub fn new(options: WindowCreateOptions) -> Result<Self, WindowCreateError>  {
 		use glium::Display;
 
 		let mut events_loop = EventsLoop::new();
@@ -214,12 +284,14 @@ impl Window {
 
 		let gl = match display.gl_window().get_api() {
 		    glutin::Api::OpenGl => unsafe {
-		        gl::GlFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
+		        gl::GlFns::load_with(|symbol|
+		        	display.gl_window().get_proc_address(symbol) as *const _)
 		    },
 		    glutin::Api::OpenGlEs => unsafe {
-		        gl::GlesFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
+		        gl::GlesFns::load_with(|symbol|
+		        	display.gl_window().get_proc_address(symbol) as *const _)
 		    },
-		    glutin::Api::WebGl => unimplemented!(),
+		    glutin::Api::WebGl => return Err(WindowCreateError::WebGlNotSupported),
 		};
 
 		let device_pixel_ratio = display.gl_window().hidpi_factor();
@@ -245,47 +317,28 @@ impl Window {
 		};
 		let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
 		let (mut renderer, sender) = Renderer::new(gl.clone(), notifier, opts).unwrap();
+
 		let api = sender.create_api();
 		let document_id = api.add_document(framebuffer_size, 0);
-
-		let (external, output) = Self::get_image_handlers(&*gl);
-
-		if let Some(output_image_handler) = output {
-		    renderer.set_output_image_handler(output_image_handler);
-		}
-
-		if let Some(external_image_handler) = external {
-		    renderer.set_external_image_handler(external_image_handler);
-		}
-
 		let epoch = Epoch(0);
 		let pipeline_id = PipelineId(0, 0);
 		let layout_size = framebuffer_size.to_f32() / TypedScale::new(device_pixel_ratio);
-		let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
-		let mut resources = ResourceUpdates::new();
 
-		let mut window = Window {
+		let window = Window {
 			events_loop: events_loop,
+			creation_options: options,
+			renderer: Some(renderer),
+			display: display,
+			internal: WindowInternal {
+				layout_size: layout_size,
+				api: api,
+				epoch: epoch,
+				framebuffer_size: framebuffer_size,
+				pipeline_id: pipeline_id,
+				document_id: document_id,
+			}
 		};
-		window.render(
-		    &api,
-		    &mut builder,
-		    &mut resources,
-		    framebuffer_size,
-		    pipeline_id,
-		    document_id,
-		);
-		api.set_display_list(
-		    document_id,
-		    epoch,
-		    None,
-		    layout_size,
-		    builder.finalize(),
-		    true,
-		    resources,
-		);
-		api.set_root_pipeline(document_id, pipeline_id);
-		api.generate_frame(document_id, None);
+
 		Ok(window)
 	}
 
@@ -295,34 +348,170 @@ impl Window {
 		}
 	}
 
-	fn render(
-	    &mut self,
-	    api: &RenderApi,
-	    builder: &mut DisplayListBuilder,
-	    resources: &mut ResourceUpdates,
-	    framebuffer_size: DeviceUintSize,
-	    pipeline_id: PipelineId,
-	    document_id: DocumentId,
-	) {
+	fn render(&mut self) {
+		/*
+			/// layout
+			window.render(
+			    &window.internal.api,
+			    &mut window.internal.builder,
+			    &mut window.internal.resources,
+			    window.internal.framebuffer_size,
+			    window.internal.pipeline_id,
+			    window.internal.document_id,
+			);
 
+			// set display list
+			window.internal.api.set_display_list(
+			    window.internal.document_id,
+			    window.internal.epoch,
+			    None,
+			    layout_size,
+			    window.internal.builder.finalize(),
+			    true,
+			    window.internal.resources,
+			);
+
+			window.internal.api.set_root_pipeline(document_id, pipeline_id);
+			window.internal.api.generate_frame(document_id, None);
+
+			/*
+			'outer: for event in window.display.wait_events() {
+			    let mut events = Vec::new();
+			    events.push(event);
+			    events.extend(window.poll_events());
+
+			    for event in events {
+			        match event {
+			            glutin::Event::Closed |
+			            glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) => break 'outer,
+
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::P),
+			            ) => {
+			                renderer.toggle_debug_flags(webrender::DebugFlags::PROFILER_DBG);
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::O),
+			            ) => {
+			                renderer.toggle_debug_flags(webrender::DebugFlags::RENDER_TARGET_DBG);
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::I),
+			            ) => {
+			                renderer.toggle_debug_flags(webrender::DebugFlags::TEXTURE_CACHE_DBG);
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::B),
+			            ) => {
+			                renderer.toggle_debug_flags(webrender::DebugFlags::ALPHA_PRIM_DBG);
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::S),
+			            ) => {
+			                renderer.toggle_debug_flags(webrender::DebugFlags::COMPACT_PROFILER);
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::Q),
+			            ) => {
+			                renderer.toggle_debug_flags(webrender::DebugFlags::GPU_TIME_QUERIES
+			                    | webrender::DebugFlags::GPU_SAMPLE_QUERIES);
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::Key1),
+			            ) => {
+			                api.set_window_parameters(
+			                    document_id,
+			                    framebuffer_size,
+			                    DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
+			                    1.0
+			                );
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::Key2),
+			            ) => {
+			                api.set_window_parameters(
+			                    document_id,
+			                    framebuffer_size,
+			                    DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
+			                    2.0
+			                );
+			            }
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::M),
+			            ) => {
+			                api.notify_memory_pressure();
+			            }
+			            #[cfg(feature = "capture")]
+			            glutin::Event::KeyboardInput(
+			                glutin::ElementState::Pressed,
+			                _,
+			                Some(glutin::VirtualKeyCode::C),
+			            ) => {
+			                let path: PathBuf = "../captures/example".into();
+			                //TODO: switch between SCENE/FRAME capture types
+			                // based on "shift" modifier, when `glutin` is updated.
+			                let bits = CaptureBits::all();
+			                api.save_capture(path, bits);
+			            }
+			            _ => if example.on_event(event, &api, document_id) {
+			                let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
+			                let mut resources = ResourceUpdates::new();
+
+							// re-layout
+
+			                example.render(
+			                    &api,
+			                    &mut builder,
+			                    &mut resources,
+			                    framebuffer_size,
+			                    pipeline_id,
+			                    document_id,
+			                );
+
+			                // reset display list
+			                api.set_display_list(
+			                    document_id,
+			                    epoch,
+			                    None,
+			                    layout_size,
+			                    builder.finalize(),
+			                    true,
+			                    resources,
+			                );
+			                api.generate_frame(document_id, None);
+			            }
+			        }
+			    }
+			*/
+
+			window.renderer.update();
+			window.renderer.render(window.internal.framebuffer_size).unwrap();
+			window.display.swap_buffers().ok();
+		*/
 	}
+}
 
-	fn on_event(&mut self, event: glutin::Event, render_api: &RenderApi, document_id: DocumentId)
-	-> bool
-	{
-	    false
-	}
-
-	fn get_image_handlers(
-	    _gl: &gl::Gl,
-	) -> (Option<Box<ExternalImageHandler>>,
-	      Option<Box<OutputImageHandler>>)
-	{
-	    (None, None)
-	}
-
-	fn draw_custom(&self, _gl: &gl::Gl)
-	{
-
+impl Drop for Window {
+	fn drop(&mut self) {
+		let renderer = self.renderer.take().unwrap(); // must be present
+		renderer.deinit();
 	}
 }
