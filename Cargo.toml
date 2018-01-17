@@ -9,3 +9,7 @@ limn-layout = { git = "https://github.com/christolliday/limn", rev = "b98510b531
 simplecss = "0.1.0"
 kuchiki = "0.6.0"
 twox-hash = "1.1.0"
+glium = "0.19.0"
+log = "*"
+gleam = "0.4.19"
+euclid = "0.16"
