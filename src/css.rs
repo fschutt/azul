@@ -78,30 +78,27 @@ impl Css {
 							current_classes = Vec::<String>::new();
 						},
 						Token::TypeSelector(id) => {
-							if !parser_in_block {
-								current_type = id;
-							} else {
+							if parser_in_block {
 								return Err(CssParseError::MalformedCss);
 							}
+							current_type = id;
 						},
 						Token::ClassSelector(class) => {
-							if !parser_in_block {
-								current_classes.push(class.to_string());
-							} else {
+							if parser_in_block {
 								return Err(CssParseError::MalformedCss);
 							}
+							current_classes.push(class.to_string());
 						}
 						Token::Declaration(key, val) => {
-							if parser_in_block {
-								css_rules.push(CssRule {
-									html_type: current_type.to_string(),
-									id: current_id.to_string(),
-									classes: current_classes.drain(..).collect(),
-									declaration: (key.to_string(), val.to_string()),
-								})
-							} else {
+							if !parser_in_block {
 								return Err(CssParseError::MalformedCss);
 							}
+							css_rules.push(CssRule {
+								html_type: current_type.to_string(),
+								id: current_id.to_string(),
+								classes: current_classes.drain(..).collect(),
+								declaration: (key.to_string(), val.to_string()),
+							})
 						},
 						_ => { }
 					}
