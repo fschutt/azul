@@ -6,4 +6,6 @@ authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 [dependencies]
 webrender = { git = "https://github.com/servo/webrender", rev = "39abbda0203e385c021b5ddee29e23b365f92377" }
 limn-layout = { git = "https://github.com/christolliday/limn", rev = "b98510b531dcd8a7442bc4c60c0273efbb08c123" }
-
+simplecss = "0.1.0"
+kuchiki = "0.6.0"
+twox-hash = "1.1.0"
