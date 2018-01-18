@@ -2,6 +2,21 @@
 
 azul is a stylable GUI framework using `webrender` and `limn-layout` for rendering
 
+## Design
+
+azul is a library, that, in difference to pretty much all other GUI libraries
+uses a functional, data-driven design. `azul` requires your application data to
+serialize itself into a user interface. Due to CSS stylesheets, your application can
+be styled however you want.
+
+That said, `azul` is probably not the most efficient UI library.
+
+![azul desgin diagram](https://i.imgur.com/M5NGnBk.png)
+
+## Goals
+
+This library is not done yet. Once it is done, it should support the following:
+
 - Basic elements
 	- Label
     - List Box
@@ -34,3 +49,9 @@ azul is a stylable GUI framework using `webrender` and `limn-layout` for renderi
 
 - Media rules
     - query window width & height
+
+## Use-cases
+
+The goal is to be used in desktop applications that require special rendering
+(ex. image / vector editors) as well as games. Currently the backend is tied to
+OpenGL.

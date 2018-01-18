@@ -1,24 +1,34 @@
-#[macro_use]
 extern crate azul;
 
 use azul::traits::LayoutScreen;
 use azul::ui_state::UiState;
-use azul::NodeRef;
-use azul::window::WindowCreateOptions;
+use azul::dom::NodeRef;
+use azul::window::{WindowId, WindowCreateOptions};
 use azul::app_state::AppState;
 use azul::css::Css;
 
 const TEST_CSS: &str = include_str!("test_content.css");
 
 pub struct MyAppData {
-	// your app data here
+	// Your app data goes here
 	pub my_data: u32,
+	/// Note: it is deliberate that the trait basically forces you to store
+	/// the css yourself. This way you can change the CSS style from any function
+	/// (push and pop rules and styles dynamically, for example).
+	pub css: Css,
 }
 
 impl LayoutScreen for MyAppData {
+
 	fn update_dom(&self, _old_ui_state: Option<&UiState>) -> NodeRef {
 		use azul::dom::{NodeType, DomNode};
 		DomNode::new(NodeType::Div).id("main").with_text("Hello World").into()
+	}
+
+	fn get_css<'a>(&'a self, window_id: &WindowId) -> &'a Css {
+		// Note: you can match on the window ID if you have different CSS styles
+		// for different windows.
+		&self.css
 	}
 }
 
@@ -29,13 +39,17 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>) {
 
 fn main() {
 	let css = Css::new_from_string(TEST_CSS).unwrap();
-	for rule in css.rules {
+	for rule in &css.rules {
 		println!("rule - {:?}", rule);
 	}
 
-	let my_app_data = MyAppData { my_data: 0 };
+	let my_app_data = MyAppData {
+		my_data: 0,
+		css: css,
+	};
+
 	let mut app = azul::App::new(my_app_data);
-	let window_id = app.create_window(WindowCreateOptions::default()).unwrap();
+	app.create_window(WindowCreateOptions::default()).unwrap();
 	// app.register_event_handler("div#myitem:onclick", my_button_click_handler);
 	app.start_render_loop();
 }

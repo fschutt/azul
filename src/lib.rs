@@ -11,13 +11,21 @@ extern crate gleam;
 extern crate euclid;
 extern crate simplecss;
 
+/// Styling & CSS parsing
 pub mod css;
+/// The layout traits for creating a layout-able application
 pub mod traits;
+/// Window handling
 pub mod window;
+/// State handling for user interfaces
 pub mod ui_state;
+/// Wrapper for the application data & application state
 pub mod app_state;
+/// DOM / HTML node handling
 pub mod dom;
+/// Input handling (mostly glium)
 mod input;
+/// UI Description & display list handling (webrender)
 mod ui_description;
 
 use css::Css;
@@ -29,12 +37,7 @@ use ui_description::UiDescription;
 
 use std::sync::{Arc, Mutex};
 use std::collections::BTreeMap;
-use window::{Window, WindowCreateOptions, WindowCreateError};
-
-pub use kuchiki::NodeRef;
-
-#[derive(Debug, Copy, Clone, Ord, Eq, PartialEq, PartialOrd)]
-pub struct WindowId(u32);
+use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
@@ -45,7 +48,7 @@ pub struct App<T: LayoutScreen> {
 }
 
 impl<T: LayoutScreen> App<T> {
-	/// Create a new, empty application
+	/// Create a new, empty application (note: doesn't create a window!)
 	pub fn new(initial_data: T) -> Self {
 		Self {
 			windows: BTreeMap::new(),
@@ -53,19 +56,21 @@ impl<T: LayoutScreen> App<T> {
 		}
 	}
 
+	/// Spawn a new window on the screen
 	pub fn create_window(&mut self, options: WindowCreateOptions) -> Result<WindowId, WindowCreateError> {
 		let window = Window::new(options)?;
 		if self.windows.len() == 0 {
-			self.windows.insert(WindowId(0), window);
-			Ok(WindowId(0))
+			self.windows.insert(WindowId::new(0), window);
+			Ok(WindowId::new(0))
 		} else {
 			let highest_id = *self.windows.iter().next_back().unwrap().0;
-			let new_id = highest_id.0.saturating_add(1);
-			self.windows.insert(WindowId(new_id), window);
-			Ok(WindowId(new_id))
+			let new_id = highest_id.id.saturating_add(1);
+			self.windows.insert(WindowId::new(new_id), window);
+			Ok(WindowId::new(new_id))
 		}
 	}
 
+	/// Start the rendering loop for the currently open windows
 	pub fn start_render_loop(&mut self)
 	{
 		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap(), None);

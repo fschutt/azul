@@ -1,21 +1,33 @@
 use traits::LayoutScreen;
 use input::InputEvent;
 
+/// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 
+/// Wrapper for your application data. In order to be layout-able,
+/// you need to satisfy the `LayoutScreen` trait (how the application
+/// should be laid out)
 pub struct AppState<T: LayoutScreen> {
 	pub function_callbacks: FastHashMap<String, FnCallback<T>>,
 	pub data: T,
 }
 
+/// Callback
 pub enum FnCallback<T>
-where T: LayoutScreen
+where T: LayoutScreen,
 {
+	/// One-off function (for ex. exporting a file)
+	///
+	/// This is best for actions that can run in the background
+	/// and you don't need to get updates. It uses a background
+	/// thread and therefore the data needs to be sendable.
 	FnOnceNonBlocking(fn(&mut AppState<T>) -> ()),
+	/// Same as the `FnOnceNonBlocking`, but it blocks the current
+	/// thread and does not require the type to be `Send`.
 	FnOnceBlocking(fn(&mut AppState<T>) -> ()),
 }
 
-impl<T: LayoutScreen> AppState<T> {
+impl<T> AppState<T> where T: LayoutScreen {
 
 	pub fn new(initial_data: T) -> Self {
 		Self {

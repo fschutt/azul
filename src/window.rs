@@ -14,7 +14,14 @@ const PRECACHE_SHADERS: bool = false;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 
-pub struct WindowId(u32);
+#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+pub struct WindowId {
+	pub id: u32,
+}
+
+impl WindowId {
+	pub fn new(id: u32) -> Self { Self { id: id } }
+}
 
 /// Options on how to initially create the window
 #[derive(Default, Clone)]

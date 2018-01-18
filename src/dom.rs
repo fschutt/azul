@@ -1,4 +1,4 @@
-use kuchiki::NodeRef;
+pub use kuchiki::NodeRef;
 
 /// List of allowed DOM node types
 ///
