@@ -1,10 +1,8 @@
 #[macro_use]
-extern crate log;
-#[macro_use]
 extern crate markup5ever;
 extern crate webrender;
 extern crate kuchiki;
-extern crate limn_layout as layout;
+extern crate cassowary;
 extern crate twox_hash;
 extern crate glium;
 extern crate gleam;
@@ -27,6 +25,8 @@ pub mod dom;
 mod input;
 /// UI Description & display list handling (webrender)
 mod ui_description;
+/// Constraint handling
+mod constraints;
 
 use css::Css;
 use app_state::AppState;

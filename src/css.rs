@@ -104,7 +104,6 @@ impl Css {
 					}
 				},
 				Err(e) => {
-					print_simplecss_error(e);
 					return Err(CssParseError::ParseError(e));
 				}
 			}
@@ -134,24 +133,5 @@ impl Css {
 	#[cfg(target_os="macos")]
 	pub fn native() -> Self {
 		Self::new_from_string(NATIVE_CSS_MACOS).unwrap()
-	}
-}
-
-fn print_simplecss_error(e: simplecss::Error) {
-	use simplecss::Error::*;
-	match e {
-		UnexpectedEndOfStream(pos) => {
-			error!("unexpected end of stream at position: {:?}", pos);
-		},
-		InvalidAdvance { expected, total, pos} => {
-			error!("invalid advance: expected {:?} bytes, only got {:?}, at position {:?}",
-				expected, total, pos);
-		},
-		UnsupportedToken(pos) => {
-			error!("unsupported token at position: {:?}", pos);
-		},
-		UnknownToken(pos) => {
-			error!("unknown token at position: {:?}", pos);
-		},
 	}
 }

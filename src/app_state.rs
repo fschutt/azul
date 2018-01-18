@@ -2,7 +2,7 @@ use traits::LayoutScreen;
 use input::InputEvent;
 
 /// Faster implementation of a HashMap
-type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
+pub type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `LayoutScreen` trait (how the application

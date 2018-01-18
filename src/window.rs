@@ -1,11 +1,12 @@
 use webrender::api::*;
-use webrender::{Renderer, ExternalImageHandler, OutputImageHandler, RendererOptions};
+use webrender::{Renderer, RendererOptions};
 use glium::Display;
 use glium::glutin::{self, EventsLoop, AvailableMonitorsIter,
 						  MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder};
 use gleam::gl;
 use glium::backend::glutin::DisplayCreationError;
 use euclid::TypedScale;
+use cassowary::Solver;
 
 use std::time::Duration;
 
@@ -210,9 +211,7 @@ impl RenderNotifier for Notifier {
 
     fn wake_up(&self) {
         #[cfg(not(target_os = "android"))]
-        self.events_loop_proxy.wakeup().unwrap_or_else(|e| {
-        	error!("{}", e);
-        });
+        self.events_loop_proxy.wakeup().unwrap_or_else(|_| { });
     }
 
     fn new_document_ready(&self, _: DocumentId, _scrolled: bool, _composite_needed: bool) {
@@ -256,6 +255,12 @@ pub struct Window {
 	pub(crate) renderer: Option<Renderer>,
 	pub(crate) display: Display,
 	pub(crate) internal: WindowInternal,
+	/// The solver for the UI, for caching the results of the computations
+	pub(crate) solver: UiSolver,
+}
+
+pub(crate) struct UiSolver {
+	pub(crate) solver: Solver,
 }
 
 pub struct WindowInternal {
@@ -343,6 +348,9 @@ impl Window {
 				framebuffer_size: framebuffer_size,
 				pipeline_id: pipeline_id,
 				document_id: document_id,
+			},
+			solver: UiSolver {
+				solver: Solver::new(),
 			}
 		};
 

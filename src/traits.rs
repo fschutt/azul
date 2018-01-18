@@ -20,9 +20,12 @@ pub trait LayoutScreen {
 	/// function and calculates the final display list that is submitted to the
 	/// renderer.
 	fn style_dom(nodes: &NodeRef, css: &Css) -> UiDescription {
+		match_dom_css_selectors(nodes, css)
+	}
+}
 
-		UiDescription {
+fn match_dom_css_selectors(nodes: &NodeRef, css: &Css) -> UiDescription {
+	UiDescription {
 
-		}
 	}
 }
