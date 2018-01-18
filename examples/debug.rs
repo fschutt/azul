@@ -17,27 +17,8 @@ pub struct MyAppData {
 
 impl LayoutScreen for MyAppData {
 	fn update_dom(&self, _old_ui_state: Option<&UiState>) -> NodeRef {
-		use std::cell::RefCell;
-		use azul::{Attributes, NodeData, ElementData};
-		// use azul::{QualName, Prefix, Namespace, LocalName};
-		use std::collections::HashMap;
-		use azul::QualName;
-
-		// serialize your data to a UI however you want
-		// ex: NodeRef::of_type("div").with_id("myitem")
-		// to register identifier where you can later hook up event handlers
-		//
-		// this can also be loaded from an HTML file later on, the
-		// memory model is the same
-		let mut attributes = HashMap::new();
-		attributes.insert(QualName::new(None, ns!(html), local_name!("id")), String::from("main"));
-		NodeRef::new(NodeData::Element(ElementData {
-			name: QualName::new(None, ns!(html), local_name!("div")),
-			attributes: RefCell::new(Attributes {
-				map: attributes,
-			}),
-			template_contents: None,
-		}))
+		use azul::dom::{NodeType, DomNode};
+		DomNode::new(NodeType::Div).id("main").with_text("Hello World").into()
 	}
 }
 

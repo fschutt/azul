@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
 extern crate markup5ever;
 extern crate webrender;
 extern crate kuchiki;
@@ -15,6 +16,7 @@ pub mod traits;
 pub mod window;
 pub mod ui_state;
 pub mod app_state;
+pub mod dom;
 mod input;
 mod ui_description;
 
@@ -30,18 +32,6 @@ use std::collections::BTreeMap;
 use window::{Window, WindowCreateOptions, WindowCreateError};
 
 pub use kuchiki::NodeRef;
-pub use kuchiki::Attributes;
-pub use kuchiki::NodeData;
-pub use kuchiki::ElementData;
-
-pub use markup5ever::interface::QualName;
-pub use markup5ever::*;
-
-/*
-pub use markup5ever::Prefix;
-pub use markup5ever::Namespace;
-pub use markup5ever::LocalName;
-*/
 
 #[derive(Debug, Copy, Clone, Ord, Eq, PartialEq, PartialOrd)]
 pub struct WindowId(u32);
