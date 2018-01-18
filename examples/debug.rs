@@ -6,6 +6,7 @@ use azul::dom::NodeRef;
 use azul::window::{WindowId, WindowCreateOptions};
 use azul::app_state::AppState;
 use azul::css::Css;
+use azul::dom::{NodeType, DomNode};
 
 const TEST_CSS: &str = include_str!("test_content.css");
 
@@ -21,14 +22,13 @@ pub struct MyAppData {
 impl LayoutScreen for MyAppData {
 
 	fn update_dom(&self, _old_ui_state: Option<&UiState>) -> NodeRef {
-		use azul::dom::{NodeType, DomNode};
-		DomNode::new(NodeType::Div).id("main").with_text("Hello World").into()
+		DomNode::new(NodeType::Div).class("stuff").class("other-stuff").with_text("Hello World").into()
 	}
 
-	fn get_css<'a>(&'a self, window_id: &WindowId) -> &'a Css {
+	fn get_css(&mut self, window_id: WindowId) -> &mut Css {
 		// Note: you can match on the window ID if you have different CSS styles
 		// for different windows.
-		&self.css
+		&mut self.css
 	}
 }
 
@@ -39,9 +39,6 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>) {
 
 fn main() {
 	let css = Css::new_from_string(TEST_CSS).unwrap();
-	for rule in &css.rules {
-		println!("rule - {:?}", rule);
-	}
 
 	let my_app_data = MyAppData {
 		my_data: 0,

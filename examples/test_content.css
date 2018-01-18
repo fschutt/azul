@@ -1,6 +1,11 @@
-div#main {
+div#main.stuff {
 	direction: row;
 	justify-content: center;
 	align-items: center;
 	align-content: center;
+	background-color: blue;
+}
+
+div {
+	background-color: red;
 }

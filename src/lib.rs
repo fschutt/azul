@@ -39,6 +39,9 @@ use std::sync::{Arc, Mutex};
 use std::collections::BTreeMap;
 use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 
+/// Faster implementation of a HashMap
+type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
+
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
 	/// The graphical windows, indexed by ID
@@ -48,6 +51,7 @@ pub struct App<T: LayoutScreen> {
 }
 
 impl<T: LayoutScreen> App<T> {
+
 	/// Create a new, empty application (note: doesn't create a window!)
 	pub fn new(initial_data: T) -> Self {
 		Self {
@@ -73,23 +77,33 @@ impl<T: LayoutScreen> App<T> {
 	/// Start the rendering loop for the currently open windows
 	pub fn start_render_loop(&mut self)
 	{
+		let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
 		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap(), None);
 		let mut hotkeys = Hotkeys::none();
-		let mut css = Css::new();
-		let mut ui_description = ui_state_to_ui_description::<T>(&ui_state, &css);
 
 		'render_loop: loop {
-			for window in self.windows.iter_mut() {
+			let should_break = update(&mut self.app_state.lock().unwrap(), &mut ui_state, &mut hotkeys);
 
-				let should_break = update(&mut self.app_state.lock().unwrap(), &mut ui_state, &mut hotkeys, &mut ui_description, &mut css);
-
-				if should_break == ShouldBreakUpdateLoop::Break {
-					break 'render_loop;
-				} else {
-					let (window_id, window) = window;
-					render(window_id, window, &ui_description);
-				}
+			if should_break == ShouldBreakUpdateLoop::Break {
+				break 'render_loop;
 			}
+
+			for (window_id, window) in self.windows.iter_mut() {
+
+				let mut app_state_lock = self.app_state.lock().unwrap();
+				let css = app_state_lock.data.get_css(*window_id);
+				if css.dirty {
+					// Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.
+					ui_description_cache[window_id.id] = ui_state_to_ui_description::<T>(&ui_state, css);
+				}
+
+				println!("ui_description: {:#?}", ui_description_cache[window_id.id]);
+
+				// Re-layouts the UI.
+				render(window, window_id, &ui_description_cache[window_id.id]);
+			}
+
+			::std::thread::sleep(::std::time::Duration::from_millis(16));
 		}
 	}
 }
@@ -102,9 +116,7 @@ enum ShouldBreakUpdateLoop {
 
 fn update<T>(app_state: &mut AppState<T>,
 		     ui_state: &mut UiState,
-		     hotkeys: &mut Hotkeys,
-		     ui_description: &mut UiDescription,
-		     css: &mut Css)
+		     hotkeys: &mut Hotkeys)
 -> ShouldBreakUpdateLoop
 	where T: LayoutScreen
 {
@@ -119,15 +131,13 @@ fn update<T>(app_state: &mut AppState<T>,
 	// The next three steps can be done in parallel
 	let new_hotkeys = app_state_to_hotkeys(&app_state);
 	let new_ui_state = app_state_to_ui_state(&app_state, Some(&ui_state));
-	let new_ui_description = ui_state_to_ui_description::<T>(&new_ui_state, css);
 
 	*hotkeys = new_hotkeys;
 	*ui_state = new_ui_state;
-	*ui_description = new_ui_description;
 	ShouldBreakUpdateLoop::Break
 }
 
-fn render(_window_id: &WindowId, window: &mut Window, ui_description: &UiDescription) {
+fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription) {
 	use webrender::api::*;
 
 	// todo: convert the UIDescription into the webrender display list
@@ -205,7 +215,7 @@ fn app_state_to_hotkeys<T>(app_state: &AppState<T>)
 	Hotkeys::none()
 }
 
-fn ui_state_to_ui_description<T>(ui_state: &UiState, style: &Css)
+fn ui_state_to_ui_description<T>(ui_state: &UiState, style: &mut Css)
 -> UiDescription
 	where T: LayoutScreen
 {

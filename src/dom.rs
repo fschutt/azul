@@ -1,4 +1,8 @@
 pub use kuchiki::NodeRef;
+use markup5ever::QualName;
+
+pub(crate) const HTML_CLASS: QualName = QualName { prefix: None, ns: ns!(html), local: local_name!("class") };
+pub(crate) const HTML_ID: QualName = QualName { prefix: None, ns: ns!(html), local: local_name!("id") };
 
 /// List of allowed DOM node types
 ///
@@ -84,16 +88,20 @@ impl Into<NodeRef> for DomNode {
 
 		use std::cell::RefCell;
 		use std::collections::HashMap;
-		use markup5ever::interface::QualName;
 		use kuchiki::{NodeRef, Attributes, NodeData, ElementData};
+		use self::NodeType::*;
 
 		let mut attributes = HashMap::new();
 		if let Some(id) = self.id {
-			attributes.insert(QualName::new(None, ns!(html), local_name!("id")), id);
+			attributes.insert(HTML_ID, id);
 		}
+
+		for class in self.classes {
+			attributes.insert(HTML_CLASS, class);
+		}
+
 		let attributes = RefCell::new(Attributes { map: attributes });
 
-		use self::NodeType::*;
 		let name = match self.node_type {
 			Div => QualName::new(None, ns!(html), local_name!("div")),
 			Button => QualName::new(None, ns!(html), local_name!("button")),
@@ -105,10 +113,17 @@ impl Into<NodeRef> for DomNode {
 			Form => QualName::new(None, ns!(html), local_name!("form")),
 		};
 
-		NodeRef::new(NodeData::Element(ElementData {
+		let node = NodeRef::new(NodeData::Element(ElementData {
 			name: name,
 			attributes: attributes,
 			template_contents: None,
-		}))
+		}));
+
+		if let Some(text) = self.text {
+			let text_node = NodeRef::new(NodeData::Text(RefCell::new(text)));
+			node.append(text_node);
+		}
+
+		node
 	}
 }

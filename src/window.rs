@@ -17,11 +17,11 @@ const HEIGHT: u32 = 1080;
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct WindowId {
-	pub id: u32,
+	pub id: usize,
 }
 
 impl WindowId {
-	pub fn new(id: u32) -> Self { Self { id: id } }
+	pub fn new(id: usize) -> Self { Self { id: id } }
 }
 
 /// Options on how to initially create the window
@@ -307,10 +307,6 @@ impl Window {
 		};
 
 		let device_pixel_ratio = display.gl_window().hidpi_factor();
-
-		println!("OpenGL version {}", gl.get_string(gl::VERSION));
-		println!("Device pixel ratio: {}", device_pixel_ratio);
-		println!("Loading shaders...");
 
 		let opts = RendererOptions {
 		    resource_override_path: None,
