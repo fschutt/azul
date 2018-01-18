@@ -3,7 +3,7 @@
 use cassowary::{Variable, Constraint};
 use cassowary::WeightedRelation::{EQ, GE};
 use cassowary::strength::{ WEAK, MEDIUM, STRONG, REQUIRED };
-use euclid::{Point2D, Size2D, UnknownUnit};
+use euclid::{Point2D, Size2D};
 pub type Size = Size2D<f32>;
 pub type Point = Point2D<f32>;
 
@@ -19,6 +19,7 @@ pub(crate) struct LayoutRect {
     pub height: Variable,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub(crate) enum CssConstraint {
     Size(SizeConstraint),
     Padding(PaddingConstraint)

@@ -77,16 +77,15 @@ impl<T: LayoutScreen> App<T> {
 	/// Start the rendering loop for the currently open windows
 	pub fn start_render_loop(&mut self)
 	{
+		use constraints::CssConstraint;
+
 		let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
+		let mut display_list_cache = vec![Vec::<CssConstraint>::new(); self.windows.len()];
 		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap(), None);
 		let mut hotkeys = Hotkeys::none();
 
 		'render_loop: loop {
-			let should_break = update(&mut self.app_state.lock().unwrap(), &mut ui_state, &mut hotkeys);
-
-			if should_break == ShouldBreakUpdateLoop::Break {
-				break 'render_loop;
-			}
+			update(&mut self.app_state.lock().unwrap(), &mut ui_state, &mut hotkeys);
 
 			for (window_id, window) in self.windows.iter_mut() {
 
@@ -97,8 +96,6 @@ impl<T: LayoutScreen> App<T> {
 					ui_description_cache[window_id.id] = ui_state_to_ui_description::<T>(&ui_state, css);
 				}
 
-				println!("ui_description: {:#?}", ui_description_cache[window_id.id]);
-
 				// Re-layouts the UI.
 				render(window, window_id, &ui_description_cache[window_id.id]);
 			}
@@ -108,22 +105,12 @@ impl<T: LayoutScreen> App<T> {
 	}
 }
 
-#[derive(PartialEq, Eq)]
-enum ShouldBreakUpdateLoop {
-	Break,
-	Continue,
-}
-
 fn update<T>(app_state: &mut AppState<T>,
 		     ui_state: &mut UiState,
 		     hotkeys: &mut Hotkeys)
--> ShouldBreakUpdateLoop
 	where T: LayoutScreen
 {
 	let frame_events = hit_test_ui(&ui_state, &hotkeys);
-	if frame_events.is_empty() {
-		return ShouldBreakUpdateLoop::Continue;
-	}
 
 	// updating can be parallelized if the components don't overlap each other
 	app_state.update(&frame_events);
@@ -134,13 +121,13 @@ fn update<T>(app_state: &mut AppState<T>,
 
 	*hotkeys = new_hotkeys;
 	*ui_state = new_ui_state;
-	ShouldBreakUpdateLoop::Break
 }
 
 fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription) {
-	use webrender::api::*;
 
 	// todo: convert the UIDescription into the webrender display list
+
+	use webrender::api::*;
 
 	let mut builder = DisplayListBuilder::new(window.internal.pipeline_id, window.internal.layout_size);
 	let mut resources = ResourceUpdates::new();
@@ -184,18 +171,19 @@ fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescrip
 	builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
 	builder.pop_stacking_context();
 
-	// create new frame
-	window.internal.api.set_display_list(
-	    window.internal.document_id,
+	let mut txn = Transaction::new();
+	txn.set_display_list(
 	    window.internal.epoch,
 	    None,
 	    window.internal.layout_size,
 	    builder.finalize(),
 	    true,
-	    resources,
 	);
+	txn.update_resources(resources);
+	txn.set_root_pipeline(window.internal.pipeline_id);
+	txn.generate_frame();
 
-	window.internal.api.generate_frame(window.internal.document_id, None);
+	window.internal.api.send_transaction(window.internal.document_id, txn);
 	window.renderer.as_mut().unwrap().update();
 	window.renderer.as_mut().unwrap().render(window.internal.framebuffer_size).unwrap();
 	window.display.swap_buffers().unwrap();

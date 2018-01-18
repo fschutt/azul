@@ -1,7 +1,8 @@
 use webrender::api::*;
 use webrender::{Renderer, RendererOptions};
-use glium::Display;
-use glium::glutin::{self, EventsLoop, AvailableMonitorsIter,
+use glium::{IncompatibleOpenGl, Display};
+use glium::debug::DebugCallbackBehavior;
+use glium::glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
 						  MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder};
 use gleam::gl;
 use glium::backend::glutin::DisplayCreationError;
@@ -175,7 +176,21 @@ impl Default for MouseMode {
 pub enum WindowCreateError {
 	WebGlNotSupported,
 	DisplayCreateError(DisplayCreationError),
+	Gl(IncompatibleOpenGl),
 	Context(ContextError),
+	CreateError(CreationError),
+}
+
+impl From<CreationError> for WindowCreateError {
+	fn from(e: CreationError) -> Self {
+		WindowCreateError::CreateError(e)
+	}
+}
+
+impl From<IncompatibleOpenGl> for WindowCreateError {
+	fn from(e: IncompatibleOpenGl) -> Self {
+		WindowCreateError::Gl(e)
+	}
 }
 
 impl From<DisplayCreationError> for WindowCreateError {
@@ -276,20 +291,30 @@ impl Window {
 
 	/// Creates a new window
 	pub fn new(options: WindowCreateOptions) -> Result<Self, WindowCreateError>  {
-		use glium::Display;
 
-		let mut events_loop = EventsLoop::new();
+		let events_loop = EventsLoop::new();
+
 		let window = WindowBuilder::new()
 		    .with_dimensions(WIDTH, HEIGHT)
-		    .with_title(TITLE);
+		    .with_title(TITLE)
+		    .with_maximized(true);
+
 		let context = ContextBuilder::new()
 			.with_gl(glutin::GlRequest::GlThenGles {
 			    opengl_version: (3, 2),
 			    opengles_version: (3, 0),
-			});
-		let display = Display::new(window, context, &events_loop)?;
+			})
+			.with_gl_profile(GlProfile::Core)
+			.with_vsync(true)
+			.with_multisampling(4)
+			.with_srgb(true)
+			.with_gl_debug_flag(false);
 
-		use glium::glutin::GlContext;
+		// For some reason, there is GL_INVALID_OPERATION stuff going on,
+		// but the display works fine. TODO: report this to glium
+
+		let display = Display::with_debug(GlWindow::new(window, context, &events_loop)?, DebugCallbackBehavior::Ignore)?;
+
 		unsafe {
 		    display.gl_window().make_current()?;
 		}
@@ -310,11 +335,10 @@ impl Window {
 
 		let opts = RendererOptions {
 		    resource_override_path: None,
-		    debug: true,
+		    debug: false,
 		    precache_shaders: PRECACHE_SHADERS,
 		    device_pixel_ratio,
-		    clear_color: Some(ColorF::new(0.3, 0.0, 0.0, 1.0)),
-		    //scatter_gpu_cache_updates: false,
+		    clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
 		    .. RendererOptions::default()
 		};
 
