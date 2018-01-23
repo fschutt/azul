@@ -27,6 +27,9 @@ mod input;
 mod ui_description;
 /// Constraint handling
 mod constraints;
+/// Converts the UI description (the styled HTML nodes)
+/// to an actual display list (+ layout)
+mod display_list;
 
 use css::Css;
 use app_state::AppState;
@@ -128,48 +131,11 @@ fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescrip
 	// todo: convert the UIDescription into the webrender display list
 
 	use webrender::api::*;
+	use display_list::DisplayList;
 
-	let mut builder = DisplayListBuilder::new(window.internal.pipeline_id, window.internal.layout_size);
+	let display_list = DisplayList::new_from_ui_description(ui_description);
+	let builder = display_list.into_display_list_builder(window.internal.pipeline_id, window.internal.layout_size);
 	let mut resources = ResourceUpdates::new();
-
-	// Create a 200x200 stacking context with an animated transform property.
-	let bounds = LayoutRect::new(
-	    LayoutPoint::new(0.0, 0.0),
-	    LayoutSize::new(200.0, 200.0),
-	);
-
-	let complex_clip = ComplexClipRegion {
-	    rect: bounds,
-	    radii: BorderRadius::uniform(50.0),
-	    mode: ClipMode::Clip,
-	};
-
-	let info = LayoutPrimitiveInfo {
-	    local_clip: LocalClip::RoundedRect(bounds, complex_clip),
-	    .. LayoutPrimitiveInfo::new(bounds)
-	};
-
-	let opacity = 34.0;
-	let opacity_key = PropertyBindingKey::new(43); // arbitrary magic number
-	let property_key = PropertyBindingKey::new(42); // arbitrary magic number
-
-	let filters = vec![
-	    FilterOp::Opacity(PropertyBinding::Binding(opacity_key), opacity),
-	];
-
-	builder.push_stacking_context(
-	    &info,
-	    ScrollPolicy::Scrollable,
-	    Some(PropertyBinding::Binding(property_key)),
-	    TransformStyle::Flat,
-	    None,
-	    MixBlendMode::Normal,
-	    filters,
-	);
-
-	// Fill it with a white rect
-	builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
-	builder.pop_stacking_context();
 
 	let mut txn = Transaction::new();
 	txn.set_display_list(
@@ -179,6 +145,7 @@ fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescrip
 	    builder.finalize(),
 	    true,
 	);
+
 	txn.update_resources(resources);
 	txn.set_root_pipeline(window.internal.pipeline_id);
 	txn.generate_frame();

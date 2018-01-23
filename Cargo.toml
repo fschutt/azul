@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 
 [dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "39abbda0203e385c021b5ddee29e23b365f92377" }
+webrender = { git = "https://github.com/servo/webrender", rev = "e9269c7e06e20363be0b2a2a1be98d292ff7acca" }
 cassowary = "0.3.0"
 simplecss = "0.1.0"
 kuchiki = "0.6.0"

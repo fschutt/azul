@@ -2,21 +2,35 @@
 
 use cassowary::{Variable, Constraint};
 use cassowary::WeightedRelation::{EQ, GE};
-use cassowary::strength::{ WEAK, MEDIUM, STRONG, REQUIRED };
+use cassowary::strength::REQUIRED;
 use euclid::{Point2D, Size2D};
+
 pub type Size = Size2D<f32>;
 pub type Point = Point2D<f32>;
 
 /// A set of cassowary `Variable`s representing the
 /// bounding rectangle of a layout.
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct LayoutRect {
+pub(crate) struct DisplayRect {
     pub left: Variable,
     pub top: Variable,
     pub right: Variable,
     pub bottom: Variable,
     pub width: Variable,
     pub height: Variable,
+}
+
+impl DisplayRect {
+    pub fn new() -> Self {
+        Self {
+            left: Variable::new(),
+            top: Variable::new(),
+            right: Variable::new(),
+            bottom: Variable::new(),
+            width: Variable::new(),
+            height: Variable::new(),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -38,7 +52,7 @@ pub(crate) enum SizeConstraint {
     ShrinkHorizontal,
     ShrinkVertical,
     TopLeft(Point),
-    Center(LayoutRect),
+    Center(DisplayRect),
     CenterHorizontal(Variable, Variable),
     CenterVertical(Variable, Variable),
 }
@@ -61,14 +75,14 @@ pub(crate) enum PaddingConstraint {
     BoundTop(Variable),
     BoundRight(Variable),
     BoundBottom(Variable),
-    BoundBy(LayoutRect),
-    MatchLayout(LayoutRect),
+    BoundBy(DisplayRect),
+    MatchLayout(DisplayRect),
     MatchWidth(Variable),
     MatchHeight(Variable),
 }
 
 impl SizeConstraint {
-    pub(crate) fn build(&self, rect: &LayoutRect, strength: f64) -> Vec<Constraint> {
+    pub(crate) fn build(&self, rect: &DisplayRect, strength: f64) -> Vec<Constraint> {
         use self::SizeConstraint::*;
 
         match *self {
@@ -134,7 +148,7 @@ impl SizeConstraint {
 }
 
 impl PaddingConstraint {
-    pub(crate) fn build(&self, rect: &LayoutRect, strength: f64, padding: f32) -> Vec<Constraint> {
+    pub(crate) fn build(&self, rect: &DisplayRect, strength: f64, padding: f32) -> Vec<Constraint> {
         use self::PaddingConstraint::*;
         match *self {
             AlignTop(top) => {
