@@ -134,8 +134,12 @@ fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescrip
 	use display_list::DisplayList;
 
 	let display_list = DisplayList::new_from_ui_description(ui_description);
-	let builder = display_list.into_display_list_builder(window.internal.pipeline_id, window.internal.layout_size);
-	let mut resources = ResourceUpdates::new();
+	let builder = display_list.into_display_list_builder(
+		window.internal.pipeline_id,
+		window.internal.layout_size,
+		&mut window.solver.solver);
+
+	let resources = ResourceUpdates::new();
 
 	let mut txn = Transaction::new();
 	txn.set_display_list(

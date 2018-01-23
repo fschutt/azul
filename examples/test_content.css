@@ -4,4 +4,5 @@ div#main {
 	align-items: center;
 	align-content: center;
 	background-color: blue;
+	border-radius: 15px 50px 30px 5px;
 }

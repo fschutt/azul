@@ -22,7 +22,7 @@ pub struct MyAppData {
 impl LayoutScreen for MyAppData {
 
 	fn update_dom(&self, _old_ui_state: Option<&UiState>) -> NodeRef {
-		DomNode::new(NodeType::Div).class("stuff").class("other-stuff").with_text("Hello World").into()
+		DomNode::new(NodeType::Div).id("main").with_text("Hello World").into()
 	}
 
 	fn get_css(&mut self, window_id: WindowId) -> &mut Css {

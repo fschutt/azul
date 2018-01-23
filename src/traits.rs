@@ -96,7 +96,7 @@ impl<'a> ParsedCss<'a> {
 fn match_dom_css_selectors(root: &NodeRef, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
 -> UiDescription
 {
-	let mut rectangles = Vec::<StyledNode>::new();
+	let mut styled_nodes = Vec::<StyledNode>::new();
 
 	let mut current_constraints = CssConstraintList::empty();
 	cascade_constraints(root, &mut current_constraints, parsed_css, css);
@@ -110,18 +110,18 @@ fn match_dom_css_selectors(root: &NodeRef, parsed_css: &ParsedCss, css: &Css, pa
 	// DFS tree
 	for child in root.children() {
 		let mut child_ui = match_dom_css_selectors(&child, parsed_css, css, &current_node.css_constraints, parent_z_level + 1);
-		rectangles.append(&mut child_ui.rectangles);
+		styled_nodes.append(&mut child_ui.styled_nodes);
 	}
 
 	for sibling in root.following_siblings() {
 		let mut sibling_ui = match_dom_css_selectors(&sibling, parsed_css, css, &parent_constraints, parent_z_level);
-		rectangles.append(&mut sibling_ui.rectangles);
+		styled_nodes.append(&mut sibling_ui.styled_nodes);
 	}
 
-	rectangles.push(current_node);
+	styled_nodes.push(current_node);
 
 	UiDescription {
-		rectangles: rectangles,
+		styled_nodes: styled_nodes,
 	}
 }
 

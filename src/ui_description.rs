@@ -3,7 +3,7 @@ use FastHashMap;
 
 #[derive(Debug, Default, Clone)]
 pub struct UiDescription {
-	pub rectangles: Vec<StyledNode>,
+	pub styled_nodes: Vec<StyledNode>,
 }
 
 #[derive(Debug, Clone)]
