@@ -30,6 +30,7 @@ mod constraints;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;
+mod css_parser;
 
 use css::Css;
 use app_state::AppState;

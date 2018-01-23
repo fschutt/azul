@@ -3,6 +3,8 @@ use constraints::{DisplayRect, CssConstraint};
 use ui_description::UiDescription;
 use cassowary::{Constraint, Solver};
 
+use css_parser::*;
+
 pub(crate) struct DisplayList {
 	pub(crate) rectangles: Vec<DisplayRectangle>
 }
@@ -58,9 +60,11 @@ impl DisplayList {
 			let constraint_list = &node.css_constraints.list;
 			let mut css_constraints = Vec::<CssConstraint>::new();
 
-			// TODO: parse CSS constraints
 			if let Some(radius) = constraint_list.get("border-radius") {
-				rect.border_radius = Some(BorderRadius::uniform(5.0));
+				match parse_border_radius(radius) {
+					Ok(r) => { rect.border_radius = Some(r); },
+					Err(e) => { println!("ERROR - invalid border-radius {:?}", e); }
+				}
 			}
 
 			if let Some(with) = constraint_list.get("width") {
