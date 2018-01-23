@@ -14,6 +14,8 @@ pub(crate) struct DisplayRectangle {
 	pub(crate) rect: DisplayRect,
 	/// The constraints to be solved
 	pub(crate) constraints: Vec<CssConstraint>,
+	/// Background color of this rectangle
+	pub(crate) background_color: Option<ColorU>,
 	/// Shadow color
 	pub(crate) shadow: Option<Shadow>,
 	/// Gradient (location) + stops
@@ -33,6 +35,7 @@ impl DisplayRectangle {
 		Self {
 			rect: DisplayRect::new(),
 			constraints: Vec::new(),
+			background_color: None,
 			shadow: None,
 			gradient: None,
 			opacity: None,
@@ -64,6 +67,13 @@ impl DisplayList {
 				match parse_border_radius(radius) {
 					Ok(r) => { rect.border_radius = Some(r); },
 					Err(e) => { println!("ERROR - invalid border-radius {:?}", e); }
+				}
+			}
+
+			if let Some(background_color) = constraint_list.get("background-color") {
+				match parse_css_background_color(background_color) {
+					Ok(b) => { rect.background_color = Some(b); },
+					Err(e) => { println!("ERROR - invalid background-color {:?}", e); }
 				}
 			}
 
@@ -101,8 +111,6 @@ impl DisplayList {
 			    LayoutSize::new(200.0, 200.0),
 			);
 
-			println!("border radius: {:?}", rect.border_radius);
-
 			let clip = if let Some(border_radius) = rect.border_radius {
 				LocalClip::RoundedRect(bounds, ComplexClipRegion {
 				    rect: bounds,
@@ -138,7 +146,7 @@ impl DisplayList {
 			    filters,
 			);
 
-			builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
+			builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
 			builder.pop_stacking_context();
 		}
 

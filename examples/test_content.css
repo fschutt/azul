@@ -1,8 +1,4 @@
 div#main {
-	direction: row;
-	justify-content: center;
-	align-items: center;
-	align-content: center;
-	background-color: blue;
+	background-color: #e74c3c;
 	border-radius: 15px 50px 30px 5px;
 }
