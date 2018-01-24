@@ -17,7 +17,7 @@ pub(crate) struct DisplayRectangle {
 	/// Background color of this rectangle
 	pub(crate) background_color: Option<ColorU>,
 	/// Shadow color
-	pub(crate) shadow: Option<Shadow>,
+	pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
 	/// Gradient (location) + stops
 	pub(crate) gradient: Option<(Gradient, Vec<GradientStop>)>,
 	/// Opacity of this rectangle
@@ -29,6 +29,7 @@ pub(crate) struct DisplayRectangle {
 }
 
 impl DisplayRectangle {
+
 	/// Returns an uninitialized rectangle
 	#[inline]
 	pub(crate) fn new() -> Self {
@@ -36,7 +37,7 @@ impl DisplayRectangle {
 			rect: DisplayRect::new(),
 			constraints: Vec::new(),
 			background_color: None,
-			shadow: None,
+			box_shadow: None,
 			gradient: None,
 			opacity: None,
 			border: None,
@@ -45,29 +46,6 @@ impl DisplayRectangle {
 	}
 }
 
-/*
-pub struct BorderWidths {
-    pub left: f32,
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-}
-*/
-/*
-pub struct NormalBorder {
-    pub left: BorderSide,
-    pub right: BorderSide,
-    pub top: BorderSide,
-    pub bottom: BorderSide,
-    pub radius: BorderRadius,
-}
-*/
-/*
-pub struct BorderSide {
-    pub color: ColorF,
-    pub style: BorderStyle,
-}
-*/
 impl DisplayList {
 
 	pub fn new_from_ui_description(ui_description: &UiDescription) -> Self {
@@ -150,6 +128,14 @@ impl DisplayList {
 
 			builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
 
+			if let Some(ref pre_shadow) = rect.box_shadow {
+				// The pre_shadow is missing the BorderRadius & LayoutRect
+				let border_radius = rect.border_radius.unwrap_or(BorderRadius::zero());
+				builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
+										 pre_shadow.blur_radius, pre_shadow.spread_radius,
+										 border_radius, pre_shadow.clip_mode);
+			}
+
 			if let Some((border_widths, mut border_details)) = rect.border {
 				if let Some(border_radius) = rect.border_radius {
 					if let BorderDetails::Normal(ref mut n) = border_details {
@@ -212,6 +198,13 @@ fn parse_css(constraint_list: &CssConstraintList, rect: &mut DisplayRectangle, c
 	parse!(radius, "border-radius", rect.border_radius, parse_css_border_radius, constraint_list);
 	parse!(background_color, "background-color", rect.background_color, parse_css_background_color, constraint_list);
 	parse!(border, "border", rect.border, parse_css_border, constraint_list);
+
+	if let Some(box_shadow) = constraint_list.get("box-shadow") {
+		match parse_css_box_shadow(box_shadow) {
+			Ok(r) => { rect.box_shadow = r; },
+			Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, "box-shadow"); }
+		}
+	}
 
 	parse_css_size!(width, "width", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::Width);
 	parse_css_size!(height, "height", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::Height);

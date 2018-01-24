@@ -1,15 +1,74 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-use webrender::api::{ColorU, BorderRadius, LayoutSize, BorderStyle, BorderDetails, BorderSide, NormalBorder, BorderWidths};
+use webrender::api::{ColorU, BorderRadius, LayoutVector2D,
+                    ColorF, BoxShadowClipMode, LayoutSize, BorderStyle,
+                    BorderDetails, BorderSide, NormalBorder, BorderWidths, LayerPixel};
 use std::num::{ParseIntError, ParseFloatError};
+use std::marker::PhantomData;
 
 pub const EM_HEIGHT: f32 = 16.0;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct PixelValue {
+    metric: CssMetric,
+    number: f32,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum CssMetric {
+    Px,
+    Em,
+}
+
+impl PixelValue {
+    pub fn to_pixels(&self) -> f32 {
+        match self.metric {
+            CssMetric::Px => { self.number },
+            CssMetric::Em => { self.number * EM_HEIGHT },
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CssBorderRadiusParseError<'a> {
     TooManyValues(&'a str),
     InvalidComponent(&'a str),
     ValueParseErr(ParseFloatError),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CssColorParseError<'a> {
+    InvalidColor(&'a str),
+    InvalidColorComponent(u8),
+    ValueParseErr(ParseIntError),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CssBorderParseError<'a> {
+    InvalidBorderStyle(&'a str),
+    InvalidBorderDeclaration(&'a str),
+    ThicknessParseError(CssBorderRadiusParseError<'a>),
+    ColorParseError(CssColorParseError<'a>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CssShadowParseError<'a> {
+    InvalidSingleStatement(&'a str),
+    TooManyComponents(&'a str),
+    ValueParseErr(CssBorderRadiusParseError<'a>),
+    ColorParseError(CssColorParseError<'a>),
+}
+
+impl<'a> From<CssBorderRadiusParseError<'a>> for CssShadowParseError<'a> {
+    fn from(e: CssBorderRadiusParseError<'a>) -> Self {
+        CssShadowParseError::ValueParseErr(e)
+    }
+}
+
+impl<'a> From<CssColorParseError<'a>> for CssShadowParseError<'a> {
+    fn from(e: CssColorParseError<'a>) -> Self {
+        CssShadowParseError::ColorParseError(e)
+    }
 }
 
 pub fn parse_css_border_radius<'a>(input: &'a str)
@@ -81,27 +140,6 @@ pub fn parse_css_border_radius<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct PixelValue {
-    metric: CssMetric,
-    number: f32,
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum CssMetric {
-    Px,
-    Em,
-}
-
-impl PixelValue {
-    pub fn to_pixels(&self) -> f32 {
-        match self.metric {
-            CssMetric::Px => { self.number },
-            CssMetric::Em => { self.number * EM_HEIGHT },
-        }
-    }
-}
-
 /// parse a single value such as "15px"
 pub fn parse_pixel_value<'a>(input: &'a str)
 -> Result<PixelValue, CssBorderRadiusParseError<'a>>
@@ -128,13 +166,6 @@ pub fn parse_pixel_value<'a>(input: &'a str)
         metric: unit,
         number: number,
     })
-}
-
-#[derive(Debug, PartialEq)]
-pub enum CssColorParseError<'a> {
-    InvalidColor(&'a str),
-    InvalidColorComponent(u8),
-    ValueParseErr(ParseIntError),
 }
 
 /// Parse any valid CSS color
@@ -388,14 +419,6 @@ fn parse_background_color<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum CssBorderParseError<'a> {
-    InvalidBorderStyle(&'a str),
-    InvalidBorderDeclaration(&'a str),
-    ThicknessParseError(CssBorderRadiusParseError<'a>),
-    ColorParseError(CssColorParseError<'a>),
-}
-
 // border: 5px solid red;
 pub fn parse_css_border<'a>(input: &'a str)
 -> Result<(BorderWidths, BorderDetails), CssBorderParseError<'a>>
@@ -445,11 +468,6 @@ pub fn parse_css_border<'a>(input: &'a str)
     Ok((border_widths, border_details))
 }
 
-#[test]
-fn test_parse_css_border() {
-    assert!(parse_css_border("5px solid red").is_ok())
-}
-
 // border-style: solid;
 fn parse_border_style<'a>(input: &'a str)
 -> Result<BorderStyle, CssBorderParseError<'a>>
@@ -469,39 +487,344 @@ fn parse_border_style<'a>(input: &'a str)
     }
 }
 
-pub struct TextStyle {
+// missing BorderRadius & LayoutRect
+#[derive(Debug, PartialEq)]
+pub struct BoxShadowPreDisplayItem {
+    pub offset: LayoutVector2D,
+    pub color: ColorF,
+    pub blur_radius: f32,
+    pub spread_radius: f32,
+    pub clip_mode: BoxShadowClipMode,
+}
 
+pub fn parse_css_box_shadow<'a>(input: &'a str)
+-> Result<Option<BoxShadowPreDisplayItem>, CssShadowParseError<'a>>
+{
+    let mut input_iter = input.split_whitespace();
+    let count = input_iter.clone().count();
+
+    let mut box_shadow = BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::zero(),
+        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+        blur_radius: 0.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Outset,
+    };
+
+    let last_val = input_iter.clone().rev().next();
+    let is_inset = last_val == Some("inset") || last_val == Some("outset");
+
+    if count > 2 && is_inset {
+        let l_val = last_val.unwrap();
+        if l_val == "outset" {
+            box_shadow.clip_mode = BoxShadowClipMode::Outset;
+        } else if l_val == "inset" {
+            box_shadow.clip_mode = BoxShadowClipMode::Inset;
+        }
+    }
+
+    match count {
+        1 => {
+            // box-shadow: none;
+            match input_iter.next().unwrap() {
+                "none" => return Ok(None),
+                _ => return Err(CssShadowParseError::InvalidSingleStatement(input)),
+            }
+        },
+        2 => {
+            // box-shadow: 5px 10px; (h_offset, v_offset)
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.offset.x = h_offset;
+            box_shadow.offset.y = v_offset;
+        },
+        3 => {
+            // box-shadow: 5px 10px inset; (h_offset, v_offset, inset)
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.offset.x = h_offset;
+            box_shadow.offset.y = v_offset;
+
+            if !is_inset {
+                // box-shadow: 5px 10px #888888; (h_offset, v_offset, color)
+                let color = parse_css_background_color(input_iter.next().unwrap())?;
+                box_shadow.color = ColorF::from(color);
+            }
+        },
+        4 => {
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.offset.x = h_offset;
+            box_shadow.offset.y = v_offset;
+
+            if !is_inset {
+                let blur = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+                box_shadow.blur_radius = blur.into();
+            }
+
+            let color = parse_css_background_color(input_iter.next().unwrap())?;
+            box_shadow.color = ColorF::from(color);
+        },
+        5 => {
+            // box-shadow: 5px 10px 5px 10px #888888; (h_offset, v_offset, blur, spread, color)
+            // box-shadow: 5px 10px 5px #888888 inset; (h_offset, v_offset, blur, color, inset)
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.offset.x = h_offset;
+            box_shadow.offset.y = v_offset;
+
+            let blur = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.blur_radius = blur.into();
+
+            if !is_inset {
+                let spread = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+                box_shadow.spread_radius = spread.into();
+            }
+
+            let color = parse_css_background_color(input_iter.next().unwrap())?;
+            box_shadow.color = ColorF::from(color);
+        },
+        6 => {
+            // box-shadow: 5px 10px 5px 10px #888888 inset; (h_offset, v_offset, blur, spread, color, inset)
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.offset.x = h_offset;
+            box_shadow.offset.y = v_offset;
+
+            let blur = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.blur_radius = blur.into();
+
+            let spread = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            box_shadow.spread_radius = spread.into();
+
+            let color = parse_css_background_color(input_iter.next().unwrap())?;
+            box_shadow.color = ColorF::from(color);
+        }
+        _ => {
+            return Err(CssShadowParseError::TooManyComponents(input));
+        }
+    }
+
+    Ok(Some(box_shadow))
 }
 
 #[test]
-fn test_parse_background_color() {
+fn test_parse_box_shadow_1() {
+    assert_eq!(parse_css_box_shadow("none"), Ok(None));
+}
+
+#[test]
+fn test_parse_box_shadow_2() {
+    assert_eq!(parse_css_box_shadow("5px 10px"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+        blur_radius: 0.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Outset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_3() {
+    assert_eq!(parse_css_box_shadow("5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+        blur_radius: 0.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Outset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_4() {
+    assert_eq!(parse_css_box_shadow("5px 10px inset"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+        blur_radius: 0.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Inset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_5() {
+    assert_eq!(parse_css_box_shadow("5px 10px outset"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+        blur_radius: 0.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Outset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_6() {
+    assert_eq!(parse_css_box_shadow("5px 10px 5px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+        blur_radius: 5.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Outset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_7() {
+    assert_eq!(parse_css_box_shadow("5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+        blur_radius: 0.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Inset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_8() {
+    assert_eq!(parse_css_box_shadow("5px 10px 5px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+        blur_radius: 5.0,
+        spread_radius: 0.0,
+        clip_mode: BoxShadowClipMode::Inset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_9() {
+    assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+        blur_radius: 5.0,
+        spread_radius: 10.0,
+        clip_mode: BoxShadowClipMode::Outset,
+    })));
+}
+
+#[test]
+fn test_parse_box_shadow_10() {
+    assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+        offset: LayoutVector2D::new(5.0, 10.0),
+        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+        blur_radius: 5.0,
+        spread_radius: 10.0,
+        clip_mode: BoxShadowClipMode::Inset,
+    })));
+}
+
+#[test]
+fn test_parse_css_border_1() {
+    assert_eq!(parse_css_border("5px solid red"), Ok((BorderWidths {
+        top: 5.0,
+        bottom: 5.0,
+        left: 5.0,
+        right: 5.0,
+    }, BorderDetails::Normal(NormalBorder {
+        left: BorderSide {
+            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Solid,
+        },
+        right: BorderSide {
+            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Solid,
+        },
+        bottom: BorderSide {
+            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Solid,
+        },
+        top: BorderSide {
+            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Solid,
+        },
+        radius: BorderRadius::zero(),
+    }))));
+}
+
+#[test]
+fn test_parse_css_border_2() {
+    assert_eq!(parse_css_border("double"), Ok((BorderWidths {
+        top: 1.0,
+        bottom: 1.0,
+        left: 1.0,
+        right: 1.0,
+    }, BorderDetails::Normal(NormalBorder {
+        left: BorderSide {
+            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Double,
+        },
+        right: BorderSide {
+            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Double,
+        },
+        bottom: BorderSide {
+            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Double,
+        },
+        top: BorderSide {
+            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            style: BorderStyle::Double,
+        },
+        radius: BorderRadius::zero(),
+    }))));
+}
+
+#[test]
+fn test_parse_background_color_1() {
     assert_eq!(parse_css_background_color("#F0F8FF"), Ok(ColorU { r: 240, g: 248, b: 255, a: 255 }));
+}
+
+#[test]
+fn test_parse_background_color_2() {
     assert_eq!(parse_css_background_color("#F0F8FF00"), Ok(ColorU { r: 240, g: 248, b: 255, a: 0 }));
+}
+
+#[test]
+fn test_parse_background_color_3() {
     assert_eq!(parse_css_background_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
 }
 
 #[test]
-fn test_parse_pixel_value() {
+fn test_parse_pixel_value_1() {
     assert_eq!(parse_pixel_value("15px"), Ok(PixelValue { metric: CssMetric::Px, number: 15.0 }));
+}
+
+#[test]
+fn test_parse_pixel_value_2() {
     assert_eq!(parse_pixel_value("1.2em"), Ok(PixelValue { metric: CssMetric::Em, number: 1.2 }));
+}
+
+#[test]
+fn test_parse_pixel_value_3() {
     assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(CssBorderRadiusParseError::InvalidComponent("aslkfdjasdflk")));
 }
 
 #[test]
-fn test_parse_css_border_radius() {
+fn test_parse_css_border_radius_1() {
     assert_eq!(parse_css_border_radius("15px"), Ok(BorderRadius::uniform(15.0)));
+}
+
+#[test]
+fn test_parse_css_border_radius_2() {
     assert_eq!(parse_css_border_radius("15px 50px"), Ok(BorderRadius {
         top_left: LayoutSize::new(15.0, 15.0),
         bottom_right: LayoutSize::new(15.0, 15.0),
         top_right: LayoutSize::new(50.0, 50.0),
         bottom_left: LayoutSize::new(50.0, 50.0),
     }));
+}
+
+#[test]
+fn test_parse_css_border_radius_3() {
     assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(BorderRadius {
         top_left: LayoutSize::new(15.0, 15.0),
         bottom_right: LayoutSize::new(30.0, 30.0),
         top_right: LayoutSize::new(50.0, 50.0),
         bottom_left: LayoutSize::new(50.0, 50.0),
     }));
+}
+
+#[test]
+fn test_parse_css_border_radius_4() {
     assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(BorderRadius {
         top_left: LayoutSize::new(15.0, 15.0),
         bottom_right: LayoutSize::new(30.0, 30.0),
