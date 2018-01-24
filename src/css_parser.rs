@@ -1,6 +1,6 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-use webrender::api::{ColorU, BorderRadius, LayoutSize};
+use webrender::api::{ColorU, BorderRadius, LayoutSize, BorderStyle, BorderDetails, BorderSide, NormalBorder, BorderWidths};
 use std::num::{ParseIntError, ParseFloatError};
 
 pub const EM_HEIGHT: f32 = 16.0;
@@ -12,7 +12,7 @@ pub enum CssBorderRadiusParseError<'a> {
     ValueParseErr(ParseFloatError),
 }
 
-pub fn parse_border_radius<'a>(input: &'a str)
+pub fn parse_css_border_radius<'a>(input: &'a str)
 -> Result<BorderRadius, CssBorderRadiusParseError<'a>>
 {
     let mut components = input.split_whitespace();
@@ -23,7 +23,7 @@ pub fn parse_border_radius<'a>(input: &'a str)
             // One value - border-radius: 15px;
             // (the value applies to all four corners, which are rounded equally:
 
-            let uniform_radius = parse_single_css_value(components.next().unwrap())?.to_pixels();
+            let uniform_radius = parse_pixel_value(components.next().unwrap())?.to_pixels();
             Ok(BorderRadius::uniform(uniform_radius))
         },
         2 => {
@@ -31,8 +31,8 @@ pub fn parse_border_radius<'a>(input: &'a str)
             // (first value applies to top-left and bottom-right corners,
             // and the second value applies to top-right and bottom-left corners):
 
-            let top_left_bottom_right = parse_single_css_value(components.next().unwrap())?.to_pixels();
-            let top_right_bottom_left = parse_single_css_value(components.next().unwrap())?.to_pixels();
+            let top_left_bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
 
             Ok(BorderRadius{
                 top_left: LayoutSize::new(top_left_bottom_right, top_left_bottom_right),
@@ -46,9 +46,9 @@ pub fn parse_border_radius<'a>(input: &'a str)
             // (first value applies to top-left corner,
             // second value applies to top-right and bottom-left corners,
             // and third value applies to bottom-right corner):
-            let top_left = parse_single_css_value(components.next().unwrap())?.to_pixels();
-            let top_right_bottom_left = parse_single_css_value(components.next().unwrap())?.to_pixels();
-            let bottom_right = parse_single_css_value(components.next().unwrap())?.to_pixels();
+            let top_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
 
             Ok(BorderRadius{
                 top_left: LayoutSize::new(top_left, top_left),
@@ -63,10 +63,10 @@ pub fn parse_border_radius<'a>(input: &'a str)
             //  second value applies to top-right corner,
             //  third value applies to bottom-right corner,
             //  fourth value applies to bottom-left corner)
-            let top_left = parse_single_css_value(components.next().unwrap())?.to_pixels();
-            let top_right = parse_single_css_value(components.next().unwrap())?.to_pixels();
-            let bottom_right = parse_single_css_value(components.next().unwrap())?.to_pixels();
-            let bottom_left = parse_single_css_value(components.next().unwrap())?.to_pixels();
+            let top_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let top_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
 
             Ok(BorderRadius{
                 top_left: LayoutSize::new(top_left, top_left),
@@ -81,13 +81,13 @@ pub fn parse_border_radius<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct PixelValue {
     metric: CssMetric,
     number: f32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CssMetric {
     Px,
     Em,
@@ -103,7 +103,7 @@ impl PixelValue {
 }
 
 /// parse a single value such as "15px"
-fn parse_single_css_value<'a>(input: &'a str)
+pub fn parse_pixel_value<'a>(input: &'a str)
 -> Result<PixelValue, CssBorderRadiusParseError<'a>>
 {
     let mut split_pos = 0;
@@ -137,6 +137,10 @@ pub enum CssColorParseError<'a> {
     ValueParseErr(ParseIntError),
 }
 
+/// Parse any valid CSS color
+///
+/// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
+/// "#00FF00" -> ColorF { r: 0, g: 255, b: 0 })
 pub fn parse_css_background_color<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
@@ -147,6 +151,9 @@ pub fn parse_css_background_color<'a>(input: &'a str)
     }
 }
 
+/// Parse a built-in background color
+///
+/// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
 fn parse_background_color_builtin<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
@@ -304,8 +311,9 @@ fn parse_background_color_builtin<'a>(input: &'a str)
     parse_background_color(color)
 }
 
-/// parse a background color (assumes "00FFFF" -> ColorF { r: 0, g: 255, b: 255})
+/// Parse a background color
 ///
+/// "00FFFF" -> ColorF { r: 0, g: 255, b: 255})
 fn parse_background_color<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
@@ -380,6 +388,91 @@ fn parse_background_color<'a>(input: &'a str)
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum CssBorderParseError<'a> {
+    InvalidBorderStyle(&'a str),
+    InvalidBorderDeclaration(&'a str),
+    ThicknessParseError(CssBorderRadiusParseError<'a>),
+    ColorParseError(CssColorParseError<'a>),
+}
+
+// border: 5px solid red;
+pub fn parse_css_border<'a>(input: &'a str)
+-> Result<(BorderWidths, BorderDetails), CssBorderParseError<'a>>
+{
+    let mut input_iter = input.split_whitespace();
+
+    let (thickness, style, color);
+
+    match input_iter.clone().count() {
+        1 => {
+            style = parse_border_style(input_iter.next().unwrap())?;
+            thickness = 1.0;
+            color = ColorU { r: 0, g: 0, b: 0, a: 255 };
+        },
+        3 => {
+            thickness = parse_pixel_value(input_iter.next().unwrap())
+                           .map_err(|e| CssBorderParseError::ThicknessParseError(e))?.to_pixels();
+            style = parse_border_style(input_iter.next().unwrap())?;
+            color = parse_css_background_color(input_iter.next().unwrap())
+                           .map_err(|e| CssBorderParseError::ColorParseError(e))?;
+       },
+       _ => {
+            return Err(CssBorderParseError::InvalidBorderDeclaration(input));
+       }
+    }
+
+    let border_widths = BorderWidths {
+        top: thickness,
+        left: thickness,
+        right: thickness,
+        bottom: thickness,
+    };
+
+    let border_side = BorderSide {
+        color: color.into(),
+        style: style,
+    };
+
+    let border_details = BorderDetails::Normal(NormalBorder {
+        top: border_side,
+        left: border_side,
+        right: border_side,
+        bottom: border_side,
+        radius: BorderRadius::zero(),
+    });
+
+    Ok((border_widths, border_details))
+}
+
+#[test]
+fn test_parse_css_border() {
+    assert!(parse_css_border("5px solid red").is_ok())
+}
+
+// border-style: solid;
+fn parse_border_style<'a>(input: &'a str)
+-> Result<BorderStyle, CssBorderParseError<'a>>
+{
+    match input {
+        "none"  => Ok(BorderStyle::None),
+        "solid"  => Ok(BorderStyle::Solid),
+        "double" => Ok(BorderStyle::Double),
+        "dotted" => Ok(BorderStyle::Dotted),
+        "dashed" => Ok(BorderStyle::Dashed),
+        "hidden" => Ok(BorderStyle::Hidden),
+        "groove" => Ok(BorderStyle::Groove),
+        "ridge" => Ok(BorderStyle::Ridge),
+        "inset" => Ok(BorderStyle::Inset),
+        "outset" => Ok(BorderStyle::Outset),
+        _ => Err(CssBorderParseError::InvalidBorderStyle(input)),
+    }
+}
+
+pub struct TextStyle {
+
+}
+
 #[test]
 fn test_parse_background_color() {
     assert_eq!(parse_css_background_color("#F0F8FF"), Ok(ColorU { r: 240, g: 248, b: 255, a: 255 }));
@@ -387,30 +480,29 @@ fn test_parse_background_color() {
     assert_eq!(parse_css_background_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
 }
 
-
 #[test]
-fn test_parse_single_css_value() {
-    assert_eq!(parse_single_css_value("15px"), Ok(PixelValue { metric: CssMetric::Px, number: 15.0 }));
-    assert_eq!(parse_single_css_value("1.2em"), Ok(PixelValue { metric: CssMetric::Em, number: 1.2 }));
-    assert_eq!(parse_single_css_value("aslkfdjasdflk"), Err(CssBorderRadiusParseError::InvalidComponent("aslkfdjasdflk")));
+fn test_parse_pixel_value() {
+    assert_eq!(parse_pixel_value("15px"), Ok(PixelValue { metric: CssMetric::Px, number: 15.0 }));
+    assert_eq!(parse_pixel_value("1.2em"), Ok(PixelValue { metric: CssMetric::Em, number: 1.2 }));
+    assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(CssBorderRadiusParseError::InvalidComponent("aslkfdjasdflk")));
 }
 
 #[test]
-fn test_parse_border_radius() {
-    assert_eq!(parse_border_radius("15px"), Ok(BorderRadius::uniform(15.0)));
-    assert_eq!(parse_border_radius("15px 50px"), Ok(BorderRadius {
+fn test_parse_css_border_radius() {
+    assert_eq!(parse_css_border_radius("15px"), Ok(BorderRadius::uniform(15.0)));
+    assert_eq!(parse_css_border_radius("15px 50px"), Ok(BorderRadius {
         top_left: LayoutSize::new(15.0, 15.0),
         bottom_right: LayoutSize::new(15.0, 15.0),
         top_right: LayoutSize::new(50.0, 50.0),
         bottom_left: LayoutSize::new(50.0, 50.0),
     }));
-    assert_eq!(parse_border_radius("15px 50px 30px"), Ok(BorderRadius {
+    assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(BorderRadius {
         top_left: LayoutSize::new(15.0, 15.0),
         bottom_right: LayoutSize::new(30.0, 30.0),
         top_right: LayoutSize::new(50.0, 50.0),
         bottom_left: LayoutSize::new(50.0, 50.0),
     }));
-    assert_eq!(parse_border_radius("15px 50px 30px 5px"), Ok(BorderRadius {
+    assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(BorderRadius {
         top_left: LayoutSize::new(15.0, 15.0),
         bottom_right: LayoutSize::new(30.0, 30.0),
         top_right: LayoutSize::new(50.0, 50.0),

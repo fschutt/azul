@@ -1,4 +1,5 @@
 div#main {
-	background-color: #e74c3c;
+	background-color: blue;
 	border-radius: 15px 50px 30px 5px;
+	border: 5px solid #e74c3c;
 }
