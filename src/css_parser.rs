@@ -810,7 +810,7 @@ pub fn parse_css_background<'a>(input: &'a str)
     let mut increase_stop_cnt: Option<f32> = None;
 
     let color_stop_len = color_stops.len();
-    for i in 0..color_stop_len {
+    'outer: for i in 0..color_stop_len {
         let offset = color_stops[i].offset;
         match offset {
             Some(s) => {
@@ -820,38 +820,44 @@ pub fn parse_css_background<'a>(input: &'a str)
             None => {
                 let (_, next) = color_stops.split_at_mut(i);
 
-                if next.len() == 1 {
-                    // last element
-                    next[0].offset = Some(100.0);
-                    break;
-                }
-
                 if let Some(increase_stop_cnt) = increase_stop_cnt {
                     next[0].offset = Some(last_stop + increase_stop_cnt);
-                    continue;
+                    continue 'outer;
                 }
 
                 let mut next_count: u32 = 0;
                 let mut next_value = None;
 
                 // iterate until we find a value where the offset isn't none
-                for next_stop in next.iter() {
-                    if let Some(off) = next_stop.offset {
-                        next_value = Some(off);
-                        break;
-                    } else {
-                        next_count.saturating_add(1);
+                {
+                    let mut next_iter = next.iter();
+                    next_iter.next();
+                    'inner: for next_stop in next_iter {
+                        println!("next - {:?}", next_stop);
+                        if let Some(off) = next_stop.offset {
+                            next_value = Some(off);
+                            break 'inner;
+                        } else {
+                            next_count += 1;
+                        }
                     }
                 }
 
                 let next_value = next_value.unwrap_or(100.0_f32);
-                let increase = if next_count == 0 {
-                    0.0_f32
-                } else {
-                    (next_value - last_stop) / (next_count as f32)
-                };
+                let increase = (next_value - last_stop) / (next_count as f32);
+                println!("next len: {:?}, next_value: {:?} - last_stop {:?}, next_count: {:?}, increase: {:?}",
+                    next.len(), next_value, last_stop, next_count, increase);
                 increase_stop_cnt = Some(increase);
-                next[0].offset = Some(last_stop + increase);
+                if next_count == 1 {
+                    next[0].offset = Some(last_stop);
+                } else {
+                    if i == 0 {
+                        next[0].offset = Some(0.0);
+                    } else {
+                        last_stop = last_stop + increase;
+                        next[0].offset = Some(last_stop);
+                    }
+                }
             }
         }
     }
@@ -1228,6 +1234,27 @@ fn test_parse_linear_gradient_1() {
             GradientStopPre {
                 offset: Some(100.0),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            }],
+        })));
+}
+
+#[test]
+fn test_parse_linear_gradient_2() {
+    assert_eq!(parse_css_background("linear-gradient(red, green, blue)"),
+        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+            direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+            extend_mode: ExtendMode::Clamp,
+            stops: vec![GradientStopPre {
+                offset: Some(0.0),
+                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(50.0),
+                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(100.0),
+                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
             }],
         })));
 }
