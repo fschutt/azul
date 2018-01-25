@@ -2,5 +2,5 @@ div#main {
 	background-color: blue;
 	border-radius: 15px 50px 30px 5px;
 	border: 5px solid #e74c3c;
-    box-shadow: 5px 10px 5px 3px #888888CC inset;
+    box-shadow: 10px 10px 0px #111;
 }

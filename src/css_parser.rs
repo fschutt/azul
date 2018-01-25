@@ -2,9 +2,9 @@
 
 use webrender::api::{ColorU, BorderRadius, LayoutVector2D,
                     ColorF, BoxShadowClipMode, LayoutSize, BorderStyle,
-                    BorderDetails, BorderSide, NormalBorder, BorderWidths, LayerPixel};
+                    BorderDetails, BorderSide, NormalBorder, BorderWidths,
+                    ExtendMode, GradientStop};
 use std::num::{ParseIntError, ParseFloatError};
-use std::marker::PhantomData;
 
 pub const EM_HEIGHT: f32 = 16.0;
 
@@ -71,6 +71,7 @@ impl<'a> From<CssColorParseError<'a>> for CssShadowParseError<'a> {
     }
 }
 
+/// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
 pub fn parse_css_border_radius<'a>(input: &'a str)
 -> Result<BorderRadius, CssBorderRadiusParseError<'a>>
 {
@@ -168,24 +169,24 @@ pub fn parse_pixel_value<'a>(input: &'a str)
     })
 }
 
-/// Parse any valid CSS color
+/// Parse any valid CSS color, INCLUDING THE HASH
 ///
 /// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
 /// "#00FF00" -> ColorF { r: 0, g: 255, b: 0 })
-pub fn parse_css_background_color<'a>(input: &'a str)
+pub fn parse_css_color<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     if input.starts_with('#') {
-        parse_background_color(&input[1..])
+        parse_color_no_hash(&input[1..])
     } else {
-        parse_background_color_builtin(input)
+        parse_color_builtin(input)
     }
 }
 
 /// Parse a built-in background color
 ///
 /// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
-fn parse_background_color_builtin<'a>(input: &'a str)
+fn parse_color_builtin<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     let color = match input {
@@ -337,15 +338,16 @@ fn parse_background_color_builtin<'a>(input: &'a str)
         "WhiteSmoke"             | "white-smoke"                =>  "F5F5F5",
         "Yellow"                 | "yellow"                     =>  "FFFF00",
         "YellowGreen"            | "yellow-green"               =>  "9ACD32",
+        "Transparent"            | "transparent"                =>  "FFFFFFFF",
         _ => { return Err(CssColorParseError::InvalidColor(input)); }
     };
-    parse_background_color(color)
+    parse_color_no_hash(color)
 }
 
-/// Parse a background color
+/// Parse a background color, WITHOUT THE HASH
 ///
 /// "00FFFF" -> ColorF { r: 0, g: 255, b: 255})
-fn parse_background_color<'a>(input: &'a str)
+fn parse_color_no_hash<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     #[inline]
@@ -419,7 +421,9 @@ fn parse_background_color<'a>(input: &'a str)
     }
 }
 
-// border: 5px solid red;
+/// Parse a CSS border such as
+///
+/// "5px solid red"
 pub fn parse_css_border<'a>(input: &'a str)
 -> Result<(BorderWidths, BorderDetails), CssBorderParseError<'a>>
 {
@@ -437,7 +441,7 @@ pub fn parse_css_border<'a>(input: &'a str)
             thickness = parse_pixel_value(input_iter.next().unwrap())
                            .map_err(|e| CssBorderParseError::ThicknessParseError(e))?.to_pixels();
             style = parse_border_style(input_iter.next().unwrap())?;
-            color = parse_css_background_color(input_iter.next().unwrap())
+            color = parse_css_color(input_iter.next().unwrap())
                            .map_err(|e| CssBorderParseError::ColorParseError(e))?;
        },
        _ => {
@@ -468,7 +472,9 @@ pub fn parse_css_border<'a>(input: &'a str)
     Ok((border_widths, border_details))
 }
 
-// border-style: solid;
+/// Parse a border style such as "none", "dotted", etc.
+///
+/// "solid", "none", etc.
 fn parse_border_style<'a>(input: &'a str)
 -> Result<BorderStyle, CssBorderParseError<'a>>
 {
@@ -497,6 +503,7 @@ pub struct BoxShadowPreDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
+/// Parses a CSS box-shadow
 pub fn parse_css_box_shadow<'a>(input: &'a str)
 -> Result<Option<BoxShadowPreDisplayItem>, CssShadowParseError<'a>>
 {
@@ -547,7 +554,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
 
             if !is_inset {
                 // box-shadow: 5px 10px #888888; (h_offset, v_offset, color)
-                let color = parse_css_background_color(input_iter.next().unwrap())?;
+                let color = parse_css_color(input_iter.next().unwrap())?;
                 box_shadow.color = ColorF::from(color);
             }
         },
@@ -562,7 +569,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
                 box_shadow.blur_radius = blur.into();
             }
 
-            let color = parse_css_background_color(input_iter.next().unwrap())?;
+            let color = parse_css_color(input_iter.next().unwrap())?;
             box_shadow.color = ColorF::from(color);
         },
         5 => {
@@ -581,7 +588,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
                 box_shadow.spread_radius = spread.into();
             }
 
-            let color = parse_css_background_color(input_iter.next().unwrap())?;
+            let color = parse_css_color(input_iter.next().unwrap())?;
             box_shadow.color = ColorF::from(color);
         },
         6 => {
@@ -597,7 +604,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
             let spread = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
             box_shadow.spread_radius = spread.into();
 
-            let color = parse_css_background_color(input_iter.next().unwrap())?;
+            let color = parse_css_color(input_iter.next().unwrap())?;
             box_shadow.color = ColorF::from(color);
         }
         _ => {
@@ -606,6 +613,427 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
     }
 
     Ok(Some(box_shadow))
+}
+
+pub enum CssBackgroundParseError<'a> {
+    Error(&'a str),
+    InvalidBackground(&'a str),
+    UnclosedGradient(&'a str),
+    NoDirection(&'a str),
+    TooFewGradientStops(&'a str),
+    DirectionParseError(CssDirectionParseError<'a>),
+    GradientParseError(CssGradientStopParseError<'a>),
+    ShapeParseError(CssShapeParseError<'a>),
+}
+
+impl<'a> From<CssDirectionParseError<'a>> for CssBackgroundParseError<'a> {
+    fn from(e: CssDirectionParseError<'a>) -> Self {
+        CssBackgroundParseError::DirectionParseError(e)
+    }
+}
+impl<'a> From<CssGradientStopParseError<'a>> for CssBackgroundParseError<'a> {
+    fn from(e: CssGradientStopParseError<'a>) -> Self {
+        CssBackgroundParseError::GradientParseError(e)
+    }
+}
+impl<'a> From<CssShapeParseError<'a>> for CssBackgroundParseError<'a> {
+    fn from(e: CssShapeParseError<'a>) -> Self {
+        CssBackgroundParseError::ShapeParseError(e)
+    }
+}
+
+pub enum ParsedGradient {
+    LinearGradient(LinearGradientPreInfo),
+    RadialGradient(RadialGradientPreInfo),
+}
+
+pub struct LinearGradientPreInfo {
+    pub direction: Direction,
+    pub extend_mode: ExtendMode,
+    pub stops: Vec<GradientStopPre>,
+}
+
+pub struct RadialGradientPreInfo {
+    pub shape: Shape,
+    pub extend_mode: ExtendMode,
+    pub stops: Vec<GradientStopPre>,
+}
+
+pub enum Direction {
+    Angle(f32),
+    FromTo(DirectionCorner, DirectionCorner),
+}
+
+pub enum Shape {
+    Ellipse,
+    Circle,
+}
+
+#[derive(Copy, Clone)]
+pub enum DirectionCorner {
+    Right,
+    Left,
+    Top,
+    Bottom,
+    TopRight,
+    TopLeft,
+    BottomRight,
+    BottomLeft,
+}
+
+impl DirectionCorner {
+    pub fn opposite(&self) -> Self {
+        use self::DirectionCorner::*;
+        match *self {
+            Right => Left,
+            Left => Right,
+            Top => Bottom,
+            Bottom => Top,
+            TopRight => BottomLeft,
+            BottomLeft => TopRight,
+            TopLeft => BottomRight,
+            BottomRight => TopLeft,
+        }
+    }
+    pub fn combine(&self, other: &Self) -> Option<Self> {
+        use self::DirectionCorner::*;
+        match (*self, *other) {
+            (Right, Top) | (Top, Right) => Some(TopRight),
+            (Left, Top) | (Top, Left) => Some(TopLeft),
+            (Right, Bottom) | (Bottom, Right) => Some(BottomRight),
+            (Left, Bottom) | (Bottom, Left) => Some(BottomLeft),
+            _ => { None }
+        }
+    }
+}
+
+// parses
+pub fn parse_css_background<'a>(input: &'a str)
+-> Result<ParsedGradient, CssBackgroundParseError<'a>>
+{
+    #[derive(PartialEq)]
+    enum GradientType {
+        LinearGradient,
+        RepeatingLinearGradient,
+        RadialGradient,
+        RepeatingRadialGradient,
+    }
+
+    let mut input_iter = input.splitn(1, "(");
+    let first_item = input_iter.next();
+
+    let gradient_type = match first_item {
+        Some("linear-gradient") => GradientType::LinearGradient,
+        Some("repeating-linear-gradient") => GradientType::RepeatingLinearGradient,
+        Some("radial-gradient") => GradientType::RadialGradient,
+        Some("repeating-radial-gradient") => GradientType::RepeatingRadialGradient,
+        _ => { return Err(CssBackgroundParseError::InvalidBackground(input)); }
+    };
+
+    let next_item = match input_iter.next() {
+        Some(s) => { s },
+        None => return Err(CssBackgroundParseError::InvalidBackground(input)),
+    };
+
+    let mut brace_iter = next_item.rsplitn(1, ')');
+    let next = brace_iter.next();
+    let brace_contents = brace_iter.clone().next();
+
+    if next != Some(")") || brace_contents.is_none() {
+        // invalid or empty brace
+        return Err(CssBackgroundParseError::UnclosedGradient(input));
+    }
+
+    // brace_contents contains "red, yellow, etc"
+    let brace_contents = brace_contents.unwrap();
+    let mut brace_iterator = brace_contents.split(',');
+
+    let mut gradient_stop_count = brace_iterator.clone().count();
+
+    // "50deg", "to right bottom", etc.
+    let first_brace_item = match brace_iterator.next() {
+        Some(s) => s,
+        None => return Err(CssBackgroundParseError::NoDirection(input)),
+    };
+
+    // default shape: ellipse
+    let mut shape = Shape::Ellipse;
+    // default gradient: from top to bottom
+    let mut direction = Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom);
+
+    let mut first_is_direction = false;
+    let mut first_is_shape = false;
+    let is_linear_gradient = gradient_type == GradientType::LinearGradient || gradient_type == GradientType::RepeatingLinearGradient;
+    let is_radial_gradient = gradient_type == GradientType::RadialGradient || gradient_type == GradientType::RepeatingRadialGradient;
+
+    if is_linear_gradient {
+        direction = parse_direction(first_brace_item)?;
+        first_is_direction = true;
+    }
+
+    if is_radial_gradient {
+        shape = parse_shape(first_brace_item)?;
+        first_is_shape = true;
+    }
+
+    let mut first_item_doesnt_count = false;
+    if (is_linear_gradient && first_is_direction) || (is_radial_gradient && first_is_shape) {
+        gradient_stop_count -= 1; // first item is not a gradient stop
+        first_item_doesnt_count = true;
+    }
+
+    if gradient_stop_count < 2 {
+        return Err(CssBackgroundParseError::TooFewGradientStops(input));
+    }
+
+    let mut color_stops = Vec::<GradientStopPre>::with_capacity(gradient_stop_count);
+    if !first_item_doesnt_count {
+        color_stops.push(parse_gradient_stop(first_brace_item)?);
+    }
+
+    for stop in brace_iterator {
+        color_stops.push(parse_gradient_stop(stop)?);
+    }
+
+    // correct percentages
+    let mut last_stop = 0.0_f32;
+    let mut increase_stop_cnt: Option<f32> = None;
+
+    let color_stop_len = color_stops.len();
+    for i in 0..color_stop_len {
+        let offset = color_stops[i].offset;
+        match offset {
+            Some(s) => {
+                last_stop = s;
+                increase_stop_cnt = None;
+            },
+            None => {
+                let (prev, next) = color_stops.split_at_mut(i);
+
+                if next.len() == 1 {
+                    // last element
+                    next[0].offset = Some(100.0);
+                    break;
+                }
+
+                if let Some(increase_stop_cnt) = increase_stop_cnt {
+                    next[0].offset = Some(last_stop + increase_stop_cnt);
+                    continue;
+                }
+
+                let mut next_count: u32 = 0;
+                let mut next_value = None;
+
+                // iterate until we find a value where the offset isn't none
+                for next_stop in next.iter() {
+                    if let Some(off) = next_stop.offset {
+                        next_value = Some(off);
+                        break;
+                    } else {
+                        next_count.saturating_add(1);
+                    }
+                }
+
+                let next_value = next_value.unwrap_or(100.0_f32);
+                let increase = (next_value - last_stop) / (next_count as f32);
+                increase_stop_cnt = Some(increase);
+                next[0].offset = Some(last_stop + increase);
+            }
+        }
+    }
+
+    match gradient_type {
+        GradientType::LinearGradient => {
+            Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+                direction: direction,
+                extend_mode: ExtendMode::Clamp,
+                stops: color_stops,
+            }))
+        },
+        GradientType::RepeatingLinearGradient => {
+            Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+                direction: direction,
+                extend_mode: ExtendMode::Repeat,
+                stops: color_stops,
+            }))
+        },
+        GradientType::RadialGradient => {
+            Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+                shape: shape,
+                extend_mode: ExtendMode::Clamp,
+                stops: color_stops,
+            }))
+        },
+        GradientType::RepeatingRadialGradient => {
+            Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+                shape: shape,
+                extend_mode: ExtendMode::Repeat,
+                stops: color_stops,
+            }))
+        }
+    }
+
+    // linear-gradient(direction, color-stop1, color-stop2, ...);
+    // linear-gradient(direction, color-stop1, color-stop2, ...);
+    // linear-gradient(red, yellow); (top: red, bottom: yellow)
+    // linear-gradient(to right, red , yellow); (left: red, right: yellow)
+    // linear-gradient(red, yellow, green);
+    // linear-gradient(to right, red,orange,yellow,green,blue,indigo,violet);
+    // linear-gradient(to right, rgba(255,0,0,0), rgba(255,0,0,1));
+    // repeating-linear-gradient(red, yellow 10%, green 20%);
+    // radial-gradient(red, yellow, green);
+    // radial-gradient(red 5%, yellow 15%, green 60%);
+    // radial-gradient(circle, red, yellow, green);
+    // repeating-radial-gradient(red, yellow 10%, green 15%);
+}
+
+pub enum CssGradientStopParseError<'a> {
+    Error(&'a str),
+    ColorParseError(CssColorParseError<'a>),
+}
+
+pub struct GradientStopPre {
+    pub offset: Option<f32>, // this is set to None if there was no offset that could be parsed
+    pub color: ColorF,
+}
+
+// parses "red" , "red 5%"
+fn parse_gradient_stop<'a>(input: &'a str)
+-> Result<GradientStopPre, CssGradientStopParseError<'a>>
+{
+    let mut input_iter = input.split_whitespace();
+    let first_item = input_iter.next().ok_or(CssGradientStopParseError::Error(input))?;
+    let color = ColorF::from(parse_css_color(first_item).map_err(|e| CssGradientStopParseError::ColorParseError(e))?);
+    let second_item = match input_iter.next() {
+        None => return Ok(GradientStopPre { offset: None, color: color }),
+        Some(s) => s,
+    };
+    let percentage = parse_percentage(second_item);
+    Ok(GradientStopPre { offset: percentage, color: color })
+}
+
+// parses "5%" -> 5
+fn parse_percentage(input: &str)
+-> Option<f32>
+{
+    let mut input_iter = input.rsplitn(1, '%');
+    let perc = input_iter.next();
+    if perc.is_none() {
+        None
+    } else {
+        input_iter.next()?.parse::<f32>().ok()
+    }
+}
+
+pub enum CssDirectionParseError<'a> {
+    Error(&'a str),
+    InvalidArguments(&'a str),
+    ParseFloat(ParseFloatError),
+    CornerError(CssDirectionCornerParseError<'a>),
+}
+
+impl<'a> From<ParseFloatError> for CssDirectionParseError<'a> {
+    fn from(e: ParseFloatError) -> Self {
+        CssDirectionParseError::ParseFloat(e)
+    }
+}
+
+impl<'a> From<CssDirectionCornerParseError<'a>> for CssDirectionParseError<'a> {
+    fn from(e: CssDirectionCornerParseError<'a>) -> Self {
+        CssDirectionParseError::CornerError(e)
+    }
+}
+
+// parses "50deg", "to right bottom"
+fn parse_direction<'a>(input: &'a str)
+-> Result<Direction, CssDirectionParseError<'a>>
+{
+    use std::f32::consts::PI;
+
+    let input_iter = input.split_whitespace();
+    let count = input_iter.clone().count();
+    let mut first_input_iter = input_iter.clone();
+    // "50deg" | "to" | "right"
+    let first_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
+
+    enum AngleType {
+        Deg,
+        Rad,
+        Gon,
+    }
+
+    let angle = {
+        if first_input.ends_with("deg") { Some(AngleType::Deg) }
+        else if first_input.ends_with("rad") { Some(AngleType::Rad) }
+        else if first_input.ends_with("grad") { Some(AngleType::Gon) }
+        else { None }
+    };
+
+    if let Some(angle_type) = angle {
+        match angle_type {
+            AngleType::Deg => { return Ok(Direction::Angle(first_input.split("deg").next().unwrap().parse::<f32>()?)); }
+            AngleType::Rad => { return Ok(Direction::Angle(first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 * PI)); }
+            AngleType::Gon => { return Ok(Direction::Angle(first_input.split("grad").next().unwrap().parse::<f32>()?  / 400.0 * 360.0)); }
+        }
+    }
+
+    // if we get here, the input is definitely not an angle
+
+    if first_input != "to" {
+        return Err(CssDirectionParseError::InvalidArguments(input));
+    }
+
+    let second_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
+    let end = parse_direction_corner(second_input)?;
+
+    match count {
+        2 => {
+            // "to right"
+            let start = end.opposite();
+            Ok(Direction::FromTo(start, end))
+        },
+        3 => {
+            // "to bottom right"
+            let beginning = end;
+            let third_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
+            let end = parse_direction_corner(third_input)?;
+            let start = beginning.combine(&end).unwrap(); // "Bottom, Right" -> "BottomRight"
+            let end = start.opposite();
+            Ok(Direction::FromTo(start, end))
+        },
+        _ => { Err(CssDirectionParseError::InvalidArguments(input)) }
+    }
+}
+
+pub enum CssDirectionCornerParseError<'a> {
+    InvalidDirection(&'a str),
+}
+
+fn parse_direction_corner<'a>(input: &'a str)
+-> Result<DirectionCorner, CssDirectionCornerParseError<'a>>
+{
+    match input {
+        "right" => Ok(DirectionCorner::Right),
+        "left" => Ok(DirectionCorner::Left),
+        "top" => Ok(DirectionCorner::Left),
+        "bottom" => Ok(DirectionCorner::Left),
+        _ => { Err(CssDirectionCornerParseError::InvalidDirection(input))}
+    }
+}
+
+pub enum CssShapeParseError<'a> {
+    InvalidShape(&'a str),
+}
+
+// parses "circle", ""
+fn parse_shape<'a>(input: &'a str)
+-> Result<Shape, CssShapeParseError<'a>>
+{
+    match input {
+        "circle" => Ok(Shape::Circle),
+        "ellipse" => Ok(Shape::Ellipse),
+        _ => Err(CssShapeParseError::InvalidShape(input)),
+    }
 }
 
 #[test]
@@ -769,18 +1197,18 @@ fn test_parse_css_border_2() {
 }
 
 #[test]
-fn test_parse_background_color_1() {
-    assert_eq!(parse_css_background_color("#F0F8FF"), Ok(ColorU { r: 240, g: 248, b: 255, a: 255 }));
+fn test_parse_css_color_1() {
+    assert_eq!(parse_css_color("#F0F8FF"), Ok(ColorU { r: 240, g: 248, b: 255, a: 255 }));
 }
 
 #[test]
-fn test_parse_background_color_2() {
-    assert_eq!(parse_css_background_color("#F0F8FF00"), Ok(ColorU { r: 240, g: 248, b: 255, a: 0 }));
+fn test_parse_css_color_2() {
+    assert_eq!(parse_css_color("#F0F8FF00"), Ok(ColorU { r: 240, g: 248, b: 255, a: 0 }));
 }
 
 #[test]
-fn test_parse_background_color_3() {
-    assert_eq!(parse_css_background_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
+fn test_parse_css_color_3() {
+    assert_eq!(parse_css_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
 }
 
 #[test]

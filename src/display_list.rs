@@ -19,7 +19,7 @@ pub(crate) struct DisplayRectangle {
 	/// Shadow color
 	pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
 	/// Gradient (location) + stops
-	pub(crate) gradient: Option<(Gradient, Vec<GradientStop>)>,
+	pub(crate) gradient: Option<ParsedGradient>,
 	/// Opacity of this rectangle
 	pub(crate) opacity: Option<f32>,
 	/// Border
@@ -196,7 +196,7 @@ fn parse_css(constraint_list: &CssConstraintList, rect: &mut DisplayRectangle, c
 	let constraint_list = &constraint_list.list;
 
 	parse!(radius, "border-radius", rect.border_radius, parse_css_border_radius, constraint_list);
-	parse!(background_color, "background-color", rect.background_color, parse_css_background_color, constraint_list);
+	parse!(background_color, "background-color", rect.background_color, parse_css_color, constraint_list);
 	parse!(border, "border", rect.border, parse_css_border, constraint_list);
 
 	if let Some(box_shadow) = constraint_list.get("box-shadow") {
