@@ -834,7 +834,6 @@ pub fn parse_css_background<'a>(input: &'a str)
                     let mut next_iter = next.iter();
                     next_iter.next();
                     'inner: for next_stop in next_iter {
-                        println!("next - {:?}", next_stop);
                         if let Some(off) = next_stop.offset {
                             next_value = Some(off);
                             break 'inner;
@@ -846,8 +845,6 @@ pub fn parse_css_background<'a>(input: &'a str)
 
                 let next_value = next_value.unwrap_or(100.0_f32);
                 let increase = (next_value - last_stop) / (next_count as f32);
-                println!("next len: {:?}, next_value: {:?} - last_stop {:?}, next_count: {:?}, increase: {:?}",
-                    next.len(), next_value, last_stop, next_count, increase);
                 increase_stop_cnt = Some(increase);
                 if next_count == 1 {
                     next[0].offset = Some(last_stop);
@@ -1008,10 +1005,11 @@ fn parse_direction<'a>(input: &'a str)
             // "to bottom right"
             let beginning = end;
             let third_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
-            let end = parse_direction_corner(third_input)?;
-            let start = beginning.combine(&end).unwrap(); // "Bottom, Right" -> "BottomRight"
-            let end = start.opposite();
-            Ok(Direction::FromTo(start, end))
+            let new_end = parse_direction_corner(third_input)?;
+            // "Bottom, Right" -> "BottomRight"
+            let new_end = beginning.combine(&new_end).ok_or(CssDirectionParseError::Error(input))?;
+            let start = new_end.opposite();
+            Ok(Direction::FromTo(start, new_end))
         },
         _ => { Err(CssDirectionParseError::InvalidArguments(input)) }
     }
@@ -1028,8 +1026,8 @@ fn parse_direction_corner<'a>(input: &'a str)
     match input {
         "right" => Ok(DirectionCorner::Right),
         "left" => Ok(DirectionCorner::Left),
-        "top" => Ok(DirectionCorner::Left),
-        "bottom" => Ok(DirectionCorner::Left),
+        "top" => Ok(DirectionCorner::Top),
+        "bottom" => Ok(DirectionCorner::Bottom),
         _ => { Err(CssDirectionCornerParseError::InvalidDirection(input))}
     }
 }
@@ -1210,19 +1208,6 @@ fn test_parse_css_border_2() {
     }))));
 }
 
-// linear-gradient(direction, color-stop1, color-stop2, ...);
-// linear-gradient(direction, color-stop1, color-stop2, ...);
-// linear-gradient(red, yellow); (top: red, bottom: yellow)
-// linear-gradient(to right, red , yellow); (left: red, right: yellow)
-// linear-gradient(red, yellow, green);
-// linear-gradient(to right, red,orange,yellow,green,blue,indigo,violet);
-// linear-gradient(to right, rgba(255,0,0,0), rgba(255,0,0,1));
-// repeating-linear-gradient(red, yellow 10%, green 20%);
-// radial-gradient(red, yellow, green);
-// radial-gradient(red 5%, yellow 15%, green 60%);
-// radial-gradient(circle, red, yellow, green);
-// repeating-radial-gradient(red, yellow 10%, green 15%);
-
 #[test]
 fn test_parse_linear_gradient_1() {
     assert_eq!(parse_css_background("linear-gradient(red, yellow)"),
@@ -1262,7 +1247,94 @@ fn test_parse_linear_gradient_2() {
                 offset: Some(100.0),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
+    })));
+}
+
+#[test]
+fn test_parse_linear_gradient_3() {
+    assert_eq!(parse_css_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
+        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+            direction: Direction::Angle(50.0),
+            extend_mode: ExtendMode::Repeat,
+            stops: vec![
+            GradientStopPre {
+                offset: Some(0.0),
+                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(50.0),
+                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(100.0),
+                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+            }],
+    })));
+}
+
+#[test]
+fn test_parse_linear_gradient_4() {
+    assert_eq!(parse_css_background("linear-gradient(to bottom right, red, yellow)"),
+        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+            direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
+            extend_mode: ExtendMode::Clamp,
+            stops: vec![GradientStopPre {
+                offset: Some(0.0),
+                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(100.0),
+                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            }],
         })));
+}
+
+#[test]
+fn test_parse_radial_gradient_1() {
+    assert_eq!(parse_css_background("radial-gradient(circle, lime, blue, yellow)"),
+        Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+            shape: Shape::Circle,
+            extend_mode: ExtendMode::Clamp,
+            stops: vec![
+            GradientStopPre {
+                offset: Some(0.0),
+                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(50.0),
+                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(100.0),
+                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            }],
+    })));
+}
+
+#[test]
+fn test_parse_radial_gradient_2() {
+    assert_eq!(parse_css_background("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
+        Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+            shape: Shape::Circle,
+            extend_mode: ExtendMode::Repeat,
+            stops: vec![
+            GradientStopPre {
+                offset: Some(10.0),
+                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(50.0),
+                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(75.0),
+                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(100.0),
+                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            }],
+    })));
 }
 
 #[test]
