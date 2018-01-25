@@ -206,6 +206,10 @@ fn parse_css(constraint_list: &CssConstraintList, rect: &mut DisplayRectangle, c
 		}
 	}
 
+	if let Some(background) = constraint_list.get("background") {
+		println!("got background: `{:?}`", background);
+	}
+
 	parse_css_size!(width, "width", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::Width);
 	parse_css_size!(height, "height", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::Height);
 	parse_css_size!(min_height, "min-height", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::MinHeight);

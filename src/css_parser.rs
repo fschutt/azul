@@ -615,6 +615,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
     Ok(Some(box_shadow))
 }
 
+#[derive(Debug, PartialEq)]
 pub enum CssBackgroundParseError<'a> {
     Error(&'a str),
     InvalidBackground(&'a str),
@@ -642,34 +643,39 @@ impl<'a> From<CssShapeParseError<'a>> for CssBackgroundParseError<'a> {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ParsedGradient {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
 }
 
+#[derive(Debug, PartialEq)]
 pub struct LinearGradientPreInfo {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct RadialGradientPreInfo {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Direction {
     Angle(f32),
     FromTo(DirectionCorner, DirectionCorner),
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Shape {
     Ellipse,
     Circle,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DirectionCorner {
     Right,
     Left,
@@ -719,7 +725,7 @@ pub fn parse_css_background<'a>(input: &'a str)
         RepeatingRadialGradient,
     }
 
-    let mut input_iter = input.splitn(1, "(");
+    let mut input_iter = input.splitn(2, "(");
     let first_item = input_iter.next();
 
     let gradient_type = match first_item {
@@ -727,7 +733,7 @@ pub fn parse_css_background<'a>(input: &'a str)
         Some("repeating-linear-gradient") => GradientType::RepeatingLinearGradient,
         Some("radial-gradient") => GradientType::RadialGradient,
         Some("repeating-radial-gradient") => GradientType::RepeatingRadialGradient,
-        _ => { return Err(CssBackgroundParseError::InvalidBackground(input)); }
+        _ => { return Err(CssBackgroundParseError::InvalidBackground(first_item.unwrap())); } // failure here
     };
 
     let next_item = match input_iter.next() {
@@ -735,11 +741,11 @@ pub fn parse_css_background<'a>(input: &'a str)
         None => return Err(CssBackgroundParseError::InvalidBackground(input)),
     };
 
-    let mut brace_iter = next_item.rsplitn(1, ')');
-    let next = brace_iter.next();
+    let mut brace_iter = next_item.rsplitn(2, ')');
+    brace_iter.next(); // important
     let brace_contents = brace_iter.clone().next();
 
-    if next != Some(")") || brace_contents.is_none() {
+    if brace_contents.is_none() {
         // invalid or empty brace
         return Err(CssBackgroundParseError::UnclosedGradient(input));
     }
@@ -767,13 +773,17 @@ pub fn parse_css_background<'a>(input: &'a str)
     let is_radial_gradient = gradient_type == GradientType::RadialGradient || gradient_type == GradientType::RepeatingRadialGradient;
 
     if is_linear_gradient {
-        direction = parse_direction(first_brace_item)?;
-        first_is_direction = true;
+        if let Ok(dir) = parse_direction(first_brace_item) {
+            direction = dir;
+            first_is_direction = true;
+        }
     }
 
     if is_radial_gradient {
-        shape = parse_shape(first_brace_item)?;
-        first_is_shape = true;
+        if let Ok(sh) = parse_shape(first_brace_item) {
+            shape = sh;
+            first_is_shape = true;
+        }
     }
 
     let mut first_item_doesnt_count = false;
@@ -808,7 +818,7 @@ pub fn parse_css_background<'a>(input: &'a str)
                 increase_stop_cnt = None;
             },
             None => {
-                let (prev, next) = color_stops.split_at_mut(i);
+                let (_, next) = color_stops.split_at_mut(i);
 
                 if next.len() == 1 {
                     // last element
@@ -835,7 +845,11 @@ pub fn parse_css_background<'a>(input: &'a str)
                 }
 
                 let next_value = next_value.unwrap_or(100.0_f32);
-                let increase = (next_value - last_stop) / (next_count as f32);
+                let increase = if next_count == 0 {
+                    0.0_f32
+                } else {
+                    (next_value - last_stop) / (next_count as f32)
+                };
                 increase_stop_cnt = Some(increase);
                 next[0].offset = Some(last_stop + increase);
             }
@@ -872,26 +886,15 @@ pub fn parse_css_background<'a>(input: &'a str)
             }))
         }
     }
-
-    // linear-gradient(direction, color-stop1, color-stop2, ...);
-    // linear-gradient(direction, color-stop1, color-stop2, ...);
-    // linear-gradient(red, yellow); (top: red, bottom: yellow)
-    // linear-gradient(to right, red , yellow); (left: red, right: yellow)
-    // linear-gradient(red, yellow, green);
-    // linear-gradient(to right, red,orange,yellow,green,blue,indigo,violet);
-    // linear-gradient(to right, rgba(255,0,0,0), rgba(255,0,0,1));
-    // repeating-linear-gradient(red, yellow 10%, green 20%);
-    // radial-gradient(red, yellow, green);
-    // radial-gradient(red 5%, yellow 15%, green 60%);
-    // radial-gradient(circle, red, yellow, green);
-    // repeating-radial-gradient(red, yellow 10%, green 15%);
 }
 
+#[derive(Debug, PartialEq)]
 pub enum CssGradientStopParseError<'a> {
     Error(&'a str),
     ColorParseError(CssColorParseError<'a>),
 }
 
+#[derive(Debug, PartialEq)]
 pub struct GradientStopPre {
     pub offset: Option<f32>, // this is set to None if there was no offset that could be parsed
     pub color: ColorF,
@@ -916,7 +919,7 @@ fn parse_gradient_stop<'a>(input: &'a str)
 fn parse_percentage(input: &str)
 -> Option<f32>
 {
-    let mut input_iter = input.rsplitn(1, '%');
+    let mut input_iter = input.rsplitn(2, '%');
     let perc = input_iter.next();
     if perc.is_none() {
         None
@@ -925,6 +928,7 @@ fn parse_percentage(input: &str)
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum CssDirectionParseError<'a> {
     Error(&'a str),
     InvalidArguments(&'a str),
@@ -1005,6 +1009,7 @@ fn parse_direction<'a>(input: &'a str)
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum CssDirectionCornerParseError<'a> {
     InvalidDirection(&'a str),
 }
@@ -1021,6 +1026,7 @@ fn parse_direction_corner<'a>(input: &'a str)
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum CssShapeParseError<'a> {
     InvalidShape(&'a str),
 }
@@ -1194,6 +1200,36 @@ fn test_parse_css_border_2() {
         },
         radius: BorderRadius::zero(),
     }))));
+}
+
+// linear-gradient(direction, color-stop1, color-stop2, ...);
+// linear-gradient(direction, color-stop1, color-stop2, ...);
+// linear-gradient(red, yellow); (top: red, bottom: yellow)
+// linear-gradient(to right, red , yellow); (left: red, right: yellow)
+// linear-gradient(red, yellow, green);
+// linear-gradient(to right, red,orange,yellow,green,blue,indigo,violet);
+// linear-gradient(to right, rgba(255,0,0,0), rgba(255,0,0,1));
+// repeating-linear-gradient(red, yellow 10%, green 20%);
+// radial-gradient(red, yellow, green);
+// radial-gradient(red 5%, yellow 15%, green 60%);
+// radial-gradient(circle, red, yellow, green);
+// repeating-radial-gradient(red, yellow 10%, green 15%);
+
+#[test]
+fn test_parse_linear_gradient_1() {
+    assert_eq!(parse_css_background("linear-gradient(red, yellow)"),
+        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+            direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+            extend_mode: ExtendMode::Clamp,
+            stops: vec![GradientStopPre {
+                offset: Some(0.0),
+                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(100.0),
+                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+            }],
+        })));
 }
 
 #[test]

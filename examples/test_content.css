@@ -3,4 +3,5 @@ div#main {
 	border-radius: 15px 50px 30px 5px;
 	border: 5px solid #e74c3c;
     box-shadow: 10px 10px 0px #111;
+    background: linear-gradient(red, yellow);
 }
