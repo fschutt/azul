@@ -1,10 +1,12 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-use webrender::api::{ColorU, BorderRadius, LayoutVector2D,
+use webrender::api::{ColorU, BorderRadius, LayoutVector2D, LayoutPoint,
                     ColorF, BoxShadowClipMode, LayoutSize, BorderStyle,
                     BorderDetails, BorderSide, NormalBorder, BorderWidths,
-                    ExtendMode, GradientStop};
+                    ExtendMode, LayoutRect, LayerPixel};
 use std::num::{ParseIntError, ParseFloatError};
+use euclid::{TypedRotation2D, Angle, TypedPoint2D, TypedSize2D, TypedScale};
+use euclid::num::Zero;
 
 pub const EM_HEIGHT: f32 = 16.0;
 
@@ -669,6 +671,25 @@ pub enum Direction {
     FromTo(DirectionCorner, DirectionCorner),
 }
 
+impl Direction {
+    /// Calculates the point for the bounds
+    pub fn to_points(&self, rect: &LayoutRect)
+    -> (LayoutPoint, LayoutPoint)
+    {
+        match *self {
+            Direction::Angle(ref deg) => {
+                // todo!!
+                let mut point: LayoutPoint = TypedPoint2D::new(rect.size.width, rect.size.height);
+                let rot = TypedRotation2D::new(Angle::radians(deg.to_radians()));
+                (LayoutPoint::zero(), rot.transform_point(&point))
+            },
+            Direction::FromTo(ref from, ref to) => {
+                (from.to_point(rect), to.to_point(rect))
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Shape {
     Ellipse,
@@ -709,6 +730,21 @@ impl DirectionCorner {
             (Right, Bottom) | (Bottom, Right) => Some(BottomRight),
             (Left, Bottom) | (Bottom, Left) => Some(BottomLeft),
             _ => { None }
+        }
+    }
+
+    pub fn to_point(&self, rect: &LayoutRect) -> TypedPoint2D<f32, LayerPixel>
+    {
+        use self::DirectionCorner::*;
+        match *self {
+            Right => TypedPoint2D::new(rect.max_x(), (rect.origin.y + (rect.size.height / 2.0))),
+            Left => TypedPoint2D::new(rect.min_x(), (rect.origin.y + (rect.size.height / 2.0))),
+            Top => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.max_y()),
+            Bottom => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.min_y()),
+            TopRight => rect.top_right(),
+            TopLeft => rect.origin,
+            BottomRight => rect.bottom_right(),
+            BottomLeft => rect.bottom_left(),
         }
     }
 }
@@ -843,21 +879,20 @@ pub fn parse_css_background<'a>(input: &'a str)
                     }
                 }
 
-                let next_value = next_value.unwrap_or(100.0_f32);
+                let next_value = next_value.unwrap_or(1.0_f32);
                 let increase = (next_value - last_stop) / (next_count as f32);
                 increase_stop_cnt = Some(increase);
-                if next_count == 1 {
+                if next_count == 1 && (color_stop_len - i) == 1 {
                     next[0].offset = Some(last_stop);
                 } else {
                     if i == 0 {
                         next[0].offset = Some(0.0);
                     } else {
-                        last_stop += increase;
                         next[0].offset = Some(last_stop);
+                        // last_stop += increase;
                     }
                 }
             }
-
         }
     }
 
@@ -1219,7 +1254,7 @@ fn test_parse_linear_gradient_1() {
                 color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(100.0),
+                offset: Some(1.0),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
         })));
@@ -1236,15 +1271,15 @@ fn test_parse_linear_gradient_2() {
                 color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(33.333333),
+                offset: Some(0.33333334),
                 color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(66.666666),
+                offset: Some(0.66666667),
                 color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(100.0),
+                offset: Some(1.0),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
     })));
@@ -1262,11 +1297,11 @@ fn test_parse_linear_gradient_3() {
                 color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(50.0),
+                offset: Some(0.5),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(100.0),
+                offset: Some(1.0),
                 color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
     })));
@@ -1283,7 +1318,7 @@ fn test_parse_linear_gradient_4() {
                 color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(100.0),
+                offset: Some(1.0),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
         })));
@@ -1301,11 +1336,11 @@ fn test_parse_radial_gradient_1() {
                 color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(50.0),
+                offset: Some(0.5),
                 color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(100.0),
+                offset: Some(1.0),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
     })));
@@ -1319,19 +1354,19 @@ fn test_parse_radial_gradient_2() {
             extend_mode: ExtendMode::Repeat,
             stops: vec![
             GradientStopPre {
-                offset: Some(10.0),
+                offset: Some(0.1),
                 color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(50.0),
+                offset: Some(0.5),
                 color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(75.0),
+                offset: Some(0.75),
                 color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(100.0),
+                offset: Some(1.0),
                 color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
     })));

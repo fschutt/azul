@@ -19,7 +19,7 @@ pub(crate) struct DisplayRectangle {
 	/// Shadow color
 	pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
 	/// Gradient (location) + stops
-	pub(crate) gradient: Option<ParsedGradient>,
+	pub(crate) background: Option<ParsedGradient>,
 	/// Opacity of this rectangle
 	pub(crate) opacity: Option<f32>,
 	/// Border
@@ -38,7 +38,7 @@ impl DisplayRectangle {
 			constraints: Vec::new(),
 			background_color: None,
 			box_shadow: None,
-			gradient: None,
+			background: None,
 			opacity: None,
 			border: None,
 			border_radius: None,
@@ -126,7 +126,7 @@ impl DisplayList {
 			    filters,
 			);
 
-			builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
+			builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 }).into());
 
 			if let Some(ref pre_shadow) = rect.box_shadow {
 				// The pre_shadow is missing the BorderRadius & LayoutRect
@@ -134,6 +134,29 @@ impl DisplayList {
 				builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
 										 pre_shadow.blur_radius, pre_shadow.spread_radius,
 										 border_radius, pre_shadow.clip_mode);
+			}
+
+			if let Some(ref background) = rect.background {
+				match *background {
+					ParsedGradient::RadialGradient(ref _gradient) => {
+
+					},
+					ParsedGradient::LinearGradient(ref gradient) => {
+						let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
+							GradientStop {
+								offset: gradient_pre.offset.unwrap(),
+								color: gradient_pre.color,
+							}).collect();
+						let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
+						/*let gradient = Gradient {
+							start_point: begin_pt,
+							end_point: end_pt,
+							extend_mode: gradient.extend_mode,
+						};*/
+						let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
+						builder.push_gradient(&info, gradient, LayoutSize::new(200.0, 200.0), LayoutSize::zero());
+					}
+				}
 			}
 
 			if let Some((border_widths, mut border_details)) = rect.border {
@@ -198,16 +221,13 @@ fn parse_css(constraint_list: &CssConstraintList, rect: &mut DisplayRectangle, c
 	parse!(radius, "border-radius", rect.border_radius, parse_css_border_radius, constraint_list);
 	parse!(background_color, "background-color", rect.background_color, parse_css_color, constraint_list);
 	parse!(border, "border", rect.border, parse_css_border, constraint_list);
+	parse!(background, "background", rect.background, parse_css_background, constraint_list);
 
 	if let Some(box_shadow) = constraint_list.get("box-shadow") {
 		match parse_css_box_shadow(box_shadow) {
 			Ok(r) => { rect.box_shadow = r; },
 			Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, "box-shadow"); }
 		}
-	}
-
-	if let Some(background) = constraint_list.get("background") {
-		println!("got background: `{:?}`", background);
 	}
 
 	parse_css_size!(width, "width", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::Width);
