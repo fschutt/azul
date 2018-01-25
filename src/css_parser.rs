@@ -821,7 +821,8 @@ pub fn parse_css_background<'a>(input: &'a str)
                 let (_, next) = color_stops.split_at_mut(i);
 
                 if let Some(increase_stop_cnt) = increase_stop_cnt {
-                    next[0].offset = Some(last_stop + increase_stop_cnt);
+                    last_stop += increase_stop_cnt;
+                    next[0].offset = Some(last_stop);
                     continue 'outer;
                 }
 
@@ -854,11 +855,12 @@ pub fn parse_css_background<'a>(input: &'a str)
                     if i == 0 {
                         next[0].offset = Some(0.0);
                     } else {
-                        last_stop = last_stop + increase;
+                        last_stop += increase;
                         next[0].offset = Some(last_stop);
                     }
                 }
             }
+
         }
     }
 
@@ -1240,7 +1242,7 @@ fn test_parse_linear_gradient_1() {
 
 #[test]
 fn test_parse_linear_gradient_2() {
-    assert_eq!(parse_css_background("linear-gradient(red, green, blue)"),
+    assert_eq!(parse_css_background("linear-gradient(red, lime, blue, yellow)"),
         Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
             direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
             extend_mode: ExtendMode::Clamp,
@@ -1249,12 +1251,16 @@ fn test_parse_linear_gradient_2() {
                 color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(50.0),
+                offset: Some(33.333333),
                 color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
             },
             GradientStopPre {
-                offset: Some(100.0),
+                offset: Some(66.666666),
                 color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+            },
+            GradientStopPre {
+                offset: Some(100.0),
+                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
             }],
         })));
 }
