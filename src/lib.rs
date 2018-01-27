@@ -81,11 +81,10 @@ impl<T: LayoutScreen> App<T> {
 	/// Start the rendering loop for the currently open windows
 	pub fn start_render_loop(&mut self)
 	{
-		use constraints::CssConstraint;
 
 		let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
 		// let mut display_list_cache = vec![Vec::<CssConstraint>::new(); self.windows.len()];
-		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap(), None);
+		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap());
 
 		'render_loop: loop {
 
@@ -116,17 +115,15 @@ impl<T: LayoutScreen> App<T> {
 										position,
 										modifiers,
 									} => {
-										println!("cursor moved in window: {:?}", position);
 										use webrender::api::WorldPoint;
 										let _ = device_id;
 										let _ = modifiers;
 										let point = WorldPoint::new(position.0 as f32, position.1 as f32);
 										let hit_test_results = hit_test_ui(api, document, Some(pipeline), point);
-
+										println!("hit test results: {:?}", hit_test_results);
 										for item in hit_test_results.items {
-											if let Some(fptr) = app_state.get_associated_event(&item.tag) {
-												(fptr)(&mut app_state)
-											};
+											// todo: invoke appropriate action
+											println!("{:?}", item);
 										}
 
 										// end of mouse handling
@@ -154,16 +151,6 @@ impl<T: LayoutScreen> App<T> {
 
 			::std::thread::sleep(::std::time::Duration::from_millis(16));
 		}
-	}
-
-	/// Forwarding function for `AppState.add_event_listener()`
-	pub fn add_event_listener<S: Into<String>>(&mut self, id: S, callback_type: S, callback: fn(&mut AppState<T>) -> ()) {
-		self.app_state.lock().unwrap().add_event_listener(id, callback_type, callback);
-	}
-
-	/// Forwarding function for `AppState.add_event_listener()`
-	pub fn remove_event_listener(&mut self, id: &str, callback_type: &str) {
-		self.app_state.lock().unwrap().remove_event_listener(id, callback_type);
 	}
 }
 
@@ -201,15 +188,27 @@ fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescrip
 	window.display.swap_buffers().unwrap();
 }
 
-fn app_state_to_ui_state<T>(app_state: &AppState<T>, old_ui_state: Option<&UiState>)
--> UiState where T: LayoutScreen
+fn app_state_to_ui_state<T>(app_state: &AppState<T>)
+-> UiState<T> where T: LayoutScreen
 {
+	use dom::{WrCallbackList, DomNode, On};
+	use webrender::api::ItemTag;
+
+	let root_node: DomNode<T> = app_state.data.get_dom();
+	unsafe { self::dom::NODE_ID = 0 };
+	unsafe { self::dom::CALLBACK_ID = 0 };
+	let mut callback_list = WrCallbackList::<T>::new();
+	let mut node_ids_to_callbacks_list = BTreeMap::<ItemTag, BTreeMap<On, u64>>::new();
+	let root_node = root_node.into_node_ref(&mut callback_list, &mut node_ids_to_callbacks_list);
+
 	UiState {
-		document_root: app_state.data.update_dom(old_ui_state),
+		document_root: root_node,
+		callback_list: callback_list,
+		node_ids_to_callbacks_list: node_ids_to_callbacks_list,
 	}
 }
 
-fn ui_state_to_ui_description<T>(ui_state: &UiState, style: &mut Css)
+fn ui_state_to_ui_description<T>(ui_state: &UiState<T>, style: &mut Css)
 -> UiDescription
 	where T: LayoutScreen
 {

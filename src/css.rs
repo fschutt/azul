@@ -1,4 +1,5 @@
 //! CSS parsing and styling
+use std::ops::Add;
 
 #[cfg(target_os="windows")]
 const NATIVE_CSS_WINDOWS: &str = include_str!("../assets/native_windows.css");
@@ -22,7 +23,7 @@ pub enum CssParseError {
 	MalformedCss,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CssRule {
 	/// `div` (`*` by default)
 	pub html_type: String,
@@ -161,4 +162,16 @@ impl Css {
 	pub fn native() -> Self {
 		Self::new_from_string(NATIVE_CSS_MACOS).unwrap()
 	}
+}
+
+impl Add for Css {
+    type Output = Css;
+
+    fn add(mut self, mut other: Css) -> Css {
+    	self.rules.append(&mut other.rules);
+        Css {
+        	rules: self.rules,
+        	dirty: true,
+        }
+    }
 }

@@ -10,6 +10,8 @@ pub(crate) struct DisplayList {
 }
 
 pub(crate) struct DisplayRectangle {
+	/// Tag used for hit-testing (for webrender)
+	pub tag: Option<(u64, u16)>,
 	/// The actual rectangle
 	pub(crate) rect: DisplayRect,
 	/// The constraints to be solved
@@ -32,6 +34,7 @@ impl DisplayRectangle {
 	#[inline]
 	pub(crate) fn new() -> Self {
 		Self {
+			tag: None,
 			rect: DisplayRect::new(),
 			constraints: Vec::new(),
 			background_color: None,
@@ -46,15 +49,31 @@ impl DisplayRectangle {
 impl DisplayList {
 
 	pub fn new_from_ui_description(ui_description: &UiDescription) -> Self {
+		use dom::HTML_NODE_ID;
 
 		let rects = ui_description.styled_nodes.iter().filter_map(|node| {
 
 			// TODO: currently only styles divs
-			if node.node.as_element().is_none() {
+			let element_data = node.node.as_element();
+			if element_data.is_none() {
 				return None;
 			}
 
+			let element_data = element_data.unwrap();
 			let mut rect = DisplayRectangle::new();
+			let mut id = None;
+
+			if let Some(id_str) = element_data.attributes.borrow().map.get(&HTML_NODE_ID) {
+				use std::mem::transmute;
+				let id_vec = id_str.as_bytes();
+				assert!(id_vec.len() == 8);
+				let id_arr: [u8; 8] = [id_vec[0], id_vec[1], id_vec[2], id_vec[3], id_vec[4], id_vec[5], id_vec[6], id_vec[7]];
+				let node_id: u64 = unsafe { transmute(id_arr) };
+				id = Some((node_id, 0));
+			}
+
+			rect.tag = id;
+
 			let mut css_constraints = Vec::<CssConstraint>::new();
 			parse_css(&node.css_constraints, &mut rect, &mut css_constraints);
 			rect.constraints = css_constraints;
@@ -101,7 +120,7 @@ impl DisplayList {
 			let info = LayoutPrimitiveInfo {
 				rect: bounds,
 				is_backface_visible: false,
-				tag: None, // todo: for hit testing !!!
+				tag: rect.tag,
 			    local_clip: clip,
 			};
 
@@ -145,11 +164,6 @@ impl DisplayList {
 								color: gradient_pre.color,
 							}).collect();
 						let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
-						/*let gradient = Gradient {
-							start_point: begin_pt,
-							end_point: end_pt,
-							extend_mode: gradient.extend_mode,
-						};*/
 						let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
 						builder.push_gradient(&info, gradient, LayoutSize::new(200.0, 200.0), LayoutSize::zero());
 					}

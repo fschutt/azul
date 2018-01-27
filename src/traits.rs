@@ -1,8 +1,9 @@
-use kuchiki::NodeRef;
 use ui_state::UiState;
 use ui_description::{StyledNode, CssConstraintList, UiDescription};
 use css::{Css, CssRule};
 use window::WindowId;
+use dom::DomNode;
+use kuchiki::NodeRef;
 
 pub trait LayoutScreen {
 	/// Updates the DOM, must be provided by the final application.
@@ -13,7 +14,7 @@ pub trait LayoutScreen {
 	/// The `style_dom` looks through the given DOM rules, applies the style and
 	/// recalculates the layout. This is done on each frame (except there are shortcuts
 	/// when the DOM doesn't have to be recalculated).
-	fn update_dom(&self, old_ui_state: Option<&UiState>) -> NodeRef;
+	fn get_dom(&self) -> DomNode<Self> where Self: Sized;
 	/// Provide access to the Css style for the application
 	fn get_css(&mut self, window_id: WindowId) -> &mut Css;
 	/// Applies the CSS styles to the nodes calculated from the `layout_screen`

@@ -1,8 +1,7 @@
 extern crate azul;
 
 use azul::traits::LayoutScreen;
-use azul::ui_state::UiState;
-use azul::dom::NodeRef;
+use azul::dom::On;
 use azul::window::{WindowId, WindowCreateOptions};
 use azul::app_state::AppState;
 use azul::css::Css;
@@ -21,11 +20,14 @@ pub struct MyAppData {
 
 impl LayoutScreen for MyAppData {
 
-	fn update_dom(&self, _old_ui_state: Option<&UiState>) -> NodeRef {
-		DomNode::new(NodeType::Div).class("__azul-native-button").with_text("Hello World").into()
+	fn get_dom(&self) -> DomNode<MyAppData> {
+		DomNode::new(NodeType::Div)
+			.class("__azul-native-button")
+			.event(On::MouseUp, my_button_click_handler)
+		.add_child(DomNode::new(NodeType::Text { content: "Hello World".into() }))
 	}
 
-	fn get_css(&mut self, window_id: WindowId) -> &mut Css {
+	fn get_css(&mut self, _window_id: WindowId) -> &mut Css {
 		// Note: you can match on the window ID if you have different CSS styles
 		// for different windows.
 		&mut self.css
@@ -47,6 +49,5 @@ fn main() {
 
 	let mut app = azul::App::new(my_app_data);
 	app.create_window(WindowCreateOptions::default()).unwrap();
-	app.add_event_listener("div#myitem", "onclick", my_button_click_handler);
 	app.start_render_loop();
 }
