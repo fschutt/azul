@@ -81,9 +81,7 @@ impl<T: LayoutScreen> App<T> {
 	/// Start the rendering loop for the currently open windows
 	pub fn start_render_loop(&mut self)
 	{
-
 		let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-		// let mut display_list_cache = vec![Vec::<CssConstraint>::new(); self.windows.len()];
 		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap());
 
 		'render_loop: loop {
@@ -103,6 +101,7 @@ impl<T: LayoutScreen> App<T> {
 					let document = window.internal.document_id;
 					let pipeline = window.internal.pipeline_id;
 
+					let mut new_window_size = None;
 					window.events_loop.poll_events(|event| {
 						match event {
 							Event::WindowEvent {
@@ -116,11 +115,12 @@ impl<T: LayoutScreen> App<T> {
 										modifiers,
 									} => {
 										use webrender::api::WorldPoint;
+										let _ = window_id;
 										let _ = device_id;
 										let _ = modifiers;
 										let point = WorldPoint::new(position.0 as f32, position.1 as f32);
 										let hit_test_results = hit_test_ui(api, document, Some(pipeline), point);
-										println!("hit test results: {:?}", hit_test_results);
+
 										for item in hit_test_results.items {
 											// todo: invoke appropriate action
 											println!("{:?}", item);
@@ -129,12 +129,22 @@ impl<T: LayoutScreen> App<T> {
 										// end of mouse handling
 										should_redraw_window = true;
 									},
+									WindowEvent::Resized(w, h) => {
+										new_window_size = Some((w, h));
+										should_redraw_window = true;
+									}
 									_ => { },
 								}
 							},
 							_ => { },
 						}
 					});
+
+					if let Some((w, h)) = new_window_size {
+						use webrender::api::{DeviceUintSize, LayoutSize};
+						window.internal.layout_size = LayoutSize::new(w as f32, h as f32);
+						window.internal.framebuffer_size = DeviceUintSize::new(w, h);
+					}
 
 					let css = app_state.data.get_css(*window_id);
 					if css.dirty {

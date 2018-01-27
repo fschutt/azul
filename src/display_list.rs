@@ -142,7 +142,7 @@ impl DisplayList {
 			    filters,
 			);
 
-			builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 255 }).into());
+			builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 0 }).into());
 
 			if let Some(ref pre_shadow) = rect.box_shadow {
 				// The pre_shadow is missing the BorderRadius & LayoutRect
