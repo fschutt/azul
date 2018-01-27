@@ -11,10 +11,10 @@ use cassowary::Solver;
 
 use std::time::Duration;
 
-const TITLE: &str = "WebRender Sample App";
+const TITLE: &str = "Azul App";
 const PRECACHE_SHADERS: bool = false;
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 600;
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct WindowId {

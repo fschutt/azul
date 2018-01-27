@@ -20,8 +20,6 @@ pub(crate) struct DisplayRectangle {
 	pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
 	/// Gradient (location) + stops
 	pub(crate) background: Option<ParsedGradient>,
-	/// Opacity of this rectangle
-	pub(crate) opacity: Option<f32>,
 	/// Border
 	pub(crate) border: Option<(BorderWidths, BorderDetails)>,
 	/// border radius
@@ -39,7 +37,6 @@ impl DisplayRectangle {
 			background_color: None,
 			box_shadow: None,
 			background: None,
-			opacity: None,
 			border: None,
 			border_radius: None,
 		}
@@ -87,7 +84,7 @@ impl DisplayList {
 			}
 
 			let bounds = LayoutRect::new(
-			    LayoutPoint::new(0.0, 0.0),
+			    LayoutPoint::new(50.0, 50.0),
 			    LayoutSize::new(200.0, 200.0),
 			);
 

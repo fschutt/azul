@@ -1,9 +1,8 @@
-div#main {
-	background-color: blue;
-	border-radius: 15px 50px 30px 5px;
-	border: 5px solid #e74c3c;
-    box-shadow: 0px 0px 10px #111;
-    /* TODO: currently the colors are reversed: should be "top to bottom", but is: "bottom to top"*/
-    /* TODO: rotations don't work */
-    background: linear-gradient(yellow, red, green);
+.__azul-native-button {
+	background-color: #fcfcfc;
+	color: #000000;
+	border: 1px solid #b7b7b7;
+	border-radius: 4px;
+	box-shadow: 0px 0px 3px #c5c5c5ad;
+	background: linear-gradient(#efefef, #fcfcfc);
 }

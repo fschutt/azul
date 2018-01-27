@@ -35,7 +35,7 @@ mod css_parser;
 use css::Css;
 use app_state::AppState;
 use traits::LayoutScreen;
-use input::{Hotkeys, hit_test_ui};
+use input::hit_test_ui;
 use ui_state::UiState;
 use ui_description::UiDescription;
 
@@ -86,11 +86,19 @@ impl<T: LayoutScreen> App<T> {
 		let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
 		let mut display_list_cache = vec![Vec::<CssConstraint>::new(); self.windows.len()];
 		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap(), None);
-		let mut hotkeys = Hotkeys::none();
 
 		'render_loop: loop {
-			update(&mut self.app_state.lock().unwrap(), &mut ui_state, &mut hotkeys);
 
+			// Update the UI
+			{
+				let mut app_state = self.app_state.lock().unwrap();
+				let frame_events = hit_test_ui(&ui_state);
+				app_state.update(&frame_events);
+				ui_state = app_state_to_ui_state(&app_state, Some(&ui_state));
+			}
+
+			// TODO: Use threads on a per-window basis.
+			// Currently, events in one window will block all others
 			for (window_id, window) in self.windows.iter_mut() {
 
 				let mut app_state_lock = self.app_state.lock().unwrap();
@@ -107,24 +115,6 @@ impl<T: LayoutScreen> App<T> {
 			::std::thread::sleep(::std::time::Duration::from_millis(16));
 		}
 	}
-}
-
-fn update<T>(app_state: &mut AppState<T>,
-		     ui_state: &mut UiState,
-		     hotkeys: &mut Hotkeys)
-	where T: LayoutScreen
-{
-	let frame_events = hit_test_ui(&ui_state, &hotkeys);
-
-	// updating can be parallelized if the components don't overlap each other
-	app_state.update(&frame_events);
-
-	// The next three steps can be done in parallel
-	let new_hotkeys = app_state_to_hotkeys(&app_state);
-	let new_ui_state = app_state_to_ui_state(&app_state, Some(&ui_state));
-
-	*hotkeys = new_hotkeys;
-	*ui_state = new_ui_state;
 }
 
 fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription) {
@@ -167,12 +157,6 @@ fn app_state_to_ui_state<T>(app_state: &AppState<T>, old_ui_state: Option<&UiSta
 	UiState {
 		document_root: app_state.data.update_dom(old_ui_state),
 	}
-}
-
-fn app_state_to_hotkeys<T>(app_state: &AppState<T>)
--> Hotkeys where T: LayoutScreen
-{
-	Hotkeys::none()
 }
 
 fn ui_state_to_ui_description<T>(ui_state: &UiState, style: &mut Css)
