@@ -47,6 +47,6 @@ fn main() {
 
 	let mut app = azul::App::new(my_app_data);
 	app.create_window(WindowCreateOptions::default()).unwrap();
-	// app.register_event_handler("div#myitem:onclick", my_button_click_handler);
+	app.add_event_listener("div#myitem", "onclick", my_button_click_handler);
 	app.start_render_loop();
 }

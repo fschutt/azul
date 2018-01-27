@@ -12,7 +12,6 @@ use cassowary::Solver;
 use std::time::Duration;
 use std::sync::mpsc::{channel, Sender, Receiver, SendError};
 use std::thread::{Builder, JoinHandle};
-use input::InputEvent;
 
 const DEFAULT_TITLE: &str = "Azul App";
 const DEFAULT_WIDTH: u32 = 800;
@@ -300,9 +299,8 @@ pub struct Window {
 	pub(crate) internal: WindowInternal,
 	/// The solver for the UI, for caching the results of the computations
 	pub(crate) solver: UiSolver,
-	pub(crate) sender: Sender<InputEvent>,
-	/// The background thread that is running for this window.
-	pub(crate) background_thread: Option<JoinHandle<()>>,
+	// The background thread that is running for this window.
+	// pub(crate) background_thread: Option<JoinHandle<()>>,
 }
 
 pub(crate) struct UiSolver {
@@ -398,17 +396,15 @@ impl Window {
 		let epoch = Epoch(0);
 		let pipeline_id = PipelineId(0, 0);
 		let layout_size = framebuffer_size.to_f32() / TypedScale::new(device_pixel_ratio);
-
+/*
 		let (sender, receiver) = channel();
 		let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
-
+*/
 		let window = Window {
 			events_loop: events_loop,
 			options: options,
 			renderer: Some(renderer),
 			display: display,
-			sender: sender,
-			background_thread: Some(thread),
 			internal: WindowInternal {
 				layout_size: layout_size,
 				api: api,
@@ -424,7 +420,7 @@ impl Window {
 
 		Ok(window)
 	}
-
+/*
 	pub fn send_event(&self, event: InputEvent) -> Result<(), SendError<InputEvent>> {
 	    self.sender.send(event)
 	}
@@ -434,7 +430,7 @@ impl Window {
     		println!("handling event: {:?}", event);
     	}
     }
-
+*/
 	pub fn get_available_monitors() -> MonitorIter {
 		MonitorIter {
 			inner: EventsLoop::new().get_available_monitors(),
@@ -604,7 +600,7 @@ impl Window {
 
 impl Drop for Window {
 	fn drop(&mut self) {
-		self.background_thread.take().unwrap().join();
+		// self.background_thread.take().unwrap().join();
 		let renderer = self.renderer.take().unwrap();
 		renderer.deinit();
 	}

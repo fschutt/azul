@@ -1,11 +1,6 @@
-use ui_state::UiState;
+use webrender::api::{HitTestResult, PipelineId, DocumentId, HitTestFlags, RenderApi, WorldPoint};
 
-/// Filtered event that is currently relevant to the application
-#[derive(Debug)]
-pub struct InputEvent {
-
+pub fn hit_test_ui(api: &RenderApi, document_id: DocumentId, pipeline_id: Option<PipelineId>, point: WorldPoint) -> HitTestResult {
+	api.hit_test(document_id, pipeline_id, point, HitTestFlags::FIND_ALL)
 }
 
-pub fn hit_test_ui(ui_state: &UiState) -> Vec<InputEvent> {
-	Vec::new()
-}

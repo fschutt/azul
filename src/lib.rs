@@ -84,51 +84,86 @@ impl<T: LayoutScreen> App<T> {
 		use constraints::CssConstraint;
 
 		let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-		let mut display_list_cache = vec![Vec::<CssConstraint>::new(); self.windows.len()];
+		// let mut display_list_cache = vec![Vec::<CssConstraint>::new(); self.windows.len()];
 		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap(), None);
 
 		'render_loop: loop {
 
-			let time_begin = ::std::time::Instant::now();
-
-			// Update the UI
-			{
-				let mut app_state = self.app_state.lock().unwrap();
-				let frame_events = hit_test_ui(&ui_state);
-				app_state.update(&frame_events);
-				ui_state = app_state_to_ui_state(&app_state, Some(&ui_state));
-			}
+			use glium::glutin::WindowEvent;
+			use glium::glutin::Event;
 
 			// TODO: Use threads on a per-window basis.
 			// Currently, events in one window will block all others
 			for (window_id, window) in self.windows.iter_mut() {
-				/*
-				use window::UpdateMode;
 
-				match window.options.update_mode {
-					UpdateMode::Retained => {
+				let mut should_redraw_window = false;
 
+				{
+					let mut app_state = self.app_state.lock().unwrap();
+					let api = &window.internal.api;
+					let document = window.internal.document_id;
+					let pipeline = window.internal.pipeline_id;
+
+					window.events_loop.poll_events(|event| {
+						match event {
+							Event::WindowEvent {
+								window_id,
+								event
+							} => {
+								match event {
+									WindowEvent::CursorMoved {
+										device_id,
+										position,
+										modifiers,
+									} => {
+										println!("cursor moved in window: {:?}", position);
+										use webrender::api::WorldPoint;
+										let _ = device_id;
+										let _ = modifiers;
+										let point = WorldPoint::new(position.0 as f32, position.1 as f32);
+										let hit_test_results = hit_test_ui(api, document, Some(pipeline), point);
+
+										for item in hit_test_results.items {
+											if let Some(fptr) = app_state.get_associated_event(&item.tag) {
+												(fptr)(&mut app_state)
+											};
+										}
+
+										// end of mouse handling
+										should_redraw_window = true;
+									},
+									_ => { },
+								}
+							},
+							_ => { },
+						}
+					});
+
+					let css = app_state.data.get_css(*window_id);
+					if css.dirty {
+						// Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.
+						ui_description_cache[window_id.id] = ui_state_to_ui_description::<T>(&ui_state, css);
 					}
-					UpdateMode::FixedUpdate(duration) => { println!("fixed: {:?}!", duration); }
-					UpdateMode::AsFastAsPossible => { println!("asap!"); }
-				}*/
-
-				println!("polling...");
-				window.events_loop.poll_events(|event| {
-					println!("event - {:?}", event);
-				});
-
-				let mut app_state_lock = self.app_state.lock().unwrap();
-				let css = app_state_lock.data.get_css(*window_id);
-				if css.dirty {
-					// Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.
-					ui_description_cache[window_id.id] = ui_state_to_ui_description::<T>(&ui_state, css);
 				}
 
 				// Re-layouts the UI.
-				// render(window, window_id, &ui_description_cache[window_id.id]);
+				if should_redraw_window {
+					render(window, window_id, &ui_description_cache[window_id.id]);
+				}
 			}
+
+			::std::thread::sleep(::std::time::Duration::from_millis(16));
 		}
+	}
+
+	/// Forwarding function for `AppState.add_event_listener()`
+	pub fn add_event_listener<S: Into<String>>(&mut self, id: S, callback_type: S, callback: fn(&mut AppState<T>) -> ()) {
+		self.app_state.lock().unwrap().add_event_listener(id, callback_type, callback);
+	}
+
+	/// Forwarding function for `AppState.add_event_listener()`
+	pub fn remove_event_listener(&mut self, id: &str, callback_type: &str) {
+		self.app_state.lock().unwrap().remove_event_listener(id, callback_type);
 	}
 }
 
