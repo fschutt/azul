@@ -10,11 +10,13 @@ use euclid::TypedScale;
 use cassowary::Solver;
 
 use std::time::Duration;
+use std::sync::mpsc::{channel, Sender, Receiver, SendError};
+use std::thread::{Builder, JoinHandle};
+use input::InputEvent;
 
-const TITLE: &str = "Azul App";
-const PRECACHE_SHADERS: bool = false;
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 600;
+const DEFAULT_TITLE: &str = "Azul App";
+const DEFAULT_WIDTH: u32 = 800;
+const DEFAULT_HEIGHT: u32 = 600;
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct WindowId {
@@ -26,8 +28,11 @@ impl WindowId {
 }
 
 /// Options on how to initially create the window
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct WindowCreateOptions {
+	/// Title of the window
+	pub title: String,
+	pub background: ColorF,
 	/// How should the screen be updated - as fast as possible
 	/// or retained & energy saving?
 	pub update_mode: UpdateMode,
@@ -46,8 +51,24 @@ pub struct WindowCreateOptions {
 	pub class: WindowClass,
 }
 
+impl Default for WindowCreateOptions {
+	fn default() -> Self {
+		Self {
+			title: self::DEFAULT_TITLE.into(),
+			background: ColorF::new(1.0, 1.0, 1.0, 1.0),
+			update_mode: UpdateMode::default(),
+			monitor: WindowMonitorTarget::default(),
+			mouse_mode: MouseMode::default(),
+			update_behaviour: UpdateBehaviour::default(),
+			decorations: WindowDecorations::default(),
+			size: WindowPlacement::default(),
+			class: WindowClass::default(),
+		}
+	}
+}
+
 /// How should the window be decorated
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum WindowDecorations {
 	/// Regular window decorations
 	Normal,
@@ -72,7 +93,7 @@ impl Default for WindowDecorations {
 }
 
 /// Where the window should be positioned
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct WindowPlacement {
 	pub x: u32,
 	pub y: u32,
@@ -85,13 +106,13 @@ impl Default for WindowPlacement {
 		Self {
 			x: 0,
 			y: 0,
-			width: 800,
-			height: 600,
+			width: self::DEFAULT_WIDTH,
+			height: self::DEFAULT_HEIGHT,
 		}
 	}
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum WindowClass {
 	/// Regular desktop window
 	Normal,
@@ -179,11 +200,18 @@ pub enum WindowCreateError {
 	Gl(IncompatibleOpenGl),
 	Context(ContextError),
 	CreateError(CreationError),
+	Io(::std::io::Error),
 }
 
 impl From<CreationError> for WindowCreateError {
 	fn from(e: CreationError) -> Self {
 		WindowCreateError::CreateError(e)
+	}
+}
+
+impl From<::std::io::Error> for WindowCreateError {
+	fn from(e: ::std::io::Error) -> Self {
+		WindowCreateError::Io(e)
 	}
 }
 
@@ -225,12 +253,14 @@ impl RenderNotifier for Notifier {
     }
 
     fn wake_up(&self) {
+    	/*
         #[cfg(not(target_os = "android"))]
         self.events_loop_proxy.wakeup().unwrap_or_else(|_| { });
+        */
     }
 
     fn new_document_ready(&self, _: DocumentId, _scrolled: bool, _composite_needed: bool) {
-        self.wake_up();
+        /*self.wake_up();*/
     }
 }
 
@@ -251,27 +281,28 @@ impl Iterator for MonitorIter {
 pub enum WindowMonitorTarget {
 	/// Window should appear on the primary monitor
 	Primary,
-	/// Window should appear on the current monitor
-	Current,
 	/// Use `Window::get_available_monitors()` to select the correct monitor
 	Custom(MonitorId)
 }
 
 impl Default for WindowMonitorTarget {
 	fn default() -> Self {
-		WindowMonitorTarget::Current
+		WindowMonitorTarget::Primary
 	}
 }
 
 /// Represents one graphical window to be rendered.
 pub struct Window {
 	pub(crate) events_loop: EventsLoop,
-	pub(crate) creation_options: WindowCreateOptions,
+	pub(crate) options: WindowCreateOptions,
 	pub(crate) renderer: Option<Renderer>,
 	pub(crate) display: Display,
 	pub(crate) internal: WindowInternal,
 	/// The solver for the UI, for caching the results of the computations
 	pub(crate) solver: UiSolver,
+	pub(crate) sender: Sender<InputEvent>,
+	/// The background thread that is running for this window.
+	pub(crate) background_thread: Option<JoinHandle<()>>,
 }
 
 pub(crate) struct UiSolver {
@@ -294,10 +325,20 @@ impl Window {
 
 		let events_loop = EventsLoop::new();
 
-		let window = WindowBuilder::new()
-		    .with_dimensions(WIDTH, HEIGHT)
-		    .with_title(TITLE)
-		    .with_maximized(true);
+		let mut window = WindowBuilder::new()
+		    .with_dimensions(options.size.width, options.size.height)
+		    .with_title(options.title.clone())
+		    .with_decorations(options.decorations != WindowDecorations::NoDecorations)
+		    .with_maximized(options.class == WindowClass::Maximized);
+
+		if options.class == WindowClass::FullScreen {
+			let monitor = match options.monitor {
+				WindowMonitorTarget::Primary => events_loop.get_primary_monitor(),
+				WindowMonitorTarget::Custom(ref id) => id.clone(),
+			};
+
+			window = window.with_fullscreen(Some(monitor));
+		}
 
 		let context = ContextBuilder::new()
 			.with_gl(glutin::GlRequest::GlThenGles {
@@ -336,9 +377,11 @@ impl Window {
 		let opts = RendererOptions {
 		    resource_override_path: None,
 		    debug: false,
-		    precache_shaders: PRECACHE_SHADERS,
+		    // pre-caching shaders means to compile all shaders on startup
+		    // this can take significant time and should be only used for testing the shaders
+		    precache_shaders: false,
 		    device_pixel_ratio,
-		    clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
+		    clear_color: Some(options.background),
 		    .. RendererOptions::default()
 		};
 
@@ -356,11 +399,16 @@ impl Window {
 		let pipeline_id = PipelineId(0, 0);
 		let layout_size = framebuffer_size.to_f32() / TypedScale::new(device_pixel_ratio);
 
+		let (sender, receiver) = channel();
+		let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
+
 		let window = Window {
 			events_loop: events_loop,
-			creation_options: options,
+			options: options,
 			renderer: Some(renderer),
 			display: display,
+			sender: sender,
+			background_thread: Some(thread),
 			internal: WindowInternal {
 				layout_size: layout_size,
 				api: api,
@@ -376,6 +424,16 @@ impl Window {
 
 		Ok(window)
 	}
+
+	pub fn send_event(&self, event: InputEvent) -> Result<(), SendError<InputEvent>> {
+	    self.sender.send(event)
+	}
+
+    fn handle_event(rx: Receiver<InputEvent>) {
+    	while let Ok(event) = rx.recv() {
+    		println!("handling event: {:?}", event);
+    	}
+    }
 
 	pub fn get_available_monitors() -> MonitorIter {
 		MonitorIter {
@@ -546,7 +604,8 @@ impl Window {
 
 impl Drop for Window {
 	fn drop(&mut self) {
-		let renderer = self.renderer.take().unwrap(); // must be present
+		self.background_thread.take().unwrap().join();
+		let renderer = self.renderer.take().unwrap();
 		renderer.deinit();
 	}
 }

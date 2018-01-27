@@ -1,6 +1,7 @@
 use ui_state::UiState;
 
 /// Filtered event that is currently relevant to the application
+#[derive(Debug)]
 pub struct InputEvent {
 
 }

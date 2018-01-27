@@ -89,6 +89,8 @@ impl<T: LayoutScreen> App<T> {
 
 		'render_loop: loop {
 
+			let time_begin = ::std::time::Instant::now();
+
 			// Update the UI
 			{
 				let mut app_state = self.app_state.lock().unwrap();
@@ -100,6 +102,21 @@ impl<T: LayoutScreen> App<T> {
 			// TODO: Use threads on a per-window basis.
 			// Currently, events in one window will block all others
 			for (window_id, window) in self.windows.iter_mut() {
+				/*
+				use window::UpdateMode;
+
+				match window.options.update_mode {
+					UpdateMode::Retained => {
+
+					}
+					UpdateMode::FixedUpdate(duration) => { println!("fixed: {:?}!", duration); }
+					UpdateMode::AsFastAsPossible => { println!("asap!"); }
+				}*/
+
+				println!("polling...");
+				window.events_loop.poll_events(|event| {
+					println!("event - {:?}", event);
+				});
 
 				let mut app_state_lock = self.app_state.lock().unwrap();
 				let css = app_state_lock.data.get_css(*window_id);
@@ -109,10 +126,8 @@ impl<T: LayoutScreen> App<T> {
 				}
 
 				// Re-layouts the UI.
-				render(window, window_id, &ui_description_cache[window_id.id]);
+				// render(window, window_id, &ui_description_cache[window_id.id]);
 			}
-
-			::std::thread::sleep(::std::time::Duration::from_millis(16));
 		}
 	}
 }
