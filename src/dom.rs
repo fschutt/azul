@@ -1,12 +1,35 @@
 use app_state::AppState;
 use traits::LayoutScreen;
 use std::collections::BTreeMap;
-use id_tree::{Node, NodeId, Children, Arena, FollowingSiblings};
+use id_tree::{NodeId, Children, Arena, FollowingSiblings};
 use webrender::api::ItemTag;
+use std::sync::{Arc, Mutex};
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
 pub(crate) static mut CALLBACK_ID: u64 = 0;
+
+pub enum Callback<T: LayoutScreen> {
+    /// One-off function (for ex. exporting a file)
+    ///
+    /// This is best for actions that can run in the background
+    /// and you don't need to get updates. It uses a background
+    /// thread and therefore the data needs to be sendable.
+    Async(fn(Arc<Mutex<AppState<T>>>) -> ()),
+    /// Same as the `FnOnceNonBlocking`, but it blocks the current
+    /// thread and does not require the type to be `Send`.
+    Sync(fn(&mut AppState<T>) -> ()),
+}
+
+impl<T: LayoutScreen> Clone for Callback<T> 
+{
+    fn clone(&self) -> Self {
+        match *self {
+            Callback::Async(ref f) => Callback::Async(f.clone()),
+            Callback::Sync(ref f) => Callback::Sync(f.clone()),
+        }
+    }
+}
 
 /// List of allowed DOM node types
 ///
@@ -68,33 +91,47 @@ pub(crate) struct NodeData<T: LayoutScreen> {
     pub tag: Option<(u64, u16)>,
 }
 
-impl<T: LayoutScreen> NodeData<T> {
-    pub fn new() -> Self {
+impl<T: LayoutScreen> CallbackList<T> {
+    fn special_clone(&self) -> Self {
         Self {
-            node_type: NodeType::Div,
+            callbacks: self.callbacks.clone(),
+        }
+    }
+}
+
+impl<T: LayoutScreen> NodeData<T> {
+    pub fn new(node_type: NodeType) -> Self {
+        Self {
+            node_type: node_type,
             id: None,
             classes: Vec::new(),
             events: CallbackList::<T>::new(),
             tag: None,
         }
     }
-}
 
-#[derive(Clone)]
-pub struct DomNode<T: LayoutScreen> {
-    pub inner: Node<NodeData<T>>,
+    fn special_clone(&self) -> Self {
+        Self {
+            node_type: self.node_type.clone(),
+            id: self.id.clone(),
+            classes: self.classes.clone(),
+            events: self.events.special_clone(),
+            tag: self.tag.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct Dom<T: LayoutScreen> {
     pub(crate) arena: Arena<NodeData<T>>,
     pub(crate) root: NodeId,
+    pub(crate) current_root: NodeId,
     pub(crate) last: NodeId,
 }
 
 #[derive(Clone)]
 pub struct CallbackList<T: LayoutScreen> {
-    pub(crate) callbacks: BTreeMap<On, fn(&mut AppState<T>) -> ()>
+    pub(crate) callbacks: BTreeMap<On, Callback<T>>
 }
 
 impl<T: LayoutScreen> CallbackList<T> {
@@ -108,24 +145,32 @@ impl<T: LayoutScreen> CallbackList<T> {
 impl<T: LayoutScreen> Dom<T> {
     
     /// Creates an empty DOM
-    pub fn new() -> Self {
+    pub fn new(node_type: NodeType) -> Self {
         let mut arena = Arena::new();
-        let root = arena.new_node(NodeData::new());
-        let last = root;
+        let root = arena.new_node(NodeData::new(node_type));
         Self {
             arena: arena,
             root: root,
-            last: last,
+            current_root: root,
+            last: root,
         }
     }
 
     #[inline]
     pub fn add_child(mut self, child: Self) -> Self {
         for ch in child.children() {
-            let new_last = self.arena.new_node(child.arena[ch].data);
+            let new_last = self.arena.new_node(child.arena[ch].data.special_clone());
             self.last.append(new_last, &mut self.arena);
             self.last = new_last;
         }
+        self
+    }
+
+    #[inline]
+    pub fn add_sibling(mut self, sibling: Self) -> Self {
+        let new_sibling = self.arena.new_node(sibling.arena[sibling.root].data.special_clone());
+        self.current_root.append(new_sibling, &mut self.arena);
+        self.current_root = new_sibling;
         self
     }
 
@@ -142,7 +187,7 @@ impl<T: LayoutScreen> Dom<T> {
     }
 
     #[inline]
-    pub fn event(mut self, on: On, callback: fn(&mut AppState<T>) -> ()) -> Self {
+    pub fn event(mut self, on: On, callback: Callback<T>) -> Self {
         self.arena[self.last].data.events.callbacks.insert(on, callback);
         self.arena[self.last].data.tag = Some(unsafe { (NODE_ID, 0) });
         unsafe { NODE_ID += 1; };
@@ -158,9 +203,11 @@ impl<T: LayoutScreen> Dom<T> {
     }
 }
 
-impl<T: LayoutScreen> DomNode<T> {
+impl<T: LayoutScreen> Dom<T> {
     
+    pub(crate) fn collect_callbacks(&self, callback_list: &mut WrCallbackList<T>, nodes_to_callback_id_list: &mut  BTreeMap<ItemTag, BTreeMap<On, u64>>) {
 
+    }
 
 /*
     pub(crate) fn into_node_ref(self, callback_list: &mut WrCallbackList<T>, nodes_to_callback_id_list: &mut BTreeMap<ItemTag, BTreeMap<On, u64>>) -> NodeRef {

@@ -5,7 +5,7 @@ use azul::dom::On;
 use azul::window::{WindowId, WindowCreateOptions};
 use azul::app_state::AppState;
 use azul::css::Css;
-use azul::dom::{NodeType, DomNode};
+use azul::dom::{NodeType, Dom, Callback};
 
 const TEST_CSS: &str = include_str!("test_content.css");
 
@@ -20,11 +20,11 @@ pub struct MyAppData {
 
 impl LayoutScreen for MyAppData {
 
-    fn get_dom(&self) -> DomNode<MyAppData> {
-        DomNode::new(NodeType::Div)
+    fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
+        Dom::new(NodeType::Div)
             .class("__azul-native-button")
-            .event(On::MouseUp, my_button_click_handler)
-        .add_child(DomNode::new(NodeType::Text { content: "Hello World".into() }))
+            .event(On::MouseUp, Callback::Sync(my_button_click_handler))
+        .add_child(Dom::new(NodeType::Text { content: "Hello World".into() }))
     }
 
     fn get_css(&mut self, _window_id: WindowId) -> &mut Css {

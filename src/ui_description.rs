@@ -1,5 +1,5 @@
 use FastHashMap;
-use id_tree::{Arena, NodeId};
+use id_tree::{Arena, NodeId, Node};
 use traits::LayoutScreen;
 use ui_state::UiState;
 use css::Css;
@@ -7,8 +7,8 @@ use dom::NodeData;
 
 #[derive(Clone)]
 pub struct UiDescription<'a, T: LayoutScreen + 'a> {
-    pub arena: Option<&'a Arena<NodeData<T>>>,
-    pub styled_nodes: Vec<StyledNode>,
+    pub(crate) arena: Option<&'a Arena<NodeData<T>>>,
+    pub(crate) styled_nodes: Vec<StyledNode>,
 }
 
 impl<'a, T: LayoutScreen> Default for UiDescription<'a, T> {

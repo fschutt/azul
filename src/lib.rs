@@ -85,12 +85,13 @@ impl<T: LayoutScreen> App<T> {
     /// Start the rendering loop for the currently open windows
     pub fn start_render_loop(&mut self)
     {
+        /// BIG TODO! This will crash if 
+        let mut ui_state = UiState::from_app_state(&*self.app_state.lock().unwrap(), WindowId { id: 0 });
+
         let mut ui_description_cache = Vec::with_capacity(self.windows.len());
         for _ in 0..self.windows.len() {
             ui_description_cache.push(UiDescription::default());
         }
-
-        let mut ui_state = UiState::from_app_state(&self.app_state.lock().unwrap());
 
         'render_loop: loop {
 
@@ -104,7 +105,6 @@ impl<T: LayoutScreen> App<T> {
                 let mut should_redraw_window = false;
 
                 {
-                    let mut app_state = self.app_state.lock().unwrap();
                     let api = &window.internal.api;
                     let document = window.internal.document_id;
                     let pipeline = window.internal.pipeline_id;
@@ -154,6 +154,7 @@ impl<T: LayoutScreen> App<T> {
                         window.internal.framebuffer_size = DeviceUintSize::new(w, h);
                     }
 
+                    let mut app_state = self.app_state.lock().unwrap();
                     let css = app_state.data.get_css(*window_id);
                     if css.dirty {
                         // Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.

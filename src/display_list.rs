@@ -5,6 +5,7 @@ use ui_description::{UiDescription, CssConstraintList};
 use cassowary::{Constraint, Solver};
 use id_tree::{Arena, NodeId};
 use css_parser::*;
+use dom::NodeData;
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<'a, T>,
@@ -56,7 +57,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
         let arena = ui_description.arena.as_ref().unwrap();
         let rects = ui_description.styled_nodes.iter().filter_map(|node| {
-            let node_data = arena[node.id];
+            let node_data = &arena[node.id];
             let mut rect = DisplayRectangle::new(node.id);
             rect.tag = node_data.data.tag;
             let mut css_constraints = Vec::<CssConstraint>::new();
@@ -193,23 +194,10 @@ macro_rules! parse_css_size {
     )
 }
 
-/*
-macro_rules! parse_css_padding {
-    ($id:ident, $key:expr, $func:tt, $css_constraints:ident, $constraint_list:ident, $wrapper:path, $variable:ident) => (
-        if let Some($id) = $constraint_list.get($key) {
-            match $func($id) {
-                Ok(w) => { $css_constraints.push(CssConstraint::Padding($wrapper($variable))); },
-                Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, $key); }
-            }
-        }
-    )
-}
-*/
-
 /// Populate the constraint list
-fn parse_css<T: LayoutScreen>(rect: &mut DisplayRectangle, arena: &Arena<T>, constraint_list: &CssConstraintList, css_constraints: &mut Vec<CssConstraint>)
+fn parse_css<T: LayoutScreen>(rect: &mut DisplayRectangle, arena: &Arena<NodeData<T>>, constraint_list: &CssConstraintList, css_constraints: &mut Vec<CssConstraint>)
 {
-    use constraints::{SizeConstraint, PaddingConstraint};
+    use constraints::{SizeConstraint};
 
     let constraint_list = &constraint_list.list;
 

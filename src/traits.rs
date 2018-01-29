@@ -2,7 +2,7 @@ use dom::{NodeData, Dom};
 use ui_description::{StyledNode, CssConstraintList, UiDescription};
 use css::{Css, CssRule};
 use window::WindowId;
-use id_tree::{NodeId, Arena};
+use id_tree::{NodeId, Node, Arena};
 
 pub trait LayoutScreen {
     /// Updates the DOM, must be provided by the final application.
@@ -13,7 +13,7 @@ pub trait LayoutScreen {
     /// The `style_dom` looks through the given DOM rules, applies the style and
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
-    fn get_dom(&self) -> Dom<Self> where Self: Sized;
+    fn get_dom(&self, window_id: WindowId) -> Dom<Self> where Self: Sized;
     /// Provide access to the Css style for the application
     fn get_css(&mut self, window_id: WindowId) -> &mut Css;
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
@@ -143,7 +143,7 @@ fn cascade_constraints<T: LayoutScreen>(node: &NodeData<T>, list: &mut CssConstr
         }
     }
 
-    let node_classes: Vec<&String> = node.classes.iter().map(|x| x).collect();
+    let mut node_classes: Vec<&String> = node.classes.iter().map(|x| x).collect();
     node_classes.sort();
     node_classes.dedup_by(|a, b| *a == *b);
 
@@ -170,12 +170,12 @@ fn cascade_constraints<T: LayoutScreen>(node: &NodeData<T>, list: &mut CssConstr
     }
 
     // first attribute for "id = something"
-    let node_id: Option<String> = node.id;
+    let node_id = &node.id;
 
-    if let Some(node_id) = node_id {
+    if let Some(ref node_id) = *node_id {
         // if the node has an ID
         for id_rule in &parsed_css.pure_id_rules {
-            if *id_rule.id.as_ref().unwrap() == node_id {
+            if *id_rule.id.as_ref().unwrap() == *node_id {
                 push_rule(list, id_rule);
             }
         }
