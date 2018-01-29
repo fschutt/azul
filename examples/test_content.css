@@ -5,4 +5,7 @@
     border-radius: 4px;
     box-shadow: 0px 0px 3px #c5c5c5ad;
     background: linear-gradient(#efefef, #fcfcfc);
+    width: 200px;
+    height: 500px;
+    min-height: 400px;
 }

@@ -30,7 +30,10 @@ mod constraints;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;
+/// CSS parser
 mod css_parser;
+/// Slab allocator for nodes, based on IDs (replaces kuchiki + markup5ever)
+pub mod id_tree;
 
 use css::Css;
 use app_state::AppState;

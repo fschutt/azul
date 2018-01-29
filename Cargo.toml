@@ -13,3 +13,6 @@ glium = "0.20.0"
 gleam = "0.4.19"
 euclid = "0.16"
 markup5ever = "^0.5"
+
+[dev-dependencies]
+crossbeam = "0.3.2"

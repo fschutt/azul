@@ -77,7 +77,6 @@ impl DisplayList {
             let mut css_constraints = Vec::<CssConstraint>::new();
             parse_css(&node.css_constraints, &mut rect, &mut css_constraints);
             rect.constraints = css_constraints;
-
             Some(rect)
 
         }).collect();
@@ -245,7 +244,6 @@ fn parse_css(constraint_list: &CssConstraintList, rect: &mut DisplayRectangle, c
     parse_css_size!(height, "height", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::Height);
     parse_css_size!(min_height, "min-height", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::MinHeight);
     parse_css_size!(min_width, "min-width", parse_pixel_value, css_constraints, constraint_list, SizeConstraint::MinWidth);
-
 }
 
 fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssConstraint>)

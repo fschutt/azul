@@ -749,7 +749,7 @@ impl DirectionCorner {
     }
 }
 
-// parses
+// parses a background, such as "linear-gradient(red, green)"
 pub fn parse_css_background<'a>(input: &'a str)
 -> Result<ParsedGradient, CssBackgroundParseError<'a>>
 {
