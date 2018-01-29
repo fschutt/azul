@@ -1,17 +1,20 @@
 use webrender::api::*;
+use traits::LayoutScreen;
 use constraints::{DisplayRect, CssConstraint};
 use ui_description::{UiDescription, CssConstraintList};
 use cassowary::{Constraint, Solver};
-
+use id_tree::{Arena, NodeId};
 use css_parser::*;
 
-pub(crate) struct DisplayList {
+pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
+    pub(crate) ui_descr: &'a UiDescription<'a, T>,
     pub(crate) rectangles: Vec<DisplayRectangle>
 }
 
 pub(crate) struct DisplayRectangle {
     /// Tag used for hit-testing (for webrender)
     pub tag: Option<(u64, u16)>,
+    pub node_id: NodeId,
     /// The actual rectangle
     pub(crate) rect: DisplayRect,
     /// The constraints to be solved
@@ -32,9 +35,10 @@ impl DisplayRectangle {
 
     /// Returns an uninitialized rectangle
     #[inline]
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(node_id: NodeId) -> Self {
         Self {
             tag: None,
+            node_id: node_id,
             rect: DisplayRect::new(),
             constraints: Vec::new(),
             background_color: None,
@@ -46,42 +50,23 @@ impl DisplayRectangle {
     }
 }
 
-impl DisplayList {
+impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
-    pub fn new_from_ui_description(ui_description: &UiDescription) -> Self {
-        use dom::HTML_NODE_ID;
+    pub fn new_from_ui_description(ui_description: &'a UiDescription<T>) -> Self {
 
+        let arena = ui_description.arena.as_ref().unwrap();
         let rects = ui_description.styled_nodes.iter().filter_map(|node| {
-
-            // TODO: currently only styles divs
-            let element_data = node.node.as_element();
-            if element_data.is_none() {
-                return None;
-            }
-
-            let element_data = element_data.unwrap();
-            let mut rect = DisplayRectangle::new();
-            let mut id = None;
-
-            if let Some(id_str) = element_data.attributes.borrow().map.get(&HTML_NODE_ID) {
-                use std::mem::transmute;
-                let id_vec = id_str.as_bytes();
-                assert!(id_vec.len() == 8);
-                let id_arr: [u8; 8] = [id_vec[0], id_vec[1], id_vec[2], id_vec[3], id_vec[4], id_vec[5], id_vec[6], id_vec[7]];
-                let node_id: u64 = unsafe { transmute(id_arr) };
-                id = Some((node_id, 0));
-            }
-
-            rect.tag = id;
-
+            let node_data = arena[node.id];
+            let mut rect = DisplayRectangle::new(node.id);
+            rect.tag = node_data.data.tag;
             let mut css_constraints = Vec::<CssConstraint>::new();
-            parse_css(&node.css_constraints, &mut rect, &mut css_constraints);
+            parse_css(&mut rect, arena, &node.css_constraints, &mut css_constraints);
             rect.constraints = css_constraints;
             Some(rect)
-
         }).collect();
 
         Self {
+            ui_descr: ui_description,
             rectangles: rects,
         }
     }
@@ -222,7 +207,7 @@ macro_rules! parse_css_padding {
 */
 
 /// Populate the constraint list
-fn parse_css(constraint_list: &CssConstraintList, rect: &mut DisplayRectangle, css_constraints: &mut Vec<CssConstraint>)
+fn parse_css<T: LayoutScreen>(rect: &mut DisplayRectangle, arena: &Arena<T>, constraint_list: &CssConstraintList, css_constraints: &mut Vec<CssConstraint>)
 {
     use constraints::{SizeConstraint, PaddingConstraint};
 

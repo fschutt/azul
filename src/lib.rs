@@ -1,7 +1,4 @@
-#[macro_use]
-extern crate markup5ever;
 extern crate webrender;
-extern crate kuchiki;
 extern crate cassowary;
 extern crate twox_hash;
 extern crate glium;
@@ -46,6 +43,10 @@ use std::sync::{Arc, Mutex};
 use std::collections::BTreeMap;
 use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 
+pub struct NodeData {
+
+}
+
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 
@@ -84,8 +85,12 @@ impl<T: LayoutScreen> App<T> {
     /// Start the rendering loop for the currently open windows
     pub fn start_render_loop(&mut self)
     {
-        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-        let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap());
+        let mut ui_description_cache = Vec::with_capacity(self.windows.len());
+        for _ in 0..self.windows.len() {
+            ui_description_cache.push(UiDescription::default());
+        }
+
+        let mut ui_state = UiState::from_app_state(&self.app_state.lock().unwrap());
 
         'render_loop: loop {
 
@@ -152,7 +157,7 @@ impl<T: LayoutScreen> App<T> {
                     let css = app_state.data.get_css(*window_id);
                     if css.dirty {
                         // Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.
-                        ui_description_cache[window_id.id] = ui_state_to_ui_description::<T>(&ui_state, css);
+                        ui_description_cache[window_id.id] = UiDescription::from_ui_state(&ui_state, css);
                     }
                 }
 
@@ -167,7 +172,7 @@ impl<T: LayoutScreen> App<T> {
     }
 }
 
-fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription) {
+fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription<T>) {
 
     // todo: convert the UIDescription into the webrender display list
 
@@ -199,31 +204,4 @@ fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescrip
     window.renderer.as_mut().unwrap().update();
     window.renderer.as_mut().unwrap().render(window.internal.framebuffer_size).unwrap();
     window.display.swap_buffers().unwrap();
-}
-
-fn app_state_to_ui_state<T>(app_state: &AppState<T>)
--> UiState<T> where T: LayoutScreen
-{
-    use dom::{WrCallbackList, DomNode, On};
-    use webrender::api::ItemTag;
-
-    let root_node: DomNode<T> = app_state.data.get_dom();
-    unsafe { self::dom::NODE_ID = 0 };
-    unsafe { self::dom::CALLBACK_ID = 0 };
-    let mut callback_list = WrCallbackList::<T>::new();
-    let mut node_ids_to_callbacks_list = BTreeMap::<ItemTag, BTreeMap<On, u64>>::new();
-    let root_node = root_node.into_node_ref(&mut callback_list, &mut node_ids_to_callbacks_list);
-
-    UiState {
-        document_root: root_node,
-        callback_list: callback_list,
-        node_ids_to_callbacks_list: node_ids_to_callbacks_list,
-    }
-}
-
-fn ui_state_to_ui_description<T>(ui_state: &UiState<T>, style: &mut Css)
--> UiDescription
-    where T: LayoutScreen
-{
-    T::style_dom(&ui_state.document_root, style)
 }

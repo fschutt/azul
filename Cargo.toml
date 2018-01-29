@@ -7,12 +7,7 @@ authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 webrender = { git = "https://github.com/servo/webrender", rev = "e9269c7e06e20363be0b2a2a1be98d292ff7acca" }
 cassowary = "0.3.0"
 simplecss = "0.1.0"
-kuchiki = "0.6.0"
 twox-hash = "1.1.0"
 glium = "0.20.0"
 gleam = "0.4.19"
 euclid = "0.16"
-markup5ever = "^0.5"
-
-[dev-dependencies]
-crossbeam = "0.3.2"

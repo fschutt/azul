@@ -1,20 +1,12 @@
-pub use kuchiki::NodeRef;
-use markup5ever::{LocalName, QualName};
 use app_state::AppState;
 use traits::LayoutScreen;
 use std::collections::BTreeMap;
-
+use id_tree::{Node, NodeId, Children, Arena, FollowingSiblings};
 use webrender::api::ItemTag;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
 pub(crate) static mut CALLBACK_ID: u64 = 0;
-
-pub(crate) const HTML_CLASS: QualName = QualName { prefix: None, ns: ns!(html), local: local_name!("class") };
-pub(crate) const HTML_ID: QualName = QualName { prefix: None, ns: ns!(html), local: local_name!("id") };
-/// This an obscure ID to store the node ID which we need later on. `kuchiki` only allows to store LocalNames alongside
-/// a node ID, so this is an (awful) hack to get this done.
-pub(crate) const HTML_NODE_ID: QualName = QualName { prefix: None, ns: ns!(html), local: local_name!("actiontype") };
 
 /// List of allowed DOM node types
 ///
@@ -22,6 +14,7 @@ pub(crate) const HTML_NODE_ID: QualName = QualName { prefix: None, ns: ns!(html)
 /// special macros for these node types, so either I need to expose the
 /// whole markup5ever crate to the end user or I need to build a
 /// wrapper type
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NodeType {
     Div,
     Button,
@@ -34,6 +27,23 @@ pub enum NodeType {
     Text { content: String },
 }
 
+impl NodeType {
+    pub fn get_css_id(&self) -> &'static str {
+        use self::NodeType::*;
+        match *self {
+            Div => "div",
+            Button => "button",
+            Ul => "ul",
+            Li => "li",
+            Ol => "ol",
+            Label => "label",
+            Input => "input",
+            Form => "form",
+            Text { .. } => "p",
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum On {
     MouseOver,
@@ -44,38 +54,8 @@ pub enum On {
     DragDrop,
 }
 
-impl Into<LocalName> for On {
-    fn into(self) -> LocalName {
-        use self::On::*;
-        match self {
-            MouseOver => local_name!("onmouseover"),
-            MouseDown => local_name!("onmousedown"),
-            MouseUp => local_name!("onmouseup"),
-            MouseEnter => local_name!("onmouseenter"),
-            MouseLeave => local_name!("onmouseleave"),
-            DragDrop => local_name!("ondragdrop"),
-        }
-    }
-}
-
-impl Into<LocalName> for NodeType {
-    fn into(self) -> LocalName {
-        use self::NodeType::*;
-        match self {
-            Div => local_name!("div"),
-            Button => local_name!("button"),
-            Ul => local_name!("ul"),
-            Li => local_name!("li"),
-            Ol =>local_name!("ol"),
-            Label => local_name!("label"),
-            Input => local_name!("input"),
-            Form => local_name!("form"),
-            Text { .. } => local_name!("p"),
-        }
-    }
-}
-
-pub struct DomNode<T: LayoutScreen> {
+#[derive(Clone)]
+pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
     pub node_type: NodeType,
     /// `#main`
@@ -84,10 +64,35 @@ pub struct DomNode<T: LayoutScreen> {
     pub classes: Vec<String>,
     /// `onclick` -> `my_button_click_handler`
     pub events: CallbackList<T>,
-    /// Immediate children of this node
-    pub children: Vec<DomNode<T>>,
+    /// Tag for hit-testing
+    pub tag: Option<(u64, u16)>,
 }
 
+impl<T: LayoutScreen> NodeData<T> {
+    pub fn new() -> Self {
+        Self {
+            node_type: NodeType::Div,
+            id: None,
+            classes: Vec::new(),
+            events: CallbackList::<T>::new(),
+            tag: None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct DomNode<T: LayoutScreen> {
+    pub inner: Node<NodeData<T>>,
+}
+
+#[derive(Clone)]
+pub struct Dom<T: LayoutScreen> {
+    pub(crate) arena: Arena<NodeData<T>>,
+    pub(crate) root: NodeId,
+    pub(crate) last: NodeId,
+}
+
+#[derive(Clone)]
 pub struct CallbackList<T: LayoutScreen> {
     pub(crate) callbacks: BTreeMap<On, fn(&mut AppState<T>) -> ()>
 }
@@ -100,69 +105,64 @@ impl<T: LayoutScreen> CallbackList<T> {
     }
 }
 
-pub struct WebRenderIdList {
-    /// Node tag -> List of callback IDs
-    pub(crate) callbacks: Option<(ItemTag, BTreeMap<On, u64>)>,
-}
-
-impl WebRenderIdList {
+impl<T: LayoutScreen> Dom<T> {
+    
+    /// Creates an empty DOM
     pub fn new() -> Self {
+        let mut arena = Arena::new();
+        let root = arena.new_node(NodeData::new());
+        let last = root;
         Self {
-            callbacks: None,
-        }
-    }
-}
-
-pub struct WrCallbackList<T: LayoutScreen> {
-    /// callback ID -> function pointer
-    pub(crate) callback_list: BTreeMap<u64, fn(&mut AppState<T>) -> ()>,
-}
-
-impl<T: LayoutScreen> WrCallbackList<T> {
-    pub fn new() -> Self {
-        Self {
-            callback_list: BTreeMap::new(),
-        }
-    }
-}
-
-impl<T: LayoutScreen> DomNode<T> {
-
-    /// Creates an empty node
-    pub fn new(node_type: NodeType) -> Self {
-        Self {
-            node_type: node_type,
-            id: None,
-            classes: Vec::new(),
-            events: CallbackList::new(),
-            children: Vec::new(),
+            arena: arena,
+            root: root,
+            last: last,
         }
     }
 
     #[inline]
+    pub fn add_child(mut self, child: Self) -> Self {
+        for ch in child.children() {
+            let new_last = self.arena.new_node(child.arena[ch].data);
+            self.last.append(new_last, &mut self.arena);
+            self.last = new_last;
+        }
+        self
+    }
+
+    #[inline]
     pub fn id<S: Into<String>>(mut self, id: S) -> Self {
-        self.id = Some(id.into());
+        self.arena[self.last].data.id = Some(id.into());
         self
     }
 
     #[inline]
     pub fn class<S: Into<String>>(mut self, class: S) -> Self {
-        self.classes.push(class.into());
+        self.arena[self.last].data.classes.push(class.into());
         self
     }
 
     #[inline]
     pub fn event(mut self, on: On, callback: fn(&mut AppState<T>) -> ()) -> Self {
-        self.events.callbacks.insert(on, callback);
+        self.arena[self.last].data.events.callbacks.insert(on, callback);
+        self.arena[self.last].data.tag = Some(unsafe { (NODE_ID, 0) });
+        unsafe { NODE_ID += 1; };
         self
     }
 
-    #[inline]
-    pub fn add_child(mut self, child: Self) -> Self {
-        self.children.push(child);
-        self
+    fn children(&self) -> Children<NodeData<T>> {
+        self.root.children(&self.arena)
     }
 
+    fn following_siblings(&self) -> FollowingSiblings<NodeData<T>> {
+        self.root.following_siblings(&self.arena)
+    }
+}
+
+impl<T: LayoutScreen> DomNode<T> {
+    
+
+
+/*
     pub(crate) fn into_node_ref(self, callback_list: &mut WrCallbackList<T>, nodes_to_callback_id_list: &mut BTreeMap<ItemTag, BTreeMap<On, u64>>) -> NodeRef {
 
         use std::cell::RefCell;
@@ -218,5 +218,35 @@ impl<T: LayoutScreen> DomNode<T> {
         }
 
         node
+    }
+*/
+}
+
+
+// callbacks
+
+pub struct WebRenderIdList {
+    /// Node tag -> List of callback IDs
+    pub(crate) callbacks: Option<(ItemTag, BTreeMap<On, u64>)>,
+}
+
+impl WebRenderIdList {
+    pub fn new() -> Self {
+        Self {
+            callbacks: None,
+        }
+    }
+}
+
+pub struct WrCallbackList<T: LayoutScreen> {
+    /// callback ID -> function pointer
+    pub(crate) callback_list: BTreeMap<u64, fn(&mut AppState<T>) -> ()>,
+}
+
+impl<T: LayoutScreen> WrCallbackList<T> {
+    pub fn new() -> Self {
+        Self {
+            callback_list: BTreeMap::new(),
+        }
     }
 }

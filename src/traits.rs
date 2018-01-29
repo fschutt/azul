@@ -1,9 +1,8 @@
-use ui_state::UiState;
+use dom::{NodeData, Dom};
 use ui_description::{StyledNode, CssConstraintList, UiDescription};
 use css::{Css, CssRule};
 use window::WindowId;
-use dom::DomNode;
-use kuchiki::NodeRef;
+use id_tree::{NodeId, Arena};
 
 pub trait LayoutScreen {
     /// Updates the DOM, must be provided by the final application.
@@ -14,15 +13,15 @@ pub trait LayoutScreen {
     /// The `style_dom` looks through the given DOM rules, applies the style and
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
-    fn get_dom(&self) -> DomNode<Self> where Self: Sized;
+    fn get_dom(&self) -> Dom<Self> where Self: Sized;
     /// Provide access to the Css style for the application
     fn get_css(&mut self, window_id: WindowId) -> &mut Css;
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    fn style_dom(nodes: &NodeRef, css: &mut Css) -> UiDescription {
+    fn style_dom<'a>(dom: &'a Dom<Self>, css: &mut Css) -> UiDescription<'a, Self> where Self: Sized {
         css.dirty = true;
-        match_dom_css_selectors(nodes, &ParsedCss::from_css(css), css, &CssConstraintList::empty(), 0)
+        match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, &CssConstraintList::empty(), 0)
     }
 }
 
@@ -94,65 +93,57 @@ impl<'a> ParsedCss<'a> {
     }
 }
 
-fn match_dom_css_selectors(root: &NodeRef, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
--> UiDescription
+fn match_dom_css_selectors<'a, T: LayoutScreen>(root: NodeId, arena: &'a Arena<NodeData<T>>, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
+-> UiDescription<'a, T>
+{
+    let styled_nodes = match_dom_css_selectors_inner(root, &arena, parsed_css, css, parent_constraints, parent_z_level);
+    UiDescription {
+        arena: Some(arena),
+        styled_nodes: styled_nodes,
+    }
+}
+
+fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<NodeData<T>>, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
+-> Vec<StyledNode>
 {
     let mut styled_nodes = Vec::<StyledNode>::new();
 
     let mut current_constraints = CssConstraintList::empty();
-    cascade_constraints(root, &mut current_constraints, parsed_css, css);
+    cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css, css);
 
     let current_node = StyledNode {
-        node: root.clone(),
+        id: root,
         z_level: parent_z_level,
         css_constraints: current_constraints,
     };
 
     // DFS tree
-    for child in root.children() {
-        let mut child_ui = match_dom_css_selectors(&child, parsed_css, css, &current_node.css_constraints, parent_z_level + 1);
-        styled_nodes.append(&mut child_ui.styled_nodes);
+    for child in root.children(arena) {
+        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, parent_z_level + 1));
     }
 
-    for sibling in root.following_siblings() {
-        let mut sibling_ui = match_dom_css_selectors(&sibling, parsed_css, css, &parent_constraints, parent_z_level);
-        styled_nodes.append(&mut sibling_ui.styled_nodes);
+    for sibling in root.following_siblings(arena) {
+        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena, parsed_css, css, &parent_constraints, parent_z_level));
     }
 
     styled_nodes.push(current_node);
-
-    UiDescription {
-        styled_nodes: styled_nodes,
-    }
+    styled_nodes
 }
 
 /// Cascade the rules, put them into the list
-fn cascade_constraints(node: &NodeRef, list: &mut CssConstraintList, parsed_css: &ParsedCss, css: &Css) {
-    use dom::{HTML_CLASS, HTML_ID};
-
-    let node = match node.as_element() {
-        None => return,
-        Some(e) => e,
-    };
+fn cascade_constraints<T: LayoutScreen>(node: &NodeData<T>, list: &mut CssConstraintList, parsed_css: &ParsedCss, css: &Css) {
 
     for global_rule in &parsed_css.pure_global_rules {
         push_rule(list, global_rule);
     }
 
     for div_rule in &parsed_css.pure_div_rules {
-        if *node.name.local == div_rule.html_type {
+        if *node.node_type.get_css_id() == div_rule.html_type {
             push_rule(list, div_rule);
         }
     }
 
-    let node_attributes = node.attributes.borrow();
-
-    // attributes for this node that have a "class = something"
-    // TODO: I am not sure if the node.attributes allows for duplicated keys
-    let mut node_classes: Vec<&String> = node_attributes.map.iter().filter_map(|e|
-        if *e.0 == HTML_CLASS { Some(e.1) } else { None }
-    ).collect();
-
+    let node_classes: Vec<&String> = node.classes.iter().map(|x| x).collect();
     node_classes.sort();
     node_classes.dedup_by(|a, b| *a == *b);
 
@@ -179,14 +170,12 @@ fn cascade_constraints(node: &NodeRef, list: &mut CssConstraintList, parsed_css:
     }
 
     // first attribute for "id = something"
-    let node_id: Option<&String> = node_attributes.map.iter().find(|e|
-        *e.0 == HTML_ID
-    ).map(|e| e.1);
+    let node_id: Option<String> = node.id;
 
     if let Some(node_id) = node_id {
         // if the node has an ID
         for id_rule in &parsed_css.pure_id_rules {
-            if *id_rule.id.as_ref().unwrap() == *node_id {
+            if *id_rule.id.as_ref().unwrap() == node_id {
                 push_rule(list, id_rule);
             }
         }
