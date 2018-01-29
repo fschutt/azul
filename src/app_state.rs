@@ -4,14 +4,14 @@ use traits::LayoutScreen;
 /// you need to satisfy the `LayoutScreen` trait (how the application
 /// should be laid out)
 pub struct AppState<T: LayoutScreen> {
-	pub data: T,
+    pub data: T,
 }
 
 impl<T> AppState<T> where T: LayoutScreen {
 
-	pub fn new(initial_data: T) -> Self {
-		Self {
-			data: initial_data,
-		}
-	}
+    pub fn new(initial_data: T) -> Self {
+        Self {
+            data: initial_data,
+        }
+    }
 }

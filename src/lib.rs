@@ -48,179 +48,179 @@ type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHas
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
-	/// The graphical windows, indexed by ID
-	windows: BTreeMap<WindowId, Window>,
-	/// The global application state
-	pub app_state: Arc<Mutex<AppState<T>>>,
+    /// The graphical windows, indexed by ID
+    windows: BTreeMap<WindowId, Window>,
+    /// The global application state
+    pub app_state: Arc<Mutex<AppState<T>>>,
 }
 
 impl<T: LayoutScreen> App<T> {
 
-	/// Create a new, empty application (note: doesn't create a window!)
-	pub fn new(initial_data: T) -> Self {
-		Self {
-			windows: BTreeMap::new(),
-			app_state: Arc::new(Mutex::new(AppState::new(initial_data))),
-		}
-	}
+    /// Create a new, empty application (note: doesn't create a window!)
+    pub fn new(initial_data: T) -> Self {
+        Self {
+            windows: BTreeMap::new(),
+            app_state: Arc::new(Mutex::new(AppState::new(initial_data))),
+        }
+    }
 
-	/// Spawn a new window on the screen
-	pub fn create_window(&mut self, options: WindowCreateOptions) -> Result<WindowId, WindowCreateError> {
-		let window = Window::new(options)?;
-		if self.windows.len() == 0 {
-			self.windows.insert(WindowId::new(0), window);
-			Ok(WindowId::new(0))
-		} else {
-			let highest_id = *self.windows.iter().next_back().unwrap().0;
-			let new_id = highest_id.id.saturating_add(1);
-			self.windows.insert(WindowId::new(new_id), window);
-			Ok(WindowId::new(new_id))
-		}
-	}
+    /// Spawn a new window on the screen
+    pub fn create_window(&mut self, options: WindowCreateOptions) -> Result<WindowId, WindowCreateError> {
+        let window = Window::new(options)?;
+        if self.windows.len() == 0 {
+            self.windows.insert(WindowId::new(0), window);
+            Ok(WindowId::new(0))
+        } else {
+            let highest_id = *self.windows.iter().next_back().unwrap().0;
+            let new_id = highest_id.id.saturating_add(1);
+            self.windows.insert(WindowId::new(new_id), window);
+            Ok(WindowId::new(new_id))
+        }
+    }
 
-	/// Start the rendering loop for the currently open windows
-	pub fn start_render_loop(&mut self)
-	{
-		let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-		let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap());
+    /// Start the rendering loop for the currently open windows
+    pub fn start_render_loop(&mut self)
+    {
+        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
+        let mut ui_state = app_state_to_ui_state(&self.app_state.lock().unwrap());
 
-		'render_loop: loop {
+        'render_loop: loop {
 
-			use glium::glutin::WindowEvent;
-			use glium::glutin::Event;
+            use glium::glutin::WindowEvent;
+            use glium::glutin::Event;
 
-			// TODO: Use threads on a per-window basis.
-			// Currently, events in one window will block all others
-			for (window_id, window) in self.windows.iter_mut() {
+            // TODO: Use threads on a per-window basis.
+            // Currently, events in one window will block all others
+            for (window_id, window) in self.windows.iter_mut() {
 
-				let mut should_redraw_window = false;
+                let mut should_redraw_window = false;
 
-				{
-					let mut app_state = self.app_state.lock().unwrap();
-					let api = &window.internal.api;
-					let document = window.internal.document_id;
-					let pipeline = window.internal.pipeline_id;
+                {
+                    let mut app_state = self.app_state.lock().unwrap();
+                    let api = &window.internal.api;
+                    let document = window.internal.document_id;
+                    let pipeline = window.internal.pipeline_id;
 
-					let mut new_window_size = None;
-					window.events_loop.poll_events(|event| {
-						match event {
-							Event::WindowEvent {
-								window_id,
-								event
-							} => {
-								match event {
-									WindowEvent::CursorMoved {
-										device_id,
-										position,
-										modifiers,
-									} => {
-										use webrender::api::WorldPoint;
-										let _ = window_id;
-										let _ = device_id;
-										let _ = modifiers;
-										let point = WorldPoint::new(position.0 as f32, position.1 as f32);
-										let hit_test_results = hit_test_ui(api, document, Some(pipeline), point);
+                    let mut new_window_size = None;
+                    window.events_loop.poll_events(|event| {
+                        match event {
+                            Event::WindowEvent {
+                                window_id,
+                                event
+                            } => {
+                                match event {
+                                    WindowEvent::CursorMoved {
+                                        device_id,
+                                        position,
+                                        modifiers,
+                                    } => {
+                                        use webrender::api::WorldPoint;
+                                        let _ = window_id;
+                                        let _ = device_id;
+                                        let _ = modifiers;
+                                        let point = WorldPoint::new(position.0 as f32, position.1 as f32);
+                                        let hit_test_results = hit_test_ui(api, document, Some(pipeline), point);
 
-										for item in hit_test_results.items {
-											// todo: invoke appropriate action
-											println!("{:?}", item);
-										}
+                                        for item in hit_test_results.items {
+                                            // todo: invoke appropriate action
+                                            println!("{:?}", item);
+                                        }
 
-										// end of mouse handling
-										should_redraw_window = true;
-									},
-									WindowEvent::Resized(w, h) => {
-										new_window_size = Some((w, h));
-										should_redraw_window = true;
-									}
-									_ => { },
-								}
-							},
-							_ => { },
-						}
-					});
+                                        // end of mouse handling
+                                        should_redraw_window = true;
+                                    },
+                                    WindowEvent::Resized(w, h) => {
+                                        new_window_size = Some((w, h));
+                                        should_redraw_window = true;
+                                    }
+                                    _ => { },
+                                }
+                            },
+                            _ => { },
+                        }
+                    });
 
-					if let Some((w, h)) = new_window_size {
-						use webrender::api::{DeviceUintSize, LayoutSize};
-						window.internal.layout_size = LayoutSize::new(w as f32, h as f32);
-						window.internal.framebuffer_size = DeviceUintSize::new(w, h);
-					}
+                    if let Some((w, h)) = new_window_size {
+                        use webrender::api::{DeviceUintSize, LayoutSize};
+                        window.internal.layout_size = LayoutSize::new(w as f32, h as f32);
+                        window.internal.framebuffer_size = DeviceUintSize::new(w, h);
+                    }
 
-					let css = app_state.data.get_css(*window_id);
-					if css.dirty {
-						// Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.
-						ui_description_cache[window_id.id] = ui_state_to_ui_description::<T>(&ui_state, css);
-					}
-				}
+                    let css = app_state.data.get_css(*window_id);
+                    if css.dirty {
+                        // Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.
+                        ui_description_cache[window_id.id] = ui_state_to_ui_description::<T>(&ui_state, css);
+                    }
+                }
 
-				// Re-layouts the UI.
-				if should_redraw_window {
-					render(window, window_id, &ui_description_cache[window_id.id]);
-				}
-			}
+                // Re-layouts the UI.
+                if should_redraw_window {
+                    render(window, window_id, &ui_description_cache[window_id.id]);
+                }
+            }
 
-			::std::thread::sleep(::std::time::Duration::from_millis(16));
-		}
-	}
+            ::std::thread::sleep(::std::time::Duration::from_millis(16));
+        }
+    }
 }
 
 fn render(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription) {
 
-	// todo: convert the UIDescription into the webrender display list
+    // todo: convert the UIDescription into the webrender display list
 
-	use webrender::api::*;
-	use display_list::DisplayList;
+    use webrender::api::*;
+    use display_list::DisplayList;
 
-	let display_list = DisplayList::new_from_ui_description(ui_description);
-	let builder = display_list.into_display_list_builder(
-		window.internal.pipeline_id,
-		window.internal.layout_size,
-		&mut window.solver.solver);
+    let display_list = DisplayList::new_from_ui_description(ui_description);
+    let builder = display_list.into_display_list_builder(
+        window.internal.pipeline_id,
+        window.internal.layout_size,
+        &mut window.solver.solver);
 
-	let resources = ResourceUpdates::new();
+    let resources = ResourceUpdates::new();
 
-	let mut txn = Transaction::new();
-	txn.set_display_list(
-	    window.internal.epoch,
-	    None,
-	    window.internal.layout_size,
-	    builder.finalize(),
-	    true,
-	);
+    let mut txn = Transaction::new();
+    txn.set_display_list(
+        window.internal.epoch,
+        None,
+        window.internal.layout_size,
+        builder.finalize(),
+        true,
+    );
 
-	txn.update_resources(resources);
-	txn.set_root_pipeline(window.internal.pipeline_id);
-	txn.generate_frame();
+    txn.update_resources(resources);
+    txn.set_root_pipeline(window.internal.pipeline_id);
+    txn.generate_frame();
 
-	window.internal.api.send_transaction(window.internal.document_id, txn);
-	window.renderer.as_mut().unwrap().update();
-	window.renderer.as_mut().unwrap().render(window.internal.framebuffer_size).unwrap();
-	window.display.swap_buffers().unwrap();
+    window.internal.api.send_transaction(window.internal.document_id, txn);
+    window.renderer.as_mut().unwrap().update();
+    window.renderer.as_mut().unwrap().render(window.internal.framebuffer_size).unwrap();
+    window.display.swap_buffers().unwrap();
 }
 
 fn app_state_to_ui_state<T>(app_state: &AppState<T>)
 -> UiState<T> where T: LayoutScreen
 {
-	use dom::{WrCallbackList, DomNode, On};
-	use webrender::api::ItemTag;
+    use dom::{WrCallbackList, DomNode, On};
+    use webrender::api::ItemTag;
 
-	let root_node: DomNode<T> = app_state.data.get_dom();
-	unsafe { self::dom::NODE_ID = 0 };
-	unsafe { self::dom::CALLBACK_ID = 0 };
-	let mut callback_list = WrCallbackList::<T>::new();
-	let mut node_ids_to_callbacks_list = BTreeMap::<ItemTag, BTreeMap<On, u64>>::new();
-	let root_node = root_node.into_node_ref(&mut callback_list, &mut node_ids_to_callbacks_list);
+    let root_node: DomNode<T> = app_state.data.get_dom();
+    unsafe { self::dom::NODE_ID = 0 };
+    unsafe { self::dom::CALLBACK_ID = 0 };
+    let mut callback_list = WrCallbackList::<T>::new();
+    let mut node_ids_to_callbacks_list = BTreeMap::<ItemTag, BTreeMap<On, u64>>::new();
+    let root_node = root_node.into_node_ref(&mut callback_list, &mut node_ids_to_callbacks_list);
 
-	UiState {
-		document_root: root_node,
-		callback_list: callback_list,
-		node_ids_to_callbacks_list: node_ids_to_callbacks_list,
-	}
+    UiState {
+        document_root: root_node,
+        callback_list: callback_list,
+        node_ids_to_callbacks_list: node_ids_to_callbacks_list,
+    }
 }
 
 fn ui_state_to_ui_description<T>(ui_state: &UiState<T>, style: &mut Css)
 -> UiDescription
-	where T: LayoutScreen
+    where T: LayoutScreen
 {
-	T::style_dom(&ui_state.document_root, style)
+    T::style_dom(&ui_state.document_root, style)
 }
