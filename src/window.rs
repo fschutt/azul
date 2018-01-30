@@ -10,8 +10,6 @@ use euclid::TypedScale;
 use cassowary::Solver;
 
 use std::time::Duration;
-use std::sync::mpsc::{channel, Sender, Receiver, SendError};
-use std::thread::{Builder, JoinHandle};
 
 const DEFAULT_TITLE: &str = "Azul App";
 const DEFAULT_WIDTH: u32 = 800;
@@ -314,6 +312,7 @@ pub struct WindowInternal {
     pub(crate) framebuffer_size: DeviceUintSize,
     pub(crate) pipeline_id: PipelineId,
     pub(crate) document_id: DocumentId,
+    pub(crate) hidpi_factor: f32,
 }
 
 impl Window {
@@ -351,8 +350,9 @@ impl Window {
 
         // For some reason, there is GL_INVALID_OPERATION stuff going on,
         // but the display works fine. TODO: report this to glium
-
-        let display = Display::with_debug(GlWindow::new(window, context, &events_loop)?, DebugCallbackBehavior::Ignore)?;
+        let gl_window = GlWindow::new(window, context, &events_loop)?;
+        let hidpi_factor = gl_window.hidpi_factor();
+        let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
         unsafe {
             display.gl_window().make_current()?;
@@ -412,6 +412,7 @@ impl Window {
                 framebuffer_size: framebuffer_size,
                 pipeline_id: pipeline_id,
                 document_id: document_id,
+                hidpi_factor: hidpi_factor,
             },
             solver: UiSolver {
                 solver: Solver::new(),

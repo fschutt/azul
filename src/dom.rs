@@ -1,8 +1,7 @@
 use app_state::AppState;
 use traits::LayoutScreen;
 use std::collections::BTreeMap;
-use id_tree::{NodeId, Children, Arena, FollowingSiblings};
-use webrender::api::ItemTag;
+use id_tree::{NodeId, Arena};
 use std::sync::{Arc, Mutex};
 use std::fmt;
 

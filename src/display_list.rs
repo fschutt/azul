@@ -52,6 +52,8 @@ impl DisplayRectangle {
     }
 }
 
+static mut RIGHT: f32 = 0.0;
+
 impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
@@ -90,9 +92,11 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             }
 
             let bounds = LayoutRect::new(
-                LayoutPoint::new(50.0, 50.0),
+                LayoutPoint::new(unsafe { RIGHT }, 50.0),
                 LayoutSize::new(200.0, 200.0),
             );
+
+            unsafe { RIGHT += 1.0; }
 
             let clip = if let Some(border_radius) = rect.border_radius {
                 LocalClip::RoundedRect(bounds, ComplexClipRegion {
@@ -111,25 +115,17 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                 local_clip: clip,
             };
 
-            let opacity = 34.0;
-            let opacity_key = PropertyBindingKey::new(43); // arbitrary magic number
-            let property_key = PropertyBindingKey::new(42); // arbitrary magic number
-
-            let filters = vec![
-                FilterOp::Opacity(PropertyBinding::Binding(opacity_key), opacity),
-            ];
-
             builder.push_stacking_context(
                 &info,
                 ScrollPolicy::Scrollable,
-                Some(PropertyBinding::Binding(property_key)),
+                None,
                 TransformStyle::Flat,
                 None,
                 MixBlendMode::Normal,
-                filters,
+                Vec::new(),
             );
 
-            builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 0 }).into());
+            builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 0, g: 0, b: 0, a: 1 }).into());
 
             if let Some(ref pre_shadow) = rect.box_shadow {
                 // The pre_shadow is missing the BorderRadius & LayoutRect
@@ -152,7 +148,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                             }).collect();
                         let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
                         let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
-                        builder.push_gradient(&info, gradient, LayoutSize::new(200.0, 200.0), LayoutSize::zero());
+                        builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
                     }
                 }
             }

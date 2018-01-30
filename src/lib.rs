@@ -118,6 +118,7 @@ impl<T: LayoutScreen> App<T> {
                 let mut should_hittest = false;
                 let mut cur_cursor_pos = (0.0, 0.0);
                 let mut new_window_size = None;
+                let mut new_dpi_factor = None;
 
                 window.events_loop.poll_events(|event| {
                     match event {
@@ -140,17 +141,21 @@ impl<T: LayoutScreen> App<T> {
                                 },
                                 WindowEvent::Resized(w, h) => {
                                     new_window_size = Some((w, h));
-                                    should_redraw_window = true;
                                 },
                                 WindowEvent::Refresh => {
                                     should_redraw_window = true;
                                 },
+                                WindowEvent::HiDPIFactorChanged(dpi) => {
+                                    new_dpi_factor = Some(dpi);
+                                }
                                 _ => { },
                             }
                         },
                         _ => { },
                     }
                 });
+
+                // update the state
 
                 if should_hittest {
                     use webrender::api::WorldPoint;
@@ -179,9 +184,24 @@ impl<T: LayoutScreen> App<T> {
                 }
 
                 if let Some((w, h)) = new_window_size {
-                    use webrender::api::{DeviceUintSize, LayoutSize};
+                    use webrender::api::{DeviceUintSize, DeviceUintPoint, DeviceUintRect, LayoutSize, Transaction};
                     window.internal.layout_size = LayoutSize::new(w as f32, h as f32);
                     window.internal.framebuffer_size = DeviceUintSize::new(w, h);
+                    let mut txn = Transaction::new();
+                    let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
+                    txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
+                    window.internal.api.send_transaction(window.internal.document_id, txn);
+                    should_redraw_window = true;
+                }
+
+                if let Some(dpi) = new_dpi_factor {
+                    use webrender::api::{DeviceUintPoint, DeviceUintRect, Transaction};
+
+                    window.internal.hidpi_factor = dpi;
+                    let mut txn = Transaction::new();
+                    let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
+                    txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);                    window.internal.api.send_transaction(window.internal.document_id, txn);
+                    should_redraw_window = true;
                 }
 
                 let mut app_state = self.app_state.lock().unwrap();
@@ -196,7 +216,6 @@ impl<T: LayoutScreen> App<T> {
 
                 // Re-layouts the UI.
                 if should_redraw_window {
-                    println!("redraw!");
                     render(window, window_id, &ui_description_cache[window_id.id]);
                 }
             }
@@ -213,6 +232,8 @@ fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_descri
 
     let display_list = DisplayList::new_from_ui_description(ui_description);
     
+    println!("layout size: {:?}", window.internal.layout_size);
+
     let builder = display_list.into_display_list_builder(
         window.internal.pipeline_id,
         window.internal.layout_size,

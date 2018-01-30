@@ -735,11 +735,12 @@ impl DirectionCorner {
     pub fn to_point(&self, rect: &LayoutRect) -> TypedPoint2D<f32, LayerPixel>
     {
         use self::DirectionCorner::*;
+        // begin_pt: (150,250) (top), end_pt: (150,50) (bottom), bounds: TypedRect(200×200 at (50,50))
         match *self {
             Right => TypedPoint2D::new(rect.max_x(), (rect.origin.y + (rect.size.height / 2.0))),
             Left => TypedPoint2D::new(rect.min_x(), (rect.origin.y + (rect.size.height / 2.0))),
-            Top => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.max_y()),
-            Bottom => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.min_y()),
+            Top => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.min_y()),
+            Bottom => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.max_y()),
             TopRight => rect.top_right(),
             TopLeft => rect.origin,
             BottomRight => rect.bottom_right(),
@@ -894,6 +895,9 @@ pub fn parse_css_background<'a>(input: &'a str)
             }
         }
     }
+
+    println!("gradient stops - {:?}", color_stops);
+    println!("direction - {:?}", direction);
 
     match gradient_type {
         GradientType::LinearGradient => {
