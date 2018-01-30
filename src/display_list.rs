@@ -13,8 +13,9 @@ pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
 }
 
 pub(crate) struct DisplayRectangle {
-    /// Tag used for hit-testing (for webrender)
-    pub tag: Option<(u64, u16)>,
+    /// `Some(id)` if this rectangle has a callback attached to it 
+    pub tag: Option<u64>,
+    /// DOM-specific Node ID (useful for getting the parent / ancestors, etc.)
     pub node_id: NodeId,
     /// The actual rectangle
     pub(crate) rect: DisplayRect,
@@ -53,6 +54,7 @@ impl DisplayRectangle {
 
 impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
+    /// NOTE: This function assumes that the UiDescription has an initialized arena
     pub fn new_from_ui_description(ui_description: &'a UiDescription<T>) -> Self {
 
         let arena = ui_description.arena.as_ref().unwrap();
@@ -105,7 +107,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             let info = LayoutPrimitiveInfo {
                 rect: bounds,
                 is_backface_visible: false,
-                tag: rect.tag,
+                tag: rect.tag.and_then(|tag| Some((tag, 0))),
                 local_clip: clip,
             };
 

@@ -86,19 +86,21 @@ impl<T: LayoutScreen> App<T> {
     pub fn start_render_loop(&mut self)
     {
         // BIG TODO! This will crash if 
-        let ui_state = UiState::from_app_state(&*self.app_state.lock().unwrap(), WindowId { id: 0 });
+        let mut ui_state_cache = Vec::with_capacity(self.windows.len());
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut css_cache = vec![Css::new(); self.windows.len()];
 
         // first redraw, initialize cache  
         {
             let mut app_state = self.app_state.lock().unwrap();
-            println!("initial redraw!");
-            for (window_id, window) in self.windows.iter_mut() {
+            for (window_id, _) in self.windows.iter_mut() {
+                ui_state_cache.push(UiState::from_app_state(&*app_state, *window_id));
+            }
+
+            for (window_id, _) in self.windows.iter_mut() {
                 let new_css = app_state.data.get_css(*window_id);
                 css_cache[window_id.id] = new_css.clone();
-                ui_description_cache[window_id.id] = UiDescription::from_ui_state(&ui_state, &mut css_cache[window_id.id]);
-                render(window, window_id, &ui_description_cache[window_id.id]);
+                ui_description_cache[window_id.id] = UiDescription::from_ui_state(&ui_state_cache[window_id.id], &mut css_cache[window_id.id]);
             }
         }      
 
@@ -143,12 +145,6 @@ impl<T: LayoutScreen> App<T> {
                                 WindowEvent::Refresh => {
                                     should_redraw_window = true;
                                 },
-                                WindowEvent::HoveredFile(path) => {
-                                    println!("hovered file - {:?}", path);
-                                },
-                                WindowEvent::DroppedFile(path) => {
-                                    println!("dropped file - {:?}", path);
-                                },
                                 _ => { },
                             }
                         },
@@ -167,8 +163,18 @@ impl<T: LayoutScreen> App<T> {
                     }
 
                     for item in hit_test_results.items {
-                        // todo: invoke appropriate action
-                        println!("hit rectangle - {:?}", item.tag.0);
+                        if let Some(callback_list) = ui_state_cache[window_id.id].node_ids_to_callbacks_list.get(&item.tag.0) {
+                            // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
+                            // currently, just invoke all actions
+                            for callback_id in callback_list.values() {
+                                let callback_fn = ui_state_cache[window_id.id].callback_list[callback_id];
+                                use dom::Callback::*;
+                                match callback_fn {
+                                    Sync(callback) => { (callback)(&mut *self.app_state.lock().unwrap()); },
+                                    Async(callback) => { (callback)(self.app_state.clone()) },
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -185,7 +191,7 @@ impl<T: LayoutScreen> App<T> {
                 if css_cache[window_id.id].rules != new_css.rules {
                     // Re-styles (NOT re-layouts!) the UI. Possibly very performance-heavy.
                     css_cache[window_id.id] = new_css.clone();
-                    ui_description_cache[window_id.id] = UiDescription::from_ui_state(&ui_state, &mut css_cache[window_id.id]);
+                    ui_description_cache[window_id.id] = UiDescription::from_ui_state(&ui_state_cache[window_id.id], &mut css_cache[window_id.id]);
                 }
 
                 // Re-layouts the UI.
@@ -200,8 +206,8 @@ impl<T: LayoutScreen> App<T> {
     }
 }
 
-fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription<T>) {
-
+fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription<T>) 
+{
     use webrender::api::*;
     use display_list::DisplayList;
 

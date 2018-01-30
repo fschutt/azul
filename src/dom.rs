@@ -42,6 +42,8 @@ impl<T: LayoutScreen> Clone for Callback<T>
     }
 }
 
+impl<T: LayoutScreen> Copy for Callback<T> { }
+
 /// List of allowed DOM node types
 ///
 /// The reason for this is because the markup5ever crate has
@@ -99,7 +101,7 @@ pub(crate) struct NodeData<T: LayoutScreen> {
     /// `onclick` -> `my_button_click_handler`
     pub events: CallbackList<T>,
     /// Tag for hit-testing
-    pub tag: Option<(u64, u16)>,
+    pub tag: Option<u64>,
 }
 
 impl<T: LayoutScreen> fmt::Debug for NodeData<T> {
@@ -181,7 +183,7 @@ impl<T: LayoutScreen> Dom<T> {
 
     #[inline]
     pub fn add_child(mut self, child: Self) -> Self {
-        for ch in child.children() {
+        for ch in child.root.children(&child.arena) {
             let new_last = self.arena.new_node(child.arena[ch].data.special_clone());
             self.last.append(new_last, &mut self.arena);
             self.last = new_last;
@@ -212,111 +214,25 @@ impl<T: LayoutScreen> Dom<T> {
     #[inline]
     pub fn event(mut self, on: On, callback: Callback<T>) -> Self {
         self.arena[self.last].data.events.callbacks.insert(on, callback);
-        self.arena[self.last].data.tag = Some(unsafe { (NODE_ID, 0) });
+        self.arena[self.last].data.tag = Some(unsafe { NODE_ID });
         unsafe { NODE_ID += 1; };
         self
-    }
-
-    fn children(&self) -> Children<NodeData<T>> {
-        self.root.children(&self.arena)
-    }
-
-    fn following_siblings(&self) -> FollowingSiblings<NodeData<T>> {
-        self.root.following_siblings(&self.arena)
     }
 }
 
 impl<T: LayoutScreen> Dom<T> {
     
-    pub(crate) fn collect_callbacks(&self, callback_list: &mut WrCallbackList<T>, nodes_to_callback_id_list: &mut  BTreeMap<ItemTag, BTreeMap<On, u64>>) {
-
-    }
-
-/*
-    pub(crate) fn into_node_ref(self, callback_list: &mut WrCallbackList<T>, nodes_to_callback_id_list: &mut BTreeMap<ItemTag, BTreeMap<On, u64>>) -> NodeRef {
-
-        use std::cell::RefCell;
-        use std::collections::HashMap;
-        use kuchiki::{NodeRef, Attributes, NodeData, ElementData};
-
-        let mut event_list = BTreeMap::<On, u64>::new();
-        let mut attributes = HashMap::new();
-
-        if let Some(id) = self.id {
-            attributes.insert(HTML_ID, id);
-        }
-
-        for class in self.classes {
-            attributes.insert(HTML_CLASS, class);
-        }
-
-        for (key, value) in self.events.callbacks {
-            unsafe {
-                event_list.insert(key, CALLBACK_ID);
-                callback_list.callback_list.insert(CALLBACK_ID, value);
-                CALLBACK_ID += 1;
+    pub(crate) fn collect_callbacks(&self, callback_list: &mut BTreeMap<u64, Callback<T>>, nodes_to_callback_id_list: &mut  BTreeMap<u64, BTreeMap<On, u64>>) {
+        for item in self.root.traverse(&self.arena) {
+            let mut cb_id_list = BTreeMap::<On, u64>::new();
+            let item = &self.arena[item.inner_value()];
+            for (on, callback) in item.data.events.callbacks.iter() {
+                let callback_id = unsafe { CALLBACK_ID };
+                unsafe { CALLBACK_ID += 1; }
+                callback_list.insert(callback_id, *callback);
+                cb_id_list.insert(*on, callback_id);
             }
-        }
-
-        if !event_list.is_empty() {
-            use std::mem::transmute;
-            nodes_to_callback_id_list.insert(unsafe { (NODE_ID, 0) }, event_list);
-            unsafe { NODE_ID += 1; }
-            let bytes: [u8; 8] = unsafe { transmute(NODE_ID.to_be()) };
-            let bytes_string = unsafe { String::from_utf8_unchecked(bytes.to_vec()) };
-            attributes.insert(HTML_NODE_ID, bytes_string);
-        }
-
-        let node = match self.node_type {
-            NodeType::Text { content } => {
-                NodeData::Text(RefCell::new(content))
-            },
-            _ => {
-                NodeData::Element(ElementData {
-                    name: QualName::new(None, ns!(html), self.node_type.into()),
-                    attributes: RefCell::new(Attributes { map: attributes }),
-                    template_contents: None,
-                })
-            }
-        };
-
-        let node = NodeRef::new(node);
-
-        for child in self.children {
-            let child_node = child.into_node_ref(callback_list, nodes_to_callback_id_list);
-            node.append(child_node);
-        }
-
-        node
-    }
-*/
-}
-
-
-// callbacks
-
-pub struct WebRenderIdList {
-    /// Node tag -> List of callback IDs
-    pub(crate) callbacks: Option<(ItemTag, BTreeMap<On, u64>)>,
-}
-
-impl WebRenderIdList {
-    pub fn new() -> Self {
-        Self {
-            callbacks: None,
-        }
-    }
-}
-
-pub struct WrCallbackList<T: LayoutScreen> {
-    /// callback ID -> function pointer
-    pub(crate) callback_list: BTreeMap<u64, fn(&mut AppState<T>) -> ()>,
-}
-
-impl<T: LayoutScreen> WrCallbackList<T> {
-    pub fn new() -> Self {
-        Self {
-            callback_list: BTreeMap::new(),
+            nodes_to_callback_id_list.insert(item.data.tag.unwrap(), cb_id_list);
         }
     }
 }

@@ -1,5 +1,5 @@
 use FastHashMap;
-use id_tree::{Arena, NodeId, Node};
+use id_tree::{Arena, NodeId};
 use traits::LayoutScreen;
 use ui_state::UiState;
 use css::Css;

@@ -385,6 +385,16 @@ pub enum NodeEdge<T> {
     End(T),
 }
 
+impl<T> NodeEdge<T> {
+    pub fn inner_value(self) -> T {
+        use self::NodeEdge::*;
+        match self {
+            Start(t) => t,
+            End(t) => t,
+        }
+    }
+}
+
 /// An iterator of references to a given node and its descendants, in tree order.
 pub struct Traverse<'a, T: 'a> {
     arena: &'a Arena<T>,
