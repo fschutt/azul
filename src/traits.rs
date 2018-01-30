@@ -2,7 +2,7 @@ use dom::{NodeData, Dom};
 use ui_description::{StyledNode, CssConstraintList, UiDescription};
 use css::{Css, CssRule};
 use window::WindowId;
-use id_tree::{NodeId, Node, Arena};
+use id_tree::{NodeId, Arena};
 
 pub trait LayoutScreen {
     /// Updates the DOM, must be provided by the final application.
@@ -119,13 +119,20 @@ fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<No
 
     // DFS tree
     for child in root.children(arena) {
+        println!("append child ... {:?}", parent_z_level + 1);
         styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, parent_z_level + 1));
     }
 
     for sibling in root.following_siblings(arena) {
+        println!("siblings ...");
+        println!("sibling - {:?}", sibling);
+    }
+/*
+    for sibling in root.following_siblings(arena) {
+        println!("append sibling ... {:?}", parent_z_level);
         styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena, parsed_css, css, &parent_constraints, parent_z_level));
     }
-
+*/
     styled_nodes.push(current_node);
     styled_nodes
 }

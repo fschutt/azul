@@ -8,7 +8,7 @@ const NATIVE_CSS_LINUX: &str = include_str!("../assets/native_linux.css");
 #[cfg(target_os="macos")]
 const NATIVE_CSS_MACOS: &str = include_str!("../assets/native_macos.css");
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Css {
     // NOTE: Each time the rules are modified, the `dirty` flag
     // has to be set accordingly for the CSS to update!

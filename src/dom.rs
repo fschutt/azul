@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use id_tree::{NodeId, Children, Arena, FollowingSiblings};
 use webrender::api::ItemTag;
 use std::sync::{Arc, Mutex};
+use std::fmt;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
@@ -19,6 +20,16 @@ pub enum Callback<T: LayoutScreen> {
     /// Same as the `FnOnceNonBlocking`, but it blocks the current
     /// thread and does not require the type to be `Send`.
     Sync(fn(&mut AppState<T>) -> ()),
+}
+
+impl<T: LayoutScreen> fmt::Debug for Callback<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Callback::*;
+        match *self {
+            Async(_) => write!(f, "Callback::Async"),
+            Sync(_) => write!(f, "Callback::Sync"),
+        }
+    }
 }
 
 impl<T: LayoutScreen> Clone for Callback<T> 
@@ -37,7 +48,7 @@ impl<T: LayoutScreen> Clone for Callback<T>
 /// special macros for these node types, so either I need to expose the
 /// whole markup5ever crate to the end user or I need to build a
 /// wrapper type
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NodeType {
     Div,
     Button,
@@ -67,7 +78,7 @@ impl NodeType {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum On {
     MouseOver,
     MouseDown,
@@ -89,6 +100,13 @@ pub(crate) struct NodeData<T: LayoutScreen> {
     pub events: CallbackList<T>,
     /// Tag for hit-testing
     pub tag: Option<(u64, u16)>,
+}
+
+impl<T: LayoutScreen> fmt::Debug for NodeData<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "NodeData - node_type: {:?}, id: {:?}, classes: {:?}, events: {:?}, tag: {:?} ",
+                   self.node_type, self.id, self.classes, self.events, self.tag)
+    }
 }
 
 impl<T: LayoutScreen> CallbackList<T> {
@@ -132,6 +150,11 @@ pub struct Dom<T: LayoutScreen> {
 #[derive(Clone)]
 pub struct CallbackList<T: LayoutScreen> {
     pub(crate) callbacks: BTreeMap<On, Callback<T>>
+}
+impl<T: LayoutScreen> fmt::Debug for CallbackList<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CallbackList")
+    }
 }
 
 impl<T: LayoutScreen> CallbackList<T> {
