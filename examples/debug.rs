@@ -24,7 +24,7 @@ impl LayoutScreen for MyAppData {
         Dom::new(NodeType::Div)
             .class("__azul-native-button")
             .event(On::MouseUp, Callback::Sync(my_button_click_handler))
-        /*.add_child(Dom::new(NodeType::Text { content: "Hello World".into() }))*/
+        .add_child(Dom::new(NodeType::Text { content: "Hello World".into() }))
     }
 
     fn get_css(&mut self, _window_id: WindowId) -> &mut Css {

@@ -87,16 +87,22 @@ impl<T: LayoutScreen> App<T> {
     {
         // BIG TODO! This will crash if 
         let ui_state = UiState::from_app_state(&*self.app_state.lock().unwrap(), WindowId { id: 0 });
-        let mut ui_description_cache = Vec::with_capacity(self.windows.len());
-        for _ in 0..self.windows.len() {
-            ui_description_cache.push(UiDescription::default());
-        }
-
+        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut css_cache = vec![Css::new(); self.windows.len()];
-        
-        render(self.windows.get_mut(&WindowId { id: 0 }).unwrap(), &WindowId { id: 0 }, 
-                &UiDescription::from_ui_state(&ui_state, &mut self.app_state.lock().unwrap().data.get_css(WindowId { id: 0 })));
 
+        // first redraw, initialize cache  
+        {
+            let mut app_state = self.app_state.lock().unwrap();
+            println!("initial redraw!");
+            for (window_id, window) in self.windows.iter_mut() {
+                let new_css = app_state.data.get_css(*window_id);
+                css_cache[window_id.id] = new_css.clone();
+                ui_description_cache[window_id.id] = UiDescription::from_ui_state(&ui_state, &mut css_cache[window_id.id]);
+                render(window, window_id, &ui_description_cache[window_id.id]);
+            }
+        }      
+
+        
         'render_loop: loop {
 
             use glium::glutin::WindowEvent;
@@ -125,6 +131,7 @@ impl<T: LayoutScreen> App<T> {
                                 } => {
                                     should_hittest = true;
                                     cur_cursor_pos = position;
+
                                     let _ = window_id;
                                     let _ = device_id;
                                     let _ = modifiers;
@@ -183,42 +190,13 @@ impl<T: LayoutScreen> App<T> {
 
                 // Re-layouts the UI.
                 if should_redraw_window {
-                    println!("redraw");
-                    // NOTE: There is currently a memory leak in either glium or webrender
-                    // This rendering function leaks memory, probably because of an unsafe code path.
-                    render2(window, window_id, &ui_description_cache[window_id.id]);
+                    println!("redraw!");
+                    render(window, window_id, &ui_description_cache[window_id.id]);
                 }
             }
 
             ::std::thread::sleep(::std::time::Duration::from_millis(16));
         }
-    }
-}
-
-fn render2<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription<T>) {
-    use webrender::api::*;
-    use display_list::DisplayList;
-    let mut id = 0;
-    loop {
-        /*println!("render2 ... {:?}", id);
-        id += 1;
-        let display_list = DisplayList::new_from_ui_description(ui_description);
-        
-        let builder = display_list.into_display_list_builder(
-            window.internal.pipeline_id,
-            window.internal.layout_size,
-            &mut window.solver.solver);*/
-        let mut txn = Transaction::new();
-        /*txn.set_display_list(
-            window.internal.epoch,
-            None,
-            window.internal.layout_size,
-            builder.finalize(),
-            true,
-        );*/
-        txn.generate_frame();
-        window.internal.api.send_transaction(window.internal.document_id, txn);
-        window.renderer.as_mut().unwrap().update();
     }
 }
 
@@ -234,7 +212,7 @@ fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_descri
         window.internal.layout_size,
         &mut window.solver.solver);
 
-    // let resources = ResourceUpdates::new();
+    let resources = ResourceUpdates::new();
 
     let mut txn = Transaction::new();
     txn.set_display_list(
@@ -245,13 +223,12 @@ fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_descri
         true,
     );
 
-    // txn.update_resources(resources);
+    txn.update_resources(resources);
     txn.set_root_pipeline(window.internal.pipeline_id);
     txn.generate_frame();
     window.internal.api.send_transaction(window.internal.document_id, txn);
-/*
+
     window.renderer.as_mut().unwrap().update();
     window.renderer.as_mut().unwrap().render(window.internal.framebuffer_size).unwrap();
     window.display.swap_buffers().unwrap();
-*/
 }

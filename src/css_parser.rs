@@ -5,8 +5,7 @@ use webrender::api::{ColorU, BorderRadius, LayoutVector2D, LayoutPoint,
                     BorderDetails, BorderSide, NormalBorder, BorderWidths,
                     ExtendMode, LayoutRect, LayerPixel};
 use std::num::{ParseIntError, ParseFloatError};
-use euclid::{TypedRotation2D, Angle, TypedPoint2D, TypedSize2D, TypedScale};
-use euclid::num::Zero;
+use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
 pub const EM_HEIGHT: f32 = 16.0;
 

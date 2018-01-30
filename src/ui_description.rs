@@ -5,10 +5,18 @@ use ui_state::UiState;
 use css::Css;
 use dom::NodeData;
 
-#[derive(Clone)]
 pub struct UiDescription<'a, T: LayoutScreen + 'a> {
     pub(crate) arena: Option<&'a Arena<NodeData<T>>>,
     pub(crate) styled_nodes: Vec<StyledNode>,
+}
+
+impl<'a, T: LayoutScreen + 'a> Clone for UiDescription<'a, T> {
+    fn clone(&self) -> Self {
+        Self {
+            arena: self.arena.clone(),
+            styled_nodes: self.styled_nodes.clone(),
+        }
+    }
 }
 
 impl<'a, T: LayoutScreen> Default for UiDescription<'a, T> {
