@@ -6,17 +6,19 @@ use cassowary::{Constraint, Solver};
 use id_tree::{Arena, NodeId};
 use css_parser::*;
 use dom::NodeData;
+use std::collections::BTreeMap;
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<'a, T>,
-    pub(crate) rectangles: Vec<DisplayRectangle>
+    pub(crate) rectangles: BTreeMap<NodeId, DisplayRectangle>
 }
 
+#[derive(Default)]
 pub(crate) struct DisplayRectangle {
     /// `Some(id)` if this rectangle has a callback attached to it 
+    /// Note: this is not the same as the `NodeId`! 
+    /// These two are completely seperate numbers!
     pub tag: Option<u64>,
-    /// DOM-specific Node ID (useful for getting the parent / ancestors, etc.)
-    pub node_id: NodeId,
     /// The actual rectangle
     pub(crate) rect: DisplayRect,
     /// The constraints to be solved
@@ -33,25 +35,7 @@ pub(crate) struct DisplayRectangle {
     pub(crate) border_radius: Option<BorderRadius>,
 }
 
-impl DisplayRectangle {
-
-    /// Returns an uninitialized rectangle
-    #[inline]
-    pub(crate) fn new(node_id: NodeId) -> Self {
-        Self {
-            tag: None,
-            node_id: node_id,
-            rect: DisplayRect::new(),
-            constraints: Vec::new(),
-            background_color: None,
-            box_shadow: None,
-            background: None,
-            border: None,
-            border_radius: None,
-        }
-    }
-}
-
+// only for testing
 static mut RIGHT: f32 = 0.0;
 
 impl<'a, T: LayoutScreen> DisplayList<'a, T> {
@@ -60,19 +44,23 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     pub fn new_from_ui_description(ui_description: &'a UiDescription<T>) -> Self {
 
         let arena = ui_description.arena.as_ref().unwrap();
-        let rects = ui_description.styled_nodes.iter().filter_map(|node| {
-            let node_data = &arena[node.id];
-            let mut rect = DisplayRectangle::new(node.id);
-            rect.tag = node_data.data.tag;
+        let mut rect_btree = BTreeMap::new();
+
+        for node in &ui_description.styled_nodes {
+            let mut rect = DisplayRectangle {
+                tag: arena[node.id].data.tag,
+                rect: DisplayRect::default(),
+                .. Default::default()
+            };
             let mut css_constraints = Vec::<CssConstraint>::new();
             parse_css(&mut rect, arena, &node.css_constraints, &mut css_constraints);
             rect.constraints = css_constraints;
-            Some(rect)
-        }).collect();
+            rect_btree.insert(node.id, rect);
+        }
 
         Self {
             ui_descr: ui_description,
-            rectangles: rects,
+            rectangles: rect_btree,
         }
     }
 
@@ -81,7 +69,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     {
         let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
 
-        for rect in &self.rectangles {
+        for rect in self.rectangles.values() {
 
             // TODO: get these constraints to work properly
             let cassowary_constraints = css_constraints_to_cassowary_constraints(&rect.rect, &rect.constraints);

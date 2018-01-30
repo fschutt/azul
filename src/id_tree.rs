@@ -4,7 +4,7 @@ use std::mem;
 use std::ops::{Index, IndexMut};
 
 /// A node identifier within a particular `Arena`.
-#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Debug)]
 pub struct NodeId {
     index: usize,  // FIXME: use NonZero to optimize the size of Option<NodeId>
 }

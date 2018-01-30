@@ -149,7 +149,7 @@ pub struct Dom<T: LayoutScreen> {
 }
 
 #[derive(Clone)]
-pub struct CallbackList<T: LayoutScreen> {
+pub(crate) struct CallbackList<T: LayoutScreen> {
     pub(crate) callbacks: BTreeMap<On, Callback<T>>
 }
 impl<T: LayoutScreen> fmt::Debug for CallbackList<T> {

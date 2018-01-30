@@ -1,11 +1,6 @@
 extern crate azul;
 
-use azul::traits::LayoutScreen;
-use azul::dom::On;
-use azul::window::{WindowId, WindowCreateOptions};
-use azul::app_state::AppState;
-use azul::css::Css;
-use azul::dom::{NodeType, Dom, Callback};
+use azul::prelude::*;
 
 const TEST_CSS: &str = include_str!("test_content.css");
 
@@ -47,7 +42,7 @@ fn main() {
         css: css,
     };
 
-    let mut app = azul::App::new(my_app_data);
+    let mut app = App::new(my_app_data);
     app.create_window(WindowCreateOptions::default()).unwrap();
     app.start_render_loop();
 }

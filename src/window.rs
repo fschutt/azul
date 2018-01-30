@@ -15,6 +15,7 @@ const DEFAULT_TITLE: &str = "Azul App";
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 600;
 
+/// azul-internal ID for a window
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct WindowId {
     pub id: usize,
@@ -29,6 +30,7 @@ impl WindowId {
 pub struct WindowCreateOptions {
     /// Title of the window
     pub title: String,
+    /// OpenGL clear color
     pub background: ColorF,
     /// How should the screen be updated - as fast as possible
     /// or retained & energy saving?
@@ -89,7 +91,8 @@ impl Default for WindowDecorations {
     }
 }
 
-/// Where the window should be positioned
+/// Where the window should be positioned, 
+/// from the top left corner of the screen
 #[derive(Copy, Clone, PartialEq)]
 pub struct WindowPlacement {
     pub x: u32,
@@ -109,6 +112,8 @@ impl Default for WindowPlacement {
     }
 }
 
+/// What class the window should have (important for window managers). 
+/// Currently not in use.
 #[derive(Copy, Clone, PartialEq)]
 pub enum WindowClass {
     /// Regular desktop window
@@ -171,7 +176,7 @@ impl Default for UpdateMode {
     }
 }
 
-/// Configuration of the mouse
+/// Mouse configuration
 #[derive(Copy, Clone)]
 pub enum MouseMode {
     /// A mouse event is only fired if the cursor has moved at least 1px.
@@ -190,11 +195,16 @@ impl Default for MouseMode {
     }
 }
 
+/// Error that could happen during window creation
 #[derive(Debug)]
 pub enum WindowCreateError {
+    /// WebGl is not supported by webrender
     WebGlNotSupported,
+    /// Couldn't create the display from the window and the EventsLoop
     DisplayCreateError(DisplayCreationError),
+    /// OpenGL version is either too old or invalid
     Gl(IncompatibleOpenGl),
+    /// 
     Context(ContextError),
     CreateError(CreationError),
     Io(::std::io::Error),
@@ -250,14 +260,12 @@ impl RenderNotifier for Notifier {
     }
 
     fn wake_up(&self) {
-        /*
         #[cfg(not(target_os = "android"))]
         self.events_loop_proxy.wakeup().unwrap_or_else(|_| { });
-        */
     }
 
     fn new_document_ready(&self, _: DocumentId, _scrolled: bool, _composite_needed: bool) {
-        /*self.wake_up();*/
+        self.wake_up();
     }
 }
 
@@ -273,7 +281,7 @@ impl Iterator for MonitorIter {
     }
 }
 
-/// Select, on which monitor the window should pop up.
+/// Select on which monitor the window should pop up.
 #[derive(Clone)]
 pub enum WindowMonitorTarget {
     /// Window should appear on the primary monitor
@@ -288,8 +296,9 @@ impl Default for WindowMonitorTarget {
     }
 }
 
-/// Represents one graphical window to be rendered.
+/// Represents one graphical window to be rendered
 pub struct Window {
+    // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     pub(crate) options: WindowCreateOptions,
     pub(crate) renderer: Option<Renderer>,
@@ -301,11 +310,12 @@ pub struct Window {
     // pub(crate) background_thread: Option<JoinHandle<()>>,
 }
 
+/// Solver for solving the UI of the current window
 pub(crate) struct UiSolver {
     pub(crate) solver: Solver,
 }
 
-pub struct WindowInternal {
+pub(crate) struct WindowInternal {
     pub(crate) layout_size: LayoutSize,
     pub(crate) api: RenderApi,
     pub(crate) epoch: Epoch,
@@ -344,7 +354,7 @@ impl Window {
             })
             .with_gl_profile(GlProfile::Core)
             .with_vsync(true)
-            .with_multisampling(4)
+            /*.with_multisampling(4)*/
             .with_srgb(true)
             .with_gl_debug_flag(false);
 
@@ -379,7 +389,12 @@ impl Window {
             // this can take significant time and should be only used for testing the shaders
             precache_shaders: false,
             device_pixel_ratio,
+            enable_subpixel_aa: true,
+            enable_aa: true,
             clear_color: Some(options.background),
+            enable_render_on_scroll: false,
+            // TODO: Fallback to OSMesa if needed!
+            // renderer_kind: RendererKind::Native,
             .. RendererOptions::default()
         };
 

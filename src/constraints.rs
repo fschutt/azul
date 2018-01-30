@@ -20,8 +20,8 @@ pub(crate) struct DisplayRect {
     pub height: Variable,
 }
 
-impl DisplayRect {
-    pub fn new() -> Self {
+impl Default for DisplayRect {
+    fn default() -> Self {
         Self {
             left: Variable::new(),
             top: Variable::new(),

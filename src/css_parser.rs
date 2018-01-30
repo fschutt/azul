@@ -708,6 +708,7 @@ pub enum DirectionCorner {
 }
 
 impl DirectionCorner {
+
     pub fn opposite(&self) -> Self {
         use self::DirectionCorner::*;
         match *self {
@@ -721,6 +722,7 @@ impl DirectionCorner {
             BottomRight => TopLeft,
         }
     }
+
     pub fn combine(&self, other: &Self) -> Option<Self> {
         use self::DirectionCorner::*;
         match (*self, *other) {
@@ -735,16 +737,15 @@ impl DirectionCorner {
     pub fn to_point(&self, rect: &LayoutRect) -> TypedPoint2D<f32, LayerPixel>
     {
         use self::DirectionCorner::*;
-        // begin_pt: (150,250) (top), end_pt: (150,50) (bottom), bounds: TypedRect(200×200 at (50,50))
         match *self {
-            Right => TypedPoint2D::new(rect.max_x(), (rect.origin.y + (rect.size.height / 2.0))),
-            Left => TypedPoint2D::new(rect.min_x(), (rect.origin.y + (rect.size.height / 2.0))),
-            Top => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.min_y()),
-            Bottom => TypedPoint2D::new((rect.origin.x + (rect.size.width / 2.0)), rect.max_y()),
-            TopRight => rect.top_right(),
-            TopLeft => rect.origin,
-            BottomRight => rect.bottom_right(),
-            BottomLeft => rect.bottom_left(),
+            Right => TypedPoint2D::new(rect.size.width, (rect.size.height / 2.0)),
+            Left => TypedPoint2D::new(0.0, (rect.size.height / 2.0)),
+            Top => TypedPoint2D::new((rect.size.width / 2.0), 0.0),
+            Bottom => TypedPoint2D::new((rect.size.width / 2.0), rect.size.height),
+            TopRight =>  TypedPoint2D::new(rect.size.width, 0.0),
+            TopLeft => TypedPoint2D::new(0.0, 0.0),
+            BottomRight => TypedPoint2D::new(rect.size.width, rect.size.height),
+            BottomLeft => TypedPoint2D::new(0.0, rect.size.height),
         }
     }
 }
