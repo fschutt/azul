@@ -62,6 +62,7 @@ impl<T: LayoutScreen> App<T> {
     /// Start the rendering loop for the currently open windows
     pub fn start_render_loop(&mut self)
     {
+
         let mut ui_state_cache = Vec::with_capacity(self.windows.len());
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut css_cache = vec![Css::new(); self.windows.len()];
@@ -74,13 +75,14 @@ impl<T: LayoutScreen> App<T> {
             }
 
             for (idx, _) in self.windows.iter().enumerate() {
+                ui_state_cache[idx].dom.print_dom_debug();
                 let window_id = WindowId { id: idx };
                 let new_css = app_state.data.get_css(window_id);
                 css_cache[idx] = new_css.clone();
                 ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut css_cache[idx]);
                 
                 // TODO: debug
-                ui_state_cache[idx].dom.print_dom_debug();
+                // ui_state_cache[idx].dom.print_dom_debug();
             }
         }      
 
@@ -113,6 +115,7 @@ impl<T: LayoutScreen> App<T> {
                 }
 
                 if frame_event_info.should_hittest {
+
                     use webrender::api::WorldPoint;
                     let point = WorldPoint::new(frame_event_info.cur_cursor_pos.0 as f32, frame_event_info.cur_cursor_pos.1 as f32);
                     let hit_test_results = hit_test_ui(&window.internal.api, window.internal.document_id, Some(window.internal.pipeline_id), point);
@@ -143,6 +146,7 @@ impl<T: LayoutScreen> App<T> {
                 let new_css = app_state.data.get_css(current_window_id);
                 
                 // Note: this comparison might be expensive, but it is more expensive to re-parse the CSS
+
                 if css_cache[idx].rules != new_css.rules {
                     css_cache[idx] = new_css.clone();
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut css_cache[idx]);
@@ -246,12 +250,11 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
     false
 }
 
-fn render<T: LayoutScreen>(window: &mut Window, window_id: &WindowId, ui_description: &UiDescription<T>) 
+fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription<T>) 
 {
     use webrender::api::*;
     use display_list::DisplayList;
 
-    println!("app::render(window id: {:?})", window_id.id);
     let display_list = DisplayList::new_from_ui_description(ui_description);
 
     let builder = display_list.into_display_list_builder(

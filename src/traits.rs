@@ -98,7 +98,17 @@ impl<'a> ParsedCss<'a> {
 fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Arena<NodeData<T>>>>, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
 -> UiDescription<T>
 {
-    let styled_nodes = match_dom_css_selectors_inner(root, &*(*arena).borrow(), parsed_css, css, parent_constraints, parent_z_level);
+    let arena_borrow = &*(*arena).borrow();
+    let mut styled_nodes = Vec::<StyledNode>::new();
+    let sibling_iterator = root.following_siblings(arena_borrow);
+    // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
+    // sibling_iterator.next().unwrap();
+
+    for sibling in sibling_iterator {
+        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, css, &parent_constraints, parent_z_level));
+    }
+
+    // match_dom_css_selectors_inner(root, &*(*arena).borrow(), parsed_css, css, parent_constraints, parent_z_level);
     UiDescription {
         // note: this clone is neccessary, otherwise, 
         // we wouldn't be able to update the UiState
@@ -124,13 +134,6 @@ fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<No
     // DFS tree
     for child in root.children(arena) {
         styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, parent_z_level + 1));
-    }
-
-    let mut sibling_iterator = root.following_siblings(arena);
-    // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
-    sibling_iterator.next().unwrap();
-    for sibling in sibling_iterator {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena, parsed_css, css, &parent_constraints, parent_z_level));
     }
 
     styled_nodes.push(current_node);

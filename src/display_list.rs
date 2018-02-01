@@ -80,7 +80,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         
         // println!("---------- start creating builder ------------");
 
-        for rect in self.rectangles.values() {
+        for (rect_idx, rect) in self.rectangles.values().enumerate() {
 
             // TODO: split up layout and constraints better
             let mut layout_contraints = Vec::<CssConstraint>::new();
@@ -100,8 +100,8 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                 LayoutSize::new(200.0, 200.0),
             );
             let bounds2 = LayoutRect::new(
-                LayoutPoint::new(0.0, 200.0),
-                LayoutSize::new(200.0, 200.0),
+                LayoutPoint::new(rect_idx as f32, 0.0),
+                LayoutSize::new(3.0, 3.0),
             );
 
             // debugging - there are currently two rectangles on the screen
@@ -123,8 +123,8 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             println!("window size: {:?}", layout_size);
 */
             // this is a workaround, this seems to be a bug in webrender
-            // bounds.origin.x /= 2.0;
-            // bounds.origin.y /= 2.0;
+            bounds.origin.x /= 2.0;
+            bounds.origin.y /= 2.0;
 
             let clip = if let Some(border_radius) = rect.border_radius {
                 LocalClip::RoundedRect(bounds, ComplexClipRegion {
@@ -154,7 +154,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             );
 
             // red rectangle if we don't have a background color
-            builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
+            builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: (rect_idx % 200) as u8, g: (rect_idx % 100) as u8, b: (rect_idx % 150) as u8, a: 255 }).into());
 
             if let Some(ref pre_shadow) = rect.box_shadow {
                 // The pre_shadow is missing the BorderRadius & LayoutRect
