@@ -897,9 +897,6 @@ pub fn parse_css_background<'a>(input: &'a str)
         }
     }
 
-    println!("gradient stops - {:?}", color_stops);
-    println!("direction - {:?}", direction);
-
     match gradient_type {
         GradientType::LinearGradient => {
             Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {

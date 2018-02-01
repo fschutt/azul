@@ -354,7 +354,6 @@ impl Window {
             })
             .with_gl_profile(GlProfile::Core)
             .with_vsync(true)
-            /*.with_multisampling(4)*/
             .with_srgb(true)
             .with_gl_debug_flag(false);
 

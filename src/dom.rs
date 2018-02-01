@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 use id_tree::{NodeId, Arena};
 use std::sync::{Arc, Mutex};
 use std::fmt;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
@@ -89,7 +91,6 @@ pub enum On {
     DragDrop,
 }
 
-#[derive(Clone)]
 pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
     pub node_type: NodeType,
@@ -103,10 +104,28 @@ pub(crate) struct NodeData<T: LayoutScreen> {
     pub tag: Option<u64>,
 }
 
+impl<T: LayoutScreen> Clone for NodeData<T> {
+    fn clone(&self) -> Self {
+        Self {
+            node_type: self.node_type.clone(),
+            id: self.id.clone(),
+            classes: self.classes.clone(),
+            events: self.events.special_clone(),
+            tag: self.tag.clone(),
+        }
+    }
+}
+
 impl<T: LayoutScreen> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "NodeData - node_type: {:?}, id: {:?}, classes: {:?}, events: {:?}, tag: {:?} ",
-                   self.node_type, self.id, self.classes, self.events, self.tag)
+        write!(f, "NodeData {{
+    node_type: {:?}, 
+    id: {:?}, 
+    classes: {:?}, 
+    events: {:?}, 
+    tag: {:?} 
+}}",
+        self.node_type, self.id, self.classes, self.events, self.tag)
     }
 }
 
@@ -142,10 +161,18 @@ impl<T: LayoutScreen> NodeData<T> {
 
 #[derive(Clone)]
 pub struct Dom<T: LayoutScreen> {
-    pub(crate) arena: Arena<NodeData<T>>,
+    pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) root: NodeId,
     pub(crate) current_root: NodeId,
     pub(crate) last: NodeId,
+}
+
+impl<T: LayoutScreen> Dom<T> {
+    pub fn print_dom_debug(&self) {
+        println!("Dom {{");
+        &(*self.arena.borrow()).print_arena_debug();
+        println!("}}");
+    }
 }
 
 #[derive(Clone)]
@@ -154,7 +181,7 @@ pub(crate) struct CallbackList<T: LayoutScreen> {
 }
 impl<T: LayoutScreen> fmt::Debug for CallbackList<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CallbackList")
+        write!(f, "CallbackList (length: {:?})", self.callbacks.len())
     }
 }
 
@@ -169,51 +196,57 @@ impl<T: LayoutScreen> CallbackList<T> {
 impl<T: LayoutScreen> Dom<T> {
     
     /// Creates an empty DOM
+    #[inline]
     pub fn new(node_type: NodeType) -> Self {
         let mut arena = Arena::new();
         let root = arena.new_node(NodeData::new(node_type));
         Self {
-            arena: arena,
+            arena: Rc::new(RefCell::new(arena)),
             root: root,
             current_root: root,
             last: root,
         }
     }
 
+    /// Adds a child DOM to the current DOM
     #[inline]
     pub fn add_child(mut self, child: Self) -> Self {
-        for ch in child.root.children(&child.arena) {
-            let new_last = self.arena.new_node(child.arena[ch].data.special_clone());
-            self.last.append(new_last, &mut self.arena);
+        for ch in child.root.children(&*child.arena.borrow()) {
+            let new_last = (*self.arena.borrow_mut()).new_node((*child.arena.borrow())[ch].data.special_clone());
+            self.last.append(new_last, &mut self.arena.borrow_mut());
             self.last = new_last;
         }
         self
     }
 
+    /// Adds a sibling to the current DOM
     #[inline]
     pub fn add_sibling(mut self, sibling: Self) -> Self {
-        let new_sibling = self.arena.new_node(sibling.arena[sibling.root].data.special_clone());
-        self.current_root.append(new_sibling, &mut self.arena);
-        self.current_root = new_sibling;
+        for sib in sibling.root.following_siblings(&*sibling.arena.borrow()) {
+            let sibling_clone = (*sibling.arena.borrow())[sib].data.special_clone();
+            let new_sibling = (*self.arena.borrow_mut()).new_node(sibling_clone);
+            self.current_root.insert_after(new_sibling, &mut self.arena.borrow_mut());
+            self.current_root = new_sibling;
+        }
         self
     }
 
     #[inline]
-    pub fn id<S: Into<String>>(mut self, id: S) -> Self {
-        self.arena[self.last].data.id = Some(id.into());
+    pub fn id<S: Into<String>>(self, id: S) -> Self {
+        self.arena.borrow_mut()[self.last].data.id = Some(id.into());
         self
     }
 
     #[inline]
-    pub fn class<S: Into<String>>(mut self, class: S) -> Self {
-        self.arena[self.last].data.classes.push(class.into());
+    pub fn class<S: Into<String>>(self, class: S) -> Self {
+        self.arena.borrow_mut()[self.last].data.classes.push(class.into());
         self
     }
 
     #[inline]
-    pub fn event(mut self, on: On, callback: Callback<T>) -> Self {
-        self.arena[self.last].data.events.callbacks.insert(on, callback);
-        self.arena[self.last].data.tag = Some(unsafe { NODE_ID });
+    pub fn event(self, on: On, callback: Callback<T>) -> Self {
+        self.arena.borrow_mut()[self.last].data.events.callbacks.insert(on, callback);
+        self.arena.borrow_mut()[self.last].data.tag = Some(unsafe { NODE_ID });
         unsafe { NODE_ID += 1; };
         self
     }
@@ -222,16 +255,18 @@ impl<T: LayoutScreen> Dom<T> {
 impl<T: LayoutScreen> Dom<T> {
     
     pub(crate) fn collect_callbacks(&self, callback_list: &mut BTreeMap<u64, Callback<T>>, nodes_to_callback_id_list: &mut  BTreeMap<u64, BTreeMap<On, u64>>) {
-        for item in self.root.traverse(&self.arena) {
+        for item in self.root.traverse(&*self.arena.borrow()) {
             let mut cb_id_list = BTreeMap::<On, u64>::new();
-            let item = &self.arena[item.inner_value()];
+            let item = &self.arena.borrow()[item.inner_value()];
             for (on, callback) in item.data.events.callbacks.iter() {
                 let callback_id = unsafe { CALLBACK_ID };
                 unsafe { CALLBACK_ID += 1; }
                 callback_list.insert(callback_id, *callback);
                 cb_id_list.insert(*on, callback_id);
             }
-            nodes_to_callback_id_list.insert(item.data.tag.unwrap(), cb_id_list);
+            if let Some(tag) = item.data.tag {
+                nodes_to_callback_id_list.insert(tag, cb_id_list);
+            }
         }
     }
 }

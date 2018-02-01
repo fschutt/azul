@@ -19,7 +19,7 @@ impl LayoutScreen for MyAppData {
         Dom::new(NodeType::Div)
             .class("__azul-native-button")
             .event(On::MouseUp, Callback::Sync(my_button_click_handler))
-        .add_child(Dom::new(NodeType::Text { content: "Hello World".into() }))
+        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
     }
 
     fn get_css(&mut self, _window_id: WindowId) -> &mut Css {
@@ -30,7 +30,6 @@ impl LayoutScreen for MyAppData {
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>) {
-    println!("my button was clicked! data is now: {:?}", app_state.data.my_data);
     app_state.data.my_data += 1;
 }
 
@@ -43,6 +42,8 @@ fn main() {
     };
 
     let mut app = App::new(my_app_data);
+    // TODO: Multi-window apps currently crash
+    // Need to re-factor the event loop for that
     app.create_window(WindowCreateOptions::default()).unwrap();
     app.start_render_loop();
 }

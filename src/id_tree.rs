@@ -2,6 +2,7 @@
 
 use std::mem;
 use std::ops::{Index, IndexMut};
+use std::fmt;
 
 /// A node identifier within a particular `Arena`.
 #[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Debug)]
@@ -19,6 +20,42 @@ pub struct Node<T> {
     first_child: Option<NodeId>,
     last_child: Option<NodeId>,
     pub data: T,
+}
+
+impl<T> Node<T> {
+    pub fn print_node(&self) {
+        println!("Node {{ 
+    parent: {:?}, 
+    previous_sibling: {:?}, 
+    next_sibling: {:?}, 
+    first_child: {:?}, 
+    last_child: {:?}, 
+    data: <not printable> 
+}}", 
+        self.parent, 
+        self.previous_sibling, 
+        self.next_sibling, 
+        self.first_child, 
+        self.last_child)
+    }
+}
+impl<T: fmt::Debug> Node<T> {
+    pub fn print_node_debug(&self) {
+        println!("Node {{ 
+    parent: {:?}, 
+    previous_sibling: {:?}, 
+    next_sibling: {:?}, 
+    first_child: {:?}, 
+    last_child: {:?}, 
+    data: {:?} 
+}}", 
+        self.parent, 
+        self.previous_sibling, 
+        self.next_sibling, 
+        self.first_child, 
+        self.last_child, 
+        self.data)
+    }
 }
 
 #[derive(Clone)]
@@ -46,6 +83,20 @@ impl<T> Arena<T> {
         });
         NodeId {
             index: next_index,
+        }
+    }
+
+    // Useful for debugging - returns how many 
+    // nodes there are in the arena
+    pub fn nodes_len(&self) -> usize {
+        self.nodes.len()
+    }
+}
+
+impl<T: fmt::Debug> Arena<T> {
+    pub fn print_arena_debug(&self) {
+        for node in &self.nodes {
+            node.print_node_debug();
         }
     }
 }

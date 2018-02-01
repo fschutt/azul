@@ -4,13 +4,15 @@ use traits::LayoutScreen;
 use ui_state::UiState;
 use css::Css;
 use dom::NodeData;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-pub struct UiDescription<'a, T: LayoutScreen + 'a> {
-    pub(crate) arena: Option<&'a Arena<NodeData<T>>>,
+pub struct UiDescription<T: LayoutScreen> {
+    pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) styled_nodes: Vec<StyledNode>,
 }
 
-impl<'a, T: LayoutScreen + 'a> Clone for UiDescription<'a, T> {
+impl<T: LayoutScreen> Clone for UiDescription<T> {
     fn clone(&self) -> Self {
         Self {
             arena: self.arena.clone(),
@@ -19,17 +21,17 @@ impl<'a, T: LayoutScreen + 'a> Clone for UiDescription<'a, T> {
     }
 }
 
-impl<'a, T: LayoutScreen> Default for UiDescription<'a, T> {
+impl<T: LayoutScreen> Default for UiDescription<T> {
     fn default() -> Self {
         Self {
-            arena: None,
+            arena: Rc::new(RefCell::new(Arena::new())),
             styled_nodes: Vec::new(),
         }
     }
 }
 
-impl<'a, T: LayoutScreen> UiDescription<'a, T> {
-    pub fn from_ui_state(ui_state: &'a UiState<T>, style: &mut Css) -> Self
+impl<T: LayoutScreen> UiDescription<T> {
+    pub fn from_ui_state(ui_state: &UiState<T>, style: &mut Css) -> Self
     {
         T::style_dom(&ui_state.dom, style)
     }
