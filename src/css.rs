@@ -8,15 +8,27 @@ const NATIVE_CSS_LINUX: &str = include_str!("../assets/native_linux.css");
 #[cfg(target_os="macos")]
 const NATIVE_CSS_MACOS: &str = include_str!("../assets/native_macos.css");
 
+/// All the keys that, when changed, can trigger a re-layout
+const RELAYOUT_RULES: [&str;11] = [
+    "border", "width", "height", "min-width", "min-height", 
+    "direction", "wrap", "justify-content", "align-items", "align-content",
+    "order"
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Css {
     // NOTE: Each time the rules are modified, the `dirty` flag
     // has to be set accordingly for the CSS to update!
     pub(crate) rules: Vec<CssRule>,
-    pub(crate) dirty: bool,
+    /// 
+    pub(crate) is_dirty: bool,
+    /// Has the CSS changed in a way where it needs a re-layout?
+    /// 
+    /// Ex. if only a background color has changed, we need to redraw, but we don't need to re-layout the frame
+    pub(crate) needs_relayout: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum CssParseError {
     ParseError(::simplecss::Error),
     UnclosedBlock,
@@ -35,11 +47,18 @@ pub struct CssRule {
     pub declaration: (String, String),
 }
 
+impl CssRule {
+    pub fn needs_relayout(&self) -> bool {
+        RELAYOUT_RULES.iter().any(|r| self.declaration.0 == *r)
+    }
+}
+
 impl Css {
     pub fn new() -> Self {
         Self {
             rules: Vec::new(),
-            dirty: false,
+            is_dirty: false,
+            needs_relayout: false,
         }
     }
 
@@ -129,22 +148,27 @@ impl Css {
 
         Ok(Self {
             rules: css_rules,
-            dirty: true, // force layout for the first frame
+            // force repaint for the first frame
+            is_dirty: true, 
+            // force re-layout for the first frame
+            needs_relayout: true,
         })
     }
 
     /// Adds a CSS rule
     pub fn add_rule(&mut self, css_rule: CssRule) {
+        self.needs_relayout = css_rule.needs_relayout();
         self.rules.push(css_rule);
-        self.dirty = true;
+        self.is_dirty = true;
     }
 
     /// Removes a rule from the current stylesheet
     pub fn remove_rule(&mut self, css_rule: &CssRule) {
         if let Some(pos) = self.rules.iter().position(|x| *x == *css_rule) {
+            self.needs_relayout = css_rule.needs_relayout();
             self.rules.remove(pos);
-            self.dirty = true;
-        };
+            self.is_dirty = true;
+        }
     }
 
     /// Returns the native style for the OS
@@ -168,10 +192,17 @@ impl Add for Css {
     type Output = Css;
 
     fn add(mut self, mut other: Css) -> Css {
+        let needs_relayout = if !other.needs_relayout {
+            other.rules.iter().any(|r| r.needs_relayout())
+        } else { 
+            other.needs_relayout 
+        };
+
         self.rules.append(&mut other.rules);
         Css {
             rules: self.rules,
-            dirty: true,
+            is_dirty: true,
+            needs_relayout: needs_relayout,
         }
     }
 }

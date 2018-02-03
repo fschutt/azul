@@ -33,10 +33,16 @@ impl Default for DisplayRect {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub struct Strength(pub f64);
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub struct Padding(pub f32);
+
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum CssConstraint {
-    Size(SizeConstraint),
-    Padding(PaddingConstraint)
+    Size((SizeConstraint, Strength)),
+    Padding((PaddingConstraint, Strength, Padding))
 }
 
 #[derive(Debug, Copy, Clone)]

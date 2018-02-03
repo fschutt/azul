@@ -8,21 +8,25 @@ use ui_description::UiDescription;
 use std::sync::{Arc, Mutex};
 use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 use glium::glutin::Event;
+use euclid::TypedScale;
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
     /// The graphical windows, indexed by ID
-    windows: Vec<Window>,
+    windows: Vec<Window<T>>,
     /// The global application state
     pub app_state: Arc<Mutex<AppState<T>>>,
+}
+
+pub enum ReLayoutConstraintInfo {
+    DoLayout,
+    KeepOldLayout,
 }
 
 pub struct FrameEventInfo {
     should_redraw_window: bool,
     should_swap_window: bool,
     should_hittest: bool,
-    should_relayout: bool,
-    should_restyle: bool,
     cur_cursor_pos: (f64, f64),
     new_window_size: Option<(u32, u32)>,
     new_dpi_factor: Option<f32>,
@@ -34,8 +38,6 @@ impl Default for FrameEventInfo {
             should_redraw_window: false,
             should_swap_window: false,
             should_hittest: false,
-            should_restyle: false,
-            should_relayout: false,
             cur_cursor_pos: (0.0, 0.0),
             new_window_size: None,
             new_dpi_factor: None,
@@ -54,35 +56,29 @@ impl<T: LayoutScreen> App<T> {
     }
 
     /// Spawn a new window on the screen
-    pub fn create_window(&mut self, options: WindowCreateOptions) -> Result<(), WindowCreateError> {
-        self.windows.push(Window::new(options)?);
+    pub fn create_window(&mut self, options: WindowCreateOptions, css: Css) -> Result<(), WindowCreateError> {
+        self.windows.push(Window::new(options, css)?);
         Ok(())
     }
 
     /// Start the rendering loop for the currently open windows
     pub fn start_render_loop(&mut self)
     {
-
         let mut ui_state_cache = Vec::with_capacity(self.windows.len());
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-        let mut css_cache = vec![Css::new(); self.windows.len()];
 
         // first redraw, initialize cache  
         {
-            let mut app_state = self.app_state.lock().unwrap();
+            let app_state = self.app_state.lock().unwrap();
             for (idx, _) in self.windows.iter().enumerate() {
                 ui_state_cache.push(UiState::from_app_state(&*app_state, WindowId { id: idx }));
             }
 
-            for (idx, _) in self.windows.iter().enumerate() {
-                ui_state_cache[idx].dom.print_dom_debug();
-                let window_id = WindowId { id: idx };
-                let new_css = app_state.data.get_css(window_id);
-                css_cache[idx] = new_css.clone();
-                ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut css_cache[idx]);
-                
-                // TODO: debug
-                // ui_state_cache[idx].dom.print_dom_debug();
+            // First repaint, otherwise the window would be black on startup
+            for (idx, window) in self.windows.iter_mut().enumerate() {
+                ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+                render(window, &WindowId { id: idx, }, &ui_description_cache[idx], true);
+                window.display.swap_buffers().unwrap();
             }
         }      
 
@@ -139,17 +135,15 @@ impl<T: LayoutScreen> App<T> {
                             }
                         }
                     }
+
                 }
 
                 let mut app_state = self.app_state.lock().unwrap();
                 ui_state_cache[idx] = UiState::from_app_state(&*app_state, WindowId { id: idx });
-                let new_css = app_state.data.get_css(current_window_id);
                 
-                // Note: this comparison might be expensive, but it is more expensive to re-parse the CSS
-
-                if css_cache[idx].rules != new_css.rules {
-                    css_cache[idx] = new_css.clone();
-                    ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut css_cache[idx]);
+                if window.css.is_dirty {
+                    ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+                    frame_event_info.should_redraw_window = true;
                 }
 
                 if let Some((w, h)) = frame_event_info.new_window_size {
@@ -160,7 +154,8 @@ impl<T: LayoutScreen> App<T> {
                     let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
                     txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
                     window.internal.api.send_transaction(window.internal.document_id, txn);
-                    render(window, &current_window_id, &ui_description_cache[idx]);
+                    render(window, &current_window_id, &ui_description_cache[idx], true);
+                    
                     let time_end = ::std::time::Instant::now();
                     debug_has_repainted = Some(time_end - time_start);
                     continue;
@@ -171,15 +166,16 @@ impl<T: LayoutScreen> App<T> {
                     window.internal.hidpi_factor = dpi;
                     let mut txn = Transaction::new();
                     let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
-                    txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);                    window.internal.api.send_transaction(window.internal.document_id, txn);
-                    render(window, &current_window_id, &ui_description_cache[idx]);
+                    txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
+                    window.internal.api.send_transaction(window.internal.document_id, txn);
+                    render(window, &current_window_id, &ui_description_cache[idx], true);
                     let time_end = ::std::time::Instant::now();
                     debug_has_repainted = Some(time_end - time_start);
                     continue;
                 }
 
                 if frame_event_info.should_redraw_window {
-                    render(window, &current_window_id, &ui_description_cache[idx]);
+                    render(window, &current_window_id, &ui_description_cache[idx], frame_event_info.new_window_size.is_some());
                     let time_end = ::std::time::Instant::now();
                     debug_has_repainted = Some(time_end - time_start);
                 }
@@ -190,7 +186,6 @@ impl<T: LayoutScreen> App<T> {
                 let closed_window_id = closed_window_id;
                 ui_state_cache.remove(closed_window_id);
                 ui_description_cache.remove(closed_window_id);
-                css_cache.remove(closed_window_id);
                 self.windows.remove(closed_window_id);
             }
 
@@ -198,7 +193,7 @@ impl<T: LayoutScreen> App<T> {
                 break;
             } else {
                 if let Some(restate_time) = debug_has_repainted {
-                    println!("frame time: {:?} ms", restate_time.subsec_nanos() as f32 / 1_000_000.0);
+                    // println!("frame time: {:?} ms", restate_time.subsec_nanos() as f32 / 1_000_000.0);
                 }
                 ::std::thread::sleep(::std::time::Duration::from_millis(16));
             }
@@ -250,21 +245,14 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
     false
 }
 
-fn render<T: LayoutScreen>(window: &mut Window, _window_id: &WindowId, ui_description: &UiDescription<T>) 
+fn render<T: LayoutScreen>(window: &mut Window<T>, _window_id: &WindowId, ui_description: &UiDescription<T>, has_window_size_changed: bool) 
 {
     use webrender::api::*;
     use display_list::DisplayList;
 
     let display_list = DisplayList::new_from_ui_description(ui_description);
-
-    let builder = display_list.into_display_list_builder(
-        window.internal.pipeline_id,
-        window.internal.layout_size,
-        window.internal.hidpi_factor,
-        &mut window.solver.solver);
-
+    let builder = display_list.into_display_list_builder(window.internal.pipeline_id, &mut window.solver, &mut window.css, has_window_size_changed);
     let resources = ResourceUpdates::new();
-
     let mut txn = Transaction::new();
     
     txn.set_display_list(

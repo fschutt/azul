@@ -16,14 +16,13 @@ pub trait LayoutScreen {
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
     fn get_dom(&self, window_id: WindowId) -> Dom<Self> where Self: Sized;
-    /// Provide access to the Css style for the application
-    fn get_css(&mut self, window_id: WindowId) -> &mut Css;
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
     fn style_dom(dom: &Dom<Self>, css: &mut Css) -> UiDescription<Self> where Self: Sized {
-        css.dirty = true;
-        match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, &CssConstraintList::empty(), 0)
+        println!("parsing css ... ");
+        css.is_dirty = false;
+        match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, 0)
     }
 }
 
@@ -95,9 +94,14 @@ impl<'a> ParsedCss<'a> {
     }
 }
 
-fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Arena<NodeData<T>>>>, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
+fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Arena<NodeData<T>>>>, parsed_css: &ParsedCss, css: &Css, parent_z_level: u32)
 -> UiDescription<T>
 {
+    let mut root_constraints = CssConstraintList::empty();
+    for global_rule in &parsed_css.pure_global_rules {
+        push_rule(&mut root_constraints, global_rule);
+    }
+
     let arena_borrow = &*(*arena).borrow();
     let mut styled_nodes = Vec::<StyledNode>::new();
     let sibling_iterator = root.following_siblings(arena_borrow);
@@ -105,10 +109,9 @@ fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Are
     // sibling_iterator.next().unwrap();
 
     for sibling in sibling_iterator {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, css, &parent_constraints, parent_z_level));
+        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, css, &root_constraints, parent_z_level));
     }
 
-    // match_dom_css_selectors_inner(root, &*(*arena).borrow(), parsed_css, css, parent_constraints, parent_z_level);
     UiDescription {
         // note: this clone is neccessary, otherwise, 
         // we wouldn't be able to update the UiState
@@ -122,7 +125,7 @@ fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<No
 {
     let mut styled_nodes = Vec::<StyledNode>::new();
 
-    let mut current_constraints = CssConstraintList::empty();
+    let mut current_constraints = parent_constraints.clone();
     cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css, css);
 
     let current_node = StyledNode {
@@ -141,11 +144,8 @@ fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<No
 }
 
 /// Cascade the rules, put them into the list
+#[allow(unused_variables)]
 fn cascade_constraints<T: LayoutScreen>(node: &NodeData<T>, list: &mut CssConstraintList, parsed_css: &ParsedCss, css: &Css) {
-
-    for global_rule in &parsed_css.pure_global_rules {
-        push_rule(list, global_rule);
-    }
 
     for div_rule in &parsed_css.pure_div_rules {
         if *node.node_type.get_css_id() == div_rule.html_type {

@@ -1,18 +1,25 @@
+#![allow(unused_variables)]
+#![allow(unused_macros)]
+
 use webrender::api::*;
 use traits::LayoutScreen;
 use constraints::{DisplayRect, CssConstraint};
 use ui_description::{UiDescription, StyledNode};
-use cassowary::{Constraint, Solver};
+use cassowary::{Constraint, Solver, Variable};
+use window::{WindowDimensions, UiSolver};
 use id_tree::{Arena, NodeId};
 use css_parser::*;
 use dom::NodeData;
+use css::Css;
 use std::collections::BTreeMap;
+use FastHashMap;
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
     pub(crate) rectangles: BTreeMap<NodeId, DisplayRectangle<'a>>
 }
 
+#[derive(Debug)]
 pub(crate) struct DisplayRectangle<'a> {
     /// `Some(id)` if this rectangle has a callback attached to it 
     /// Note: this is not the same as the `NodeId`! 
@@ -34,6 +41,24 @@ pub(crate) struct DisplayRectangle<'a> {
     pub(crate) styled_node: &'a StyledNode,
 }
 
+/// It is not very efficient to re-create constraints on every call, the difference
+/// in performance can be huge. Without re-creating constraints, solving can take 0.3 ms,
+/// with re-creation it can take up to 9 ms. So the goal is to not re-create constraints
+/// if their contents haven't changed. 
+#[derive(Default)]
+pub(crate) struct SolvedLayout<T: LayoutScreen> {
+    // List of previously solved constraints
+    pub(crate) solved_constraints: FastHashMap<NodeId, NodeData<T>>,
+}
+
+impl<T: LayoutScreen> SolvedLayout<T> {
+    pub fn empty() -> Self {
+        Self {
+            solved_constraints: FastHashMap::default(),
+        }
+    }
+}
+
 impl<'a> DisplayRectangle<'a> {
     #[inline]
     pub fn new(tag: Option<u64>, styled_node: &'a StyledNode) -> Self {
@@ -49,6 +74,7 @@ impl<'a> DisplayRectangle<'a> {
         }
     }
 }
+
 impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
@@ -73,34 +99,50 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         }
     }
 
-    pub fn into_display_list_builder(&self, pipeline_id: PipelineId, layout_size: LayoutSize, hidpi_factor: f32, layout_solver: &mut Solver)
+    pub fn into_display_list_builder(&self, pipeline_id: PipelineId, ui_solver: &mut UiSolver<T>, css: &mut Css, mut has_window_size_changed: bool)
     -> DisplayListBuilder
     {
-        let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
+        let mut builder = DisplayListBuilder::new(pipeline_id, ui_solver.window_dimensions.layout_size);
         
-        // println!("---------- start creating builder ------------");
+        // Add / remove constraints as needed
+        if css.needs_relayout {
 
-        for (rect_idx, rect) in self.rectangles.values().enumerate() {
+            for rect in self.rectangles.values() {
+                println!("rect {:#?}", rect);
 
-            // TODO: split up layout and constraints better
-            let mut layout_contraints = Vec::<CssConstraint>::new();
-            {
-                let arena = &*self.ui_descr.arena.borrow();
-                create_layout_constraints(&rect.rect, arena, rect.styled_node, layout_size, &mut layout_contraints);
+                let mut layout_contraints = Vec::<CssConstraint>::new();
+                {
+                    let arena = &*self.ui_descr.arena.borrow();
+                    create_layout_constraints(&rect, arena, ui_solver);
+                }
+                let cassowary_constraints = css_constraints_to_cassowary_constraints(&rect.rect, &layout_contraints);
+                ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
             }
-            let cassowary_constraints = css_constraints_to_cassowary_constraints(&rect.rect, &layout_contraints);
-            layout_solver.add_constraints(&cassowary_constraints).unwrap();
-/*
-            for change in solver.fetch_changes() {
-                println!("change: - {:?}", change);
-            }
-*/
+
+            // if we push or pop constraints that means we also need to re-layout the window
+            has_window_size_changed = true;
+            css.needs_relayout = false;
+        }
+
+        // recalculate the actual layout
+        if has_window_size_changed {
+            println!("relayouting frame!");
+
+            /*
+                for change in solver.fetch_changes() {
+                    println!("change: - {:?}", change);
+                }
+            */
+        }
+
+        for (rect_idx, rect) in self.rectangles.iter() {
+
             let bounds1 = LayoutRect::new(
                 LayoutPoint::new(0.0, 0.0),
                 LayoutSize::new(200.0, 200.0),
             );
             let bounds2 = LayoutRect::new(
-                LayoutPoint::new(rect_idx as f32, 0.0),
+                LayoutPoint::new(0.0, 0.0),
                 LayoutSize::new(3.0, 3.0),
             );
 
@@ -114,14 +156,14 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             } else { 
                 bounds2 
             };
-/*
+
             // bug - for some reason, the origin gets scaled by 2.0, 
             // even if the HiDpi factor is set to 1.0
-            println!("pushing rectangle ... ");
-            println!("bounds: {:?}", bounds);
-            println!("hidpi_factor: {:?}", hidpi_factor);
-            println!("window size: {:?}", layout_size);
-*/
+            // println!("pushing rectangle ... ");
+            // println!("bounds: {:?}", bounds);
+            // println!("hidpi_factor: {:?}", hidpi_factor);
+            // println!("window size: {:?}", layout_size);
+
             // this is a workaround, this seems to be a bug in webrender
             bounds.origin.x /= 2.0;
             bounds.origin.y /= 2.0;
@@ -154,7 +196,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             );
 
             // red rectangle if we don't have a background color
-            builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: (rect_idx % 200) as u8, g: (rect_idx % 100) as u8, b: (rect_idx % 150) as u8, a: 255 }).into());
+            builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
 
             if let Some(ref pre_shadow) = rect.box_shadow {
                 // The pre_shadow is missing the BorderRadius & LayoutRect
@@ -228,21 +270,32 @@ fn parse_css(rect: &mut DisplayRectangle)
     }
 }
 
-fn create_layout_constraints<T>(rect: &DisplayRect, 
+fn create_layout_constraints<T>(rect: &DisplayRectangle, 
                                 arena: &Arena<NodeData<T>>, 
-                                styled_node: &StyledNode, 
-                                window_dimensions: LayoutSize, 
-                                target_constraints: &mut Vec<CssConstraint>)
+                                ui_solver: &mut UiSolver<T>)
 where T: LayoutScreen
 {
-    use constraints::{SizeConstraint};
-    let constraint_list = &styled_node.css_constraints.list;
+    // todo: put these to use!
+    let window_dimensions = &ui_solver.window_dimensions;
+    let solver = &mut ui_solver.solver;
+    let previous_layout = &mut ui_solver.solved_layout;
+
+    use cassowary::strength::*;
+    use constraints::{SizeConstraint, Strength};
+    let constraint_list = &rect.styled_node.css_constraints.list;
     
+    // get all the relevant keys we need to look at
+    let kv_width = constraint_list.get("width");
+    let kv_height = constraint_list.get("height");
+    let kv_min_width = constraint_list.get("min-width");
+    let kv_min_height = constraint_list.get("min-height");
+
+/*
     macro_rules! parse_css_size {
-        ($id:ident, $key:expr, $func:tt, $css_constraints:ident, $constraint_list:ident, $wrapper:path) => (
+        ($id:ident, $key:expr, $func:tt, $css_constraints:ident, $constraint_list:ident, $wrapper:path, $strength:expr) => (
             if let Some($id) = $constraint_list.get($key) {
                 match $func($id) {
-                    Ok(w) => { $css_constraints.push(CssConstraint::Size($wrapper(w.to_pixels()))); },
+                    Ok(w) => { $css_constraints.push(CssConstraint::Size(($wrapper(w.to_pixels()), $strength))); },
                     Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, $key); }
                 }
             }
@@ -250,11 +303,11 @@ where T: LayoutScreen
     }
 
     // simple parsing rules
-    parse_css_size!(width, "width", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::Width);
-    parse_css_size!(height, "height", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::Height);
-    parse_css_size!(min_height, "min-height", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::MinHeight);
-    parse_css_size!(min_width, "min-width", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::MinWidth);
-
+    parse_css_size!(width, "width", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::Width, Strength(WEAK));
+    parse_css_size!(height, "height", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::Height, Strength(WEAK));
+    parse_css_size!(min_height, "min-height", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::MinHeight, Strength(STRONG));
+    parse_css_size!(min_width, "min-width", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::MinWidth, Strength(STRONG));
+*/
     // TODO: complex parsing rules
 }
 
@@ -265,8 +318,12 @@ fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssCon
 
     css.iter().flat_map(|constraint|
         match *constraint {
-            Size(ref c) => { c.build(&rect, 100.0) }
-            Padding(ref p) => { p.build(&rect, 50.0, 10.0) }
+            Size((constraint, strength)) => { 
+                constraint.build(&rect, strength.0) 
+            }
+            Padding((constraint, strength, padding)) => { 
+                constraint.build(&rect, strength.0, padding.0) 
+            }
         }
     ).collect()
 }

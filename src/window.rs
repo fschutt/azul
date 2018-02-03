@@ -7,7 +7,11 @@ use glium::glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContex
 use gleam::gl;
 use glium::backend::glutin::DisplayCreationError;
 use euclid::TypedScale;
-use cassowary::Solver;
+use cassowary::{Variable, Solver};
+use cassowary::strength::*;
+use display_list::SolvedLayout;
+use traits::LayoutScreen;
+use css::Css;
 
 use std::time::Duration;
 
@@ -204,9 +208,11 @@ pub enum WindowCreateError {
     DisplayCreateError(DisplayCreationError),
     /// OpenGL version is either too old or invalid
     Gl(IncompatibleOpenGl),
-    /// 
+    /// Could not create an OpenGL context
     Context(ContextError),
+    /// Could not create a window
     CreateError(CreationError),
+    /// IO error
     Io(::std::io::Error),
 }
 
@@ -297,7 +303,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window {
+pub struct Window<T: LayoutScreen> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     pub(crate) options: WindowCreateOptions,
@@ -305,14 +311,46 @@ pub struct Window {
     pub(crate) display: Display,
     pub(crate) internal: WindowInternal,
     /// The solver for the UI, for caching the results of the computations
-    pub(crate) solver: UiSolver,
+    pub(crate) solver: UiSolver<T>,
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
+    /// The css (how the current window is styled)
+    pub css: Css,
+}
+
+/// Used in the solver, for the root constraint
+pub(crate) struct WindowDimensions {
+    pub(crate) layout_size: LayoutSize,
+    pub(crate) width_var: Variable,
+    pub(crate) height_var: Variable,
+}
+
+impl WindowDimensions {
+    pub fn new_from_layout_size(layout_size: LayoutSize) -> Self {
+        Self { 
+            layout_size: layout_size,
+            width_var: Variable::new(),
+            height_var: Variable::new(),
+        }
+    }
+
+    pub fn width(&self) -> f32 {
+        self.layout_size.width_typed().get()
+    }
+    pub fn height(&self) -> f32 {
+        self.layout_size.height_typed().get()
+    }
 }
 
 /// Solver for solving the UI of the current window
-pub(crate) struct UiSolver {
+pub(crate) struct UiSolver<T: LayoutScreen> {
+    /// The actual solver
     pub(crate) solver: Solver,
+    /// Dimensions of the root window
+    pub(crate) window_dimensions: WindowDimensions,
+    /// Solved layout from the previous frame (empty by default)
+    /// This is necessary for caching the constraints of the given layout
+    pub(crate) solved_layout: SolvedLayout<T>,
 }
 
 pub(crate) struct WindowInternal {
@@ -325,10 +363,10 @@ pub(crate) struct WindowInternal {
     pub(crate) hidpi_factor: f32,
 }
 
-impl Window {
+impl<T: LayoutScreen> Window<T> {
 
     /// Creates a new window
-    pub fn new(options: WindowCreateOptions) -> Result<Self, WindowCreateError>  {
+    pub fn new(options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
 
         let events_loop = EventsLoop::new();
 
@@ -414,11 +452,21 @@ impl Window {
         let (sender, receiver) = channel();
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
 */
+        let mut solver = Solver::new();
+
+        let window_dim = WindowDimensions::new_from_layout_size(layout_size);
+
+        solver.add_edit_variable(window_dim.width_var, STRONG).unwrap();
+        solver.add_edit_variable(window_dim.height_var, STRONG).unwrap();
+        solver.suggest_value(window_dim.width_var, window_dim.width() as f64).unwrap();
+        solver.suggest_value(window_dim.height_var, window_dim.height() as f64).unwrap();
+
         let window = Window {
             events_loop: events_loop,
             options: options,
             renderer: Some(renderer),
             display: display,
+            css: css,
             internal: WindowInternal {
                 layout_size: layout_size,
                 api: api,
@@ -429,191 +477,23 @@ impl Window {
                 hidpi_factor: hidpi_factor,
             },
             solver: UiSolver {
-                solver: Solver::new(),
+                solver: solver,
+                window_dimensions: window_dim,
+                solved_layout: SolvedLayout::empty(),
             }
         };
 
         Ok(window)
     }
-/*
-    pub fn send_event(&self, event: InputEvent) -> Result<(), SendError<InputEvent>> {
-        self.sender.send(event)
-    }
 
-    fn handle_event(rx: Receiver<InputEvent>) {
-        while let Ok(event) = rx.recv() {
-            println!("handling event: {:?}", event);
-        }
-    }
-*/
     pub fn get_available_monitors() -> MonitorIter {
         MonitorIter {
             inner: EventsLoop::new().get_available_monitors(),
         }
     }
-
-    fn render(&mut self) {
-        /*
-            /// layout
-            window.render(
-                &window.internal.api,
-                &mut window.internal.builder,
-                &mut window.internal.resources,
-                window.internal.framebuffer_size,
-                window.internal.pipeline_id,
-                window.internal.document_id,
-            );
-
-            // set display list
-            window.internal.api.set_display_list(
-                window.internal.document_id,
-                window.internal.epoch,
-                None,
-                layout_size,
-                window.internal.builder.finalize(),
-                true,
-                window.internal.resources,
-            );
-
-            window.internal.api.set_root_pipeline(document_id, pipeline_id);
-            window.internal.api.generate_frame(document_id, None);
-
-            /*
-            'outer: for event in window.display.wait_events() {
-                let mut events = Vec::new();
-                events.push(event);
-                events.extend(window.poll_events());
-
-                for event in events {
-                    match event {
-                        glutin::Event::Closed |
-                        glutin::Event::KeyboardInput(_, _, Some(glutin::VirtualKeyCode::Escape)) => break 'outer,
-
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::P),
-                        ) => {
-                            renderer.toggle_debug_flags(webrender::DebugFlags::PROFILER_DBG);
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::O),
-                        ) => {
-                            renderer.toggle_debug_flags(webrender::DebugFlags::RENDER_TARGET_DBG);
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::I),
-                        ) => {
-                            renderer.toggle_debug_flags(webrender::DebugFlags::TEXTURE_CACHE_DBG);
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::B),
-                        ) => {
-                            renderer.toggle_debug_flags(webrender::DebugFlags::ALPHA_PRIM_DBG);
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::S),
-                        ) => {
-                            renderer.toggle_debug_flags(webrender::DebugFlags::COMPACT_PROFILER);
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::Q),
-                        ) => {
-                            renderer.toggle_debug_flags(webrender::DebugFlags::GPU_TIME_QUERIES
-                                | webrender::DebugFlags::GPU_SAMPLE_QUERIES);
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::Key1),
-                        ) => {
-                            api.set_window_parameters(
-                                document_id,
-                                framebuffer_size,
-                                DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
-                                1.0
-                            );
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::Key2),
-                        ) => {
-                            api.set_window_parameters(
-                                document_id,
-                                framebuffer_size,
-                                DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
-                                2.0
-                            );
-                        }
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::M),
-                        ) => {
-                            api.notify_memory_pressure();
-                        }
-                        #[cfg(feature = "capture")]
-                        glutin::Event::KeyboardInput(
-                            glutin::ElementState::Pressed,
-                            _,
-                            Some(glutin::VirtualKeyCode::C),
-                        ) => {
-                            let path: PathBuf = "../captures/example".into();
-                            //TODO: switch between SCENE/FRAME capture types
-                            // based on "shift" modifier, when `glutin` is updated.
-                            let bits = CaptureBits::all();
-                            api.save_capture(path, bits);
-                        }
-                        _ => if example.on_event(event, &api, document_id) {
-                            let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
-                            let mut resources = ResourceUpdates::new();
-
-                            // re-layout
-
-                            example.render(
-                                &api,
-                                &mut builder,
-                                &mut resources,
-                                framebuffer_size,
-                                pipeline_id,
-                                document_id,
-                            );
-
-                            // reset display list
-                            api.set_display_list(
-                                document_id,
-                                epoch,
-                                None,
-                                layout_size,
-                                builder.finalize(),
-                                true,
-                                resources,
-                            );
-                            api.generate_frame(document_id, None);
-                        }
-                    }
-                }
-            */
-
-            window.renderer.update();
-            window.renderer.render(window.internal.framebuffer_size).unwrap();
-            window.display.swap_buffers().ok();
-        */
-    }
 }
 
-impl Drop for Window {
+impl<T: LayoutScreen> Drop for Window<T> {
     fn drop(&mut self) {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();

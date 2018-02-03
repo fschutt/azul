@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::fmt;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::hash::{Hash, Hasher};
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
@@ -41,6 +42,22 @@ impl<T: LayoutScreen> Clone for Callback<T>
             Callback::Sync(ref f) => Callback::Sync(f.clone()),
         }
     }
+}
+
+// as a hashing function, we use the function pointer casted to a usize
+// as a unique ID to the function. i.e. if a function 
+//
+// This way, we can hash and compare DOM nodes (to create diffs between two states)
+// Comparing usizes is more efficient than re-creating the whole DOM and serves as a 
+// caching mechanism.
+impl<T: LayoutScreen> Hash for Callback<T> {
+  fn hash<H>(&self, state: &mut H) where H: Hasher {
+    use self::Callback::*;
+    match *self {
+        Async(f) => { state.write_usize(f as usize); }
+        Sync(f) => { state.write_usize(f as usize); }
+    }
+  }
 }
 
 impl<T: LayoutScreen> Copy for Callback<T> { }
@@ -91,6 +108,7 @@ pub enum On {
     DragDrop,
 }
 
+#[derive(Hash)]
 pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
     pub node_type: NodeType,
@@ -175,10 +193,11 @@ impl<T: LayoutScreen> Dom<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub(crate) struct CallbackList<T: LayoutScreen> {
     pub(crate) callbacks: BTreeMap<On, Callback<T>>
 }
+
 impl<T: LayoutScreen> fmt::Debug for CallbackList<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CallbackList (length: {:?})", self.callbacks.len())

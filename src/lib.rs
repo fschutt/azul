@@ -1,3 +1,7 @@
+#![deny(unused_must_use)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 extern crate webrender;
 extern crate cassowary;
 extern crate twox_hash;
@@ -36,6 +40,7 @@ mod ui_state;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
+type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 
 /// Quick exports of common types
 pub mod prelude {

@@ -7,10 +7,6 @@ const TEST_CSS: &str = include_str!("test_content.css");
 pub struct MyAppData {
     // Your app data goes here
     pub my_data: u32,
-    /// Note: it is deliberate that the trait basically forces you to store
-    /// the css yourself. This way you can change the CSS style from any function
-    /// (push and pop rules and styles dynamically, for example).
-    pub css: Css,
 }
 
 impl LayoutScreen for MyAppData {
@@ -20,76 +16,6 @@ impl LayoutScreen for MyAppData {
             .class("__azul-native-button")
             .event(On::MouseUp, Callback::Sync(my_button_click_handler))
         .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
-    }
-
-    fn get_css(&mut self, _window_id: WindowId) -> &mut Css {
-        // Note: you can match on the window ID if you have different CSS styles
-        // for different windows.
-        &mut self.css
     }
 }
 
@@ -102,12 +28,11 @@ fn main() {
 
     let my_app_data = MyAppData {
         my_data: 0,
-        css: css,
     };
 
     let mut app = App::new(my_app_data);
     // TODO: Multi-window apps currently crash
     // Need to re-factor the event loop for that
-    app.create_window(WindowCreateOptions::default()).unwrap();
+    app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.start_render_loop();
 }
