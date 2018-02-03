@@ -22,43 +22,27 @@ pub struct Node<T> {
     pub data: T,
 }
 
-impl<T> Node<T> {
-    pub fn print_node(&self) {
-        println!("Node {{ 
-    parent: {:?}, 
-    previous_sibling: {:?}, 
-    next_sibling: {:?}, 
-    first_child: {:?}, 
-    last_child: {:?}, 
-    data: <not printable> 
-}}", 
-        self.parent, 
-        self.previous_sibling, 
-        self.next_sibling, 
-        self.first_child, 
-        self.last_child)
-    }
-}
-impl<T: fmt::Debug> Node<T> {
-    pub fn print_node_debug(&self) {
-        println!("Node {{ 
-    parent: {:?}, 
-    previous_sibling: {:?}, 
-    next_sibling: {:?}, 
-    first_child: {:?}, 
-    last_child: {:?}, 
-    data: {:?} 
-}}", 
-        self.parent, 
-        self.previous_sibling, 
-        self.next_sibling, 
-        self.first_child, 
-        self.last_child, 
-        self.data)
+// Manual implementation, since `#[derive(Debug)]` requires `T: Debug`
+impl<T: fmt::Debug> fmt::Debug for Node<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Node {{ \
+                       parent: {:?}, \
+                       previous_sibling: {:?}, \
+                       next_sibling: {:?}, \
+                       first_child: {:?}, \
+                       last_child: {:?}, \
+                       data: {:?}, \
+                   }}", 
+                   self.parent, 
+                   self.previous_sibling, 
+                   self.next_sibling, 
+                   self.first_child, 
+                   self.last_child, 
+                   self.data)
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Arena<T> {
     nodes: Vec<Node<T>>,
 }
@@ -90,14 +74,6 @@ impl<T> Arena<T> {
     // nodes there are in the arena
     pub fn nodes_len(&self) -> usize {
         self.nodes.len()
-    }
-}
-
-impl<T: fmt::Debug> Arena<T> {
-    pub fn print_arena_debug(&self) {
-        for node in &self.nodes {
-            node.print_node_debug();
-        }
     }
 }
 

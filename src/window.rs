@@ -14,6 +14,7 @@ use traits::LayoutScreen;
 use css::Css;
 
 use std::time::Duration;
+use std::fmt;
 
 const DEFAULT_TITLE: &str = "Azul App";
 const DEFAULT_WIDTH: u32 = 800;
@@ -30,12 +31,16 @@ impl WindowId {
 }
 
 /// Options on how to initially create the window
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WindowCreateOptions {
     /// Title of the window
     pub title: String,
     /// OpenGL clear color
     pub background: ColorF,
+    /// Clear the stencil buffer with the given value. If not set, stencil buffer is not cleared
+    pub clear_stencil: Option<i32>,
+    /// Clear the depth buffer with the given value. If not set, depth buffer is not cleared
+    pub clear_depth: Option<f32>,
     /// How should the screen be updated - as fast as possible
     /// or retained & energy saving?
     pub update_mode: UpdateMode,
@@ -59,6 +64,8 @@ impl Default for WindowCreateOptions {
         Self {
             title: self::DEFAULT_TITLE.into(),
             background: ColorF::new(1.0, 1.0, 1.0, 1.0),
+            clear_stencil: None,
+            clear_depth: None,
             update_mode: UpdateMode::default(),
             monitor: WindowMonitorTarget::default(),
             mouse_mode: MouseMode::default(),
@@ -71,7 +78,7 @@ impl Default for WindowCreateOptions {
 }
 
 /// How should the window be decorated
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum WindowDecorations {
     /// Regular window decorations
     Normal,
@@ -97,7 +104,7 @@ impl Default for WindowDecorations {
 
 /// Where the window should be positioned, 
 /// from the top left corner of the screen
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct WindowPlacement {
     pub x: u32,
     pub y: u32,
@@ -118,7 +125,7 @@ impl Default for WindowPlacement {
 
 /// What class the window should have (important for window managers). 
 /// Currently not in use.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum WindowClass {
     /// Regular desktop window
     Normal,
@@ -146,7 +153,8 @@ impl Default for WindowClass {
     }
 }
 
-#[derive(Copy, Clone)]
+/// Should the window be updated only if the mouse cursor is hovering over it?
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum UpdateBehaviour {
     /// Redraw the window only if the mouse cursor is
     /// on top of the window
@@ -163,7 +171,7 @@ impl Default for UpdateBehaviour {
 }
 
 /// In which intervals should the screen be updated
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum UpdateMode {
     /// Retained = the screen is only updated when necessary.
     /// Underlying GlImages will be ignored and only updated when the UI changes
@@ -181,7 +189,7 @@ impl Default for UpdateMode {
 }
 
 /// Mouse configuration
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum MouseMode {
     /// A mouse event is only fired if the cursor has moved at least 1px.
     /// More energy saving, but less precision.
@@ -212,8 +220,15 @@ pub enum WindowCreateError {
     Context(ContextError),
     /// Could not create a window
     CreateError(CreationError),
+    SwapBuffers(::glium::SwapBuffersError),
     /// IO error
     Io(::std::io::Error),
+}
+
+impl From<::glium::SwapBuffersError> for WindowCreateError {
+    fn from(e: ::glium::SwapBuffersError) -> Self {
+        WindowCreateError::SwapBuffers(e)
+    }
 }
 
 impl From<CreationError> for WindowCreateError {
@@ -296,6 +311,16 @@ pub enum WindowMonitorTarget {
     Custom(MonitorId)
 }
 
+impl fmt::Debug for WindowMonitorTarget {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::WindowMonitorTarget::*;
+        match *self {
+            Primary =>  write!(f, "WindowMonitorTarget::Primary"),
+            Custom(_) =>  write!(f, "WindowMonitorTarget::Custom(_)"),
+        }
+    }
+}
+
 impl Default for WindowMonitorTarget {
     fn default() -> Self {
         WindowMonitorTarget::Primary
@@ -319,6 +344,7 @@ pub struct Window<T: LayoutScreen> {
 }
 
 /// Used in the solver, for the root constraint
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) struct WindowDimensions {
     pub(crate) layout_size: LayoutSize,
     pub(crate) width_var: Variable,
@@ -404,6 +430,20 @@ impl<T: LayoutScreen> Window<T> {
         unsafe {
             display.gl_window().make_current()?;
         }
+
+        // draw the first frame in the background color
+        use glium::Surface;
+        let mut frame = display.draw();
+        if let Some(depth) = options.clear_depth {
+            if let Some(stencil) = options.clear_stencil {
+                frame.clear_all_srgb((options.background.r, options.background.g, options.background.b, options.background.a), depth, stencil);
+            }
+            frame.clear_color_srgb_and_depth((options.background.r, options.background.g, options.background.b, options.background.a), depth);
+        } else if let Some(stencil) = options.clear_stencil {
+            frame.clear_color_srgb_and_stencil((options.background.r, options.background.g, options.background.b, options.background.a), stencil);
+        }
+        frame.clear_color_srgb(options.background.r, options.background.g, options.background.b, options.background.a);
+        frame.finish()?;
 
         let gl = match display.gl_window().get_api() {
             glutin::Api::OpenGl => unsafe {

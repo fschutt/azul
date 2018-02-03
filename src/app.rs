@@ -18,18 +18,13 @@ pub struct App<T: LayoutScreen> {
     pub app_state: Arc<Mutex<AppState<T>>>,
 }
 
-pub enum ReLayoutConstraintInfo {
-    DoLayout,
-    KeepOldLayout,
-}
-
-pub struct FrameEventInfo {
-    should_redraw_window: bool,
-    should_swap_window: bool,
-    should_hittest: bool,
-    cur_cursor_pos: (f64, f64),
-    new_window_size: Option<(u32, u32)>,
-    new_dpi_factor: Option<f32>,
+pub(crate) struct FrameEventInfo {
+    pub(crate) should_redraw_window: bool,
+    pub(crate) should_swap_window: bool,
+    pub(crate) should_hittest: bool,
+    pub(crate) cur_cursor_pos: (f64, f64),
+    pub(crate) new_window_size: Option<(u32, u32)>,
+    pub(crate) new_dpi_factor: Option<f32>,
 }
 
 impl Default for FrameEventInfo {
@@ -113,27 +108,32 @@ impl<T: LayoutScreen> App<T> {
                 if frame_event_info.should_hittest {
 
                     use webrender::api::WorldPoint;
+                    use dom::UpdateScreen;
+
                     let point = WorldPoint::new(frame_event_info.cur_cursor_pos.0 as f32, frame_event_info.cur_cursor_pos.1 as f32);
                     let hit_test_results = hit_test_ui(&window.internal.api, window.internal.document_id, Some(window.internal.pipeline_id), point);
-                    
-                    if !hit_test_results.items.is_empty() { 
-                        // note: we only need to redraw if the state or the CSS was modified / invalidated
-                        frame_event_info.should_redraw_window = true;
-                    }
+
+                    let mut should_update_screen = UpdateScreen::DontRedraw;
 
                     for item in hit_test_results.items {
                         if let Some(callback_list) = ui_state_cache[idx].node_ids_to_callbacks_list.get(&item.tag.0) {
                             // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
                             // currently, just invoke all actions
                             for callback_id in callback_list.values() {
-                                let callback_fn = ui_state_cache[idx].callback_list[callback_id];
                                 use dom::Callback::*;
-                                match callback_fn {
-                                    Sync(callback) => { (callback)(&mut *self.app_state.lock().unwrap()); },
+                                let update = match ui_state_cache[idx].callback_list[callback_id] {
+                                    Sync(callback) => { (callback)(&mut *self.app_state.lock().unwrap()) },
                                     Async(callback) => { (callback)(self.app_state.clone()) },
+                                };
+                                if update == UpdateScreen::Redraw { 
+                                    should_update_screen = UpdateScreen::Redraw;
                                 }
                             }
                         }
+                    }
+
+                    if should_update_screen == UpdateScreen::Redraw {
+                        frame_event_info.should_redraw_window = true;
                     }
 
                 }
@@ -249,6 +249,8 @@ fn render<T: LayoutScreen>(window: &mut Window<T>, _window_id: &WindowId, ui_des
 {
     use webrender::api::*;
     use display_list::DisplayList;
+    
+    println!("rendering");
 
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(window.internal.pipeline_id, &mut window.solver, &mut window.css, has_window_size_changed);

@@ -15,12 +15,16 @@ impl LayoutScreen for MyAppData {
         Dom::new(NodeType::Div)
             .class("__azul-native-button")
             .event(On::MouseUp, Callback::Sync(my_button_click_handler))
-        .add_sibling(Dom::new(NodeType::Text { content: "Hello World".into() }))
+        .add_sibling(Dom::new(NodeType::Label { 
+            text: "Hello World".into(),
+        }))
     }
 }
 
-fn my_button_click_handler(app_state: &mut AppState<MyAppData>) {
+fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
     app_state.data.my_data += 1;
+    println!("app_state.data.my_data: {:?}", app_state.data.my_data);
+    UpdateScreen::DontRedraw
 }
 
 fn main() {

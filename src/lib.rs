@@ -44,11 +44,15 @@ type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDef
 
 /// Quick exports of common types
 pub mod prelude {
-    pub use traits::LayoutScreen;
-    pub use dom::On;
-    pub use window::{WindowId, WindowCreateOptions};
-    pub use app_state::AppState;
-    pub use css::Css;
-    pub use dom::{NodeType, Dom, Callback};
     pub use app::App;
+    pub use app_state::AppState;
+    pub use css::{CssRule, Css};
+    pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
+    pub use traits::LayoutScreen;
+    pub use webrender::api::{ColorF, ColorU};
+    pub use window::{MonitorIter, Window, WindowCreateOptions,
+                     WindowId, WindowPlacement};
+    pub use window::{MouseMode, UpdateBehaviour, UpdateMode, WindowClass, 
+                     WindowCreateError, WindowDecorations, WindowMonitorTarget};
+
 }

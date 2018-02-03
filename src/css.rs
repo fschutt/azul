@@ -15,6 +15,9 @@ const RELAYOUT_RULES: [&str;11] = [
     "order"
 ];
 
+/// Wrapper for a `Vec<CssRule>`. Fields are private, because the `Css` 
+/// struct does caching - each time you add / subtract a `Css`, it is checked
+/// if the added / removed CSS rules change the actual layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Css {
     // NOTE: Each time the rules are modified, the `dirty` flag
@@ -28,22 +31,31 @@ pub struct Css {
     pub(crate) needs_relayout: bool,
 }
 
-#[derive(Debug, PartialEq)]
+/// Error that can happen during the parsing of a CSS value
+#[derive(Debug, Clone)]
 pub enum CssParseError {
+    /// A hard error in the CSS syntax
     ParseError(::simplecss::Error),
+    /// Braces are not balanced properly
     UnclosedBlock,
+    /// Invalid syntax, such as `#div { #div: "my-value" }`
     MalformedCss,
 }
 
+/// Rule that applies to some "path" in the CSS, i.e. 
+/// `div#myid.myclass -> ("justify-content", "center")`
+/// 
+/// The CSS rule is currently not cascaded, use `Css::new_from_string()` 
+/// to do the cascading.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CssRule {
     /// `div` (`*` by default)
     pub html_type: String,
-    /// `#myid` (`*` by default)
+    /// `#myid` (`None` by default)
     pub id: Option<String>,
     /// `.myclass .myotherclass` (vec![] by default)
     pub classes: Vec<String>,
-    /// `("justify-content", "center")` (vec![] by default)
+    /// `("justify-content", "center")`
     pub declaration: (String, String),
 }
 
@@ -54,7 +66,9 @@ impl CssRule {
 }
 
 impl Css {
-    pub fn new() -> Self {
+
+    /// Creates an empty set of CSS rules
+    pub fn empty() -> Self {
         Self {
             rules: Vec::new(),
             is_dirty: false,
@@ -62,6 +76,7 @@ impl Css {
         }
     }
 
+    /// Parses a CSS string (single-threaded) and returns the parsed rules
     pub fn new_from_string(css_string: &str) -> Result<Self, CssParseError> {
         use simplecss::{Tokenizer, Token};
         use std::collections::HashSet;
@@ -177,11 +192,13 @@ impl Css {
         Self::new_from_string(NATIVE_CSS_WINDOWS).unwrap()
     }
 
+    /// Returns the native style for the OS
     #[cfg(target_os="linux")]
     pub fn native() -> Self {
         Self::new_from_string(NATIVE_CSS_LINUX).unwrap()
     }
 
+    /// Returns the native style for the OS
     #[cfg(target_os="macos")]
     pub fn native() -> Self {
         Self::new_from_string(NATIVE_CSS_MACOS).unwrap()

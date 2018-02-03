@@ -20,7 +20,6 @@ pub trait LayoutScreen {
     /// function and calculates the final display list that is submitted to the
     /// renderer.
     fn style_dom(dom: &Dom<Self>, css: &mut Css) -> UiDescription<Self> where Self: Sized {
-        println!("parsing css ... ");
         css.is_dirty = false;
         match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, 0)
     }
@@ -148,7 +147,7 @@ fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<No
 fn cascade_constraints<T: LayoutScreen>(node: &NodeData<T>, list: &mut CssConstraintList, parsed_css: &ParsedCss, css: &Css) {
 
     for div_rule in &parsed_css.pure_div_rules {
-        if *node.node_type.get_css_id() == div_rule.html_type {
+        if *node.node_type.get_css_identifier() == div_rule.html_type {
             push_rule(list, div_rule);
         }
     }

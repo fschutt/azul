@@ -159,7 +159,6 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
             // bug - for some reason, the origin gets scaled by 2.0, 
             // even if the HiDpi factor is set to 1.0
-            // println!("pushing rectangle ... ");
             // println!("bounds: {:?}", bounds);
             // println!("hidpi_factor: {:?}", hidpi_factor);
             // println!("window size: {:?}", layout_size);
@@ -236,7 +235,6 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             builder.pop_stacking_context();
         }
 
-        // println!("---------- finished creating builder ------------");
         builder
     }
 }

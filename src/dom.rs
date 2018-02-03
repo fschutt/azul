@@ -7,29 +7,47 @@ use std::fmt;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
+use webrender::api::ColorU;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
 pub(crate) static mut CALLBACK_ID: u64 = 0;
 
+/// A callback function has to return if the screen should 
+/// be updated after the function has run.PartialEq
+///
+/// This is necessary for updating the screen only if it is absolutely necessary.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum UpdateScreen {
+    /// Redraw the screen
+    Redraw,
+    /// Don't redraw the screen
+    DontRedraw,
+}
+
+/// Stores a function pointer that is executed when the given UI element is hit
+///
+/// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
+/// The CSS is not affected by this, so if you push to the windows' CSS inside the 
+/// function, the screen will be redrawn (if necessary).
 pub enum Callback<T: LayoutScreen> {
     /// One-off function (for ex. exporting a file)
     ///
     /// This is best for actions that can run in the background
     /// and you don't need to get updates. It uses a background
     /// thread and therefore the data needs to be sendable.
-    Async(fn(Arc<Mutex<AppState<T>>>) -> ()),
+    Async(fn(Arc<Mutex<AppState<T>>>) -> UpdateScreen),
     /// Same as the `FnOnceNonBlocking`, but it blocks the current
     /// thread and does not require the type to be `Send`.
-    Sync(fn(&mut AppState<T>) -> ()),
+    Sync(fn(&mut AppState<T>) -> UpdateScreen),
 }
 
 impl<T: LayoutScreen> fmt::Debug for Callback<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Callback::*;
         match *self {
-            Async(_) => write!(f, "Callback::Async"),
-            Sync(_) => write!(f, "Callback::Sync"),
+            Async(func) => write!(f, "Callback::Async @ {:?}", func as usize),
+            Sync(func) => write!(f, "Callback::Sync @ {:?}", func as usize),
         }
     }
 }
@@ -62,50 +80,148 @@ impl<T: LayoutScreen> Hash for Callback<T> {
 
 impl<T: LayoutScreen> Copy for Callback<T> { }
 
-/// List of allowed DOM node types
+/// List of allowed DOM node types that are supported by `azul`.
 ///
-/// The reason for this is because the markup5ever crate has
-/// special macros for these node types, so either I need to expose the
-/// whole markup5ever crate to the end user or I need to build a
-/// wrapper type
+/// The dom type 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NodeType {
+    /// Regular div
     Div,
-    Button,
+    /// Button
+    Button {
+        /// The text on the button
+        label: String,
+    },
+    /// Unordered list
     Ul,
-    Li,
+    /// Ordered list
     Ol,
-    Label,
-    Input,
-    Form,
-    Text { content: String },
+    /// List item. Only valid if the parent is `NodeType::Ol` or `NodeType::Ul`.
+    Li,
+    /// A label that can be (optionally) be selectable with the mouse
+    Label { 
+        /// Text of the label
+        text: String,
+    },
+    /// This is more or less like a `GroupBox` in Visual Basic, draws a border 
+    Form {
+        /// The text of the label
+        text: Option<String>,
+    },
+    /// Single-line text input
+    TextInput { 
+        content: String, 
+        placeholder: Option<String> 
+    },
+    /// Multi line text input 
+    TextEdit { 
+        content: String, 
+        placeholder: Option<String>,
+    },
+    /// A register-like tab
+    Tab {
+        label: String,
+    },
+    /// Checkbox
+    Checkbox {
+        /// active
+        state: CheckboxState,
+    },
+    /// Dropdown item
+    Dropdown {
+        items: Vec<String>,
+    },
+    /// Small (default yellow) tooltip for help
+    ToolTip {
+        title: String,
+        content: String,
+    },
+    /// Password input, like the TextInput, but the items are rendered as dots 
+    /// (if `use_dots` is active)
+    Password {
+        content: String,
+        placeholder: Option<String>,
+        use_dots: bool,
+    },
+}
+
+/// State of a checkbox (disabled, checked, etc.)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub enum CheckboxState {
+    /// `[■]`
+    Active,
+    /// `[✔]`
+    Checked,
+    /// Greyed out checkbox 
+    Disabled { 
+        /// Should the checkbox fire on a mouseover / mouseup, etc. event
+        ///
+        /// This can be useful for showing warnings / tooltips / help messages 
+        /// as to why this checkbox is disabled
+        fire_on_click: bool,
+    },
+    /// `[ ]`
+    Unchecked
 }
 
 impl NodeType {
-    pub fn get_css_id(&self) -> &'static str {
+
+    /// Get the CSS / HTML identifier "p", "ul", "li", etc.
+    /// 
+    /// Full list of the types you can use in CSS:
+    /// 
+    /// ```ignore
+    /// Div         => "div"
+    /// Button      => "button"
+    /// Ul          => "ul"
+    /// Ol          => "ol"
+    /// Li          => "li"
+    /// Label       => "label"
+    /// Form        => "form"
+    /// TextInput   => "text-input"
+    /// TextEdit    => "text-edit"
+    /// Tab         => "tab"
+    /// Checkbox    => "checkbox"
+    /// Color       => "color"
+    /// Drowdown    => "dropdown"
+    /// ToolTip     => "tooltip"
+    /// Password    => "password"
+    /// ```
+    pub fn get_css_identifier(&self) -> &'static str {
         use self::NodeType::*;
         match *self {
             Div => "div",
-            Button => "button",
+            Button { .. } => "button",
             Ul => "ul",
-            Li => "li",
             Ol => "ol",
-            Label => "label",
-            Input => "input",
-            Form => "form",
-            Text { .. } => "p",
+            Li => "li",
+            Label { .. } => "label",
+            Form { .. } => "form",
+            TextInput { .. } => "text-input",
+            TextEdit { .. } => "text-edit",
+            Tab { .. } => "tab",
+            Checkbox { .. } => "checkbox",
+            Dropdown { .. } => "dropdown",
+            ToolTip { .. } => "tooltip",
+            Password { .. } => "password",
         }
     }
 }
 
+/// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum On {
+    /// Mouse cursor is hovering over the element
     MouseOver,
+    /// Mouse cursor has is over element and is pressed 
+    /// (not good for "click" events - use `MouseUp` instead)
     MouseDown,
+    /// Mouse button has been released while cursor was over the element
     MouseUp,
+    /// Mouse cursor has entered the element
     MouseEnter,
+    /// Mouse cursor has left the element
     MouseLeave,
-    DragDrop,
 }
 
 #[derive(Hash)]
@@ -156,6 +272,7 @@ impl<T: LayoutScreen> CallbackList<T> {
 }
 
 impl<T: LayoutScreen> NodeData<T> {
+    /// Creates a new NodeData
     pub fn new(node_type: NodeType) -> Self {
         Self {
             node_type: node_type,
@@ -166,6 +283,8 @@ impl<T: LayoutScreen> NodeData<T> {
         }
     }
 
+    /// Since `#[derive(Clone)]` requires `T: Clone`, we currently
+    /// have to make our own version
     fn special_clone(&self) -> Self {
         Self {
             node_type: self.node_type.clone(),
@@ -177,20 +296,13 @@ impl<T: LayoutScreen> NodeData<T> {
     }
 }
 
-#[derive(Clone)]
+/// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
+#[derive(Debug, Clone)]
 pub struct Dom<T: LayoutScreen> {
     pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) root: NodeId,
     pub(crate) current_root: NodeId,
     pub(crate) last: NodeId,
-}
-
-impl<T: LayoutScreen> Dom<T> {
-    pub fn print_dom_debug(&self) {
-        println!("Dom {{");
-        &(*self.arena.borrow()).print_arena_debug();
-        println!("}}");
-    }
 }
 
 #[derive(Clone, Hash)]
