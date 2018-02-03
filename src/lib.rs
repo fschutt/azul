@@ -1,3 +1,25 @@
+//! azul is a library for creating graphical user interfaces in Rust. 
+//! 
+//! ## How it works
+//! 
+//! azul requires your app data to "serialize" itself into a UI. 
+//! This is different from how other GUI frameworks work, so it requires a bit of explanation:
+//! 
+//! Your app data is one global struct for your whole application. This is the "model". 
+//! azul takes your model and requires you to build a DOM tree to translate the model into a view.
+//! This (layouting, restyling, constraint solving) is done every 2 milliseconds. However, if your 
+//! UI doesn't change, nothing is done (in order to not stress the CPU too much).
+//!
+//! This model makes conditional UI elements and conditional styling very easy. azul takes care
+//! of caching for you - your CSS and DOM elements are cached and diffed for changes, in order to 
+//! maximize performance. A full screen redraw should not take longer than 16 milliseconds 
+//! (currently the frame time is around 1 - 2 milliseconds).
+//! 
+//! ## Hello world example
+//! 
+//! For more examples, please look in the `/examples` folder.
+
+
 #![deny(unused_must_use)]
 #![allow(dead_code)]
 #![allow(unused_imports)]

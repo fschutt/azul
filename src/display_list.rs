@@ -126,8 +126,6 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
         // recalculate the actual layout
         if has_window_size_changed {
-            println!("relayouting frame!");
-
             /*
                 for change in solver.fetch_changes() {
                     println!("change: - {:?}", change);

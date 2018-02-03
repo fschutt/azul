@@ -10,7 +10,7 @@ pub struct NodeId {
     index: usize,  // FIXME: use NonZero to optimize the size of Option<NodeId>
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Node<T> {
     // Keep these private (with read-only accessors) so that we can keep them consistent.
     // E.g. the parent of a node’s child is that node.
@@ -45,6 +45,15 @@ impl<T: fmt::Debug> fmt::Debug for Node<T> {
 #[derive(Debug, Clone)]
 pub struct Arena<T> {
     nodes: Vec<Node<T>>,
+}
+
+impl<T: PartialEq> PartialEq for Arena<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.nodes == other.nodes
+    }
+}
+
+impl<T: PartialEq> Eq for Arena<T> {
 }
 
 impl<T> Arena<T> {

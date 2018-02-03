@@ -78,6 +78,18 @@ impl<T: LayoutScreen> Hash for Callback<T> {
   }
 }
 
+impl<T: LayoutScreen> PartialEq for Callback<T> {
+  fn eq(&self, rhs: &Self) -> bool {
+    use self::Callback::*;
+    if let (Async(self_f), Async(other_f)) = (*self, *rhs) {
+        if self_f as usize == other_f as usize { return true; }
+    } else if let (Sync(self_f), Sync(other_f)) = (*self, *rhs) {
+        if self_f as usize == other_f as usize { return true; }
+    }
+    false
+  }
+}
+impl<T: LayoutScreen> Eq for Callback<T> { }
 impl<T: LayoutScreen> Copy for Callback<T> { }
 
 /// List of allowed DOM node types that are supported by `azul`.
@@ -224,7 +236,7 @@ pub enum On {
     MouseLeave,
 }
 
-#[derive(Hash)]
+#[derive(Hash, PartialEq, Eq)]
 pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
     pub node_type: NodeType,
@@ -297,7 +309,7 @@ impl<T: LayoutScreen> NodeData<T> {
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dom<T: LayoutScreen> {
     pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) root: NodeId,
@@ -305,7 +317,7 @@ pub struct Dom<T: LayoutScreen> {
     pub(crate) last: NodeId,
 }
 
-#[derive(Clone, Hash)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub(crate) struct CallbackList<T: LayoutScreen> {
     pub(crate) callbacks: BTreeMap<On, Callback<T>>
 }
