@@ -59,6 +59,8 @@ mod css_parser;
 mod id_tree;
 /// State handling for user interfaces
 mod ui_state;
+/// Dom / CSS caching
+mod cache;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;

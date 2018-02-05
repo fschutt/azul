@@ -37,7 +37,7 @@ impl<T: LayoutScreen> UiDescription<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StyledNode {
     /// The current node we are processing (the current HTML element)
     pub id: NodeId,
@@ -47,7 +47,7 @@ pub struct StyledNode {
     pub css_constraints: CssConstraintList
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CssConstraintList {
     pub list: FastHashMap<String, String>
 }

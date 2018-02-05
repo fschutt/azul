@@ -1,0 +1,32 @@
+sudo: required
+language: rust
+rust:
+  - stable
+  - beta
+  - nightly
+
+# Cache cargo symbols for faster build
+cache: cargo
+
+# Dependencies of kcov, used by coverage
+# addons:
+#  apt:
+#    packages:
+#      - cmake # required for cargo-update
+#    sources:
+#      - kalakris-cmake
+
+notifications:
+  email: false
+
+before_script:
+  - cargo install cargo-update --verbose || echo "cargo-update already installed"
+  - cargo install cargo-travis --verbose || echo "cargo-travis already installed"
+  - cargo install-update -a # update outdated cached binaries
+
+script:
+      - |
+          cargo build --verbose &&
+          cargo build --examples --verbose &&
+          cargo test --verbose
+      after_success: cargo coveralls --all --verbose

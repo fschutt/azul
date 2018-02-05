@@ -236,7 +236,7 @@ pub enum On {
     MouseLeave,
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
     pub node_type: NodeType,
@@ -248,6 +248,29 @@ pub(crate) struct NodeData<T: LayoutScreen> {
     pub events: CallbackList<T>,
     /// Tag for hit-testing
     pub tag: Option<u64>,
+}
+
+impl<T: LayoutScreen> Hash for NodeData<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.node_type.hash(state);
+        self.id.hash(state);
+        for class in &self.classes {
+            class.hash(state);            
+        }
+        self.events.hash(state);
+    }
+}
+
+use cache::DomHash;
+
+impl<T: LayoutScreen> NodeData<T> {
+    pub fn calculate_node_data_hash(&self) -> DomHash {
+        use std::hash::Hash;
+        use twox_hash::XxHash;
+        let mut hasher = XxHash::default();
+        self.hash(&mut hasher);
+        DomHash(hasher.finish())
+    }
 }
 
 impl<T: LayoutScreen> Clone for NodeData<T> {
@@ -317,9 +340,17 @@ pub struct Dom<T: LayoutScreen> {
     pub(crate) last: NodeId,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct CallbackList<T: LayoutScreen> {
     pub(crate) callbacks: BTreeMap<On, Callback<T>>
+}
+
+impl<T: LayoutScreen> Hash for CallbackList<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for callback in &self.callbacks {
+            callback.hash(state);
+        }
+    }
 }
 
 impl<T: LayoutScreen> fmt::Debug for CallbackList<T> {

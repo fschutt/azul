@@ -193,7 +193,7 @@ impl<T: LayoutScreen> App<T> {
                 break;
             } else {
                 if let Some(restate_time) = debug_has_repainted {
-                    // println!("frame time: {:?} ms", restate_time.subsec_nanos() as f32 / 1_000_000.0);
+                    println!("frame time: {:?} ms", restate_time.subsec_nanos() as f32 / 1_000_000.0);
                 }
                 ::std::thread::sleep(::std::time::Duration::from_millis(16));
             }

@@ -104,17 +104,14 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     {
         let mut builder = DisplayListBuilder::new(pipeline_id, ui_solver.window_dimensions.layout_size);
         
-        // Add / remove constraints as needed
         if css.needs_relayout {
+            
+            // constraints were added or removed during the last frame
 
             for rect in self.rectangles.values() {
-                println!("rect {:#?}", rect);
-
                 let mut layout_contraints = Vec::<CssConstraint>::new();
-                {
-                    let arena = &*self.ui_descr.arena.borrow();
-                    create_layout_constraints(&rect, arena, ui_solver);
-                }
+                let arena = &*self.ui_descr.arena.borrow();
+                create_layout_constraints(&rect, arena, ui_solver);
                 let cassowary_constraints = css_constraints_to_cassowary_constraints(&rect.rect, &layout_contraints);
                 ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
             }
@@ -285,26 +282,13 @@ where T: LayoutScreen
     let kv_height = constraint_list.get("height");
     let kv_min_width = constraint_list.get("min-width");
     let kv_min_height = constraint_list.get("min-height");
+    
 
-/*
-    macro_rules! parse_css_size {
-        ($id:ident, $key:expr, $func:tt, $css_constraints:ident, $constraint_list:ident, $wrapper:path, $strength:expr) => (
-            if let Some($id) = $constraint_list.get($key) {
-                match $func($id) {
-                    Ok(w) => { $css_constraints.push(CssConstraint::Size(($wrapper(w.to_pixels()), $strength))); },
-                    Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, $key); }
-                }
-            }
-        )
-    }
-
-    // simple parsing rules
-    parse_css_size!(width, "width", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::Width, Strength(WEAK));
-    parse_css_size!(height, "height", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::Height, Strength(WEAK));
-    parse_css_size!(min_height, "min-height", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::MinHeight, Strength(STRONG));
-    parse_css_size!(min_width, "min-width", parse_pixel_value, target_constraints, constraint_list, SizeConstraint::MinWidth, Strength(STRONG));
-*/
-    // TODO: complex parsing rules
+    let kv_direction = constraint_list.get("direction");
+    let kv_wrap = constraint_list.get("wrap");
+    let kv_justify_content = constraint_list.get("justify-content");
+    let kv_align_items = constraint_list.get("align-items");
+    let kv_align_content = constraint_list.get("align-content");
 }
 
 fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssConstraint>)

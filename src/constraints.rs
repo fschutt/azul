@@ -1,8 +1,8 @@
 //! Constraint building (mostly taken from `limn_layout`)
 
-use cassowary::{Variable, Constraint};
+use cassowary::{Solver, Variable, Constraint};
 use cassowary::WeightedRelation::{EQ, GE};
-use cassowary::strength::REQUIRED;
+use cassowary::strength::{WEAK, REQUIRED};
 use euclid::{Point2D, Size2D};
 
 pub type Size = Size2D<f32>;
@@ -31,6 +31,28 @@ impl Default for DisplayRect {
             height: Variable::new(),
         }
     }
+}
+
+impl DisplayRect {
+    
+    pub fn add_to_solver(&self, solver: &mut Solver) {
+        solver.add_edit_variable(self.left, WEAK).unwrap_or_else(|_e| { });
+        solver.add_edit_variable(self.top, WEAK).unwrap_or_else(|_e| { });
+        solver.add_edit_variable(self.right, WEAK).unwrap_or_else(|_e| { });
+        solver.add_edit_variable(self.bottom, WEAK).unwrap_or_else(|_e| { });
+        solver.add_edit_variable(self.width, WEAK).unwrap_or_else(|_e| { });
+        solver.add_edit_variable(self.height, WEAK).unwrap_or_else(|_e| { });
+    }
+
+    pub fn remove_from_solver(&self, solver: &mut Solver) {
+        solver.remove_edit_variable(self.left).unwrap_or_else(|_e| { });
+        solver.remove_edit_variable(self.top).unwrap_or_else(|_e| { });
+        solver.remove_edit_variable(self.right).unwrap_or_else(|_e| { });
+        solver.remove_edit_variable(self.bottom).unwrap_or_else(|_e| { });
+        solver.remove_edit_variable(self.width).unwrap_or_else(|_e| { });
+        solver.remove_edit_variable(self.height).unwrap_or_else(|_e| { });
+    }
+
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]

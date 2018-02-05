@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 
 [dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "47f5afa5c011080ee787c1170038de1e5fc28155" }
+webrender = { git = "https://github.com/servo/webrender", rev = "c383ef73113d0d5f8634385565ce83a4c84ca944" }
 cassowary = "0.3.0"
 simplecss = "0.1.0"
 twox-hash = "1.1.0"

@@ -3,6 +3,7 @@
 use std::mem;
 use std::ops::{Index, IndexMut};
 use std::fmt;
+use std::hash::{Hasher, Hash};
 
 /// A node identifier within a particular `Arena`.
 #[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Debug, Hash)]
@@ -54,6 +55,14 @@ impl<T: PartialEq> PartialEq for Arena<T> {
 }
 
 impl<T: PartialEq> Eq for Arena<T> {
+}
+
+impl<T: Hash> Hash for Arena<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for node in &self.nodes {
+            node.data.hash(state);
+        }
+    }
 }
 
 impl<T> Arena<T> {

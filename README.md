@@ -1,5 +1,10 @@
 # azul
 
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Build Status](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul)
+[![Coverage Status](https://coveralls.io/repos/github/maps4print/azul/badge.svg?branch=master)](https://coveralls.io/github/maps4print/azul?branch=master)
+[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.23%20stable-blue.svg)]()
+
 azul is a stylable GUI framework using `webrender` and `limn-layout` for rendering
 
 ## Design
@@ -11,7 +16,7 @@ be styled however you want.
 
 That said, `azul` is probably not the most efficient UI library.
 
-![azul desgin diagram](https://i.imgur.com/M5NGnBk.png)
+![azul design diagram](https://i.imgur.com/M5NGnBk.png)
 
 ## Goals
 

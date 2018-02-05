@@ -16,7 +16,7 @@ impl LayoutScreen for MyAppData {
             .class("__azul-native-button")
             .event(On::MouseUp, Callback::Sync(my_button_click_handler))
         .add_sibling(Dom::new(NodeType::Label { 
-            text: "Hello World".into(),
+            text: format!("{}", self.my_data),
         }))
     }
 }
