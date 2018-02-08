@@ -19,14 +19,8 @@ pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) rectangles: BTreeMap<NodeId, DisplayRectangle<'a>>
 }
 
-#[derive(Debug)]
-pub(crate) struct DisplayRectangle<'a> {
-    /// `Some(id)` if this rectangle has a callback attached to it 
-    /// Note: this is not the same as the `NodeId`! 
-    /// These two are completely seperate numbers!
-    pub tag: Option<u64>,
-    /// The actual rectangle
-    pub(crate) rect: DisplayRect,
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RectStyle {
     /// Background color of this rectangle
     pub(crate) background_color: Option<ColorU>,
     /// Shadow color
@@ -37,8 +31,18 @@ pub(crate) struct DisplayRectangle<'a> {
     pub(crate) border: Option<(BorderWidths, BorderDetails)>,
     /// border radius
     pub(crate) border_radius: Option<BorderRadius>,
+}
+
+#[derive(Debug)]
+pub(crate) struct DisplayRectangle<'a> {
+    /// `Some(id)` if this rectangle has a callback attached to it 
+    /// Note: this is not the same as the `NodeId`! 
+    /// These two are completely seperate numbers!
+    pub tag: Option<u64>,
     /// The original styled node
     pub(crate) styled_node: &'a StyledNode,
+    /// The style of the node
+    pub(crate) style: RectStyle,
 }
 
 /// It is not very efficient to re-create constraints on every call, the difference
@@ -64,13 +68,14 @@ impl<'a> DisplayRectangle<'a> {
     pub fn new(tag: Option<u64>, styled_node: &'a StyledNode) -> Self {
         Self {
             tag: tag,
-            rect: DisplayRect::default(),
-            background_color: None,
-            box_shadow: None,
-            background: None,
-            border: None,
-            border_radius: None,
             styled_node: styled_node,
+            style: RectStyle {
+                background_color: None,
+                box_shadow: None,
+                background: None,
+                border: None,
+                border_radius: None,
+            }
         }
     }
 }
@@ -83,7 +88,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     /// layout. The layout is done only in the `into_display_list_builder` step.
     pub fn new_from_ui_description(ui_description: &'a UiDescription<T>) -> Self {
 
-        let arena = &ui_description.arena;
+        let arena = &ui_description.ui_descr_arena;
 
         let mut rect_btree = BTreeMap::new();
 
@@ -107,15 +112,22 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         if css.needs_relayout {
             
             // constraints were added or removed during the last frame
-
+            println!("needs relayout!");
+            if let Some(root) = self.ui_descr.ui_descr_root {
+                println!("ok root: {:?}", root);
+                let changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
+                ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &changeset);
+                ui_solver.edit_variable_cache.remove_unused_variables(&mut ui_solver.solver);
+            }
+/*
             for rect in self.rectangles.values() {
                 let mut layout_contraints = Vec::<CssConstraint>::new();
                 let arena = &*self.ui_descr.arena.borrow();
                 create_layout_constraints(&rect, arena, ui_solver);
-                let cassowary_constraints = css_constraints_to_cassowary_constraints(&rect.rect, &layout_contraints);
-                ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
+                // let cassowary_constraints = css_constraints_to_cassowary_constraints(&rect.rect, &layout_contraints);
+                // ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
             }
-
+*/
             // if we push or pop constraints that means we also need to re-layout the window
             has_window_size_changed = true;
             css.needs_relayout = false;
@@ -146,7 +158,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             //
             // this means, since the DOM in the debug example has two rectangles, we should
             // have two touching rectangles
-            let mut bounds = if rect.background_color.is_some() { 
+            let mut bounds = if rect.style.background_color.is_some() { 
                 bounds1 
             } else { 
                 bounds2 
@@ -162,7 +174,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             bounds.origin.x /= 2.0;
             bounds.origin.y /= 2.0;
 
-            let clip = if let Some(border_radius) = rect.border_radius {
+            let clip = if let Some(border_radius) = rect.style.border_radius {
                 LocalClip::RoundedRect(bounds, ComplexClipRegion {
                     rect: bounds,
                     radii: border_radius,
@@ -190,17 +202,17 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             );
 
             // red rectangle if we don't have a background color
-            builder.push_rect(&info, rect.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
+            builder.push_rect(&info, rect.style.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
 
-            if let Some(ref pre_shadow) = rect.box_shadow {
+            if let Some(ref pre_shadow) = rect.style.box_shadow {
                 // The pre_shadow is missing the BorderRadius & LayoutRect
-                let border_radius = rect.border_radius.unwrap_or(BorderRadius::zero());
+                let border_radius = rect.style.border_radius.unwrap_or(BorderRadius::zero());
                 builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
                                          pre_shadow.blur_radius, pre_shadow.spread_radius,
                                          border_radius, pre_shadow.clip_mode);
             }
 
-            if let Some(ref background) = rect.background {
+            if let Some(ref background) = rect.style.background {
                 match *background {
                     ParsedGradient::RadialGradient(ref _gradient) => {
 
@@ -218,8 +230,8 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                 }
             }
 
-            if let Some((border_widths, mut border_details)) = rect.border {
-                if let Some(border_radius) = rect.border_radius {
+            if let Some((border_widths, mut border_details)) = rect.style.border {
+                if let Some(border_radius) = rect.style.border_radius {
                     if let BorderDetails::Normal(ref mut n) = border_details {
                         n.radius = border_radius;
                     }
@@ -250,14 +262,14 @@ fn parse_css(rect: &mut DisplayRectangle)
         )
     }
 
-    parse!(radius, "border-radius", rect.border_radius, parse_css_border_radius, constraint_list);
-    parse!(background_color, "background-color", rect.background_color, parse_css_color, constraint_list);
-    parse!(border, "border", rect.border, parse_css_border, constraint_list);
-    parse!(background, "background", rect.background, parse_css_background, constraint_list);
+    parse!(radius, "border-radius", rect.style.border_radius, parse_css_border_radius, constraint_list);
+    parse!(background_color, "background-color", rect.style.background_color, parse_css_color, constraint_list);
+    parse!(border, "border", rect.style.border, parse_css_border, constraint_list);
+    parse!(background, "background", rect.style.background, parse_css_background, constraint_list);
 
     if let Some(box_shadow) = constraint_list.get("box-shadow") {
         match parse_css_box_shadow(box_shadow) {
-            Ok(r) => { rect.box_shadow = r; },
+            Ok(r) => { rect.style.box_shadow = r; },
             Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, "box-shadow"); }
         }
     }

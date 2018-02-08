@@ -495,7 +495,7 @@ fn parse_border_style<'a>(input: &'a str)
 }
 
 // missing BorderRadius & LayoutRect
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BoxShadowPreDisplayItem {
     pub offset: LayoutVector2D,
     pub color: ColorF,
@@ -644,27 +644,27 @@ impl<'a> From<CssShapeParseError<'a>> for CssBackgroundParseError<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ParsedGradient {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LinearGradientPreInfo {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RadialGradientPreInfo {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Direction {
     Angle(f32),
     FromTo(DirectionCorner, DirectionCorner),
@@ -689,13 +689,13 @@ impl Direction {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Shape {
     Ellipse,
     Circle,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum DirectionCorner {
     Right,
     Left,
@@ -935,7 +935,7 @@ pub enum CssGradientStopParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GradientStopPre {
     pub offset: Option<f32>, // this is set to None if there was no offset that could be parsed
     pub color: ColorF,

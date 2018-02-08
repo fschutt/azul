@@ -114,7 +114,8 @@ fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Are
     UiDescription {
         // note: this clone is neccessary, otherwise, 
         // we wouldn't be able to update the UiState
-        arena: (*arena).clone(),
+        ui_descr_arena: (*arena).clone(),
+        ui_descr_root: Some(root),
         styled_nodes: styled_nodes,
     }
 }

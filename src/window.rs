@@ -9,9 +9,11 @@ use glium::backend::glutin::DisplayCreationError;
 use euclid::TypedScale;
 use cassowary::{Variable, Solver};
 use cassowary::strength::*;
+
 use display_list::SolvedLayout;
 use traits::LayoutScreen;
 use css::Css;
+use cache::{EditVariableCache, DomTreeCache};
 
 use std::time::Duration;
 use std::fmt;
@@ -377,6 +379,10 @@ pub(crate) struct UiSolver<T: LayoutScreen> {
     /// Solved layout from the previous frame (empty by default)
     /// This is necessary for caching the constraints of the given layout
     pub(crate) solved_layout: SolvedLayout<T>,
+    /// The list of variables that has been added to the solver
+    pub(crate) edit_variable_cache: EditVariableCache,
+    /// The cache of the previous frames DOM tree
+    pub(crate) dom_tree_cache: DomTreeCache,
 }
 
 pub(crate) struct WindowInternal {
@@ -520,6 +526,8 @@ impl<T: LayoutScreen> Window<T> {
                 solver: solver,
                 window_dimensions: window_dim,
                 solved_layout: SolvedLayout::empty(),
+                edit_variable_cache: EditVariableCache::empty(),
+                dom_tree_cache: DomTreeCache::empty(),
             }
         };
 

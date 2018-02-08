@@ -8,14 +8,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct UiDescription<T: LayoutScreen> {
-    pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
+    pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,
+    pub(crate) ui_descr_root: Option<NodeId>,
     pub(crate) styled_nodes: Vec<StyledNode>,
 }
 
 impl<T: LayoutScreen> Clone for UiDescription<T> {
     fn clone(&self) -> Self {
         Self {
-            arena: self.arena.clone(),
+            ui_descr_arena: self.ui_descr_arena.clone(),
+            ui_descr_root: self.ui_descr_root.clone(),
             styled_nodes: self.styled_nodes.clone(),
         }
     }
@@ -24,7 +26,8 @@ impl<T: LayoutScreen> Clone for UiDescription<T> {
 impl<T: LayoutScreen> Default for UiDescription<T> {
     fn default() -> Self {
         Self {
-            arena: Rc::new(RefCell::new(Arena::new())),
+            ui_descr_arena: Rc::new(RefCell::new(Arena::new())),
+            ui_descr_root: None,
             styled_nodes: Vec::new(),
         }
     }

@@ -65,9 +65,14 @@ impl DomTreeCache {
     }
 
     pub(crate) fn update<T: LayoutScreen>(&mut self, root: NodeId, new_arena: &Arena<NodeData<T>>) -> DomChangeSet {
+        
         use std::hash::Hash;
+        
+        println!("DomTreeCache::update()");
+        
         let mut new_iterator = root.following_siblings(new_arena);
         let new_next = new_iterator.next();
+        
         let mut changeset = DomChangeSet {
             added_nodes: BTreeMap::new(),
         };
@@ -89,7 +94,7 @@ impl DomTreeCache {
                 } else if old_next.is_some() && new_next.is_none() {
                     // node was removed as a child
                     // mark node as inactive
-
+                    println!("node was removed as a child");
                 }
 
                 let old_next = old_next.unwrap();
@@ -99,11 +104,12 @@ impl DomTreeCache {
 
                 if old_hash != new_hash {
                     // hashes differ
+                    println!("hashes differ");
                 }
             }
         } else {
             // initialize tree
-            
+            println!("initialize tree");
         }
         changeset
 
@@ -127,14 +133,21 @@ pub(crate) struct DomNodeHash {
     pub(crate) children_hash: Vec<DomHash>,
 }
 
+#[derive(Debug)]
 pub(crate) struct EditVariableCache {
-    map: BTreeMap<DomHash, (bool, DisplayRect)>
+    pub(crate) map: BTreeMap<DomHash, (bool, DisplayRect)>
 }
 
 impl EditVariableCache {
+    pub(crate) fn empty() -> Self {
+        Self {
+            map: BTreeMap::new(),
+        }
+    }
 
     pub(crate) fn initialize_new_rectangles(&mut self, solver: &mut Solver, rects: &DomChangeSet) {
         for dom_hash in rects.added_nodes.values() {
+            println!("adding rectangle!!!");
             let rect = DisplayRect::default();
             rect.add_to_solver(solver);
             self.map.insert(*dom_hash, (true, rect));
@@ -149,6 +162,7 @@ impl EditVariableCache {
         
         for (key, &(active, variable_rect)) in &self.map {
             if !active {
+                println!("removing rectangle!!!");
                 variable_rect.remove_from_solver(solver);
                 to_be_removed.push(*key);  
             }
