@@ -140,9 +140,8 @@ impl<T: LayoutScreen> App<T> {
 
                 let mut app_state = self.app_state.lock().unwrap();
                 ui_state_cache[idx] = UiState::from_app_state(&*app_state, WindowId { id: idx });
-                
+
                 if window.css.is_dirty {
-                    ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
                     frame_event_info.should_redraw_window = true;
                 }
 
@@ -175,6 +174,7 @@ impl<T: LayoutScreen> App<T> {
                 }
 
                 if frame_event_info.should_redraw_window {
+                    ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
                     render(window, &current_window_id, &ui_description_cache[idx], frame_event_info.new_window_size.is_some());
                     let time_end = ::std::time::Instant::now();
                     debug_has_repainted = Some(time_end - time_start);
@@ -250,8 +250,6 @@ fn render<T: LayoutScreen>(window: &mut Window<T>, _window_id: &WindowId, ui_des
     use webrender::api::*;
     use display_list::DisplayList;
     
-    println!("rendering");
-
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(window.internal.pipeline_id, &mut window.solver, &mut window.css, has_window_size_changed);
     let resources = ResourceUpdates::new();

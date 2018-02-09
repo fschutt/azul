@@ -4,11 +4,12 @@ use std::mem;
 use std::ops::{Index, IndexMut};
 use std::fmt;
 use std::hash::{Hasher, Hash};
+use std::collections::BTreeMap;
 
 /// A node identifier within a particular `Arena`.
 #[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Debug, Hash)]
 pub struct NodeId {
-    index: usize,  // FIXME: use NonZero to optimize the size of Option<NodeId>
+    pub(crate) index: usize,  // FIXME: use NonZero to optimize the size of Option<NodeId>
 }
 
 #[derive(Clone, PartialEq)]
@@ -45,7 +46,7 @@ impl<T: fmt::Debug> fmt::Debug for Node<T> {
 
 #[derive(Debug, Clone)]
 pub struct Arena<T> {
-    nodes: Vec<Node<T>>,
+    pub(crate) nodes: Vec<Node<T>>,
 }
 
 impl<T: PartialEq> PartialEq for Arena<T> {
@@ -66,6 +67,29 @@ impl<T: Hash> Hash for Arena<T> {
 }
 
 impl<T> Arena<T> {
+    
+    /// Transform keeps the relative order of parents / children
+    /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
+    /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
+    pub fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T) -> U {
+        Arena {
+            nodes: self.nodes.iter().map(|node| Node {
+                parent: node.parent,
+                previous_sibling: node.previous_sibling,
+                next_sibling: node.next_sibling,
+                first_child: node.first_child,
+                last_child: node.last_child,
+                data: closure(&node.data)
+            }).collect()
+        }
+    }
+
+    pub fn from_nodes(nodes: Vec<Node<T>>) -> Arena<T> {
+        Self {
+            nodes: nodes,
+        }
+    }
+
     pub fn new() -> Arena<T> {
         Arena {
             nodes: Vec::new(),
@@ -92,6 +116,20 @@ impl<T> Arena<T> {
     // nodes there are in the arena
     pub fn nodes_len(&self) -> usize {
         self.nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes_len() == 0
+    }
+}
+
+impl<T: Copy> Arena<T> {
+    #[inline]
+    pub fn get_all_node_ids(&self) -> BTreeMap<NodeId, T> {
+        use std::iter::FromIterator;
+        BTreeMap::from_iter(self.nodes.iter().enumerate().map(|(i, node)| 
+            (NodeId { index: i }, node.data)
+        ))
     }
 }
 

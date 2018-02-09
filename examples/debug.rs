@@ -4,6 +4,7 @@ use azul::prelude::*;
 
 const TEST_CSS: &str = include_str!("test_content.css");
 
+#[derive(Debug)]
 pub struct MyAppData {
     // Your app data goes here
     pub my_data: u32,
@@ -12,19 +13,23 @@ pub struct MyAppData {
 impl LayoutScreen for MyAppData {
 
     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
-        Dom::new(NodeType::Div)
-            .class("__azul-native-button")
-            .event(On::MouseUp, Callback::Sync(my_button_click_handler))
-        .add_sibling(Dom::new(NodeType::Label { 
-            text: format!("{}", self.my_data),
-        }))
+        let mut dom = Dom::new(NodeType::Div);
+        dom.class("__azul-native-button");
+        dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
+        
+        for i in 0..self.my_data {
+            dom.add_sibling(Dom::new(NodeType::Label { 
+                text: format!("{}", i),
+            }));
+        }
+
+        dom
     }
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
     app_state.data.my_data += 1;
-    println!("app_state.data.my_data: {:?}", app_state.data.my_data);
-    UpdateScreen::DontRedraw
+    UpdateScreen::Redraw
 }
 
 fn main() {

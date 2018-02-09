@@ -3,11 +3,25 @@ use window::WindowId;
 use std::collections::BTreeMap;
 use dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On};
 use app_state::AppState;
+use std::fmt;
 
 pub struct UiState<T: LayoutScreen> {
     pub dom: Dom<T>,
     pub callback_list: BTreeMap<u64, Callback<T>>,
     pub node_ids_to_callbacks_list: BTreeMap<u64, BTreeMap<On, u64>>,
+}
+
+impl<T: LayoutScreen> fmt::Debug for UiState<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "UiState {{ 
+   dom: {:?}, 
+   callback_list: {:?}, 
+   node_ids_to_callbacks_list: {:?}
+}}", 
+        self.dom, 
+        self.callback_list,
+        self.node_ids_to_callbacks_list)
+    }
 }
 
 impl<T: LayoutScreen> UiState<T> {

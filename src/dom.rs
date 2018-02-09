@@ -332,12 +332,27 @@ impl<T: LayoutScreen> NodeData<T> {
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Dom<T: LayoutScreen> {
     pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) root: NodeId,
     pub(crate) current_root: NodeId,
     pub(crate) last: NodeId,
+}
+
+impl<T: LayoutScreen> fmt::Debug for Dom<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Dom {{ 
+   arena: {:?}, 
+   root: {:?}, 
+   current_root: {:?},
+   last: {:?}
+}}", 
+        self.arena, 
+        self.root, 
+        self.current_root,
+        self.last)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -384,45 +399,40 @@ impl<T: LayoutScreen> Dom<T> {
 
     /// Adds a child DOM to the current DOM
     #[inline]
-    pub fn add_child(mut self, child: Self) -> Self {
+    pub fn add_child(&mut self, child: Self) {
         for ch in child.root.children(&*child.arena.borrow()) {
             let new_last = (*self.arena.borrow_mut()).new_node((*child.arena.borrow())[ch].data.special_clone());
             self.last.append(new_last, &mut self.arena.borrow_mut());
             self.last = new_last;
         }
-        self
     }
 
     /// Adds a sibling to the current DOM
     #[inline]
-    pub fn add_sibling(mut self, sibling: Self) -> Self {
+    pub fn add_sibling(&mut self, sibling: Self) {
         for sib in sibling.root.following_siblings(&*sibling.arena.borrow()) {
             let sibling_clone = (*sibling.arena.borrow())[sib].data.special_clone();
             let new_sibling = (*self.arena.borrow_mut()).new_node(sibling_clone);
             self.current_root.insert_after(new_sibling, &mut self.arena.borrow_mut());
             self.current_root = new_sibling;
         }
-        self
     }
 
     #[inline]
-    pub fn id<S: Into<String>>(self, id: S) -> Self {
+    pub fn id<S: Into<String>>(&mut self, id: S) {
         self.arena.borrow_mut()[self.last].data.id = Some(id.into());
-        self
     }
 
     #[inline]
-    pub fn class<S: Into<String>>(self, class: S) -> Self {
+    pub fn class<S: Into<String>>(&mut self, class: S) {
         self.arena.borrow_mut()[self.last].data.classes.push(class.into());
-        self
     }
 
     #[inline]
-    pub fn event(self, on: On, callback: Callback<T>) -> Self {
+    pub fn event(&mut self, on: On, callback: Callback<T>) {
         self.arena.borrow_mut()[self.last].data.events.callbacks.insert(on, callback);
         self.arena.borrow_mut()[self.last].data.tag = Some(unsafe { NODE_ID });
         unsafe { NODE_ID += 1; };
-        self
     }
 }
 

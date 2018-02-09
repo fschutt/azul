@@ -109,16 +109,18 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     {
         let mut builder = DisplayListBuilder::new(pipeline_id, ui_solver.window_dimensions.layout_size);
         
+        if let Some(root) = self.ui_descr.ui_descr_root {
+            let changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
+            println!("changeset: {:?}", changeset);
+            ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &changeset);
+            ui_solver.edit_variable_cache.remove_unused_variables(&mut ui_solver.solver);
+        }
+
+        println!("number of edit variables: {:?}", ui_solver.edit_variable_cache.map.len());
+
         if css.needs_relayout {
             
             // constraints were added or removed during the last frame
-            println!("needs relayout!");
-            if let Some(root) = self.ui_descr.ui_descr_root {
-                println!("ok root: {:?}", root);
-                let changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
-                ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &changeset);
-                ui_solver.edit_variable_cache.remove_unused_variables(&mut ui_solver.solver);
-            }
 /*
             for rect in self.rectangles.values() {
                 let mut layout_contraints = Vec::<CssConstraint>::new();
