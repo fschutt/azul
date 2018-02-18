@@ -19,20 +19,6 @@ pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) rectangles: BTreeMap<NodeId, DisplayRectangle<'a>>
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct RectStyle {
-    /// Background color of this rectangle
-    pub(crate) background_color: Option<ColorU>,
-    /// Shadow color
-    pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
-    /// Gradient (location) + stops
-    pub(crate) background: Option<ParsedGradient>,
-    /// Border
-    pub(crate) border: Option<(BorderWidths, BorderDetails)>,
-    /// border radius
-    pub(crate) border_radius: Option<BorderRadius>,
-}
-
 #[derive(Debug)]
 pub(crate) struct DisplayRectangle<'a> {
     /// `Some(id)` if this rectangle has a callback attached to it 
@@ -41,8 +27,10 @@ pub(crate) struct DisplayRectangle<'a> {
     pub tag: Option<u64>,
     /// The original styled node
     pub(crate) styled_node: &'a StyledNode,
-    /// The style of the node
+    /// The style properties of the node, parsed
     pub(crate) style: RectStyle,
+    /// The layout properties of the node, parsed
+    pub(crate) layout: RectLayout,
 }
 
 /// It is not very efficient to re-create constraints on every call, the difference
@@ -69,13 +57,8 @@ impl<'a> DisplayRectangle<'a> {
         Self {
             tag: tag,
             styled_node: styled_node,
-            style: RectStyle {
-                background_color: None,
-                box_shadow: None,
-                background: None,
-                border: None,
-                border_radius: None,
-            }
+            style: RectStyle::default(),
+            layout: RectLayout::default(),
         }
     }
 }
@@ -94,9 +77,12 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
         for node in &ui_description.styled_nodes {
             let mut rect = DisplayRectangle::new(arena.borrow()[node.id].data.tag, &node);
-            parse_css(&mut rect);
+            parse_css_style_properties(&mut rect);
+            parse_css_layout_properties(&mut rect);
             rect_btree.insert(node.id, rect);
         }
+
+        println!("rect_btree:\n{:#?}", rect_btree);
 
         Self {
             ui_descr: ui_description,
@@ -111,12 +97,9 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         
         if let Some(root) = self.ui_descr.ui_descr_root {
             let changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
-            println!("changeset: {:?}", changeset);
             ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &changeset);
             ui_solver.edit_variable_cache.remove_unused_variables(&mut ui_solver.solver);
         }
-
-        println!("number of edit variables: {:?}", ui_solver.edit_variable_cache.map.len());
 
         if css.needs_relayout {
             
@@ -248,33 +231,46 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     }
 }
 
-/// Populate the constraint list
-fn parse_css(rect: &mut DisplayRectangle)
+macro_rules! parse {
+    ($constraint_list:ident, $key:expr, $func:tt) => (
+        $constraint_list.get($key).and_then(|w| $func(w).map_err(|e| { 
+            #[cfg(debug_assertions)]
+            println!("ERROR - invalid {:?}: {:?}", e, $key);
+            e 
+        }).ok())
+    )
+}
+
+/// Populate and parse the CSS style properties
+fn parse_css_style_properties(rect: &mut DisplayRectangle)
 {
     let constraint_list = &rect.styled_node.css_constraints.list;
 
-    macro_rules! parse {
-        ($id:ident, $key:expr, $replace:expr, $func:tt, $constraint_list:ident) => (
-            if let Some($id) = $constraint_list.get($key) {
-                match $func($id) {
-                    Ok(r) => { $replace = Some(r); },
-                    Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, $key); }
-                }
-            }
-        )
+    rect.style.border_radius    = parse!(constraint_list, "border-radius", parse_css_border_radius);
+    rect.style.background_color = parse!(constraint_list, "background-color", parse_css_color);
+    rect.style.border           = parse!(constraint_list, "border", parse_css_border);
+    rect.style.background       = parse!(constraint_list, "background", parse_css_background);
+    let box_shadow_opt          = parse!(constraint_list, "box-shadow", parse_css_box_shadow);
+    if let Some(box_shadow_opt) = box_shadow_opt{
+        rect.style.box_shadow = box_shadow_opt;
     }
+}
 
-    parse!(radius, "border-radius", rect.style.border_radius, parse_css_border_radius, constraint_list);
-    parse!(background_color, "background-color", rect.style.background_color, parse_css_color, constraint_list);
-    parse!(border, "border", rect.style.border, parse_css_border, constraint_list);
-    parse!(background, "background", rect.style.background, parse_css_background, constraint_list);
+/// Populate and parse the CSS layout properties
+fn parse_css_layout_properties(rect: &mut DisplayRectangle) {
 
-    if let Some(box_shadow) = constraint_list.get("box-shadow") {
-        match parse_css_box_shadow(box_shadow) {
-            Ok(r) => { rect.style.box_shadow = r; },
-            Err(e) => { println!("ERROR - invalid {:?}: {:?}", e, "box-shadow"); }
-        }
-    }
+    let constraint_list = &rect.styled_node.css_constraints.list;
+    
+    rect.layout.width       = parse!(constraint_list, "width", parse_layout_width);
+    rect.layout.height      = parse!(constraint_list, "height", parse_layout_height);
+    rect.layout.min_width   = parse!(constraint_list, "min-width", parse_layout_min_width);
+    rect.layout.min_height  = parse!(constraint_list, "min-height", parse_layout_min_height);
+    
+    rect.layout.wrap            = parse!(constraint_list, "wrap", parse_layout_wrap);
+    rect.layout.direction       = parse!(constraint_list, "direction", parse_layout_direction);
+    rect.layout.justify_content = parse!(constraint_list, "justify-content", parse_layout_justify_content);
+    rect.layout.align_items     = parse!(constraint_list, "align-items", parse_layout_align_items);
+    rect.layout.align_content   = parse!(constraint_list, "align-content", parse_layout_align_content);
 }
 
 fn create_layout_constraints<T>(rect: &DisplayRectangle, 
@@ -282,6 +278,7 @@ fn create_layout_constraints<T>(rect: &DisplayRectangle,
                                 ui_solver: &mut UiSolver<T>)
 where T: LayoutScreen
 {
+    use css_parser;
     // todo: put these to use!
     let window_dimensions = &ui_solver.window_dimensions;
     let solver = &mut ui_solver.solver;
@@ -289,20 +286,12 @@ where T: LayoutScreen
 
     use cassowary::strength::*;
     use constraints::{SizeConstraint, Strength};
-    let constraint_list = &rect.styled_node.css_constraints.list;
-    
-    // get all the relevant keys we need to look at
-    let kv_width = constraint_list.get("width");
-    let kv_height = constraint_list.get("height");
-    let kv_min_width = constraint_list.get("min-width");
-    let kv_min_height = constraint_list.get("min-height");
-    
 
-    let kv_direction = constraint_list.get("direction");
-    let kv_wrap = constraint_list.get("wrap");
-    let kv_justify_content = constraint_list.get("justify-content");
-    let kv_align_items = constraint_list.get("align-items");
-    let kv_align_content = constraint_list.get("align-content");
+    /*
+    // centering a rectangle: 
+        center(&root),
+        bound_by(&root).padding(50.0).strength(WEAK),
+    */
 }
 
 fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssConstraint>)

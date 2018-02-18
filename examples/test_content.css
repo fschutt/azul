@@ -7,4 +7,11 @@
     background: linear-gradient(#fcfcfc, #efefef);
     width: 200px;
     height: 200px;
+    min-height: 400px;
+    min-width: 400px;
+    direction: row;
+    wrap: nowrap;
+    justify-content: space-around;
+    align-items: center;
+    align-content: center;
 }

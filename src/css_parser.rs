@@ -9,6 +9,46 @@ use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
 pub const EM_HEIGHT: f32 = 16.0;
 
+macro_rules! impl_from {
+    ($a:ident, $b:ident, $enum_type:ident) => (
+        impl<'a> From<$a<'a>> for $b<'a> {
+            fn from(e: $a<'a>) -> Self {
+                $b::$enum_type(e)
+            }
+        }
+    )
+}
+
+/// A parser that can accept a list of items and mappings
+macro_rules! multi_type_parser {
+    ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => (
+        pub fn $fn<'a>(input: &'a str)
+        -> Result<$return, InvalidValueErr<'a>>
+        {
+            match input {
+                $(
+                    $identifier_string => Ok($return::$enum_type),
+                )+
+                _ => Err(InvalidValueErr(input)),
+            }
+        }
+    )
+}
+
+macro_rules! typed_pixel_value_parser {
+    ($fn:ident, $return:ident) => (
+        pub fn $fn<'a>(input: &'a str)
+        -> Result<$return, PixelParseError<'a>>
+        {
+            parse_pixel_value(input).and_then(|e| Ok($return(e)))
+        }
+    )
+}
+
+/// Simple "invalid value" error, used for 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct InvalidValueErr<'a>(pub &'a str);
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct PixelValue {
     metric: CssMetric,
@@ -33,9 +73,10 @@ impl PixelValue {
 #[derive(Debug, PartialEq, Eq)]
 pub enum CssBorderRadiusParseError<'a> {
     TooManyValues(&'a str),
-    InvalidComponent(&'a str),
-    ValueParseErr(ParseFloatError),
+    PixelParseError(PixelParseError<'a>),
 }
+
+impl_from!(PixelParseError, CssBorderRadiusParseError, PixelParseError);
 
 #[derive(Debug, PartialEq)]
 pub enum CssColorParseError<'a> {
@@ -46,9 +87,9 @@ pub enum CssColorParseError<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum CssBorderParseError<'a> {
-    InvalidBorderStyle(&'a str),
+    InvalidBorderStyle(InvalidValueErr<'a>),
     InvalidBorderDeclaration(&'a str),
-    ThicknessParseError(CssBorderRadiusParseError<'a>),
+    ThicknessParseError(PixelParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
 
@@ -56,21 +97,12 @@ pub enum CssBorderParseError<'a> {
 pub enum CssShadowParseError<'a> {
     InvalidSingleStatement(&'a str),
     TooManyComponents(&'a str),
-    ValueParseErr(CssBorderRadiusParseError<'a>),
+    ValueParseErr(PixelParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
 
-impl<'a> From<CssBorderRadiusParseError<'a>> for CssShadowParseError<'a> {
-    fn from(e: CssBorderRadiusParseError<'a>) -> Self {
-        CssShadowParseError::ValueParseErr(e)
-    }
-}
-
-impl<'a> From<CssColorParseError<'a>> for CssShadowParseError<'a> {
-    fn from(e: CssColorParseError<'a>) -> Self {
-        CssShadowParseError::ColorParseError(e)
-    }
-}
+impl_from!(PixelParseError, CssShadowParseError, ValueParseErr);
+impl_from!(CssColorParseError, CssShadowParseError, ColorParseError);
 
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
 pub fn parse_css_border_radius<'a>(input: &'a str)
@@ -142,9 +174,15 @@ pub fn parse_css_border_radius<'a>(input: &'a str)
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum PixelParseError<'a> {
+    InvalidComponent(&'a str),
+    ValueParseErr(ParseFloatError),
+}
+
 /// parse a single value such as "15px"
 pub fn parse_pixel_value<'a>(input: &'a str)
--> Result<PixelValue, CssBorderRadiusParseError<'a>>
+-> Result<PixelValue, PixelParseError<'a>>
 {
     let mut split_pos = 0;
     for (idx, ch) in input.char_indices() {
@@ -159,10 +197,10 @@ pub fn parse_pixel_value<'a>(input: &'a str)
     let unit = match unit {
         "px" => CssMetric::Px,
         "em" => CssMetric::Em,
-        _ => { return Err(CssBorderRadiusParseError::InvalidComponent(&input[(split_pos - 1)..])); }
+        _ => { return Err(PixelParseError::InvalidComponent(&input[(split_pos - 1)..])); }
     };
 
-    let number = input[..split_pos].parse::<f32>().map_err(|e| CssBorderRadiusParseError::ValueParseErr(e))?;
+    let number = input[..split_pos].parse::<f32>().map_err(|e| PixelParseError::ValueParseErr(e))?;
 
     Ok(PixelValue {
         metric: unit,
@@ -434,14 +472,16 @@ pub fn parse_css_border<'a>(input: &'a str)
 
     match input_iter.clone().count() {
         1 => {
-            style = parse_border_style(input_iter.next().unwrap())?;
+            style = parse_border_style(input_iter.next().unwrap())
+                            .map_err(|e| CssBorderParseError::InvalidBorderStyle(e))?;
             thickness = 1.0;
             color = ColorU { r: 0, g: 0, b: 0, a: 255 };
         },
         3 => {
             thickness = parse_pixel_value(input_iter.next().unwrap())
                            .map_err(|e| CssBorderParseError::ThicknessParseError(e))?.to_pixels();
-            style = parse_border_style(input_iter.next().unwrap())?;
+            style = parse_border_style(input_iter.next().unwrap())
+                           .map_err(|e| CssBorderParseError::InvalidBorderStyle(e))?;
             color = parse_css_color(input_iter.next().unwrap())
                            .map_err(|e| CssBorderParseError::ColorParseError(e))?;
        },
@@ -476,23 +516,17 @@ pub fn parse_css_border<'a>(input: &'a str)
 /// Parse a border style such as "none", "dotted", etc.
 ///
 /// "solid", "none", etc.
-fn parse_border_style<'a>(input: &'a str)
--> Result<BorderStyle, CssBorderParseError<'a>>
-{
-    match input {
-        "none"  => Ok(BorderStyle::None),
-        "solid"  => Ok(BorderStyle::Solid),
-        "double" => Ok(BorderStyle::Double),
-        "dotted" => Ok(BorderStyle::Dotted),
-        "dashed" => Ok(BorderStyle::Dashed),
-        "hidden" => Ok(BorderStyle::Hidden),
-        "groove" => Ok(BorderStyle::Groove),
-        "ridge" => Ok(BorderStyle::Ridge),
-        "inset" => Ok(BorderStyle::Inset),
-        "outset" => Ok(BorderStyle::Outset),
-        _ => Err(CssBorderParseError::InvalidBorderStyle(input)),
-    }
-}
+multi_type_parser!(parse_border_style, BorderStyle,
+    ["none", None],
+    ["solid", Solid],
+    ["double", Double],
+    ["dotted", Dotted],
+    ["dashed", Dashed],
+    ["hidden", Hidden],
+    ["groove", Groove],
+    ["ridge", Ridge],
+    ["inset", Inset],
+    ["outset", Outset]);
 
 // missing BorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -628,21 +662,9 @@ pub enum CssBackgroundParseError<'a> {
     ShapeParseError(CssShapeParseError<'a>),
 }
 
-impl<'a> From<CssDirectionParseError<'a>> for CssBackgroundParseError<'a> {
-    fn from(e: CssDirectionParseError<'a>) -> Self {
-        CssBackgroundParseError::DirectionParseError(e)
-    }
-}
-impl<'a> From<CssGradientStopParseError<'a>> for CssBackgroundParseError<'a> {
-    fn from(e: CssGradientStopParseError<'a>) -> Self {
-        CssBackgroundParseError::GradientParseError(e)
-    }
-}
-impl<'a> From<CssShapeParseError<'a>> for CssBackgroundParseError<'a> {
-    fn from(e: CssShapeParseError<'a>) -> Self {
-        CssBackgroundParseError::ShapeParseError(e)
-    }
-}
+impl_from!(CssDirectionParseError, CssBackgroundParseError, DirectionParseError);
+impl_from!(CssGradientStopParseError, CssBackgroundParseError, GradientParseError);
+impl_from!(CssShapeParseError, CssBackgroundParseError, ShapeParseError);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedGradient {
@@ -1070,19 +1092,137 @@ fn parse_direction_corner<'a>(input: &'a str)
 
 #[derive(Debug, PartialEq)]
 pub enum CssShapeParseError<'a> {
-    InvalidShape(&'a str),
+    ShapeErr(InvalidValueErr<'a>),
 }
 
-// parses "circle", ""
-fn parse_shape<'a>(input: &'a str)
--> Result<Shape, CssShapeParseError<'a>>
-{
-    match input {
-        "circle" => Ok(Shape::Circle),
-        "ellipse" => Ok(Shape::Ellipse),
-        _ => Err(CssShapeParseError::InvalidShape(input)),
-    }
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutWidth(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutMinWidth(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutHeight(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutMinHeight(pub PixelValue);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LayoutDirection {
+    Horizontal,
+    Vertical,
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LayoutWrap {
+    Wrap,
+    NoWrap,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LayoutJustifyContent {
+    /// Default value. Items are positioned at the beginning of the container   
+    Start,
+    /// Items are positioned at the end of the container    
+    End,
+    /// Items are positioned at the center of the container 
+    Center,
+    /// Items are positioned with space between the lines   
+    SpaceBetween,
+    /// Items are positioned with space before, between, and after the lines
+    SpaceAround,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LayoutAlignItems {
+    /// Items are stretched to fit the container   
+    Stretch,
+    /// Items are positioned at the center of the container 
+    Center,
+    /// Items are positioned at the beginning of the container  
+    Start,
+    /// Items are positioned at the end of the container    
+    End,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LayoutAlignContent {
+    /// Default value. Lines stretch to take up the remaining space 
+    Stretch,
+    /// Lines are packed toward the center of the flex container
+    Center,
+    /// Lines are packed toward the start of the flex container 
+    Start,
+    /// Lines are packed toward the end of the flex container   
+    End,
+    /// Lines are evenly distributed in the flex container  
+    SpaceBetween,
+    /// Lines are evenly distributed in the flex container, with half-size spaces on either end 
+    SpaceAround,
+}
+
+#[derive(Default, Debug, Clone, PartialEq)]
+pub(crate) struct RectStyle {
+    /// Background color of this rectangle
+    pub(crate) background_color: Option<ColorU>,
+    /// Shadow color
+    pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
+    /// Gradient (location) + stops
+    pub(crate) background: Option<ParsedGradient>,
+    /// Border
+    pub(crate) border: Option<(BorderWidths, BorderDetails)>,
+    /// border radius
+    pub(crate) border_radius: Option<BorderRadius>,
+}
+
+// Layout constraints for a given rectangle, such as ""
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
+pub struct RectLayout {
+    pub width: Option<LayoutWidth>,
+    pub height: Option<LayoutHeight>,
+    pub min_width: Option<LayoutMinWidth>,
+    pub min_height: Option<LayoutMinHeight>,
+    pub direction: Option<LayoutDirection>,
+    pub wrap: Option<LayoutWrap>,
+    pub justify_content: Option<LayoutJustifyContent>,
+    pub align_items: Option<LayoutAlignItems>,
+    pub align_content: Option<LayoutAlignContent>,
+}
+
+typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
+typed_pixel_value_parser!(parse_layout_height, LayoutHeight);
+typed_pixel_value_parser!(parse_layout_min_height, LayoutMinHeight);
+typed_pixel_value_parser!(parse_layout_min_width, LayoutMinWidth);
+
+multi_type_parser!(parse_layout_direction, LayoutDirection, 
+                    ["row", Horizontal], 
+                    ["column", Vertical]);
+
+multi_type_parser!(parse_layout_wrap, LayoutWrap, 
+                    ["wrap", Wrap], 
+                    ["nowrap", NoWrap]);
+
+multi_type_parser!(parse_layout_justify_content, LayoutJustifyContent, 
+                    ["start", Start], 
+                    ["end", End], 
+                    ["center", Center], 
+                    ["space-between", SpaceBetween], 
+                    ["space-around", SpaceAround]);
+
+multi_type_parser!(parse_layout_align_items, LayoutAlignItems, 
+                    ["stretch", Stretch], 
+                    ["start", Start], 
+                    ["end", End], 
+                    ["center", Center]);
+
+multi_type_parser!(parse_layout_align_content, LayoutAlignContent, 
+                    ["stretch", Stretch], 
+                    ["start", Start], 
+                    ["end", End], 
+                    ["center", Center], 
+                    ["space-between", SpaceBetween], 
+                    ["space-around", SpaceAround]);
+
+multi_type_parser!(parse_shape, Shape, 
+                    ["circle", Circle], 
+                    ["ellipse", Ellipse]);
 
 #[test]
 fn test_parse_box_shadow_1() {
