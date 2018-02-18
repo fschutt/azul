@@ -1543,7 +1543,7 @@ fn test_parse_pixel_value_2() {
 
 #[test]
 fn test_parse_pixel_value_3() {
-    assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(CssBorderRadiusParseError::InvalidComponent("aslkfdjasdflk")));
+    assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::InvalidComponent("aslkfdjasdflk")));
 }
 
 #[test]

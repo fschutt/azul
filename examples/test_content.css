@@ -9,8 +9,8 @@
     height: 200px;
     min-height: 400px;
     min-width: 400px;
-    direction: row;
-    wrap: nowrap;
+    flex-direction: row;
+    flex-wrap: nowrap;
     justify-content: space-around;
     align-items: center;
     align-content: center;

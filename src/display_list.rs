@@ -82,8 +82,6 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             rect_btree.insert(node.id, rect);
         }
 
-        println!("rect_btree:\n{:#?}", rect_btree);
-
         Self {
             ui_descr: ui_description,
             rectangles: rect_btree,
@@ -95,31 +93,31 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     {
         let mut builder = DisplayListBuilder::new(pipeline_id, ui_solver.window_dimensions.layout_size);
         
+        let mut changeset = None;
         if let Some(root) = self.ui_descr.ui_descr_root {
-            let changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
-            ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &changeset);
+            let local_changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
+            ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &local_changeset);
             ui_solver.edit_variable_cache.remove_unused_variables(&mut ui_solver.solver);
+            changeset = Some(local_changeset);
         }
 
         if css.needs_relayout {
-            
+/* 
             // constraints were added or removed during the last frame
-/*
-            for rect in self.rectangles.values() {
+            for rect_id in self.rectangles.keys() {
                 let mut layout_contraints = Vec::<CssConstraint>::new();
-                let arena = &*self.ui_descr.arena.borrow();
+                let arena = &*self.ui_descr.ui_descr_arena.borrow();
                 create_layout_constraints(&rect, arena, ui_solver);
-                // let cassowary_constraints = css_constraints_to_cassowary_constraints(&rect.rect, &layout_contraints);
-                // ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
+                let cassowary_constraints = css_constraints_to_cassowary_constraints(rect.rect, &layout_contraints);
+                ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
             }
 */
             // if we push or pop constraints that means we also need to re-layout the window
             has_window_size_changed = true;
-            css.needs_relayout = false;
         }
 
         // recalculate the actual layout
-        if has_window_size_changed {
+        if css.needs_relayout || has_window_size_changed {
             /*
                 for change in solver.fetch_changes() {
                     println!("change: - {:?}", change);
@@ -127,7 +125,12 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             */
         }
 
+        css.needs_relayout = false;
+
         for (rect_idx, rect) in self.rectangles.iter() {
+
+            // ask the solver what the bounds of the current rectangle is
+            let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
 
             let bounds1 = LayoutRect::new(
                 LayoutPoint::new(0.0, 0.0),
@@ -266,13 +269,14 @@ fn parse_css_layout_properties(rect: &mut DisplayRectangle) {
     rect.layout.min_width   = parse!(constraint_list, "min-width", parse_layout_min_width);
     rect.layout.min_height  = parse!(constraint_list, "min-height", parse_layout_min_height);
     
-    rect.layout.wrap            = parse!(constraint_list, "wrap", parse_layout_wrap);
-    rect.layout.direction       = parse!(constraint_list, "direction", parse_layout_direction);
+    rect.layout.wrap            = parse!(constraint_list, "flex-wrap", parse_layout_wrap);
+    rect.layout.direction       = parse!(constraint_list, "flex-direction", parse_layout_direction);
     rect.layout.justify_content = parse!(constraint_list, "justify-content", parse_layout_justify_content);
     rect.layout.align_items     = parse!(constraint_list, "align-items", parse_layout_align_items);
     rect.layout.align_content   = parse!(constraint_list, "align-content", parse_layout_align_content);
 }
 
+// Adds and removes layout constraints if necessary
 fn create_layout_constraints<T>(rect: &DisplayRectangle, 
                                 arena: &Arena<NodeData<T>>, 
                                 ui_solver: &mut UiSolver<T>)

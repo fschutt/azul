@@ -14,6 +14,7 @@ use display_list::SolvedLayout;
 use traits::LayoutScreen;
 use css::Css;
 use cache::{EditVariableCache, DomTreeCache};
+use id_tree::NodeId;
 
 use std::time::Duration;
 use std::fmt;
@@ -383,6 +384,12 @@ pub(crate) struct UiSolver<T: LayoutScreen> {
     pub(crate) edit_variable_cache: EditVariableCache,
     /// The cache of the previous frames DOM tree
     pub(crate) dom_tree_cache: DomTreeCache,
+}
+
+impl<T: LayoutScreen> UiSolver<T> {
+    pub(crate) fn query_bounds_of_rect(&self, rect_id: NodeId) {
+
+    }
 }
 
 pub(crate) struct WindowInternal {
