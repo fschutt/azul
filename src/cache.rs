@@ -41,6 +41,7 @@ use cassowary::Solver;
 use id_tree::{NodeId, Arena};
 use traits::LayoutScreen;
 use dom::NodeData;
+use std::ops::Deref;
 
 /// We keep the tree from the previous re-layout. Then, when a re-layout is required,
 /// we re-hash all the nodes, insert the 
@@ -60,6 +61,14 @@ impl DomChangeSet {
         Self {
             added_nodes: BTreeMap::new(),
         }
+    }
+}
+
+impl Deref for DomChangeSet {
+    type Target = BTreeMap<NodeId, DomHash>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.added_nodes
     }
 }
 

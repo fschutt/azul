@@ -388,11 +388,13 @@ pub(crate) struct UiSolver<T: LayoutScreen> {
 
 impl<T: LayoutScreen> UiSolver<T> {
     pub(crate) fn query_bounds_of_rect(&self, rect_id: NodeId) {
-
+        // TODO: After solving the UI, use this function to get the actual coordinates of an item in the UI.
+        // This function should cache values accordingly
     }
 }
 
 pub(crate) struct WindowInternal {
+    pub(crate) last_display_list_builder: BuiltDisplayList,
     pub(crate) layout_size: LayoutSize,
     pub(crate) api: RenderApi,
     pub(crate) epoch: Epoch,
@@ -528,6 +530,7 @@ impl<T: LayoutScreen> Window<T> {
                 pipeline_id: pipeline_id,
                 document_id: document_id,
                 hidpi_factor: hidpi_factor,
+                last_display_list_builder: BuiltDisplayList::default(),
             },
             solver: UiSolver {
                 solver: solver,

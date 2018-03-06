@@ -252,14 +252,21 @@ fn render<T: LayoutScreen>(window: &mut Window<T>, _window_id: &WindowId, ui_des
     
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(window.internal.pipeline_id, &mut window.solver, &mut window.css, has_window_size_changed);
+    
+    if let Some(new_builder) = builder {
+        // only finalize the list if we actually need to. Otherwise just redraw the last display list
+        window.internal.last_display_list_builder = new_builder.finalize().2;
+    }
+
     let resources = ResourceUpdates::new();
     let mut txn = Transaction::new();
     
+    // TODO: something is wrong, the redraw times increase, even if the same display list is redrawn
     txn.set_display_list(
         window.internal.epoch,
         None,
         window.internal.layout_size,
-        builder.finalize(),
+        (window.internal.pipeline_id, window.solver.window_dimensions.layout_size, window.internal.last_display_list_builder.clone()),
         true,
     );
 

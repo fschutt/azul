@@ -13,6 +13,11 @@ use dom::NodeData;
 use css::Css;
 use std::collections::BTreeMap;
 use FastHashMap;
+use cache::DomChangeSet;
+use std::sync::atomic::{Ordering, AtomicUsize};
+
+// testing if the slowness of azul is due to webrender handling overdraw incorrectly
+static TEST_WEBRENDR_SLOW: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -89,11 +94,10 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     }
 
     pub fn into_display_list_builder(&self, pipeline_id: PipelineId, ui_solver: &mut UiSolver<T>, css: &mut Css, mut has_window_size_changed: bool)
-    -> DisplayListBuilder
-    {
-        let mut builder = DisplayListBuilder::new(pipeline_id, ui_solver.window_dimensions.layout_size);
-        
+    -> Option<DisplayListBuilder>
+    {       
         let mut changeset = None;
+        TEST_WEBRENDR_SLOW.store(0, Ordering::Relaxed);
         if let Some(root) = self.ui_descr.ui_descr_root {
             let local_changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
             ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &local_changeset);
@@ -116,6 +120,17 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             has_window_size_changed = true;
         }
 
+        let changeset_is_useless = match changeset {
+            None => true,
+            Some(c) => c.is_empty()
+        };
+/*
+        // early return if we have nothing
+        if !css.needs_relayout && changeset_is_useless && !has_window_size_changed {
+            return None;
+        }
+*/
+
         // recalculate the actual layout
         if css.needs_relayout || has_window_size_changed {
             /*
@@ -127,6 +142,8 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
         css.needs_relayout = false;
 
+        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, ui_solver.window_dimensions.layout_size, self.rectangles.len());
+        
         for (rect_idx, rect) in self.rectangles.iter() {
 
             // ask the solver what the bounds of the current rectangle is
@@ -162,14 +179,19 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             bounds.origin.x /= 2.0;
             bounds.origin.y /= 2.0;
 
-            let clip = if let Some(border_radius) = rect.style.border_radius {
-                LocalClip::RoundedRect(bounds, ComplexClipRegion {
-                    rect: bounds,
-                    radii: border_radius,
-                    mode: ClipMode::Clip,
-                })
-            } else {
-                LocalClip::Rect(bounds)
+            let clip = match rect.style.border_radius {
+                None => {
+                    bounds.origin.x += TEST_WEBRENDR_SLOW.load(Ordering::Relaxed) as f32;
+                    TEST_WEBRENDR_SLOW.fetch_add(3, Ordering::Relaxed);
+                    LocalClip::Rect(bounds)
+                },
+                Some(border_radius) => {   
+                    LocalClip::RoundedRect(bounds, ComplexClipRegion {
+                        rect: bounds,
+                        radii: border_radius,
+                        mode: ClipMode::Clip,
+                    })
+                },
             };
 
             let info = LayoutPrimitiveInfo {
@@ -230,7 +252,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             builder.pop_stacking_context();
         }
 
-        builder
+        Some(builder)
     }
 }
 
