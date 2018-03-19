@@ -16,9 +16,6 @@ use FastHashMap;
 use cache::DomChangeSet;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
-// testing if the slowness of azul is due to webrender handling overdraw incorrectly
-static TEST_WEBRENDR_SLOW: AtomicUsize = AtomicUsize::new(0);
-
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
     pub(crate) rectangles: BTreeMap<NodeId, DisplayRectangle<'a>>
@@ -97,7 +94,6 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
     -> Option<DisplayListBuilder>
     {       
         let mut changeset = None;
-        TEST_WEBRENDR_SLOW.store(0, Ordering::Relaxed);
         if let Some(root) = self.ui_descr.ui_descr_root {
             let local_changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
             ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &local_changeset);
@@ -147,16 +143,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         for (rect_idx, rect) in self.rectangles.iter() {
 
             // ask the solver what the bounds of the current rectangle is
-            let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
-
-            let bounds1 = LayoutRect::new(
-                LayoutPoint::new(0.0, 0.0),
-                LayoutSize::new(200.0, 200.0),
-            );
-            let bounds2 = LayoutRect::new(
-                LayoutPoint::new(0.0, 0.0),
-                LayoutSize::new(3.0, 3.0),
-            );
+            // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
 
             // debugging - there are currently two rectangles on the screen
             // if the rectangle doesn't have a background color, choose the first bound
@@ -164,43 +151,35 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
             // this means, since the DOM in the debug example has two rectangles, we should
             // have two touching rectangles
             let mut bounds = if rect.style.background_color.is_some() { 
-                bounds1 
-            } else { 
-                bounds2 
+                LayoutRect::new(
+                    LayoutPoint::new(0.0, 0.0),
+                    LayoutSize::new(200.0, 200.0),
+                ) 
+            } else {
+                LayoutRect::new(
+                    LayoutPoint::new(0.0, 0.0),
+                    LayoutSize::new((*rect_idx).index as f32 * 3.0, 3.0),
+                )
             };
 
             // bug - for some reason, the origin gets scaled by 2.0, 
             // even if the HiDpi factor is set to 1.0
-            // println!("bounds: {:?}", bounds);
-            // println!("hidpi_factor: {:?}", hidpi_factor);
-            // println!("window size: {:?}", layout_size);
-
             // this is a workaround, this seems to be a bug in webrender
             bounds.origin.x /= 2.0;
             bounds.origin.y /= 2.0;
 
-            let clip = match rect.style.border_radius {
-                None => {
-                    bounds.origin.x += TEST_WEBRENDR_SLOW.load(Ordering::Relaxed) as f32;
-                    TEST_WEBRENDR_SLOW.fetch_add(3, Ordering::Relaxed);
-                    LocalClip::Rect(bounds)
-                },
-                Some(border_radius) => {   
-                    LocalClip::RoundedRect(bounds, ComplexClipRegion {
-                        rect: bounds,
-                        radii: border_radius,
-                        mode: ClipMode::Clip,
-                    })
-                },
-            };
+            let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
+                let region = ComplexClipRegion {
+                    rect: bounds,
+                    radii: border_radius,
+                    mode: ClipMode::Clip,
+                };
+                Some(builder.define_clip(bounds, vec![region], None))
+            });
 
-            let info = LayoutPrimitiveInfo {
-                rect: bounds,
-                is_backface_visible: false,
-                tag: rect.tag.and_then(|tag| Some((tag, 0))),
-                local_clip: clip,
-            };
-
+            let mut info = LayoutPrimitiveInfo::new(bounds);
+            info.tag = rect.tag.and_then(|tag| Some((tag, 0)));
+            
             builder.push_stacking_context(
                 &info,
                 ScrollPolicy::Scrollable,
@@ -211,12 +190,22 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                 Vec::new(),
             );
 
-            // red rectangle if we don't have a background color
+            if let Some(id) = clip_region_id {
+                builder.push_clip_id(id);
+            }
+
             builder.push_rect(&info, rect.style.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
 
+            if clip_region_id.is_some() {
+                builder.pop_clip_id();
+            }
+
+            // red rectangle if we don't have a background color
             if let Some(ref pre_shadow) = rect.style.box_shadow {
                 // The pre_shadow is missing the BorderRadius & LayoutRect
+                // TODO: do we need to pop the shadows?
                 let border_radius = rect.style.border_radius.unwrap_or(BorderRadius::zero());
+                println!("pushing shadow: \n{:#?}", pre_shadow);
                 builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
                                          pre_shadow.blur_radius, pre_shadow.spread_radius,
                                          border_radius, pre_shadow.clip_mode);
