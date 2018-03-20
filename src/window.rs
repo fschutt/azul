@@ -426,19 +426,31 @@ impl<T: LayoutScreen> Window<T> {
             window = window.with_fullscreen(Some(monitor));
         }
 
-        let context = ContextBuilder::new()
-            .with_gl(glutin::GlRequest::GlThenGles {
-                opengl_version: (3, 2),
-                opengles_version: (3, 0),
-            })
-            .with_gl_profile(GlProfile::Core)
-            .with_vsync(true)
-            .with_srgb(true)
-            .with_gl_debug_flag(false);
+        fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
+            let mut builder = ContextBuilder::new()
+                .with_gl(glutin::GlRequest::GlThenGles {
+                    opengl_version: (3, 2),
+                    opengles_version: (3, 0),
+                })
+                .with_gl_profile(GlProfile::Core)
+                .with_gl_debug_flag(false);
+            if vsync {
+                builder = builder.with_vsync(true);
+            }
+            if srgb {
+                builder = builder.with_srgb(true);
+            }
+            builder
+        }
 
         // For some reason, there is GL_INVALID_OPERATION stuff going on,
         // but the display works fine. TODO: report this to glium
-        let gl_window = GlWindow::new(window, context, &events_loop)?;
+
+        // Only create a context with VSync and SRGB if the context creation works
+        let gl_window = GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
+            .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
+            .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
+
         let hidpi_factor = gl_window.hidpi_factor();
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
