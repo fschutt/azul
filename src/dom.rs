@@ -1,4 +1,5 @@
 use app_state::AppState;
+use resources::{ImageId, FontId};
 use traits::LayoutScreen;
 use std::collections::BTreeMap;
 use id_tree::{NodeId, Arena};
@@ -29,13 +30,14 @@ pub enum UpdateScreen {
 ///
 /// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
 /// The CSS is not affected by this, so if you push to the windows' CSS inside the 
-/// function, the screen will be redrawn (if necessary).
+/// function, the screen will not be automatically redrawn, unless you return an
+/// `UpdateScreen::Redraw` from the function
 pub enum Callback<T: LayoutScreen> {
     /// One-off function (for ex. exporting a file)
     ///
-    /// This is best for actions that can run in the background
-    /// and you don't need to get updates. It uses a background
-    /// thread and therefore the data needs to be sendable.
+    /// This is best for actions where you don't care if or when they complete.
+    /// Because you accept a Mutex, you can create a background thread 
+    /// (azul won't create this for you)
     Async(fn(Arc<Mutex<AppState<T>>>) -> UpdateScreen),
     /// Same as the `FnOnceNonBlocking`, but it blocks the current
     /// thread and does not require the type to be `Send`.
@@ -62,12 +64,10 @@ impl<T: LayoutScreen> Clone for Callback<T>
     }
 }
 
-// as a hashing function, we use the function pointer casted to a usize
-// as a unique ID to the function. i.e. if a function 
-//
-// This way, we can hash and compare DOM nodes (to create diffs between two states)
-// Comparing usizes is more efficient than re-creating the whole DOM and serves as a 
-// caching mechanism.
+/// As a hashing function, we use the function pointer casted to a usize
+/// as a unique ID for the function. This way, we can hash and compare DOM nodes
+/// (to create diffs between two states). Comparing usizes is more efficient 
+/// than re-creating the whole DOM and serves as a caching mechanism.
 impl<T: LayoutScreen> Hash for Callback<T> {
   fn hash<H>(&self, state: &mut H) where H: Hasher {
     use self::Callback::*;
@@ -78,6 +78,7 @@ impl<T: LayoutScreen> Hash for Callback<T> {
   }
 }
 
+/// Basically compares the function pointers and types for equality
 impl<T: LayoutScreen> PartialEq for Callback<T> {
   fn eq(&self, rhs: &Self) -> bool {
     use self::Callback::*;
@@ -89,20 +90,37 @@ impl<T: LayoutScreen> PartialEq for Callback<T> {
     false
   }
 }
+
 impl<T: LayoutScreen> Eq for Callback<T> { }
+
 impl<T: LayoutScreen> Copy for Callback<T> { }
 
 /// List of allowed DOM node types that are supported by `azul`.
 ///
-/// The dom type 
+/// All node types are purely convenience functions around `Div`, 
+/// `Image` and `Label`. For example a `Ul` is simply a convenience
+/// wrapper around a repeated (`Div` + `Label`) clone where the first
+/// `Div` is shaped like a circle (for `Ul`). 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NodeType {
     /// Regular div
     Div,
+    Image {
+        id: ImageId,
+    },
+    /// A label that can be (optionally) be selectable with the mouse
+    Label { 
+        /// Text of the label
+        text: String,
+        /// Font ID used for the string
+        font_id: FontId,
+    },
     /// Button
     Button {
         /// The text on the button
         label: String,
+        /// Font ID used for the string
+        font_id: FontId,
     },
     /// Unordered list
     Ul,
@@ -110,11 +128,6 @@ pub enum NodeType {
     Ol,
     /// List item. Only valid if the parent is `NodeType::Ol` or `NodeType::Ul`.
     Li,
-    /// A label that can be (optionally) be selectable with the mouse
-    Label { 
-        /// Text of the label
-        text: String,
-    },
     /// This is more or less like a `GroupBox` in Visual Basic, draws a border 
     Form {
         /// The text of the label
@@ -184,6 +197,7 @@ impl NodeType {
     /// 
     /// ```ignore
     /// Div         => "div"
+    /// Image       => "img"
     /// Button      => "button"
     /// Ul          => "ul"
     /// Ol          => "ol"
@@ -203,11 +217,12 @@ impl NodeType {
         use self::NodeType::*;
         match *self {
             Div => "div",
+            Image { .. } => "img",
+            Label { .. } => "label",
             Button { .. } => "button",
             Ul => "ul",
             Ol => "ol",
             Li => "li",
-            Label { .. } => "label",
             Form { .. } => "form",
             TextInput { .. } => "text-input",
             TextEdit { .. } => "text-edit",

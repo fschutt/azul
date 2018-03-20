@@ -223,6 +223,7 @@ pub enum WindowCreateError {
     Context(ContextError),
     /// Could not create a window
     CreateError(CreationError),
+    /// Could not swap the front & back buffers
     SwapBuffers(::glium::SwapBuffersError),
     /// IO error
     Io(::std::io::Error),

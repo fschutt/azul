@@ -45,6 +45,8 @@ pub mod dom;
 pub mod traits;
 /// Window handling
 pub mod window;
+/// Font & image resource handling, lookup and caching
+pub mod resources;
 /// Input handling (mostly glium)
 mod input;
 /// UI Description & display list handling (webrender)
