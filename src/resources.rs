@@ -1,5 +1,12 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{ImageKey, FontKey};
 use FastHashMap;
+
+static LAST_FONT_ID: AtomicUsize = AtomicUsize::new(0);
+static LAST_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
+
+pub struct ImageInstanceId(usize);
+pub struct FontInstanceId(usize);
 
 /// Font and image keys
 /// 
@@ -18,10 +25,15 @@ pub(crate) struct AppResources {
 }
 
 /// An `ImageId` is a wrapper around webrenders `ImageKey`. 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ImageId(usize);
 
 /// A Font ID is a wrapper around webrenders `FontKey`. 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FontId(usize);
 
+pub fn new_font_id() -> FontId {
+    let current_font_id = LAST_FONT_ID.load(Ordering::Relaxed);
+    LAST_FONT_ID.store(current_font_id + 1, Ordering::Relaxed);
+    FontId(current_font_id)
+}

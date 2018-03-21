@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 use glium::glutin::Event;
 use euclid::TypedScale;
+use std::io::Read;
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
@@ -77,7 +78,6 @@ impl<T: LayoutScreen> App<T> {
             }
         }      
 
-        
         'render_loop: loop {
 
             let mut closed_windows = Vec::<usize>::new();
@@ -198,6 +198,23 @@ impl<T: LayoutScreen> App<T> {
                 ::std::thread::sleep(::std::time::Duration::from_millis(16));
             }
         }
+    }
+
+    /// Add an image to the internal resources
+    pub fn add_image<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R) {
+
+    }
+
+    pub fn remove_image<S: AsRef<str>>(&mut self, _id: S) {
+
+    }
+
+    pub fn add_font<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R) {
+
+    }
+
+    pub fn remove_font<S: AsRef<str>>(&mut self, _id: S) {
+
     }
 }
 

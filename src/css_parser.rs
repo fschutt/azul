@@ -86,6 +86,11 @@ pub enum CssColorParseError<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum CssImageParseError<'a> {
+    UnclosedQuotes(&'a str),
+}
+
+#[derive(Debug, PartialEq)]
 pub enum CssBorderParseError<'a> {
     InvalidBorderStyle(InvalidValueErr<'a>),
     InvalidBorderDeclaration(&'a str),
@@ -660,16 +665,25 @@ pub enum CssBackgroundParseError<'a> {
     DirectionParseError(CssDirectionParseError<'a>),
     GradientParseError(CssGradientStopParseError<'a>),
     ShapeParseError(CssShapeParseError<'a>),
+    ImageParseError(CssImageParseError<'a>),
 }
 
 impl_from!(CssDirectionParseError, CssBackgroundParseError, DirectionParseError);
 impl_from!(CssGradientStopParseError, CssBackgroundParseError, GradientParseError);
 impl_from!(CssShapeParseError, CssBackgroundParseError, ShapeParseError);
+impl_from!(CssImageParseError, CssBackgroundParseError, ImageParseError);
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ParsedGradient {
+pub enum Background<'a> {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
+    Image(CssImageId<'a>)
+}
+
+impl<'a> From<CssImageId<'a>> for Background<'a> {
+    fn from(id: CssImageId<'a>) -> Self {
+        Background::Image(id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -772,26 +786,31 @@ impl DirectionCorner {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum BackgroundType {
+    LinearGradient,
+    RepeatingLinearGradient,
+    RadialGradient,
+    RepeatingRadialGradient,
+    Image,
+}
+
+
 // parses a background, such as "linear-gradient(red, green)"
 pub fn parse_css_background<'a>(input: &'a str)
--> Result<ParsedGradient, CssBackgroundParseError<'a>>
+-> Result<Background, CssBackgroundParseError<'a>>
 {
-    #[derive(PartialEq)]
-    enum GradientType {
-        LinearGradient,
-        RepeatingLinearGradient,
-        RadialGradient,
-        RepeatingRadialGradient,
-    }
+    use self::BackgroundType::*;
 
     let mut input_iter = input.splitn(2, "(");
     let first_item = input_iter.next();
 
-    let gradient_type = match first_item {
-        Some("linear-gradient") => GradientType::LinearGradient,
-        Some("repeating-linear-gradient") => GradientType::RepeatingLinearGradient,
-        Some("radial-gradient") => GradientType::RadialGradient,
-        Some("repeating-radial-gradient") => GradientType::RepeatingRadialGradient,
+    let background_type = match first_item {
+        Some("linear-gradient") => LinearGradient,
+        Some("repeating-linear-gradient") => RepeatingLinearGradient,
+        Some("radial-gradient") => RadialGradient,
+        Some("repeating-radial-gradient") => RepeatingRadialGradient,
+        Some("image") => Image,
         _ => { return Err(CssBackgroundParseError::InvalidBackground(first_item.unwrap())); } // failure here
     };
 
@@ -811,6 +830,11 @@ pub fn parse_css_background<'a>(input: &'a str)
 
     // brace_contents contains "red, yellow, etc"
     let brace_contents = brace_contents.unwrap();
+    if background_type == Image {
+        let image = parse_image(brace_contents)?;
+        return Ok(image.into());
+    }
+
     let mut brace_iterator = brace_contents.split(',');
 
     let mut gradient_stop_count = brace_iterator.clone().count();
@@ -828,8 +852,8 @@ pub fn parse_css_background<'a>(input: &'a str)
 
     let mut first_is_direction = false;
     let mut first_is_shape = false;
-    let is_linear_gradient = gradient_type == GradientType::LinearGradient || gradient_type == GradientType::RepeatingLinearGradient;
-    let is_radial_gradient = gradient_type == GradientType::RadialGradient || gradient_type == GradientType::RepeatingRadialGradient;
+    let is_linear_gradient = background_type == LinearGradient || background_type == RepeatingLinearGradient;
+    let is_radial_gradient = background_type == RadialGradient || background_type == RepeatingRadialGradient;
 
     if is_linear_gradient {
         if let Ok(dir) = parse_direction(first_brace_item) {
@@ -919,35 +943,68 @@ pub fn parse_css_background<'a>(input: &'a str)
         }
     }
 
-    match gradient_type {
-        GradientType::LinearGradient => {
-            Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+    match background_type {
+        LinearGradient => {
+            Ok(Background::LinearGradient(LinearGradientPreInfo {
                 direction: direction,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
-        GradientType::RepeatingLinearGradient => {
-            Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+        RepeatingLinearGradient => {
+            Ok(Background::LinearGradient(LinearGradientPreInfo {
                 direction: direction,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
         },
-        GradientType::RadialGradient => {
-            Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+        RadialGradient => {
+            Ok(Background::RadialGradient(RadialGradientPreInfo {
                 shape: shape,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
-        GradientType::RepeatingRadialGradient => {
-            Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+        RepeatingRadialGradient => {
+            Ok(Background::RadialGradient(RadialGradientPreInfo {
                 shape: shape,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
+        },
+        Image => unreachable!(),
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct CssImageId<'a>(pub(crate) &'a str); 
+
+fn parse_image<'a>(input: &'a str) -> Result<CssImageId<'a>, CssImageParseError<'a>> {
+    
+    let mut double_quote_iter = input.splitn(2, '"');
+    double_quote_iter.next();
+    let mut single_quote_iter = input.splitn(2, '\'');
+    single_quote_iter.next();
+
+    let first_double_quote = double_quote_iter.next();
+    let first_single_quote = single_quote_iter.next();
+    if first_double_quote.is_some() && first_single_quote.is_some() {
+        return Err(CssImageParseError::UnclosedQuotes(input));
+    }
+    if first_double_quote.is_some() {
+        let quote_contents = first_double_quote.unwrap();
+        if !quote_contents.ends_with('"') {
+            return Err(CssImageParseError::UnclosedQuotes(quote_contents));
         }
+        Ok(CssImageId(quote_contents.trim_right_matches("\"")))
+    } else if first_single_quote.is_some() {
+        let quote_contents = first_single_quote.unwrap();
+        if!quote_contents.ends_with('\'') {
+            return Err(CssImageParseError::UnclosedQuotes(input));
+        }
+        Ok(CssImageId(quote_contents.trim_right_matches("'")))
+    } else {
+        Err(CssImageParseError::UnclosedQuotes(input))
     }
 }
 
@@ -1159,17 +1216,21 @@ pub enum LayoutAlignContent {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-pub(crate) struct RectStyle {
+pub(crate) struct RectStyle<'a> {
     /// Background color of this rectangle
     pub(crate) background_color: Option<ColorU>,
     /// Shadow color
     pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
     /// Gradient (location) + stops
-    pub(crate) background: Option<ParsedGradient>,
+    pub(crate) background: Option<Background<'a>>,
     /// Border
     pub(crate) border: Option<(BorderWidths, BorderDetails)>,
-    /// border radius
+    /// Border radius
     pub(crate) border_radius: Option<BorderRadius>,
+    /// Font size
+    pub(crate) font_size: Option<FontSize>,
+    /// Font name / family
+    pub(crate) font_family: Option<FontFamily<'a>>
 }
 
 // Layout constraints for a given rectangle, such as ""
@@ -1190,6 +1251,74 @@ typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
 typed_pixel_value_parser!(parse_layout_height, LayoutHeight);
 typed_pixel_value_parser!(parse_layout_min_height, LayoutMinHeight);
 typed_pixel_value_parser!(parse_layout_min_width, LayoutMinWidth);
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct FontSize(pub PixelValue);
+
+typed_pixel_value_parser!(parse_css_font_size, FontSize);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct FontFamily<'a> {
+    // parsed fonts, in order, i.e. "Webly Sleeky UI", "monospace", etc.
+    fonts: Vec<Font<'a>>
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Font<'a> {
+    BuiltinFont(&'a str),
+    ExternalFont(&'a str),
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum FontFamilyParseError<'a> {
+    InvalidFontFamily(&'a str),
+    UnclosedQuotes(&'a str),
+}
+
+// parses a "font-family" declaration, such as:
+//
+// "Webly Sleeky UI", monospace
+// 'Webly Sleeky Ui', monospace
+// sans-serif
+pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily<'a>, FontFamilyParseError<'a>> {
+    let multiple_fonts = input.split(',');
+    let mut fonts = Vec::with_capacity(1);
+
+    for font in multiple_fonts {
+        let font = font.trim();
+        
+        let mut double_quote_iter = font.splitn(2, '"');
+        double_quote_iter.next();
+        let mut single_quote_iter = font.splitn(2, '\'');
+        single_quote_iter.next();
+
+        let first_double_quote = double_quote_iter.next();
+        let first_single_quote = single_quote_iter.next();
+        if first_double_quote.is_some() && first_single_quote.is_some() {
+            return Err(FontFamilyParseError::UnclosedQuotes(font));
+        }
+        if first_double_quote.is_some() {
+            let quote_contents = first_double_quote.unwrap();
+            if !quote_contents.ends_with('"') {
+                return Err(FontFamilyParseError::UnclosedQuotes(quote_contents));
+            }
+            fonts.push(Font::ExternalFont(quote_contents.trim_right_matches("\"")));
+        } else if first_single_quote.is_some() {
+            let quote_contents = first_single_quote.unwrap();
+            if!quote_contents.ends_with('\'') {
+                return Err(FontFamilyParseError::UnclosedQuotes(font));
+            }
+            fonts.push(Font::ExternalFont(quote_contents.trim_right_matches("'")));
+        } else {
+            // neither single nor double quote, like "monospace" or "sans-serif"
+            fonts.push(Font::BuiltinFont(font));
+        }
+    }
+
+    Ok(FontFamily {
+        fonts: fonts,
+    })
+}
 
 multi_type_parser!(parse_layout_direction, LayoutDirection, 
                     ["row", Horizontal], 
@@ -1387,7 +1516,7 @@ fn test_parse_css_border_2() {
 #[test]
 fn test_parse_linear_gradient_1() {
     assert_eq!(parse_css_background("linear-gradient(red, yellow)"),
-        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+        Ok(Background::LinearGradient(LinearGradientPreInfo {
             direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
             extend_mode: ExtendMode::Clamp,
             stops: vec![GradientStopPre {
@@ -1404,7 +1533,7 @@ fn test_parse_linear_gradient_1() {
 #[test]
 fn test_parse_linear_gradient_2() {
     assert_eq!(parse_css_background("linear-gradient(red, lime, blue, yellow)"),
-        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+        Ok(Background::LinearGradient(LinearGradientPreInfo {
             direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
             extend_mode: ExtendMode::Clamp,
             stops: vec![GradientStopPre {
@@ -1429,7 +1558,7 @@ fn test_parse_linear_gradient_2() {
 #[test]
 fn test_parse_linear_gradient_3() {
     assert_eq!(parse_css_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
-        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+        Ok(Background::LinearGradient(LinearGradientPreInfo {
             direction: Direction::Angle(50.0),
             extend_mode: ExtendMode::Repeat,
             stops: vec![
@@ -1451,7 +1580,7 @@ fn test_parse_linear_gradient_3() {
 #[test]
 fn test_parse_linear_gradient_4() {
     assert_eq!(parse_css_background("linear-gradient(to bottom right, red, yellow)"),
-        Ok(ParsedGradient::LinearGradient(LinearGradientPreInfo {
+        Ok(Background::LinearGradient(LinearGradientPreInfo {
             direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
             extend_mode: ExtendMode::Clamp,
             stops: vec![GradientStopPre {
@@ -1468,7 +1597,7 @@ fn test_parse_linear_gradient_4() {
 #[test]
 fn test_parse_radial_gradient_1() {
     assert_eq!(parse_css_background("radial-gradient(circle, lime, blue, yellow)"),
-        Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+        Ok(Background::RadialGradient(RadialGradientPreInfo {
             shape: Shape::Circle,
             extend_mode: ExtendMode::Clamp,
             stops: vec![
@@ -1579,4 +1708,30 @@ fn test_parse_css_border_radius_4() {
         top_right: LayoutSize::new(50.0, 50.0),
         bottom_left: LayoutSize::new(5.0, 5.0),
     }));
+}
+
+#[test]
+fn test_parse_css_font_family_1() {
+    assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(FontFamily {
+        fonts: vec![
+            Font::ExternalFont("Webly Sleeky UI"),
+            Font::BuiltinFont("monospace"),
+        ]
+    }));
+}
+
+#[test]
+fn test_parse_css_font_family_2() {
+    assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(FontFamily {
+        fonts: vec![
+            Font::ExternalFont("Webly Sleeky UI"),
+        ]
+    }));
+
+}
+#[test]
+fn test_parse_background_image() {
+    assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(Background::Image(
+        CssImageId("Cat 01")
+    )));
 }

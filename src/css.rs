@@ -27,7 +27,8 @@ pub struct Css {
     pub(crate) is_dirty: bool,
     /// Has the CSS changed in a way where it needs a re-layout?
     /// 
-    /// Ex. if only a background color has changed, we need to redraw, but we don't need to re-layout the frame
+    /// Ex. if only a background color has changed, we need to redraw, but we 
+    /// don't need to re-layout the frame
     pub(crate) needs_relayout: bool,
 }
 
