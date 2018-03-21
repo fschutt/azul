@@ -30,7 +30,7 @@ pub(crate) struct DisplayRectangle<'a> {
     /// The original styled node
     pub(crate) styled_node: &'a StyledNode,
     /// The style properties of the node, parsed
-    pub(crate) style: RectStyle,
+    pub(crate) style: RectStyle<'a>,
     /// The layout properties of the node, parsed
     pub(crate) layout: RectLayout,
 }
@@ -205,7 +205,6 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                 // The pre_shadow is missing the BorderRadius & LayoutRect
                 // TODO: do we need to pop the shadows?
                 let border_radius = rect.style.border_radius.unwrap_or(BorderRadius::zero());
-                println!("pushing shadow: \n{:#?}", pre_shadow);
                 builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
                                          pre_shadow.blur_radius, pre_shadow.spread_radius,
                                          border_radius, pre_shadow.clip_mode);
@@ -213,10 +212,10 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
             if let Some(ref background) = rect.style.background {
                 match *background {
-                    ParsedGradient::RadialGradient(ref _gradient) => {
+                    Background::RadialGradient(ref _gradient) => {
 
                     },
-                    ParsedGradient::LinearGradient(ref gradient) => {
+                    Background::LinearGradient(ref gradient) => {
                         let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                             GradientStop {
                                 offset: gradient_pre.offset.unwrap(),
@@ -225,6 +224,9 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                         let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
                         let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
                         builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
+                    },
+                    Background::Image(image_id) => {
+                        // TODO: lookup image in resources
                     }
                 }
             }
@@ -264,6 +266,9 @@ fn parse_css_style_properties(rect: &mut DisplayRectangle)
     rect.style.background_color = parse!(constraint_list, "background-color", parse_css_color);
     rect.style.border           = parse!(constraint_list, "border", parse_css_border);
     rect.style.background       = parse!(constraint_list, "background", parse_css_background);
+    rect.style.font_size        = parse!(constraint_list, "font-size", parse_css_font_size);
+    rect.style.font_family      = parse!(constraint_list, "font-family", parse_css_font_family);
+
     let box_shadow_opt          = parse!(constraint_list, "box-shadow", parse_css_box_shadow);
     if let Some(box_shadow_opt) = box_shadow_opt{
         rect.style.box_shadow = box_shadow_opt;

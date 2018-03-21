@@ -105,22 +105,17 @@ impl<T: LayoutScreen> Copy for Callback<T> { }
 pub enum NodeType {
     /// Regular div
     Div,
-    Image {
-        id: ImageId,
-    },
+    /// Image: The actual contents of the image are determined by the CSS
+    Image,
     /// A label that can be (optionally) be selectable with the mouse
     Label { 
         /// Text of the label
         text: String,
-        /// Font ID used for the string
-        font_id: FontId,
     },
     /// Button
     Button {
         /// The text on the button
         label: String,
-        /// Font ID used for the string
-        font_id: FontId,
     },
     /// Unordered list
     Ul,
@@ -217,7 +212,7 @@ impl NodeType {
         use self::NodeType::*;
         match *self {
             Div => "div",
-            Image { .. } => "img",
+            Image => "img",
             Label { .. } => "label",
             Button { .. } => "button",
             Ul => "ul",

@@ -23,7 +23,6 @@
 #![deny(unused_must_use)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
-#![allow(unused_variables)]
 
 extern crate webrender;
 extern crate cassowary;
@@ -81,5 +80,5 @@ pub mod prelude {
                      WindowId, WindowPlacement};
     pub use window::{MouseMode, UpdateBehaviour, UpdateMode, WindowClass, 
                      WindowCreateError, WindowDecorations, WindowMonitorTarget};
-
+    pub use resources::{FontId, FontInstanceId, ImageInstanceId, ImageId};
 }
