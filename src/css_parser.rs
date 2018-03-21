@@ -91,6 +91,15 @@ pub enum CssImageParseError<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct UnclosedQuotesError<'a>(pub(crate) &'a str);
+
+impl<'a> From<UnclosedQuotesError<'a>> for CssImageParseError<'a> {
+    fn from(err: UnclosedQuotesError<'a>) -> Self {
+        CssImageParseError::UnclosedQuotes(err.0)
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum CssBorderParseError<'a> {
     InvalidBorderStyle(InvalidValueErr<'a>),
     InvalidBorderDeclaration(&'a str),
@@ -979,8 +988,27 @@ pub fn parse_css_background<'a>(input: &'a str)
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct CssImageId<'a>(pub(crate) &'a str); 
 
+impl<'a> From<QuoteStripped<'a>> for CssImageId<'a> {
+    fn from(input: QuoteStripped<'a>) -> Self {
+        CssImageId(input.0)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str); 
+
 fn parse_image<'a>(input: &'a str) -> Result<CssImageId<'a>, CssImageParseError<'a>> {
-    
+    Ok(strip_quotes(input)?.into())
+}
+
+/// Strip quotes from an input, given that both quotes use either `"` or `'`, but not both.
+///
+/// Example:
+/// 
+/// `"Helvetica"` - valid
+/// `'Helvetica'` - valid
+/// `'Helvetica"` - invalid
+fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuotesError<'a>> {
     let mut double_quote_iter = input.splitn(2, '"');
     double_quote_iter.next();
     let mut single_quote_iter = input.splitn(2, '\'');
@@ -989,22 +1017,22 @@ fn parse_image<'a>(input: &'a str) -> Result<CssImageId<'a>, CssImageParseError<
     let first_double_quote = double_quote_iter.next();
     let first_single_quote = single_quote_iter.next();
     if first_double_quote.is_some() && first_single_quote.is_some() {
-        return Err(CssImageParseError::UnclosedQuotes(input));
+        return Err(UnclosedQuotesError(input));
     }
     if first_double_quote.is_some() {
         let quote_contents = first_double_quote.unwrap();
         if !quote_contents.ends_with('"') {
-            return Err(CssImageParseError::UnclosedQuotes(quote_contents));
+            return Err(UnclosedQuotesError(quote_contents));
         }
-        Ok(CssImageId(quote_contents.trim_right_matches("\"")))
+        Ok(QuoteStripped(quote_contents.trim_right_matches("\"")))
     } else if first_single_quote.is_some() {
         let quote_contents = first_single_quote.unwrap();
         if!quote_contents.ends_with('\'') {
-            return Err(CssImageParseError::UnclosedQuotes(input));
+            return Err(UnclosedQuotesError(input));
         }
-        Ok(CssImageId(quote_contents.trim_right_matches("'")))
+        Ok(QuoteStripped(quote_contents.trim_right_matches("'")))
     } else {
-        Err(CssImageParseError::UnclosedQuotes(input))
+        Err(UnclosedQuotesError(input))
     }
 }
 
@@ -1275,6 +1303,12 @@ pub enum FontFamilyParseError<'a> {
     UnclosedQuotes(&'a str),
 }
 
+impl<'a> From<UnclosedQuotesError<'a>> for FontFamilyParseError<'a> {
+    fn from(err: UnclosedQuotesError<'a>) -> Self {
+        FontFamilyParseError::UnclosedQuotes(err.0)
+    }
+}
+
 // parses a "font-family" declaration, such as:
 //
 // "Webly Sleeky UI", monospace
@@ -1292,25 +1326,10 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily<'a>
         let mut single_quote_iter = font.splitn(2, '\'');
         single_quote_iter.next();
 
-        let first_double_quote = double_quote_iter.next();
-        let first_single_quote = single_quote_iter.next();
-        if first_double_quote.is_some() && first_single_quote.is_some() {
-            return Err(FontFamilyParseError::UnclosedQuotes(font));
-        }
-        if first_double_quote.is_some() {
-            let quote_contents = first_double_quote.unwrap();
-            if !quote_contents.ends_with('"') {
-                return Err(FontFamilyParseError::UnclosedQuotes(quote_contents));
-            }
-            fonts.push(Font::ExternalFont(quote_contents.trim_right_matches("\"")));
-        } else if first_single_quote.is_some() {
-            let quote_contents = first_single_quote.unwrap();
-            if!quote_contents.ends_with('\'') {
-                return Err(FontFamilyParseError::UnclosedQuotes(font));
-            }
-            fonts.push(Font::ExternalFont(quote_contents.trim_right_matches("'")));
+        if double_quote_iter.next().is_some() || single_quote_iter.next().is_some() {
+            let stripped_font = strip_quotes(font)?;
+            fonts.push(Font::ExternalFont(stripped_font.0));
         } else {
-            // neither single nor double quote, like "monospace" or "sans-serif"
             fonts.push(Font::BuiltinFont(font));
         }
     }
