@@ -43,12 +43,12 @@ fn main() {
     };
 
     let mut app = App::new(my_app_data);
-
+/*
     app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
     app.remove_font("Webly Sleeky UI");
-
-    app.add_image("MyImage", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
-    app.remove_image("MyImage");
+*/
+    app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
+    // app.remove_image("MyImage");
 
     // TODO: Multi-window apps currently crash
     // Need to re-factor the event loop for that

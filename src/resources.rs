@@ -2,12 +2,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{ImageKey, FontKey};
 use FastHashMap;
 use std::io::Read;
-use images::ImageType;
+use images::{ImageState, ImageType};
 use image::{self, ImageError, DynamicImage, GenericImage};
 use webrender::api::{ImageData, ImageDescriptor, ImageFormat};
-
-static LAST_FONT_ID: AtomicUsize = AtomicUsize::new(0);
-static LAST_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Font and image keys
 /// 
@@ -23,14 +20,6 @@ static LAST_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
 pub(crate) struct AppResources {
     pub(crate) images: FastHashMap<String, ImageState>,
     pub(crate) fonts: FastHashMap<String, FastHashMap<FontSize, FontKey>>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum ImageState {
-    // resource is available for the renderer
-    Uploaded(ImageKey),
-    // image is loaded & decoded, but not yet available
-    ReadyForUpload((ImageData, ImageDescriptor)),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
