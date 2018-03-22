@@ -10,6 +10,8 @@ use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 use glium::glutin::Event;
 use euclid::TypedScale;
 use std::io::Read;
+use image::{ImageType, ImageError};
+use font::FontError;
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
@@ -201,20 +203,48 @@ impl<T: LayoutScreen> App<T> {
     }
 
     /// Add an image to the internal resources
-    pub fn add_image<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R) {
-
+    ///
+    /// ## Returns:
+    /// 
+    /// - `Ok(Some(()))` if an image with the same ID already exists. 
+    /// - `Ok(None)` if the image was added, but didn't exist previously.
+    /// - `Err(e)` if the image couldn't be decoded 
+    pub fn add_image<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R, _image_type: ImageType) 
+        -> Result<Option<()>, ImageError>
+    {
+        Ok(Some(()))
     }
 
-    pub fn remove_image<S: AsRef<str>>(&mut self, _id: S) {
-
+    /// Returns `Some` if the image existed and was removed.
+    /// If the given ID doesn't exist, this function does nothing and returns `None`.
+    pub fn remove_image<S: AsRef<str>>(&mut self, _id: S) 
+        -> Option<()> 
+    {
+        Some(())
     }
 
-    pub fn add_font<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R) {
-
+    /// Checks if an image is currently registered and ready-to-use
+    pub fn has_image<S: AsRef<str>>(&mut self, _id: S) -> bool {
+        false
     }
 
-    pub fn remove_font<S: AsRef<str>>(&mut self, _id: S) {
+    /// Add a font (TTF or OTF) to the internal resources
+    ///
+    /// ## Returns:
+    /// 
+    /// - `Ok(Some(()))` if an font with the same ID already exists. 
+    /// - `Ok(None)` if the font was added, but didn't exist previously.
+    /// - `Err(e)` if the font couldn't be decoded 
+    pub fn add_font<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R)
+        -> Result<Option<()>, ImageError>
+    {
+        Ok(Some(()))
+    }
 
+    pub fn remove_font<S: AsRef<str>>(&mut self, _id: S) 
+        -> Option<()>
+    {
+        Some(())
     }
 }
 
