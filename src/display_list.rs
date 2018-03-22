@@ -2,6 +2,7 @@
 #![allow(unused_macros)]
 
 use webrender::api::*;
+use resources::AppResources;
 use traits::LayoutScreen;
 use constraints::{DisplayRect, CssConstraint};
 use ui_description::{UiDescription, StyledNode};
@@ -90,7 +91,13 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         }
     }
 
-    pub fn into_display_list_builder(&self, pipeline_id: PipelineId, ui_solver: &mut UiSolver<T>, css: &mut Css, mut has_window_size_changed: bool)
+    pub fn into_display_list_builder(
+        &self, 
+        pipeline_id: PipelineId, 
+        ui_solver: &mut UiSolver<T>, 
+        css: &mut Css,
+        app_resources: &AppResources,
+        mut has_window_size_changed: bool)
     -> Option<DisplayListBuilder>
     {       
         let mut changeset = None;
