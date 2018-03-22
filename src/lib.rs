@@ -31,6 +31,7 @@ extern crate glium;
 extern crate gleam;
 extern crate euclid;
 extern crate simplecss;
+extern crate image;
 
 /// Global application (Initialization starts here)
 pub mod app;
@@ -64,7 +65,7 @@ mod ui_state;
 /// Dom / CSS caching
 mod cache;
 /// Image handling
-mod image;
+mod images;
 /// Font handling
 mod font;
 
@@ -85,6 +86,9 @@ pub mod prelude {
     pub use window::{MouseMode, UpdateBehaviour, UpdateMode, WindowClass, 
                      WindowCreateError, WindowDecorations, WindowMonitorTarget};
     pub use font::FontError;
-    pub use image::{ImageType, ImageError};
+    pub use images::ImageType;
+    
+    // from the extern crate image
+    pub use image::ImageError;
 }
 
