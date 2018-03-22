@@ -1,7 +1,6 @@
 extern crate azul;
 
 use azul::prelude::*;
-use std::collections::HashMap;
 
 const TEST_CSS: &str = include_str!("test_content.css");
 const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
@@ -11,8 +10,6 @@ const TEST_IMAGE: &[u8] = include_bytes!("../assets/images/cat_image.jpg");
 pub struct MyAppData {
     // Your app data goes here
     pub my_data: u32,
-    pub fonts: HashMap<String, FontId>,
-    pub images: HashMap<String, ImageId>,
 }
 
 impl LayoutScreen for MyAppData {
@@ -41,13 +38,8 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen 
 fn main() {
     let css = Css::new_from_string(TEST_CSS).unwrap();
 
-    let mut fonts = HashMap::new();
-    fonts.insert("Roboto".to_string(), azul::resources::new_font_id());
-
     let my_app_data = MyAppData {
         my_data: 0,
-        fonts: fonts,
-        images: HashMap::new(),
     };
 
     let mut app = App::new(my_app_data);
@@ -55,7 +47,7 @@ fn main() {
     app.add_font("Webly Sleeky UI", TEST_FONT).unwrap();
     app.remove_font("Webly Sleeky UI");
 
-    app.add_image("MyImage", TEST_IMAGE, ImageType::Jpeg).unwrap();
+    app.add_image("MyImage", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
     app.remove_image("MyImage");
 
     // TODO: Multi-window apps currently crash
