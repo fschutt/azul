@@ -63,6 +63,10 @@ mod id_tree;
 mod ui_state;
 /// Dom / CSS caching
 mod cache;
+/// Image handling
+mod image;
+/// Font handling
+mod font;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
@@ -81,4 +85,6 @@ pub mod prelude {
     pub use window::{MouseMode, UpdateBehaviour, UpdateMode, WindowClass, 
                      WindowCreateError, WindowDecorations, WindowMonitorTarget};
     pub use resources::{FontId, FontInstanceId, ImageInstanceId, ImageId};
+    pub use font::FontError;
+    pub use image::{ImageType, ImageError};
 }
