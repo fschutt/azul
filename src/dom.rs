@@ -1,5 +1,4 @@
 use app_state::AppState;
-use resources::{ImageId, FontId};
 use traits::LayoutScreen;
 use std::collections::BTreeMap;
 use id_tree::{NodeId, Arena};

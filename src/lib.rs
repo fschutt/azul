@@ -45,7 +45,7 @@ pub mod traits;
 /// Window handling
 pub mod window;
 /// Font & image resource handling, lookup and caching
-pub mod resources;
+mod resources;
 /// Input handling (mostly glium)
 mod input;
 /// UI Description & display list handling (webrender)
@@ -84,7 +84,7 @@ pub mod prelude {
                      WindowId, WindowPlacement};
     pub use window::{MouseMode, UpdateBehaviour, UpdateMode, WindowClass, 
                      WindowCreateError, WindowDecorations, WindowMonitorTarget};
-    pub use resources::{FontId, FontInstanceId, ImageInstanceId, ImageId};
     pub use font::FontError;
     pub use image::{ImageType, ImageError};
 }
+

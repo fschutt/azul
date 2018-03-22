@@ -1,12 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{ImageKey, FontKey};
 use FastHashMap;
+use std::io::Read;
+use image::{ImageType, ImageError};
 
 static LAST_FONT_ID: AtomicUsize = AtomicUsize::new(0);
 static LAST_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
-
-pub struct ImageInstanceId(usize);
-pub struct FontInstanceId(usize);
 
 /// Font and image keys
 /// 
@@ -24,16 +23,40 @@ pub(crate) struct AppResources {
     pub(crate) fonts: FastHashMap<usize, FontKey>,
 }
 
-/// An `ImageId` is a wrapper around webrenders `ImageKey`. 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ImageId(usize);
+impl AppResources {
 
-/// A Font ID is a wrapper around webrenders `FontKey`. 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FontId(usize);
+    /// See `AppState::add_image()`
+    pub fn add_image<S: AsRef<str>, R: Read>(&mut self, id: S, data: R, image_type: ImageType) 
+        -> Result<Option<()>, ImageError>
+    {
+        Ok(Some(()))
+    }
 
-pub fn new_font_id() -> FontId {
-    let current_font_id = LAST_FONT_ID.load(Ordering::Relaxed);
-    LAST_FONT_ID.store(current_font_id + 1, Ordering::Relaxed);
-    FontId(current_font_id)
+    /// See `AppState::remove_image()`
+    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
+        -> Option<()> 
+    {
+        Some(())
+    }
+
+    /// See `AppState::has_image()`
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S) 
+        -> bool 
+    {
+        false
+    }
+
+    /// See `AppState::add_font()`
+    pub fn add_font<S: AsRef<str>, R: Read>(&mut self, id: S, data: R)
+        -> Result<Option<()>, ImageError>
+    {
+        Ok(Some(()))
+    }
+
+    /// See `AppState::remove_font()`
+    pub(crate) fn remove_font<S: AsRef<str>>(&mut self, id: S) 
+        -> Option<()>
+    {
+        Some(())
+    }
 }

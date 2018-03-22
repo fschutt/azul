@@ -1,4 +1,5 @@
 use css::Css;
+use resources::AppResources;
 use app_state::AppState;
 use traits::LayoutScreen;
 use input::hit_test_ui;
@@ -75,12 +76,16 @@ impl<T: LayoutScreen> App<T> {
             // First repaint, otherwise the window would be black on startup
             for (idx, window) in self.windows.iter_mut().enumerate() {
                 ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                render(window, &WindowId { id: idx, }, &ui_description_cache[idx], true);
+                render(window, &WindowId { id: idx, }, &ui_description_cache[idx], &app_state.resources, true);
                 window.display.swap_buffers().unwrap();
             }
         }      
 
         'render_loop: loop {
+
+            use webrender::api::{DeviceUintSize, WorldPoint, DeviceUintPoint, 
+                                 DeviceUintRect, LayoutSize, Transaction};
+            use dom::UpdateScreen;
 
             let mut closed_windows = Vec::<usize>::new();
 
@@ -109,16 +114,19 @@ impl<T: LayoutScreen> App<T> {
 
                 if frame_event_info.should_hittest {
 
-                    use webrender::api::WorldPoint;
-                    use dom::UpdateScreen;
-
-                    let point = WorldPoint::new(frame_event_info.cur_cursor_pos.0 as f32, frame_event_info.cur_cursor_pos.1 as f32);
-                    let hit_test_results = hit_test_ui(&window.internal.api, window.internal.document_id, Some(window.internal.pipeline_id), point);
+                    let cursor_x = frame_event_info.cur_cursor_pos.0 as f32;
+                    let cursor_y = frame_event_info.cur_cursor_pos.1 as f32;
+                    let point = WorldPoint::new(cursor_x, cursor_y);
+                    let hit_test_results = hit_test_ui(&window.internal.api, 
+                                                        window.internal.document_id,
+                                                        Some(window.internal.pipeline_id), 
+                                                        point);
 
                     let mut should_update_screen = UpdateScreen::DontRedraw;
 
                     for item in hit_test_results.items {
-                        if let Some(callback_list) = ui_state_cache[idx].node_ids_to_callbacks_list.get(&item.tag.0) {
+                        let callback_list_opt = ui_state_cache[idx].node_ids_to_callbacks_list.get(&item.tag.0);
+                        if let Some(callback_list) = callback_list_opt {
                             // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
                             // currently, just invoke all actions
                             for callback_id in callback_list.values() {
@@ -147,37 +155,43 @@ impl<T: LayoutScreen> App<T> {
                     frame_event_info.should_redraw_window = true;
                 }
 
+                // Macro to avoid duplication between the new_window_size and the new_dpi_factor event
+                // TODO: refactor this into proper functions (when the WindowState is working)
+                macro_rules! update_display {
+                    () => (
+                        let mut txn = Transaction::new();
+                        let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
+                        
+                        txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
+                        window.internal.api.send_transaction(window.internal.document_id, txn);
+                        render(window, &current_window_id, &ui_description_cache[idx], &app_state.resources, true);
+                        
+                        let time_end = ::std::time::Instant::now();
+                        debug_has_repainted = Some(time_end - time_start);
+                    )
+                }
+
                 if let Some((w, h)) = frame_event_info.new_window_size {
-                    use webrender::api::{DeviceUintSize, DeviceUintPoint, DeviceUintRect, LayoutSize, Transaction};
                     window.internal.layout_size = LayoutSize::new(w as f32, h as f32);
                     window.internal.framebuffer_size = DeviceUintSize::new(w, h);
-                    let mut txn = Transaction::new();
-                    let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
-                    txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
-                    window.internal.api.send_transaction(window.internal.document_id, txn);
-                    render(window, &current_window_id, &ui_description_cache[idx], true);
-                    
-                    let time_end = ::std::time::Instant::now();
-                    debug_has_repainted = Some(time_end - time_start);
+                    update_display!();
                     continue;
                 }
 
                 if let Some(dpi) = frame_event_info.new_dpi_factor {
-                    use webrender::api::{DeviceUintPoint, DeviceUintRect, Transaction};
                     window.internal.hidpi_factor = dpi;
-                    let mut txn = Transaction::new();
-                    let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
-                    txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
-                    window.internal.api.send_transaction(window.internal.document_id, txn);
-                    render(window, &current_window_id, &ui_description_cache[idx], true);
-                    let time_end = ::std::time::Instant::now();
-                    debug_has_repainted = Some(time_end - time_start);
+                    update_display!();
                     continue;
                 }
 
                 if frame_event_info.should_redraw_window {
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                    render(window, &current_window_id, &ui_description_cache[idx], frame_event_info.new_window_size.is_some());
+                    render(window, 
+                           &current_window_id, 
+                           &ui_description_cache[idx], 
+                           &app_state.resources, 
+                           frame_event_info.new_window_size.is_some());
+
                     let time_end = ::std::time::Instant::now();
                     debug_has_repainted = Some(time_end - time_start);
                 }
@@ -204,47 +218,53 @@ impl<T: LayoutScreen> App<T> {
 
     /// Add an image to the internal resources
     ///
-    /// ## Returns:
+    /// ## Returns
     /// 
     /// - `Ok(Some(()))` if an image with the same ID already exists. 
     /// - `Ok(None)` if the image was added, but didn't exist previously.
     /// - `Err(e)` if the image couldn't be decoded 
-    pub fn add_image<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R, _image_type: ImageType) 
+    pub fn add_image<S: AsRef<str>, R: Read>(&mut self, id: S, data: R, image_type: ImageType) 
         -> Result<Option<()>, ImageError>
     {
-        Ok(Some(()))
+        (*self.app_state.lock().unwrap()).add_image(id, data, image_type)
     }
 
+    /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_image<S: AsRef<str>>(&mut self, _id: S) 
+    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
-        Some(())
+        (*self.app_state.lock().unwrap()).remove_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, _id: S) -> bool {
-        false
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S) 
+        -> bool 
+    {
+        (*self.app_state.lock().unwrap()).has_image(id)
     }
 
     /// Add a font (TTF or OTF) to the internal resources
     ///
-    /// ## Returns:
+    /// ## Returns
     /// 
     /// - `Ok(Some(()))` if an font with the same ID already exists. 
     /// - `Ok(None)` if the font was added, but didn't exist previously.
     /// - `Err(e)` if the font couldn't be decoded 
-    pub fn add_font<S: AsRef<str>, R: Read>(&mut self, _id: S, _data: R)
+    pub fn add_font<S: AsRef<str>, R: Read>(&mut self, id: S, data: R)
         -> Result<Option<()>, ImageError>
     {
-        Ok(Some(()))
+        (*self.app_state.lock().unwrap()).add_font(id, data)
     }
 
-    pub fn remove_font<S: AsRef<str>>(&mut self, _id: S) 
+    /// Removes a font from the internal app resources.
+    /// Returns `Some` if the image existed and was removed.
+    /// If the given ID doesn't exist, this function does nothing and returns `None`.
+    pub fn remove_font<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()>
     {
-        Some(())
+        (*self.app_state.lock().unwrap()).remove_font(id)
     }
 }
 
@@ -292,13 +312,23 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
     false
 }
 
-fn render<T: LayoutScreen>(window: &mut Window<T>, _window_id: &WindowId, ui_description: &UiDescription<T>, has_window_size_changed: bool) 
+fn render<T: LayoutScreen>(
+    window: &mut Window<T>,
+    _window_id: &WindowId, 
+    ui_description: &UiDescription<T>, 
+    app_resources: &AppResources, 
+    has_window_size_changed: bool) 
 {
     use webrender::api::*;
     use display_list::DisplayList;
     
     let display_list = DisplayList::new_from_ui_description(ui_description);
-    let builder = display_list.into_display_list_builder(window.internal.pipeline_id, &mut window.solver, &mut window.css, has_window_size_changed);
+    let builder = display_list.into_display_list_builder(
+        window.internal.pipeline_id, 
+        &mut window.solver, 
+        &mut window.css, 
+        app_resources,
+        has_window_size_changed);
     
     if let Some(new_builder) = builder {
         // only finalize the list if we actually need to. Otherwise just redraw the last display list
