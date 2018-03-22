@@ -253,7 +253,7 @@ impl<T: LayoutScreen> App<T> {
     /// - `Ok(Some(()))` if an font with the same ID already exists. 
     /// - `Ok(None)` if the font was added, but didn't exist previously.
     /// - `Err(e)` if the font couldn't be decoded 
-    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: R)
+    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
         -> Result<Option<()>, ImageError>
     {
         (*self.app_state.lock().unwrap()).add_font(id, data)

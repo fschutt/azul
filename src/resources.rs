@@ -43,6 +43,7 @@ impl AppResources {
         -> Result<Option<()>, ImageError>
     {
         use std::collections::hash_map::Entry::*;
+        use images; // the module, not the crate!
 
         match self.images.entry(id.into()) {
             Occupied(_) => Ok(None),
@@ -51,7 +52,7 @@ impl AppResources {
                 data.read_to_end(&mut image_data).map_err(|e| ImageError::IoError(e))?;
                 let image_format = image_type.into_image_format(&image_data)?;
                 let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
-                v.insert(ImageState::ReadyForUpload(prepare_image(decoded)?));
+                v.insert(ImageState::ReadyForUpload(images::prepare_image(decoded)?));
                 Ok(Some(()))
             },
         }
@@ -72,7 +73,7 @@ impl AppResources {
     }
 
     /// See `AppState::add_font()`
-    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: R)
+    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
         -> Result<Option<()>, ImageError>
     {
         Ok(Some(()))
@@ -83,103 +84,5 @@ impl AppResources {
         -> Option<()>
     {
         Some(())
-    }
-}
-
-// The next three functions are taken from: 
-// https://github.com/christolliday/limn/blob/master/core/src/resources/image.rs
-
-use std::path::Path;
-
-/// Convenience function to get the image type from a path
-/// 
-/// This function looks at the extension of the image. However, this
-/// extension could be wrong, i.e. a user labeling a PNG as a JPG and so on.
-/// If you don't know the format of the image, simply use Image::GuessImageType
-/// - which will guess the type of the image from the magic header in the 
-/// actual image data.
-pub fn get_image_type_from_extension(path: &Path) -> Option<ImageType> {
-    let ext = path.extension().and_then(|s| s.to_str())
-                  .map_or(String::new(), |s| s.to_ascii_lowercase());
-
-    match &ext[..] {
-        "jpg" |
-        "jpeg" => Some(ImageType::Jpeg),
-        "png"  => Some(ImageType::Png),
-        "gif"  => Some(ImageType::Gif),
-        "webp" => Some(ImageType::WebP),
-        "tif" |
-        "tiff" => Some(ImageType::Tiff),
-        "tga" => Some(ImageType::Tga),
-        "bmp" => Some(ImageType::Bmp),
-        "ico" => Some(ImageType::Ico),
-        "hdr" => Some(ImageType::Hdr),
-        "pbm" |
-        "pam" |
-        "ppm" |
-        "pgm" => Some(ImageType::Pnm),
-        _ => None,
-    }
-}
-
-fn prepare_image(mut image_decoded: DynamicImage) 
-    -> Result<(ImageData, ImageDescriptor), ImageError> 
-{
-    let image_dims = image_decoded.dimensions();
-    let format = match image_decoded {
-        image::ImageLuma8(_) => ImageFormat::R8,
-        image::ImageLumaA8(_) => {
-            image_decoded = DynamicImage::ImageLuma8(image_decoded.to_luma());
-            ImageFormat::R8
-        },
-        image::ImageRgba8(_) => ImageFormat::BGRA8,
-        image::ImageRgb8(_) => { 
-            image_decoded = DynamicImage::ImageRgba8(image_decoded.to_rgba());
-            ImageFormat::BGRA8 
-        },
-    };
-
-    let mut bytes = image_decoded.raw_pixels();
-    if format == ImageFormat::BGRA8 {
-        premultiply(bytes.as_mut_slice());
-    }
-
-    let opaque = is_image_opaque(format, &bytes[..]);
-    let allow_mipmaps = true;
-    let descriptor = ImageDescriptor::new(image_dims.0, image_dims.1, format, opaque, allow_mipmaps);
-    let data = ImageData::new(bytes);
-    Ok((data, descriptor))
-}
-
-fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
-    match format {
-        ImageFormat::BGRA8 => {
-            let mut is_opaque = true;
-            for i in 0..(bytes.len() / 4) {
-                if bytes[i * 4 + 3] != 255 {
-                    is_opaque = false;
-                    break;
-                }
-            }
-            is_opaque
-        }
-        ImageFormat::R8 => true,
-        _ => unreachable!(),
-    }
-}
-
-// From webrender/wrench
-// These are slow. Gecko's gfx/2d/Swizzle.cpp has better versions
-pub fn premultiply(data: &mut [u8]) {
-    for pixel in data.chunks_mut(4) {
-        let a = u32::from(pixel[3]);
-        let r = u32::from(pixel[2]);
-        let g = u32::from(pixel[1]);
-        let b = u32::from(pixel[0]);
-
-        pixel[3] = a as u8;
-        pixel[2] = ((r * a + 128) / 255) as u8;
-        pixel[1] = ((g * a + 128) / 255) as u8;
-        pixel[0] = ((b * a + 128) / 255) as u8;
     }
 }

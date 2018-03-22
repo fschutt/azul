@@ -44,7 +44,7 @@ fn main() {
 
     let mut app = App::new(my_app_data);
 
-    app.add_font("Webly Sleeky UI", TEST_FONT).unwrap();
+    app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
     app.remove_font("Webly Sleeky UI");
 
     app.add_image("MyImage", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
