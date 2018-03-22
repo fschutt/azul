@@ -14,6 +14,7 @@ use std::io::Read;
 use images::{ImageType};
 use image::ImageError;
 use font::FontError;
+use webrender::api::RenderApi;
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: LayoutScreen> {
@@ -69,7 +70,7 @@ impl<T: LayoutScreen> App<T> {
 
         // first redraw, initialize cache  
         {
-            let app_state = self.app_state.lock().unwrap();
+            let mut app_state = self.app_state.lock().unwrap();
             for (idx, _) in self.windows.iter().enumerate() {
                 ui_state_cache.push(UiState::from_app_state(&*app_state, WindowId { id: idx }));
             }
@@ -77,7 +78,10 @@ impl<T: LayoutScreen> App<T> {
             // First repaint, otherwise the window would be black on startup
             for (idx, window) in self.windows.iter_mut().enumerate() {
                 ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                render(window, &WindowId { id: idx, }, &ui_description_cache[idx], &app_state.resources, true);
+                render(window, &WindowId { id: idx, }, 
+                      &ui_description_cache[idx], 
+                      &mut app_state.resources, 
+                      true);
                 window.display.swap_buffers().unwrap();
             }
         }      
@@ -146,7 +150,6 @@ impl<T: LayoutScreen> App<T> {
                     if should_update_screen == UpdateScreen::Redraw {
                         frame_event_info.should_redraw_window = true;
                     }
-
                 }
 
                 let mut app_state = self.app_state.lock().unwrap();
@@ -165,7 +168,11 @@ impl<T: LayoutScreen> App<T> {
                         
                         txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
                         window.internal.api.send_transaction(window.internal.document_id, txn);
-                        render(window, &current_window_id, &ui_description_cache[idx], &app_state.resources, true);
+                        render(window, 
+                               &current_window_id, 
+                               &ui_description_cache[idx], 
+                               &mut app_state.resources, 
+                               true);
                         
                         let time_end = ::std::time::Instant::now();
                         debug_has_repainted = Some(time_end - time_start);
@@ -190,7 +197,7 @@ impl<T: LayoutScreen> App<T> {
                     render(window, 
                            &current_window_id, 
                            &ui_description_cache[idx], 
-                           &app_state.resources, 
+                           &mut app_state.resources, 
                            frame_event_info.new_window_size.is_some());
 
                     let time_end = ::std::time::Instant::now();
@@ -317,7 +324,7 @@ fn render<T: LayoutScreen>(
     window: &mut Window<T>,
     _window_id: &WindowId, 
     ui_description: &UiDescription<T>, 
-    app_resources: &AppResources, 
+    app_resources: &mut AppResources, 
     has_window_size_changed: bool) 
 {
     use webrender::api::*;
@@ -329,6 +336,7 @@ fn render<T: LayoutScreen>(
         &mut window.solver, 
         &mut window.css, 
         app_resources,
+        &window.internal.api,
         has_window_size_changed);
     
     if let Some(new_builder) = builder {
@@ -344,7 +352,9 @@ fn render<T: LayoutScreen>(
         window.internal.epoch,
         None,
         window.internal.layout_size,
-        (window.internal.pipeline_id, window.solver.window_dimensions.layout_size, window.internal.last_display_list_builder.clone()),
+        (window.internal.pipeline_id, 
+         window.solver.window_dimensions.layout_size, 
+         window.internal.last_display_list_builder.clone()),
         true,
     );
 

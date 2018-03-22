@@ -91,12 +91,44 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         }
     }
 
+    /// Looks if any new images need to be uploaded and stores the in the image resources
+    fn update_resources(api: &RenderApi, app_resources: &mut AppResources) {
+        use images::{ImageState, ImageInfo};
+
+        let mut resources = ResourceUpdates::new();
+
+        let mut updated_images = Vec::<(String, (ImageData, ImageDescriptor))>::new();
+
+        // possible performance bottleneck (duplicated cloning) !!
+        for (key, value) in app_resources.images.iter() {
+            match *value {
+                ImageState::ReadyForUpload(ref d) => {
+                    updated_images.push((key.clone(), d.clone()));
+                },
+                ImageState::Uploaded(_) => { },
+            }
+        }
+
+        for (resource_key, (data, descriptor)) in updated_images.into_iter() {
+            let key = api.generate_image_key();
+            resources.add_image(key, descriptor, data, None);
+            *app_resources.images.get_mut(&resource_key).unwrap() = 
+                ImageState::Uploaded(ImageInfo { 
+                    key: key, 
+                    descriptor: descriptor 
+            });
+        }
+
+        api.update_resources(resources);
+    }
+
     pub fn into_display_list_builder(
         &self, 
         pipeline_id: PipelineId, 
         ui_solver: &mut UiSolver<T>, 
         css: &mut Css,
-        app_resources: &AppResources,
+        app_resources: &mut AppResources,
+        render_api: &RenderApi,
         mut has_window_size_changed: bool)
     -> Option<DisplayListBuilder>
     {       
@@ -147,6 +179,9 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, ui_solver.window_dimensions.layout_size, self.rectangles.len());
         
+        // Upload image and font resources
+        Self::update_resources(render_api, app_resources);
+
         for (rect_idx, rect) in self.rectangles.iter() {
 
             // ask the solver what the bounds of the current rectangle is
@@ -233,7 +268,21 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                         builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
                     },
                     Background::Image(image_id) => {
-                        // TODO: lookup image in resources
+                        if let Some(image_info) = app_resources.images.get(image_id.0) {
+                            use images::ImageState::*;
+                            match *image_info {
+                                Uploaded(ref image_info) => {
+                                    builder.push_image(
+                                            &info,
+                                            bounds.size,
+                                            LayoutSize::zero(),
+                                            ImageRendering::Auto,
+                                            AlphaType::Alpha,
+                                            image_info.key);
+                                },
+                                ReadyForUpload(_) => { },
+                            }
+                        }
                     }
                 }
             }

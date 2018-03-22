@@ -3,7 +3,7 @@
 use webrender::api::ImageFormat as WebrenderImageFormat;
 use image::{ImageResult, ImageFormat, guess_format};
 use image::{self, ImageError, DynamicImage, GenericImage};
-use webrender::api::{ImageData, ImageDescriptor};
+use webrender::api::{ImageData, ImageDescriptor, ImageKey};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ImageType {
@@ -20,6 +20,21 @@ pub enum ImageType {
     /// Try to guess the image format, unknown data 
     GuessImageFormat,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ImageInfo {
+    pub(crate) key: ImageKey,
+    pub(crate) descriptor: ImageDescriptor,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ImageState {
+    // resource is available for the renderer
+    Uploaded(ImageInfo),
+    // image is loaded & decoded, but not yet available
+    ReadyForUpload((ImageData, ImageDescriptor)),
+}
+
 
 impl ImageType {
     pub(crate) fn into_image_format(&self, data: &[u8]) -> ImageResult<ImageFormat> {
