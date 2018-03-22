@@ -489,7 +489,6 @@ impl<T: LayoutScreen> Window<T> {
 
         let opts = RendererOptions {
             resource_override_path: None,
-            debug: false,
             // pre-caching shaders means to compile all shaders on startup
             // this can take significant time and should be only used for testing the shaders
             precache_shaders: false,
