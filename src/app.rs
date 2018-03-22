@@ -11,7 +11,8 @@ use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 use glium::glutin::Event;
 use euclid::TypedScale;
 use std::io::Read;
-use image::{ImageType, ImageError};
+use images::{ImageType};
+use image::ImageError;
 use font::FontError;
 
 /// Graphical application that maintains some kind of application state
@@ -223,7 +224,7 @@ impl<T: LayoutScreen> App<T> {
     /// - `Ok(Some(()))` if an image with the same ID already exists. 
     /// - `Ok(None)` if the image was added, but didn't exist previously.
     /// - `Err(e)` if the image couldn't be decoded 
-    pub fn add_image<S: AsRef<str>, R: Read>(&mut self, id: S, data: R, image_type: ImageType) 
+    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType) 
         -> Result<Option<()>, ImageError>
     {
         (*self.app_state.lock().unwrap()).add_image(id, data, image_type)
@@ -232,14 +233,14 @@ impl<T: LayoutScreen> App<T> {
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
+    pub fn remove_image<S: Into<String>>(&mut self, id: S) 
         -> Option<()> 
     {
         (*self.app_state.lock().unwrap()).remove_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S) 
+    pub fn has_image<S: Into<String>>(&mut self, id: S) 
         -> bool 
     {
         (*self.app_state.lock().unwrap()).has_image(id)
@@ -252,7 +253,7 @@ impl<T: LayoutScreen> App<T> {
     /// - `Ok(Some(()))` if an font with the same ID already exists. 
     /// - `Ok(None)` if the font was added, but didn't exist previously.
     /// - `Err(e)` if the font couldn't be decoded 
-    pub fn add_font<S: AsRef<str>, R: Read>(&mut self, id: S, data: R)
+    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: R)
         -> Result<Option<()>, ImageError>
     {
         (*self.app_state.lock().unwrap()).add_font(id, data)
@@ -261,7 +262,7 @@ impl<T: LayoutScreen> App<T> {
     /// Removes a font from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_font<S: AsRef<str>>(&mut self, id: S) 
+    pub fn remove_font<S: Into<String>>(&mut self, id: S) 
         -> Option<()>
     {
         (*self.app_state.lock().unwrap()).remove_font(id)
