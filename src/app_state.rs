@@ -3,18 +3,19 @@ use resources::{AppResources};
 use std::io::Read;
 use images::ImageType;
 use image::ImageError;
+use font::FontError;
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `LayoutScreen` trait (how the application
 /// should be laid out)
-pub struct AppState<T: LayoutScreen> {
+pub struct AppState<'a, T: LayoutScreen> {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: T,
     /// Fonts and images that are currently loaded into the app
-    pub(crate) resources: AppResources,
+    pub(crate) resources: AppResources<'a>,
 }
 
-impl<T: LayoutScreen> AppState<T> {
+impl<'a, T: LayoutScreen> AppState<'a, T> {
 
     /// Creates a new `AppState`
     pub fn new(initial_data: T) -> Self {
@@ -40,7 +41,7 @@ impl<T: LayoutScreen> AppState<T> {
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_image<S: Into<String>>(&mut self, id: S) 
+    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
         self.resources.remove_image(id)
@@ -61,7 +62,7 @@ impl<T: LayoutScreen> AppState<T> {
     /// - `Ok(None)` if the font was added, but didn't exist previously.
     /// - `Err(e)` if the font couldn't be decoded 
     pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
-        -> Result<Option<()>, ImageError>
+        -> Result<Option<()>, FontError>
     {
         self.resources.add_font(id, data)
     }

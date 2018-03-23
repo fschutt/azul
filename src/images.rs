@@ -33,6 +33,8 @@ pub(crate) enum ImageState {
     Uploaded(ImageInfo),
     // image is loaded & decoded, but not yet available
     ReadyForUpload((ImageData, ImageDescriptor)),
+    // Image is about to get deleted in the next frame
+    AboutToBeDeleted(Option<ImageKey>),
 }
 
 
