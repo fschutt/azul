@@ -17,11 +17,11 @@ use font::FontError;
 use webrender::api::RenderApi;
 
 /// Graphical application that maintains some kind of application state
-pub struct App<T: LayoutScreen> {
+pub struct App<'a, T: LayoutScreen> {
     /// The graphical windows, indexed by ID
     windows: Vec<Window<T>>,
     /// The global application state
-    pub app_state: Arc<Mutex<AppState<T>>>,
+    pub app_state: Arc<Mutex<AppState<'a, T>>>,
 }
 
 pub(crate) struct FrameEventInfo {
@@ -46,7 +46,7 @@ impl Default for FrameEventInfo {
     }
 }
 
-impl<T: LayoutScreen> App<T> {
+impl<'a, T: LayoutScreen> App<'a, T> {
 
     /// Create a new, empty application (note: doesn't create a window!)
     pub fn new(initial_data: T) -> Self {
@@ -240,7 +240,7 @@ impl<T: LayoutScreen> App<T> {
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_image<S: Into<String>>(&mut self, id: S) 
+    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
         (*self.app_state.lock().unwrap()).remove_image(id)
@@ -261,7 +261,7 @@ impl<T: LayoutScreen> App<T> {
     /// - `Ok(None)` if the font was added, but didn't exist previously.
     /// - `Err(e)` if the font couldn't be decoded 
     pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
-        -> Result<Option<()>, ImageError>
+        -> Result<Option<()>, FontError>
     {
         (*self.app_state.lock().unwrap()).add_font(id, data)
     }

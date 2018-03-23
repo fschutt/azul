@@ -32,6 +32,7 @@ extern crate gleam;
 extern crate euclid;
 extern crate simplecss;
 extern crate image;
+extern crate rusttype;
 
 /// Global application (Initialization starts here)
 pub mod app;

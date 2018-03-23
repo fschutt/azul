@@ -98,6 +98,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         let mut resources = ResourceUpdates::new();
 
         let mut updated_images = Vec::<(String, (ImageData, ImageDescriptor))>::new();
+        let mut to_delete_images = Vec::<(String, Option<ImageKey>)>::new();
 
         // possible performance bottleneck (duplicated cloning) !!
         for (key, value) in app_resources.images.iter() {
@@ -106,9 +107,22 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                     updated_images.push((key.clone(), d.clone()));
                 },
                 ImageState::Uploaded(_) => { },
+                ImageState::AboutToBeDeleted(ref k) => {
+                    to_delete_images.push((key.clone(), k.clone()));
+                }
             }
         }
 
+        // Remove any images that should be deleted
+        for (resource_key, image_key) in to_delete_images.into_iter() {
+            if let Some(image_key) = image_key {
+                resources.delete_image(image_key);
+            }
+            app_resources.images.remove(&resource_key);
+        }
+
+        // Upload all remaining images to the GPU only if the haven't been
+        // uploaded yet
         for (resource_key, (data, descriptor)) in updated_images.into_iter() {
             let key = api.generate_image_key();
             resources.add_image(key, descriptor, data, None);
@@ -118,6 +132,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                     descriptor: descriptor 
             });
         }
+
 
         api.update_resources(resources);
     }
@@ -280,7 +295,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
                                             AlphaType::Alpha,
                                             image_info.key);
                                 },
-                                ReadyForUpload(_) => { },
+                                _ => { },
                             }
                         }
                     }
