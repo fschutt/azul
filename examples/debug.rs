@@ -36,6 +36,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen 
 }
 
 fn main() {
+
     let css = Css::new_from_string(TEST_CSS).unwrap();
 
     let my_app_data = MyAppData {
@@ -43,8 +44,9 @@ fn main() {
     };
 
     let mut app = App::new(my_app_data);
-/*
+    
     app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
+/*
     app.remove_font("Webly Sleeky UI");
 */
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();

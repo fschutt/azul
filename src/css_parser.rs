@@ -1372,385 +1372,390 @@ multi_type_parser!(parse_shape, Shape,
                     ["circle", Circle], 
                     ["ellipse", Ellipse]);
 
-#[test]
-fn test_parse_box_shadow_1() {
-    assert_eq!(parse_css_box_shadow("none"), Ok(None));
-}
+#[cfg(test)]
+mod css_tests {
+    use super::*;
+    #[test]
+    fn test_parse_box_shadow_1() {
+        assert_eq!(parse_css_box_shadow("none"), Ok(None));
+    }
 
-#[test]
-fn test_parse_box_shadow_2() {
-    assert_eq!(parse_css_box_shadow("5px 10px"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-        blur_radius: 0.0,
-        spread_radius: 0.0,
-        clip_mode: BoxShadowClipMode::Outset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_3() {
-    assert_eq!(parse_css_box_shadow("5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
-        blur_radius: 0.0,
-        spread_radius: 0.0,
-        clip_mode: BoxShadowClipMode::Outset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_4() {
-    assert_eq!(parse_css_box_shadow("5px 10px inset"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-        blur_radius: 0.0,
-        spread_radius: 0.0,
-        clip_mode: BoxShadowClipMode::Inset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_5() {
-    assert_eq!(parse_css_box_shadow("5px 10px outset"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-        blur_radius: 0.0,
-        spread_radius: 0.0,
-        clip_mode: BoxShadowClipMode::Outset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_6() {
-    assert_eq!(parse_css_box_shadow("5px 10px 5px #888888"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
-        blur_radius: 5.0,
-        spread_radius: 0.0,
-        clip_mode: BoxShadowClipMode::Outset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_7() {
-    assert_eq!(parse_css_box_shadow("5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
-        blur_radius: 0.0,
-        spread_radius: 0.0,
-        clip_mode: BoxShadowClipMode::Inset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_8() {
-    assert_eq!(parse_css_box_shadow("5px 10px 5px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
-        blur_radius: 5.0,
-        spread_radius: 0.0,
-        clip_mode: BoxShadowClipMode::Inset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_9() {
-    assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
-        blur_radius: 5.0,
-        spread_radius: 10.0,
-        clip_mode: BoxShadowClipMode::Outset,
-    })));
-}
-
-#[test]
-fn test_parse_box_shadow_10() {
-    assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::new(5.0, 10.0),
-        color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
-        blur_radius: 5.0,
-        spread_radius: 10.0,
-        clip_mode: BoxShadowClipMode::Inset,
-    })));
-}
-
-#[test]
-fn test_parse_css_border_1() {
-    assert_eq!(parse_css_border("5px solid red"), Ok((BorderWidths {
-        top: 5.0,
-        bottom: 5.0,
-        left: 5.0,
-        right: 5.0,
-    }, BorderDetails::Normal(NormalBorder {
-        left: BorderSide {
-            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Solid,
-        },
-        right: BorderSide {
-            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Solid,
-        },
-        bottom: BorderSide {
-            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Solid,
-        },
-        top: BorderSide {
-            color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Solid,
-        },
-        radius: BorderRadius::zero(),
-    }))));
-}
-
-#[test]
-fn test_parse_css_border_2() {
-    assert_eq!(parse_css_border("double"), Ok((BorderWidths {
-        top: 1.0,
-        bottom: 1.0,
-        left: 1.0,
-        right: 1.0,
-    }, BorderDetails::Normal(NormalBorder {
-        left: BorderSide {
+    #[test]
+    fn test_parse_box_shadow_2() {
+        assert_eq!(parse_css_box_shadow("5px 10px"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
             color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Double,
-        },
-        right: BorderSide {
-            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Double,
-        },
-        bottom: BorderSide {
-            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Double,
-        },
-        top: BorderSide {
-            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-            style: BorderStyle::Double,
-        },
-        radius: BorderRadius::zero(),
-    }))));
-}
-
-#[test]
-fn test_parse_linear_gradient_1() {
-    assert_eq!(parse_css_background("linear-gradient(red, yellow)"),
-        Ok(Background::LinearGradient(LinearGradientPreInfo {
-            direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
-            extend_mode: ExtendMode::Clamp,
-            stops: vec![GradientStopPre {
-                offset: Some(0.0),
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(1.0),
-                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
-            }],
+            blur_radius: 0.0,
+            spread_radius: 0.0,
+            clip_mode: BoxShadowClipMode::Outset,
         })));
-}
+    }
 
-#[test]
-fn test_parse_linear_gradient_2() {
-    assert_eq!(parse_css_background("linear-gradient(red, lime, blue, yellow)"),
-        Ok(Background::LinearGradient(LinearGradientPreInfo {
-            direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
-            extend_mode: ExtendMode::Clamp,
-            stops: vec![GradientStopPre {
-                offset: Some(0.0),
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(0.33333334),
-                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(0.66666667),
-                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(1.0),
-                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
-            }],
-    })));
-}
-
-#[test]
-fn test_parse_linear_gradient_3() {
-    assert_eq!(parse_css_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
-        Ok(Background::LinearGradient(LinearGradientPreInfo {
-            direction: Direction::Angle(50.0),
-            extend_mode: ExtendMode::Repeat,
-            stops: vec![
-            GradientStopPre {
-                offset: Some(0.0),
-                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(0.5),
-                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(1.0),
-                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
-            }],
-    })));
-}
-
-#[test]
-fn test_parse_linear_gradient_4() {
-    assert_eq!(parse_css_background("linear-gradient(to bottom right, red, yellow)"),
-        Ok(Background::LinearGradient(LinearGradientPreInfo {
-            direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
-            extend_mode: ExtendMode::Clamp,
-            stops: vec![GradientStopPre {
-                offset: Some(0.0),
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(1.0),
-                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
-            }],
+    #[test]
+    fn test_parse_box_shadow_3() {
+        assert_eq!(parse_css_box_shadow("5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+            blur_radius: 0.0,
+            spread_radius: 0.0,
+            clip_mode: BoxShadowClipMode::Outset,
         })));
-}
+    }
 
-#[test]
-fn test_parse_radial_gradient_1() {
-    assert_eq!(parse_css_background("radial-gradient(circle, lime, blue, yellow)"),
-        Ok(Background::RadialGradient(RadialGradientPreInfo {
-            shape: Shape::Circle,
-            extend_mode: ExtendMode::Clamp,
-            stops: vec![
-            GradientStopPre {
-                offset: Some(0.0),
-                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(0.5),
-                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
-            },
-            GradientStopPre {
-                offset: Some(1.0),
-                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
-            }],
-    })));
-}
+    #[test]
+    fn test_parse_box_shadow_4() {
+        assert_eq!(parse_css_box_shadow("5px 10px inset"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            blur_radius: 0.0,
+            spread_radius: 0.0,
+            clip_mode: BoxShadowClipMode::Inset,
+        })));
+    }
 
-// This test currently fails, but it's not that important to fix right now
-/*
-#[test]
-fn test_parse_radial_gradient_2() {
-    assert_eq!(parse_css_background("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
-        Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
-            shape: Shape::Circle,
-            extend_mode: ExtendMode::Repeat,
-            stops: vec![
-            GradientStopPre {
-                offset: Some(0.1),
+    #[test]
+    fn test_parse_box_shadow_5() {
+        assert_eq!(parse_css_box_shadow("5px 10px outset"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            blur_radius: 0.0,
+            spread_radius: 0.0,
+            clip_mode: BoxShadowClipMode::Outset,
+        })));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_6() {
+        assert_eq!(parse_css_box_shadow("5px 10px 5px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+            blur_radius: 5.0,
+            spread_radius: 0.0,
+            clip_mode: BoxShadowClipMode::Outset,
+        })));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_7() {
+        assert_eq!(parse_css_box_shadow("5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+            blur_radius: 0.0,
+            spread_radius: 0.0,
+            clip_mode: BoxShadowClipMode::Inset,
+        })));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_8() {
+        assert_eq!(parse_css_box_shadow("5px 10px 5px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+            blur_radius: 5.0,
+            spread_radius: 0.0,
+            clip_mode: BoxShadowClipMode::Inset,
+        })));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_9() {
+        assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+            blur_radius: 5.0,
+            spread_radius: 10.0,
+            clip_mode: BoxShadowClipMode::Outset,
+        })));
+    }
+
+    #[test]
+    fn test_parse_box_shadow_10() {
+        assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+            offset: LayoutVector2D::new(5.0, 10.0),
+            color: ColorF { r: 0.53333336, g: 0.53333336, b: 0.53333336, a: 1.0 },
+            blur_radius: 5.0,
+            spread_radius: 10.0,
+            clip_mode: BoxShadowClipMode::Inset,
+        })));
+    }
+
+    #[test]
+    fn test_parse_css_border_1() {
+        assert_eq!(parse_css_border("5px solid red"), Ok((BorderWidths {
+            top: 5.0,
+            bottom: 5.0,
+            left: 5.0,
+            right: 5.0,
+        }, BorderDetails::Normal(NormalBorder {
+            left: BorderSide {
                 color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Solid,
             },
-            GradientStopPre {
-                offset: Some(0.5),
-                color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+            right: BorderSide {
+                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Solid,
             },
-            GradientStopPre {
-                offset: Some(0.75),
-                color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+            bottom: BorderSide {
+                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Solid,
             },
-            GradientStopPre {
-                offset: Some(1.0),
-                color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
-            }],
-    })));
-}
-*/
+            top: BorderSide {
+                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Solid,
+            },
+            radius: BorderRadius::zero(),
+        }))));
+    }
 
-#[test]
-fn test_parse_css_color_1() {
-    assert_eq!(parse_css_color("#F0F8FF"), Ok(ColorU { r: 240, g: 248, b: 255, a: 255 }));
-}
+    #[test]
+    fn test_parse_css_border_2() {
+        assert_eq!(parse_css_border("double"), Ok((BorderWidths {
+            top: 1.0,
+            bottom: 1.0,
+            left: 1.0,
+            right: 1.0,
+        }, BorderDetails::Normal(NormalBorder {
+            left: BorderSide {
+                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Double,
+            },
+            right: BorderSide {
+                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Double,
+            },
+            bottom: BorderSide {
+                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Double,
+            },
+            top: BorderSide {
+                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                style: BorderStyle::Double,
+            },
+            radius: BorderRadius::zero(),
+        }))));
+    }
 
-#[test]
-fn test_parse_css_color_2() {
-    assert_eq!(parse_css_color("#F0F8FF00"), Ok(ColorU { r: 240, g: 248, b: 255, a: 0 }));
-}
+    #[test]
+    fn test_parse_linear_gradient_1() {
+        assert_eq!(parse_css_background("linear-gradient(red, yellow)"),
+            Ok(Background::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(0.0),
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(1.0),
+                    color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+                }],
+            })));
+    }
 
-#[test]
-fn test_parse_css_color_3() {
-    assert_eq!(parse_css_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
-}
+    #[test]
+    fn test_parse_linear_gradient_2() {
+        assert_eq!(parse_css_background("linear-gradient(red, lime, blue, yellow)"),
+            Ok(Background::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(0.0),
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(0.33333334),
+                    color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(0.66666667),
+                    color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(1.0),
+                    color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+                }],
+        })));
+    }
 
-#[test]
-fn test_parse_pixel_value_1() {
-    assert_eq!(parse_pixel_value("15px"), Ok(PixelValue { metric: CssMetric::Px, number: 15.0 }));
-}
+    #[test]
+    fn test_parse_linear_gradient_3() {
+        assert_eq!(parse_css_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
+            Ok(Background::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::Angle(50.0),
+                extend_mode: ExtendMode::Repeat,
+                stops: vec![
+                GradientStopPre {
+                    offset: Some(0.0),
+                    color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(0.5),
+                    color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(1.0),
+                    color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+                }],
+        })));
+    }
 
-#[test]
-fn test_parse_pixel_value_2() {
-    assert_eq!(parse_pixel_value("1.2em"), Ok(PixelValue { metric: CssMetric::Em, number: 1.2 }));
-}
+    #[test]
+    fn test_parse_linear_gradient_4() {
+        assert_eq!(parse_css_background("linear-gradient(to bottom right, red, yellow)"),
+            Ok(Background::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(0.0),
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(1.0),
+                    color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+                }],
+            })));
+    }
 
-#[test]
-fn test_parse_pixel_value_3() {
-    assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::InvalidComponent("aslkfdjasdflk")));
-}
+    #[test]
+    fn test_parse_radial_gradient_1() {
+        assert_eq!(parse_css_background("radial-gradient(circle, lime, blue, yellow)"),
+            Ok(Background::RadialGradient(RadialGradientPreInfo {
+                shape: Shape::Circle,
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![
+                GradientStopPre {
+                    offset: Some(0.0),
+                    color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(0.5),
+                    color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(1.0),
+                    color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+                }],
+        })));
+    }
 
-#[test]
-fn test_parse_css_border_radius_1() {
-    assert_eq!(parse_css_border_radius("15px"), Ok(BorderRadius::uniform(15.0)));
-}
+    // This test currently fails, but it's not that important to fix right now
+    /*
+    #[test]
+    fn test_parse_radial_gradient_2() {
+        assert_eq!(parse_css_background("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
+            Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+                shape: Shape::Circle,
+                extend_mode: ExtendMode::Repeat,
+                stops: vec![
+                GradientStopPre {
+                    offset: Some(0.1),
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(0.5),
+                    color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(0.75),
+                    color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
+                },
+                GradientStopPre {
+                    offset: Some(1.0),
+                    color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
+                }],
+        })));
+    }
+    */
 
-#[test]
-fn test_parse_css_border_radius_2() {
-    assert_eq!(parse_css_border_radius("15px 50px"), Ok(BorderRadius {
-        top_left: LayoutSize::new(15.0, 15.0),
-        bottom_right: LayoutSize::new(15.0, 15.0),
-        top_right: LayoutSize::new(50.0, 50.0),
-        bottom_left: LayoutSize::new(50.0, 50.0),
-    }));
-}
+    #[test]
+    fn test_parse_css_color_1() {
+        assert_eq!(parse_css_color("#F0F8FF"), Ok(ColorU { r: 240, g: 248, b: 255, a: 255 }));
+    }
 
-#[test]
-fn test_parse_css_border_radius_3() {
-    assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(BorderRadius {
-        top_left: LayoutSize::new(15.0, 15.0),
-        bottom_right: LayoutSize::new(30.0, 30.0),
-        top_right: LayoutSize::new(50.0, 50.0),
-        bottom_left: LayoutSize::new(50.0, 50.0),
-    }));
-}
+    #[test]
+    fn test_parse_css_color_2() {
+        assert_eq!(parse_css_color("#F0F8FF00"), Ok(ColorU { r: 240, g: 248, b: 255, a: 0 }));
+    }
 
-#[test]
-fn test_parse_css_border_radius_4() {
-    assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(BorderRadius {
-        top_left: LayoutSize::new(15.0, 15.0),
-        bottom_right: LayoutSize::new(30.0, 30.0),
-        top_right: LayoutSize::new(50.0, 50.0),
-        bottom_left: LayoutSize::new(5.0, 5.0),
-    }));
-}
+    #[test]
+    fn test_parse_css_color_3() {
+        assert_eq!(parse_css_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
+    }
 
-#[test]
-fn test_parse_css_font_family_1() {
-    assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(FontFamily {
-        fonts: vec![
-            Font::ExternalFont("Webly Sleeky UI"),
-            Font::BuiltinFont("monospace"),
-        ]
-    }));
-}
+    #[test]
+    fn test_parse_pixel_value_1() {
+        assert_eq!(parse_pixel_value("15px"), Ok(PixelValue { metric: CssMetric::Px, number: 15.0 }));
+    }
 
-#[test]
-fn test_parse_css_font_family_2() {
-    assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(FontFamily {
-        fonts: vec![
-            Font::ExternalFont("Webly Sleeky UI"),
-        ]
-    }));
+    #[test]
+    fn test_parse_pixel_value_2() {
+        assert_eq!(parse_pixel_value("1.2em"), Ok(PixelValue { metric: CssMetric::Em, number: 1.2 }));
+    }
 
-}
-#[test]
-fn test_parse_background_image() {
-    assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(Background::Image(
-        CssImageId("Cat 01")
-    )));
+    #[test]
+    fn test_parse_pixel_value_3() {
+        assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::InvalidComponent("aslkfdjasdflk")));
+    }
+
+    #[test]
+    fn test_parse_css_border_radius_1() {
+        assert_eq!(parse_css_border_radius("15px"), Ok(BorderRadius::uniform(15.0)));
+    }
+
+    #[test]
+    fn test_parse_css_border_radius_2() {
+        assert_eq!(parse_css_border_radius("15px 50px"), Ok(BorderRadius {
+            top_left: LayoutSize::new(15.0, 15.0),
+            bottom_right: LayoutSize::new(15.0, 15.0),
+            top_right: LayoutSize::new(50.0, 50.0),
+            bottom_left: LayoutSize::new(50.0, 50.0),
+        }));
+    }
+
+    #[test]
+    fn test_parse_css_border_radius_3() {
+        assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(BorderRadius {
+            top_left: LayoutSize::new(15.0, 15.0),
+            bottom_right: LayoutSize::new(30.0, 30.0),
+            top_right: LayoutSize::new(50.0, 50.0),
+            bottom_left: LayoutSize::new(50.0, 50.0),
+        }));
+    }
+
+    #[test]
+    fn test_parse_css_border_radius_4() {
+        assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(BorderRadius {
+            top_left: LayoutSize::new(15.0, 15.0),
+            bottom_right: LayoutSize::new(30.0, 30.0),
+            top_right: LayoutSize::new(50.0, 50.0),
+            bottom_left: LayoutSize::new(5.0, 5.0),
+        }));
+    }
+
+    #[test]
+    fn test_parse_css_font_family_1() {
+        assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(FontFamily {
+            fonts: vec![
+                Font::ExternalFont("Webly Sleeky UI"),
+                Font::BuiltinFont("monospace"),
+            ]
+        }));
+    }
+
+    #[test]
+    fn test_parse_css_font_family_2() {
+        assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(FontFamily {
+            fonts: vec![
+                Font::ExternalFont("Webly Sleeky UI"),
+            ]
+        }));
+
+    }
+
+    #[test]
+    fn test_parse_background_image() {
+        assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(Background::Image(
+            CssImageId("Cat 01")
+        )));
+    }
 }

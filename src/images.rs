@@ -99,7 +99,7 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
     let image_dims = image_decoded.dimensions();
 
     // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
-    let (format, mut bytes) = match image_decoded {
+    let (format, bytes) = match image_decoded {
         image::ImageLuma8(_) => {
             (WebrenderImageFormat::R8, image_decoded.raw_pixels())
         },
@@ -114,6 +114,8 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
                     greyscale_alpha[1]
                 ]);
             }
+            // TODO: necessary for greyscale?
+            premultiply(pixels.as_mut_slice());
             (WebrenderImageFormat::BGRA8, pixels)
         },
         image::ImageRgba8(_) => {
@@ -135,10 +137,6 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
             (WebrenderImageFormat::BGRA8, pixels)
         }
     };
-
-    if format == WebrenderImageFormat::BGRA8 {
-        premultiply(bytes.as_mut_slice());
-    }
 
     let opaque = is_image_opaque(format, &bytes[..]);
     let allow_mipmaps = true;
@@ -166,6 +164,7 @@ pub(crate) fn is_image_opaque(format: WebrenderImageFormat, bytes: &[u8]) -> boo
 
 // From webrender/wrench
 // These are slow. Gecko's gfx/2d/Swizzle.cpp has better versions
+// This function also converts from RGBA8 to BRGA8
 pub(crate) fn premultiply(data: &mut [u8]) {
     for pixel in data.chunks_mut(4) {
         let a = u32::from(pixel[3]);
