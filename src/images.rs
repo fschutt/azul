@@ -93,24 +93,49 @@ pub fn get_image_type_from_extension(path: &Path) -> Option<ImageType> {
     }
 }
 
-pub(crate) fn prepare_image(mut image_decoded: DynamicImage) 
+pub(crate) fn prepare_image(image_decoded: DynamicImage) 
     -> Result<(ImageData, ImageDescriptor), ImageError> 
 {
     let image_dims = image_decoded.dimensions();
-    let format = match image_decoded {
-        image::ImageLuma8(_) => WebrenderImageFormat::R8,
+
+    // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
+    let (format, mut bytes) = match image_decoded {
+        image::ImageLuma8(_) => {
+            (WebrenderImageFormat::R8, image_decoded.raw_pixels())
+        },
         image::ImageLumaA8(_) => {
-            image_decoded = DynamicImage::ImageLuma8(image_decoded.to_luma());
-            WebrenderImageFormat::R8
+            let bytes = image_decoded.raw_pixels();
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for greyscale_alpha in bytes.chunks(2) {
+                pixels.extend_from_slice(&[
+                    greyscale_alpha[0],
+                    greyscale_alpha[0],
+                    greyscale_alpha[0],
+                    greyscale_alpha[1]
+                ]);
+            }
+            (WebrenderImageFormat::BGRA8, pixels)
         },
-        image::ImageRgba8(_) => WebrenderImageFormat::BGRA8,
-        image::ImageRgb8(_) => { 
-            image_decoded = DynamicImage::ImageRgba8(image_decoded.to_rgba());
-            WebrenderImageFormat::BGRA8 
+        image::ImageRgba8(_) => {
+            let mut pixels = image_decoded.raw_pixels();
+            premultiply(pixels.as_mut_slice());
+            (WebrenderImageFormat::BGRA8, pixels)
         },
+        image::ImageRgb8(_) => {
+            let bytes = image_decoded.raw_pixels();
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for bgr in bytes.chunks(3) {
+                pixels.extend_from_slice(&[
+                    bgr[2],
+                    bgr[1],
+                    bgr[0],
+                    0xff
+                ]);
+            }
+            (WebrenderImageFormat::BGRA8, pixels)
+        }
     };
 
-    let mut bytes = image_decoded.raw_pixels();
     if format == WebrenderImageFormat::BGRA8 {
         premultiply(bytes.as_mut_slice());
     }
