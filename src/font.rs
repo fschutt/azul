@@ -10,6 +10,7 @@ pub(crate) enum FontState {
     // Raw bytes for the font, to be uploaded in the next
     // draw call (for webrenders add_raw_font function)
     ReadyForUpload(Vec<u8>),
+    AboutToBeDeleted()
 }
 
 #[derive(Debug)]

@@ -66,7 +66,7 @@ impl<'a> DisplayRectangle<'a> {
     }
 }
 
-impl<'a, T: LayoutScreen> DisplayList<'a, T> {
+impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
     /// 
@@ -93,9 +93,14 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
 
     /// Looks if any new images need to be uploaded and stores the in the image resources
     fn update_resources(api: &RenderApi, app_resources: &mut AppResources) {
-        use images::{ImageState, ImageInfo};
-
         let mut resources = ResourceUpdates::new();
+        Self::update_image_resources(api, app_resources, &mut resources);
+        Self::update_font_resources(api, app_resources, &mut resources);
+        api.update_resources(resources);
+    }
+
+    fn update_image_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
+        use images::{ImageState, ImageInfo};
 
         let mut updated_images = Vec::<(String, (ImageData, ImageDescriptor))>::new();
         let mut to_delete_images = Vec::<(String, Option<ImageKey>)>::new();
@@ -116,7 +121,7 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         // Remove any images that should be deleted
         for (resource_key, image_key) in to_delete_images.into_iter() {
             if let Some(image_key) = image_key {
-                resources.delete_image(image_key);
+                resource_updates.delete_image(image_key);
             }
             app_resources.images.remove(&resource_key);
         }
@@ -125,16 +130,57 @@ impl<'a, T: LayoutScreen> DisplayList<'a, T> {
         // uploaded yet
         for (resource_key, (data, descriptor)) in updated_images.into_iter() {
             let key = api.generate_image_key();
-            resources.add_image(key, descriptor, data, None);
+            resource_updates.add_image(key, descriptor, data, None);
             *app_resources.images.get_mut(&resource_key).unwrap() = 
                 ImageState::Uploaded(ImageInfo { 
                     key: key, 
                     descriptor: descriptor 
             });
         }
+    }
 
+    fn update_font_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
 
-        api.update_resources(resources);
+        use font::FontState;
+
+        let mut updated_fonts = Vec::<(String, Vec<u8>)>::new();
+        let mut to_delete_fonts = Vec::<(String, (FontKey, Vec<FontInstanceKey>))>::new();
+/*
+        for (key, value) in app_resources.images.iter() {
+            match *value {
+                FontState::ReadyForUpload(ref d) => {
+                    updated_fonts.push((key.clone(), d.1.clone()));
+                },
+                FontState::Uploaded(_) => { },
+                FontState::AboutToBeDeleted(ref k) => {
+                    to_delete_fonts.push(( (key.clone(), k.values().cloned().collect())));
+                }
+            }
+        }
+*/
+        // Delete the complete font. Maybe a more granular option to 
+        // keep the font data in memory should be added later
+        for (resource_key, (font_key, font_instance_keys)) in to_delete_fonts.into_iter() {
+            for instance in font_instance_keys {
+                resource_updates.delete_font_instance(instance);
+            }
+            resource_updates.delete_font(font_key);
+            // app_resources.fonts.remove(&resource_key);
+            app_resources.font_data.remove(&resource_key);
+        }
+
+        /*
+            // Fonts are trickier to handle than images.
+            // First, we duplicate the font - webrender wants the raw font data,
+            // but we also need access to the font metrics. So we first parse the font
+            // to make sure that nothing is going wrong. In the next draw call, we 
+            // upload the font and replace the FontState with the newly created font key
+            pub(crate) font_data: FastHashMap<String, (Font<'a>, FontState)>,
+            // After we've looked up the FontKey in the font_data map, we can then access
+            // the font instance key (if there is any). If there is no font instance key,
+            // we first need to create one.
+            pub(crate) fonts: FastHashMap<FontKey, FastHashMap<FontSize, FontInstanceKey>>,
+        */
     }
 
     pub fn into_display_list_builder(
