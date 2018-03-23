@@ -1,5 +1,6 @@
 use webrender::api::*;
-use webrender::{Renderer, RendererOptions};
+use webrender::{Renderer, RendererOptions, RendererKind};
+// use webrender::renderer::RendererError;
 use glium::{IncompatibleOpenGl, Display};
 use glium::debug::DebugCallbackBehavior;
 use glium::glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
@@ -227,6 +228,8 @@ pub enum WindowCreateError {
     SwapBuffers(::glium::SwapBuffersError),
     /// IO error
     Io(::std::io::Error),
+    /// Webrender creation error (probably OpenGL missing?)
+    Renderer/*(RendererError)*/,
 }
 
 impl From<::glium::SwapBuffersError> for WindowCreateError {
@@ -473,6 +476,39 @@ impl<T: LayoutScreen> Window<T> {
         frame.clear_color_srgb(options.background.r, options.background.g, options.background.b, options.background.a);
         frame.finish()?;
 
+        let device_pixel_ratio = display.gl_window().hidpi_factor();
+
+        // this exists because RendererOptions isn't Clone-able
+        fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
+            RendererOptions {
+                resource_override_path: None,
+                // pre-caching shaders means to compile all shaders on startup
+                // this can take significant time and should be only used for testing the shaders
+                precache_shaders: false,
+                device_pixel_ratio: device_pixel_ratio,
+                enable_subpixel_aa: true,
+                enable_aa: true,
+                clear_color: clear_color,
+                enable_render_on_scroll: false,
+                renderer_kind: if native {
+                    RendererKind::Native
+                } else {
+                    RendererKind::OSMesa
+                },
+                .. RendererOptions::default()
+            }
+        }
+
+        let opts_native = get_renderer_opts(true, device_pixel_ratio, Some(options.background));
+        let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, Some(options.background));
+
+        let framebuffer_size = {
+            #[allow(deprecated)]
+            let (width, height) = display.gl_window().get_inner_size_pixels().unwrap();
+            DeviceUintSize::new(width, height)
+        };
+        let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
+
         let gl = match display.gl_window().get_api() {
             glutin::Api::OpenGl => unsafe {
                 gl::GlFns::load_with(|symbol|
@@ -485,30 +521,8 @@ impl<T: LayoutScreen> Window<T> {
             glutin::Api::WebGl => return Err(WindowCreateError::WebGlNotSupported),
         };
 
-        let device_pixel_ratio = display.gl_window().hidpi_factor();
-
-        let opts = RendererOptions {
-            resource_override_path: None,
-            // pre-caching shaders means to compile all shaders on startup
-            // this can take significant time and should be only used for testing the shaders
-            precache_shaders: false,
-            device_pixel_ratio,
-            enable_subpixel_aa: true,
-            enable_aa: true,
-            clear_color: Some(options.background),
-            enable_render_on_scroll: false,
-            // TODO: Fallback to OSMesa if needed!
-            // renderer_kind: RendererKind::Native,
-            .. RendererOptions::default()
-        };
-
-        let framebuffer_size = {
-            #[allow(deprecated)]
-            let (width, height) = display.gl_window().get_inner_size_pixels().unwrap();
-            DeviceUintSize::new(width, height)
-        };
-        let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-        let (renderer, sender) = Renderer::new(gl.clone(), notifier, opts).unwrap();
+        let (renderer, sender) = Renderer::new(gl.clone(), notifier.clone(), opts_native)
+            .or_else(|_| Renderer::new(gl, notifier, opts_osmesa)).unwrap();
 
         let api = sender.create_api();
         let document_id = api.add_document(framebuffer_size, 0);
