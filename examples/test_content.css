@@ -3,8 +3,7 @@
     color: #000000;
     border: 1px solid #b7b7b7;
     border-radius: 4px;
-    /*box-shadow: 0px 0px 3px #c5c5c5ad;*/
-    box-shadow: 0px 0px 3px red;
+    box-shadow: 10px 10px red;
     background: image("Cat01");
     /*background: linear-gradient(#fcfcfc, #efefef);*/
     width: 200px;

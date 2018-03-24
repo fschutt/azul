@@ -10,7 +10,10 @@ pub(crate) enum FontState {
     // Raw bytes for the font, to be uploaded in the next
     // draw call (for webrenders add_raw_font function)
     ReadyForUpload(Vec<u8>),
-    AboutToBeDeleted()
+    /// Font that is about to be deleted
+    /// We need both the ID (to delete the bytes of the font)
+    /// as well as the FontKey to delete all the font instances
+    AboutToBeDeleted(Option<FontKey>),
 }
 
 #[derive(Debug)]
@@ -37,8 +40,3 @@ pub(crate) fn rusttype_load_font<'a>(data: Vec<u8>) -> Result<Font<'a>, FontErro
     let font = collection.clone().into_font().unwrap_or(collection.font_at(0)?);
     Ok(font)
 }
-
-//     font key, font_instance_key, size in app_units::Au
-// 
-//     let instance_key = render_api.generate_font_instance_key();
-//     resources.add_font_instance(instance_key, font_key, size, None, None, Vec::new());
