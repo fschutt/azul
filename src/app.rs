@@ -243,7 +243,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
-        (*self.app_state.lock().unwrap()).remove_image(id)
+        (*self.app_state.lock().unwrap()).delete_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
@@ -269,10 +269,10 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// Removes a font from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_font<S: Into<String>>(&mut self, id: S) 
+    pub fn remove_font<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()>
     {
-        (*self.app_state.lock().unwrap()).remove_font(id)
+        (*self.app_state.lock().unwrap()).delete_font(id)
     }
 }
 

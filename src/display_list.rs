@@ -17,6 +17,8 @@ use FastHashMap;
 use cache::DomChangeSet;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
+const DEBUG_COLOR: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
+
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
     pub(crate) rectangles: BTreeMap<NodeId, DisplayRectangle<'a>>
@@ -92,11 +94,9 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     }
 
     /// Looks if any new images need to be uploaded and stores the in the image resources
-    fn update_resources(api: &RenderApi, app_resources: &mut AppResources) {
-        let mut resources = ResourceUpdates::new();
-        Self::update_image_resources(api, app_resources, &mut resources);
-        Self::update_font_resources(api, app_resources, &mut resources);
-        api.update_resources(resources);
+    fn update_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
+        Self::update_image_resources(api, app_resources, resource_updates);
+        Self::update_font_resources(api, app_resources, resource_updates);
     }
 
     fn update_image_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
@@ -139,48 +139,51 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         }
     }
 
+    // almost the same as update_image_resources, but fonts 
+    // have two HashMaps that need to be updated
     fn update_font_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
 
         use font::FontState;
 
         let mut updated_fonts = Vec::<(String, Vec<u8>)>::new();
-        let mut to_delete_fonts = Vec::<(String, (FontKey, Vec<FontInstanceKey>))>::new();
-/*
-        for (key, value) in app_resources.images.iter() {
-            match *value {
-                FontState::ReadyForUpload(ref d) => {
-                    updated_fonts.push((key.clone(), d.1.clone()));
+        let mut to_delete_fonts = Vec::<(String, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
+
+        for (key, value) in app_resources.font_data.iter() {
+            match value.1 {
+                FontState::ReadyForUpload(ref bytes) => {
+                    updated_fonts.push((key.clone(), bytes.clone()));
                 },
                 FontState::Uploaded(_) => { },
-                FontState::AboutToBeDeleted(ref k) => {
-                    to_delete_fonts.push(( (key.clone(), k.values().cloned().collect())));
+                FontState::AboutToBeDeleted(ref font_key) => {
+                    let to_delete_font_instances = font_key.and_then(|f_key| {
+                        let to_delete_font_instances = app_resources.fonts[&f_key].values().cloned().collect();
+                        Some((f_key.clone(), to_delete_font_instances))
+                    });
+                    to_delete_fonts.push((key.clone(), to_delete_font_instances));
                 }
             }
         }
-*/
+
         // Delete the complete font. Maybe a more granular option to 
         // keep the font data in memory should be added later
-        for (resource_key, (font_key, font_instance_keys)) in to_delete_fonts.into_iter() {
-            for instance in font_instance_keys {
-                resource_updates.delete_font_instance(instance);
+        for (resource_key, to_delete_instances) in to_delete_fonts.into_iter() {
+            if let Some((font_key, font_instance_keys)) = to_delete_instances {               
+                for instance in font_instance_keys {
+                    resource_updates.delete_font_instance(instance);
+                }
+                resource_updates.delete_font(font_key);
+                app_resources.fonts.remove(&font_key);
             }
-            resource_updates.delete_font(font_key);
-            // app_resources.fonts.remove(&resource_key);
             app_resources.font_data.remove(&resource_key);
         }
 
-        /*
-            // Fonts are trickier to handle than images.
-            // First, we duplicate the font - webrender wants the raw font data,
-            // but we also need access to the font metrics. So we first parse the font
-            // to make sure that nothing is going wrong. In the next draw call, we 
-            // upload the font and replace the FontState with the newly created font key
-            pub(crate) font_data: FastHashMap<String, (Font<'a>, FontState)>,
-            // After we've looked up the FontKey in the font_data map, we can then access
-            // the font instance key (if there is any). If there is no font instance key,
-            // we first need to create one.
-            pub(crate) fonts: FastHashMap<FontKey, FastHashMap<FontSize, FontInstanceKey>>,
-        */
+        // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
+        for (resource_key, data) in updated_fonts.into_iter() {
+            let key = api.generate_font_key();
+            println!("adding new font key");
+            resource_updates.add_raw_font(key, data, 0); // TODO: use the index better?
+            app_resources.font_data.get_mut(&resource_key).unwrap().1 = FontState::Uploaded(key);
+        }
     }
 
     pub fn into_display_list_builder(
@@ -239,9 +242,10 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         css.needs_relayout = false;
 
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, ui_solver.window_dimensions.layout_size, self.rectangles.len());
+        let mut resource_updates = ResourceUpdates::new();
         
         // Upload image and font resources
-        Self::update_resources(render_api, app_resources);
+        Self::update_resources(render_api, app_resources, &mut resource_updates);
 
         for (rect_idx, rect) in self.rectangles.iter() {
 
@@ -293,17 +297,12 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 Vec::new(),
             );
 
+            // Push clip
             if let Some(id) = clip_region_id {
                 builder.push_clip_id(id);
             }
 
-            builder.push_rect(&info, rect.style.background_color.unwrap_or(ColorU { r: 255, g: 0, b: 0, a: 255 }).into());
-
-            if clip_region_id.is_some() {
-                builder.pop_clip_id();
-            }
-
-            // red rectangle if we don't have a background color
+            // Push box shadow
             if let Some(ref pre_shadow) = rect.style.box_shadow {
                 // The pre_shadow is missing the BorderRadius & LayoutRect
                 // TODO: do we need to pop the shadows?
@@ -313,6 +312,10 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                                          border_radius, pre_shadow.clip_mode);
             }
 
+            // Push basic rect + background
+            builder.push_rect(&info, rect.style.background_color.unwrap_or(DEBUG_COLOR).into());
+
+            // Push background gradient / image
             if let Some(ref background) = rect.style.background {
                 match *background {
                     Background::RadialGradient(ref _gradient) => {
@@ -348,6 +351,29 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 }
             }
 
+            use font::FontState;
+            use euclid::TypedPoint2D;
+            const FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 255, a: 150 };
+
+            // Push font
+            if let Some(ref font_family) = rect.style.font_family {
+                let font_id = font_family.fonts.get(0).unwrap_or(&Font::BuiltinFont("sans-serif")).get_font_id();
+                let font_size = rect.style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+                let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX);
+                let font_result = push_font(font_id, font_size_app_units, &mut resource_updates, app_resources, render_api);
+                
+                if let Some(font_instance_key) = font_result {
+                    let font = &app_resources.font_data[font_id].0;
+                    let glyph = font.glyph('a'); // TODO: get label
+                    let glyphs = [GlyphInstance {
+                        index: glyph.id().0,
+                        point: TypedPoint2D::new(50.0, 50.0),
+                    }];
+                    builder.push_text(&info, &glyphs, font_instance_key, FONT_COLOR.into(), None);
+                }
+            }
+
+            // Push border
             if let Some((border_widths, mut border_details)) = rect.style.border {
                 if let Some(border_radius) = rect.style.border_radius {
                     if let BorderDetails::Normal(ref mut n) = border_details {
@@ -357,11 +383,65 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 builder.push_border(&info, border_widths, border_details);
             }
 
+            // Pop clip
+            if clip_region_id.is_some() {
+                builder.pop_clip_id();
+            }
+
             builder.pop_stacking_context();
         }
 
+        render_api.update_resources(resource_updates);
+
         Some(builder)
     }
+}
+
+use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
+
+fn push_font(
+    font_id: &str, 
+    font_size_app_units: Au, 
+    resource_updates: &mut ResourceUpdates, 
+    app_resources: &mut AppResources, 
+    render_api: &RenderApi) -> Option<FontInstanceKey> {
+
+    use font::FontState;
+
+    if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
+        println!("warning: too big or too small font size");
+        return None;
+    } 
+
+    if let Some(&(ref font, ref font_state)) = app_resources.font_data.get(font_id) {
+        match *font_state {
+            FontState::Uploaded(font_key) => {
+                let font_sizes_hashmap = app_resources.fonts.entry(font_key)
+                                         .or_insert(FastHashMap::default());
+                let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
+                    .or_insert_with(|| {
+                        let f_instance_key = render_api.generate_font_instance_key();
+                        resource_updates.add_font_instance(
+                            f_instance_key,
+                            font_key,
+                            font_size_app_units,
+                            None,
+                            None,
+                            Vec::new(),
+                        );
+                        f_instance_key
+                    }
+                );
+
+                return Some(*font_instance_key);
+            },
+            _ => {
+                println!("warning: trying to use font {:?} that isn't available", font_id);
+            },
+        }
+    }
+
+    return None;
 }
 
 macro_rules! parse {

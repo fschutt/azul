@@ -7,7 +7,14 @@ use webrender::api::{ColorU, BorderRadius, LayoutVector2D, LayoutPoint,
 use std::num::{ParseIntError, ParseFloatError};
 use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
-pub const EM_HEIGHT: f32 = 16.0;
+pub(crate) const EM_HEIGHT: f32 = 16.0;
+
+// In case no font size is specified for a node, this will be subsituted as the 
+// default font size
+pub(crate) const DEFAULT_FONT_SIZE: FontSize = FontSize(PixelValue {
+    metric: CssMetric::Px,
+    number: 10.0,
+});
 
 macro_rules! impl_from {
     ($a:ident, $b:ident, $enum_type:ident) => (
@@ -1288,13 +1295,25 @@ typed_pixel_value_parser!(parse_css_font_size, FontSize);
 #[derive(Debug, PartialEq, Clone)]
 pub struct FontFamily<'a> {
     // parsed fonts, in order, i.e. "Webly Sleeky UI", "monospace", etc.
-    fonts: Vec<Font<'a>>
+    pub(crate) fonts: Vec<Font<'a>>
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Hash)]
 pub enum Font<'a> {
     BuiltinFont(&'a str),
     ExternalFont(&'a str),
+}
+
+impl<'a> Font<'a> {
+    pub fn get_font_id(&self) -> &'a str {
+        use self::Font::*;
+        // TODO: Currently BuiltinFont("sans-serif") and 
+        // ExternalFont("sans-serif") are the same because of this function
+        match *self {
+            BuiltinFont(f) => f,
+            ExternalFont(f) => f,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]

@@ -8,6 +8,7 @@ use image::{self, ImageError, DynamicImage, GenericImage};
 use webrender::api::{ImageData, ImageDescriptor, ImageFormat};
 use std::collections::hash_map::Entry::*;
 use rusttype::Font;
+use app_units::Au;
 
 /// Font and image keys
 /// 
@@ -21,6 +22,7 @@ use rusttype::Font;
 /// (not yet tested, but should work).
 #[derive(Default, Clone)]
 pub(crate) struct AppResources<'a> {
+    /// Image cache
     pub(crate) images: FastHashMap<String, ImageState>,
     // Fonts are trickier to handle than images.
     // First, we duplicate the font - webrender wants the raw font data,
@@ -31,11 +33,8 @@ pub(crate) struct AppResources<'a> {
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
-    pub(crate) fonts: FastHashMap<FontKey, FastHashMap<FontSize, FontInstanceKey>>,
+    pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
 }
-
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub(crate) struct FontSize(pub(crate) usize);
 
 impl<'a> AppResources<'a> {
 
@@ -58,8 +57,8 @@ impl<'a> AppResources<'a> {
         }
     }
 
-    /// See `AppState::remove_image()`
-    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
+    /// See `AppState::delete_image()`
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
         match self.images.get_mut(id.as_ref()) {
@@ -102,10 +101,23 @@ impl<'a> AppResources<'a> {
         }
     }
 
-    /// See `AppState::remove_font()`
-    pub(crate) fn remove_font<S: Into<String>>(&mut self, id: S) 
+    /// See `AppState::delete_font()`
+    pub(crate) fn delete_font<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()>
     {
-        Some(())
+        // TODO: can fonts that haven't been uploaded yet be deleted?
+        match self.font_data.get_mut(id.as_ref()) {
+            None => None,
+            Some(v) => {
+                let to_delete_font_key = match v.1 {
+                    FontState::Uploaded(ref font_key) => {
+                        Some(font_key.clone())
+                    },
+                    _ => None,
+                };
+                v.1 = FontState::AboutToBeDeleted(to_delete_font_key);
+                Some(())
+            }
+        }
     }
 }

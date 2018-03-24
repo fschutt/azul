@@ -33,6 +33,7 @@ extern crate euclid;
 extern crate simplecss;
 extern crate image;
 extern crate rusttype;
+extern crate app_units;
 
 /// Global application (Initialization starts here)
 pub mod app;

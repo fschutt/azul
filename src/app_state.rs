@@ -41,10 +41,10 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
-        self.resources.remove_image(id)
+        self.resources.delete_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
@@ -70,9 +70,9 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     /// Removes a font from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_font<S: Into<String>>(&mut self, id: S) 
+    pub fn delete_font<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()>
     {
-        self.resources.remove_font(id)
+        self.resources.delete_font(id)
     }
 }

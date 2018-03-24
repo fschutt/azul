@@ -50,7 +50,7 @@ fn main() {
     app.remove_font("Webly Sleeky UI");
 */
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
-    // app.remove_image("MyImage");
+    // app.remove_image("Cat01");
 
     // TODO: Multi-window apps currently crash
     // Need to re-factor the event loop for that
