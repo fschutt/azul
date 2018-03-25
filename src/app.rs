@@ -48,7 +48,7 @@ impl Default for FrameEventInfo {
 
 impl<'a, T: LayoutScreen> App<'a, T> {
 
-    /// Create a new, empty application (note: doesn't create a window!)
+    /// Create a new, empty application. This does not open any windows.
     pub fn new(initial_data: T) -> Self {
         Self {
             windows: Vec::new(),
@@ -56,13 +56,17 @@ impl<'a, T: LayoutScreen> App<'a, T> {
         }
     }
 
-    /// Spawn a new window on the screen
+    /// Spawn a new window on the screen. If an application has no windows, 
+    /// the [`run`](#method.run) function will exit immediately.
     pub fn create_window(&mut self, options: WindowCreateOptions, css: Css) -> Result<(), WindowCreateError> {
         self.windows.push(Window::new(options, css)?);
         Ok(())
     }
 
     /// Start the rendering loop for the currently open windows
+    /// This is the "main app loop", "main game loop" or whatever you want to call it.
+    /// Usually this is the last function you call in your `main()` function, since exiting 
+    /// it means that the user has closed all windows and wants to close the app.
     pub fn run(&mut self)
     {
         let mut ui_state_cache = Vec::with_capacity(self.windows.len());
