@@ -19,3 +19,9 @@ app_units = "0.6"
 # The reason we do this is because doctests don't get cfg(test)
 # See: https://github.com/rust-lang/cargo/issues/4669
 doc-test = []
+
+# Some test have to be disabled for Travis, since Travis does not
+# use OpenGL 3.2, so the tests will fail
+#
+# To actually test the library, run cargo --test --features=doc-test
+no-opengl-tests = []
