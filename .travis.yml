@@ -1,16 +1,11 @@
 language: rust
 
-# Emulate an X11 virtual framebuffer, since Travis 
-# runs on a headless system
-# before_script:
-#   - "export DISPLAY=:99.0"
-#   - "sh -e /etc/init.d/xvfb start"
-#   - sleep 3 # give xvfb some time to start
-
+# We can't test OpenGL 3.2 on Travis, the shader compilation fails
+# because glium does a check first if it has a OGL 3.2 context
 script:
   - cargo build --all
   - cargo build --examples
-  - xvfb-run --server-args "-screen 0 1920x1080x24" cargo test --features "doc-test"
+  - RUST_BACKTRACE=1 cargo test --features "doc-test no-opengl-tests"
 
 sudo: false
 
@@ -29,14 +24,6 @@ matrix:
 # env:
 #   global:
 #   - RUSTFLAGS="-C link-dead-code"
-
-addons:
-    apt:
-      packages:
-        - xvfb
-    install:
-      - export DISPLAY=':99.0'
-      - Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 
 # addons:
 #   apt:

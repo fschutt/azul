@@ -289,14 +289,15 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// - `None` if the given ID doesn't exist. In that case, the function does
     ///    nothing.
     ///
-    /// Wrapper function for [`AppState::add_font`]. After this function has been
+    /// Wrapper function for [`AppState::delete_font`]. After this function has been
     /// called, you can be sure that the renderer doesn't know about your font anymore.
     /// This also means that the font needs to be re-parsed if you want to add it again.
     /// Use with care.
     ///
     /// ## Example
     /// 
-    /// ```
+    #[cfg_attr(feature = "no-opengl-tests", doc = " ```no_run")]
+    #[cfg_attr(not(feature = "no-opengl-tests"), doc = " ```")]
     /// # use azul::prelude::*;
     /// # const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
     /// # 
