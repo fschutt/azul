@@ -86,7 +86,7 @@ pub mod prelude {
     pub use window::{MonitorIter, Window, WindowCreateOptions,
                      WindowId, WindowPlacement};
     pub use window::{MouseMode, UpdateBehaviour, UpdateMode, WindowClass, 
-                     WindowCreateError, WindowDecorations, WindowMonitorTarget};
+                     WindowCreateError, WindowDecorations, WindowMonitorTarget, RendererType};
     pub use font::FontError;
     pub use images::ImageType;
     

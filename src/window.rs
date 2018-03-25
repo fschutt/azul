@@ -61,6 +61,8 @@ pub struct WindowCreateOptions {
     pub size: WindowPlacement,
     /// What type of window (full screen, popup, normal)
     pub class: WindowClass,
+    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer? 
+    pub renderer_type: RendererType,
 }
 
 impl Default for WindowCreateOptions {
@@ -77,7 +79,33 @@ impl Default for WindowCreateOptions {
             decorations: WindowDecorations::default(),
             size: WindowPlacement::default(),
             class: WindowClass::default(),
+            renderer_type: RendererType::default(),
         }
+    }
+}
+
+/// Force a specific renderer. 
+/// By default, azul will try to use the hardware renderer and fall 
+/// back to the software renderer if it can't create an OpenGL 3.2 context. 
+/// However, in some cases a hardware renderer might create problems
+/// or you want to force either a software or hardware renderer. 
+///
+/// If the field `renderer_type` on the `WindowCreateOptions` is not 
+/// `RendererType::Default`, the `create_window` method will try to create
+/// a window with the specific renderer type and **crash** if the renderer is
+/// not available for whatever reason.
+///
+/// If you don't know what any of this means, leave it at `Default`. 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RendererType {
+    Default,
+    Hardware,
+    Software,
+}
+
+impl Default for RendererType {
+    fn default() -> Self {
+        RendererType::Default
     }
 }
 
@@ -501,9 +529,6 @@ impl<T: LayoutScreen> Window<T> {
             }
         }
 
-        let opts_native = get_renderer_opts(true, device_pixel_ratio, Some(options.background));
-        let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, Some(options.background));
-
         let framebuffer_size = {
             #[allow(deprecated)]
             let (width, height) = display.gl_window().get_inner_size_pixels().unwrap();
@@ -523,8 +548,25 @@ impl<T: LayoutScreen> Window<T> {
             glutin::Api::WebGl => return Err(WindowCreateError::WebGlNotSupported),
         };
 
-        let (renderer, sender) = Renderer::new(gl.clone(), notifier.clone(), opts_native)
-            .or_else(|_| Renderer::new(gl, notifier, opts_osmesa)).unwrap();
+        let opts_native = get_renderer_opts(true, device_pixel_ratio, Some(options.background));
+        let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, Some(options.background));
+
+        use self::RendererType::*;
+        let (renderer, sender) = match options.renderer_type {
+            Hardware => {
+                // force hardware renderer
+                Renderer::new(gl, notifier, opts_native).unwrap()
+            },
+            Software => {
+                // force software renderer
+                Renderer::new(gl, notifier, opts_osmesa).unwrap()
+            },
+            Default => {
+                // try hardware first, fall back to software
+                Renderer::new(gl.clone(), notifier.clone(), opts_native).or_else(|_| 
+                Renderer::new(gl, notifier, opts_osmesa)).unwrap()
+            }
+        };
 
         let api = sender.create_api();
         let document_id = api.add_document(framebuffer_size, 0);
