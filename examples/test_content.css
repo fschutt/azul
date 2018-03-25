@@ -1,6 +1,6 @@
 .__azul-native-button {
     background-color: #fcfcfc;
-    color: #000000;
+    font-color: tomato;
     border: 1px solid #b7b7b7;
     border-radius: 4px;
     box-shadow: 0px 0px 3px #c5c5c5ad;
@@ -20,4 +20,5 @@
 * {
     font-size: 15px;
     font-family: "Webly Sleeky UI", sans-serif;
+    font-color: green;
 }

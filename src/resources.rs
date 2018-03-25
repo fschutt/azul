@@ -39,7 +39,7 @@ pub(crate) struct AppResources<'a> {
 impl<'a> AppResources<'a> {
 
     /// See `AppState::add_image()`
-    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType) 
+    pub(crate) fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType) 
         -> Result<Option<()>, ImageError>
     {
         use images; // the module, not the crate!
@@ -58,7 +58,7 @@ impl<'a> AppResources<'a> {
     }
 
     /// See `AppState::delete_image()`
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) 
+    pub(crate) fn delete_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
         match self.images.get_mut(id.as_ref()) {
@@ -77,14 +77,14 @@ impl<'a> AppResources<'a> {
     }
 
     /// See `AppState::has_image()`
-    pub fn has_image<S: Into<String>>(&mut self, id: S) 
+    pub(crate) fn has_image<S: AsRef<str>>(&mut self, id: S) 
         -> bool 
     {
-        false
+        self.images.get(id.as_ref()).is_some()
     }
 
     /// See `AppState::add_font()`
-    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
+    pub(crate) fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
         -> Result<Option<()>, FontError>
     {
         use font;
@@ -99,6 +99,13 @@ impl<'a> AppResources<'a> {
                 Ok(Some(()))
             },
         }
+    }
+
+    /// Checks if a font is currently registered and ready-to-use
+    pub(crate) fn has_font<S: AsRef<str>>(&mut self, id: S) 
+        -> bool 
+    {
+        self.font_data.get(id.as_ref()).is_some()
     }
 
     /// See `AppState::delete_font()`
