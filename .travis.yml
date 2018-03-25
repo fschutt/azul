@@ -1,8 +1,16 @@
 language: rust
+
+# Emulate an X11 virtual framebuffer, since Travis 
+# runs on a headless system
+# before_script:
+#   - "export DISPLAY=:99.0"
+#   - "sh -e /etc/init.d/xvfb start"
+#   - sleep 3 # give xvfb some time to start
+
 script:
   - cargo build --all
   - cargo build --examples
-  - cargo test --features "doc-test"
+  - xvfb-run --server-args "-screen 0 1920x1080x24" cargo test --features "doc-test"
 
 sudo: false
 
@@ -21,6 +29,14 @@ matrix:
 # env:
 #   global:
 #   - RUSTFLAGS="-C link-dead-code"
+
+addons:
+    apt:
+      packages:
+        - xvfb
+    install:
+      - export DISPLAY=':99.0'
+      - Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
 
 # addons:
 #   apt:

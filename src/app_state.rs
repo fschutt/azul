@@ -25,13 +25,28 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
         }
     }
 
-    /// Add an image to the internal resources
+    /// Add an image to the internal resources. 
     ///
+    /// ## Arguments
+    /// 
+    /// - `id`: A stringified ID (hash) for the image. It's recommended to use the 
+    ///         file path as the hash, maybe combined with a timestamp or a hash 
+    ///         of the file contents if the image will change. 
+    /// - `data`: The data of the image - can be a File, a network stream, etc. 
+    /// - `image_type`: If you know the type of image that you are adding, it is 
+    ///                 recommended to specify it. In case you don't know, use 
+    ///                 [`ImageType::GuessImageFormat`]
+    /// 
     /// ## Returns
     /// 
     /// - `Ok(Some(()))` if an image with the same ID already exists. 
     /// - `Ok(None)` if the image was added, but didn't exist previously.
     /// - `Err(e)` if the image couldn't be decoded 
+    /// 
+    /// **NOTE:** This function blocks the current thread. 
+    /// 
+    /// [`ImageType::GuessImageFormat`]: ../prelude/enum.ImageType.html#variant.GuessImageFormat
+    /// 
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType) 
         -> Result<Option<()>, ImageError>
     {
