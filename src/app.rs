@@ -326,12 +326,24 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     }
 
     /// Mock rendering function, for creating a hidden window and rendering one frame
-    /// Used in unit tests
+    /// Used in unit tests. You **have** to enable software rendering, otherwise, 
+    /// this function won't work in a headless environment.
+    ///
+    /// **NOTE**: In a headless environment, such as Travis, you have to use XVFB to 
+    /// create a fake X11 server. XVFB also has a bug where it loads with the default of 
+    /// 8-bit greyscale color (see [here]). In order to fix that, you have to run:
+    ///
+    /// `xvfb-run --server-args "-screen 0 1920x1080x24" cargo test --features "doc-test"`
+    ///
+    /// [here]: https://unix.stackexchange.com/questions/104914/
+    ///
     #[cfg(any(feature = "doc-test"))]
     pub fn mock_render_frame(&mut self) {
-        use window::WindowClass;
+        use prelude::*;
         let hidden_create_options = WindowCreateOptions { 
             class: WindowClass::Hidden,
+            /// force sofware renderer (OSMesa)
+            renderer_type: RendererType::Software,
             .. Default::default()
         };
         self.create_window(hidden_create_options, Css::native()).unwrap();
