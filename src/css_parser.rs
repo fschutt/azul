@@ -1265,7 +1265,9 @@ pub(crate) struct RectStyle<'a> {
     /// Font size
     pub(crate) font_size: Option<FontSize>,
     /// Font name / family
-    pub(crate) font_family: Option<FontFamily<'a>>
+    pub(crate) font_family: Option<FontFamily<'a>>,
+    /// Text color
+    pub(crate) font_color: Option<ColorU>,
 }
 
 // Layout constraints for a given rectangle, such as ""
