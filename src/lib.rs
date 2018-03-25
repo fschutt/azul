@@ -36,11 +36,11 @@ extern crate rusttype;
 extern crate app_units;
 
 /// Global application (Initialization starts here)
-pub mod app;
+mod app;
 /// Wrapper for the application data & application state
-pub mod app_state;
+mod app_state;
 /// Styling & CSS parsing
-pub mod css;
+mod css;
 /// DOM / HTML node handling
 pub mod dom;
 /// The layout traits for creating a layout-able application
@@ -75,11 +75,13 @@ mod font;
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 
+pub use app::App;
+pub use app_state::AppState;
+pub use css::{CssRule, Css};
+
 /// Quick exports of common types
 pub mod prelude {
-    pub use app::App;
-    pub use app_state::AppState;
-    pub use css::{CssRule, Css};
+    pub use {App, AppState, CssRule, Css};
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
     pub use traits::LayoutScreen;
     pub use webrender::api::{ColorF, ColorU};
