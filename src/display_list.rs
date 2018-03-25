@@ -18,7 +18,7 @@ use cache::DomChangeSet;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 const DEBUG_COLOR: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
-const DEFAULT_FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 255, a: 255 };
+const DEFAULT_FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -263,7 +263,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             // have two touching rectangles
             let mut bounds = if rect.style.background_color.is_some() { 
                 LayoutRect::new(
-                    LayoutPoint::new(50.0, 50.0),
+                    LayoutPoint::new(0.0, 0.0),
                     LayoutSize::new(200.0, 200.0),
                 ) 
             } else {
@@ -388,12 +388,8 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 builder.push_border(&info, border_widths, border_details);
             }
 
-            // Pop clip
-            if clip_region_id.is_some() {
-                builder.pop_clip_id();
-            }
-
             // Push font
+            // NOTE: If the text is outside the current bounds, webrender will not display the text, i.e. clip it
             if let Some(ref font_family) = rect.style.font_family {
                 let font_id = font_family.fonts.get(0).unwrap_or(&Font::BuiltinFont("sans-serif")).get_font_id();
                 let font_size = rect.style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
@@ -402,13 +398,19 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 
                 if let Some(font_instance_key) = font_result {
                     let font = &app_resources.font_data[font_id].0;
+                    let font_color = rect.style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
                     let glyph = font.glyph('a'); // TODO: get label
                     let glyphs = [GlyphInstance {
                         index: glyph.id().0,
                         point: TypedPoint2D::new(50.0, 50.0),
                     }];
-                    builder.push_text(&info, &glyphs, font_instance_key, DEFAULT_FONT_COLOR.into(), None);
+                    builder.push_text(&info, &glyphs, font_instance_key, font_color, None);
                 }
+            }
+
+            // Pop clip
+            if clip_region_id.is_some() {
+                builder.pop_clip_id();
             }
 
             builder.pop_stacking_context();

@@ -453,6 +453,7 @@ impl<T: LayoutScreen> Window<T> {
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
             .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
+            .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
             .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
 
         let hidpi_factor = gl_window.hidpi_factor();
