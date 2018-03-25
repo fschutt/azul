@@ -419,6 +419,7 @@ impl<T: LayoutScreen> Window<T> {
             .with_dimensions(options.size.width, options.size.height)
             .with_title(options.title.clone())
             .with_decorations(options.decorations != WindowDecorations::NoDecorations)
+            .with_visibility(options.class != WindowClass::Hidden)
             .with_maximized(options.class == WindowClass::Maximized);
 
         if options.class == WindowClass::FullScreen {

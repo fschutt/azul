@@ -63,7 +63,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     }
 
     /// Start the rendering loop for the currently open windows
-    pub fn start_render_loop(&mut self)
+    pub fn run(&mut self)
     {
         let mut ui_state_cache = Vec::with_capacity(self.windows.len());
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
@@ -240,20 +240,20 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_image<S: AsRef<str>>(&mut self, id: S) 
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()> 
     {
         (*self.app_state.lock().unwrap()).delete_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: Into<String>>(&mut self, id: S) 
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S) 
         -> bool 
     {
         (*self.app_state.lock().unwrap()).has_image(id)
     }
 
-    /// Add a font (TTF or OTF) to the internal resources
+    /// Add a font (TTF or OTF) as a resource, identified by ID
     ///
     /// ## Returns
     /// 
@@ -266,13 +266,87 @@ impl<'a, T: LayoutScreen> App<'a, T> {
         (*self.app_state.lock().unwrap()).add_font(id, data)
     }
 
-    /// Removes a font from the internal app resources.
-    /// Returns `Some` if the image existed and was removed.
-    /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn remove_font<S: AsRef<str>>(&mut self, id: S) 
+    /// Checks if a font is currently registered and ready-to-use
+    pub fn has_font<S: AsRef<str>>(&mut self, id: S) 
+        -> bool 
+    {
+        (*self.app_state.lock().unwrap()).has_font(id)
+    }
+
+    /// Deletes a font from the internal app resources. 
+    /// 
+    /// ## Arguments
+    /// 
+    /// - `id`: The stringified ID of the font to remove, e.g. `"Helvetica-Bold"`.
+    /// 
+    /// ## Returns
+    ///
+    /// - `Some(())` if if the image existed and was successfully removed
+    /// - `None` if the given ID doesn't exist. In that case, the function does
+    ///    nothing.
+    ///
+    /// Wrapper function for [`AppState::add_font`]. After this function has been
+    /// called, you can be sure that the renderer doesn't know about your font anymore.
+    /// This also means that the font needs to be re-parsed if you want to add it again.
+    /// Use with care.
+    ///
+    /// ## Example
+    /// 
+    /// ```
+    /// # use azul::prelude::*;
+    /// # const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
+    /// # 
+    /// # struct MyAppData { }
+    /// # 
+    /// # impl LayoutScreen for MyAppData { 
+    /// #     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
+    /// #         Dom::new(NodeType::Div)
+    /// #    }
+    /// # }
+    /// #
+    /// # fn main() {
+    /// let mut app = App::new(MyAppData { });
+    /// app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
+    /// app.delete_font("Webly Sleeky UI");
+    /// // NOTE: The font isn't immediately removed, only in the next draw call
+    /// app.mock_render_frame();
+    /// assert!(!app.has_font("Webly Sleeky UI"));
+    /// # }
+    /// ```
+    /// 
+    /// [`AppState::delete_font`]: ../app_state/struct.AppState.html#method.delete_font
+    pub fn delete_font<S: AsRef<str>>(&mut self, id: S) 
         -> Option<()>
     {
         (*self.app_state.lock().unwrap()).delete_font(id)
+    }
+
+    /// Mock rendering function, for creating a hidden window and rendering one frame
+    /// Used in unit tests
+    #[cfg(any(feature = "doc-test"))]
+    pub fn mock_render_frame(&mut self) {
+        use window::WindowClass;
+        let hidden_create_options = WindowCreateOptions { 
+            class: WindowClass::Hidden,
+            .. Default::default()
+        };
+        self.create_window(hidden_create_options, Css::native()).unwrap();
+        let mut ui_state_cache = Vec::with_capacity(self.windows.len());
+        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
+        let mut app_state = self.app_state.lock().unwrap();
+
+        for (idx, _) in self.windows.iter().enumerate() {
+            ui_state_cache.push(UiState::from_app_state(&*app_state, WindowId { id: idx }));
+        }
+
+        for (idx, window) in self.windows.iter_mut().enumerate() {
+            ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+            render(window, &WindowId { id: idx, }, 
+                  &ui_description_cache[idx], 
+                  &mut app_state.resources, 
+                  true);
+            window.display.swap_buffers().unwrap();
+        }
     }
 }
 

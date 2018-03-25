@@ -14,3 +14,8 @@ euclid = "0.17"
 image = "0.18.0"
 rusttype = "0.5.2"
 app_units = "0.6"
+
+[features]
+# The reason we do this is because doctests don't get cfg(test)
+# See: https://github.com/rust-lang/cargo/issues/4669
+doc-test = []
