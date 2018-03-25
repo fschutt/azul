@@ -18,6 +18,7 @@ use cache::DomChangeSet;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 const DEBUG_COLOR: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
+const DEFAULT_FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 255, a: 255 };
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -180,7 +181,6 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
         for (resource_key, data) in updated_fonts.into_iter() {
             let key = api.generate_font_key();
-            println!("adding new font key");
             resource_updates.add_raw_font(key, data, 0); // TODO: use the index better?
             app_resources.font_data.get_mut(&resource_key).unwrap().1 = FontState::Uploaded(key);
         }
@@ -243,11 +243,15 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, ui_solver.window_dimensions.layout_size, self.rectangles.len());
         let mut resource_updates = ResourceUpdates::new();
-        
+        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
+
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
         for (rect_idx, rect) in self.rectangles.iter() {
+
+            use font::FontState;
+            use euclid::{TypedSize2D, TypedPoint2D, TypedTransform3D, Angle};
 
             // ask the solver what the bounds of the current rectangle is
             // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
@@ -259,7 +263,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             // have two touching rectangles
             let mut bounds = if rect.style.background_color.is_some() { 
                 LayoutRect::new(
-                    LayoutPoint::new(0.0, 0.0),
+                    LayoutPoint::new(50.0, 50.0),
                     LayoutSize::new(200.0, 200.0),
                 ) 
             } else {
@@ -269,11 +273,46 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 )
             };
 
-            // bug - for some reason, the origin gets scaled by 2.0, 
-            // even if the HiDpi factor is set to 1.0
-            // this is a workaround, this seems to be a bug in webrender
-            bounds.origin.x /= 2.0;
-            bounds.origin.y /= 2.0;
+            let info = LayoutPrimitiveInfo {
+                rect: bounds,
+                clip_rect: bounds,
+                is_backface_visible: true,
+                tag: rect.tag.and_then(|tag| Some((tag, 0))),
+            };
+
+/*
+            builder.push_stacking_context(
+                &info,
+                ScrollPolicy::Scrollable,
+                None,
+                TransformStyle::Preserve3D,
+                Some(TypedTransform3D::create_skew(Angle{ radians: 20.0_f32.to_radians() }, Angle{ radians: 20.0_f32.to_radians() })), // TODO: expose 3D-transform in CSS
+                MixBlendMode::HardLight,               // TODO: expose blend-modes in CSS
+                vec![FilterOp::Blur(3.0)],             // TODO: expose filters (blur, hue, etc.) in CSS
+            );
+*/
+            builder.push_stacking_context(
+                &info,
+                ScrollPolicy::Scrollable,
+                None,
+                TransformStyle::Preserve3D,
+                None,
+                MixBlendMode::Normal,
+                Vec::new()
+            );
+
+            // Push box shadow, before the clip is active 
+            if let Some(ref pre_shadow) = rect.style.box_shadow {
+                // The pre_shadow is missing the BorderRadius & LayoutRect
+                let border_radius = rect.style.border_radius.unwrap_or(BorderRadius::zero());
+                // Currently the box shadow is blurred across the whole window
+                // This can be possibly optimized further
+                let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), full_screen_rect);
+                builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
+                                         pre_shadow.blur_radius, pre_shadow.spread_radius,
+                                         border_radius, pre_shadow.clip_mode);
+
+            }
 
             let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
                 let region = ComplexClipRegion {
@@ -284,42 +323,30 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 Some(builder.define_clip(bounds, vec![region], None))
             });
 
-            let mut info = LayoutPrimitiveInfo::new(bounds);
-            info.tag = rect.tag.and_then(|tag| Some((tag, 0)));
-            
-            builder.push_stacking_context(
-                &info,
-                ScrollPolicy::Scrollable,
-                None,
-                TransformStyle::Flat,
-                None,
-                MixBlendMode::Normal,
-                Vec::new(),
-            );
-
             // Push clip
             if let Some(id) = clip_region_id {
                 builder.push_clip_id(id);
             }
 
-            // Push box shadow
-            if let Some(ref pre_shadow) = rect.style.box_shadow {
-                // The pre_shadow is missing the BorderRadius & LayoutRect
-                // TODO: do we need to pop the shadows?
-                let border_radius = rect.style.border_radius.unwrap_or(BorderRadius::zero());
-                builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
-                                         pre_shadow.blur_radius, pre_shadow.spread_radius,
-                                         border_radius, pre_shadow.clip_mode);
+            // Push basic rect + optional background
+            match rect.style.background_color {
+                Some(background_color) => builder.push_rect(&info, background_color.into()),
+                None => builder.push_clear_rect(&info),
             }
-
-            // Push basic rect + background
-            builder.push_rect(&info, rect.style.background_color.unwrap_or(DEBUG_COLOR).into());
 
             // Push background gradient / image
             if let Some(ref background) = rect.style.background {
                 match *background {
-                    Background::RadialGradient(ref _gradient) => {
-
+                    Background::RadialGradient(ref gradient) => {
+                        let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
+                            GradientStop {
+                                offset: gradient_pre.offset.unwrap(),
+                                color: gradient_pre.color,
+                            }).collect();
+                        let center = bounds.bottom_left(); // TODO - expose in CSS
+                        let radius = TypedSize2D::new(40.0, 40.0); // TODO - expose in CSS
+                        let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
+                        builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
                     },
                     Background::LinearGradient(ref gradient) => {
                         let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
@@ -351,9 +378,20 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 }
             }
 
-            use font::FontState;
-            use euclid::TypedPoint2D;
-            const FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 255, a: 150 };
+            // Push border
+            if let Some((border_widths, mut border_details)) = rect.style.border {
+                if let Some(border_radius) = rect.style.border_radius {
+                    if let BorderDetails::Normal(ref mut n) = border_details {
+                        n.radius = border_radius;
+                    }
+                }
+                builder.push_border(&info, border_widths, border_details);
+            }
+
+            // Pop clip
+            if clip_region_id.is_some() {
+                builder.pop_clip_id();
+            }
 
             // Push font
             if let Some(ref font_family) = rect.style.font_family {
@@ -369,23 +407,8 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                         index: glyph.id().0,
                         point: TypedPoint2D::new(50.0, 50.0),
                     }];
-                    builder.push_text(&info, &glyphs, font_instance_key, FONT_COLOR.into(), None);
+                    builder.push_text(&info, &glyphs, font_instance_key, DEFAULT_FONT_COLOR.into(), None);
                 }
-            }
-
-            // Push border
-            if let Some((border_widths, mut border_details)) = rect.style.border {
-                if let Some(border_radius) = rect.style.border_radius {
-                    if let BorderDetails::Normal(ref mut n) = border_details {
-                        n.radius = border_radius;
-                    }
-                }
-                builder.push_border(&info, border_widths, border_details);
-            }
-
-            // Pop clip
-            if clip_region_id.is_some() {
-                builder.pop_clip_id();
             }
 
             builder.pop_stacking_context();
@@ -461,6 +484,7 @@ fn parse_css_style_properties(rect: &mut DisplayRectangle)
 
     rect.style.border_radius    = parse!(constraint_list, "border-radius", parse_css_border_radius);
     rect.style.background_color = parse!(constraint_list, "background-color", parse_css_color);
+    rect.style.font_color       = parse!(constraint_list, "color", parse_css_color);
     rect.style.border           = parse!(constraint_list, "border", parse_css_border);
     rect.style.background       = parse!(constraint_list, "background", parse_css_background);
     rect.style.font_size        = parse!(constraint_list, "font-size", parse_css_font_size);
@@ -469,6 +493,11 @@ fn parse_css_style_properties(rect: &mut DisplayRectangle)
     let box_shadow_opt          = parse!(constraint_list, "box-shadow", parse_css_box_shadow);
     if let Some(box_shadow_opt) = box_shadow_opt{
         rect.style.box_shadow = box_shadow_opt;
+    }
+    if rect.style.font_color.is_none() {
+        // Be lenient - the correct CSS is to use "color", but it has tripped me 
+        // up so often not to be able to use "font-color". 
+        rect.style.font_color       = parse!(constraint_list, "font-color", parse_css_color);
     }
 }
 
