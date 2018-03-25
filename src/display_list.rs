@@ -250,9 +250,6 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
         for (rect_idx, rect) in self.rectangles.iter() {
 
-            use font::FontState;
-            use euclid::{TypedSize2D, TypedPoint2D, TypedTransform3D, Angle};
-
             // ask the solver what the bounds of the current rectangle is
             // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
 
@@ -280,17 +277,9 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 tag: rect.tag.and_then(|tag| Some((tag, 0))),
             };
 
-/*
-            builder.push_stacking_context(
-                &info,
-                ScrollPolicy::Scrollable,
-                None,
-                TransformStyle::Preserve3D,
-                Some(TypedTransform3D::create_skew(Angle{ radians: 20.0_f32.to_radians() }, Angle{ radians: 20.0_f32.to_radians() })), // TODO: expose 3D-transform in CSS
-                MixBlendMode::HardLight,               // TODO: expose blend-modes in CSS
-                vec![FilterOp::Blur(3.0)],             // TODO: expose filters (blur, hue, etc.) in CSS
-            );
-*/
+            // TODO: expose 3D-transform in CSS
+            // TODO: expose blend-modes in CSS
+            // TODO: expose filters (blur, hue, etc.) in CSS
             builder.push_stacking_context(
                 &info,
                 ScrollPolicy::Scrollable,
@@ -302,17 +291,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             );
 
             // Push box shadow, before the clip is active 
-            if let Some(ref pre_shadow) = rect.style.box_shadow {
-                // The pre_shadow is missing the BorderRadius & LayoutRect
-                let border_radius = rect.style.border_radius.unwrap_or(BorderRadius::zero());
-                // Currently the box shadow is blurred across the whole window
-                // This can be possibly optimized further
-                let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), full_screen_rect);
-                builder.push_box_shadow(&info, bounds, pre_shadow.offset, pre_shadow.color,
-                                         pre_shadow.blur_radius, pre_shadow.spread_radius,
-                                         border_radius, pre_shadow.clip_mode);
-
-            }
+            push_box_shadow(&mut builder, &rect.style, &bounds, &full_screen_rect);
 
             let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
                 let region = ComplexClipRegion {
@@ -328,85 +307,10 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 builder.push_clip_id(id);
             }
 
-            // Push basic rect + optional background
-            match rect.style.background_color {
-                Some(background_color) => builder.push_rect(&info, background_color.into()),
-                None => builder.push_clear_rect(&info),
-            }
-
-            // Push background gradient / image
-            if let Some(ref background) = rect.style.background {
-                match *background {
-                    Background::RadialGradient(ref gradient) => {
-                        let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
-                            GradientStop {
-                                offset: gradient_pre.offset.unwrap(),
-                                color: gradient_pre.color,
-                            }).collect();
-                        let center = bounds.bottom_left(); // TODO - expose in CSS
-                        let radius = TypedSize2D::new(40.0, 40.0); // TODO - expose in CSS
-                        let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
-                        builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
-                    },
-                    Background::LinearGradient(ref gradient) => {
-                        let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
-                            GradientStop {
-                                offset: gradient_pre.offset.unwrap(),
-                                color: gradient_pre.color,
-                            }).collect();
-                        let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
-                        let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
-                        builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
-                    },
-                    Background::Image(image_id) => {
-                        if let Some(image_info) = app_resources.images.get(image_id.0) {
-                            use images::ImageState::*;
-                            match *image_info {
-                                Uploaded(ref image_info) => {
-                                    builder.push_image(
-                                            &info,
-                                            bounds.size,
-                                            LayoutSize::zero(),
-                                            ImageRendering::Auto,
-                                            AlphaType::Alpha,
-                                            image_info.key);
-                                },
-                                _ => { },
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Push border
-            if let Some((border_widths, mut border_details)) = rect.style.border {
-                if let Some(border_radius) = rect.style.border_radius {
-                    if let BorderDetails::Normal(ref mut n) = border_details {
-                        n.radius = border_radius;
-                    }
-                }
-                builder.push_border(&info, border_widths, border_details);
-            }
-
-            // Push font
-            // NOTE: If the text is outside the current bounds, webrender will not display the text, i.e. clip it
-            if let Some(ref font_family) = rect.style.font_family {
-                let font_id = font_family.fonts.get(0).unwrap_or(&Font::BuiltinFont("sans-serif")).get_font_id();
-                let font_size = rect.style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
-                let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX);
-                let font_result = push_font(font_id, font_size_app_units, &mut resource_updates, app_resources, render_api);
-                
-                if let Some(font_instance_key) = font_result {
-                    let font = &app_resources.font_data[font_id].0;
-                    let font_color = rect.style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
-                    let glyph = font.glyph('a'); // TODO: get label
-                    let glyphs = [GlyphInstance {
-                        index: glyph.id().0,
-                        point: TypedPoint2D::new(50.0, 50.0),
-                    }];
-                    builder.push_text(&info, &glyphs, font_instance_key, font_color, None);
-                }
-            }
+            push_rect(&info, &mut builder, &rect.style);
+            push_background(&info, &bounds, &mut builder, &rect.style, &app_resources);
+            push_border(&info, &mut builder, &rect.style);
+            push_text(&info, &self, *rect_idx, &mut builder, &rect.style, app_resources, &render_api, &bounds, &mut resource_updates);
 
             // Pop clip
             if clip_region_id.is_some() {
@@ -423,14 +327,202 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 }
 
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
+use euclid::{TypedRect, TypedSize2D};
 
+#[inline]
+fn push_rect(info: &PrimitiveInfo<LayerPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
+    match style.background_color {
+        Some(background_color) => builder.push_rect(&info, background_color.into()),
+        None => builder.push_clear_rect(&info),
+    }
+}
+
+#[inline]
+fn push_text<T: LayoutScreen>(
+    info: &PrimitiveInfo<LayerPixel>, 
+    display_list: &DisplayList<T>, 
+    rect_idx: NodeId, 
+    builder: &mut DisplayListBuilder, 
+    style: &RectStyle,
+    app_resources: &mut AppResources,
+    render_api: &RenderApi,
+    bounds: &TypedRect<f32, LayerPixel>, 
+    resource_updates: &mut ResourceUpdates) 
+{
+    use dom::NodeType::*;
+    use euclid::{TypedPoint2D};
+
+    // NOTE: If the text is outside the current bounds, webrender will not display the text, i.e. clip it
+    let arena = display_list.ui_descr.ui_descr_arena.borrow();
+    
+    let text = match arena[rect_idx].data.node_type {
+        Div => return, 
+        Label { ref text } => {
+            text
+        }, 
+        _ => {
+            /// The display list should only ever handle divs and labels.
+            /// Everything more complex should be handled b
+            println!("got a NodeType in a DisplayList that wasn't a div or a label, this is a bug");
+            // unreachable!();
+            return;
+        }
+    };
+
+    if text.is_empty() {
+        return;
+    }
+
+    let font_family = match style.font_family { 
+        Some(ref ff) => ff,
+        None => return,
+    };
+
+    let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let font_size_pixels = font_size.0.to_pixels();
+    let font_size_app_units = Au((font_size_pixels as i32) * AU_PER_PX);
+    let font_id = font_family.fonts.get(0).unwrap_or(&Font::BuiltinFont("sans-serif")).get_font_id();
+    let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
+    let font_instance_key = match font_result {
+        Some(f) => f,
+        None => return,
+    };
+
+    let font = &app_resources.font_data[font_id].0;
+    let positioned_glyphs = put_text_in_bounds(text, font, font_size_pixels, bounds);
+
+    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
+    builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, None);
+}
+
+#[inline]
+fn put_text_in_bounds<'a>(text: &str, font: &::rusttype::Font<'a>, font_size_pixels: f32, bounds: &TypedRect<f32, LayerPixel>) -> Vec<GlyphInstance> {
+    use euclid::TypedPoint2D;
+    use rusttype::Scale;
+
+    let mut line_y = bounds.origin.y;
+    let mut line_x = bounds.origin.x;
+
+    text.chars().map(|ch| {
+        let glyph = font.glyph(ch);
+        let idx = glyph.id().0;
+        let scaled_glyph = glyph.scaled(Scale::uniform(font_size_pixels));
+        let h_metrics = scaled_glyph.h_metrics();
+
+        if line_x > (bounds.origin.x + bounds.size.width) {
+            line_y += font_size_pixels;
+            line_x = bounds.origin.x;
+        }
+        println!("pushing glyph {} at: {:?} x {:?} y", ch, line_x, line_y);
+        let glyph_instance = GlyphInstance {
+            index: idx,
+            point: TypedPoint2D::new(line_x, line_y),
+        };
+        line_x += h_metrics.advance_width;
+        glyph_instance
+    }).collect()
+}
+
+#[inline]
+fn push_box_shadow(
+    builder: &mut DisplayListBuilder, 
+    style: &RectStyle, 
+    bounds: &TypedRect<f32, LayerPixel>, 
+    full_screen_rect: &TypedRect<f32, LayerPixel>) 
+{
+    let pre_shadow = match style.box_shadow {
+        Some(ref ps) => ps,
+        None => return,
+    };
+
+    // The pre_shadow is missing the BorderRadius & LayoutRect
+    let border_radius = style.border_radius.unwrap_or(BorderRadius::zero());
+
+    // Currently the box shadow is blurred across the whole window
+    // This can be possibly optimized further
+    let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), *full_screen_rect);
+    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, pre_shadow.color,
+                             pre_shadow.blur_radius, pre_shadow.spread_radius,
+                             border_radius, pre_shadow.clip_mode);
+
+}
+
+#[inline]
+fn push_background(
+    info: &PrimitiveInfo<LayerPixel>, 
+    bounds: &TypedRect<f32, LayerPixel>, 
+    builder: &mut DisplayListBuilder, 
+    style: &RectStyle,
+    app_resources: &AppResources) 
+{
+    let background = match style.background {
+        Some(ref bg) => bg,
+        None => return,
+    };
+
+    match *background {
+        Background::RadialGradient(ref gradient) => {
+            let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
+                GradientStop {
+                    offset: gradient_pre.offset.unwrap(),
+                    color: gradient_pre.color,
+                }).collect();
+            let center = bounds.bottom_left(); // TODO - expose in CSS
+            let radius = TypedSize2D::new(40.0, 40.0); // TODO - expose in CSS
+            let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
+            builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
+        },
+        Background::LinearGradient(ref gradient) => {
+            let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
+                GradientStop {
+                    offset: gradient_pre.offset.unwrap(),
+                    color: gradient_pre.color,
+                }).collect();
+            let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
+            let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
+            builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
+        },
+        Background::Image(image_id) => {
+            if let Some(image_info) = app_resources.images.get(image_id.0) {
+                use images::ImageState::*;
+                match *image_info {
+                    Uploaded(ref image_info) => {
+                        builder.push_image(
+                                &info,
+                                bounds.size,
+                                LayoutSize::zero(),
+                                ImageRendering::Auto,
+                                AlphaType::Alpha,
+                                image_info.key);
+                    },
+                    _ => { },
+                }
+            }
+        }
+    }
+}
+
+#[inline]
+fn push_border(info: &PrimitiveInfo<LayerPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
+    if let Some((border_widths, mut border_details)) = style.border {
+        if let Some(border_radius) = style.border_radius {
+            if let BorderDetails::Normal(ref mut n) = border_details {
+                n.radius = border_radius;
+            }
+        }
+        builder.push_border(info, border_widths, border_details);
+    }
+}
+
+#[inline]
 fn push_font(
     font_id: &str, 
     font_size_app_units: Au, 
     resource_updates: &mut ResourceUpdates, 
     app_resources: &mut AppResources, 
-    render_api: &RenderApi) -> Option<FontInstanceKey> {
-
+    render_api: &RenderApi) 
+-> Option<FontInstanceKey> 
+{
     use font::FontState;
 
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
@@ -469,55 +561,68 @@ fn push_font(
     return None;
 }
 
-macro_rules! parse {
-    ($constraint_list:ident, $key:expr, $func:tt) => (
-        $constraint_list.get($key).and_then(|w| $func(w).map_err(|e| { 
-            #[cfg(debug_assertions)]
-            println!("ERROR - invalid {:?}: {:?}", e, $key);
-            e 
-        }).ok())
-    )
+use ui_description::CssConstraintList;
+use std::fmt::Debug;
+
+/// Internal helper function - gets a key from the constraint list and passes it through
+/// the parse_func - if an error occurs, then the error gets printed
+fn parse<'a, T, E: Debug>(
+    constraint_list: &'a CssConstraintList, 
+    key: &'static str, 
+    parse_func: fn(&'a str) -> Result<T, E>) 
+-> Option<T> 
+{
+    #[inline(always)]
+    fn print_error_debug<E: Debug>(err: &E, key: &'static str) {
+        eprintln!("ERROR - invalid {:?}: {:?}", err, key);
+    }
+
+    constraint_list.list.get(key).and_then(|w| parse_func(w).map_err(|e| { 
+        #[cfg(debug_assertions)]
+        print_error_debug(&e, key);
+        e 
+    }).ok())
 }
 
 /// Populate and parse the CSS style properties
 fn parse_css_style_properties(rect: &mut DisplayRectangle)
 {
-    let constraint_list = &rect.styled_node.css_constraints.list;
+    let constraint_list = &rect.styled_node.css_constraints;
 
-    rect.style.border_radius    = parse!(constraint_list, "border-radius", parse_css_border_radius);
-    rect.style.background_color = parse!(constraint_list, "background-color", parse_css_color);
-    rect.style.font_color       = parse!(constraint_list, "color", parse_css_color);
-    rect.style.border           = parse!(constraint_list, "border", parse_css_border);
-    rect.style.background       = parse!(constraint_list, "background", parse_css_background);
-    rect.style.font_size        = parse!(constraint_list, "font-size", parse_css_font_size);
-    rect.style.font_family      = parse!(constraint_list, "font-family", parse_css_font_family);
+    rect.style.border_radius    = parse(constraint_list, "border-radius", parse_css_border_radius);
+    rect.style.background_color = parse(constraint_list, "background-color", parse_css_color);
+    rect.style.font_color       = parse(constraint_list, "color", parse_css_color);
+    rect.style.border           = parse(constraint_list, "border", parse_css_border);
+    rect.style.background       = parse(constraint_list, "background", parse_css_background);
+    rect.style.font_size        = parse(constraint_list, "font-size", parse_css_font_size);
+    rect.style.font_family      = parse(constraint_list, "font-family", parse_css_font_family);
 
-    let box_shadow_opt          = parse!(constraint_list, "box-shadow", parse_css_box_shadow);
+    let box_shadow_opt          = parse(constraint_list, "box-shadow", parse_css_box_shadow);
     if let Some(box_shadow_opt) = box_shadow_opt{
         rect.style.box_shadow = box_shadow_opt;
     }
     if rect.style.font_color.is_none() {
         // Be lenient - the correct CSS is to use "color", but it has tripped me 
         // up so often not to be able to use "font-color". 
-        rect.style.font_color       = parse!(constraint_list, "font-color", parse_css_color);
+        rect.style.font_color       = parse(constraint_list, "font-color", parse_css_color);
     }
 }
 
 /// Populate and parse the CSS layout properties
 fn parse_css_layout_properties(rect: &mut DisplayRectangle) {
 
-    let constraint_list = &rect.styled_node.css_constraints.list;
+    let constraint_list = &rect.styled_node.css_constraints;
     
-    rect.layout.width       = parse!(constraint_list, "width", parse_layout_width);
-    rect.layout.height      = parse!(constraint_list, "height", parse_layout_height);
-    rect.layout.min_width   = parse!(constraint_list, "min-width", parse_layout_min_width);
-    rect.layout.min_height  = parse!(constraint_list, "min-height", parse_layout_min_height);
+    rect.layout.width       = parse(constraint_list, "width", parse_layout_width);
+    rect.layout.height      = parse(constraint_list, "height", parse_layout_height);
+    rect.layout.min_width   = parse(constraint_list, "min-width", parse_layout_min_width);
+    rect.layout.min_height  = parse(constraint_list, "min-height", parse_layout_min_height);
     
-    rect.layout.wrap            = parse!(constraint_list, "flex-wrap", parse_layout_wrap);
-    rect.layout.direction       = parse!(constraint_list, "flex-direction", parse_layout_direction);
-    rect.layout.justify_content = parse!(constraint_list, "justify-content", parse_layout_justify_content);
-    rect.layout.align_items     = parse!(constraint_list, "align-items", parse_layout_align_items);
-    rect.layout.align_content   = parse!(constraint_list, "align-content", parse_layout_align_content);
+    rect.layout.wrap            = parse(constraint_list, "flex-wrap", parse_layout_wrap);
+    rect.layout.direction       = parse(constraint_list, "flex-direction", parse_layout_direction);
+    rect.layout.justify_content = parse(constraint_list, "justify-content", parse_layout_justify_content);
+    rect.layout.align_items     = parse(constraint_list, "align-items", parse_layout_align_items);
+    rect.layout.align_content   = parse(constraint_list, "align-content", parse_layout_align_content);
 }
 
 // Adds and removes layout constraints if necessary
