@@ -95,12 +95,20 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     }
 
     /// Looks if any new images need to be uploaded and stores the in the image resources
-    fn update_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
+    fn update_resources(
+        api: &RenderApi, 
+        app_resources: &mut AppResources, 
+        resource_updates: &mut ResourceUpdates) 
+    {
         Self::update_image_resources(api, app_resources, resource_updates);
         Self::update_font_resources(api, app_resources, resource_updates);
     }
 
-    fn update_image_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
+    fn update_image_resources(
+        api: &RenderApi, 
+        app_resources: &mut AppResources, 
+        resource_updates: &mut ResourceUpdates) 
+    {
         use images::{ImageState, ImageInfo};
 
         let mut updated_images = Vec::<(String, (ImageData, ImageDescriptor))>::new();
@@ -142,8 +150,11 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
     // almost the same as update_image_resources, but fonts 
     // have two HashMaps that need to be updated
-    fn update_font_resources(api: &RenderApi, app_resources: &mut AppResources, resource_updates: &mut ResourceUpdates) {
-
+    fn update_font_resources(
+        api: &RenderApi, 
+        app_resources: &mut AppResources, 
+        resource_updates: &mut ResourceUpdates) 
+    {
         use font::FontState;
 
         let mut updated_fonts = Vec::<(String, Vec<u8>)>::new();
@@ -241,7 +252,8 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
         css.needs_relayout = false;
 
-        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, ui_solver.window_dimensions.layout_size, self.rectangles.len());
+        let layout_size = ui_solver.window_dimensions.layout_size;
+        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, layout_size, self.rectangles.len());
         let mut resource_updates = ResourceUpdates::new();
         let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 
@@ -291,7 +303,11 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             );
 
             // Push box shadow, before the clip is active 
-            push_box_shadow(&mut builder, &rect.style, &bounds, &full_screen_rect);
+            push_box_shadow(
+                &mut builder, 
+                &rect.style, 
+                &bounds, 
+                &full_screen_rect);
 
             let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
                 let region = ComplexClipRegion {
@@ -307,10 +323,33 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 builder.push_clip_id(id);
             }
 
-            push_rect(&info, &mut builder, &rect.style);
-            push_background(&info, &bounds, &mut builder, &rect.style, &app_resources);
-            push_border(&info, &mut builder, &rect.style);
-            push_text(&info, &self, *rect_idx, &mut builder, &rect.style, app_resources, &render_api, &bounds, &mut resource_updates);
+            push_rect(
+                &info, 
+                &mut builder, 
+                &rect.style);
+
+            push_background(
+                &info, 
+                &bounds, 
+                &mut builder, 
+                &rect.style, 
+                &app_resources);
+
+            push_border(
+                &info, 
+                &mut builder, 
+                &rect.style);
+            
+            push_text(
+                &info, 
+                &self, 
+                *rect_idx, 
+                &mut builder, 
+                &rect.style, 
+                app_resources, 
+                &render_api, 
+                &bounds, 
+                &mut resource_updates);
 
             // Pop clip
             if clip_region_id.is_some() {
@@ -362,7 +401,7 @@ fn push_text<T: LayoutScreen>(
         }, 
         _ => {
             /// The display list should only ever handle divs and labels.
-            /// Everything more complex should be handled b
+            /// Everything more complex should be handled by a pre-processing step
             println!("got a NodeType in a DisplayList that wasn't a div or a label, this is a bug");
             // unreachable!();
             return;
@@ -383,6 +422,7 @@ fn push_text<T: LayoutScreen>(
     let font_size_app_units = Au((font_size_pixels as i32) * AU_PER_PX);
     let font_id = font_family.fonts.get(0).unwrap_or(&Font::BuiltinFont("sans-serif")).get_font_id();
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
+    
     let font_instance_key = match font_result {
         Some(f) => f,
         None => return,
@@ -396,13 +436,25 @@ fn push_text<T: LayoutScreen>(
 }
 
 #[inline]
-fn put_text_in_bounds<'a>(text: &str, font: &::rusttype::Font<'a>, font_size_pixels: f32, bounds: &TypedRect<f32, LayerPixel>) -> Vec<GlyphInstance> {
+fn put_text_in_bounds<'a>(
+    text: &str, 
+    font: &::rusttype::Font<'a>, 
+    font_size_pixels: f32, 
+    bounds: &TypedRect<f32, LayerPixel>) 
+-> Vec<GlyphInstance> 
+{
     use euclid::TypedPoint2D;
     use rusttype::Scale;
 
-    let mut line_y = bounds.origin.y;
     let mut line_x = bounds.origin.x;
-
+    let mut line_y = bounds.origin.y + font_size_pixels;
+    let v_metrics = font.v_metrics(Scale::uniform(font_size_pixels));
+    let units_per_em = font.units_per_em();
+/*
+    println!("unscaled: {:?}", font.v_metrics_unscaled());
+    println!("got font size of: {:?}", font_size_pixels);
+    println!("units_per_em: {:?}", units_per_em);
+*/
     text.chars().map(|ch| {
         let glyph = font.glyph(ch);
         let idx = glyph.id().0;
@@ -412,13 +464,14 @@ fn put_text_in_bounds<'a>(text: &str, font: &::rusttype::Font<'a>, font_size_pix
         if line_x > (bounds.origin.x + bounds.size.width) {
             line_y += font_size_pixels;
             line_x = bounds.origin.x;
+        } else {
+            line_x += h_metrics.advance_width;
         }
         println!("pushing glyph {} at: {:?} x {:?} y", ch, line_x, line_y);
         let glyph_instance = GlyphInstance {
             index: idx,
             point: TypedPoint2D::new(line_x, line_y),
         };
-        line_x += h_metrics.advance_width;
         glyph_instance
     }).collect()
 }
@@ -503,7 +556,11 @@ fn push_background(
 }
 
 #[inline]
-fn push_border(info: &PrimitiveInfo<LayerPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
+fn push_border(
+    info: &PrimitiveInfo<LayerPixel>, 
+    builder: &mut DisplayListBuilder, 
+    style: &RectStyle) 
+{
     if let Some((border_widths, mut border_details)) = style.border {
         if let Some(border_radius) = style.border_radius {
             if let BorderDetails::Normal(ref mut n) = border_details {
@@ -596,21 +653,19 @@ fn parse_css_style_properties(rect: &mut DisplayRectangle)
     rect.style.background       = parse(constraint_list, "background", parse_css_background);
     rect.style.font_size        = parse(constraint_list, "font-size", parse_css_font_size);
     rect.style.font_family      = parse(constraint_list, "font-family", parse_css_font_family);
-
-    let box_shadow_opt          = parse(constraint_list, "box-shadow", parse_css_box_shadow);
-    if let Some(box_shadow_opt) = box_shadow_opt{
+    if let Some(box_shadow_opt) = parse(constraint_list, "box-shadow", parse_css_box_shadow) {
         rect.style.box_shadow = box_shadow_opt;
     }
+
     if rect.style.font_color.is_none() {
-        // Be lenient - the correct CSS is to use "color", but it has tripped me 
-        // up so often not to be able to use "font-color". 
+        // Use "color" and "font-color" interchangeably, even though this isn't in the CSS spec
         rect.style.font_color       = parse(constraint_list, "font-color", parse_css_color);
     }
 }
 
 /// Populate and parse the CSS layout properties
-fn parse_css_layout_properties(rect: &mut DisplayRectangle) {
-
+fn parse_css_layout_properties(rect: &mut DisplayRectangle) 
+{
     let constraint_list = &rect.styled_node.css_constraints;
     
     rect.layout.width       = parse(constraint_list, "width", parse_layout_width);
@@ -626,9 +681,10 @@ fn parse_css_layout_properties(rect: &mut DisplayRectangle) {
 }
 
 // Adds and removes layout constraints if necessary
-fn create_layout_constraints<T>(rect: &DisplayRectangle, 
-                                arena: &Arena<NodeData<T>>, 
-                                ui_solver: &mut UiSolver<T>)
+fn create_layout_constraints<T>(
+    rect: &DisplayRectangle, 
+    arena: &Arena<NodeData<T>>, 
+    ui_solver: &mut UiSolver<T>)
 where T: LayoutScreen
 {
     use css_parser;
