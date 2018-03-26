@@ -41,6 +41,8 @@ mod app;
 mod app_state;
 /// Styling & CSS parsing
 mod css;
+/// Text layout
+mod text_layout;
 /// DOM / HTML node handling
 pub mod dom;
 /// The layout traits for creating a layout-able application
