@@ -1250,6 +1250,37 @@ pub enum LayoutAlignContent {
     SpaceAround,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TextOverflowBehaviour {
+    /// Always shows a scroll bar, overflows on scroll
+    Scroll,
+    /// Does not show a scroll bar by default, only when text is overflowing
+    Auto,
+    /// Never shows a scroll bar, simply clips text
+    Hidden,
+    /// Doesn't show a scroll bar, simply overflows the text
+    Visible,
+}
+
+impl Default for TextOverflowBehaviour {
+    fn default() -> Self {
+        TextOverflowBehaviour::Auto
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TextAlignment {
+    Center,
+    Left,
+    Right,
+}
+
+impl Default for TextAlignment {
+    fn default() -> Self {
+        TextAlignment::Left
+    }
+}
+
 #[derive(Default, Debug, Clone, PartialEq)]
 pub(crate) struct RectStyle<'a> {
     /// Background color of this rectangle
@@ -1268,6 +1299,10 @@ pub(crate) struct RectStyle<'a> {
     pub(crate) font_family: Option<FontFamily<'a>>,
     /// Text color
     pub(crate) font_color: Option<ColorU>,
+    /// Text alignment
+    pub(crate) text_align: Option<TextAlignment>,
+    /// Text overflow behaviour
+    pub(crate) text_overflow: Option<TextOverflowBehaviour>,
 }
 
 // Layout constraints for a given rectangle, such as ""
@@ -1392,6 +1427,17 @@ multi_type_parser!(parse_layout_align_content, LayoutAlignContent,
 multi_type_parser!(parse_shape, Shape, 
                     ["circle", Circle], 
                     ["ellipse", Ellipse]);
+
+multi_type_parser!(parse_text_overflow, TextOverflowBehaviour, 
+                    ["auto", Auto], 
+                    ["scroll", Scroll], 
+                    ["visible", Visible], 
+                    ["hidden", Hidden]);
+
+multi_type_parser!(parse_text_align, TextAlignment, 
+                    ["center", Center], 
+                    ["left", Left], 
+                    ["right", Right]);
 
 #[cfg(test)]
 mod css_tests {

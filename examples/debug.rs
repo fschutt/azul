@@ -20,11 +20,9 @@ impl LayoutScreen for MyAppData {
         dom.class("__azul-native-button");
         dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
         
-        for i in 0..self.my_data {
-            dom.add_sibling(Dom::new(NodeType::Label { 
-                text: format!("{}", i),
-            }));
-        }
+        dom.add_sibling(Dom::new(NodeType::Label { 
+            text: String::from("This is a very long text that should break on to multiple lines aldkf jasdölfkjas öldfkjasdölkf jasöl dfkj"),
+        }));
 
         dom
     }

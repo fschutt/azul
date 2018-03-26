@@ -16,8 +16,9 @@ use std::collections::BTreeMap;
 use FastHashMap;
 use cache::DomChangeSet;
 use std::sync::atomic::{Ordering, AtomicUsize};
+use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
+use euclid::{TypedRect, TypedSize2D};
 
-const DEBUG_COLOR: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
 const DEFAULT_FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
@@ -265,22 +266,8 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             // ask the solver what the bounds of the current rectangle is
             // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
 
-            // debugging - there are currently two rectangles on the screen
-            // if the rectangle doesn't have a background color, choose the first bound
-            //
-            // this means, since the DOM in the debug example has two rectangles, we should
-            // have two touching rectangles
-            let mut bounds = if rect.style.background_color.is_some() { 
-                LayoutRect::new(
-                    LayoutPoint::new(0.0, 0.0),
-                    LayoutSize::new(200.0, 200.0),
-                ) 
-            } else {
-                LayoutRect::new(
-                    LayoutPoint::new(0.0, 0.0),
-                    LayoutSize::new((*rect_idx).index as f32 * 3.0, 3.0),
-                )
-            };
+            // debug rectangle
+            let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 200.0));
 
             let info = LayoutPrimitiveInfo {
                 rect: bounds,
@@ -365,13 +352,10 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     }
 }
 
-use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
-use euclid::{TypedRect, TypedSize2D};
-
 #[inline]
 fn push_rect(info: &PrimitiveInfo<LayerPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
     match style.background_color {
-        Some(background_color) => builder.push_rect(&info, background_color.into()),
+        Some(bg) => builder.push_rect(&info, bg.into()),
         None => builder.push_clear_rect(&info),
     }
 }
@@ -389,7 +373,9 @@ fn push_text<T: LayoutScreen>(
     resource_updates: &mut ResourceUpdates) 
 {
     use dom::NodeType::*;
-    use euclid::{TypedPoint2D};
+    use euclid::{TypedPoint2D, Length};
+    use text_layout;
+    use css_parser::{TextAlignment, TextOverflowBehaviour};
 
     // NOTE: If the text is outside the current bounds, webrender will not display the text, i.e. clip it
     let arena = display_list.ui_descr.ui_descr_arena.borrow();
@@ -398,11 +384,11 @@ fn push_text<T: LayoutScreen>(
         Div => return, 
         Label { ref text } => {
             text
-        }, 
+        },
         _ => {
             /// The display list should only ever handle divs and labels.
             /// Everything more complex should be handled by a pre-processing step
-            println!("got a NodeType in a DisplayList that wasn't a div or a label, this is a bug");
+            eprintln!("got a NodeType in a DisplayList that wasn't a div or a label, this is a bug");
             // unreachable!();
             return;
         }
@@ -418,8 +404,8 @@ fn push_text<T: LayoutScreen>(
     };
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
-    let font_size_pixels = font_size.0.to_pixels();
-    let font_size_app_units = Au((font_size_pixels as i32) * AU_PER_PX);
+    let font_size = Length::new(font_size.0.to_pixels());
+    let font_size_app_units = Au((font_size.0 as i32) * AU_PER_PX);
     let font_id = font_family.fonts.get(0).unwrap_or(&Font::BuiltinFont("sans-serif")).get_font_id();
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
     
@@ -429,51 +415,13 @@ fn push_text<T: LayoutScreen>(
     };
 
     let font = &app_resources.font_data[font_id].0;
-    let positioned_glyphs = put_text_in_bounds(text, font, font_size_pixels, bounds);
+    let alignment = style.text_align.unwrap_or(TextAlignment::default());
+    let overflow_behaviour = style.text_overflow.unwrap_or(TextOverflowBehaviour::default());
+    let positioned_glyphs = text_layout::put_text_in_bounds(
+        text, font, font_size, alignment, overflow_behaviour, bounds);
 
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, None);
-}
-
-#[inline]
-fn put_text_in_bounds<'a>(
-    text: &str, 
-    font: &::rusttype::Font<'a>, 
-    font_size_pixels: f32, 
-    bounds: &TypedRect<f32, LayerPixel>) 
--> Vec<GlyphInstance> 
-{
-    use euclid::TypedPoint2D;
-    use rusttype::Scale;
-
-    let mut line_x = bounds.origin.x;
-    let mut line_y = bounds.origin.y + font_size_pixels;
-    let v_metrics = font.v_metrics(Scale::uniform(font_size_pixels));
-    let units_per_em = font.units_per_em();
-/*
-    println!("unscaled: {:?}", font.v_metrics_unscaled());
-    println!("got font size of: {:?}", font_size_pixels);
-    println!("units_per_em: {:?}", units_per_em);
-*/
-    text.chars().map(|ch| {
-        let glyph = font.glyph(ch);
-        let idx = glyph.id().0;
-        let scaled_glyph = glyph.scaled(Scale::uniform(font_size_pixels));
-        let h_metrics = scaled_glyph.h_metrics();
-
-        if line_x > (bounds.origin.x + bounds.size.width) {
-            line_y += font_size_pixels;
-            line_x = bounds.origin.x;
-        } else {
-            line_x += h_metrics.advance_width;
-        }
-        println!("pushing glyph {} at: {:?} x {:?} y", ch, line_x, line_y);
-        let glyph_instance = GlyphInstance {
-            index: idx,
-            point: TypedPoint2D::new(line_x, line_y),
-        };
-        glyph_instance
-    }).collect()
 }
 
 #[inline]
@@ -587,35 +535,37 @@ fn push_font(
         return None;
     } 
 
-    if let Some(&(ref font, ref font_state)) = app_resources.font_data.get(font_id) {
-        match *font_state {
-            FontState::Uploaded(font_key) => {
-                let font_sizes_hashmap = app_resources.fonts.entry(font_key)
-                                         .or_insert(FastHashMap::default());
-                let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
-                    .or_insert_with(|| {
-                        let f_instance_key = render_api.generate_font_instance_key();
-                        resource_updates.add_font_instance(
-                            f_instance_key,
-                            font_key,
-                            font_size_app_units,
-                            None,
-                            None,
-                            Vec::new(),
-                        );
-                        f_instance_key
-                    }
-                );
+    let &(ref font, ref font_state) = match app_resources.font_data.get(font_id) {
+        Some(f) => f,
+        None => return None,
+    };
 
-                return Some(*font_instance_key);
-            },
-            _ => {
-                println!("warning: trying to use font {:?} that isn't available", font_id);
-            },
-        }
+    match *font_state {
+        FontState::Uploaded(font_key) => {
+            let font_sizes_hashmap = app_resources.fonts.entry(font_key)
+                                     .or_insert(FastHashMap::default());
+            let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
+                .or_insert_with(|| {
+                    let f_instance_key = render_api.generate_font_instance_key();
+                    resource_updates.add_font_instance(
+                        f_instance_key,
+                        font_key,
+                        font_size_app_units,
+                        None,
+                        None,
+                        Vec::new(),
+                    );
+                    f_instance_key
+                }
+            );
+
+            Some(*font_instance_key)
+        },
+        _ => {
+            println!("warning: trying to use font {:?} that isn't available", font_id);
+            None
+        },
     }
-
-    return None;
 }
 
 use ui_description::CssConstraintList;
@@ -653,13 +603,11 @@ fn parse_css_style_properties(rect: &mut DisplayRectangle)
     rect.style.background       = parse(constraint_list, "background", parse_css_background);
     rect.style.font_size        = parse(constraint_list, "font-size", parse_css_font_size);
     rect.style.font_family      = parse(constraint_list, "font-family", parse_css_font_family);
+    rect.style.text_overflow    = parse(constraint_list, "overflow", parse_text_overflow);
+    rect.style.text_align       = parse(constraint_list, "text-align", parse_text_align);
+    
     if let Some(box_shadow_opt) = parse(constraint_list, "box-shadow", parse_css_box_shadow) {
         rect.style.box_shadow = box_shadow_opt;
-    }
-
-    if rect.style.font_color.is_none() {
-        // Use "color" and "font-color" interchangeably, even though this isn't in the CSS spec
-        rect.style.font_color       = parse(constraint_list, "font-color", parse_css_color);
     }
 }
 
