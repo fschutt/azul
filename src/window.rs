@@ -510,6 +510,7 @@ impl<T: LayoutScreen> Window<T> {
 
         // this exists because RendererOptions isn't Clone-able
         fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
+            use webrender::ProgramCache;
             RendererOptions {
                 resource_override_path: None,
                 // pre-caching shaders means to compile all shaders on startup
@@ -520,6 +521,7 @@ impl<T: LayoutScreen> Window<T> {
                 enable_aa: true,
                 clear_color: clear_color,
                 enable_render_on_scroll: false,
+                cached_programs: Some(ProgramCache::new()),
                 renderer_kind: if native {
                     RendererKind::Native
                 } else {
