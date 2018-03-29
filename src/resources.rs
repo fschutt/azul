@@ -7,8 +7,9 @@ use font::{FontState, FontError};
 use image::{self, ImageError, DynamicImage, GenericImage};
 use webrender::api::{ImageData, ImageDescriptor, ImageFormat};
 use std::collections::hash_map::Entry::*;
-use rusttype::Font;
 use app_units::Au;
+use css_parser;
+use css_parser::Font::ExternalFont;
 
 /// Font and image keys
 /// 
@@ -29,7 +30,7 @@ pub(crate) struct AppResources<'a> {
     // but we also need access to the font metrics. So we first parse the font
     // to make sure that nothing is going wrong. In the next draw call, we 
     // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: FastHashMap<String, (Font<'a>, FontState)>,
+    pub(crate) font_data: FastHashMap<css_parser::Font, (::rusttype::Font<'a>, FontState)>,
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
@@ -89,7 +90,7 @@ impl<'a> AppResources<'a> {
     {
         use font;
 
-        match self.font_data.entry(id.into()) {
+        match self.font_data.entry(ExternalFont(id.into())) {
             Occupied(_) => Ok(None),
             Vacant(v) => {
                 let mut font_data = Vec::<u8>::new();
@@ -102,18 +103,18 @@ impl<'a> AppResources<'a> {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub(crate) fn has_font<S: AsRef<str>>(&mut self, id: S) 
+    pub(crate) fn has_font<S: Into<String>>(&mut self, id: S) 
         -> bool 
     {
-        self.font_data.get(id.as_ref()).is_some()
+        self.font_data.get(&ExternalFont(id.into())).is_some()
     }
 
     /// See `AppState::delete_font()`
-    pub(crate) fn delete_font<S: AsRef<str>>(&mut self, id: S) 
+    pub(crate) fn delete_font<S: Into<String>>(&mut self, id: S) 
         -> Option<()>
     {
         // TODO: can fonts that haven't been uploaded yet be deleted?
-        match self.font_data.get_mut(id.as_ref()) {
+        match self.font_data.get_mut(&ExternalFont(id.into())) {
             None => None,
             Some(v) => {
                 let to_delete_font_key = match v.1 {

@@ -20,6 +20,7 @@ use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
 
 const DEFAULT_FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
+const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("sans-serif");
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -158,8 +159,8 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     {
         use font::FontState;
 
-        let mut updated_fonts = Vec::<(String, Vec<u8>)>::new();
-        let mut to_delete_fonts = Vec::<(String, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
+        let mut updated_fonts = Vec::<(::css_parser::Font, Vec<u8>)>::new();
+        let mut to_delete_fonts = Vec::<(::css_parser::Font, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
 
         for (key, value) in app_resources.font_data.iter() {
             match value.1 {
@@ -405,8 +406,10 @@ fn push_text<T: LayoutScreen>(
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size = Length::new(font_size.0.to_pixels());
+    // HEAVY TODO: webrender bug -for some reason the font is rendered at the half of the expected size
+    let font_size = font_size * 2.0;
     let font_size_app_units = Au((font_size.0 as i32) * AU_PER_PX);
-    let font_id = font_family.fonts.get(0).unwrap_or(&Font::BuiltinFont("sans-serif")).get_font_id();
+    let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
     
     let font_instance_key = match font_result {
@@ -519,9 +522,11 @@ fn push_border(
     }
 }
 
+use css_parser;
+
 #[inline]
 fn push_font(
-    font_id: &str, 
+    font_id: &css_parser::Font, 
     font_size_app_units: Au, 
     resource_updates: &mut ResourceUpdates, 
     app_resources: &mut AppResources, 

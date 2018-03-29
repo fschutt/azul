@@ -35,6 +35,7 @@ extern crate image;
 extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
+extern crate harfbuzz_rs;
 
 /// Global application (Initialization starts here)
 mod app;

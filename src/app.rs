@@ -271,7 +271,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font<S: AsRef<str>>(&mut self, id: S) 
+    pub fn has_font<S: Into<String>>(&mut self, id: S) 
         -> bool 
     {
         (*self.app_state.lock().unwrap()).has_font(id)
@@ -320,7 +320,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// ```
     /// 
     /// [`AppState::delete_font`]: ../app_state/struct.AppState.html#method.delete_font
-    pub fn delete_font<S: AsRef<str>>(&mut self, id: S) 
+    pub fn delete_font<S: Into<String>>(&mut self, id: S) 
         -> Option<()>
     {
         (*self.app_state.lock().unwrap()).delete_font(id)

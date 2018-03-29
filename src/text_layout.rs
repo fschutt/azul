@@ -45,7 +45,7 @@ impl<'a> Lines<'a> {
             font: font,
             origin: bounds.origin,
             max_horizontal_width: max_horizontal_width,
-            font_size: Scale { y: font_size.0 * v_scale_factor,  x: font_size.0 },
+            font_size: /* Scale { y: font_size.0 * v_scale_factor,  x: font_size.0 },*/ Scale::uniform(font_size.0),
             current_line: 0,
             v_scale_factor: v_scale_factor,
             line_writer_x: 0.0,
@@ -127,16 +127,50 @@ impl<'a> Lines<'a> {
             }
         }
 */
-        use rusttype::{Point, Vector};
+        use rusttype::Point;
 
         let mut last_glyph = None;
         let mut caret = 0.0;
 
         // normalize characters, i.e. A + ^ = Â
         use unicode_normalization::UnicodeNormalization;
+
         // TODO: do this before hading the string to webrender?
         let text_normalized = text.nfc().collect::<String>();
 
+        // harfbuzz pass
+        /*
+            use harfbuzz_rs::*;
+            use harfbuzz_rs::rusttype::SetRustTypeFuncs;
+
+            let path = "path/to/some/font_file.otf";
+            let index = 0; //< face index in the font file
+            let face = Face::from_file(path, index).unwrap();
+            let mut font = Font::new(face);
+            // Use RustType as provider for font information that harfbuzz needs.
+            // You can also use a custom font implementation. For more information look
+            // at the documentation for `FontFuncs`.
+            font.set_rusttype_funcs();
+
+            let output = UnicodeBuffer::new().add_str("Hello World!").shape(&font, &[]);
+        */
+
+        /*
+            let positions = output.get_glyph_positions();
+            let infos = output.get_glyph_infos();
+
+            // iterate over the shaped glyphs
+            for (position, info) in positions.iter().zip(infos) {
+                let gid = info.codepoint;
+                let cluster = info.cluster;
+                let x_advance = position.x_advance;
+                let x_offset = position.x_offset;
+                let y_offset = position.y_offset;
+
+                // Here you would usually draw the glyphs.
+                println!("gid{:?}={:?}@{:?},{:?}+{:?}", gid, cluster, x_advance, x_offset, y_offset);
+            }
+        */
         let positioned_glyphs2 = text_normalized.chars().map(|c| {
             let g = self.font.glyph(c).scaled(self.font_size);
             if let Some(last) = last_glyph {

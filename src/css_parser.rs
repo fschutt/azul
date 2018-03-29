@@ -1296,7 +1296,7 @@ pub(crate) struct RectStyle<'a> {
     /// Font size
     pub(crate) font_size: Option<FontSize>,
     /// Font name / family
-    pub(crate) font_family: Option<FontFamily<'a>>,
+    pub(crate) font_family: Option<FontFamily>,
     /// Text color
     pub(crate) font_color: Option<ColorU>,
     /// Text alignment
@@ -1330,32 +1330,21 @@ pub struct FontSize(pub PixelValue);
 typed_pixel_value_parser!(parse_css_font_size, FontSize);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FontFamily<'a> {
+pub struct FontFamily {
     // parsed fonts, in order, i.e. "Webly Sleeky UI", "monospace", etc.
-    pub(crate) fonts: Vec<Font<'a>>
+    pub(crate) fonts: Vec<Font>
 }
 
-#[derive(Debug, PartialEq, Clone, Hash)]
-pub enum Font<'a> {
-    BuiltinFont(&'a str),
-    ExternalFont(&'a str),
-}
-
-impl<'a> Font<'a> {
-    pub fn get_font_id(&self) -> &'a str {
-        use self::Font::*;
-        // TODO: Currently BuiltinFont("sans-serif") and 
-        // ExternalFont("sans-serif") are the same because of this function
-        match *self {
-            BuiltinFont(f) => f,
-            ExternalFont(f) => f,
-        }
-    }
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum Font {
+    BuiltinFont(&'static str),
+    ExternalFont(String),
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum FontFamilyParseError<'a> {
     InvalidFontFamily(&'a str),
+    UnrecognizedBuiltinFont(&'a str),
     UnclosedQuotes(&'a str),
 }
 
@@ -1370,7 +1359,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for FontFamilyParseError<'a> {
 // "Webly Sleeky UI", monospace
 // 'Webly Sleeky Ui', monospace
 // sans-serif
-pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily<'a>, FontFamilyParseError<'a>> {
+pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, FontFamilyParseError<'a>> {
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
 
@@ -1384,9 +1373,14 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily<'a>
 
         if double_quote_iter.next().is_some() || single_quote_iter.next().is_some() {
             let stripped_font = strip_quotes(font)?;
-            fonts.push(Font::ExternalFont(stripped_font.0));
+            fonts.push(Font::ExternalFont(stripped_font.0.into()));
         } else {
-            fonts.push(Font::BuiltinFont(font));
+            match font {
+                "serif"      => fonts.push(Font::BuiltinFont("serif")),
+                "sans-serif" => fonts.push(Font::BuiltinFont("sans-serif")),
+                "monospace"  => fonts.push(Font::BuiltinFont("sans-serif")),
+                _ => return Err(FontFamilyParseError::UnrecognizedBuiltinFont(font)),
+            }
         }
     }
 
