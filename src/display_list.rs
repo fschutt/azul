@@ -404,12 +404,25 @@ fn push_text<T: LayoutScreen>(
         None => return,
     };
 
+    // HEAVY TODO: webrender bug -for some reason the font is rendered at the half of the expected size
+    // let font_size = font_size * 2.0 * v_scale_factor;
+    // TODO: This is a horrible hack, but it seems to work!
+
+    // TODO: border 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size = Length::new(font_size.0.to_pixels());
-    // HEAVY TODO: webrender bug -for some reason the font is rendered at the half of the expected size
-    let font_size = font_size * 2.0;
-    let font_size_app_units = Au((font_size.0 as i32) * AU_PER_PX);
+    let font_size_app_units = (font_size.0 as i32) * AU_PER_PX;
     let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
+    let v_scale_factor;
+    {
+        let font = &app_resources.font_data[font_id].0;
+        let v_metrics = font.v_metrics_unscaled();
+        v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) / font.units_per_em() as f32;
+    }
+
+    let font_size = (font_size * 2.0) / v_scale_factor;
+    let font_size_app_units = Au((font_size_app_units as f32 * v_scale_factor) as i32);
+
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
     
     let font_instance_key = match font_result {
