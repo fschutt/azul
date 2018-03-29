@@ -1378,7 +1378,7 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Fo
             match font {
                 "serif"      => fonts.push(Font::BuiltinFont("serif")),
                 "sans-serif" => fonts.push(Font::BuiltinFont("sans-serif")),
-                "monospace"  => fonts.push(Font::BuiltinFont("sans-serif")),
+                "monospace"  => fonts.push(Font::BuiltinFont("monospace")),
                 _ => return Err(FontFamilyParseError::UnrecognizedBuiltinFont(font)),
             }
         }
@@ -1797,7 +1797,7 @@ mod css_tests {
     fn test_parse_css_font_family_1() {
         assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(FontFamily {
             fonts: vec![
-                Font::ExternalFont("Webly Sleeky UI"),
+                Font::ExternalFont("Webly Sleeky UI".into()),
                 Font::BuiltinFont("monospace"),
             ]
         }));
@@ -1807,7 +1807,7 @@ mod css_tests {
     fn test_parse_css_font_family_2() {
         assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(FontFamily {
             fonts: vec![
-                Font::ExternalFont("Webly Sleeky UI"),
+                Font::ExternalFont("Webly Sleeky UI".into()),
             ]
         }));
 
