@@ -45,7 +45,7 @@ impl<'a> Lines<'a> {
             font: font,
             origin: bounds.origin,
             max_horizontal_width: max_horizontal_width,
-            font_size: /* Scale { y: font_size.0 * v_scale_factor,  x: font_size.0 },*/ Scale::uniform(font_size.0),
+            font_size: Scale::uniform(font_size.0),
             current_line: 0,
             v_scale_factor: v_scale_factor,
             line_writer_x: 0.0,
@@ -171,6 +171,9 @@ impl<'a> Lines<'a> {
                 println!("gid{:?}={:?}@{:?},{:?}+{:?}", gid, cluster, x_advance, x_offset, y_offset);
             }
         */
+        // HORRIBLE WEBRENDER HACK!
+        let offset_top = self.font_size.y * 3.0 / 4.0;
+        
         let positioned_glyphs2 = text_normalized.chars().map(|c| {
             let g = self.font.glyph(c).scaled(self.font_size);
             if let Some(last) = last_glyph {
@@ -181,7 +184,7 @@ impl<'a> Lines<'a> {
             caret += g.clone().into_unpositioned().h_metrics().advance_width;
             GlyphInstance {
                 index: g.id().0,
-                point: TypedPoint2D::new(g.position().x, g.position().y + self.font_size.y),
+                point: TypedPoint2D::new(g.position().x, g.position().y + offset_top),
             }
         }).collect();
 
