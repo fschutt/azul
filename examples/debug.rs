@@ -21,7 +21,7 @@ impl LayoutScreen for MyAppData {
         dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
         
         dom.add_sibling(Dom::new(NodeType::Label { 
-            text: String::from("Azul App"),
+            text: String::from("This is a very long string that should break into multiple lines"),
         }));
 
         dom
