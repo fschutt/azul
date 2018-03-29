@@ -15,6 +15,7 @@ struct Lines<'a> {
     current_line: usize,
     line_writer_x: f32,
     line_writer_y: f32,
+    v_scale_factor: f32,
 }
 
 pub(crate) enum TextOverflow {
@@ -34,7 +35,9 @@ impl<'a> Lines<'a> {
     {
         let max_lines_before_overflow = (bounds.size.height / font_size.0).floor() as usize;
         let max_horizontal_width = Length::new(bounds.size.width);
-        
+        let v_metrics = font.v_metrics_unscaled();
+        let v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) / font.units_per_em() as f32;
+
         Self {
             align: alignment,
             max_lines_before_overflow: max_lines_before_overflow,
@@ -42,8 +45,9 @@ impl<'a> Lines<'a> {
             font: font,
             origin: bounds.origin,
             max_horizontal_width: max_horizontal_width,
-            font_size: Scale::uniform(font_size.0),
+            font_size: Scale { y: font_size.0 * v_scale_factor,  x: font_size.0 },
             current_line: 0,
+            v_scale_factor: v_scale_factor,
             line_writer_x: 0.0,
             line_writer_y: 0.0,
         }
@@ -55,21 +59,44 @@ impl<'a> Lines<'a> {
     /// This function will only process the glyphs until the overflow.
     /// 
     /// TODO: Only process the glyphs until the screen height is filled
-    pub(crate) fn get_glyphs(&mut self, text: &str, overflow_behaviour: TextOverflowBehaviour) -> (Vec<GlyphInstance>, TextOverflow) {
+    pub(crate) fn get_glyphs(&mut self, text: &str, _overflow_behaviour: TextOverflowBehaviour) -> (Vec<GlyphInstance>, TextOverflow) {
+        
         // fill the rect from top to bottom with glyphs
-        let mut char_iterator_peek = text.chars().peekable();
-        let mut positioned_glyphs = Vec::new();
+        // let mut positioned_glyphs = Vec::new();
+        
+        // step 0: estimate how many lines / words are probably needed
 
+        // step 1: collect the words
+
+        // let words: Vec<&str> = text.split_whitespace().collect();
+
+/*
+        struct Word<'a> {
+            // the original text
+            text: &'a str,
+            // character offsets, from the start of the word
+            character_offset: Vec<f32>,
+            // the sum of the width of all the characters
+            total_width: f32,
+        }
+
+        let words_layouted = words.into_iter().map(|word| {
+
+        }).collect::();
+*/
+
+/*
+        println!("self.font_size: {:?}", self.font_size);
+
+        let mut last_char = None;
         for current_char in text.chars() {
 
-            let kerning = char_iterator_peek.peek().and_then(|next_char| {
-                Some(self.font.pair_kerning(self.font_size, current_char, *next_char))
-            });
+            let kerning = last_char.and_then(|last_char| {
+                Some(self.font.pair_kerning(self.font_size, last_char, current_char))
+            }).unwrap_or(0.0);
 
-            let kerning = match kerning {
-                Some(k) => {char_iterator_peek.next(); k},
-                None => 0.0,
-            };
+            // println!("kerning: ({:?} - {:?}) - {:?}", last_char, current_char, kerning);
+            last_char = Some(current_char);
 
             let glyph = self.font.glyph(current_char);
             let idx = glyph.id().0;
@@ -84,20 +111,58 @@ impl<'a> Lines<'a> {
                 self.line_writer_x += h_metrics.advance_width + kerning;
             }
 
-            let final_x = self.line_writer_x + self.origin.x + kerning;
-            let final_y = self.line_writer_y + self.origin.y + self.font_size.y;
+            // println!("h_metrics.advance_width: {:?}, kerning: {}", h_metrics.advance_width, kerning);
 
-            if self.current_line > self.max_lines_before_overflow {
+            let final_x = self.origin.x + self.line_writer_x /* + kerning */;
+            let final_y = self.origin.y + self.line_writer_y + self.font_size.y;
 
+            if self.current_line <= (self.max_lines_before_overflow + 1) {
+                positioned_glyphs.push(GlyphInstance {
+                    index: idx,
+                    point: TypedPoint2D::new(final_x, final_y),
+                });
+            } else {
+                // do not layout text that is off-screen anyways
+                break;
             }
-            positioned_glyphs.push(GlyphInstance {
-                index: idx,
-                point: TypedPoint2D::new(final_x, final_y),
-            });
-            
         }
+*/
+        use rusttype::{Point, Vector};
 
-        (positioned_glyphs, TextOverflow::InBounds)
+        let mut last_glyph = None;
+        let mut caret = 0.0;
+
+        // normalize characters, i.e. A + ^ = Â
+        use unicode_normalization::UnicodeNormalization;
+        // TODO: do this before hading the string to webrender?
+        let text_normalized = text.nfc().collect::<String>();
+
+        let positioned_glyphs2 = text_normalized.chars().map(|c| {
+            let g = self.font.glyph(c).scaled(self.font_size);
+            if let Some(last) = last_glyph {
+                caret += self.font.pair_kerning(self.font_size, last, g.id());
+            }
+            let g = g.positioned(Point { x: self.origin.x + caret, y: self.origin.y });
+            last_glyph = Some(g.id());
+            caret += g.clone().into_unpositioned().h_metrics().advance_width;
+            GlyphInstance {
+                index: g.id().0,
+                point: TypedPoint2D::new(g.position().x, g.position().y + self.font_size.y),
+            }
+        }).collect();
+
+/*
+        use rusttype::Point;
+
+        let positioned_glyphs3 = self.font.layout(text, self.font_size, Point { x: self.origin.x, y: self.origin.y})
+            .map(|g| {
+                GlyphInstance {
+                    index: g.id().0,
+                    point: TypedPoint2D::new(g.position().x, g.position().y + self.font_size.y),
+                }
+            }).collect();
+*/
+        (positioned_glyphs2, TextOverflow::InBounds)
     }
 }
 

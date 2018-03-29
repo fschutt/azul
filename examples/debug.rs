@@ -1,4 +1,11 @@
+#![feature(alloc_system, global_allocator, allocator_api)]
 extern crate azul;
+extern crate alloc_system;
+
+use alloc_system::System;
+
+#[global_allocator]
+static A: System = System;
 
 use azul::prelude::*;
 
@@ -21,7 +28,8 @@ impl LayoutScreen for MyAppData {
         dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
         
         dom.add_sibling(Dom::new(NodeType::Label { 
-            text: String::from("This is a very long text that should break on to multiple lines aldkf jasdölfkjas öldfkjasdölkf jasöl dfkj"),
+            text: String::from("this is a very long string that should be \
+                                broken onto multiple lines"),
         }));
 
         dom

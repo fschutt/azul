@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 
 [dependencies]
-webrender = { git = "https://github.com/fschutt/webrender", branch = "make_debug_renderer_optional" }
+webrender = { git = "https://github.com/servo/webrender", rev = "190ed69b68b659ccd7db8c924ec564b4ca1a3e57" }
 cassowary = "0.3.0"
 simplecss = "0.1.0"
 twox-hash = "1.1.0"
@@ -14,6 +14,7 @@ euclid = "0.17"
 image = "0.18.0"
 rusttype = "0.5.2"
 app_units = "0.6"
+unicode-normalization = "0.1.5"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)
