@@ -13,8 +13,7 @@ struct Lines<'a> {
     font_size: Scale,
     origin: TypedPoint2D<f32, LayerPixel>,
     current_line: usize,
-    line_writer_x: f32,
-    line_writer_y: f32,
+    v_advance: f32,
     v_scale_factor: f32,
 }
 
@@ -36,7 +35,8 @@ impl<'a> Lines<'a> {
         let max_lines_before_overflow = (bounds.size.height / font_size.0).floor() as usize;
         let max_horizontal_width = Length::new(bounds.size.width);
         let v_metrics = font.v_metrics_unscaled();
-        let v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) / font.units_per_em() as f32;
+        let v_advance = v_metrics.ascent - v_metrics.descent + v_metrics.line_gap;
+        let v_scale_factor = v_advance / font.units_per_em() as f32;
 
         Self {
             align: alignment,
@@ -48,8 +48,7 @@ impl<'a> Lines<'a> {
             font_size: Scale::uniform(font_size.0),
             current_line: 0,
             v_scale_factor: v_scale_factor,
-            line_writer_x: 0.0,
-            line_writer_y: 0.0,
+            v_advance: v_advance,
         }
     }
 
@@ -61,82 +60,23 @@ impl<'a> Lines<'a> {
     /// TODO: Only process the glyphs until the screen height is filled
     pub(crate) fn get_glyphs(&mut self, text: &str, _overflow_behaviour: TextOverflowBehaviour) -> (Vec<GlyphInstance>, TextOverflow) {
         
-        // fill the rect from top to bottom with glyphs
-        // let mut positioned_glyphs = Vec::new();
-        
-        // step 0: estimate how many lines / words are probably needed
-
-        // step 1: collect the words
-
-        // let words: Vec<&str> = text.split_whitespace().collect();
-
-/*
-        struct Word<'a> {
-            // the original text
-            text: &'a str,
-            // character offsets, from the start of the word
-            character_offset: Vec<f32>,
-            // the sum of the width of all the characters
-            total_width: f32,
-        }
-
-        let words_layouted = words.into_iter().map(|word| {
-
-        }).collect::();
-*/
-
-/*
-        println!("self.font_size: {:?}", self.font_size);
-
-        let mut last_char = None;
-        for current_char in text.chars() {
-
-            let kerning = last_char.and_then(|last_char| {
-                Some(self.font.pair_kerning(self.font_size, last_char, current_char))
-            }).unwrap_or(0.0);
-
-            // println!("kerning: ({:?} - {:?}) - {:?}", last_char, current_char, kerning);
-            last_char = Some(current_char);
-
-            let glyph = self.font.glyph(current_char);
-            let idx = glyph.id().0;
-            let scaled_glyph = glyph.scaled(self.font_size);
-            let h_metrics = scaled_glyph.h_metrics();
-
-            if self.line_writer_x > self.max_horizontal_width.0 {
-                self.line_writer_y += self.font_size.y;
-                self.current_line += 1;
-                self.line_writer_x = self.origin.x;
-            } else {
-                self.line_writer_x += h_metrics.advance_width + kerning;
-            }
-
-            // println!("h_metrics.advance_width: {:?}, kerning: {}", h_metrics.advance_width, kerning);
-
-            let final_x = self.origin.x + self.line_writer_x /* + kerning */;
-            let final_y = self.origin.y + self.line_writer_y + self.font_size.y;
-
-            if self.current_line <= (self.max_lines_before_overflow + 1) {
-                positioned_glyphs.push(GlyphInstance {
-                    index: idx,
-                    point: TypedPoint2D::new(final_x, final_y),
-                });
-            } else {
-                // do not layout text that is off-screen anyways
-                break;
-            }
-        }
-*/
+        use unicode_normalization::UnicodeNormalization;
         use rusttype::Point;
 
-        let mut last_glyph = None;
-        let mut caret = 0.0;
+        let text = text.nfc().collect::<String>();
+
+        #[derive(Debug)]
+        struct Word<'a> {
+            // the original text
+            pub text: &'a str,
+            // glyphs, positions are relative to the first character of the word
+            pub glyphs: Vec<GlyphInstance>,
+            // the sum of the width of all the characters
+            pub total_width: f32,
+        }
 
         // normalize characters, i.e. A + ^ = Â
-        use unicode_normalization::UnicodeNormalization;
-
-        // TODO: do this before hading the string to webrender?
-        let text_normalized = text.nfc().collect::<String>();
+        // TODO: this is currently done on the whole string
 
         // harfbuzz pass
         /*
@@ -171,35 +111,82 @@ impl<'a> Lines<'a> {
                 println!("gid{:?}={:?}@{:?},{:?}+{:?}", gid, cluster, x_advance, x_offset, y_offset);
             }
         */
+
+
         // HORRIBLE WEBRENDER HACK!
         let offset_top = self.font_size.y * 3.0 / 4.0;
-        
-        let positioned_glyphs2 = text_normalized.chars().map(|c| {
-            let g = self.font.glyph(c).scaled(self.font_size);
-            if let Some(last) = last_glyph {
-                caret += self.font.pair_kerning(self.font_size, last, g.id());
-            }
-            let g = g.positioned(Point { x: self.origin.x + caret, y: self.origin.y });
-            last_glyph = Some(g.id());
-            caret += g.clone().into_unpositioned().h_metrics().advance_width;
-            GlyphInstance {
-                index: g.id().0,
-                point: TypedPoint2D::new(g.position().x, g.position().y + offset_top),
-            }
-        }).collect();
 
-/*
-        use rusttype::Point;
+        let mut words = Vec::new();
 
-        let positioned_glyphs3 = self.font.layout(text, self.font_size, Point { x: self.origin.x, y: self.origin.y})
-            .map(|g| {
-                GlyphInstance {
-                    index: g.id().0,
-                    point: TypedPoint2D::new(g.position().x, g.position().y + self.font_size.y),
+        // TODO: estimate how much of the text is going to fit into the rectangle
+
+        {        
+            for line in text.lines() {
+                for word in line.split_whitespace() {
+
+                    let mut caret = 0.0;
+                    let mut cur_word_length = 0.0;     
+                    let mut glyphs_in_this_word = Vec::new();
+                    let mut last_glyph = None;
+
+                    for c in word.chars() {
+                        let g = self.font.glyph(c).scaled(self.font_size);
+                        let id = g.id();
+                        if let Some(last) = last_glyph {
+                            caret += self.font.pair_kerning(self.font_size, last, g.id());
+                        }
+                        let g = g.positioned(Point { x: caret, y: 0.0 });
+                        last_glyph = Some(id);        
+                        let horiz_advance = g.unpositioned().h_metrics().advance_width;
+                        caret += horiz_advance;
+                        cur_word_length += horiz_advance;
+
+                        glyphs_in_this_word.push(GlyphInstance {
+                            index: id.0,
+                            point: TypedPoint2D::new(g.position().x, g.position().y),
+                        })
+                    }
+
+                    words.push(Word {
+                        text: word,
+                        glyphs: glyphs_in_this_word,
+                        total_width: cur_word_length,
+                    })
                 }
-            }).collect();
-*/
-        (positioned_glyphs2, TextOverflow::InBounds)
+            }
+        }
+
+        let mut positioned_glyphs = Vec::new();
+
+        // do knuth-plass text layout here, determine spacing and alignment
+
+        // position words into glyphs
+        {
+            let v_metrics_scaled = self.font.v_metrics(self.font_size);
+            let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
+
+            let mut word_caret = 0.0;
+            let mut cur_line = 0;
+
+            for word in words {
+                let text_overflows_rect = word_caret + word.total_width > self.max_horizontal_width.0;
+                if text_overflows_rect {
+                    word_caret = 0.0;
+                    cur_line += 1;
+                }
+                for mut glyph in word.glyphs {
+                    let push_x = self.origin.x + word_caret;
+                    let push_y = self.origin.y + (cur_line as f32 * v_advance_scaled) + offset_top;
+                    glyph.point.x += push_x;
+                    glyph.point.y += push_y;
+                    positioned_glyphs.push(glyph);
+                }
+                
+                word_caret += word.total_width + 5.0; // space between words
+            }
+        }
+
+        (positioned_glyphs, TextOverflow::InBounds)
     }
 }
 
