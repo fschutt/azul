@@ -15,6 +15,7 @@ image = "0.18.0"
 rusttype = "0.5.2"
 app_units = "0.6"
 unicode-normalization = "0.1.5"
+harfbuzz_rs = "0.1.0"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)

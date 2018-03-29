@@ -116,7 +116,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font<S: AsRef<str>>(&mut self, id: S) 
+    pub fn has_font<S: Into<String>>(&mut self, id: S) 
         -> bool 
     {
         self.resources.has_font(id)
@@ -142,7 +142,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     /// You can also call this function on an `App` struct, see [`App::add_font`]. 
     ///
     /// [`App::add_font`]: ../app/struct.App.html#method.add_font
-    pub fn delete_font<S: AsRef<str>>(&mut self, id: S) 
+    pub fn delete_font<S: Into<String>>(&mut self, id: S) 
         -> Option<()>
     {
         self.resources.delete_font(id)
