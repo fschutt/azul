@@ -790,10 +790,10 @@ impl DirectionCorner {
     {
         use self::DirectionCorner::*;
         match *self {
-            Right => TypedPoint2D::new(rect.size.width, (rect.size.height / 2.0)),
-            Left => TypedPoint2D::new(0.0, (rect.size.height / 2.0)),
-            Top => TypedPoint2D::new((rect.size.width / 2.0), 0.0),
-            Bottom => TypedPoint2D::new((rect.size.width / 2.0), rect.size.height),
+            Right => TypedPoint2D::new(rect.size.width, rect.size.height / 2.0),
+            Left => TypedPoint2D::new(0.0, rect.size.height / 2.0),
+            Top => TypedPoint2D::new(rect.size.width / 2.0, 0.0),
+            Bottom => TypedPoint2D::new(rect.size.width / 2.0, rect.size.height),
             TopRight =>  TypedPoint2D::new(rect.size.width, 0.0),
             TopLeft => TypedPoint2D::new(0.0, 0.0),
             BottomRight => TypedPoint2D::new(rect.size.width, rect.size.height),
