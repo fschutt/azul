@@ -21,7 +21,7 @@ impl LayoutScreen for MyAppData {
         dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
         
         dom.add_sibling(Dom::new(NodeType::Label { 
-            text: String::from("This is a very long string that should break into multiple lines"),
+            text: String::from("Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet."),
         }));
 
         dom

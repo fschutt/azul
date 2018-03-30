@@ -63,6 +63,8 @@ impl<'a> Lines<'a> {
         use unicode_normalization::UnicodeNormalization;
         use rusttype::Point;
 
+        // normalize characters, i.e. A + ^ = Â
+        // TODO: this is currently done on the whole string
         let text = text.nfc().collect::<String>();
 
         #[derive(Debug)]
@@ -75,50 +77,43 @@ impl<'a> Lines<'a> {
             pub total_width: f32,
         }
 
-        // normalize characters, i.e. A + ^ = Â
-        // TODO: this is currently done on the whole string
-
         // harfbuzz pass
-        /*
+        {
             use harfbuzz_rs::*;
             use harfbuzz_rs::rusttype::SetRustTypeFuncs;
+            /*
+                let path = "path/to/some/font_file.otf";
+                let index = 0; //< face index in the font file
+                let face = Face::from_file(path, index).unwrap();
+                let mut font = Font::new(face);
+            
+                // Use RustType as provider for font information that harfbuzz needs.
+                // You can also use a custom font implementation. For more information look
+                // at the documentation for `FontFuncs`.
+                font.set_rusttype_funcs();
+                let output = UnicodeBuffer::new().add_str(text).shape(&font, &[]);
+                let positions = output.get_glyph_positions();
+                let infos = output.get_glyph_infos();
 
-            let path = "path/to/some/font_file.otf";
-            let index = 0; //< face index in the font file
-            let face = Face::from_file(path, index).unwrap();
-            let mut font = Font::new(face);
-            // Use RustType as provider for font information that harfbuzz needs.
-            // You can also use a custom font implementation. For more information look
-            // at the documentation for `FontFuncs`.
-            font.set_rusttype_funcs();
+                // iterate over the shaped glyphs
+                for (position, info) in positions.iter().zip(infos) {
+                    let gid = info.codepoint;
+                    let cluster = info.cluster;
+                    let x_advance = position.x_advance;
+                    let x_offset = position.x_offset;
+                    let y_offset = position.y_offset;
 
-            let output = UnicodeBuffer::new().add_str("Hello World!").shape(&font, &[]);
-        */
-
-        /*
-            let positions = output.get_glyph_positions();
-            let infos = output.get_glyph_infos();
-
-            // iterate over the shaped glyphs
-            for (position, info) in positions.iter().zip(infos) {
-                let gid = info.codepoint;
-                let cluster = info.cluster;
-                let x_advance = position.x_advance;
-                let x_offset = position.x_offset;
-                let y_offset = position.y_offset;
-
-                // Here you would usually draw the glyphs.
-                println!("gid{:?}={:?}@{:?},{:?}+{:?}", gid, cluster, x_advance, x_offset, y_offset);
-            }
-        */
-
+                    // Here you would usually draw the glyphs.
+                    println!("gid{:?}={:?}@{:?},{:?}+{:?}", gid, cluster, x_advance, x_offset, y_offset);
+                }
+            */
+        }
 
         // HORRIBLE WEBRENDER HACK!
         let offset_top = self.font_size.y * 3.0 / 4.0;
 
-        let mut words = Vec::new();
-
         // TODO: estimate how much of the text is going to fit into the rectangle
+        let mut words = Vec::new();
 
         {        
             for line in text.lines() {
@@ -156,15 +151,15 @@ impl<'a> Lines<'a> {
             }
         }
 
+        // Alignment + Knuth-Plass
+        
+        // Final positioning
         let mut positioned_glyphs = Vec::new();
-
-        // do knuth-plass text layout here, determine spacing and alignment
-
-        // position words into glyphs
         {
             let v_metrics_scaled = self.font.v_metrics(self.font_size);
             let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
 
+            let space_width = self.font.glyph(' ').scaled(self.font_size).h_metrics().advance_width;
             let mut word_caret = 0.0;
             let mut cur_line = 0;
 
@@ -181,8 +176,10 @@ impl<'a> Lines<'a> {
                     glyph.point.y += push_y;
                     positioned_glyphs.push(glyph);
                 }
-                
-                word_caret += word.total_width + 5.0; // space between words
+                if cur_line > self.max_lines_before_overflow {
+                    break;
+                }
+                word_caret += word.total_width + space_width; // space between words
             }
         }
 
