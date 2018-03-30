@@ -290,7 +290,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 Vec::new()
             );
 
-            // Push box shadow, before the clip is active 
+            // Push the "outset" box shadow, before the clip is active
             push_box_shadow(
                 &mut builder, 
                 &rect.style, 
@@ -322,6 +322,12 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 &mut builder, 
                 &rect.style, 
                 &app_resources);
+
+            // push the inset shadow (if any)
+            push_box_shadow(&mut builder, 
+                            &rect.style, 
+                            &bounds, 
+                            &full_screen_rect);
 
             push_border(
                 &info, 
@@ -445,6 +451,8 @@ fn push_text<T: LayoutScreen>(
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 }
 
+/// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the 
+/// shadow will not show up.
 #[inline]
 fn push_box_shadow(
     builder: &mut DisplayListBuilder, 
@@ -460,9 +468,32 @@ fn push_box_shadow(
     // The pre_shadow is missing the BorderRadius & LayoutRect
     let border_radius = style.border_radius.unwrap_or(BorderRadius::zero());
 
-    // Currently the box shadow is blurred across the whole window
-    // This can be possibly optimized further
-    let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), *full_screen_rect);
+    if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
+        // inset shadows do not work like outset shadows
+        // for inset shadows, you have to push a clip ID first, so that they are 
+        // clipped to the bounds -we trust that the calling function knows to do this
+        let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), *bounds);
+        builder.push_box_shadow(&info, *bounds, pre_shadow.offset, pre_shadow.color,
+                                 pre_shadow.blur_radius, pre_shadow.spread_radius,
+                                 border_radius, pre_shadow.clip_mode);
+        return;
+    }
+
+    // calculate the maximum extent of the outset shadow
+    let mut clip_rect = *bounds;
+
+    let origin_displace = pre_shadow.spread_radius - pre_shadow.blur_radius;
+    clip_rect.origin.x = clip_rect.origin.x + pre_shadow.offset.x - origin_displace;
+    clip_rect.origin.y = clip_rect.origin.y + pre_shadow.offset.y - origin_displace;
+
+    let spread = (pre_shadow.spread_radius * 2.0) + (pre_shadow.blur_radius * 2.0);
+    clip_rect.size.height = clip_rect.size.height + spread;
+    clip_rect.size.width = clip_rect.size.width + spread;
+
+    // prevent shadows that are larger than the full screen
+    let clip_rect = clip_rect.intersection(full_screen_rect).unwrap_or(clip_rect);
+
+    let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
     builder.push_box_shadow(&info, *bounds, pre_shadow.offset, pre_shadow.color,
                              pre_shadow.blur_radius, pre_shadow.spread_radius,
                              border_radius, pre_shadow.clip_mode);
