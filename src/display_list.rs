@@ -437,7 +437,12 @@ fn push_text<T: LayoutScreen>(
         text, font, font_size, alignment, overflow_behaviour, bounds);
 
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
-    builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, None);
+    let flags = FontInstanceFlags::SUBPIXEL_BGR;
+    let options = GlyphOptions {
+        render_mode: FontRenderMode::Subpixel,
+        flags: flags,
+    };
+    builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 }
 
 #[inline]
