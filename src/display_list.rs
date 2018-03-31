@@ -295,7 +295,8 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 &mut builder, 
                 &rect.style, 
                 &bounds, 
-                &full_screen_rect);
+                &full_screen_rect,
+                BoxShadowClipMode::Outset);
 
             let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
                 let region = ComplexClipRegion {
@@ -327,7 +328,8 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             push_box_shadow(&mut builder, 
                             &rect.style, 
                             &bounds, 
-                            &full_screen_rect);
+                            &full_screen_rect,
+                            BoxShadowClipMode::Inset);
 
             push_border(
                 &info, 
@@ -410,25 +412,12 @@ fn push_text<T: LayoutScreen>(
         None => return,
     };
 
-    // HEAVY TODO: webrender bug -for some reason the font is rendered at the half of the expected size
-    // let font_size = font_size * 2.0 * v_scale_factor;
-    // TODO: This is a horrible hack, but it seems to work!
-
     // TODO: border 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size = Length::new(font_size.0.to_pixels());
     let font_size_app_units = (font_size.0 as i32) * AU_PER_PX;
     let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
-    let v_scale_factor;
-    {
-        let font = &app_resources.font_data[font_id].0;
-        let v_metrics = font.v_metrics_unscaled();
-        v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) / font.units_per_em() as f32;
-    }
-
-    let font_size = (font_size * 2.0) / v_scale_factor;
-    let font_size_app_units = Au((font_size_app_units as f32 * v_scale_factor) as i32);
-
+    let font_size_app_units = Au(font_size_app_units as i32);
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
     
     let font_instance_key = match font_result {
@@ -436,29 +425,49 @@ fn push_text<T: LayoutScreen>(
         None => return,
     };
 
+    // The font_size_adjustment_hack is a hack to make horizontal spacing work correctly
+    // For some reason, rusttype doesn't return the correct horizontal spacing for characters
+    let font_size_adjustment_hack = {
+        let font = &app_resources.font_data[font_id].0;
+        let v_metrics = font.v_metrics_unscaled();
+        let v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) / 
+                             font.units_per_em() as f32;
+        1.0 + ((v_scale_factor - 1.0) * 2.0)
+    };
+
     let font = &app_resources.font_data[font_id].0;
     let alignment = style.text_align.unwrap_or(TextAlignment::default());
     let overflow_behaviour = style.text_overflow.unwrap_or(TextOverflowBehaviour::default());
     let positioned_glyphs = text_layout::put_text_in_bounds(
-        text, font, font_size, alignment, overflow_behaviour, bounds);
+        text, font, font_size * font_size_adjustment_hack, alignment, overflow_behaviour, bounds);
 
+    // TODO: webrender doesn't respect the DPI of the monitor its on:
+    // 
+    // See: https://github.com/servo/webrender/pull/2597
+    // and: https://github.com/servo/webrender/issues/2596
+    
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
     let flags = FontInstanceFlags::SUBPIXEL_BGR;
     let options = GlyphOptions {
         render_mode: FontRenderMode::Subpixel,
         flags: flags,
+        dpi: Some(96),
     };
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the 
 /// shadow will not show up.
+///
+/// To prevent a shadow from being pushed twice, you have to annotate the clip
+/// mode for this - outset or inset. 
 #[inline]
 fn push_box_shadow(
     builder: &mut DisplayListBuilder, 
     style: &RectStyle, 
     bounds: &TypedRect<f32, LayerPixel>, 
-    full_screen_rect: &TypedRect<f32, LayerPixel>) 
+    full_screen_rect: &TypedRect<f32, LayerPixel>,
+    shadow_type: BoxShadowClipMode) 
 {
     let pre_shadow = match style.box_shadow {
         Some(ref ps) => ps,
@@ -468,36 +477,35 @@ fn push_box_shadow(
     // The pre_shadow is missing the BorderRadius & LayoutRect
     let border_radius = style.border_radius.unwrap_or(BorderRadius::zero());
 
-    if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
-        // inset shadows do not work like outset shadows
-        // for inset shadows, you have to push a clip ID first, so that they are 
-        // clipped to the bounds -we trust that the calling function knows to do this
-        let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), *bounds);
-        builder.push_box_shadow(&info, *bounds, pre_shadow.offset, pre_shadow.color,
-                                 pre_shadow.blur_radius, pre_shadow.spread_radius,
-                                 border_radius, pre_shadow.clip_mode);
+    if pre_shadow.clip_mode != shadow_type {
         return;
     }
 
-    // calculate the maximum extent of the outset shadow
-    let mut clip_rect = *bounds;
+    let clip_rect = if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
+        // inset shadows do not work like outset shadows
+        // for inset shadows, you have to push a clip ID first, so that they are 
+        // clipped to the bounds -we trust that the calling function knows to do this
+        *bounds
+    } else {    
+        // calculate the maximum extent of the outset shadow
+        let mut clip_rect = *bounds;
 
-    let origin_displace = pre_shadow.spread_radius - pre_shadow.blur_radius;
-    clip_rect.origin.x = clip_rect.origin.x + pre_shadow.offset.x - origin_displace;
-    clip_rect.origin.y = clip_rect.origin.y + pre_shadow.offset.y - origin_displace;
+        let origin_displace = pre_shadow.spread_radius - pre_shadow.blur_radius;
+        clip_rect.origin.x = clip_rect.origin.x + pre_shadow.offset.x - origin_displace;
+        clip_rect.origin.y = clip_rect.origin.y + pre_shadow.offset.y - origin_displace;
 
-    let spread = (pre_shadow.spread_radius * 2.0) + (pre_shadow.blur_radius * 2.0);
-    clip_rect.size.height = clip_rect.size.height + spread;
-    clip_rect.size.width = clip_rect.size.width + spread;
+        let spread = (pre_shadow.spread_radius * 2.0) + (pre_shadow.blur_radius * 2.0);
+        clip_rect.size.height = clip_rect.size.height + spread;
+        clip_rect.size.width = clip_rect.size.width + spread;
 
-    // prevent shadows that are larger than the full screen
-    let clip_rect = clip_rect.intersection(full_screen_rect).unwrap_or(clip_rect);
+        // prevent shadows that are larger than the full screen
+        clip_rect.intersection(full_screen_rect).unwrap_or(clip_rect)
+    };
 
     let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
     builder.push_box_shadow(&info, *bounds, pre_shadow.offset, pre_shadow.color,
                              pre_shadow.blur_radius, pre_shadow.spread_radius,
                              border_radius, pre_shadow.clip_mode);
-
 }
 
 #[inline]
