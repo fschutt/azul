@@ -218,16 +218,19 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         }
 
         if css.needs_relayout {
-/* 
+
+            println!("relayout!");
+
             // constraints were added or removed during the last frame
-            for rect_id in self.rectangles.keys() {
-                let mut layout_contraints = Vec::<CssConstraint>::new();
+            for (rect_idx, rect) in self.rectangles.iter() {
                 let arena = &*self.ui_descr.ui_descr_arena.borrow();
-                create_layout_constraints(&rect, arena, ui_solver);
-                let cassowary_constraints = css_constraints_to_cassowary_constraints(rect.rect, &layout_contraints);
+                let dom_hash = &ui_solver.dom_tree_cache.previous_layout.arena[*rect_idx];
+                let display_rect = ui_solver.edit_variable_cache.map[&dom_hash.data];
+                let layout_contraints = create_layout_constraints(rect, *rect_idx, arena, &ui_solver.window_dimensions);
+                let cassowary_constraints = css_constraints_to_cassowary_constraints(&display_rect.1, &layout_contraints);
                 ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
             }
-*/
+
             // if we push or pop constraints that means we also need to re-layout the window
             has_window_size_changed = true;
         }
@@ -690,27 +693,25 @@ fn parse_css_layout_properties(rect: &mut DisplayRectangle)
     rect.layout.align_content   = parse(constraint_list, "align-content", parse_layout_align_content);
 }
 
-// Adds and removes layout constraints if necessary
+// Returns the constraints for one rectangle
 fn create_layout_constraints<T>(
     rect: &DisplayRectangle, 
+    rect_id: NodeId,
     arena: &Arena<NodeData<T>>, 
-    ui_solver: &mut UiSolver<T>)
+    window_dimensions: &WindowDimensions)
+-> Vec<CssConstraint>
 where T: LayoutScreen
 {
     use css_parser;
-    // todo: put these to use!
-    let window_dimensions = &ui_solver.window_dimensions;
-    let solver = &mut ui_solver.solver;
-    let previous_layout = &mut ui_solver.solved_layout;
-
     use cassowary::strength::*;
     use constraints::{SizeConstraint, Strength};
 
-    /*
-    // centering a rectangle: 
-        center(&root),
-        bound_by(&root).padding(50.0).strength(WEAK),
-    */
+    let mut layout_constraints = Vec::<CssConstraint>::new();
+
+    layout_constraints.push(CssConstraint::Size((SizeConstraint::Width(200.0), Strength(STRONG))));
+    layout_constraints.push(CssConstraint::Size((SizeConstraint::Height(200.0), Strength(STRONG))));
+
+    layout_constraints
 }
 
 fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssConstraint>)

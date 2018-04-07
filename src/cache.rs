@@ -52,7 +52,7 @@ pub(crate) struct DomTreeCache {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DomChangeSet {
-    // todo: calculate the constraints that have to be updated
+    // TODO: calculate the constraints that have to be updated
     pub(crate) added_nodes: BTreeMap<NodeId, DomHash>,
 }
 
