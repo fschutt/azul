@@ -20,7 +20,7 @@ pub(crate) enum FontState {
 pub enum FontError {
     /// Font failed to upload to the GPU
     UploadError,
-    /// 
+    ///
     InvalidFormat,
     /// Rusttype failed to parse the font
     ParseError(RusttypeError),

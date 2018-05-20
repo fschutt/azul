@@ -29,8 +29,8 @@ pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
 
 #[derive(Debug)]
 pub(crate) struct DisplayRectangle<'a> {
-    /// `Some(id)` if this rectangle has a callback attached to it 
-    /// Note: this is not the same as the `NodeId`! 
+    /// `Some(id)` if this rectangle has a callback attached to it
+    /// Note: this is not the same as the `NodeId`!
     /// These two are completely seperate numbers!
     pub tag: Option<u64>,
     /// The original styled node
@@ -44,7 +44,7 @@ pub(crate) struct DisplayRectangle<'a> {
 /// It is not very efficient to re-create constraints on every call, the difference
 /// in performance can be huge. Without re-creating constraints, solving can take 0.3 ms,
 /// with re-creation it can take up to 9 ms. So the goal is to not re-create constraints
-/// if their contents haven't changed. 
+/// if their contents haven't changed.
 #[derive(Default)]
 pub(crate) struct SolvedLayout<T: LayoutScreen> {
     // List of previously solved constraints
@@ -74,7 +74,7 @@ impl<'a> DisplayRectangle<'a> {
 impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
-    /// 
+    ///
     /// This only looks at the user-facing styles of the `UiDescription`, not the actual
     /// layout. The layout is done only in the `into_display_list_builder` step.
     pub fn new_from_ui_description(ui_description: &'a UiDescription<T>) -> Self {
@@ -98,18 +98,18 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
     /// Looks if any new images need to be uploaded and stores the in the image resources
     fn update_resources(
-        api: &RenderApi, 
-        app_resources: &mut AppResources, 
-        resource_updates: &mut ResourceUpdates) 
+        api: &RenderApi,
+        app_resources: &mut AppResources,
+        resource_updates: &mut ResourceUpdates)
     {
         Self::update_image_resources(api, app_resources, resource_updates);
         Self::update_font_resources(api, app_resources, resource_updates);
     }
 
     fn update_image_resources(
-        api: &RenderApi, 
-        app_resources: &mut AppResources, 
-        resource_updates: &mut ResourceUpdates) 
+        api: &RenderApi,
+        app_resources: &mut AppResources,
+        resource_updates: &mut ResourceUpdates)
     {
         use images::{ImageState, ImageInfo};
 
@@ -142,20 +142,20 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         for (resource_key, (data, descriptor)) in updated_images.into_iter() {
             let key = api.generate_image_key();
             resource_updates.add_image(key, descriptor, data, None);
-            *app_resources.images.get_mut(&resource_key).unwrap() = 
-                ImageState::Uploaded(ImageInfo { 
-                    key: key, 
-                    descriptor: descriptor 
+            *app_resources.images.get_mut(&resource_key).unwrap() =
+                ImageState::Uploaded(ImageInfo {
+                    key: key,
+                    descriptor: descriptor
             });
         }
     }
 
-    // almost the same as update_image_resources, but fonts 
+    // almost the same as update_image_resources, but fonts
     // have two HashMaps that need to be updated
     fn update_font_resources(
-        api: &RenderApi, 
-        app_resources: &mut AppResources, 
-        resource_updates: &mut ResourceUpdates) 
+        api: &RenderApi,
+        app_resources: &mut AppResources,
+        resource_updates: &mut ResourceUpdates)
     {
         use font::FontState;
 
@@ -178,10 +178,10 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             }
         }
 
-        // Delete the complete font. Maybe a more granular option to 
+        // Delete the complete font. Maybe a more granular option to
         // keep the font data in memory should be added later
         for (resource_key, to_delete_instances) in to_delete_fonts.into_iter() {
-            if let Some((font_key, font_instance_keys)) = to_delete_instances {               
+            if let Some((font_key, font_instance_keys)) = to_delete_instances {
                 for instance in font_instance_keys {
                     resource_updates.delete_font_instance(instance);
                 }
@@ -200,15 +200,15 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     }
 
     pub fn into_display_list_builder(
-        &self, 
-        pipeline_id: PipelineId, 
-        ui_solver: &mut UiSolver<T>, 
+        &self,
+        pipeline_id: PipelineId,
+        ui_solver: &mut UiSolver<T>,
         css: &mut Css,
         app_resources: &mut AppResources,
         render_api: &RenderApi,
         mut has_window_size_changed: bool)
     -> Option<DisplayListBuilder>
-    {       
+    {
         let mut changeset = None;
         if let Some(root) = self.ui_descr.ui_descr_root {
             let local_changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
@@ -295,9 +295,9 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
             // Push the "outset" box shadow, before the clip is active
             push_box_shadow(
-                &mut builder, 
-                &rect.style, 
-                &bounds, 
+                &mut builder,
+                &rect.style,
+                &bounds,
                 &full_screen_rect,
                 BoxShadowClipMode::Outset);
 
@@ -316,38 +316,38 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             }
 
             push_rect(
-                &info, 
-                &mut builder, 
+                &info,
+                &mut builder,
                 &rect.style);
 
             push_background(
-                &info, 
-                &bounds, 
-                &mut builder, 
-                &rect.style, 
+                &info,
+                &bounds,
+                &mut builder,
+                &rect.style,
                 &app_resources);
 
             // push the inset shadow (if any)
-            push_box_shadow(&mut builder, 
-                            &rect.style, 
-                            &bounds, 
+            push_box_shadow(&mut builder,
+                            &rect.style,
+                            &bounds,
                             &full_screen_rect,
                             BoxShadowClipMode::Inset);
 
             push_border(
-                &info, 
-                &mut builder, 
+                &info,
+                &mut builder,
                 &rect.style);
-            
+
             push_text(
-                &info, 
-                &self, 
-                *rect_idx, 
-                &mut builder, 
-                &rect.style, 
-                app_resources, 
-                &render_api, 
-                &bounds, 
+                &info,
+                &self,
+                *rect_idx,
+                &mut builder,
+                &rect.style,
+                app_resources,
+                &render_api,
+                &bounds,
                 &mut resource_updates);
 
             // Pop clip
@@ -374,15 +374,15 @@ fn push_rect(info: &PrimitiveInfo<LayerPixel>, builder: &mut DisplayListBuilder,
 
 #[inline]
 fn push_text<T: LayoutScreen>(
-    info: &PrimitiveInfo<LayerPixel>, 
-    display_list: &DisplayList<T>, 
-    rect_idx: NodeId, 
-    builder: &mut DisplayListBuilder, 
+    info: &PrimitiveInfo<LayerPixel>,
+    display_list: &DisplayList<T>,
+    rect_idx: NodeId,
+    builder: &mut DisplayListBuilder,
     style: &RectStyle,
     app_resources: &mut AppResources,
     render_api: &RenderApi,
-    bounds: &TypedRect<f32, LayerPixel>, 
-    resource_updates: &mut ResourceUpdates) 
+    bounds: &TypedRect<f32, LayerPixel>,
+    resource_updates: &mut ResourceUpdates)
 {
     use dom::NodeType::*;
     use euclid::{TypedPoint2D, Length};
@@ -391,9 +391,9 @@ fn push_text<T: LayoutScreen>(
 
     // NOTE: If the text is outside the current bounds, webrender will not display the text, i.e. clip it
     let arena = display_list.ui_descr.ui_descr_arena.borrow();
-    
+
     let text = match arena[rect_idx].data.node_type {
-        Div => return, 
+        Div => return,
         Label { ref text } => {
             text
         },
@@ -410,19 +410,19 @@ fn push_text<T: LayoutScreen>(
         return;
     }
 
-    let font_family = match style.font_family { 
+    let font_family = match style.font_family {
         Some(ref ff) => ff,
         None => return,
     };
 
-    // TODO: border 
+    // TODO: border
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size = Length::new(font_size.0.to_pixels());
     let font_size_app_units = (font_size.0 as i32) * AU_PER_PX;
     let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
     let font_size_app_units = Au(font_size_app_units as i32);
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
-    
+
     let font_instance_key = match font_result {
         Some(f) => f,
         None => return,
@@ -433,7 +433,7 @@ fn push_text<T: LayoutScreen>(
     let font_size_adjustment_hack = {
         let font = &app_resources.font_data[font_id].0;
         let v_metrics = font.v_metrics_unscaled();
-        let v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) / 
+        let v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) /
                              font.units_per_em() as f32;
         1.0 + ((v_scale_factor - 1.0) * 2.0)
     };
@@ -445,10 +445,10 @@ fn push_text<T: LayoutScreen>(
         text, font, font_size * font_size_adjustment_hack, alignment, overflow_behaviour, bounds);
 
     // TODO: webrender doesn't respect the DPI of the monitor its on:
-    // 
+    //
     // See: https://github.com/servo/webrender/pull/2597
     // and: https://github.com/servo/webrender/issues/2596
-    
+
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
     let flags = FontInstanceFlags::SUBPIXEL_BGR;
     let options = GlyphOptions {
@@ -459,18 +459,18 @@ fn push_text<T: LayoutScreen>(
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 }
 
-/// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the 
+/// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
 /// shadow will not show up.
 ///
 /// To prevent a shadow from being pushed twice, you have to annotate the clip
-/// mode for this - outset or inset. 
+/// mode for this - outset or inset.
 #[inline]
 fn push_box_shadow(
-    builder: &mut DisplayListBuilder, 
-    style: &RectStyle, 
-    bounds: &TypedRect<f32, LayerPixel>, 
+    builder: &mut DisplayListBuilder,
+    style: &RectStyle,
+    bounds: &TypedRect<f32, LayerPixel>,
     full_screen_rect: &TypedRect<f32, LayerPixel>,
-    shadow_type: BoxShadowClipMode) 
+    shadow_type: BoxShadowClipMode)
 {
     let pre_shadow = match style.box_shadow {
         Some(ref ps) => ps,
@@ -486,10 +486,10 @@ fn push_box_shadow(
 
     let clip_rect = if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
         // inset shadows do not work like outset shadows
-        // for inset shadows, you have to push a clip ID first, so that they are 
+        // for inset shadows, you have to push a clip ID first, so that they are
         // clipped to the bounds -we trust that the calling function knows to do this
         *bounds
-    } else {    
+    } else {
         // calculate the maximum extent of the outset shadow
         let mut clip_rect = *bounds;
 
@@ -513,11 +513,11 @@ fn push_box_shadow(
 
 #[inline]
 fn push_background(
-    info: &PrimitiveInfo<LayerPixel>, 
-    bounds: &TypedRect<f32, LayerPixel>, 
-    builder: &mut DisplayListBuilder, 
+    info: &PrimitiveInfo<LayerPixel>,
+    bounds: &TypedRect<f32, LayerPixel>,
+    builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    app_resources: &AppResources) 
+    app_resources: &AppResources)
 {
     let background = match style.background {
         Some(ref bg) => bg,
@@ -568,9 +568,9 @@ fn push_background(
 
 #[inline]
 fn push_border(
-    info: &PrimitiveInfo<LayerPixel>, 
-    builder: &mut DisplayListBuilder, 
-    style: &RectStyle) 
+    info: &PrimitiveInfo<LayerPixel>,
+    builder: &mut DisplayListBuilder,
+    style: &RectStyle)
 {
     if let Some((border_widths, mut border_details)) = style.border {
         if let Some(border_radius) = style.border_radius {
@@ -586,19 +586,19 @@ use css_parser;
 
 #[inline]
 fn push_font(
-    font_id: &css_parser::Font, 
-    font_size_app_units: Au, 
-    resource_updates: &mut ResourceUpdates, 
-    app_resources: &mut AppResources, 
-    render_api: &RenderApi) 
--> Option<FontInstanceKey> 
+    font_id: &css_parser::Font,
+    font_size_app_units: Au,
+    resource_updates: &mut ResourceUpdates,
+    app_resources: &mut AppResources,
+    render_api: &RenderApi)
+-> Option<FontInstanceKey>
 {
     use font::FontState;
 
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
         println!("warning: too big or too small font size");
         return None;
-    } 
+    }
 
     let &(ref font, ref font_state) = match app_resources.font_data.get(font_id) {
         Some(f) => f,
@@ -639,20 +639,20 @@ use std::fmt::Debug;
 /// Internal helper function - gets a key from the constraint list and passes it through
 /// the parse_func - if an error occurs, then the error gets printed
 fn parse<'a, T, E: Debug>(
-    constraint_list: &'a CssConstraintList, 
-    key: &'static str, 
-    parse_func: fn(&'a str) -> Result<T, E>) 
--> Option<T> 
+    constraint_list: &'a CssConstraintList,
+    key: &'static str,
+    parse_func: fn(&'a str) -> Result<T, E>)
+-> Option<T>
 {
     #[inline(always)]
     fn print_error_debug<E: Debug>(err: &E, key: &'static str) {
         eprintln!("ERROR - invalid {:?}: {:?}", err, key);
     }
 
-    constraint_list.list.get(key).and_then(|w| parse_func(w).map_err(|e| { 
+    constraint_list.list.get(key).and_then(|w| parse_func(w).map_err(|e| {
         #[cfg(debug_assertions)]
         print_error_debug(&e, key);
-        e 
+        e
     }).ok())
 }
 
@@ -670,22 +670,22 @@ fn parse_css_style_properties(rect: &mut DisplayRectangle)
     rect.style.font_family      = parse(constraint_list, "font-family", parse_css_font_family);
     rect.style.text_overflow    = parse(constraint_list, "overflow", parse_text_overflow);
     rect.style.text_align       = parse(constraint_list, "text-align", parse_text_align);
-    
+
     if let Some(box_shadow_opt) = parse(constraint_list, "box-shadow", parse_css_box_shadow) {
         rect.style.box_shadow = box_shadow_opt;
     }
 }
 
 /// Populate and parse the CSS layout properties
-fn parse_css_layout_properties(rect: &mut DisplayRectangle) 
+fn parse_css_layout_properties(rect: &mut DisplayRectangle)
 {
     let constraint_list = &rect.styled_node.css_constraints;
-    
+
     rect.layout.width       = parse(constraint_list, "width", parse_layout_width);
     rect.layout.height      = parse(constraint_list, "height", parse_layout_height);
     rect.layout.min_width   = parse(constraint_list, "min-width", parse_layout_min_width);
     rect.layout.min_height  = parse(constraint_list, "min-height", parse_layout_min_height);
-    
+
     rect.layout.wrap            = parse(constraint_list, "flex-wrap", parse_layout_wrap);
     rect.layout.direction       = parse(constraint_list, "flex-direction", parse_layout_direction);
     rect.layout.justify_content = parse(constraint_list, "justify-content", parse_layout_justify_content);
@@ -695,9 +695,9 @@ fn parse_css_layout_properties(rect: &mut DisplayRectangle)
 
 // Returns the constraints for one rectangle
 fn create_layout_constraints<T>(
-    rect: &DisplayRectangle, 
+    rect: &DisplayRectangle,
     rect_id: NodeId,
-    arena: &Arena<NodeData<T>>, 
+    arena: &Arena<NodeData<T>>,
     window_dimensions: &WindowDimensions)
 -> Vec<CssConstraint>
 where T: LayoutScreen
@@ -721,11 +721,11 @@ fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssCon
 
     css.iter().flat_map(|constraint|
         match *constraint {
-            Size((constraint, strength)) => { 
-                constraint.build(&rect, strength.0) 
+            Size((constraint, strength)) => {
+                constraint.build(&rect, strength.0)
             }
-            Padding((constraint, strength, padding)) => { 
-                constraint.build(&rect, strength.0, padding.0) 
+            Padding((constraint, strength, padding)) => {
+                constraint.build(&rect, strength.0, padding.0)
             }
         }
     ).collect()

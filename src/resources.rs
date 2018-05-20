@@ -12,14 +12,14 @@ use css_parser;
 use css_parser::Font::ExternalFont;
 
 /// Font and image keys
-/// 
+///
 /// The idea is that azul doesn't know where the resources come from,
 /// whether they are loaded from the network or a disk.
-/// Fonts and images must be added and removed dynamically. If you have a 
+/// Fonts and images must be added and removed dynamically. If you have a
 /// fonts that should be always accessible, then simply add them before the app
-/// starts up. 
+/// starts up.
 ///
-/// Images and fonts can be references across window contexts 
+/// Images and fonts can be references across window contexts
 /// (not yet tested, but should work).
 #[derive(Default, Clone)]
 pub(crate) struct AppResources<'a> {
@@ -28,7 +28,7 @@ pub(crate) struct AppResources<'a> {
     // Fonts are trickier to handle than images.
     // First, we duplicate the font - webrender wants the raw font data,
     // but we also need access to the font metrics. So we first parse the font
-    // to make sure that nothing is going wrong. In the next draw call, we 
+    // to make sure that nothing is going wrong. In the next draw call, we
     // upload the font and replace the FontState with the newly created font key
     pub(crate) font_data: FastHashMap<css_parser::Font, (::rusttype::Font<'a>, FontState)>,
     // After we've looked up the FontKey in the font_data map, we can then access
@@ -40,7 +40,7 @@ pub(crate) struct AppResources<'a> {
 impl<'a> AppResources<'a> {
 
     /// See `AppState::add_image()`
-    pub(crate) fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType) 
+    pub(crate) fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
         use images; // the module, not the crate!
@@ -59,8 +59,8 @@ impl<'a> AppResources<'a> {
     }
 
     /// See `AppState::delete_image()`
-    pub(crate) fn delete_image<S: AsRef<str>>(&mut self, id: S) 
-        -> Option<()> 
+    pub(crate) fn delete_image<S: AsRef<str>>(&mut self, id: S)
+        -> Option<()>
     {
         match self.images.get_mut(id.as_ref()) {
             None => None,
@@ -78,8 +78,8 @@ impl<'a> AppResources<'a> {
     }
 
     /// See `AppState::has_image()`
-    pub(crate) fn has_image<S: AsRef<str>>(&mut self, id: S) 
-        -> bool 
+    pub(crate) fn has_image<S: AsRef<str>>(&mut self, id: S)
+        -> bool
     {
         self.images.get(id.as_ref()).is_some()
     }
@@ -103,14 +103,14 @@ impl<'a> AppResources<'a> {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub(crate) fn has_font<S: Into<String>>(&mut self, id: S) 
-        -> bool 
+    pub(crate) fn has_font<S: Into<String>>(&mut self, id: S)
+        -> bool
     {
         self.font_data.get(&ExternalFont(id.into())).is_some()
     }
 
     /// See `AppState::delete_font()`
-    pub(crate) fn delete_font<S: Into<String>>(&mut self, id: S) 
+    pub(crate) fn delete_font<S: Into<String>>(&mut self, id: S)
         -> Option<()>
     {
         // TODO: can fonts that haven't been uploaded yet be deleted?

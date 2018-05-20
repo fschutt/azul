@@ -56,7 +56,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
         }
     }
 
-    /// Spawn a new window on the screen. If an application has no windows, 
+    /// Spawn a new window on the screen. If an application has no windows,
     /// the [`run`](#method.run) function will exit immediately.
     pub fn create_window(&mut self, options: WindowCreateOptions, css: Css) -> Result<(), WindowCreateError> {
         self.windows.push(Window::new(options, css)?);
@@ -65,14 +65,14 @@ impl<'a, T: LayoutScreen> App<'a, T> {
 
     /// Start the rendering loop for the currently open windows
     /// This is the "main app loop", "main game loop" or whatever you want to call it.
-    /// Usually this is the last function you call in your `main()` function, since exiting 
+    /// Usually this is the last function you call in your `main()` function, since exiting
     /// it means that the user has closed all windows and wants to close the app.
     pub fn run(&mut self)
     {
         let mut ui_state_cache = Vec::with_capacity(self.windows.len());
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
 
-        // first redraw, initialize cache  
+        // first redraw, initialize cache
         {
             let mut app_state = self.app_state.lock().unwrap();
             for (idx, _) in self.windows.iter().enumerate() {
@@ -82,17 +82,17 @@ impl<'a, T: LayoutScreen> App<'a, T> {
             // First repaint, otherwise the window would be black on startup
             for (idx, window) in self.windows.iter_mut().enumerate() {
                 ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                render(window, &WindowId { id: idx, }, 
-                      &ui_description_cache[idx], 
-                      &mut app_state.resources, 
+                render(window, &WindowId { id: idx, },
+                      &ui_description_cache[idx],
+                      &mut app_state.resources,
                       true);
                 window.display.swap_buffers().unwrap();
             }
-        }      
+        }
 
         'render_loop: loop {
 
-            use webrender::api::{DeviceUintSize, WorldPoint, DeviceUintPoint, 
+            use webrender::api::{DeviceUintSize, WorldPoint, DeviceUintPoint,
                                  DeviceUintRect, LayoutSize, Transaction};
             use dom::UpdateScreen;
 
@@ -126,9 +126,9 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                     let cursor_x = frame_event_info.cur_cursor_pos.0 as f32;
                     let cursor_y = frame_event_info.cur_cursor_pos.1 as f32;
                     let point = WorldPoint::new(cursor_x, cursor_y);
-                    let hit_test_results = hit_test_ui(&window.internal.api, 
+                    let hit_test_results = hit_test_ui(&window.internal.api,
                                                         window.internal.document_id,
-                                                        Some(window.internal.pipeline_id), 
+                                                        Some(window.internal.pipeline_id),
                                                         point);
 
                     let mut should_update_screen = UpdateScreen::DontRedraw;
@@ -144,7 +144,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                                     Sync(callback) => { (callback)(&mut *self.app_state.lock().unwrap()) },
                                     Async(callback) => { (callback)(self.app_state.clone()) },
                                 };
-                                if update == UpdateScreen::Redraw { 
+                                if update == UpdateScreen::Redraw {
                                     should_update_screen = UpdateScreen::Redraw;
                                 }
                             }
@@ -169,15 +169,15 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                     () => (
                         let mut txn = Transaction::new();
                         let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
-                        
+
                         txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
                         window.internal.api.send_transaction(window.internal.document_id, txn);
-                        render(window, 
-                               &current_window_id, 
-                               &ui_description_cache[idx], 
-                               &mut app_state.resources, 
+                        render(window,
+                               &current_window_id,
+                               &ui_description_cache[idx],
+                               &mut app_state.resources,
                                true);
-                        
+
                         let time_end = ::std::time::Instant::now();
                         debug_has_repainted = Some(time_end - time_start);
                     )
@@ -198,10 +198,10 @@ impl<'a, T: LayoutScreen> App<'a, T> {
 
                 if frame_event_info.should_redraw_window {
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                    render(window, 
-                           &current_window_id, 
-                           &ui_description_cache[idx], 
-                           &mut app_state.resources, 
+                    render(window,
+                           &current_window_id,
+                           &ui_description_cache[idx],
+                           &mut app_state.resources,
                            frame_event_info.new_window_size.is_some());
 
                     let time_end = ::std::time::Instant::now();
@@ -231,11 +231,11 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// Add an image to the internal resources
     ///
     /// ## Returns
-    /// 
-    /// - `Ok(Some(()))` if an image with the same ID already exists. 
+    ///
+    /// - `Ok(Some(()))` if an image with the same ID already exists.
     /// - `Ok(None)` if the image was added, but didn't exist previously.
-    /// - `Err(e)` if the image couldn't be decoded 
-    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType) 
+    /// - `Err(e)` if the image couldn't be decoded
+    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
         (*self.app_state.lock().unwrap()).add_image(id, data, image_type)
@@ -244,15 +244,15 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) 
-        -> Option<()> 
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
+        -> Option<()>
     {
         (*self.app_state.lock().unwrap()).delete_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S) 
-        -> bool 
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S)
+        -> bool
     {
         (*self.app_state.lock().unwrap()).has_image(id)
     }
@@ -260,10 +260,10 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// Add a font (TTF or OTF) as a resource, identified by ID
     ///
     /// ## Returns
-    /// 
-    /// - `Ok(Some(()))` if an font with the same ID already exists. 
+    ///
+    /// - `Ok(Some(()))` if an font with the same ID already exists.
     /// - `Ok(None)` if the font was added, but didn't exist previously.
-    /// - `Err(e)` if the font couldn't be decoded 
+    /// - `Err(e)` if the font couldn't be decoded
     pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
         -> Result<Option<()>, FontError>
     {
@@ -271,18 +271,18 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font<S: Into<String>>(&mut self, id: S) 
-        -> bool 
+    pub fn has_font<S: Into<String>>(&mut self, id: S)
+        -> bool
     {
         (*self.app_state.lock().unwrap()).has_font(id)
     }
 
-    /// Deletes a font from the internal app resources. 
-    /// 
+    /// Deletes a font from the internal app resources.
+    ///
     /// ## Arguments
-    /// 
+    ///
     /// - `id`: The stringified ID of the font to remove, e.g. `"Helvetica-Bold"`.
-    /// 
+    ///
     /// ## Returns
     ///
     /// - `Some(())` if if the image existed and was successfully removed
@@ -295,15 +295,15 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// Use with care.
     ///
     /// ## Example
-    /// 
+    ///
     #[cfg_attr(feature = "no-opengl-tests", doc = " ```no_run")]
     #[cfg_attr(not(feature = "no-opengl-tests"), doc = " ```")]
     /// # use azul::prelude::*;
     /// # const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
-    /// # 
+    /// #
     /// # struct MyAppData { }
-    /// # 
-    /// # impl LayoutScreen for MyAppData { 
+    /// #
+    /// # impl LayoutScreen for MyAppData {
     /// #     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
     /// #         Dom::new(NodeType::Div)
     /// #    }
@@ -318,20 +318,20 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// assert!(!app.has_font("Webly Sleeky UI"));
     /// # }
     /// ```
-    /// 
+    ///
     /// [`AppState::delete_font`]: ../app_state/struct.AppState.html#method.delete_font
-    pub fn delete_font<S: Into<String>>(&mut self, id: S) 
+    pub fn delete_font<S: Into<String>>(&mut self, id: S)
         -> Option<()>
     {
         (*self.app_state.lock().unwrap()).delete_font(id)
     }
 
     /// Mock rendering function, for creating a hidden window and rendering one frame
-    /// Used in unit tests. You **have** to enable software rendering, otherwise, 
+    /// Used in unit tests. You **have** to enable software rendering, otherwise,
     /// this function won't work in a headless environment.
     ///
-    /// **NOTE**: In a headless environment, such as Travis, you have to use XVFB to 
-    /// create a fake X11 server. XVFB also has a bug where it loads with the default of 
+    /// **NOTE**: In a headless environment, such as Travis, you have to use XVFB to
+    /// create a fake X11 server. XVFB also has a bug where it loads with the default of
     /// 8-bit greyscale color (see [here]). In order to fix that, you have to run:
     ///
     /// `xvfb-run --server-args "-screen 0 1920x1080x24" cargo test --features "doc-test"`
@@ -341,7 +341,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     #[cfg(any(feature = "doc-test"))]
     pub fn mock_render_frame(&mut self) {
         use prelude::*;
-        let hidden_create_options = WindowCreateOptions { 
+        let hidden_create_options = WindowCreateOptions {
             class: WindowClass::Hidden,
             /// force sofware renderer (OSMesa)
             renderer_type: RendererType::Software,
@@ -358,9 +358,9 @@ impl<'a, T: LayoutScreen> App<'a, T> {
 
         for (idx, window) in self.windows.iter_mut().enumerate() {
             ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-            render(window, &WindowId { id: idx, }, 
-                  &ui_description_cache[idx], 
-                  &mut app_state.resources, 
+            render(window, &WindowId { id: idx, },
+                  &ui_description_cache[idx],
+                  &mut app_state.resources,
                   true);
             window.display.swap_buffers().unwrap();
         }
@@ -413,23 +413,23 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
 
 fn render<T: LayoutScreen>(
     window: &mut Window<T>,
-    _window_id: &WindowId, 
-    ui_description: &UiDescription<T>, 
-    app_resources: &mut AppResources, 
-    has_window_size_changed: bool) 
+    _window_id: &WindowId,
+    ui_description: &UiDescription<T>,
+    app_resources: &mut AppResources,
+    has_window_size_changed: bool)
 {
     use webrender::api::*;
     use display_list::DisplayList;
-    
+
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(
-        window.internal.pipeline_id, 
-        &mut window.solver, 
-        &mut window.css, 
+        window.internal.pipeline_id,
+        &mut window.solver,
+        &mut window.css,
         app_resources,
         &window.internal.api,
         has_window_size_changed);
-    
+
     if let Some(new_builder) = builder {
         // only finalize the list if we actually need to. Otherwise just redraw the last display list
         window.internal.last_display_list_builder = new_builder.finalize().2;
@@ -437,14 +437,14 @@ fn render<T: LayoutScreen>(
 
     let resources = ResourceUpdates::new();
     let mut txn = Transaction::new();
-    
+
     // TODO: something is wrong, the redraw times increase, even if the same display list is redrawn
     txn.set_display_list(
         window.internal.epoch,
         None,
         window.internal.layout_size,
-        (window.internal.pipeline_id, 
-         window.solver.window_dimensions.layout_size, 
+        (window.internal.pipeline_id,
+         window.solver.window_dimensions.layout_size,
          window.internal.last_display_list_builder.clone()),
         true,
     );
