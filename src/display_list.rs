@@ -18,6 +18,7 @@ use cache::DomChangeSet;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
+use css_parser;
 
 const DEFAULT_FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
 const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("sans-serif");
@@ -218,8 +219,6 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         }
 
         if css.needs_relayout {
-
-            println!("relayout!");
 
             // constraints were added or removed during the last frame
             for (rect_idx, rect) in self.rectangles.iter() {
@@ -582,8 +581,6 @@ fn push_border(
     }
 }
 
-use css_parser;
-
 #[inline]
 fn push_font(
     font_id: &css_parser::Font,
@@ -596,7 +593,7 @@ fn push_font(
     use font::FontState;
 
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
-        println!("warning: too big or too small font size");
+        eprintln!("warning: too big or too small font size");
         return None;
     }
 
@@ -627,7 +624,7 @@ fn push_font(
             Some(*font_instance_key)
         },
         _ => {
-            println!("warning: trying to use font {:?} that isn't available", font_id);
+            eprintln!("warning: trying to use font {:?} that isn't available", font_id);
             None
         },
     }
