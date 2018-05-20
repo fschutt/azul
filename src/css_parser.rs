@@ -9,7 +9,7 @@ use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;
 
-// In case no font size is specified for a node, this will be subsituted as the 
+// In case no font size is specified for a node, this will be subsituted as the
 // default font size
 pub(crate) const DEFAULT_FONT_SIZE: FontSize = FontSize(PixelValue {
     metric: CssMetric::Px,
@@ -52,7 +52,7 @@ macro_rules! typed_pixel_value_parser {
     )
 }
 
-/// Simple "invalid value" error, used for 
+/// Simple "invalid value" error, used for
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
@@ -993,7 +993,7 @@ pub fn parse_css_background<'a>(input: &'a str)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct CssImageId<'a>(pub(crate) &'a str); 
+pub struct CssImageId<'a>(pub(crate) &'a str);
 
 impl<'a> From<QuoteStripped<'a>> for CssImageId<'a> {
     fn from(input: QuoteStripped<'a>) -> Self {
@@ -1002,7 +1002,7 @@ impl<'a> From<QuoteStripped<'a>> for CssImageId<'a> {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str); 
+pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str);
 
 fn parse_image<'a>(input: &'a str) -> Result<CssImageId<'a>, CssImageParseError<'a>> {
     Ok(strip_quotes(input)?.into())
@@ -1011,7 +1011,7 @@ fn parse_image<'a>(input: &'a str) -> Result<CssImageId<'a>, CssImageParseError<
 /// Strip quotes from an input, given that both quotes use either `"` or `'`, but not both.
 ///
 /// Example:
-/// 
+///
 /// `"Helvetica"` - valid
 /// `'Helvetica'` - valid
 /// `'Helvetica"` - invalid
@@ -1210,13 +1210,13 @@ pub enum LayoutWrap {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutJustifyContent {
-    /// Default value. Items are positioned at the beginning of the container   
+    /// Default value. Items are positioned at the beginning of the container
     Start,
-    /// Items are positioned at the end of the container    
+    /// Items are positioned at the end of the container
     End,
-    /// Items are positioned at the center of the container 
+    /// Items are positioned at the center of the container
     Center,
-    /// Items are positioned with space between the lines   
+    /// Items are positioned with space between the lines
     SpaceBetween,
     /// Items are positioned with space before, between, and after the lines
     SpaceAround,
@@ -1224,29 +1224,29 @@ pub enum LayoutJustifyContent {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutAlignItems {
-    /// Items are stretched to fit the container   
+    /// Items are stretched to fit the container
     Stretch,
-    /// Items are positioned at the center of the container 
+    /// Items are positioned at the center of the container
     Center,
-    /// Items are positioned at the beginning of the container  
+    /// Items are positioned at the beginning of the container
     Start,
-    /// Items are positioned at the end of the container    
+    /// Items are positioned at the end of the container
     End,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutAlignContent {
-    /// Default value. Lines stretch to take up the remaining space 
+    /// Default value. Lines stretch to take up the remaining space
     Stretch,
     /// Lines are packed toward the center of the flex container
     Center,
-    /// Lines are packed toward the start of the flex container 
+    /// Lines are packed toward the start of the flex container
     Start,
-    /// Lines are packed toward the end of the flex container   
+    /// Lines are packed toward the end of the flex container
     End,
-    /// Lines are evenly distributed in the flex container  
+    /// Lines are evenly distributed in the flex container
     SpaceBetween,
-    /// Lines are evenly distributed in the flex container, with half-size spaces on either end 
+    /// Lines are evenly distributed in the flex container, with half-size spaces on either end
     SpaceAround,
 }
 
@@ -1365,7 +1365,7 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Fo
 
     for font in multiple_fonts {
         let font = font.trim();
-        
+
         let mut double_quote_iter = font.splitn(2, '"');
         double_quote_iter.next();
         let mut single_quote_iter = font.splitn(2, '\'');
@@ -1389,48 +1389,48 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Fo
     })
 }
 
-multi_type_parser!(parse_layout_direction, LayoutDirection, 
-                    ["row", Horizontal], 
+multi_type_parser!(parse_layout_direction, LayoutDirection,
+                    ["row", Horizontal],
                     ["column", Vertical]);
 
-multi_type_parser!(parse_layout_wrap, LayoutWrap, 
-                    ["wrap", Wrap], 
+multi_type_parser!(parse_layout_wrap, LayoutWrap,
+                    ["wrap", Wrap],
                     ["nowrap", NoWrap]);
 
-multi_type_parser!(parse_layout_justify_content, LayoutJustifyContent, 
-                    ["start", Start], 
-                    ["end", End], 
-                    ["center", Center], 
-                    ["space-between", SpaceBetween], 
+multi_type_parser!(parse_layout_justify_content, LayoutJustifyContent,
+                    ["start", Start],
+                    ["end", End],
+                    ["center", Center],
+                    ["space-between", SpaceBetween],
                     ["space-around", SpaceAround]);
 
-multi_type_parser!(parse_layout_align_items, LayoutAlignItems, 
-                    ["stretch", Stretch], 
-                    ["start", Start], 
-                    ["end", End], 
+multi_type_parser!(parse_layout_align_items, LayoutAlignItems,
+                    ["stretch", Stretch],
+                    ["start", Start],
+                    ["end", End],
                     ["center", Center]);
 
-multi_type_parser!(parse_layout_align_content, LayoutAlignContent, 
-                    ["stretch", Stretch], 
-                    ["start", Start], 
-                    ["end", End], 
-                    ["center", Center], 
-                    ["space-between", SpaceBetween], 
+multi_type_parser!(parse_layout_align_content, LayoutAlignContent,
+                    ["stretch", Stretch],
+                    ["start", Start],
+                    ["end", End],
+                    ["center", Center],
+                    ["space-between", SpaceBetween],
                     ["space-around", SpaceAround]);
 
-multi_type_parser!(parse_shape, Shape, 
-                    ["circle", Circle], 
+multi_type_parser!(parse_shape, Shape,
+                    ["circle", Circle],
                     ["ellipse", Ellipse]);
 
-multi_type_parser!(parse_text_overflow, TextOverflowBehaviour, 
-                    ["auto", Auto], 
-                    ["scroll", Scroll], 
-                    ["visible", Visible], 
+multi_type_parser!(parse_text_overflow, TextOverflowBehaviour,
+                    ["auto", Auto],
+                    ["scroll", Scroll],
+                    ["visible", Visible],
                     ["hidden", Hidden]);
 
-multi_type_parser!(parse_text_align, TextAlignment, 
-                    ["center", Center], 
-                    ["left", Left], 
+multi_type_parser!(parse_text_align, TextAlignment,
+                    ["center", Center],
+                    ["left", Left],
                     ["right", Right]);
 
 #[cfg(test)]

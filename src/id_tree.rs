@@ -34,12 +34,12 @@ impl<T: fmt::Debug> fmt::Debug for Node<T> {
                        first_child: {:?}, \
                        last_child: {:?}, \
                        data: {:?}, \
-                   }}", 
-                   self.parent, 
-                   self.previous_sibling, 
-                   self.next_sibling, 
-                   self.first_child, 
-                   self.last_child, 
+                   }}",
+                   self.parent,
+                   self.previous_sibling,
+                   self.next_sibling,
+                   self.first_child,
+                   self.last_child,
                    self.data)
     }
 }
@@ -67,7 +67,7 @@ impl<T: Hash> Hash for Arena<T> {
 }
 
 impl<T> Arena<T> {
-    
+
     /// Transform keeps the relative order of parents / children
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
@@ -112,7 +112,7 @@ impl<T> Arena<T> {
         }
     }
 
-    // Useful for debugging - returns how many 
+    // Useful for debugging - returns how many
     // nodes there are in the arena
     pub fn nodes_len(&self) -> usize {
         self.nodes.len()
@@ -127,7 +127,7 @@ impl<T: Copy> Arena<T> {
     #[inline]
     pub fn get_all_node_ids(&self) -> BTreeMap<NodeId, T> {
         use std::iter::FromIterator;
-        BTreeMap::from_iter(self.nodes.iter().enumerate().map(|(i, node)| 
+        BTreeMap::from_iter(self.nodes.iter().enumerate().map(|(i, node)|
             (NodeId { index: i }, node.data)
         ))
     }
@@ -626,7 +626,7 @@ mod id_tree_tests {
 
     #[test]
     fn children_ordering() {
-        
+
         let arena = &mut Arena::new();
         let root = arena.new_node("".to_string());
 

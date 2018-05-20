@@ -16,13 +16,30 @@ impl LayoutScreen for MyAppData {
 
     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
 
-        let mut dom = Dom::new(NodeType::Div);
+        let mut dom = Dom::new(NodeType::Label {
+            text: String::from(/*"\
+                Lorem ipsum dolor sit amet, \
+                consetetur sadipscing elitr, sed diam \
+                nonumy eirmod tempor invidunt ut \
+                labore et dolore magna aliquyam \
+                erat, sed diam voluptua. At vero eos \
+                et accusam et justo duo dolores et ea \
+                rebum. Stet clita kasd gubergren, no \
+                sea takimata sanctus est Lorem ipsum \
+                dolor sit amet. Lorem ipsum dolor sit \
+                amet, consetetur sadipscing elitr, sed diam \
+                nonumy eirmod tempor invidunt \
+                ut labore et dolore magna aliquyam \
+                \
+                erat, sed diam voluptua. At vero eos \
+                et accusam et justo duo dolores et ea rebum. \
+                Stet clita kasd gubergren, no sea takimata \
+                sanctus est Lorem ipsum dolor sit amet."*/ "Azul"),
+        });
         dom.class("__azul-native-button");
         dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
-        
-        dom.add_sibling(Dom::new(NodeType::Label { 
-            text: String::from("Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet."),
-        }));
+
+        // dom.add_sibling(Dom::new(NodeType::));
 
         dom
     }
@@ -30,7 +47,7 @@ impl LayoutScreen for MyAppData {
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
     app_state.data.my_data += 1;
-    UpdateScreen::Redraw
+    UpdateScreen::DontRedraw
 }
 
 fn main() {
@@ -42,7 +59,7 @@ fn main() {
     };
 
     let mut app = App::new(my_app_data);
-    
+
     app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
     // app.delete_font("Webly Sleeky UI");
 

@@ -3,7 +3,7 @@ use euclid::{Length, TypedRect, TypedPoint2D};
 use rusttype::{Font, Scale};
 use css_parser::{TextAlignment, TextOverflowBehaviour};
 
-/// Lines is responsible for layouting the lines of the rectangle to 
+/// Lines is responsible for layouting the lines of the rectangle to
 struct Lines<'a> {
     align: TextAlignment,
     max_lines_before_overflow: usize,
@@ -26,11 +26,11 @@ pub(crate) enum TextOverflow {
 
 impl<'a> Lines<'a> {
     pub(crate) fn from_bounds(
-        bounds: &TypedRect<f32, LayerPixel>, 
-        alignment: TextAlignment, 
-        font: &'a Font<'a>, 
-        font_size: Length<f32, LayerPixel>) 
-    -> Self 
+        bounds: &TypedRect<f32, LayerPixel>,
+        alignment: TextAlignment,
+        font: &'a Font<'a>,
+        font_size: Length<f32, LayerPixel>)
+    -> Self
     {
         let max_lines_before_overflow = (bounds.size.height / font_size.0).floor() as usize;
         let max_horizontal_width = Length::new(bounds.size.width);
@@ -52,14 +52,14 @@ impl<'a> Lines<'a> {
         }
     }
 
-    /// NOTE: The glyphs are in the space of the bounds, not of the layer! 
+    /// NOTE: The glyphs are in the space of the bounds, not of the layer!
     /// You'd need to offset them by `bounds.origin` to get the correct position
-    /// 
+    ///
     /// This function will only process the glyphs until the overflow.
-    /// 
+    ///
     /// TODO: Only process the glyphs until the screen height is filled
     pub(crate) fn get_glyphs(&mut self, text: &str, _overflow_behaviour: TextOverflowBehaviour) -> (Vec<GlyphInstance>, TextOverflow) {
-        
+
         use unicode_normalization::UnicodeNormalization;
         use rusttype::Point;
 
@@ -86,7 +86,7 @@ impl<'a> Lines<'a> {
                 let index = 0; //< face index in the font file
                 let face = Face::from_file(path, index).unwrap();
                 let mut font = Font::new(face);
-            
+
                 // Use RustType as provider for font information that harfbuzz needs.
                 // You can also use a custom font implementation. For more information look
                 // at the documentation for `FontFuncs`.
@@ -115,12 +115,12 @@ impl<'a> Lines<'a> {
         // TODO: estimate how much of the text is going to fit into the rectangle
         let mut words = Vec::new();
 
-        {        
+        {
             for line in text.lines() {
                 for word in line.split_whitespace() {
 
                     let mut caret = 0.0;
-                    let mut cur_word_length = 0.0;     
+                    let mut cur_word_length = 0.0;
                     let mut glyphs_in_this_word = Vec::new();
                     let mut last_glyph = None;
 
@@ -131,7 +131,7 @@ impl<'a> Lines<'a> {
                             caret += self.font.pair_kerning(self.font_size, last, g.id());
                         }
                         let g = g.positioned(Point { x: caret, y: 0.0 });
-                        last_glyph = Some(id);        
+                        last_glyph = Some(id);
                         let horiz_advance = g.unpositioned().h_metrics().advance_width;
                         caret += horiz_advance;
                         cur_word_length += horiz_advance;
@@ -152,7 +152,7 @@ impl<'a> Lines<'a> {
         }
 
         // Alignment + Knuth-Plass
-        
+
         // Final positioning
         let mut positioned_glyphs = Vec::new();
         {
@@ -189,13 +189,13 @@ impl<'a> Lines<'a> {
 
 #[inline]
 pub(crate) fn put_text_in_bounds<'a>(
-    text: &str, 
-    font: &Font<'a>, 
-    font_size: Length<f32, LayerPixel>, 
+    text: &str,
+    font: &Font<'a>,
+    font_size: Length<f32, LayerPixel>,
     alignment: TextAlignment,
     overflow_behaviour: TextOverflowBehaviour,
-    bounds: &TypedRect<f32, LayerPixel>) 
--> Vec<GlyphInstance> 
+    bounds: &TypedRect<f32, LayerPixel>)
+-> Vec<GlyphInstance>
 {
     let mut lines = Lines::from_bounds(bounds, alignment, font, font_size);
     let (glyphs, overflow) = lines.get_glyphs(text, overflow_behaviour);

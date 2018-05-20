@@ -17,7 +17,7 @@ pub enum ImageType {
     Tga,
     Tiff,
     WebP,
-    /// Try to guess the image format, unknown data 
+    /// Try to guess the image format, unknown data
     GuessImageFormat,
 }
 
@@ -59,17 +59,17 @@ impl ImageType {
     }
 }
 
-// The next three functions are taken from: 
+// The next three functions are taken from:
 // https://github.com/christolliday/limn/blob/master/core/src/resources/image.rs
 
 use std::path::Path;
 
 /// Convenience function to get the image type from a path
-/// 
+///
 /// This function looks at the extension of the image. However, this
 /// extension could be wrong, i.e. a user labeling a PNG as a JPG and so on.
 /// If you don't know the format of the image, simply use Image::GuessImageType
-/// - which will guess the type of the image from the magic header in the 
+/// - which will guess the type of the image from the magic header in the
 /// actual image data.
 pub fn get_image_type_from_extension(path: &Path) -> Option<ImageType> {
     let ext = path.extension().and_then(|s| s.to_str())
@@ -95,8 +95,8 @@ pub fn get_image_type_from_extension(path: &Path) -> Option<ImageType> {
     }
 }
 
-pub(crate) fn prepare_image(image_decoded: DynamicImage) 
-    -> Result<(ImageData, ImageDescriptor), ImageError> 
+pub(crate) fn prepare_image(image_decoded: DynamicImage)
+    -> Result<(ImageData, ImageDescriptor), ImageError>
 {
     let image_dims = image_decoded.dimensions();
 

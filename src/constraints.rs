@@ -34,7 +34,7 @@ impl Default for DisplayRect {
 }
 
 impl DisplayRect {
-    
+
     pub fn add_to_solver(&self, solver: &mut Solver) {
         solver.add_edit_variable(self.left, WEAK).unwrap_or_else(|_e| { });
         solver.add_edit_variable(self.top, WEAK).unwrap_or_else(|_e| { });

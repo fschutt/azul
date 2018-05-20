@@ -10,12 +10,12 @@ const NATIVE_CSS_MACOS: &str = include_str!("../assets/native_macos.css");
 
 /// All the keys that, when changed, can trigger a re-layout
 const RELAYOUT_RULES: [&str;11] = [
-    "border", "width", "height", "min-width", "min-height", 
+    "border", "width", "height", "min-width", "min-height",
     "direction", "wrap", "justify-content", "align-items", "align-content",
     "order"
 ];
 
-/// Wrapper for a `Vec<CssRule>`. Fields are private, because the `Css` 
+/// Wrapper for a `Vec<CssRule>`. Fields are private, because the `Css`
 /// struct does caching - each time you add / subtract a `Css`, it is checked
 /// if the added / removed CSS rules change the actual layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,11 +23,11 @@ pub struct Css {
     // NOTE: Each time the rules are modified, the `dirty` flag
     // has to be set accordingly for the CSS to update!
     pub(crate) rules: Vec<CssRule>,
-    /// 
+    ///
     pub(crate) is_dirty: bool,
     /// Has the CSS changed in a way where it needs a re-layout?
-    /// 
-    /// Ex. if only a background color has changed, we need to redraw, but we 
+    ///
+    /// Ex. if only a background color has changed, we need to redraw, but we
     /// don't need to re-layout the frame
     pub(crate) needs_relayout: bool,
 }
@@ -43,10 +43,10 @@ pub enum CssParseError {
     MalformedCss,
 }
 
-/// Rule that applies to some "path" in the CSS, i.e. 
+/// Rule that applies to some "path" in the CSS, i.e.
 /// `div#myid.myclass -> ("justify-content", "center")`
-/// 
-/// The CSS rule is currently not cascaded, use `Css::new_from_string()` 
+///
+/// The CSS rule is currently not cascaded, use `Css::new_from_string()`
 /// to do the cascading.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CssRule {
@@ -165,7 +165,7 @@ impl Css {
         Ok(Self {
             rules: css_rules,
             // force repaint for the first frame
-            is_dirty: true, 
+            is_dirty: true,
             // force re-layout for the first frame
             needs_relayout: true,
         })
@@ -212,8 +212,8 @@ impl Add for Css {
     fn add(mut self, mut other: Css) -> Css {
         let needs_relayout = if !other.needs_relayout {
             other.rules.iter().any(|r| r.needs_relayout())
-        } else { 
-            other.needs_relayout 
+        } else {
+            other.needs_relayout
         };
 
         self.rules.append(&mut other.rules);

@@ -61,7 +61,7 @@ pub struct WindowCreateOptions {
     pub size: WindowPlacement,
     /// What type of window (full screen, popup, normal)
     pub class: WindowClass,
-    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer? 
+    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
 }
 
@@ -84,18 +84,18 @@ impl Default for WindowCreateOptions {
     }
 }
 
-/// Force a specific renderer. 
-/// By default, azul will try to use the hardware renderer and fall 
-/// back to the software renderer if it can't create an OpenGL 3.2 context. 
+/// Force a specific renderer.
+/// By default, azul will try to use the hardware renderer and fall
+/// back to the software renderer if it can't create an OpenGL 3.2 context.
 /// However, in some cases a hardware renderer might create problems
-/// or you want to force either a software or hardware renderer. 
+/// or you want to force either a software or hardware renderer.
 ///
-/// If the field `renderer_type` on the `WindowCreateOptions` is not 
+/// If the field `renderer_type` on the `WindowCreateOptions` is not
 /// `RendererType::Default`, the `create_window` method will try to create
 /// a window with the specific renderer type and **crash** if the renderer is
 /// not available for whatever reason.
 ///
-/// If you don't know what any of this means, leave it at `Default`. 
+/// If you don't know what any of this means, leave it at `Default`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RendererType {
     Default,
@@ -134,7 +134,7 @@ impl Default for WindowDecorations {
     }
 }
 
-/// Where the window should be positioned, 
+/// Where the window should be positioned,
 /// from the top left corner of the screen
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct WindowPlacement {
@@ -155,7 +155,7 @@ impl Default for WindowPlacement {
     }
 }
 
-/// What class the window should have (important for window managers). 
+/// What class the window should have (important for window managers).
 /// Currently not in use.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum WindowClass {
@@ -388,7 +388,7 @@ pub(crate) struct WindowDimensions {
 
 impl WindowDimensions {
     pub fn new_from_layout_size(layout_size: LayoutSize) -> Self {
-        Self { 
+        Self {
             layout_size: layout_size,
             width_var: Variable::new(),
             height_var: Variable::new(),
@@ -565,7 +565,7 @@ impl<T: LayoutScreen> Window<T> {
             },
             Default => {
                 // try hardware first, fall back to software
-                Renderer::new(gl.clone(), notifier.clone(), opts_native).or_else(|_| 
+                Renderer::new(gl.clone(), notifier.clone(), opts_native).or_else(|_|
                 Renderer::new(gl, notifier, opts_osmesa)).unwrap()
             }
         };

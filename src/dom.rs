@@ -13,7 +13,7 @@ use webrender::api::ColorU;
 pub(crate) static mut NODE_ID: u64 = 0;
 pub(crate) static mut CALLBACK_ID: u64 = 0;
 
-/// A callback function has to return if the screen should 
+/// A callback function has to return if the screen should
 /// be updated after the function has run.PartialEq
 ///
 /// This is necessary for updating the screen only if it is absolutely necessary.
@@ -28,14 +28,14 @@ pub enum UpdateScreen {
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
 /// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
-/// The CSS is not affected by this, so if you push to the windows' CSS inside the 
+/// The CSS is not affected by this, so if you push to the windows' CSS inside the
 /// function, the screen will not be automatically redrawn, unless you return an
 /// `UpdateScreen::Redraw` from the function
 pub enum Callback<T: LayoutScreen> {
     /// One-off function (for ex. exporting a file)
     ///
     /// This is best for actions where you don't care if or when they complete.
-    /// Because you accept a Mutex, you can create a background thread 
+    /// Because you accept a Mutex, you can create a background thread
     /// (azul won't create this for you)
     Async(fn(Arc<Mutex<AppState<T>>>) -> UpdateScreen),
     /// Same as the `FnOnceNonBlocking`, but it blocks the current
@@ -53,7 +53,7 @@ impl<T: LayoutScreen> fmt::Debug for Callback<T> {
     }
 }
 
-impl<T: LayoutScreen> Clone for Callback<T> 
+impl<T: LayoutScreen> Clone for Callback<T>
 {
     fn clone(&self) -> Self {
         match *self {
@@ -65,7 +65,7 @@ impl<T: LayoutScreen> Clone for Callback<T>
 
 /// As a hashing function, we use the function pointer casted to a usize
 /// as a unique ID for the function. This way, we can hash and compare DOM nodes
-/// (to create diffs between two states). Comparing usizes is more efficient 
+/// (to create diffs between two states). Comparing usizes is more efficient
 /// than re-creating the whole DOM and serves as a caching mechanism.
 impl<T: LayoutScreen> Hash for Callback<T> {
   fn hash<H>(&self, state: &mut H) where H: Hasher {
@@ -96,10 +96,10 @@ impl<T: LayoutScreen> Copy for Callback<T> { }
 
 /// List of allowed DOM node types that are supported by `azul`.
 ///
-/// All node types are purely convenience functions around `Div`, 
+/// All node types are purely convenience functions around `Div`,
 /// `Image` and `Label`. For example a `Ul` is simply a convenience
 /// wrapper around a repeated (`Div` + `Label`) clone where the first
-/// `Div` is shaped like a circle (for `Ul`). 
+/// `Div` is shaped like a circle (for `Ul`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NodeType {
     /// Regular div
@@ -107,7 +107,7 @@ pub enum NodeType {
     /// Image: The actual contents of the image are determined by the CSS
     Image,
     /// A label that can be (optionally) be selectable with the mouse
-    Label { 
+    Label {
         /// Text of the label
         text: String,
     },
@@ -122,19 +122,19 @@ pub enum NodeType {
     Ol,
     /// List item. Only valid if the parent is `NodeType::Ol` or `NodeType::Ul`.
     Li,
-    /// This is more or less like a `GroupBox` in Visual Basic, draws a border 
+    /// This is more or less like a `GroupBox` in Visual Basic, draws a border
     Form {
         /// The text of the label
         text: Option<String>,
     },
     /// Single-line text input
-    TextInput { 
-        content: String, 
-        placeholder: Option<String> 
+    TextInput {
+        content: String,
+        placeholder: Option<String>
     },
-    /// Multi line text input 
-    TextEdit { 
-        content: String, 
+    /// Multi line text input
+    TextEdit {
+        content: String,
         placeholder: Option<String>,
     },
     /// A register-like tab
@@ -155,7 +155,7 @@ pub enum NodeType {
         title: String,
         content: String,
     },
-    /// Password input, like the TextInput, but the items are rendered as dots 
+    /// Password input, like the TextInput, but the items are rendered as dots
     /// (if `use_dots` is active)
     Password {
         content: String,
@@ -171,11 +171,11 @@ pub enum CheckboxState {
     Active,
     /// `[✔]`
     Checked,
-    /// Greyed out checkbox 
-    Disabled { 
+    /// Greyed out checkbox
+    Disabled {
         /// Should the checkbox fire on a mouseover / mouseup, etc. event
         ///
-        /// This can be useful for showing warnings / tooltips / help messages 
+        /// This can be useful for showing warnings / tooltips / help messages
         /// as to why this checkbox is disabled
         fire_on_click: bool,
     },
@@ -186,9 +186,9 @@ pub enum CheckboxState {
 impl NodeType {
 
     /// Get the CSS / HTML identifier "p", "ul", "li", etc.
-    /// 
+    ///
     /// Full list of the types you can use in CSS:
-    /// 
+    ///
     /// ```ignore
     /// Div         => "div"
     /// Image       => "img"
@@ -234,7 +234,7 @@ impl NodeType {
 pub enum On {
     /// Mouse cursor is hovering over the element
     MouseOver,
-    /// Mouse cursor has is over element and is pressed 
+    /// Mouse cursor has is over element and is pressed
     /// (not good for "click" events - use `MouseUp` instead)
     MouseDown,
     /// Mouse button has been released while cursor was over the element
@@ -264,7 +264,7 @@ impl<T: LayoutScreen> Hash for NodeData<T> {
         self.node_type.hash(state);
         self.id.hash(state);
         for class in &self.classes {
-            class.hash(state);            
+            class.hash(state);
         }
         self.events.hash(state);
     }
@@ -297,11 +297,11 @@ impl<T: LayoutScreen> Clone for NodeData<T> {
 impl<T: LayoutScreen> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "NodeData {{
-    node_type: {:?}, 
-    id: {:?}, 
-    classes: {:?}, 
-    events: {:?}, 
-    tag: {:?} 
+    node_type: {:?},
+    id: {:?},
+    classes: {:?},
+    events: {:?},
+    tag: {:?}
 }}",
         self.node_type, self.id, self.classes, self.events, self.tag)
     }
@@ -351,14 +351,14 @@ pub struct Dom<T: LayoutScreen> {
 
 impl<T: LayoutScreen> fmt::Debug for Dom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Dom {{ 
-   arena: {:?}, 
-   root: {:?}, 
+        write!(f, "Dom {{
+   arena: {:?},
+   root: {:?},
    current_root: {:?},
    last: {:?}
-}}", 
-        self.arena, 
-        self.root, 
+}}",
+        self.arena,
+        self.root,
         self.current_root,
         self.last)
     }
@@ -392,7 +392,7 @@ impl<T: LayoutScreen> CallbackList<T> {
 }
 
 impl<T: LayoutScreen> Dom<T> {
-    
+
     /// Creates an empty DOM
     #[inline]
     pub fn new(node_type: NodeType) -> Self {
@@ -446,7 +446,7 @@ impl<T: LayoutScreen> Dom<T> {
 }
 
 impl<T: LayoutScreen> Dom<T> {
-    
+
     pub(crate) fn collect_callbacks(&self, callback_list: &mut BTreeMap<u64, Callback<T>>, nodes_to_callback_id_list: &mut  BTreeMap<u64, BTreeMap<On, u64>>) {
         for item in self.root.traverse(&*self.arena.borrow()) {
             let mut cb_id_list = BTreeMap::<On, u64>::new();

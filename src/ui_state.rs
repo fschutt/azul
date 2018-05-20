@@ -13,12 +13,12 @@ pub struct UiState<T: LayoutScreen> {
 
 impl<T: LayoutScreen> fmt::Debug for UiState<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "UiState {{ 
-   dom: {:?}, 
-   callback_list: {:?}, 
+        write!(f, "UiState {{
+   dom: {:?},
+   callback_list: {:?},
    node_ids_to_callbacks_list: {:?}
-}}", 
-        self.dom, 
+}}",
+        self.dom,
         self.callback_list,
         self.node_ids_to_callbacks_list)
     }
