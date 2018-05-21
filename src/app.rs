@@ -396,7 +396,7 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
                 WindowEvent::HiDPIFactorChanged(dpi) => {
                     frame_event_info.new_dpi_factor = Some(dpi);
                 },
-                WindowEvent::Closed => {
+                WindowEvent::CloseRequested => {
                     return true;
                 }
                 _ => { },
