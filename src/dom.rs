@@ -427,6 +427,27 @@ impl<T: LayoutScreen> Dom<T> {
         }
     }
 
+    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
+    #[inline]
+    pub fn with_id<S: Into<String>>(mut self, id: S) -> Self {
+        self.id(id);
+        self
+    }
+
+    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
+    #[inline]
+    pub fn with_class<S: Into<String>>(mut self, class: S) -> Self {
+        self.class(class);
+        self
+    }
+
+    /// Same as `event`, but easier to use for method chaining in a builder-style pattern
+    #[inline]
+    pub fn with_event<S: Into<String>>(mut self, on: On, callback: Callback<T>) -> Self {
+        self.event(on, callback);
+        self
+    }
+
     #[inline]
     pub fn id<S: Into<String>>(&mut self, id: S) {
         self.arena.borrow_mut()[self.last].data.id = Some(id.into());

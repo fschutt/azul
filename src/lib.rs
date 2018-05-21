@@ -31,7 +31,7 @@ extern crate glium;
 extern crate gleam;
 extern crate euclid;
 extern crate simplecss;
-extern crate image;
+pub extern crate image;
 extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
