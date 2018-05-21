@@ -11,6 +11,10 @@ sudo: false
 
 cache: cargo
 
+os:
+  - linux
+  - osx
+
 rust:
   - stable
   - beta
