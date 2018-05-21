@@ -24,14 +24,15 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+pub extern crate glium;
+pub extern crate gleam;
+pub extern crate euclid;
+pub extern crate image;
+
 extern crate webrender;
 extern crate cassowary;
 extern crate twox_hash;
-extern crate glium;
-extern crate gleam;
-extern crate euclid;
 extern crate simplecss;
-pub extern crate image;
 extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
@@ -74,6 +75,19 @@ mod cache;
 mod images;
 /// Font handling
 mod font;
+/// Window state handling, event filtering
+mod window_state;
+/// Application / context menu handling. Currently Win32 only. Also has parsing functions
+mod menu;
+/// Deamon / polling function implementation
+mod deamon;
+/// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
+/// top of each other
+mod compositor;
+/// Platform extensions (non-portable window extensions for Win32, Wayland, X11, Cocoa)
+mod platform_ext;
+/// Async IO / task system
+mod task;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;

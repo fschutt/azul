@@ -4,6 +4,9 @@ use std::io::Read;
 use images::ImageType;
 use image::ImageError;
 use font::FontError;
+use std::collections::hash_map::Entry::*;
+use FastHashMap;
+use deamon::DeamonCallback;
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `LayoutScreen` trait (how the application
@@ -13,6 +16,8 @@ pub struct AppState<'a, T: LayoutScreen> {
     pub data: T,
     /// Fonts and images that are currently loaded into the app
     pub(crate) resources: AppResources<'a>,
+    /// Currently running deamons (polling functions)
+    pub(crate) deamons: FastHashMap<String, DeamonCallback<T>>,
 }
 
 impl<'a, T: LayoutScreen> AppState<'a, T> {
@@ -22,6 +27,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
         Self {
             data: initial_data,
             resources: AppResources::default(),
+            deamons: FastHashMap::default(),
         }
     }
 
@@ -146,5 +152,22 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
         -> Option<()>
     {
         self.resources.delete_font(id)
+    }
+
+    /// Create a deamon. Does nothing if a deamon with the same ID already exists.
+    ///
+    /// If the deamon was inserted, returns true, otherwise false
+    pub fn add_deamon<S: Into<String>>(&mut self, id: S, deamon: DeamonCallback<T>) -> bool {
+        let id_string = id.into();
+        match self.deamons.entry(id_string) {
+            Occupied(_) => false,
+            Vacant(v) => { v.insert(deamon); true },
+        }
+    }
+
+    /// Remove a currently running deamon from running. Does nothing if there is
+    /// already a deamon with the same ID
+    pub fn delete_deamon<S: AsRef<String>>(&mut self, id: S) -> bool {
+        self.deamons.remove(id.as_ref()).is_some()
     }
 }
