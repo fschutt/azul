@@ -17,6 +17,7 @@ matrix:
 # Required for kcov
 addons:
   apt:
+    update: true
     packages:
       - libcurl4-openssl-dev
       - libelf-dev

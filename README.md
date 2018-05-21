@@ -1,5 +1,9 @@
 # azul
 
+# WARNING: This README has been written for the future (so I have a "spec" and don't need to update it for the 0.1 release).
+# The features advertised won't work yet, they will work when the 0.1 version releases on crates.io.
+# See the /examples folder for an example of what's currently possible.
+
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Build Status Linux / macOS](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul)
 [![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
@@ -95,7 +99,7 @@ impl LayoutScreen for DataModel {
     }
 }
 
-fn email_recipients_list(names: &[String]) -> Dom<DataModel> {
+fn email_recipients_list(names: &[String]) -> Dom<Self> {
     let mut names_list = Dom::new(NodeType::Div);
     for name in names {
         names_list.add_child(Dom::new(NodeType::Label {
@@ -105,13 +109,13 @@ fn email_recipients_list(names: &[String]) -> Dom<DataModel> {
     names_list
 }
 
-fn email_send_button() -> Dom<DataModel> {
+fn email_send_button() -> Dom<Self> {
     Dom::new(NodeType::Button { text: hello, .. })
         .with_id("email-send-button")
         .with_event(On::MouseDown, Callback::Sync(my_button_was_clicked))
 }
 
-fn no_email_label() {
+fn no_email_label() -> Dom<Self> {
     Dom::new(NodeType::Button { text: "No email to send!", .. })
         .with_id("email-done-label")
 }
@@ -119,7 +123,7 @@ fn no_email_label() {
 fn send_email(app_state: &mut AppState<DataModel>, _window_id: WindowId) -> UpdateScreen {
     app_state.data.is_email_sent = false;
     // trigger a redraw, so the list gets removed from the screen
-    // and the "you're done" message is displayed
+    // and the "No email to send!" message is displayed instead
     UpdateScreen::Redraw
 }
 ```
