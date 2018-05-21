@@ -1,0 +1,42 @@
+environment:
+  global:
+    # This will be used as part of the zipfile name
+    # TODO change the project name
+    PROJECT_NAME: azul
+  # TODO feel free to delete targets/channels you don't need
+  matrix:
+    - TARGET: i686-pc-windows-gnu
+      CHANNEL: stable
+    - TARGET: i686-pc-windows-msvc
+      CHANNEL: stable
+    # This target is commented out because for some reason appveyor only ships
+    # GCC in 32-bit mode, so when compiling miniz.c (require for zipping), it'll
+    # fail although the build itself will work fine (because nobody uses a 32-bit
+    # compiler anymore in the real world). Just use a 64-bit compiler and
+    # everything will work fine.
+    #
+    - TARGET: x86_64-pc-windows-gnu
+      CHANNEL: stable
+    - TARGET: x86_64-pc-windows-msvc
+      CHANNEL: stable
+
+# Install Rust and Cargo
+# (Based on from https://github.com/rust-lang/libc/blob/master/appveyor.yml)
+install:
+  - appveyor DownloadFile https://win.rustup.rs/ -FileName rustup-init.exe
+  - rustup-init -yv --default-toolchain %channel% --default-host %target%
+  - set PATH=%PATH%;%USERPROFILE%\.cargo\bin;C:\tools\mingw64\bin;C:\MinGW\bin
+  - gcc -v
+  - rustc -vV
+  - cargo -vV
+
+# 'cargo test' takes care of building for us, so disable Appveyor's build stage. This prevents
+# the "directory does not contain a project or solution file" error.
+# source: https://github.com/starkat99/appveyor-rust/blob/master/appveyor.yml#L113
+build: false
+
+# Equivalent to Travis' `script` phase
+# TODO modify this phase as you see fit
+test_script:
+  - cargo build --verbose --examples
+  - cargo test --verbose
