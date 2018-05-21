@@ -44,6 +44,6 @@ after_success: |
   sudo make install &&
   cd ../.. &&
   rm -rf kcov-master &&
-  kcov --exclude-pattern=/.cargo,/usr/lib --verify target/cov target/debug/azul-* &&
+  kcov –-coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo,/usr/lib --verify target/cov target/debug/azul-* &&
   bash <(curl -s https://codecov.io/bash) &&
   echo "Uploaded code coverage"
