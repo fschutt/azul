@@ -25,7 +25,8 @@ environment:
 install:
   - appveyor DownloadFile https://win.rustup.rs/ -FileName rustup-init.exe
   - rustup-init -yv --default-toolchain %channel% --default-host %target%
-  - set PATH=%PATH%;%USERPROFILE%\.cargo\bin;C:\tools\mingw64\bin;C:\MinGW\bin
+  - set PATH=%PATH%;%USERPROFILE%\.cargo\bin;C:\tools\mingw64\bin;C:\MinGW\bin;
+  - set PATH=%PATH:C:\Program Files\Git\usr\bin;=% # ignore other MinGW shells, use C:\MinGW
   - gcc -v
   - rustc -vV
   - cargo -vV
@@ -39,4 +40,4 @@ build: false
 # TODO modify this phase as you see fit
 test_script:
   - cargo build --verbose --examples
-  - cargo test --verbose
+  - cargo test --verbose --features "doc-test no-opengl-tests"
