@@ -1,12 +1,5 @@
 language: rust
 
-# We can't test OpenGL 3.2 on Travis, the shader compilation fails
-# because glium does a check first if it has a OGL 3.2 context
-script:
-  - cargo build --all
-  - cargo build --examples
-  - RUST_BACKTRACE=1 cargo test --features "doc-test no-opengl-tests"
-
 sudo: false
 
 cache: cargo
@@ -25,32 +18,20 @@ matrix:
     - rust: nightly
   fast_finish: true
 
-# env:
-#   global:
-#   - RUSTFLAGS="-C link-dead-code"
+# We can't test OpenGL 3.2 on Travis, the shader compilation fails
+# because glium does a check first if it has a OGL 3.2 context
+script:
+  - cargo build --verbose --examples
+  - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
 
-# addons:
-#   apt:
-#     packages:
-#       - libcurl4-openssl-dev
-#       - libelf-dev
-#       - libdw-dev
-#       - cmake
-#       - gcc
-#       - binutils-dev
-#       - libiberty-dev
-
-# after_success: |
-#   wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-#   tar xzf master.tar.gz &&
-#   cd kcov-master &&
-#   mkdir build &&
-#   cd build &&
-#   cmake .. &&
-#   make &&
-#   make install DESTDIR=../../kcov-build &&
-#   cd ../.. &&
-#   rm -rf kcov-master &&
-#   for file in target/debug/azul-*[^\.d]; do mkdir -p "target/cov/$(basename $file)"; ./kcov-build/usr/local/bin/kcov --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done &&
-#   bash <(curl -s https://codecov.io/bash) &&
-#   echo "Uploaded code coverage"
+after_success: |
+  sudo apt-get install libcurl4-openssl-dev libelf-dev libdw-dev &&
+  wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
+  tar xzf master.tar.gz &&
+  mkdir kcov-master/build &&
+  cd kcov-master/build &&
+  cmake .. &&
+  make &&
+  sudo make install &&
+  cd ../.. &&
+  kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/azul-*;
