@@ -10,12 +10,8 @@ os:
 
 rust:
   - stable
-  - beta
-  - nightly
 
 matrix:
-  allow_failures:
-    - rust: nightly
   fast_finish: true
 
 # We can't test OpenGL 3.2 on Travis, the shader compilation fails
@@ -34,4 +30,5 @@ after_success: |
   make &&
   sudo make install &&
   cd ../.. &&
-  kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/azul-*;
+  kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov target/debug/azul-* &&
+  echo "uploaded coverage to coveralls";
