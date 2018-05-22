@@ -10,6 +10,7 @@ use glium::{
     texture::texture2d::Texture2d,
     backend::Facade,
 };
+use webrender::ExternalImage;
 
 #[derive(Default, Debug)]
 pub struct Compositor {
@@ -235,3 +236,21 @@ impl CombineTwoTexturesProgram {
     }
 }
 
+/*
+impl ExternalImageHandler for Compositor {
+    // Do not perform any actual locking since rendering happens on the main thread
+    fn lock(&mut self, key: ExternalImageId, _channel_index: u8) -> webrender::ExternalImage {
+        let descriptor = resources::resources().image_loader.texture_descriptors[&key.0];
+        ExternalImage {
+            uv: TexelRect {
+                uv0: TypedPoint2D::zero(),
+                uv1: TypedPoint2D::<f32, DevicePixel>::new(descriptor.width as f32, descriptor.height as f32),
+            },
+            source: webrender::ExternalImageSource::NativeTexture(key.0 as _),
+        }
+    }
+
+    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {
+    }
+}
+*/

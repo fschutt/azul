@@ -5,18 +5,25 @@ use euclid::{Length, TypedRect, TypedPoint2D};
 use rusttype::{Font, Scale};
 use css_parser::{TextAlignment, TextOverflowBehaviour};
 
+/// Webrender measures in points, not in pixels!
+pub const PT_TO_PX: f32 = 96.0 / 72.0;
+
+pub const PX_TO_PT: f32 = 72.0 / 96.0;
+
+/// Rusttype has a certain sizing hack, I have no idea where this number comes from
+/// Without this adjustment, we won't have the correct horizontal spacing
+const RUSTTYPE_SIZE_HACK: f32 = 72.0 / 41.0;
+
 /// Lines is responsible for layouting the lines of the rectangle to
 struct Lines<'a> {
     align: TextAlignment,
     max_lines_before_overflow: usize,
-    line_height: Length<f32, LayerPixel>,
-    max_horizontal_width: Length<f32, LayerPixel>,
+    line_height: Length<f32, LayoutPixel>,
+    max_horizontal_width: Length<f32, LayoutPixel>,
     font: &'a Font<'a>,
     font_size: Scale,
-    origin: TypedPoint2D<f32, LayerPixel>,
+    origin: TypedPoint2D<f32, LayoutPixel>,
     current_line: usize,
-    v_advance: f32,
-    v_scale_factor: f32,
 }
 
 #[derive(Debug)]
@@ -43,17 +50,14 @@ struct HarfbuzzAdjustment(pub f32);
 impl<'a> Lines<'a> {
 
     pub(crate) fn from_bounds(
-        bounds: &TypedRect<f32, LayerPixel>,
+        bounds: &TypedRect<f32, LayoutPixel>,
         alignment: TextAlignment,
         font: &'a Font<'a>,
-        font_size: Length<f32, LayerPixel>)
+        font_size: Length<f32, LayoutPixel>)
     -> Self
     {
         let max_lines_before_overflow = (bounds.size.height / font_size.0).floor() as usize;
         let max_horizontal_width = Length::new(bounds.size.width);
-        let v_metrics = font.v_metrics_unscaled();
-        let v_advance = v_metrics.ascent - v_metrics.descent + v_metrics.line_gap;
-        let v_scale_factor = v_advance / font.units_per_em() as f32;
 
         Self {
             align: alignment,
@@ -64,8 +68,6 @@ impl<'a> Lines<'a> {
             max_horizontal_width: max_horizontal_width,
             font_size: Scale::uniform(font_size.0),
             current_line: 0,
-            v_scale_factor: v_scale_factor,
-            v_advance: v_advance,
         }
     }
 
@@ -89,7 +91,7 @@ impl<'a> Lines<'a> {
         let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text);
 
         // (3) Split the text into words
-        let words = split_text_into_words(&text, font, self.font_size);
+        let words = split_text_into_words(&text, font, font_size);
 
         // (4) Align text to the left
         let (mut positioned_glyphs, line_break_offsets) = words_to_left_aligned_glyphs(words, font, font_size, max_horizontal_width, max_lines_before_overflow);
@@ -125,7 +127,7 @@ fn normalize_unicode_characters(text: &str) -> String {
     // (should it be done after split_text_into_words?)
     // TODO: THis is an expensive operation!
     use unicode_normalization::UnicodeNormalization;
-    text.nfc().collect::<String>()
+    text.nfc().filter(|c| !c.is_control()).collect::<String>()
 }
 
 #[inline]
@@ -184,10 +186,15 @@ fn split_text_into_words<'a>(text: &'a str, font: &Font<'a>, font_size: Scale) -
             let mut last_glyph = None;
 
             for c in word.chars() {
+
                 use rusttype::Point;
 
                 let g = font.glyph(c).scaled(font_size);
                 let id = g.id();
+
+                if c.is_control() {
+                    continue;
+                }
 
                 if let Some(last) = last_glyph {
                     caret += font.pair_kerning(font_size, last, g.id());
@@ -238,10 +245,7 @@ fn words_to_left_aligned_glyphs<'a>(
     let v_metrics_scaled = font.v_metrics(font_size);
     let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
 
-    // TODO: This is one hack because webrender locks fonts at 76 DPI
-    // and doesn't scale them correctly
-    // HORRIBLE WEBRENDER HACK!
-    let offset_top = font_size.y * 3.0 / 4.0;
+    let offset_top = v_metrics_scaled.ascent;
 
     // In order to space between words, we need to
     let space_width = font.glyph(' ').scaled(font_size).h_metrics().advance_width;
@@ -359,13 +363,13 @@ fn align_text(alignment: TextAlignment, glyphs: &mut Vec<GlyphInstance>, line_br
 pub(crate) fn put_text_in_bounds<'a>(
     text: &str,
     font: &Font<'a>,
-    font_size: Length<f32, LayerPixel>,
+    font_size: Length<f32, LayoutPixel>,
     alignment: TextAlignment,
     overflow_behaviour: TextOverflowBehaviour,
-    bounds: &TypedRect<f32, LayerPixel>)
+    bounds: &TypedRect<f32, LayoutPixel>)
 -> Vec<GlyphInstance>
 {
-    let mut lines = Lines::from_bounds(bounds, alignment, font, font_size);
+    let mut lines = Lines::from_bounds(bounds, alignment, font, font_size * RUSTTYPE_SIZE_HACK * PX_TO_PT);
     let (glyphs, overflow) = lines.get_glyphs(text, overflow_behaviour);
     glyphs
 }

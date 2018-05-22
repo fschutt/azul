@@ -4,12 +4,13 @@ version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 
 [dependencies]
-webrender = { git = "https://github.com/fschutt/webrender", branch = "fix_dpi" }
+# webrender = { git = "https://github.com/fschutt/webrender", branch = "fix_dpi" }
+webrender = { git = "https://github.com/servo/webrender", rev = "bb354abbf84602d3d8357c63c4f0b1139ec4deb1" }
 cassowary = "0.3.0"
 simplecss = "0.1.0"
 twox-hash = "1.1.0"
 glium = { git = "https://github.com/fschutt/glium", branch = "mapedit-winit-windows-ext" }
-gleam = "0.4.20"
+gleam = "0.5"
 euclid = "0.17"
 image = "0.19.0"
 rusttype = "0.5.2"

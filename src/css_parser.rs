@@ -3,7 +3,7 @@
 use webrender::api::{ColorU, BorderRadius, LayoutVector2D, LayoutPoint,
                     ColorF, BoxShadowClipMode, LayoutSize, BorderStyle,
                     BorderDetails, BorderSide, NormalBorder, BorderWidths,
-                    ExtendMode, LayoutRect, LayerPixel};
+                    ExtendMode, LayoutRect, LayoutPixel};
 use std::num::{ParseIntError, ParseFloatError};
 use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
@@ -786,7 +786,7 @@ impl DirectionCorner {
         }
     }
 
-    pub fn to_point(&self, rect: &LayoutRect) -> TypedPoint2D<f32, LayerPixel>
+    pub fn to_point(&self, rect: &LayoutRect) -> TypedPoint2D<f32, LayoutPixel>
     {
         use self::DirectionCorner::*;
         match *self {

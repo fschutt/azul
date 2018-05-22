@@ -279,17 +279,27 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 tag: rect.tag.and_then(|tag| Some((tag, 0))),
             };
 
+            let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
+                let region = ComplexClipRegion {
+                    rect: bounds,
+                    radii: border_radius,
+                    mode: ClipMode::Clip,
+                };
+                Some(builder.define_clip(bounds, vec![region], None))
+            });
+
             // TODO: expose 3D-transform in CSS
             // TODO: expose blend-modes in CSS
             // TODO: expose filters (blur, hue, etc.) in CSS
             builder.push_stacking_context(
                 &info,
-                ScrollPolicy::Scrollable,
+                clip_region_id,
                 None,
-                TransformStyle::Preserve3D,
+                TransformStyle::Flat,
                 None,
                 MixBlendMode::Normal,
-                Vec::new()
+                Vec::new(),
+                GlyphRasterSpace::Screen,
             );
 
             // Push the "outset" box shadow, before the clip is active
@@ -299,15 +309,6 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 &bounds,
                 &full_screen_rect,
                 BoxShadowClipMode::Outset);
-
-            let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
-                let region = ComplexClipRegion {
-                    rect: bounds,
-                    radii: border_radius,
-                    mode: ClipMode::Clip,
-                };
-                Some(builder.define_clip(bounds, vec![region], None))
-            });
 
             // Push clip
             if let Some(id) = clip_region_id {
@@ -364,7 +365,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 }
 
 #[inline]
-fn push_rect(info: &PrimitiveInfo<LayerPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
+fn push_rect(info: &PrimitiveInfo<LayoutPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
     match style.background_color {
         Some(bg) => builder.push_rect(&info, bg.into()),
         None => builder.push_clear_rect(&info),
@@ -373,14 +374,14 @@ fn push_rect(info: &PrimitiveInfo<LayerPixel>, builder: &mut DisplayListBuilder,
 
 #[inline]
 fn push_text<T: LayoutScreen>(
-    info: &PrimitiveInfo<LayerPixel>,
+    info: &PrimitiveInfo<LayoutPixel>,
     display_list: &DisplayList<T>,
     rect_idx: NodeId,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     app_resources: &mut AppResources,
     render_api: &RenderApi,
-    bounds: &TypedRect<f32, LayerPixel>,
+    bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut ResourceUpdates)
 {
     use dom::NodeType::*;
@@ -414,46 +415,30 @@ fn push_text<T: LayoutScreen>(
         None => return,
     };
 
-    // TODO: border
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size = Length::new(font_size.0.to_pixels());
     let font_size_app_units = (font_size.0 as i32) * AU_PER_PX;
     let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
-    let font_size_app_units = Au(font_size_app_units as i32);
-    let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
+    let font_size_app_units = Au(font_size_app_units as i32); // * text_layout::WEBRENDER_DPI_HACK) as i32
+    let font_result = push_font(font_id, font_size_app_units,
+        resource_updates, app_resources, render_api);
 
     let font_instance_key = match font_result {
         Some(f) => f,
         None => return,
     };
 
-    // The font_size_adjustment_hack is a hack to make horizontal spacing work correctly
-    // For some reason, rusttype doesn't return the correct horizontal spacing for characters
-    let font_size_adjustment_hack = {
-        let font = &app_resources.font_data[font_id].0;
-        let v_metrics = font.v_metrics_unscaled();
-        let v_scale_factor = (v_metrics.ascent - v_metrics.descent + v_metrics.line_gap) /
-                             font.units_per_em() as f32;
-        1.0 + ((v_scale_factor - 1.0) * 2.0)
-    };
-
     let font = &app_resources.font_data[font_id].0;
     let alignment = style.text_align.unwrap_or(TextAlignment::default());
     let overflow_behaviour = style.text_overflow.unwrap_or(TextOverflowBehaviour::default());
     let positioned_glyphs = text_layout::put_text_in_bounds(
-        text, font, font_size * font_size_adjustment_hack, alignment, overflow_behaviour, bounds);
-
-    // TODO: webrender doesn't respect the DPI of the monitor its on:
-    //
-    // See: https://github.com/servo/webrender/pull/2597
-    // and: https://github.com/servo/webrender/issues/2596
+        text, font, font_size, alignment, overflow_behaviour, bounds);
 
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
     let flags = FontInstanceFlags::SUBPIXEL_BGR;
     let options = GlyphOptions {
         render_mode: FontRenderMode::Subpixel,
         flags: flags,
-        dpi: Some(96),
     };
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 }
@@ -467,8 +452,8 @@ fn push_text<T: LayoutScreen>(
 fn push_box_shadow(
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    bounds: &TypedRect<f32, LayerPixel>,
-    full_screen_rect: &TypedRect<f32, LayerPixel>,
+    bounds: &TypedRect<f32, LayoutPixel>,
+    full_screen_rect: &TypedRect<f32, LayoutPixel>,
     shadow_type: BoxShadowClipMode)
 {
     let pre_shadow = match style.box_shadow {
@@ -512,8 +497,8 @@ fn push_box_shadow(
 
 #[inline]
 fn push_background(
-    info: &PrimitiveInfo<LayerPixel>,
-    bounds: &TypedRect<f32, LayerPixel>,
+    info: &PrimitiveInfo<LayoutPixel>,
+    bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     app_resources: &AppResources)
@@ -567,7 +552,7 @@ fn push_background(
 
 #[inline]
 fn push_border(
-    info: &PrimitiveInfo<LayerPixel>,
+    info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
     style: &RectStyle)
 {
