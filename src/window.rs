@@ -1,24 +1,32 @@
-use webrender::api::*;
-use webrender::{Renderer, RendererOptions, RendererKind};
-// use webrender::renderer::RendererError;
-use glium::{IncompatibleOpenGl, Display};
-use glium::debug::DebugCallbackBehavior;
-use glium::glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
-                          MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder};
+//! Window creation module
+
+use std::{time::Duration, fmt};
+
+use webrender::{
+    api::*,
+    Renderer, RendererOptions, RendererKind,
+    // renderer::RendererError; -- not currently public in WebRender
+};
+use glium::{
+    IncompatibleOpenGl, Display,
+    debug::DebugCallbackBehavior,
+    glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
+             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder},
+    backend::glutin::DisplayCreationError,
+};
 use gleam::gl;
-use glium::backend::glutin::DisplayCreationError;
 use euclid::TypedScale;
-use cassowary::{Variable, Solver};
-use cassowary::strength::*;
+use cassowary::{
+    Variable, Solver,
+    strength::*,
+};
 
 use display_list::SolvedLayout;
 use traits::LayoutScreen;
 use css::Css;
 use cache::{EditVariableCache, DomTreeCache};
 use id_tree::NodeId;
-
-use std::time::Duration;
-use std::fmt;
+use compositor::Compositor;
 
 const DEFAULT_TITLE: &str = "Azul App";
 const DEFAULT_WIDTH: u32 = 800;
@@ -366,10 +374,17 @@ impl Default for WindowMonitorTarget {
 pub struct Window<T: LayoutScreen> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
+    // TODO: Migrate to the window_state for state diffing
     pub(crate) options: WindowCreateOptions,
+    /// The webrender renderer
     pub(crate) renderer: Option<Renderer>,
+    /// The display, i.e. the window
     pub(crate) display: Display,
+    /// The `WindowInternal` allows us to solve some borrowing issues
     pub(crate) internal: WindowInternal,
+    /// The compositor caches and stores OpenGL textures, so that we can
+    /// render custom elements behind the UI if needed.
+    pub(crate) compositor: Compositor,
     /// The solver for the UI, for caching the results of the computations
     pub(crate) solver: UiSolver<T>,
     // The background thread that is running for this window.
@@ -588,11 +603,14 @@ impl<T: LayoutScreen> Window<T> {
         solver.suggest_value(window_dim.width_var, window_dim.width() as f64).unwrap();
         solver.suggest_value(window_dim.height_var, window_dim.height() as f64).unwrap();
 
+        let compositor = Compositor::new();
+
         let window = Window {
             events_loop: events_loop,
             options: options,
             renderer: Some(renderer),
             display: display,
+            compositor: compositor,
             css: css,
             internal: WindowInternal {
                 layout_size: layout_size,

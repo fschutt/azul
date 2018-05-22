@@ -24,6 +24,7 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+#[macro_use]
 pub extern crate glium;
 pub extern crate gleam;
 pub extern crate euclid;
@@ -88,6 +89,8 @@ mod compositor;
 mod platform_ext;
 /// Async IO / task system
 mod task;
+/// SVG / path flattering module (lyon)
+mod svg;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
