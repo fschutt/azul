@@ -17,29 +17,16 @@ impl LayoutScreen for MyAppData {
     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
 
         let mut dom = Dom::new(NodeType::Label {
-            text: String::from(/*"\
-                Lorem ipsum dolor sit amet, \
-                consetetur sadipscing elitr, sed diam \
-                nonumy eirmod tempor invidunt ut \
-                labore et dolore magna aliquyam \
-                erat, sed diam voluptua. At vero eos \
-                et accusam et justo duo dolores et ea \
-                rebum. Stet clita kasd gubergren, no \
-                sea takimata sanctus est Lorem ipsum \
-                dolor sit amet. Lorem ipsum dolor sit \
-                amet, consetetur sadipscing elitr, sed diam \
-                nonumy eirmod tempor invidunt \
-                ut labore et dolore magna aliquyam \
-                \
-                erat, sed diam voluptua. At vero eos \
-                et accusam et justo duo dolores et ea rebum. \
-                Stet clita kasd gubergren, no sea takimata \
-                sanctus est Lorem ipsum dolor sit amet."*/ "Azul"),
+            text: String::from("Azul"),
         });
         dom.class("__azul-native-button");
         dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
 
-        // dom.add_sibling(Dom::new(NodeType::));
+        for i in 0..1000 {
+            dom.add_sibling(Dom::new(NodeType::Label {
+                text: format!("{}", i),
+            }).with_class("__azul-native-button"))
+        }
 
         dom
     }
