@@ -328,7 +328,7 @@ impl RenderNotifier for Notifier {
         self.events_loop_proxy.wakeup().unwrap_or_else(|_| { });
     }
 
-    fn new_document_ready(&self, _: DocumentId, _scrolled: bool, _composite_needed: bool) {
+    fn new_frame_ready(&self, _: DocumentId, _scrolled: bool, _composite_needed: bool) {
         self.wake_up();
     }
 }

@@ -383,9 +383,7 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
                     frame_event_info.should_hittest = true;
                     frame_event_info.cur_cursor_pos = position;
 
-                    let _ = window_id;
-                    let _ = device_id;
-                    let _ = modifiers;
+                    let (_, _, _) = (window_id, device_id, modifiers);
                 },
                 WindowEvent::Resized(w, h) => {
                     frame_event_info.new_window_size = Some((w, h));
@@ -438,7 +436,6 @@ fn render<T: LayoutScreen>(
     let resources = ResourceUpdates::new();
     let mut txn = Transaction::new();
 
-    // TODO: something is wrong, the redraw times increase, even if the same display list is redrawn
     txn.set_display_list(
         window.internal.epoch,
         None,
