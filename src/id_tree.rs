@@ -5,11 +5,83 @@ use std::ops::{Index, IndexMut};
 use std::fmt;
 use std::hash::{Hasher, Hash};
 use std::collections::BTreeMap;
+use std::ops::Deref;
+
+/// See: https://github.com/rust-lang/rust/issues/27730#issuecomment-311919692
+///
+/// This hack allows us to save some memory. Credit to @nox for inventing this.
+/// Currently, rust optimizes an `Option<&T>` to be 8 bytes large instead of 16,
+/// because Rust knows that pointers in Rust can never be 0 / NULL.
+///
+/// The `NonZeroUsizeHack` adds 1 to a usize, then casts it to a pointer.
+/// On retrieval, it casts it back to a usize and subtracts 1, to get the original value.
+/// So in the end, `Option<NodeId>` is only 8 bytes large instead of 16, which gives
+/// possibly better cache access and less memory usage at the cost of 1 or 2 extra
+/// assembly instructions.
+///
+/// Note that the Rust spec says that the pointer may never be null, even though it is
+/// never dereferenced.
+///
+/// NEVER MAKE THE INTERNAL FIELD PUBLIC, ALWAYS USE `::new()` and `.get()`!
+#[derive(Copy, Clone)]
+pub struct NonZeroUsizeHack(&'static ());
+
+impl NonZeroUsizeHack {
+    #[inline]
+    pub fn new(value: usize) -> Self {
+        // Add 1 on insertion
+        let value = value + 1;
+        unsafe { NonZeroUsizeHack(&*(value as *const ())) }
+    }
+
+    #[inline]
+    pub fn get(self) -> usize {
+        // Remove 1 on retrieval
+        let value = self.0 as *const () as usize;
+        assert!(value != 0); // can never happen, since we add 1 it in the new() fn
+        value - 1
+    }
+}
+
+use std::cmp::Ordering;
+
+impl PartialOrd for NonZeroUsizeHack {
+    fn partial_cmp(&self, other: &NonZeroUsizeHack) -> Option<Ordering> {
+        Some(self.get().cmp(&other.get()))
+    }
+}
+
+impl Ord for NonZeroUsizeHack {
+    fn cmp(&self, other: &NonZeroUsizeHack) -> Ordering {
+        self.get().cmp(&other.get())
+    }
+}
+
+impl PartialEq for NonZeroUsizeHack {
+    fn eq(&self, other: &NonZeroUsizeHack) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for NonZeroUsizeHack { }
+
+impl fmt::Debug for NonZeroUsizeHack {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.get())
+    }
+}
+
+impl Hash for NonZeroUsizeHack {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.get().hash(state);
+    }
+}
 
 /// A node identifier within a particular `Arena`.
 #[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Debug, Hash)]
 pub struct NodeId {
-    pub(crate) index: usize,  // FIXME: use NonZero to optimize the size of Option<NodeId>
+    // FIXME: Change this to NonZero<usize> once NonZero is stabilized
+    pub(crate) index: NonZeroUsizeHack,
 }
 
 #[derive(Clone, PartialEq)]
@@ -108,7 +180,7 @@ impl<T> Arena<T> {
             data: data,
         });
         NodeId {
-            index: next_index,
+            index: NonZeroUsizeHack::new(next_index),
         }
     }
 
@@ -128,7 +200,7 @@ impl<T: Copy> Arena<T> {
     pub fn get_all_node_ids(&self) -> BTreeMap<NodeId, T> {
         use std::iter::FromIterator;
         BTreeMap::from_iter(self.nodes.iter().enumerate().map(|(i, node)|
-            (NodeId { index: i }, node.data)
+            (NodeId { index: NonZeroUsizeHack::new(i) }, node.data)
         ))
     }
 }
@@ -136,8 +208,7 @@ impl<T: Copy> Arena<T> {
 trait GetPairMut<T> {
     /// Get mutable references to two distinct nodes
     ///
-    /// Panic
-    /// -----
+    /// ## Panic
     ///
     /// Panics if the two given IDs are the same.
     fn get_pair_mut(&mut self, a: usize, b: usize, same_index_error_message: &'static str)
@@ -161,13 +232,13 @@ impl<T> Index<NodeId> for Arena<T> {
     type Output = Node<T>;
 
     fn index(&self, node: NodeId) -> &Node<T> {
-        &self.nodes[node.index]
+        &self.nodes[node.index.get()]
     }
 }
 
 impl<T> IndexMut<NodeId> for Arena<T> {
     fn index_mut(&mut self, node: NodeId) -> &mut Node<T> {
-        &mut self.nodes[node.index]
+        &mut self.nodes[node.index.get()]
     }
 }
 
@@ -289,7 +360,7 @@ impl NodeId {
         let last_child_opt;
         {
             let (self_borrow, new_child_borrow) = arena.nodes.get_pair_mut(
-                self.index, new_child.index, "Can not append a node to itself");
+                self.index.get(), new_child.index.get(), "Can not append a node to itself");
             new_child_borrow.parent = Some(self);
             last_child_opt = mem::replace(&mut self_borrow.last_child, Some(new_child));
             if let Some(last_child) = last_child_opt {
@@ -311,7 +382,7 @@ impl NodeId {
         let first_child_opt;
         {
             let (self_borrow, new_child_borrow) = arena.nodes.get_pair_mut(
-                self.index, new_child.index, "Can not prepend a node to itself");
+                self.index.get(), new_child.index.get(), "Can not prepend a node to itself");
             new_child_borrow.parent = Some(self);
             first_child_opt = mem::replace(&mut self_borrow.first_child, Some(new_child));
             if let Some(first_child) = first_child_opt {
@@ -334,7 +405,7 @@ impl NodeId {
         let parent_opt;
         {
             let (self_borrow, new_sibling_borrow) = arena.nodes.get_pair_mut(
-                self.index, new_sibling.index, "Can not insert a node after itself");
+                self.index.get(), new_sibling.index.get(), "Can not insert a node after itself");
             parent_opt = self_borrow.parent;
             new_sibling_borrow.parent = parent_opt;
             new_sibling_borrow.previous_sibling = Some(self);
@@ -359,7 +430,7 @@ impl NodeId {
         let parent_opt;
         {
             let (self_borrow, new_sibling_borrow) = arena.nodes.get_pair_mut(
-                self.index, new_sibling.index, "Can not insert a node before itself");
+                self.index.get(), new_sibling.index.get(), "Can not insert a node before itself");
             parent_opt = self_borrow.parent;
             new_sibling_borrow.parent = parent_opt;
             new_sibling_borrow.next_sibling = Some(self);
