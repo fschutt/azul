@@ -107,6 +107,8 @@ impl DomTreeCache {
 
     fn update_tree_inner_2(previous_arena: &Arena<DomHash>, next_arena: &Arena<DomHash>) -> DomChangeSet {
 
+        use id_tree::NonZeroUsizeHack;
+
         let mut previous_iter = previous_arena.nodes.iter();
         let mut next_iter = next_arena.nodes.iter().enumerate();
         let mut changeset = DomChangeSet::empty();
@@ -114,11 +116,11 @@ impl DomTreeCache {
         while let Some((next_idx, next_hash)) = next_iter.next() {
             if let Some(old_hash) = previous_iter.next() {
                 if old_hash.data != next_hash.data {
-                    changeset.added_nodes.insert(NodeId { index: next_idx }, next_hash.data);
+                    changeset.added_nodes.insert(NodeId { index: NonZeroUsizeHack::new(next_idx) }, next_hash.data);
                 }
             } else {
                 // println!("chrildren: no old hash, but subtree has to be added: {:?}!", new_next_id);
-                changeset.added_nodes.insert(NodeId { index: next_idx }, next_hash.data);
+                changeset.added_nodes.insert(NodeId { index: NonZeroUsizeHack::new(next_idx) }, next_hash.data);
             }
         }
 /*
