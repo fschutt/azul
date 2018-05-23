@@ -712,3 +712,83 @@ fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssCon
         }
     ).collect()
 }
+
+// Layout / tracing-related functions
+
+// What constraint (width or height) to search for when looking for a fitting width / height constraint
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum WidthOrHeight {
+    Width,
+    Height,
+}
+
+impl<'a> Arena<DisplayRectangle<'a>> {
+
+    /// Recursive algorithm for getting the dimensions of a rectangle
+    ///
+    /// This function can be used on any rectangle to get the maximum allowed width
+    /// (for inserting the width / height constraint into the layout solver).
+    /// It simply traverses upwards through the nodes, until it finds a matching min-width / width
+    /// constraint, if it finds none, it will return the width of the root node.
+    fn get_wh_for_rectangle(&self, id: NodeId, field: WidthOrHeight) -> Option<f32> {
+
+        use self::WidthOrHeight::*;
+
+        let node = &self[id];
+
+        macro_rules! get_wh {
+            ($field_name:ident, $min_field:ident) => ({
+                let mut $field_name: Option<f32> = None;
+
+                match node.data.layout.$min_field {
+                    Some(m_w) => {
+                        let m_w_px = m_w.0.to_pixels();
+                        match node.data.layout.$field_name {
+                            Some(w) => {
+                                // width + min_width
+                                let w_px = w.0.to_pixels();
+                                $field_name = Some(m_w_px.max(w_px));
+                            },
+                            None => {
+                                // min_width
+                                $field_name = Some(m_w_px);
+                            }
+                        }
+                    },
+                    None => {
+                        match node.data.layout.$field_name {
+                            Some(w) => {
+                                // width
+                                let w_px = w.0.to_pixels();
+                                $field_name = Some(w_px);
+                            },
+                            None => {
+                                // neither width nor min_width
+                            }
+                        }
+                    }
+                };
+
+                if $field_name.is_none() {
+                    match node.parent() {
+                        Some(p) => $field_name = self.get_wh_for_rectangle(p, field),
+                        None => { },
+                    }
+                }
+
+                $field_name
+            })
+        }
+
+        match field {
+            Width => {
+                let w = get_wh!(width, min_width);
+                w
+            },
+            Height => {
+                let h = get_wh!(height, min_height);
+                h
+            }
+        }
+    }
+}
