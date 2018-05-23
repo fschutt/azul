@@ -88,7 +88,7 @@ impl<'a> Lines<'a> {
         let text = normalize_unicode_characters(text);
 
         // (2) Harfbuzz pass, for getting glyph-individual character shaping offsets
-        let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text);
+        let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text, font);
 
         // (3) Split the text into words
         let words = split_text_into_words(&text, font, font_size);
@@ -131,7 +131,7 @@ fn normalize_unicode_characters(text: &str) -> String {
 }
 
 #[inline]
-fn calculate_harfbuzz_adjustments(text: &str) -> Vec<HarfbuzzAdjustment> {
+fn calculate_harfbuzz_adjustments<'a>(text: &str, font: &Font<'a>) -> Vec<HarfbuzzAdjustment> {
 
     use harfbuzz_rs::*;
     use harfbuzz_rs::rusttype::SetRustTypeFuncs;
@@ -141,24 +141,15 @@ fn calculate_harfbuzz_adjustments(text: &str) -> Vec<HarfbuzzAdjustment> {
     let face = Face::from_file(path, index).unwrap();
     let mut font = Font::new(face);
 
-    // Use RustType as provider for font information that harfbuzz needs.
-    // You can also use a custom font implementation. For more information look
-    // at the documentation for `FontFuncs`.
     font.set_rusttype_funcs();
+
     let output = UnicodeBuffer::new().add_str(text).shape(&font, &[]);
     let positions = output.get_glyph_positions();
     let infos = output.get_glyph_infos();
 
-    // iterate over the shaped glyphs
     for (position, info) in positions.iter().zip(infos) {
-        let gid = info.codepoint;
-        let cluster = info.cluster;
-        let x_advance = position.x_advance;
-        let x_offset = position.x_offset;
-        let y_offset = position.y_offset;
-
-        // Here you would usually draw the glyphs.
-        println!("gid{:?}={:?}@{:?},{:?}+{:?}", gid, cluster, x_advance, x_offset, y_offset);
+        println!("gid: {:?}, cluster: {:?}, x_advance: {:?}, x_offset: {:?}, y_offset: {:?}",
+            info.codepoint, info.cluster, position.x_advance, position.x_offset, position.y_offset);
     }
     */
     Vec::new() // TODO
