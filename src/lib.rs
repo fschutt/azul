@@ -24,12 +24,16 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+#![windows_subsystem = "windows"]
+
 #[macro_use]
 pub extern crate glium;
 pub extern crate gleam;
 pub extern crate euclid;
 pub extern crate image;
 
+extern crate resvg;
+extern crate lyon;
 extern crate webrender;
 extern crate cassowary;
 extern crate twox_hash;

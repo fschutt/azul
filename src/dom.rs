@@ -8,6 +8,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use webrender::api::ColorU;
+use glium::Texture2d;
+use svg::Svg;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
@@ -101,7 +103,7 @@ impl<T: LayoutScreen> Copy for Callback<T> { }
 /// wrapper around a repeated (`Div` + `Label`) clone where the first
 /// `Div` is shaped like a circle (for `Ul`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum NodeType {
+pub enum NodeType /*<T: LayoutScreen>*/ {
     /// Regular div
     Div,
     /// Image: The actual contents of the image are determined by the CSS
@@ -162,7 +164,16 @@ pub enum NodeType {
         placeholder: Option<String>,
         use_dots: bool,
     },
+    // Custom drawing component
+    //CustomDrawComponent(DrawComponent<T>),
 }
+/*
+/// State of a checkbox (disabled, checked, etc.)
+#[derive(Debug, Clone, Hash)]
+pub enum DrawComponent<T: LayoutScreen> {
+    Svg(Svg<T>),
+}
+*/
 
 /// State of a checkbox (disabled, checked, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -183,29 +194,31 @@ pub enum CheckboxState {
     Unchecked
 }
 
-impl NodeType {
+impl /*<T: LayoutScreen>*/ NodeType /*<T>*/ {
 
     /// Get the CSS / HTML identifier "p", "ul", "li", etc.
     ///
     /// Full list of the types you can use in CSS:
     ///
     /// ```ignore
-    /// Div         => "div"
-    /// Image       => "img"
-    /// Button      => "button"
-    /// Ul          => "ul"
-    /// Ol          => "ol"
-    /// Li          => "li"
-    /// Label       => "label"
-    /// Form        => "form"
-    /// TextInput   => "text-input"
-    /// TextEdit    => "text-edit"
-    /// Tab         => "tab"
-    /// Checkbox    => "checkbox"
-    /// Color       => "color"
-    /// Drowdown    => "dropdown"
-    /// ToolTip     => "tooltip"
-    /// Password    => "password"
+    /// Div                             => "div"
+    /// Image                           => "img"
+    /// Button                          => "button"
+    /// Ul                              => "ul"
+    /// Ol                              => "ol"
+    /// Li                              => "li"
+    /// Label                           => "label"
+    /// Form                            => "form"
+    /// TextInput                       => "text-input"
+    /// TextEdit                        => "text-edit"
+    /// Tab                             => "tab"
+    /// Checkbox                        => "checkbox"
+    /// Color                           => "color"
+    /// Drowdown                        => "dropdown"
+    /// ToolTip                         => "tooltip"
+    /// Password                        => "password"
+    /// CustomDrawComponent::Svg        => "svg"
+    /// CustomDrawComponent::GlTexture  => "gltexture"
     /// ```
     pub fn get_css_identifier(&self) -> &'static str {
         use self::NodeType::*;
@@ -225,6 +238,14 @@ impl NodeType {
             Dropdown { .. } => "dropdown",
             ToolTip { .. } => "tooltip",
             Password { .. } => "password",
+            /*
+            CustomDrawComponent(c) => {
+                match c {
+                    DrawComponent::Svg(_) => "svg",
+                    DrawComponent::GlTexture(_) => "gltexture",
+                }
+            }
+            */
         }
     }
 }
@@ -248,7 +269,7 @@ pub enum On {
 #[derive(PartialEq, Eq)]
 pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
-    pub node_type: NodeType,
+    pub node_type: NodeType/*<T>*/,
     /// `#main`
     pub id: Option<String>,
     /// `.myclass .otherclass`
@@ -317,7 +338,7 @@ impl<T: LayoutScreen> CallbackList<T> {
 
 impl<T: LayoutScreen> NodeData<T> {
     /// Creates a new NodeData
-    pub fn new(node_type: NodeType) -> Self {
+    pub fn new(node_type: NodeType/*<T>*/) -> Self {
         Self {
             node_type: node_type,
             id: None,
@@ -395,7 +416,7 @@ impl<T: LayoutScreen> Dom<T> {
 
     /// Creates an empty DOM
     #[inline]
-    pub fn new(node_type: NodeType) -> Self {
+    pub fn new(node_type: NodeType/*<T>*/) -> Self {
         let mut arena = Arena::new();
         let root = arena.new_node(NodeData::new(node_type));
         Self {

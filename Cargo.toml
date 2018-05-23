@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 
 [dependencies]
-# webrender = { git = "https://github.com/fschutt/webrender", branch = "fix_dpi" }
 webrender = { git = "https://github.com/servo/webrender", rev = "bb354abbf84602d3d8357c63c4f0b1139ec4deb1" }
 cassowary = "0.3.0"
 simplecss = "0.1.0"
@@ -17,6 +16,8 @@ rusttype = "0.5.2"
 app_units = "0.6"
 unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
+resvg = "0.2.0"
+lyon = { version = "0.10.0", features = ["extra"] }
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)
