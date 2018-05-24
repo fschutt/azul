@@ -27,10 +27,10 @@ pub trait LayoutScreen {
 }
 
 pub(crate) struct ParsedCss<'a> {
-    pub(crate) pure_global_rules: Vec<&'a CssRule>,
-    pub(crate) pure_div_rules: Vec<&'a CssRule>,
-    pub(crate) pure_class_rules: Vec<&'a CssRule>,
-    pub(crate) pure_id_rules: Vec<&'a CssRule>,
+    pub(crate) pure_global_rules: Vec<&'a CssRule<'a>>,
+    pub(crate) pure_div_rules: Vec<&'a CssRule<'a>>,
+    pub(crate) pure_class_rules: Vec<&'a CssRule<'a>>,
+    pub(crate) pure_id_rules: Vec<&'a CssRule<'a>>,
 }
 
 impl<'a> ParsedCss<'a> {

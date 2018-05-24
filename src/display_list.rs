@@ -1,26 +1,32 @@
 #![allow(unused_variables)]
 #![allow(unused_macros)]
 
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{Ordering, AtomicUsize},
+    fmt::Debug,
+};
 use webrender::api::*;
-use resources::AppResources;
-use traits::LayoutScreen;
-use constraints::{DisplayRect, CssConstraint};
-use ui_description::{UiDescription, StyledNode};
-use cassowary::{Constraint, Solver, Variable};
-use window::{WindowDimensions, UiSolver};
-use id_tree::{Arena, NodeId};
-use css_parser::*;
-use dom::NodeData;
-use css::Css;
-use std::collections::BTreeMap;
-use FastHashMap;
-use cache::DomChangeSet;
-use std::sync::atomic::{Ordering, AtomicUsize};
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
-use css_parser;
+use cassowary::{Constraint, Solver, Variable};
 
-const DEFAULT_FONT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
+use {
+    FastHashMap,
+    resources::AppResources,
+    traits::LayoutScreen,
+    constraints::{DisplayRect, CssConstraint},
+    ui_description::{UiDescription, StyledNode},
+    window::{WindowDimensions, UiSolver},
+    id_tree::{Arena, NodeId},
+    css_parser::{self, *},
+    dom::NodeData,
+    css::Css,
+    cache::DomChangeSet,
+    ui_description::CssConstraintList,
+};
+
+const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
 const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("sans-serif");
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
@@ -28,6 +34,7 @@ pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) rectangles: Arena<DisplayRectangle<'a>>
 }
 
+/// DisplayRectangle is the main type which the layout parsing step gets operated on.
 #[derive(Debug)]
 pub(crate) struct DisplayRectangle<'a> {
     /// `Some(id)` if this rectangle has a callback attached to it
@@ -88,14 +95,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             parse_css_layout_properties(&mut rect);
             rect
         });
-/*
-        for node in ui_description.styled_nodes {
-            let mut rect = DisplayRectangle::new(arena[node.id].data.tag, &node);
-            parse_css_style_properties(&mut rect);
-            parse_css_layout_properties(&mut rect);
-            rect_btree.insert(node.id, rect);
-        }
-*/
+
         Self {
             ui_descr: ui_description,
             rectangles: display_rect_arena,
@@ -622,9 +622,6 @@ fn push_font(
     }
 }
 
-use ui_description::CssConstraintList;
-use std::fmt::Debug;
-
 /// Internal helper function - gets a key from the constraint list and passes it through
 /// the parse_func - if an error occurs, then the error gets printed
 fn parse<'a, T, E: Debug>(
@@ -638,11 +635,13 @@ fn parse<'a, T, E: Debug>(
         eprintln!("ERROR - invalid {:?}: {:?}", err, key);
     }
 
-    constraint_list.list.get(key).and_then(|w| parse_func(w).map_err(|e| {
-        #[cfg(debug_assertions)]
-        print_error_debug(&e, key);
-        e
-    }).ok())
+    constraint_list.list.get(key).and_then(|w|
+        parse_func(w).map_err(|e| {
+            #[cfg(debug_assertions)]
+            print_error_debug(&e, key);
+            e
+        }).ok()
+    )
 }
 
 /// Populate and parse the CSS style properties
@@ -651,14 +650,12 @@ fn parse_css_style_properties(rect: &mut DisplayRectangle)
     let constraint_list = &rect.styled_node.css_constraints;
 
     rect.style.border_radius    = parse(constraint_list, "border-radius", parse_css_border_radius);
-    rect.style.background_color = parse(constraint_list, "background-color", parse_css_color);
-    rect.style.font_color       = parse(constraint_list, "color", parse_css_color);
+    rect.style.background_color = parse(constraint_list, "background-color", parse_css_background_color);
+    rect.style.font_color       = parse(constraint_list, "color", parse_css_text_color);
     rect.style.border           = parse(constraint_list, "border", parse_css_border);
     rect.style.background       = parse(constraint_list, "background", parse_css_background);
     rect.style.font_size        = parse(constraint_list, "font-size", parse_css_font_size);
     rect.style.font_family      = parse(constraint_list, "font-family", parse_css_font_family);
-    rect.style.text_overflow    = parse(constraint_list, "overflow", parse_text_overflow);
-    rect.style.text_align       = parse(constraint_list, "text-align", parse_text_align);
 
     if let Some(box_shadow_opt) = parse(constraint_list, "box-shadow", parse_css_box_shadow) {
         rect.style.box_shadow = box_shadow_opt;
@@ -680,6 +677,9 @@ fn parse_css_layout_properties(rect: &mut DisplayRectangle)
     rect.layout.justify_content = parse(constraint_list, "justify-content", parse_layout_justify_content);
     rect.layout.align_items     = parse(constraint_list, "align-items", parse_layout_align_items);
     rect.layout.align_content   = parse(constraint_list, "align-content", parse_layout_align_content);
+
+    rect.style.text_overflow    = parse(constraint_list, "overflow", parse_layout_text_overflow);
+    rect.style.text_align       = parse(constraint_list, "text-align", parse_layout_text_align);
 }
 
 // Returns the constraints for one rectangle
@@ -697,6 +697,7 @@ fn create_layout_constraints<'a>(
     let mut layout_constraints = Vec::<CssConstraint>::new();
     let max_width = arena.get_wh_for_rectangle(rect_id, WidthOrHeight::Width)
                          .unwrap_or(window_dimensions.layout_size.width);
+
     println!("max width for rectangle with the ID {} is: {}", rect_id, max_width);
 
     layout_constraints.push(CssConstraint::Size((SizeConstraint::Width(200.0), Strength(STRONG))));

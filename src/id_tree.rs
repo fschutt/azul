@@ -158,6 +158,7 @@ impl<T> Arena<T> {
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
     pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
+        // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
             nodes: self.nodes.iter().enumerate().map(|(node_id, node)| Node {
                 parent: node.parent,

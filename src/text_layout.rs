@@ -5,14 +5,11 @@ use euclid::{Length, TypedRect, TypedPoint2D};
 use rusttype::{Font, Scale};
 use css_parser::{TextAlignment, TextOverflowBehaviour};
 
-/// Webrender measures in points, not in pixels!
-pub const PT_TO_PX: f32 = 96.0 / 72.0;
-
-pub const PX_TO_PT: f32 = 72.0 / 96.0;
-
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
 /// Without this adjustment, we won't have the correct horizontal spacing
 const RUSTTYPE_SIZE_HACK: f32 = 72.0 / 41.0;
+
+const PX_TO_PT: f32 = 72.0 / 96.0;
 
 /// Lines is responsible for layouting the lines of the rectangle to
 struct Lines<'a> {
