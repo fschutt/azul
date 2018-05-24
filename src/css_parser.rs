@@ -8,6 +8,8 @@ use std::num::{ParseIntError, ParseFloatError};
 use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;
+/// Webrender measures in points, not in pixels!
+pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
 
 // In case no font size is specified for a node, this will be subsituted as the
 // default font size
@@ -16,10 +18,22 @@ pub(crate) const DEFAULT_FONT_SIZE: FontSize = FontSize(PixelValue {
     number: 10.0,
 });
 
+/// Implements `From` for `$a`, mapping it to the `$b::$enum_type` variant
 macro_rules! impl_from {
-    ($a:ident, $b:ident, $enum_type:ident) => (
+    ($a:ident, $b:ident::$enum_type:ident) => (
         impl<'a> From<$a<'a>> for $b<'a> {
             fn from(e: $a<'a>) -> Self {
+                $b::$enum_type(e)
+            }
+        }
+    )
+}
+
+/// Same as `impl_from`, but without lifetime annotations for `$a`
+macro_rules! impl_from_no_lifetimes {
+    ($a:ident, $b:ident::$enum_type:ident) => (
+        impl<'a> From<$a> for $b<'a> {
+            fn from(e: $a) -> Self {
                 $b::$enum_type(e)
             }
         }
@@ -52,6 +66,151 @@ macro_rules! typed_pixel_value_parser {
     )
 }
 
+/// A successfully parsed CSS property
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ParsedCssProperty<'a> {
+    BorderRadius(BorderRadius),
+    BackgroundColor(BackgroundColor),
+    TextColor(TextColor),
+    Border(BorderWidths, BorderDetails),
+    Background(Background<'a>),
+    FontSize(FontSize),
+    FontFamily(FontFamily),
+    TextOverflow(TextOverflowBehaviour),
+    TextAlign(TextAlignment),
+    BoxShadow(Option<BoxShadowPreDisplayItem>),
+
+    Width(LayoutWidth),
+    Height(LayoutHeight),
+    MinWidth(LayoutMinWidth),
+    MinHeight(LayoutMinHeight),
+    MaxWidth(LayoutMaxWidth),
+    MaxHeight(LayoutMaxHeight),
+
+    FlexWrap(LayoutWrap),
+    FlexDirection(LayoutDirection),
+    JustifyContent(LayoutJustifyContent),
+    AlignItems(LayoutAlignItems),
+    AlignContent(LayoutAlignContent),
+}
+
+impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
+impl_from!(Background, ParsedCssProperty::Background);
+impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
+impl_from_no_lifetimes!(FontFamily, ParsedCssProperty::FontFamily);
+impl_from_no_lifetimes!(TextOverflowBehaviour, ParsedCssProperty::TextOverflow);
+impl_from_no_lifetimes!(TextAlignment, ParsedCssProperty::TextAlign);
+
+impl_from_no_lifetimes!(LayoutWidth, ParsedCssProperty::Width);
+impl_from_no_lifetimes!(LayoutHeight, ParsedCssProperty::Height);
+impl_from_no_lifetimes!(LayoutMinWidth, ParsedCssProperty::MinWidth);
+impl_from_no_lifetimes!(LayoutMinHeight, ParsedCssProperty::MinHeight);
+impl_from_no_lifetimes!(LayoutMaxWidth, ParsedCssProperty::MaxWidth);
+impl_from_no_lifetimes!(LayoutMaxHeight, ParsedCssProperty::MaxHeight);
+
+impl_from_no_lifetimes!(LayoutWrap, ParsedCssProperty::FlexWrap);
+impl_from_no_lifetimes!(LayoutDirection, ParsedCssProperty::FlexDirection);
+impl_from_no_lifetimes!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
+impl_from_no_lifetimes!(LayoutAlignItems, ParsedCssProperty::AlignItems);
+impl_from_no_lifetimes!(LayoutAlignContent, ParsedCssProperty::AlignContent);
+
+impl_from_no_lifetimes!(BackgroundColor, ParsedCssProperty::BackgroundColor);
+impl_from_no_lifetimes!(TextColor, ParsedCssProperty::TextColor);
+
+impl<'a> From<(BorderWidths, BorderDetails)> for ParsedCssProperty<'a> {
+    fn from((widths, details): (BorderWidths, BorderDetails)) -> Self {
+        ParsedCssProperty::Border(widths, details)
+    }
+}
+
+impl<'a> From<Option<BoxShadowPreDisplayItem>> for ParsedCssProperty<'a> {
+    fn from(box_shadow: Option<BoxShadowPreDisplayItem>) -> Self {
+        ParsedCssProperty::BoxShadow(box_shadow)
+    }
+}
+
+impl<'a> ParsedCssProperty<'a> {
+    /// Main parsing function, takes a stringified key / value pair and either
+    /// returns the parsed value or an error
+    pub fn from_kv(key: &'a str, value: &'a str) -> Result<Self, CssParsingError<'a>> {
+        match key {
+            "border-radius"     => Ok(parse_css_border_radius(value)        .map_err(|e| e.into())?.into()),
+            "background-color"  => Ok(parse_css_background_color(value)     .map_err(|e| e.into())?.into()),
+            "color"             => Ok(parse_css_text_color(value)           .map_err(|e| e.into())?.into()),
+            "border"            => Ok(parse_css_border(value)               .map_err(|e| e.into())?.into()),
+            "background"        => Ok(parse_css_background(value)           .map_err(|e| e.into())?.into()),
+            "font-size"         => Ok(parse_css_font_size(value)            .map_err(|e| e.into())?.into()),
+            "font-family"       => Ok(parse_css_font_family(value)          .map_err(|e| e.into())?.into()),
+            "box-shadow"        => Ok(parse_css_box_shadow(value)           .map_err(|e| e.into())?.into()),
+
+            "width"             => Ok(parse_layout_width(value)             .map_err(|e| e.into())?.into()),
+            "height"            => Ok(parse_layout_height(value)            .map_err(|e| e.into())?.into()),
+            "min-width"         => Ok(parse_layout_min_width(value)         .map_err(|e| e.into())?.into()),
+            "min-height"        => Ok(parse_layout_min_height(value)        .map_err(|e| e.into())?.into()),
+            "max-width"         => Ok(parse_layout_max_width(value)         .map_err(|e| e.into())?.into()),
+            "max-height"        => Ok(parse_layout_max_height(value)        .map_err(|e| e.into())?.into()),
+
+            "flex-wrap"         => Ok(parse_layout_wrap(value)              .map_err(|e| e.into())?.into()),
+            "flex-direction"    => Ok(parse_layout_direction(value)         .map_err(|e| e.into())?.into()),
+            "justify-content"   => Ok(parse_layout_justify_content(value)   .map_err(|e| e.into())?.into()),
+            "align-items"       => Ok(parse_layout_align_items(value)       .map_err(|e| e.into())?.into()),
+            "align-content"     => Ok(parse_layout_align_content(value)     .map_err(|e| e.into())?.into()),
+            "overflow"          => Ok(parse_layout_text_overflow(value)     .map_err(|e| e.into())?.into()),
+            "text-align"        => Ok(parse_layout_text_align(value)        .map_err(|e| e.into())?.into()),
+
+            _ => Err((key, value).into())
+        }
+    }
+}
+
+/// Error containing all sub-errors that could happen during CSS parsing
+///
+/// Usually we want to crash on the first error, to notify the user of the problem.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssParsingError<'a> {
+    CssBorderParseError(CssBorderParseError<'a>),
+    CssColorParseError(CssColorParseError<'a>),
+    PixelParseError(PixelParseError<'a>),
+    CssImageParseError(CssImageParseError<'a>),
+    CssBorderRadiusParseError(CssBorderRadiusParseError<'a>),
+    /// Key is not supported, i.e. `#div { aldfjasdflk: 400px }` results in an
+    /// `UnsupportedCssKey("aldfjasdflk", "400px")` error
+    UnsupportedCssKey(&'a str, &'a str),
+}
+
+impl_from!(CssBorderParseError, CssParsingError::CssBorderParseError);
+impl_from!(CssColorParseError, CssParsingError::CssColorParseError);
+impl_from!(PixelParseError, CssParsingError::PixelParseError);
+impl_from!(CssImageParseError, CssParsingError::CssImageParseError);
+impl_from!(CssBorderRadiusParseError, CssParsingError::CssBorderRadiusParseError);
+
+/*
+impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
+impl_from!(Background, ParsedCssProperty::Background);
+impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
+impl_from_no_lifetimes!(FontFamily, ParsedCssProperty::FontFamily);
+impl_from_no_lifetimes!(TextOverflowBehaviour, ParsedCssProperty::TextOverflow);
+impl_from_no_lifetimes!(TextAlignment, ParsedCssProperty::TextAlign);
+
+impl_from_no_lifetimes!(LayoutWidth, ParsedCssProperty::Width);
+impl_from_no_lifetimes!(LayoutHeight, ParsedCssProperty::Height);
+impl_from_no_lifetimes!(LayoutMinWidth, ParsedCssProperty::MinWidth);
+impl_from_no_lifetimes!(LayoutMinHeight, ParsedCssProperty::MinHeight);
+impl_from_no_lifetimes!(LayoutMaxWidth, ParsedCssProperty::MaxWidth);
+impl_from_no_lifetimes!(LayoutMaxHeight, ParsedCssProperty::MaxHeight);
+
+impl_from_no_lifetimes!(LayoutWrap, ParsedCssProperty::FlexWrap);
+impl_from_no_lifetimes!(LayoutDirection, ParsedCssProperty::FlexDirection);
+impl_from_no_lifetimes!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
+impl_from_no_lifetimes!(LayoutAlignItems, ParsedCssProperty::AlignItems);
+impl_from_no_lifetimes!(LayoutAlignContent, ParsedCssProperty::AlignContent);
+*/
+impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
+    fn from((a, b): (&'a str, &'a str)) -> Self {
+        CssParsingError::UnsupportedCssKey(a, b)
+    }
+}
+
 /// Simple "invalid value" error, used for
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
@@ -65,6 +224,7 @@ pub struct PixelValue {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CssMetric {
     Px,
+    Pt,
     Em,
 }
 
@@ -72,32 +232,33 @@ impl PixelValue {
     pub fn to_pixels(&self) -> f32 {
         match self.metric {
             CssMetric::Px => { self.number },
+            CssMetric::Pt => { self.number * PT_TO_PX },
             CssMetric::Em => { self.number * EM_HEIGHT },
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssBorderRadiusParseError<'a> {
     TooManyValues(&'a str),
     PixelParseError(PixelParseError<'a>),
 }
 
-impl_from!(PixelParseError, CssBorderRadiusParseError, PixelParseError);
+impl_from!(PixelParseError, CssBorderRadiusParseError::PixelParseError);
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CssColorParseError<'a> {
     InvalidColor(&'a str),
     InvalidColorComponent(u8),
     ValueParseErr(ParseIntError),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CssImageParseError<'a> {
     UnclosedQuotes(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct UnclosedQuotesError<'a>(pub(crate) &'a str);
 
 impl<'a> From<UnclosedQuotesError<'a>> for CssImageParseError<'a> {
@@ -106,7 +267,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssImageParseError<'a> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CssBorderParseError<'a> {
     InvalidBorderStyle(InvalidValueErr<'a>),
     InvalidBorderDeclaration(&'a str),
@@ -114,7 +275,7 @@ pub enum CssBorderParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CssShadowParseError<'a> {
     InvalidSingleStatement(&'a str),
     TooManyComponents(&'a str),
@@ -122,8 +283,8 @@ pub enum CssShadowParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
-impl_from!(PixelParseError, CssShadowParseError, ValueParseErr);
-impl_from!(CssColorParseError, CssShadowParseError, ColorParseError);
+impl_from!(PixelParseError, CssShadowParseError::ValueParseErr);
+impl_from!(CssColorParseError, CssShadowParseError::ColorParseError);
 
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
 pub fn parse_css_border_radius<'a>(input: &'a str)
@@ -195,7 +356,7 @@ pub fn parse_css_border_radius<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PixelParseError<'a> {
     InvalidComponent(&'a str),
     ValueParseErr(ParseFloatError),
@@ -218,6 +379,7 @@ pub fn parse_pixel_value<'a>(input: &'a str)
     let unit = match unit {
         "px" => CssMetric::Px,
         "em" => CssMetric::Em,
+        "ept" => CssMetric::Pt,
         _ => { return Err(PixelParseError::InvalidComponent(&input[(split_pos - 1)..])); }
     };
 
@@ -233,7 +395,7 @@ pub fn parse_pixel_value<'a>(input: &'a str)
 ///
 /// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
 /// "#00FF00" -> ColorF { r: 0, g: 255, b: 0 })
-pub fn parse_css_color<'a>(input: &'a str)
+fn parse_css_color<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     if input.starts_with('#') {
@@ -241,6 +403,24 @@ pub fn parse_css_color<'a>(input: &'a str)
     } else {
         parse_color_builtin(input)
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct BackgroundColor(pub ColorU);
+
+pub fn parse_css_background_color<'a>(input: &'a str)
+-> Result<BackgroundColor, CssColorParseError<'a>>
+{
+    parse_css_color(input).and_then(|ok| Ok(BackgroundColor(ok)))
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct TextColor(pub ColorU);
+
+pub fn parse_css_text_color<'a>(input: &'a str)
+-> Result<BackgroundColor, CssColorParseError<'a>>
+{
+    parse_css_color(input).and_then(|ok| Ok(TextColor(ok)))
 }
 
 /// Parse a built-in background color
@@ -671,7 +851,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
     Ok(Some(box_shadow))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CssBackgroundParseError<'a> {
     Error(&'a str),
     InvalidBackground(&'a str),
@@ -684,10 +864,10 @@ pub enum CssBackgroundParseError<'a> {
     ImageParseError(CssImageParseError<'a>),
 }
 
-impl_from!(CssDirectionParseError, CssBackgroundParseError, DirectionParseError);
-impl_from!(CssGradientStopParseError, CssBackgroundParseError, GradientParseError);
-impl_from!(CssShapeParseError, CssBackgroundParseError, ShapeParseError);
-impl_from!(CssImageParseError, CssBackgroundParseError, ImageParseError);
+impl_from!(CssDirectionParseError, CssBackgroundParseError::DirectionParseError);
+impl_from!(CssGradientStopParseError, CssBackgroundParseError::GradientParseError);
+impl_from!(CssShapeParseError, CssBackgroundParseError::ShapeParseError);
+impl_from!(CssImageParseError, CssBackgroundParseError::ImageParseError);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Background<'a> {
@@ -810,7 +990,6 @@ enum BackgroundType {
     RepeatingRadialGradient,
     Image,
 }
-
 
 // parses a background, such as "linear-gradient(red, green)"
 pub fn parse_css_background<'a>(input: &'a str)
@@ -1043,7 +1222,7 @@ fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuotesE
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CssGradientStopParseError<'a> {
     Error(&'a str),
     ColorParseError(CssColorParseError<'a>),
@@ -1083,7 +1262,7 @@ fn parse_percentage(input: &str)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CssDirectionParseError<'a> {
     Error(&'a str),
     InvalidArguments(&'a str),
@@ -1165,7 +1344,7 @@ fn parse_direction<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CssDirectionCornerParseError<'a> {
     InvalidDirection(&'a str),
 }
@@ -1182,7 +1361,7 @@ fn parse_direction_corner<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum CssShapeParseError<'a> {
     ShapeErr(InvalidValueErr<'a>),
 }
@@ -1192,9 +1371,13 @@ pub struct LayoutWidth(pub PixelValue);
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutMinWidth(pub PixelValue);
 #[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutMaxWidth(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutHeight(pub PixelValue);
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutMinHeight(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutMaxHeight(pub PixelValue);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutDirection {
@@ -1284,7 +1467,7 @@ impl Default for TextAlignment {
 #[derive(Default, Debug, Clone, PartialEq)]
 pub(crate) struct RectStyle<'a> {
     /// Background color of this rectangle
-    pub(crate) background_color: Option<ColorU>,
+    pub(crate) background_color: Option<BackgroundColor>,
     /// Shadow color
     pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
     /// Gradient (location) + stops
@@ -1298,7 +1481,7 @@ pub(crate) struct RectStyle<'a> {
     /// Font name / family
     pub(crate) font_family: Option<FontFamily>,
     /// Text color
-    pub(crate) font_color: Option<ColorU>,
+    pub(crate) font_color: Option<TextColor>,
     /// Text alignment
     pub(crate) text_align: Option<TextAlignment>,
     /// Text overflow behaviour
@@ -1323,6 +1506,8 @@ typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
 typed_pixel_value_parser!(parse_layout_height, LayoutHeight);
 typed_pixel_value_parser!(parse_layout_min_height, LayoutMinHeight);
 typed_pixel_value_parser!(parse_layout_min_width, LayoutMinWidth);
+typed_pixel_value_parser!(parse_layout_max_width, LayoutMaxWidth);
+typed_pixel_value_parser!(parse_layout_max_height, LayoutMaxHeight);
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct FontSize(pub PixelValue);
@@ -1422,13 +1607,13 @@ multi_type_parser!(parse_shape, Shape,
                     ["circle", Circle],
                     ["ellipse", Ellipse]);
 
-multi_type_parser!(parse_text_overflow, TextOverflowBehaviour,
+multi_type_parser!(parse_layout_text_overflow, TextOverflowBehaviour,
                     ["auto", Auto],
                     ["scroll", Scroll],
                     ["visible", Visible],
                     ["hidden", Hidden]);
 
-multi_type_parser!(parse_text_align, TextAlignment,
+multi_type_parser!(parse_layout_text_align, TextAlignment,
                     ["center", Center],
                     ["left", Left],
                     ["right", Right]);

@@ -17,7 +17,7 @@ impl LayoutScreen for MyAppData {
     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
 
         let mut dom = Dom::new(NodeType::Label {
-            text: String::from("Azul"),
+            text: format!("{}", self.my_data),
         });
         dom.class("__azul-native-button");
         dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));

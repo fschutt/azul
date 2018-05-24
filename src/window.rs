@@ -371,7 +371,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window<T: LayoutScreen> {
+pub struct Window<'a, T: LayoutScreen> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     // TODO: Migrate to the window_state for state diffing
@@ -390,7 +390,7 @@ pub struct Window<T: LayoutScreen> {
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The css (how the current window is styled)
-    pub css: Css,
+    pub css: Css<'a>,
 }
 
 /// Used in the solver, for the root constraint
@@ -451,10 +451,10 @@ pub(crate) struct WindowInternal {
     pub(crate) hidpi_factor: f32,
 }
 
-impl<T: LayoutScreen> Window<T> {
+impl<'a, T: LayoutScreen> Window<'a, T> {
 
     /// Creates a new window
-    pub fn new(options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
+    pub fn new(options: WindowCreateOptions, css: Css<'a>) -> Result<Self, WindowCreateError>  {
 
         let events_loop = EventsLoop::new();
 
@@ -641,7 +641,7 @@ impl<T: LayoutScreen> Window<T> {
     }
 }
 
-impl<T: LayoutScreen> Drop for Window<T> {
+impl<'a, T: LayoutScreen> Drop for Window<'a, T> {
     fn drop(&mut self) {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();

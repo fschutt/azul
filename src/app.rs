@@ -19,7 +19,7 @@ use webrender::api::RenderApi;
 /// Graphical application that maintains some kind of application state
 pub struct App<'a, T: LayoutScreen> {
     /// The graphical windows, indexed by ID
-    windows: Vec<Window<T>>,
+    windows: Vec<Window<'a, T>>,
     /// The global application state
     pub app_state: Arc<Mutex<AppState<'a, T>>>,
 }
@@ -58,7 +58,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
 
     /// Spawn a new window on the screen. If an application has no windows,
     /// the [`run`](#method.run) function will exit immediately.
-    pub fn create_window(&mut self, options: WindowCreateOptions, css: Css) -> Result<(), WindowCreateError> {
+    pub fn create_window(&mut self, options: WindowCreateOptions, css: Css<'a>) -> Result<(), WindowCreateError> {
         self.windows.push(Window::new(options, css)?);
         Ok(())
     }
