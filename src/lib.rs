@@ -102,11 +102,11 @@ type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDef
 
 pub use app::App;
 pub use app_state::AppState;
-pub use css::{CssRule, Css};
+pub use css::Css;
 
 /// Quick exports of common types
 pub mod prelude {
-    pub use {App, AppState, CssRule, Css};
+    pub use {App, AppState, Css};
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
     pub use traits::LayoutScreen;
     pub use webrender::api::{ColorF, ColorU};

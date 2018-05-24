@@ -390,7 +390,7 @@ pub struct Window<'a, T: LayoutScreen> {
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The css (how the current window is styled)
-    pub css: Css<'a>,
+    pub css: &'a mut Css<'a>,
 }
 
 /// Used in the solver, for the root constraint
@@ -454,7 +454,7 @@ pub(crate) struct WindowInternal {
 impl<'a, T: LayoutScreen> Window<'a, T> {
 
     /// Creates a new window
-    pub fn new(options: WindowCreateOptions, css: Css<'a>) -> Result<Self, WindowCreateError>  {
+    pub fn new(options: WindowCreateOptions, css: &'a mut Css<'a>) -> Result<Self, WindowCreateError>  {
 
         let events_loop = EventsLoop::new();
 

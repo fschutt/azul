@@ -20,7 +20,7 @@ pub trait LayoutScreen {
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    fn style_dom(dom: &Dom<Self>, css: &mut Css) -> UiDescription<Self> where Self: Sized {
+    fn style_dom<'a>(dom: &Dom<Self>, css: &'a mut Css<'a>) -> UiDescription<'a, Self> where Self: Sized {
         css.is_dirty = false;
         match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, 0)
     }
@@ -94,8 +94,13 @@ impl<'a> ParsedCss<'a> {
     }
 }
 
-fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Arena<NodeData<T>>>>, parsed_css: &ParsedCss, css: &Css, parent_z_level: u32)
--> UiDescription<T>
+fn match_dom_css_selectors<'a, T: LayoutScreen>(
+    root: NodeId,
+    arena: &Rc<RefCell<Arena<NodeData<T>>>>,
+    parsed_css: &ParsedCss<'a>,
+    css: &Css<'a>,
+    parent_z_level: u32)
+-> UiDescription<'a, T>
 {
     let mut root_constraints = CssConstraintList::default();
     for global_rule in &parsed_css.pure_global_rules {
@@ -122,8 +127,14 @@ fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Are
     }
 }
 
-fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<NodeData<T>>, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
--> BTreeMap<NodeId, StyledNode>
+fn match_dom_css_selectors_inner<'a, T: LayoutScreen>(
+    root: NodeId,
+    arena: &Arena<NodeData<T>>,
+    parsed_css: &ParsedCss<'a>,
+    css: &Css<'a>,
+    parent_constraints: &CssConstraintList<'a>,
+    parent_z_level: u32)
+-> BTreeMap<NodeId, StyledNode<'a>>
 {
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
@@ -146,8 +157,12 @@ fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<No
 
 /// Cascade the rules, put them into the list
 #[allow(unused_variables)]
-fn cascade_constraints<T: LayoutScreen>(node: &NodeData<T>, list: &mut CssConstraintList, parsed_css: &ParsedCss, css: &Css) {
-
+fn cascade_constraints<'a, T: LayoutScreen>(
+    node: &NodeData<T>,
+    list: &mut CssConstraintList<'a>,
+    parsed_css: &ParsedCss<'a>,
+    css: &Css<'a>)
+{
     for div_rule in &parsed_css.pure_div_rules {
         if *node.node_type.get_css_identifier() == div_rule.html_type {
             push_rule(list, div_rule);
@@ -196,6 +211,6 @@ fn cascade_constraints<T: LayoutScreen>(node: &NodeData<T>, list: &mut CssConstr
 }
 
 #[inline]
-fn push_rule(list: &mut CssConstraintList, rule: &CssRule) {
-    list.list.insert(rule.declaration.0.clone(), rule.declaration.1.clone());
+fn push_rule<'a>(list: &mut CssConstraintList<'a>, rule: &CssRule<'a>) {
+    list.list.push(rule.declaration.1.clone());
 }
