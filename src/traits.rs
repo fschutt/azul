@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use dom::{NodeData, Dom};
 use ui_description::{StyledNode, CssConstraintList, UiDescription};
 use css::{Css, CssRule};
@@ -96,13 +97,13 @@ impl<'a> ParsedCss<'a> {
 fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Arena<NodeData<T>>>>, parsed_css: &ParsedCss, css: &Css, parent_z_level: u32)
 -> UiDescription<T>
 {
-    let mut root_constraints = CssConstraintList::empty();
+    let mut root_constraints = CssConstraintList::default();
     for global_rule in &parsed_css.pure_global_rules {
         push_rule(&mut root_constraints, global_rule);
     }
 
     let arena_borrow = &*(*arena).borrow();
-    let mut styled_nodes = Vec::<StyledNode>::new();
+    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
     let sibling_iterator = root.following_siblings(arena_borrow);
     // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
     // sibling_iterator.next().unwrap();
@@ -117,19 +118,19 @@ fn match_dom_css_selectors<T: LayoutScreen>(root: NodeId, arena: &Rc<RefCell<Are
         ui_descr_arena: (*arena).clone(),
         ui_descr_root: Some(root),
         styled_nodes: styled_nodes,
+        .. Default::default()
     }
 }
 
 fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<NodeData<T>>, parsed_css: &ParsedCss, css: &Css, parent_constraints: &CssConstraintList, parent_z_level: u32)
--> Vec<StyledNode>
+-> BTreeMap<NodeId, StyledNode>
 {
-    let mut styled_nodes = Vec::<StyledNode>::new();
+    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
     let mut current_constraints = parent_constraints.clone();
     cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css, css);
 
     let current_node = StyledNode {
-        id: root,
         z_level: parent_z_level,
         css_constraints: current_constraints,
     };
@@ -139,7 +140,7 @@ fn match_dom_css_selectors_inner<T: LayoutScreen>(root: NodeId, arena: &Arena<No
         styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, parent_z_level + 1));
     }
 
-    styled_nodes.push(current_node);
+    styled_nodes.insert(root, current_node);
     styled_nodes
 }
 

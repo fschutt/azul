@@ -489,7 +489,11 @@ impl<T: LayoutScreen> Dom<T> {
 
 impl<T: LayoutScreen> Dom<T> {
 
-    pub(crate) fn collect_callbacks(&self, callback_list: &mut BTreeMap<u64, Callback<T>>, nodes_to_callback_id_list: &mut  BTreeMap<u64, BTreeMap<On, u64>>) {
+    pub(crate) fn collect_callbacks(
+        &self,
+        callback_list: &mut BTreeMap<u64, Callback<T>>,
+        nodes_to_callback_id_list: &mut  BTreeMap<u64, BTreeMap<On, u64>>)
+    {
         for item in self.root.traverse(&*self.arena.borrow()) {
             let mut cb_id_list = BTreeMap::<On, u64>::new();
             let item = &self.arena.borrow()[item.inner_value()];
