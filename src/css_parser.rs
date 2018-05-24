@@ -43,7 +43,7 @@ macro_rules! impl_from_no_lifetimes {
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
     ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => (
-        pub fn $fn<'a>(input: &'a str)
+        fn $fn<'a>(input: &'a str)
         -> Result<$return, InvalidValueErr<'a>>
         {
             match input {
@@ -58,7 +58,7 @@ macro_rules! multi_type_parser {
 
 macro_rules! typed_pixel_value_parser {
     ($fn:ident, $return:ident) => (
-        pub fn $fn<'a>(input: &'a str)
+        fn $fn<'a>(input: &'a str)
         -> Result<$return, PixelParseError<'a>>
         {
             parse_pixel_value(input).and_then(|e| Ok($return(e)))
@@ -134,29 +134,29 @@ impl<'a> ParsedCssProperty<'a> {
     /// returns the parsed value or an error
     pub fn from_kv(key: &'a str, value: &'a str) -> Result<Self, CssParsingError<'a>> {
         match key {
-            "border-radius"     => Ok(parse_css_border_radius(value)        .map_err(|e| e.into())?.into()),
-            "background-color"  => Ok(parse_css_background_color(value)     .map_err(|e| e.into())?.into()),
-            "color"             => Ok(parse_css_text_color(value)           .map_err(|e| e.into())?.into()),
-            "border"            => Ok(parse_css_border(value)               .map_err(|e| e.into())?.into()),
-            "background"        => Ok(parse_css_background(value)           .map_err(|e| e.into())?.into()),
-            "font-size"         => Ok(parse_css_font_size(value)            .map_err(|e| e.into())?.into()),
-            "font-family"       => Ok(parse_css_font_family(value)          .map_err(|e| e.into())?.into()),
-            "box-shadow"        => Ok(parse_css_box_shadow(value)           .map_err(|e| e.into())?.into()),
+            "border-radius"     => Ok(parse_css_border_radius(value)?.into()),
+            "background-color"  => Ok(parse_css_background_color(value)?.into()),
+            "color"             => Ok(parse_css_text_color(value)?.into()),
+            "border"            => Ok(parse_css_border(value)?.into()),
+            "background"        => Ok(parse_css_background(value)?.into()),
+            "font-size"         => Ok(parse_css_font_size(value)?.into()),
+            "font-family"       => Ok(parse_css_font_family(value)?.into()),
+            "box-shadow"        => Ok(parse_css_box_shadow(value)?.into()),
 
-            "width"             => Ok(parse_layout_width(value)             .map_err(|e| e.into())?.into()),
-            "height"            => Ok(parse_layout_height(value)            .map_err(|e| e.into())?.into()),
-            "min-width"         => Ok(parse_layout_min_width(value)         .map_err(|e| e.into())?.into()),
-            "min-height"        => Ok(parse_layout_min_height(value)        .map_err(|e| e.into())?.into()),
-            "max-width"         => Ok(parse_layout_max_width(value)         .map_err(|e| e.into())?.into()),
-            "max-height"        => Ok(parse_layout_max_height(value)        .map_err(|e| e.into())?.into()),
+            "width"             => Ok(parse_layout_width(value)?.into()),
+            "height"            => Ok(parse_layout_height(value)?.into()),
+            "min-width"         => Ok(parse_layout_min_width(value)?.into()),
+            "min-height"        => Ok(parse_layout_min_height(value)?.into()),
+            "max-width"         => Ok(parse_layout_max_width(value)?.into()),
+            "max-height"        => Ok(parse_layout_max_height(value)?.into()),
 
-            "flex-wrap"         => Ok(parse_layout_wrap(value)              .map_err(|e| e.into())?.into()),
-            "flex-direction"    => Ok(parse_layout_direction(value)         .map_err(|e| e.into())?.into()),
-            "justify-content"   => Ok(parse_layout_justify_content(value)   .map_err(|e| e.into())?.into()),
-            "align-items"       => Ok(parse_layout_align_items(value)       .map_err(|e| e.into())?.into()),
-            "align-content"     => Ok(parse_layout_align_content(value)     .map_err(|e| e.into())?.into()),
-            "overflow"          => Ok(parse_layout_text_overflow(value)     .map_err(|e| e.into())?.into()),
-            "text-align"        => Ok(parse_layout_text_align(value)        .map_err(|e| e.into())?.into()),
+            "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
+            "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
+            "justify-content"   => Ok(parse_layout_justify_content(value)?.into()),
+            "align-items"       => Ok(parse_layout_align_items(value)?.into()),
+            "align-content"     => Ok(parse_layout_align_content(value)?.into()),
+            "overflow"          => Ok(parse_layout_text_overflow(value)?.into()),
+            "text-align"        => Ok(parse_layout_text_align(value)?.into()),
 
             _ => Err((key, value).into())
         }
@@ -169,9 +169,13 @@ impl<'a> ParsedCssProperty<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssParsingError<'a> {
     CssBorderParseError(CssBorderParseError<'a>),
-    CssColorParseError(CssColorParseError<'a>),
+    CssShadowParseError(CssShadowParseError<'a>),
+    InvalidValueErr(InvalidValueErr<'a>),
     PixelParseError(PixelParseError<'a>),
     CssImageParseError(CssImageParseError<'a>),
+    CssFontFamilyParseError(CssFontFamilyParseError<'a>),
+    CssBackgroundParseError(CssBackgroundParseError<'a>),
+    CssColorParseError(CssColorParseError<'a>),
     CssBorderRadiusParseError(CssBorderRadiusParseError<'a>),
     /// Key is not supported, i.e. `#div { aldfjasdflk: 400px }` results in an
     /// `UnsupportedCssKey("aldfjasdflk", "400px")` error
@@ -179,9 +183,13 @@ pub enum CssParsingError<'a> {
 }
 
 impl_from!(CssBorderParseError, CssParsingError::CssBorderParseError);
+impl_from!(CssShadowParseError, CssParsingError::CssShadowParseError);
 impl_from!(CssColorParseError, CssParsingError::CssColorParseError);
+impl_from!(InvalidValueErr, CssParsingError::InvalidValueErr);
 impl_from!(PixelParseError, CssParsingError::PixelParseError);
 impl_from!(CssImageParseError, CssParsingError::CssImageParseError);
+impl_from!(CssFontFamilyParseError, CssParsingError::CssFontFamilyParseError);
+impl_from!(CssBackgroundParseError, CssParsingError::CssBackgroundParseError);
 impl_from!(CssBorderRadiusParseError, CssParsingError::CssBorderRadiusParseError);
 
 /*
@@ -287,7 +295,7 @@ impl_from!(PixelParseError, CssShadowParseError::ValueParseErr);
 impl_from!(CssColorParseError, CssShadowParseError::ColorParseError);
 
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
-pub fn parse_css_border_radius<'a>(input: &'a str)
+fn parse_css_border_radius<'a>(input: &'a str)
 -> Result<BorderRadius, CssBorderRadiusParseError<'a>>
 {
     let mut components = input.split_whitespace();
@@ -363,7 +371,7 @@ pub enum PixelParseError<'a> {
 }
 
 /// parse a single value such as "15px"
-pub fn parse_pixel_value<'a>(input: &'a str)
+fn parse_pixel_value<'a>(input: &'a str)
 -> Result<PixelValue, PixelParseError<'a>>
 {
     let mut split_pos = 0;
@@ -408,7 +416,7 @@ fn parse_css_color<'a>(input: &'a str)
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BackgroundColor(pub ColorU);
 
-pub fn parse_css_background_color<'a>(input: &'a str)
+fn parse_css_background_color<'a>(input: &'a str)
 -> Result<BackgroundColor, CssColorParseError<'a>>
 {
     parse_css_color(input).and_then(|ok| Ok(BackgroundColor(ok)))
@@ -417,8 +425,8 @@ pub fn parse_css_background_color<'a>(input: &'a str)
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct TextColor(pub ColorU);
 
-pub fn parse_css_text_color<'a>(input: &'a str)
--> Result<BackgroundColor, CssColorParseError<'a>>
+fn parse_css_text_color<'a>(input: &'a str)
+-> Result<TextColor, CssColorParseError<'a>>
 {
     parse_css_color(input).and_then(|ok| Ok(TextColor(ok)))
 }
@@ -664,7 +672,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
 /// Parse a CSS border such as
 ///
 /// "5px solid red"
-pub fn parse_css_border<'a>(input: &'a str)
+fn parse_css_border<'a>(input: &'a str)
 -> Result<(BorderWidths, BorderDetails), CssBorderParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
@@ -740,7 +748,7 @@ pub struct BoxShadowPreDisplayItem {
 }
 
 /// Parses a CSS box-shadow
-pub fn parse_css_box_shadow<'a>(input: &'a str)
+fn parse_css_box_shadow<'a>(input: &'a str)
 -> Result<Option<BoxShadowPreDisplayItem>, CssShadowParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
@@ -992,7 +1000,7 @@ enum BackgroundType {
 }
 
 // parses a background, such as "linear-gradient(red, green)"
-pub fn parse_css_background<'a>(input: &'a str)
+fn parse_css_background<'a>(input: &'a str)
 -> Result<Background, CssBackgroundParseError<'a>>
 {
     use self::BackgroundType::*;
@@ -1495,6 +1503,8 @@ pub struct RectLayout {
     pub height: Option<LayoutHeight>,
     pub min_width: Option<LayoutMinWidth>,
     pub min_height: Option<LayoutMinHeight>,
+    pub max_width: Option<LayoutMaxWidth>,
+    pub max_height: Option<LayoutMaxHeight>,
     pub direction: Option<LayoutDirection>,
     pub wrap: Option<LayoutWrap>,
     pub justify_content: Option<LayoutJustifyContent>,
@@ -1527,15 +1537,15 @@ pub enum Font {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum FontFamilyParseError<'a> {
+pub enum CssFontFamilyParseError<'a> {
     InvalidFontFamily(&'a str),
     UnrecognizedBuiltinFont(&'a str),
     UnclosedQuotes(&'a str),
 }
 
-impl<'a> From<UnclosedQuotesError<'a>> for FontFamilyParseError<'a> {
+impl<'a> From<UnclosedQuotesError<'a>> for CssFontFamilyParseError<'a> {
     fn from(err: UnclosedQuotesError<'a>) -> Self {
-        FontFamilyParseError::UnclosedQuotes(err.0)
+        CssFontFamilyParseError::UnclosedQuotes(err.0)
     }
 }
 
@@ -1544,7 +1554,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for FontFamilyParseError<'a> {
 // "Webly Sleeky UI", monospace
 // 'Webly Sleeky Ui', monospace
 // sans-serif
-pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, FontFamilyParseError<'a>> {
+pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, CssFontFamilyParseError<'a>> {
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
 
@@ -1564,7 +1574,7 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Fo
                 "serif"      => fonts.push(Font::BuiltinFont("serif")),
                 "sans-serif" => fonts.push(Font::BuiltinFont("sans-serif")),
                 "monospace"  => fonts.push(Font::BuiltinFont("monospace")),
-                _ => return Err(FontFamilyParseError::UnrecognizedBuiltinFont(font)),
+                _ => return Err(CssFontFamilyParseError::UnrecognizedBuiltinFont(font)),
             }
         }
     }

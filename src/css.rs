@@ -71,7 +71,7 @@ impl<'a> From<DynamicCssParseError<'a>> for CssParseError<'a> {
 /// The CSS rule is currently not cascaded, use `Css::new_from_string()`
 /// to do the cascading.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CssRule<'a> {
+pub(crate) struct CssRule<'a> {
     /// `div` (`*` by default)
     pub html_type: String,
     /// `#myid` (`None` by default)
@@ -83,7 +83,7 @@ pub struct CssRule<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum CssDeclaration<'a> {
+pub(crate) enum CssDeclaration<'a> {
     Static(ParsedCssProperty<'a>),
     Dynamic(DynamicCssProperty<'a>),
 }
@@ -105,7 +105,7 @@ pub enum CssDeclaration<'a> {
 /// now use the same API.
 ///
 #[derive(Debug, Clone, PartialEq)]
-pub struct DynamicCssProperty<'a> {
+pub(crate) struct DynamicCssProperty<'a> {
     default: ParsedCssProperty<'a>,
     dynamic_id: String,
 }

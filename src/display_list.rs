@@ -30,7 +30,7 @@ const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 25
 const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("sans-serif");
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
-    pub(crate) ui_descr: &'a UiDescription<T>,
+    pub(crate) ui_descr: &'a UiDescription<'a, T>,
     pub(crate) rectangles: Arena<DisplayRectangle<'a>>
 }
 
@@ -42,7 +42,7 @@ pub(crate) struct DisplayRectangle<'a> {
     /// These two are completely seperate numbers!
     pub tag: Option<u64>,
     /// The original styled node
-    pub(crate) styled_node: &'a StyledNode,
+    pub(crate) styled_node: &'a StyledNode<'a>,
     /// The style properties of the node, parsed
     pub(crate) style: RectStyle<'a>,
     /// The layout properties of the node, parsed
@@ -91,8 +91,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         let display_rect_arena = arena.transform(|node, node_id| {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let mut rect = DisplayRectangle::new(node.tag, style);
-            parse_css_style_properties(&mut rect);
-            parse_css_layout_properties(&mut rect);
+            populate_css_properties(&mut rect);
             rect
         });
 
@@ -374,7 +373,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 #[inline]
 fn push_rect(info: &PrimitiveInfo<LayoutPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
     match style.background_color {
-        Some(bg) => builder.push_rect(&info, bg.into()),
+        Some(bg) => builder.push_rect(&info, bg.0.into()),
         None => builder.push_clear_rect(&info),
     }
 }
@@ -441,7 +440,7 @@ fn push_text<T: LayoutScreen>(
     let positioned_glyphs = text_layout::put_text_in_bounds(
         text, font, font_size, alignment, overflow_behaviour, bounds);
 
-    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).into();
+    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
     let flags = FontInstanceFlags::SUBPIXEL_BGR;
     let options = GlyphOptions {
         render_mode: FontRenderMode::Subpixel,
@@ -622,64 +621,45 @@ fn push_font(
     }
 }
 
-/// Internal helper function - gets a key from the constraint list and passes it through
-/// the parse_func - if an error occurs, then the error gets printed
-fn parse<'a, T, E: Debug>(
-    constraint_list: &'a CssConstraintList,
-    key: &'static str,
-    parse_func: fn(&'a str) -> Result<T, E>)
--> Option<T>
-{
-    #[inline(always)]
-    fn print_error_debug<E: Debug>(err: &E, key: &'static str) {
-        eprintln!("ERROR - invalid {:?}: {:?}", err, key);
-    }
-
-    constraint_list.list.get(key).and_then(|w|
-        parse_func(w).map_err(|e| {
-            #[cfg(debug_assertions)]
-            print_error_debug(&e, key);
-            e
-        }).ok()
-    )
-}
-
 /// Populate and parse the CSS style properties
-fn parse_css_style_properties(rect: &mut DisplayRectangle)
+fn populate_css_properties(rect: &mut DisplayRectangle)
 {
-    let constraint_list = &rect.styled_node.css_constraints;
+    for constraint in &rect.styled_node.css_constraints.list {
+        use css::CssDeclaration::*;
+        match constraint {
+            Static(static_property) => {
+                use css_parser::ParsedCssProperty::*;
+                match static_property {
+                    BorderRadius(b)             => { rect.style.border_radius = Some(*b);                   },
+                    BackgroundColor(c)          => { rect.style.background_color = Some(*c);                },
+                    TextColor(t)                => { rect.style.font_color = Some(*t);                      },
+                    Border(widths, details)     => { rect.style.border = Some((*widths, *details));         },
+                    Background(b)               => { rect.style.background = Some(b.clone());               },
+                    FontSize(f)                 => { rect.style.font_size = Some(*f);                       },
+                    FontFamily(f)               => { rect.style.font_family = Some(f.clone());              },
+                    TextOverflow(to)            => { rect.style.text_overflow = Some(*to);                  },
+                    TextAlign(ta)               => { rect.style.text_align = Some(*ta);                     },
+                    BoxShadow(opt_box_shadow)   => { rect.style.box_shadow = *opt_box_shadow;               },
 
-    rect.style.border_radius    = parse(constraint_list, "border-radius", parse_css_border_radius);
-    rect.style.background_color = parse(constraint_list, "background-color", parse_css_background_color);
-    rect.style.font_color       = parse(constraint_list, "color", parse_css_text_color);
-    rect.style.border           = parse(constraint_list, "border", parse_css_border);
-    rect.style.background       = parse(constraint_list, "background", parse_css_background);
-    rect.style.font_size        = parse(constraint_list, "font-size", parse_css_font_size);
-    rect.style.font_family      = parse(constraint_list, "font-family", parse_css_font_family);
+                    Width(w)                    => { rect.layout.width = Some(*w);                          },
+                    Height(h)                   => { rect.layout.height = Some(*h);                         },
+                    MinWidth(mw)                => { rect.layout.min_width = Some(*mw);                     },
+                    MinHeight(mh)               => { rect.layout.min_height = Some(*mh);                    },
+                    MaxWidth(mw)                => { rect.layout.max_width = Some(*mw);                     },
+                    MaxHeight(mh)               => { rect.layout.max_height = Some(*mh);                    },
 
-    if let Some(box_shadow_opt) = parse(constraint_list, "box-shadow", parse_css_box_shadow) {
-        rect.style.box_shadow = box_shadow_opt;
+                    FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
+                    FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
+                    JustifyContent(j)           => { rect.layout.justify_content = Some(*j);                },
+                    AlignItems(a)               => { rect.layout.align_items = Some(*a);                    },
+                    AlignContent(a)             => { rect.layout.align_content = Some(*a);                  },
+                }
+            },
+            Dynamic(_) => {
+                // TODO
+            }
+        }
     }
-}
-
-/// Populate and parse the CSS layout properties
-fn parse_css_layout_properties(rect: &mut DisplayRectangle)
-{
-    let constraint_list = &rect.styled_node.css_constraints;
-
-    rect.layout.width       = parse(constraint_list, "width", parse_layout_width);
-    rect.layout.height      = parse(constraint_list, "height", parse_layout_height);
-    rect.layout.min_width   = parse(constraint_list, "min-width", parse_layout_min_width);
-    rect.layout.min_height  = parse(constraint_list, "min-height", parse_layout_min_height);
-
-    rect.layout.wrap            = parse(constraint_list, "flex-wrap", parse_layout_wrap);
-    rect.layout.direction       = parse(constraint_list, "flex-direction", parse_layout_direction);
-    rect.layout.justify_content = parse(constraint_list, "justify-content", parse_layout_justify_content);
-    rect.layout.align_items     = parse(constraint_list, "align-items", parse_layout_align_items);
-    rect.layout.align_content   = parse(constraint_list, "align-content", parse_layout_align_content);
-
-    rect.style.text_overflow    = parse(constraint_list, "overflow", parse_layout_text_overflow);
-    rect.style.text_align       = parse(constraint_list, "text-align", parse_layout_text_align);
 }
 
 // Returns the constraints for one rectangle
