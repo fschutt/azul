@@ -25,7 +25,7 @@ const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("san
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
-    pub(crate) rectangles: BTreeMap<NodeId, DisplayRectangle<'a>>
+    pub(crate) rectangles: Arena<DisplayRectangle<'a>>
 }
 
 #[derive(Debug)]
@@ -80,20 +80,25 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     /// layout. The layout is done only in the `into_display_list_builder` step.
     pub fn new_from_ui_description(ui_description: &'a UiDescription<T>) -> Self {
 
-        let arena = &ui_description.ui_descr_arena;
-
-        let mut rect_btree = BTreeMap::new();
-
-        for node in &ui_description.styled_nodes {
-            let mut rect = DisplayRectangle::new(arena.borrow()[node.id].data.tag, &node);
+        let arena = ui_description.ui_descr_arena.borrow();
+        let display_rect_arena = arena.transform(|node, node_id| {
+            let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
+            let mut rect = DisplayRectangle::new(node.tag, style);
+            parse_css_style_properties(&mut rect);
+            parse_css_layout_properties(&mut rect);
+            rect
+        });
+/*
+        for node in ui_description.styled_nodes {
+            let mut rect = DisplayRectangle::new(arena[node.id].data.tag, &node);
             parse_css_style_properties(&mut rect);
             parse_css_layout_properties(&mut rect);
             rect_btree.insert(node.id, rect);
         }
-
+*/
         Self {
             ui_descr: ui_description,
-            rectangles: rect_btree,
+            rectangles: display_rect_arena,
         }
     }
 
@@ -221,11 +226,12 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         if css.needs_relayout {
 
             // constraints were added or removed during the last frame
-            for (rect_idx, rect) in self.rectangles.iter() {
+            for rect_idx in self.rectangles.linear_iter() {
+                let rect = &self.rectangles[rect_idx].data;
                 let arena = &*self.ui_descr.ui_descr_arena.borrow();
-                let dom_hash = &ui_solver.dom_tree_cache.previous_layout.arena[*rect_idx];
+                let dom_hash = &ui_solver.dom_tree_cache.previous_layout.arena[rect_idx];
                 let display_rect = ui_solver.edit_variable_cache.map[&dom_hash.data];
-                let layout_contraints = create_layout_constraints(rect, *rect_idx, arena, &ui_solver.window_dimensions);
+                let layout_contraints = create_layout_constraints(rect, rect_idx, &self.rectangles, &ui_solver.window_dimensions);
                 let cassowary_constraints = css_constraints_to_cassowary_constraints(&display_rect.1, &layout_contraints);
                 ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
             }
@@ -257,14 +263,15 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         css.needs_relayout = false;
 
         let layout_size = ui_solver.window_dimensions.layout_size;
-        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, layout_size, self.rectangles.len());
+        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, layout_size, self.rectangles.nodes_len());
         let mut resource_updates = ResourceUpdates::new();
         let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
-        for (rect_idx, rect) in self.rectangles.iter() {
+        for rect_idx in self.rectangles.linear_iter() {
+            let rect = &self.rectangles[rect_idx].data;
 
             // ask the solver what the bounds of the current rectangle is
             // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
@@ -342,7 +349,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             push_text(
                 &info,
                 &self,
-                *rect_idx,
+                rect_idx,
                 &mut builder,
                 &rect.style,
                 app_resources,
@@ -676,19 +683,21 @@ fn parse_css_layout_properties(rect: &mut DisplayRectangle)
 }
 
 // Returns the constraints for one rectangle
-fn create_layout_constraints<T>(
+fn create_layout_constraints<'a>(
     rect: &DisplayRectangle,
     rect_id: NodeId,
-    arena: &Arena<NodeData<T>>,
+    arena: &Arena<DisplayRectangle<'a>>,
     window_dimensions: &WindowDimensions)
 -> Vec<CssConstraint>
-where T: LayoutScreen
 {
     use css_parser;
     use cassowary::strength::*;
     use constraints::{SizeConstraint, Strength};
 
     let mut layout_constraints = Vec::<CssConstraint>::new();
+    let max_width = arena.get_wh_for_rectangle(rect_id, WidthOrHeight::Width)
+                         .unwrap_or(window_dimensions.layout_size.width);
+    println!("max width for rectangle with the ID {} is: {}", rect_id, max_width);
 
     layout_constraints.push(CssConstraint::Size((SizeConstraint::Width(200.0), Strength(STRONG))));
     layout_constraints.push(CssConstraint::Size((SizeConstraint::Height(200.0), Strength(STRONG))));
@@ -729,7 +738,14 @@ impl<'a> Arena<DisplayRectangle<'a>> {
     /// This function can be used on any rectangle to get the maximum allowed width
     /// (for inserting the width / height constraint into the layout solver).
     /// It simply traverses upwards through the nodes, until it finds a matching min-width / width
-    /// constraint, if it finds none, it will return the width of the root node.
+    /// constraint, returns None, if the root node is reached (with no constraints)
+    ///
+    /// Usually, you'd use it like:
+    ///
+    /// ```no_run,ignore
+    /// let max_width = arena.get_wh_for_rectangle(id, WidthOrHeight::Width)
+    ///                      .unwrap_or(window_dimensions.width);
+    /// ```
     fn get_wh_for_rectangle(&self, id: NodeId, field: WidthOrHeight) -> Option<f32> {
 
         use self::WidthOrHeight::*;

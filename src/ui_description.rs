@@ -6,11 +6,20 @@ use css::Css;
 use dom::NodeData;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::collections::BTreeMap;
 
 pub struct UiDescription<T: LayoutScreen> {
     pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,
+    /// ID of the root node of the arena (usually NodeId(0))
     pub(crate) ui_descr_root: Option<NodeId>,
-    pub(crate) styled_nodes: Vec<StyledNode>,
+    /// This field is created from the Css parser
+    pub(crate) styled_nodes: BTreeMap<NodeId, StyledNode>,
+    /// In the display list, we take references to the `UiDescription.styled_nodes`
+    ///
+    /// However, if there is no style, we want to have a default style applied
+    /// and the reference to that style has to live as least as long as the `self.styled_nodes`
+    /// This is why we need this field here
+    pub(crate) default_style_of_node: StyledNode,
 }
 
 impl<T: LayoutScreen> Clone for UiDescription<T> {
@@ -19,6 +28,7 @@ impl<T: LayoutScreen> Clone for UiDescription<T> {
             ui_descr_arena: self.ui_descr_arena.clone(),
             ui_descr_root: self.ui_descr_root.clone(),
             styled_nodes: self.styled_nodes.clone(),
+            default_style_of_node: self.default_style_of_node.clone(),
         }
     }
 }
@@ -28,7 +38,8 @@ impl<T: LayoutScreen> Default for UiDescription<T> {
         Self {
             ui_descr_arena: Rc::new(RefCell::new(Arena::new())),
             ui_descr_root: None,
-            styled_nodes: Vec::new(),
+            styled_nodes: BTreeMap::new(),
+            default_style_of_node: StyledNode::default(),
         }
     }
 }
@@ -40,25 +51,15 @@ impl<T: LayoutScreen> UiDescription<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StyledNode {
-    /// The current node we are processing (the current HTML element)
-    pub id: NodeId,
-    /// The z-index level that we are currently on
+    /// The z-index level that we are currently on, 0 by default
     pub z_level: u32,
     /// The CSS constraints, after the cascading step
     pub css_constraints: CssConstraintList
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CssConstraintList {
     pub list: FastHashMap<String, String>
-}
-
-impl CssConstraintList {
-    pub fn empty() -> Self {
-        Self {
-            list: FastHashMap::default(),
-        }
-    }
 }

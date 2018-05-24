@@ -89,7 +89,7 @@ impl DomTreeCache {
 
         if let Some(previous_root) = self.previous_layout.root {
             // let mut changeset = DomChangeSet::empty();
-            let new_tree = new_nodes_arena.transform(|data| data.calculate_node_data_hash());
+            let new_tree = new_nodes_arena.transform(|data, _| data.calculate_node_data_hash());
             // Self::update_tree_inner(previous_root, &self.previous_layout.arena, new_root, &new_nodes_arena, &mut changeset);
             let changeset = Self::update_tree_inner_2(&self.previous_layout.arena, &new_tree);
             self.previous_layout.arena = new_tree;
@@ -97,7 +97,7 @@ impl DomTreeCache {
         } else {
             // initialize arena
             use std::iter::FromIterator;
-            self.previous_layout.arena = new_nodes_arena.transform(|data| data.calculate_node_data_hash());
+            self.previous_layout.arena = new_nodes_arena.transform(|data, _| data.calculate_node_data_hash());
             self.previous_layout.root = Some(new_root);
             DomChangeSet {
                 added_nodes: self.previous_layout.arena.get_all_node_ids(),

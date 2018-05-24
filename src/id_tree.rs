@@ -1,11 +1,13 @@
 //! ID-based node tree
 
-use std::mem;
-use std::ops::{Index, IndexMut};
-use std::fmt;
-use std::hash::{Hasher, Hash};
-use std::collections::BTreeMap;
-use std::ops::Deref;
+use std::{
+    mem,
+    fmt,
+    ops::{Index, IndexMut, Deref},
+    hash::{Hasher, Hash},
+    collections::BTreeMap,
+    cmp::Ordering,
+};
 
 /// See: https://github.com/rust-lang/rust/issues/27730#issuecomment-311919692
 ///
@@ -43,8 +45,6 @@ impl NonZeroUsizeHack {
     }
 }
 
-use std::cmp::Ordering;
-
 impl PartialOrd for NonZeroUsizeHack {
     fn partial_cmp(&self, other: &NonZeroUsizeHack) -> Option<Ordering> {
         Some(self.get().cmp(&other.get()))
@@ -78,10 +78,24 @@ impl Hash for NonZeroUsizeHack {
 }
 
 /// A node identifier within a particular `Arena`.
-#[derive(PartialOrd, Ord, PartialEq, Eq, Copy, Clone, Debug, Hash)]
+#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct NodeId {
     // FIXME: Change this to NonZero<usize> once NonZero is stabilized
     pub(crate) index: NonZeroUsizeHack,
+}
+
+impl NodeId {
+    pub(crate) fn new(value: usize) -> Self {
+        Self {
+            index: NonZeroUsizeHack::new(value),
+        }
+    }
+}
+
+impl fmt::Display for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.index.get())
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -143,15 +157,15 @@ impl<T> Arena<T> {
     /// Transform keeps the relative order of parents / children
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
-    pub fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T) -> U {
+    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
         Arena {
-            nodes: self.nodes.iter().map(|node| Node {
+            nodes: self.nodes.iter().enumerate().map(|(node_id, node)| Node {
                 parent: node.parent,
                 previous_sibling: node.previous_sibling,
                 next_sibling: node.next_sibling,
                 first_child: node.first_child,
                 last_child: node.last_child,
-                data: closure(&node.data)
+                data: closure(&node.data, NodeId::new(node_id))
             }).collect()
         }
     }
@@ -168,8 +182,16 @@ impl<T> Arena<T> {
         }
     }
 
+    /// Return an iterator over the indices in the internal arenas Vec<T>
+    pub fn linear_iter(&self) -> LinearIterator<T> {
+        LinearIterator {
+            arena: &self,
+            position: 0,
+        }
+    }
+
     /// Create a new node from its associated data.
-    pub fn new_node(&mut self, data: T) -> NodeId {
+    pub(crate) fn new_node(&mut self, data: T) -> NodeId {
         let next_index = self.nodes.len();
         self.nodes.push(Node {
             parent: None,
@@ -184,8 +206,7 @@ impl<T> Arena<T> {
         }
     }
 
-    // Useful for debugging - returns how many
-    // nodes there are in the arena
+    // Returns how many nodes there are in the arena
     pub fn nodes_len(&self) -> usize {
         self.nodes.len()
     }
@@ -464,6 +485,27 @@ macro_rules! impl_node_iterator {
                     None => None
                 }
             }
+        }
+    }
+}
+
+/// An linear iterator, does not respec the DOM in any way,
+/// it just iterates over the nodes like a Vec
+pub struct LinearIterator<'a, T: 'a> {
+    arena: &'a Arena<T>,
+    position: usize,
+}
+
+impl<'a, T> Iterator for LinearIterator<'a, T> {
+    type Item = NodeId;
+
+    fn next(&mut self) -> Option<NodeId> {
+        if self.position > (self.arena.nodes.len() - 1) {
+            None
+        } else {
+            let new_id = Some(NodeId::new(self.position));
+            self.position += 1;
+            new_id
         }
     }
 }
