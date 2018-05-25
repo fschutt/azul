@@ -105,7 +105,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     fn update_resources(
         api: &RenderApi,
         app_resources: &mut AppResources,
-        resource_updates: &mut ResourceUpdates)
+        resource_updates: &mut Vec<ResourceUpdate>)
     {
         Self::update_image_resources(api, app_resources, resource_updates);
         Self::update_font_resources(api, app_resources, resource_updates);
@@ -114,7 +114,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     fn update_image_resources(
         api: &RenderApi,
         app_resources: &mut AppResources,
-        resource_updates: &mut ResourceUpdates)
+        resource_updates: &mut Vec<ResourceUpdate>)
     {
         use images::{ImageState, ImageInfo};
 
@@ -137,7 +137,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         // Remove any images that should be deleted
         for (resource_key, image_key) in to_delete_images.into_iter() {
             if let Some(image_key) = image_key {
-                resource_updates.delete_image(image_key);
+                resource_updates.push(ResourceUpdate::DeleteImage(image_key));
             }
             app_resources.images.remove(&resource_key);
         }
@@ -145,8 +145,12 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         // Upload all remaining images to the GPU only if the haven't been
         // uploaded yet
         for (resource_key, (data, descriptor)) in updated_images.into_iter() {
+
             let key = api.generate_image_key();
-            resource_updates.add_image(key, descriptor, data, None);
+            resource_updates.push(ResourceUpdate::AddImage(
+                AddImage { key, descriptor, data, tiling: None }
+            ));
+
             *app_resources.images.get_mut(&resource_key).unwrap() =
                 ImageState::Uploaded(ImageInfo {
                     key: key,
@@ -160,7 +164,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     fn update_font_resources(
         api: &RenderApi,
         app_resources: &mut AppResources,
-        resource_updates: &mut ResourceUpdates)
+        resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontState;
 
@@ -188,9 +192,9 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         for (resource_key, to_delete_instances) in to_delete_fonts.into_iter() {
             if let Some((font_key, font_instance_keys)) = to_delete_instances {
                 for instance in font_instance_keys {
-                    resource_updates.delete_font_instance(instance);
+                    resource_updates.push(ResourceUpdate::DeleteFontInstance(instance));
                 }
-                resource_updates.delete_font(font_key);
+                resource_updates.push(ResourceUpdate::DeleteFont(font_key));
                 app_resources.fonts.remove(&font_key);
             }
             app_resources.font_data.remove(&resource_key);
@@ -199,7 +203,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
         for (resource_key, data) in updated_fonts.into_iter() {
             let key = api.generate_font_key();
-            resource_updates.add_raw_font(key, data, 0); // TODO: use the index better?
+            resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
             app_resources.font_data.get_mut(&resource_key).unwrap().1 = FontState::Uploaded(key);
         }
     }
@@ -263,7 +267,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
         let layout_size = ui_solver.window_dimensions.layout_size;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, layout_size, self.rectangles.nodes_len());
-        let mut resource_updates = ResourceUpdates::new();
+        let mut resource_updates = Vec::<ResourceUpdate>::new();
         let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 
         // Upload image and font resources
@@ -388,7 +392,7 @@ fn push_text<T: LayoutScreen>(
     app_resources: &mut AppResources,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
-    resource_updates: &mut ResourceUpdates)
+    resource_updates: &mut Vec<ResourceUpdate>)
 {
     use dom::NodeType::*;
     use euclid::{TypedPoint2D, Length};
@@ -576,7 +580,7 @@ fn push_border(
 fn push_font(
     font_id: &css_parser::Font,
     font_size_app_units: Au,
-    resource_updates: &mut ResourceUpdates,
+    resource_updates: &mut Vec<ResourceUpdate>,
     app_resources: &mut AppResources,
     render_api: &RenderApi)
 -> Option<FontInstanceKey>
@@ -600,14 +604,16 @@ fn push_font(
             let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
                 .or_insert_with(|| {
                     let f_instance_key = render_api.generate_font_instance_key();
-                    resource_updates.add_font_instance(
-                        f_instance_key,
-                        font_key,
-                        font_size_app_units,
-                        None,
-                        None,
-                        Vec::new(),
-                    );
+                    resource_updates.push(ResourceUpdate::AddFontInstance(
+                        AddFontInstance {
+                            key: f_instance_key,
+                            font_key: font_key,
+                            glyph_size: font_size_app_units,
+                            options: None,
+                            platform_options: None,
+                            variations: Vec::new(),
+                        }
+                    ));
                     f_instance_key
                 }
             );
