@@ -1,3 +1,4 @@
+use traits::GetCssId;
 use app_state::AppState;
 use traits::LayoutScreen;
 use std::collections::BTreeMap;
@@ -96,84 +97,75 @@ impl<T: LayoutScreen> Eq for Callback<T> { }
 
 impl<T: LayoutScreen> Copy for Callback<T> { }
 
+use traits::Widget;
+
 /// List of allowed DOM node types that are supported by `azul`.
 ///
 /// All node types are purely convenience functions around `Div`,
 /// `Image` and `Label`. For example a `Ul` is simply a convenience
 /// wrapper around a repeated (`Div` + `Label`) clone where the first
 /// `Div` is shaped like a circle (for `Ul`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum NodeType /*<T: LayoutScreen>*/ {
+pub enum NodeType<T: LayoutScreen> {
     /// Regular div
     Div,
-    /// Image: The actual contents of the image are determined by the CSS
-    Image,
     /// A label that can be (optionally) be selectable with the mouse
-    Label {
-        /// Text of the label
-        text: String,
-    },
-    /// Button
-    Button {
-        /// The text on the button
-        label: String,
-    },
-    /// Unordered list
-    Ul,
-    /// Ordered list
-    Ol,
-    /// List item. Only valid if the parent is `NodeType::Ol` or `NodeType::Ul`.
-    Li,
-    /// This is more or less like a `GroupBox` in Visual Basic, draws a border
-    Form {
-        /// The text of the label
-        text: Option<String>,
-    },
-    /// Single-line text input
-    TextInput {
-        content: String,
-        placeholder: Option<String>
-    },
-    /// Multi line text input
-    TextEdit {
-        content: String,
-        placeholder: Option<String>,
-    },
-    /// A register-like tab
-    Tab {
-        label: String,
-    },
-    /// Checkbox
-    Checkbox {
-        /// active
-        state: CheckboxState,
-    },
-    /// Dropdown item
-    Dropdown {
-        items: Vec<String>,
-    },
-    /// Small (default yellow) tooltip for help
-    ToolTip {
-        title: String,
-        content: String,
-    },
-    /// Password input, like the TextInput, but the items are rendered as dots
-    /// (if `use_dots` is active)
-    Password {
-        content: String,
-        placeholder: Option<String>,
-        use_dots: bool,
-    },
-    // Custom drawing component
-    //CustomDrawComponent(DrawComponent<T>),
-}
-/*
-/// State of a checkbox (disabled, checked, etc.)
-#[derive(Debug, Clone, Hash)]
-pub enum DrawComponent<T: LayoutScreen> {
+    Label(String),
     Svg(Svg<T>),
+    // GlTexture
 }
-*/
+
+impl<T: LayoutScreen> fmt::Debug for NodeType<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "NodeType<{}>", self.get_css_id())
+    }
+}
+
+impl<T: LayoutScreen> Clone for NodeType<T> {
+    fn clone(&self) -> Self {
+        use self::NodeType::*;
+        match self {
+            Div => Div,
+            Label(text) => Label(text.clone()),
+            Svg(svg) => Svg(svg.clone()),
+        }
+    }
+}
+
+impl<T: LayoutScreen> PartialEq for NodeType<T> {
+    fn eq(&self, rhs: &Self) -> bool {
+        use self::NodeType::*;
+        match (self, rhs) {
+            (Div, Div) => true,
+            (Label(a), Label(b)) => a == b,
+            (Svg(a), Svg(b)) => *a == *b,
+            _ => false,
+        }
+    }
+}
+
+impl<T: LayoutScreen> Eq for NodeType<T> { }
+
+impl<T: LayoutScreen> Hash for NodeType<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        use self::NodeType::*;
+        match self {
+            Div => 0.hash(state),
+            Label(l) => { 1.hash(state); l.hash(state) },
+            Svg(s) => { 2.hash(state); s.hash(state) },
+        }
+    }
+}
+
+impl<T: LayoutScreen> GetCssId for NodeType<T> {
+    fn get_css_id(&self) -> &'static str {
+        use self::NodeType::*;
+        match *self {
+            Div => "div",
+            Label(_) => "p",
+            Svg(_) => "svg",
+        }
+    }
+}
 
 /// State of a checkbox (disabled, checked, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -192,62 +184,6 @@ pub enum CheckboxState {
     },
     /// `[ ]`
     Unchecked
-}
-
-impl /*<T: LayoutScreen>*/ NodeType /*<T>*/ {
-
-    /// Get the CSS / HTML identifier "p", "ul", "li", etc.
-    ///
-    /// Full list of the types you can use in CSS:
-    ///
-    /// ```ignore
-    /// Div                             => "div"
-    /// Image                           => "img"
-    /// Button                          => "button"
-    /// Ul                              => "ul"
-    /// Ol                              => "ol"
-    /// Li                              => "li"
-    /// Label                           => "label"
-    /// Form                            => "form"
-    /// TextInput                       => "text-input"
-    /// TextEdit                        => "text-edit"
-    /// Tab                             => "tab"
-    /// Checkbox                        => "checkbox"
-    /// Color                           => "color"
-    /// Drowdown                        => "dropdown"
-    /// ToolTip                         => "tooltip"
-    /// Password                        => "password"
-    /// CustomDrawComponent::Svg        => "svg"
-    /// CustomDrawComponent::GlTexture  => "gltexture"
-    /// ```
-    pub fn get_css_identifier(&self) -> &'static str {
-        use self::NodeType::*;
-        match *self {
-            Div => "div",
-            Image => "img",
-            Label { .. } => "label",
-            Button { .. } => "button",
-            Ul => "ul",
-            Ol => "ol",
-            Li => "li",
-            Form { .. } => "form",
-            TextInput { .. } => "text-input",
-            TextEdit { .. } => "text-edit",
-            Tab { .. } => "tab",
-            Checkbox { .. } => "checkbox",
-            Dropdown { .. } => "dropdown",
-            ToolTip { .. } => "tooltip",
-            Password { .. } => "password",
-            /*
-            CustomDrawComponent(c) => {
-                match c {
-                    DrawComponent::Svg(_) => "svg",
-                    DrawComponent::GlTexture(_) => "gltexture",
-                }
-            }
-            */
-        }
-    }
 }
 
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
@@ -269,7 +205,7 @@ pub enum On {
 #[derive(PartialEq, Eq)]
 pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
-    pub node_type: NodeType/*<T>*/,
+    pub node_type: NodeType<T>,
     /// `#main`
     pub id: Option<String>,
     /// `.myclass .otherclass`
@@ -317,14 +253,19 @@ impl<T: LayoutScreen> Clone for NodeData<T> {
 
 impl<T: LayoutScreen> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "NodeData {{
-    node_type: {:?},
-    id: {:?},
-    classes: {:?},
-    events: {:?},
-    tag: {:?}
-}}",
-        self.node_type, self.id, self.classes, self.events, self.tag)
+        write!(f,
+            "NodeData {{ \
+                \tnode_type: {:?}, \
+                \tid: {:?}, \
+                \tclasses: {:?}, \
+                \tevents: {:?}, \
+                \ttag: {:?} \
+            }}",
+        self.node_type,
+        self.id,
+        self.classes,
+        self.events,
+        self.tag)
     }
 }
 
@@ -338,7 +279,7 @@ impl<T: LayoutScreen> CallbackList<T> {
 
 impl<T: LayoutScreen> NodeData<T> {
     /// Creates a new NodeData
-    pub fn new(node_type: NodeType/*<T>*/) -> Self {
+    pub fn new(node_type: NodeType<T>) -> Self {
         Self {
             node_type: node_type,
             id: None,
@@ -372,12 +313,13 @@ pub struct Dom<T: LayoutScreen> {
 
 impl<T: LayoutScreen> fmt::Debug for Dom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Dom {{
-   arena: {:?},
-   root: {:?},
-   current_root: {:?},
-   last: {:?}
-}}",
+        write!(f,
+        "Dom {{ \
+            \tarena: {:?}, \
+            \troot: {:?}, \
+            \tcurrent_root: {:?}, \
+            \tlast: {:?}, \
+        }}",
         self.arena,
         self.root,
         self.current_root,
@@ -416,7 +358,7 @@ impl<T: LayoutScreen> Dom<T> {
 
     /// Creates an empty DOM
     #[inline]
-    pub fn new(node_type: NodeType/*<T>*/) -> Self {
+    pub fn new(node_type: NodeType<T>) -> Self {
         let mut arena = Arena::new();
         let root = arena.new_node(NodeData::new(node_type));
         Self {
