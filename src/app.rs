@@ -21,7 +21,7 @@ pub struct App<'a, T: LayoutScreen> {
     /// The graphical windows, indexed by ID
     windows: Vec<Window<T>>,
     /// The global application state
-    pub app_state: Arc<Mutex<AppState<'a, T>>>,
+    pub app_state: AppState<'a, T>,
 }
 
 pub(crate) struct FrameEventInfo {
@@ -52,7 +52,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     pub fn new(initial_data: T) -> Self {
         Self {
             windows: Vec::new(),
-            app_state: Arc::new(Mutex::new(AppState::new(initial_data))),
+            app_state: AppState::new(initial_data),
         }
     }
 
@@ -74,9 +74,8 @@ impl<'a, T: LayoutScreen> App<'a, T> {
 
         // first redraw, initialize cache
         {
-            let mut app_state = self.app_state.lock().unwrap();
             for (idx, _) in self.windows.iter().enumerate() {
-                ui_state_cache.push(UiState::from_app_state(&*app_state, WindowId { id: idx }));
+                ui_state_cache.push(UiState::from_app_state(&self.app_state, WindowId { id: idx }));
             }
 
             // First repaint, otherwise the window would be black on startup
@@ -84,7 +83,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                 ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
                 render(window, &WindowId { id: idx, },
                       &ui_description_cache[idx],
-                      &mut app_state.resources,
+                      &mut self.app_state.resources,
                       true);
                 window.display.swap_buffers().unwrap();
             }
@@ -139,11 +138,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                             // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
                             // currently, just invoke all actions
                             for callback_id in callback_list.values() {
-                                use dom::Callback::*;
-                                let update = match ui_state_cache[idx].callback_list[callback_id] {
-                                    Sync(callback) => { (callback)(&mut *self.app_state.lock().unwrap()) },
-                                    Async(callback) => { (callback)(self.app_state.clone()) },
-                                };
+                                let update = (ui_state_cache[idx].callback_list[callback_id].0)(&mut self.app_state);
                                 if update == UpdateScreen::Redraw {
                                     should_update_screen = UpdateScreen::Redraw;
                                 }
@@ -156,8 +151,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                     }
                 }
 
-                let mut app_state = self.app_state.lock().unwrap();
-                ui_state_cache[idx] = UiState::from_app_state(&*app_state, WindowId { id: idx });
+                ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowId { id: idx });
 
                 if window.css.is_dirty {
                     frame_event_info.should_redraw_window = true;
@@ -175,7 +169,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                         render(window,
                                &current_window_id,
                                &ui_description_cache[idx],
-                               &mut app_state.resources,
+                               &mut self.app_state.resources,
                                true);
 
                         let time_end = ::std::time::Instant::now();
@@ -201,7 +195,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                     render(window,
                            &current_window_id,
                            &ui_description_cache[idx],
-                           &mut app_state.resources,
+                           &mut self.app_state.resources,
                            frame_event_info.new_window_size.is_some());
 
                     let time_end = ::std::time::Instant::now();
@@ -238,7 +232,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
-        (*self.app_state.lock().unwrap()).add_image(id, data, image_type)
+        self.app_state.add_image(id, data, image_type)
     }
 
     /// Removes an image from the internal app resources.
@@ -247,14 +241,14 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
         -> Option<()>
     {
-        (*self.app_state.lock().unwrap()).delete_image(id)
+        self.app_state.delete_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
     pub fn has_image<S: AsRef<str>>(&mut self, id: S)
         -> bool
     {
-        (*self.app_state.lock().unwrap()).has_image(id)
+        self.app_state.has_image(id)
     }
 
     /// Add a font (TTF or OTF) as a resource, identified by ID
@@ -267,14 +261,14 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
         -> Result<Option<()>, FontError>
     {
-        (*self.app_state.lock().unwrap()).add_font(id, data)
+        self.app_state.add_font(id, data)
     }
 
     /// Checks if a font is currently registered and ready-to-use
     pub fn has_font<S: Into<String>>(&mut self, id: S)
         -> bool
     {
-        (*self.app_state.lock().unwrap()).has_font(id)
+        self.app_state.has_font(id)
     }
 
     /// Deletes a font from the internal app resources.
@@ -323,7 +317,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     pub fn delete_font<S: Into<String>>(&mut self, id: S)
         -> Option<()>
     {
-        (*self.app_state.lock().unwrap()).delete_font(id)
+        self.app_state.delete_font(id)
     }
 
     /// Mock rendering function, for creating a hidden window and rendering one frame
@@ -350,17 +344,16 @@ impl<'a, T: LayoutScreen> App<'a, T> {
         self.create_window(hidden_create_options, Css::native()).unwrap();
         let mut ui_state_cache = Vec::with_capacity(self.windows.len());
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-        let mut app_state = self.app_state.lock().unwrap();
 
         for (idx, _) in self.windows.iter().enumerate() {
-            ui_state_cache.push(UiState::from_app_state(&*app_state, WindowId { id: idx }));
+            ui_state_cache.push(UiState::from_app_state(&self.app_state, WindowId { id: idx }));
         }
 
         for (idx, window) in self.windows.iter_mut().enumerate() {
             ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
             render(window, &WindowId { id: idx, },
                   &ui_description_cache[idx],
-                  &mut app_state.resources,
+                  &mut self.app_state.resources,
                   true);
             window.display.swap_buffers().unwrap();
         }

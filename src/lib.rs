@@ -31,6 +31,8 @@ pub extern crate glium;
 pub extern crate gleam;
 pub extern crate image;
 
+#[macro_use]
+extern crate lazy_static;
 extern crate euclid;
 extern crate resvg;
 extern crate lyon;

@@ -34,35 +34,17 @@ pub enum UpdateScreen {
 /// The CSS is not affected by this, so if you push to the windows' CSS inside the
 /// function, the screen will not be automatically redrawn, unless you return an
 /// `UpdateScreen::Redraw` from the function
-pub enum Callback<T: LayoutScreen> {
-    /// One-off function (for ex. exporting a file)
-    ///
-    /// This is best for actions where you don't care if or when they complete.
-    /// Because you accept a Mutex, you can create a background thread
-    /// (azul won't create this for you)
-    Async(fn(Arc<Mutex<AppState<T>>>) -> UpdateScreen),
-    /// Same as the `FnOnceNonBlocking`, but it blocks the current
-    /// thread and does not require the type to be `Send`.
-    Sync(fn(&mut AppState<T>) -> UpdateScreen),
-}
+pub struct Callback<T: LayoutScreen>(pub fn(&mut AppState<T>) -> UpdateScreen);
 
 impl<T: LayoutScreen> fmt::Debug for Callback<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Callback::*;
-        match *self {
-            Async(func) => write!(f, "Callback::Async @ {:?}", func as usize),
-            Sync(func) => write!(f, "Callback::Sync @ {:?}", func as usize),
-        }
+        write!(f, "Callback @ {:x?}", self.0 as usize)
     }
 }
 
-impl<T: LayoutScreen> Clone for Callback<T>
-{
+impl<T: LayoutScreen> Clone for Callback<T> {
     fn clone(&self) -> Self {
-        match *self {
-            Callback::Async(ref f) => Callback::Async(f.clone()),
-            Callback::Sync(ref f) => Callback::Sync(f.clone()),
-        }
+        Callback(self.0.clone())
     }
 }
 
@@ -72,24 +54,14 @@ impl<T: LayoutScreen> Clone for Callback<T>
 /// than re-creating the whole DOM and serves as a caching mechanism.
 impl<T: LayoutScreen> Hash for Callback<T> {
   fn hash<H>(&self, state: &mut H) where H: Hasher {
-    use self::Callback::*;
-    match *self {
-        Async(f) => { state.write_usize(f as usize); }
-        Sync(f) => { state.write_usize(f as usize); }
-    }
+    state.write_usize(self.0 as usize);
   }
 }
 
 /// Basically compares the function pointers and types for equality
 impl<T: LayoutScreen> PartialEq for Callback<T> {
   fn eq(&self, rhs: &Self) -> bool {
-    use self::Callback::*;
-    if let (Async(self_f), Async(other_f)) = (*self, *rhs) {
-        if self_f as usize == other_f as usize { return true; }
-    } else if let (Sync(self_f), Sync(other_f)) = (*self, *rhs) {
-        if self_f as usize == other_f as usize { return true; }
-    }
-    false
+    self.0 as usize == rhs.0 as usize
   }
 }
 

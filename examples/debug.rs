@@ -16,12 +16,13 @@ impl LayoutScreen for MyAppData {
     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
         Dom::new(NodeType::Label(format!("{}", self.my_data)))
             .with_class("__azul-native-button")
-            .with_event(On::MouseUp, Callback::Sync(my_button_click_handler))
+            .with_event(On::MouseUp, Callback(my_button_click_handler))
     }
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
-    app_state.data.my_data += 1;
+    let mut app_state_lock = app_state.data.lock().unwrap();
+    app_state_lock.my_data += 1;
     UpdateScreen::Redraw
 }
 
