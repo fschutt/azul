@@ -464,7 +464,7 @@ impl<T: LayoutScreen> Dom<T> {
 
     /// Same as `event`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_event<S: Into<String>>(mut self, on: On, callback: Callback<T>) -> Self {
+    pub fn with_event(mut self, on: On, callback: Callback<T>) -> Self {
         self.event(on, callback);
         self
     }

@@ -13,22 +13,18 @@ pub struct MyAppData {
 }
 
 impl LayoutScreen for MyAppData {
-
     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
-
-        let mut dom = Dom::new(NodeType::Label {
+        Dom::new(NodeType::Label {
             text: format!("{}", self.my_data),
-        });
-        dom.class("__azul-native-button");
-        dom.event(On::MouseUp, Callback::Sync(my_button_click_handler));
-
-        dom
+        })
+        .with_class("__azul-native-button")
+        .with_event(On::MouseUp, Callback::Sync(my_button_click_handler))
     }
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
     app_state.data.my_data += 1;
-    UpdateScreen::DontRedraw
+    UpdateScreen::Redraw
 }
 
 fn main() {
