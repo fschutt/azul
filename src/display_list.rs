@@ -403,17 +403,8 @@ fn push_text<T: LayoutScreen>(
     let arena = display_list.ui_descr.ui_descr_arena.borrow();
 
     let text = match arena[rect_idx].data.node_type {
-        Div => return,
-        Label { ref text } => {
-            text
-        },
-        _ => {
-            /// The display list should only ever handle divs and labels.
-            /// Everything more complex should be handled by a pre-processing step
-            eprintln!("got a NodeType in a DisplayList that wasn't a div or a label, this is a bug");
-            // unreachable!();
-            return;
-        }
+        Label(ref text) => text,
+        _ => return,
     };
 
     if text.is_empty() {

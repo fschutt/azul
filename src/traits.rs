@@ -6,6 +6,7 @@ use window::WindowId;
 use id_tree::{NodeId, Arena};
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::hash::Hash;
 
 pub trait LayoutScreen {
     /// Updates the DOM, must be provided by the final application.
@@ -25,6 +26,17 @@ pub trait LayoutScreen {
         match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, 0)
     }
 }
+
+/// Trait for any node type, registers a new top-level CSS id, i.e.
+/// `body`, `div`, etc. for custom types
+pub trait GetCssId {
+    /// Returns the top-level CSS identifier for this
+    fn get_css_id(&self) -> &'static str;
+}
+
+pub trait Widget: GetCssId + Clone + PartialEq + Eq + Hash { }
+
+impl<T: GetCssId + Clone + PartialEq + Eq + Hash> Widget for T { }
 
 pub(crate) struct ParsedCss<'a> {
     pub(crate) pure_global_rules: Vec<&'a CssRule>,
@@ -164,7 +176,8 @@ fn cascade_constraints<'a, T: LayoutScreen>(
     css: &Css)
 {
     for div_rule in &parsed_css.pure_div_rules {
-        if *node.node_type.get_css_identifier() == div_rule.html_type {
+        use traits::GetCssId;
+        if *node.node_type.get_css_id() == div_rule.html_type {
             push_rule(list, div_rule);
         }
     }
