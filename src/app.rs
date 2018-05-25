@@ -433,7 +433,6 @@ fn render<T: LayoutScreen>(
         window.internal.last_display_list_builder = new_builder.finalize().2;
     }
 
-    let resources = ResourceUpdates::new();
     let mut txn = Transaction::new();
 
     txn.set_display_list(
@@ -446,7 +445,6 @@ fn render<T: LayoutScreen>(
         true,
     );
 
-    txn.update_resources(resources);
     txn.set_root_pipeline(window.internal.pipeline_id);
     txn.generate_frame();
     window.internal.api.send_transaction(window.internal.document_id, txn);
