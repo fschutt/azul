@@ -1,3 +1,5 @@
+use dom::UpdateScreen;
+use deamon::DeamonCallback;
 use css::Css;
 use resources::AppResources;
 use app_state::AppState;
@@ -219,6 +221,11 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                 }
                 ::std::thread::sleep(::std::time::Duration::from_millis(16));
             }
+
+            // Run deamons and remove them from
+            if self.app_state.run_all_deamons() == UpdateScreen::Redraw {
+                // TODO: What to do?
+            }
         }
     }
 
@@ -318,6 +325,23 @@ impl<'a, T: LayoutScreen> App<'a, T> {
         -> Option<()>
     {
         self.app_state.delete_font(id)
+    }
+
+    /// Create a deamon. Does nothing if a deamon with the same ID already exists.
+    ///
+    /// If the deamon was inserted, returns true, otherwise false
+    pub fn add_deamon<S: Into<String>>(&mut self, id: S, deamon: fn(&mut T) -> UpdateScreen)
+        -> bool
+    {
+        self.app_state.add_deamon(id, deamon)
+    }
+
+    /// Remove a currently running deamon from running. Does nothing if there is
+    /// already a deamon with the same ID
+    pub fn delete_deamon<S: AsRef<str>>(&mut self, id: S)
+        -> bool
+    {
+        self.app_state.delete_deamon(id)
     }
 
     /// Mock rendering function, for creating a hidden window and rendering one frame
