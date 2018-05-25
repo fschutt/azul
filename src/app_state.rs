@@ -7,13 +7,14 @@ use font::FontError;
 use std::collections::hash_map::Entry::*;
 use FastHashMap;
 use deamon::DeamonCallback;
+use std::sync::{Arc, Mutex};
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `LayoutScreen` trait (how the application
 /// should be laid out)
 pub struct AppState<'a, T: LayoutScreen> {
     /// Your data (the global struct which all callbacks will have access to)
-    pub data: T,
+    pub data: Arc<Mutex<T>>,
     /// Fonts and images that are currently loaded into the app
     pub(crate) resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
@@ -25,7 +26,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     /// Creates a new `AppState`
     pub fn new(initial_data: T) -> Self {
         Self {
-            data: initial_data,
+            data: Arc::new(Mutex::new(initial_data)),
             resources: AppResources::default(),
             deamons: FastHashMap::default(),
         }
@@ -104,7 +105,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     /// impl LayoutScreen for MyAppData {
     ///      fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
     ///          let mut dom = Dom::new(NodeType::Div);
-    ///          dom.event(On::MouseEnter, Callback::Sync(my_callback));
+    ///          dom.event(On::MouseEnter, Callback(my_callback));
     ///          dom
     ///      }
     /// }

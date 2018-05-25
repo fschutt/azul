@@ -29,9 +29,15 @@ impl<T: LayoutScreen> UiState<T> {
     {
         use dom::{Dom, On};
 
-        let dom: Dom<T> = app_state.data.get_dom(window_id);
+        // Only shortly lock the data to get the dom out
+         let dom: Dom<T> = {
+            let dom_lock = app_state.data.lock().unwrap();
+            dom_lock.get_dom(window_id)
+        };
+
         unsafe { NODE_ID = 0 };
         unsafe { CALLBACK_ID = 0 };
+
         let mut callback_list = BTreeMap::<u64, Callback<T>>::new();
         let mut node_ids_to_callbacks_list = BTreeMap::<u64, BTreeMap<On, u64>>::new();
         dom.collect_callbacks(&mut callback_list, &mut node_ids_to_callbacks_list);
