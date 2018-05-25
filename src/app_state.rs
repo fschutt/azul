@@ -1,3 +1,4 @@
+use dom::UpdateScreen;
 use traits::LayoutScreen;
 use resources::{AppResources};
 use std::io::Read;
@@ -158,17 +159,33 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     /// Create a deamon. Does nothing if a deamon with the same ID already exists.
     ///
     /// If the deamon was inserted, returns true, otherwise false
-    pub fn add_deamon<S: Into<String>>(&mut self, id: S, deamon: DeamonCallback<T>) -> bool {
+    pub fn add_deamon<S: Into<String>>(&mut self, id: S, deamon: fn(&mut T) -> UpdateScreen) -> bool {
         let id_string = id.into();
         match self.deamons.entry(id_string) {
             Occupied(_) => false,
-            Vacant(v) => { v.insert(deamon); true },
+            Vacant(v) => { v.insert(DeamonCallback::new(deamon)); true },
         }
     }
 
     /// Remove a currently running deamon from running. Does nothing if there is
     /// already a deamon with the same ID
-    pub fn delete_deamon<S: AsRef<String>>(&mut self, id: S) -> bool {
+    pub fn delete_deamon<S: AsRef<str>>(&mut self, id: S) -> bool {
         self.deamons.remove(id.as_ref()).is_some()
+    }
+
+    /// Run all currently registered deamons
+    pub(crate) fn run_all_deamons(&self) -> UpdateScreen {
+        let mut should_update_screen = UpdateScreen::DontRedraw;
+        for deamon in self.deamons.values().cloned() {
+            let should_update = {
+                let mut lock = self.data.lock().unwrap();
+                (deamon.callback)(&mut lock)
+            };
+            if should_update == UpdateScreen::Redraw &&
+               should_update_screen == UpdateScreen::DontRedraw {
+                should_update_screen = UpdateScreen::Redraw;
+            }
+        }
+        should_update_screen
     }
 }

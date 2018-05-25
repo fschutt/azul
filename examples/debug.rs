@@ -21,9 +21,24 @@ impl LayoutScreen for MyAppData {
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
-    let mut app_state_lock = app_state.data.lock().unwrap();
-    app_state_lock.my_data += 1;
+
+    let should_start_deamon = {
+        let mut app_state_lock = app_state.data.lock().unwrap();
+        app_state_lock.my_data += 1;
+        app_state_lock.my_data % 2 == 0
+    };
+
+    if should_start_deamon {
+        app_state.add_deamon("hello", deamon_test_start);
+    } else {
+        app_state.delete_deamon("hello");
+    }
     UpdateScreen::Redraw
+}
+
+fn deamon_test_start(app_state: &mut MyAppData) -> UpdateScreen {
+    println!("Hello!");
+    UpdateScreen::DontRedraw
 }
 
 fn main() {

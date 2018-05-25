@@ -59,8 +59,6 @@ pub mod dom;
 pub mod traits;
 /// Window handling
 pub mod window;
-/// Deamon / polling function implementation
-pub mod deamon;
 /// Async IO / task system
 pub mod task;
 /// SVG / path flattering module (lyon)
@@ -97,6 +95,8 @@ mod menu;
 mod compositor;
 /// Platform extensions (non-portable window extensions for Win32, Wayland, X11, Cocoa)
 mod platform_ext;
+/// Deamon / polling function implementation
+mod deamon;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
