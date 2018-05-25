@@ -33,6 +33,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen 
 
 fn main() {
 
+    // Parse and validate the CSS
     let css = Css::new_from_string(TEST_CSS).unwrap();
 
     let my_app_data = MyAppData {
