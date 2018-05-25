@@ -17,12 +17,10 @@ const RELAYOUT_RULES: [&str; 13] = [
 ];
 
 /// Wrapper for a `Vec<CssRule>` - the CSS is immutable at runtime, it can only be
-/// created once. Animations / conditional styling is implemented using dynamic fields (see ``)
+/// created once. Animations / conditional styling is implemented using dynamic fields
 #[derive(Debug, Clone, PartialEq)]
-pub struct Css<'a> {
-    // NOTE: Each time the rules are modified, the `dirty` flag
-    // has to be set accordingly for the CSS to update!
-    pub(crate) rules: Vec<CssRule<'a>>,
+pub struct Css {
+    pub(crate) rules: Vec<CssRule>,
     /*
     /// The dynamic properties that have to be set for this frame
     rules_to_change: FastHashMap<String, ParsedCssProperty>,
@@ -71,7 +69,7 @@ impl<'a> From<DynamicCssParseError<'a>> for CssParseError<'a> {
 /// The CSS rule is currently not cascaded, use `Css::new_from_string()`
 /// to do the cascading.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct CssRule<'a> {
+pub(crate) struct CssRule {
     /// `div` (`*` by default)
     pub html_type: String,
     /// `#myid` (`None` by default)
@@ -79,13 +77,13 @@ pub(crate) struct CssRule<'a> {
     /// `.myclass .myotherclass` (vec![] by default)
     pub classes: Vec<String>,
     /// `("justify-content", "center")`
-    pub declaration: (String, CssDeclaration<'a>),
+    pub declaration: (String, CssDeclaration),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum CssDeclaration<'a> {
-    Static(ParsedCssProperty<'a>),
-    Dynamic(DynamicCssProperty<'a>),
+pub(crate) enum CssDeclaration {
+    Static(ParsedCssProperty),
+    Dynamic(DynamicCssProperty),
 }
 
 /// A `CssProperty` is a type of CSS Rule,
@@ -105,12 +103,12 @@ pub(crate) enum CssDeclaration<'a> {
 /// now use the same API.
 ///
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct DynamicCssProperty<'a> {
-    default: ParsedCssProperty<'a>,
-    dynamic_id: String,
+pub(crate) struct DynamicCssProperty {
+    pub(crate) dynamic_id: String,
+    pub(crate) default: ParsedCssProperty,
 }
 
-impl<'a> CssRule<'a> {
+impl CssRule {
     pub fn needs_relayout(&self) -> bool {
         // RELAYOUT_RULES.iter().any(|r| self.declaration.0 == *r)
         // TODO
@@ -118,7 +116,7 @@ impl<'a> CssRule<'a> {
     }
 }
 
-impl<'a> Css<'a> {
+impl Css {
 
     /// Creates an empty set of CSS rules
     pub fn empty() -> Self {
@@ -130,7 +128,7 @@ impl<'a> Css<'a> {
     }
 
     /// Parses a CSS string (single-threaded) and returns the parsed rules
-    pub fn new_from_string(css_string: &'a str) -> Result<Self, CssParseError> {
+    pub fn new_from_string<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
         use simplecss::{Tokenizer, Token};
         use std::collections::HashSet;
 
@@ -162,7 +160,6 @@ impl<'a> Css<'a> {
                             block_nesting += 1;
                         },
                         Token::BlockEnd => {
-                            println!("blockend!");
                             block_nesting -= 1;
                             parser_in_block = false;
                             current_type = "*";
@@ -188,8 +185,6 @@ impl<'a> Css<'a> {
                             current_classes.insert(class);
                         }
                         Token::Declaration(key, val) => {
-                            println!("declaration: key - {}\t\t| val - {}", key, val);
-
                             if !parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
@@ -198,7 +193,6 @@ impl<'a> Css<'a> {
                             //
                             // css_val = "center" | "{{ my_dynamic_id | center }}"
                             let css_decl = determine_static_or_dynamic_css_property(key, val)?;
-
                             let mut css_rule = CssRule {
                                 html_type: current_type.to_string(),
                                 id: current_id.clone(),
@@ -256,10 +250,12 @@ pub enum DynamicCssParseError<'a> {
     UnclosedBraces,
     /// There is a valid dynamic css property, but no default case
     NoDefaultCase,
+    /// The dynamic CSS property has no ID, i.e. `[[ 400px ]]`
+    NoId,
     /// The ID may not start with a number or be a CSS property itself
     InvalidId,
-    /// The "default" ID has to be the second ID, not the first one.
-    DefaultCaseNotSecond,
+    /// Dynamic css property braces are empty, i.e. `[[ ]]`
+    EmptyBraces,
     /// Unexpected value when parsing the string
     UnexpectedValue(CssParsingError<'a>),
 }
@@ -273,41 +269,138 @@ impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
 /// Determine if a Css property is static (immutable) or if it can change
 /// during the runtime of the program
 fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
--> Result<CssDeclaration<'a>, DynamicCssParseError<'a>>
+-> Result<CssDeclaration, DynamicCssParseError<'a>>
 {
-    // TODO: dynamic css declarations
-    Ok(CssDeclaration::Static(ParsedCssProperty::from_kv(key, value)?))
+    let key = key.trim();
+    let value = value.trim();
+
+    const START_BRACE: &str = "[[";
+    const END_BRACE: &str = "]]";
+
+    let is_starting_with_braces = value.starts_with(START_BRACE);
+    let is_ending_with_braces = value.ends_with(END_BRACE);
+
+    match (is_starting_with_braces, is_ending_with_braces) {
+        (true, false) | (false, true) => {
+            Err(DynamicCssParseError::UnclosedBraces)
+        },
+        (true, true) => {
+
+            use std::char;
+
+            // "[[ id | 400px ]]" => "id | 400px"
+            let value = value.trim_left_matches(START_BRACE);
+            let value = value.trim_right_matches(END_BRACE);
+            let value = value.trim();
+
+            let mut pipe_split = value.splitn(2, "|");
+            let dynamic_id = pipe_split.next();
+            let default_case = pipe_split.next();
+
+            // note: dynamic_id will always be Some(), which is why the
+            let (default_case, dynamic_id) = match (default_case, dynamic_id) {
+                (Some(default), Some(id)) => (default, id),
+                (None, Some(id)) => {
+                    if id.trim().is_empty() {
+                        return Err(DynamicCssParseError::EmptyBraces);
+                    } else if ParsedCssProperty::from_kv(key, id).is_ok() {
+                        // if there is an ID, but the ID is a CSS value
+                        return Err(DynamicCssParseError::NoId);
+                    } else {
+                        return Err(DynamicCssParseError::NoDefaultCase);
+                    }
+                },
+                (None, None) | (Some(_), None) => unreachable!(), // iterator would be broken if this happened
+            };
+
+            let dynamic_id = dynamic_id.trim();
+            let default_case = default_case.trim();
+
+            match (dynamic_id.is_empty(), default_case.is_empty()) {
+                (true, true) => return Err(DynamicCssParseError::EmptyBraces),
+                (true, false) => return Err(DynamicCssParseError::NoId),
+                (false, true) => return Err(DynamicCssParseError::NoDefaultCase),
+                (false, false) => { /* everything OK */ }
+            }
+
+            if dynamic_id.starts_with(char::is_numeric) ||
+               ParsedCssProperty::from_kv(key, dynamic_id).is_ok() {
+                return Err(DynamicCssParseError::InvalidId);
+            }
+
+            let default_case_parsed = ParsedCssProperty::from_kv(key, default_case)?;
+
+            Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+                dynamic_id: dynamic_id.to_string(),
+                default: default_case_parsed,
+            }))
+        },
+        (false, false) => {
+            Ok(CssDeclaration::Static(ParsedCssProperty::from_kv(key, value)?))
+        }
+    }
 }
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
-    use css_parser::TextAlignment;
+    use css_parser::{TextAlignment, PixelParseError, InvalidValueErr};
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
         Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(TextAlignment::Center)))
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "{{    400px }}"),
+        determine_static_or_dynamic_css_property("text-align", "[[    400px ]]"),
         Err(DynamicCssParseError::NoDefaultCase)
     );
 
-    assert_eq!(determine_static_or_dynamic_css_property("text-align", "{{  400px"),
+    assert_eq!(determine_static_or_dynamic_css_property("text-align", "[[  400px"),
         Err(DynamicCssParseError::UnclosedBraces)
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "{{  400px | 500px }}"),
+        determine_static_or_dynamic_css_property("text-align", "[[  400px | center ]]"),
         Err(DynamicCssParseError::InvalidId)
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "{{  hello | 500px }}"),
-        Err(DynamicCssParseError::InvalidId)
+        determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
+        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+            default: ParsedCssProperty::TextAlign(TextAlignment::Center),
+            dynamic_id: String::from("hello"),
+        }))
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "{{  500px | hello }}"),
-        Err(DynamicCssParseError::InvalidId)
+        determine_static_or_dynamic_css_property("text-align", "[[  abc | hello ]]"),
+        Err(DynamicCssParseError::UnexpectedValue(
+            CssParsingError::InvalidValueErr(InvalidValueErr("hello"))
+        ))
+    );
+
+    assert_eq!(
+        determine_static_or_dynamic_css_property("text-align", "[[ ]]"),
+        Err(DynamicCssParseError::EmptyBraces)
+    );
+    assert_eq!(
+        determine_static_or_dynamic_css_property("text-align", "[[]]"),
+        Err(DynamicCssParseError::EmptyBraces)
+    );
+
+
+    assert_eq!(
+        determine_static_or_dynamic_css_property("text-align", "[[ center ]]"),
+        Err(DynamicCssParseError::NoId)
+    );
+
+    assert_eq!(
+        determine_static_or_dynamic_css_property("text-align", "[[ hello |  ]]"),
+        Err(DynamicCssParseError::NoDefaultCase)
+    );
+
+    // debatable if this is a suitable error for this case:
+    assert_eq!(
+        determine_static_or_dynamic_css_property("text-align", "[[ |  ]]"),
+        Err(DynamicCssParseError::EmptyBraces)
     );
 }

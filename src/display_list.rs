@@ -30,7 +30,7 @@ const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 25
 const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("sans-serif");
 
 pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
-    pub(crate) ui_descr: &'a UiDescription<'a, T>,
+    pub(crate) ui_descr: &'a UiDescription<T>,
     pub(crate) rectangles: Arena<DisplayRectangle<'a>>
 }
 
@@ -42,9 +42,9 @@ pub(crate) struct DisplayRectangle<'a> {
     /// These two are completely seperate numbers!
     pub tag: Option<u64>,
     /// The original styled node
-    pub(crate) styled_node: &'a StyledNode<'a>,
+    pub(crate) styled_node: &'a StyledNode,
     /// The style properties of the node, parsed
-    pub(crate) style: RectStyle<'a>,
+    pub(crate) style: RectStyle,
     /// The layout properties of the node, parsed
     pub(crate) layout: RectLayout,
 }
@@ -518,8 +518,8 @@ fn push_background(
         None => return,
     };
 
-    match *background {
-        Background::RadialGradient(ref gradient) => {
+    match background {
+        Background::RadialGradient(gradient) => {
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
@@ -530,7 +530,7 @@ fn push_background(
             let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
-        Background::LinearGradient(ref gradient) => {
+        Background::LinearGradient(gradient) => {
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
@@ -541,10 +541,10 @@ fn push_background(
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         Background::Image(image_id) => {
-            if let Some(image_info) = app_resources.images.get(image_id.0) {
+            if let Some(image_info) = app_resources.images.get(&image_id.0) {
                 use images::ImageState::*;
-                match *image_info {
-                    Uploaded(ref image_info) => {
+                match image_info {
+                    Uploaded(image_info) => {
                         builder.push_image(
                                 &info,
                                 bounds.size,

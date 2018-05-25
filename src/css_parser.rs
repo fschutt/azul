@@ -32,7 +32,7 @@ macro_rules! impl_from {
 /// Same as `impl_from`, but without lifetime annotations for `$a`
 macro_rules! impl_from_no_lifetimes {
     ($a:ident, $b:ident::$enum_type:ident) => (
-        impl<'a> From<$a> for $b<'a> {
+        impl From<$a> for $b {
             fn from(e: $a) -> Self {
                 $b::$enum_type(e)
             }
@@ -68,12 +68,12 @@ macro_rules! typed_pixel_value_parser {
 
 /// A successfully parsed CSS property
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ParsedCssProperty<'a> {
+pub(crate) enum ParsedCssProperty {
     BorderRadius(BorderRadius),
     BackgroundColor(BackgroundColor),
     TextColor(TextColor),
     Border(BorderWidths, BorderDetails),
-    Background(Background<'a>),
+    Background(Background),
     FontSize(FontSize),
     FontFamily(FontFamily),
     TextOverflow(TextOverflowBehaviour),
@@ -95,7 +95,7 @@ pub(crate) enum ParsedCssProperty<'a> {
 }
 
 impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
-impl_from!(Background, ParsedCssProperty::Background);
+impl_from_no_lifetimes!(Background, ParsedCssProperty::Background);
 impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
 impl_from_no_lifetimes!(FontFamily, ParsedCssProperty::FontFamily);
 impl_from_no_lifetimes!(TextOverflowBehaviour, ParsedCssProperty::TextOverflow);
@@ -117,22 +117,24 @@ impl_from_no_lifetimes!(LayoutAlignContent, ParsedCssProperty::AlignContent);
 impl_from_no_lifetimes!(BackgroundColor, ParsedCssProperty::BackgroundColor);
 impl_from_no_lifetimes!(TextColor, ParsedCssProperty::TextColor);
 
-impl<'a> From<(BorderWidths, BorderDetails)> for ParsedCssProperty<'a> {
+impl From<(BorderWidths, BorderDetails)> for ParsedCssProperty {
     fn from((widths, details): (BorderWidths, BorderDetails)) -> Self {
         ParsedCssProperty::Border(widths, details)
     }
 }
 
-impl<'a> From<Option<BoxShadowPreDisplayItem>> for ParsedCssProperty<'a> {
+impl From<Option<BoxShadowPreDisplayItem>> for ParsedCssProperty {
     fn from(box_shadow: Option<BoxShadowPreDisplayItem>) -> Self {
         ParsedCssProperty::BoxShadow(box_shadow)
     }
 }
 
-impl<'a> ParsedCssProperty<'a> {
+impl ParsedCssProperty {
     /// Main parsing function, takes a stringified key / value pair and either
     /// returns the parsed value or an error
-    pub fn from_kv(key: &'a str, value: &'a str) -> Result<Self, CssParsingError<'a>> {
+    pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<Self, CssParsingError<'a>> {
+        let key = key.trim();
+        let value = value.trim();
         match key {
             "border-radius"     => Ok(parse_css_border_radius(value)?.into()),
             "background-color"  => Ok(parse_css_background_color(value)?.into()),
@@ -192,27 +194,6 @@ impl_from!(CssFontFamilyParseError, CssParsingError::CssFontFamilyParseError);
 impl_from!(CssBackgroundParseError, CssParsingError::CssBackgroundParseError);
 impl_from!(CssBorderRadiusParseError, CssParsingError::CssBorderRadiusParseError);
 
-/*
-impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
-impl_from!(Background, ParsedCssProperty::Background);
-impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
-impl_from_no_lifetimes!(FontFamily, ParsedCssProperty::FontFamily);
-impl_from_no_lifetimes!(TextOverflowBehaviour, ParsedCssProperty::TextOverflow);
-impl_from_no_lifetimes!(TextAlignment, ParsedCssProperty::TextAlign);
-
-impl_from_no_lifetimes!(LayoutWidth, ParsedCssProperty::Width);
-impl_from_no_lifetimes!(LayoutHeight, ParsedCssProperty::Height);
-impl_from_no_lifetimes!(LayoutMinWidth, ParsedCssProperty::MinWidth);
-impl_from_no_lifetimes!(LayoutMinHeight, ParsedCssProperty::MinHeight);
-impl_from_no_lifetimes!(LayoutMaxWidth, ParsedCssProperty::MaxWidth);
-impl_from_no_lifetimes!(LayoutMaxHeight, ParsedCssProperty::MaxHeight);
-
-impl_from_no_lifetimes!(LayoutWrap, ParsedCssProperty::FlexWrap);
-impl_from_no_lifetimes!(LayoutDirection, ParsedCssProperty::FlexDirection);
-impl_from_no_lifetimes!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
-impl_from_no_lifetimes!(LayoutAlignItems, ParsedCssProperty::AlignItems);
-impl_from_no_lifetimes!(LayoutAlignContent, ParsedCssProperty::AlignContent);
-*/
 impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
     fn from((a, b): (&'a str, &'a str)) -> Self {
         CssParsingError::UnsupportedCssKey(a, b)
@@ -878,14 +859,14 @@ impl_from!(CssShapeParseError, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError, CssBackgroundParseError::ImageParseError);
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Background<'a> {
+pub enum Background {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
-    Image(CssImageId<'a>)
+    Image(CssImageId)
 }
 
-impl<'a> From<CssImageId<'a>> for Background<'a> {
-    fn from(id: CssImageId<'a>) -> Self {
+impl<'a> From<CssImageId> for Background {
+    fn from(id: CssImageId) -> Self {
         Background::Image(id)
     }
 }
@@ -1179,19 +1160,27 @@ fn parse_css_background<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct CssImageId<'a>(pub(crate) &'a str);
+/// Note: In theory, we could take a String here,
+/// but this leads to horrible lifetime issues. Also
+/// since we only parse the CSS once (at startup),
+/// the performance is absolutely negligible.
+///
+/// However, this allows the `Css` struct to be independent
+/// of the original source text, i.e. the original CSS string
+/// can be deallocated after successfully parsing it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CssImageId(pub(crate) String);
 
-impl<'a> From<QuoteStripped<'a>> for CssImageId<'a> {
+impl<'a> From<QuoteStripped<'a>> for CssImageId {
     fn from(input: QuoteStripped<'a>) -> Self {
-        CssImageId(input.0)
+        CssImageId(input.0.to_string())
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str);
 
-fn parse_image<'a>(input: &'a str) -> Result<CssImageId<'a>, CssImageParseError<'a>> {
+fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
     Ok(strip_quotes(input)?.into())
 }
 
@@ -1473,13 +1462,13 @@ impl Default for TextAlignment {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-pub(crate) struct RectStyle<'a> {
+pub(crate) struct RectStyle {
     /// Background color of this rectangle
     pub(crate) background_color: Option<BackgroundColor>,
     /// Shadow color
     pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
     /// Gradient (location) + stops
-    pub(crate) background: Option<Background<'a>>,
+    pub(crate) background: Option<Background>,
     /// Border
     pub(crate) border: Option<(BorderWidths, BorderDetails)>,
     /// Border radius
@@ -2011,7 +2000,7 @@ mod css_tests {
     #[test]
     fn test_parse_background_image() {
         assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(Background::Image(
-            CssImageId("Cat 01")
+            CssImageId(String::from("Cat 01"))
         )));
     }
 }
