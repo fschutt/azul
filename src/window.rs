@@ -1,5 +1,6 @@
 //! Window creation module
 
+use window_state::{WindowState, WindowPosition};
 use std::{time::Duration, fmt};
 
 use webrender::{
@@ -45,8 +46,8 @@ impl WindowId {
 /// Options on how to initially create the window
 #[derive(Debug, Clone)]
 pub struct WindowCreateOptions {
-    /// Title of the window
-    pub title: String,
+    /// State of the window, set the initial title / width / height here.
+    pub state: WindowState,
     /// OpenGL clear color
     pub background: ColorF,
     /// Clear the stencil buffer with the given value. If not set, stencil buffer is not cleared
@@ -63,12 +64,6 @@ pub struct WindowCreateOptions {
     /// Should the window update regardless if the mouse is hovering
     /// over the window? (useful for games vs. applications)
     pub update_behaviour: UpdateBehaviour,
-    /// How should the window be decorated?
-    pub decorations: WindowDecorations,
-    /// Size and position of the window
-    pub size: WindowPlacement,
-    /// What type of window (full screen, popup, normal)
-    pub class: WindowClass,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
 }
@@ -76,7 +71,7 @@ pub struct WindowCreateOptions {
 impl Default for WindowCreateOptions {
     fn default() -> Self {
         Self {
-            title: self::DEFAULT_TITLE.into(),
+            state: WindowState::new(DEFAULT_TITLE, DEFAULT_WIDTH, DEFAULT_HEIGHT),
             background: ColorF::new(1.0, 1.0, 1.0, 1.0),
             clear_stencil: None,
             clear_depth: None,
@@ -84,9 +79,6 @@ impl Default for WindowCreateOptions {
             monitor: WindowMonitorTarget::default(),
             mouse_mode: MouseMode::default(),
             update_behaviour: UpdateBehaviour::default(),
-            decorations: WindowDecorations::default(),
-            size: WindowPlacement::default(),
-            class: WindowClass::default(),
             renderer_type: RendererType::default(),
         }
     }
@@ -114,82 +106,6 @@ pub enum RendererType {
 impl Default for RendererType {
     fn default() -> Self {
         RendererType::Default
-    }
-}
-
-/// How should the window be decorated
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum WindowDecorations {
-    /// Regular window decorations
-    Normal,
-    /// Maximize button disabled
-    MaximizeDisabled,
-    /// Minimize button disabled
-    MinimizeDisabled,
-    /// Both maximize and minimize button disabled
-    MaximizeMinimizeDisabled,
-    /// No decorations (borderless window)
-    ///
-    /// Combine this with `WindowClass::FullScreen`
-    /// to get borderless fullscreen mode
-    /// (useful for correct Alt+Tab behaviour)
-    NoDecorations,
-}
-
-impl Default for WindowDecorations {
-    fn default() -> Self {
-        WindowDecorations::Normal
-    }
-}
-
-/// Where the window should be positioned,
-/// from the top left corner of the screen
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct WindowPlacement {
-    pub x: u32,
-    pub y: u32,
-    pub width: u32,
-    pub height: u32,
-}
-
-impl Default for WindowPlacement {
-    fn default() -> Self {
-        Self {
-            x: 0,
-            y: 0,
-            width: self::DEFAULT_WIDTH,
-            height: self::DEFAULT_HEIGHT,
-        }
-    }
-}
-
-/// What class the window should have (important for window managers).
-/// Currently not in use.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum WindowClass {
-    /// Regular desktop window
-    Normal,
-    /// Popup window (some window managers handle this differently)
-    Popup,
-    /// Will open the window in full-screen mode
-    /// and set it as the top-level window on the given monitor.
-    /// Window size is ignored
-    FullScreen,
-    /// Start the window maximized
-    Maximized,
-    /// Start the window minimized
-    Minimized,
-    /// Window is hidden at startup.
-    ///
-    /// This is useful for background rendering. Many windowing systems
-    /// do not properly support off-screen rendering (via OSMesa or similar).
-    /// As a workaround, you can just create a hidden window
-    Hidden,
-}
-
-impl Default for WindowClass {
-    fn default() -> Self {
-        WindowClass::Normal
     }
 }
 
@@ -374,8 +290,15 @@ impl Default for WindowMonitorTarget {
 pub struct Window<T: LayoutScreen> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
-    // TODO: Migrate to the window_state for state diffing
-    pub(crate) options: WindowCreateOptions,
+    /// Current state of the window, stores the keyboard / mouse state,
+    /// visibility of the window, etc. of the LAST frame. The user never sets this
+    /// field directly, but rather sets the WindowState he wants to have for the NEXT frame,
+    /// then azul compares the changes (i.e. if we are currently in fullscreen mode and
+    /// the user wants the next screen to be in fullscreen mode, too, simply do nothing), then it
+    /// updates this field to reflect the changes.
+    ///
+    /// This field is initialized from the `WindowCreateOptions`.
+    pub(crate) state: WindowState,
     /// The webrender renderer
     pub(crate) renderer: Option<Renderer>,
     /// The display, i.e. the window
@@ -459,19 +382,37 @@ impl<T: LayoutScreen> Window<T> {
         let events_loop = EventsLoop::new();
 
         let mut window = WindowBuilder::new()
-            .with_dimensions(options.size.width, options.size.height)
-            .with_title(options.title.clone())
-            .with_decorations(options.decorations != WindowDecorations::NoDecorations)
-            .with_visibility(options.class != WindowClass::Hidden)
-            .with_maximized(options.class == WindowClass::Maximized);
+            .with_dimensions(options.state.size.width, options.state.size.height)
+            .with_title(options.state.title.clone())
+            .with_decorations(options.state.has_decorations)
+            .with_visibility(options.state.is_visible)
+            .with_transparency(options.state.is_transparent)
+            .with_maximized(options.state.is_maximized)
+            .with_multitouch();
 
-        if options.class == WindowClass::FullScreen {
+        // TODO: Update winit to have:
+        //      .with_always_on_top(options.state.is_always_on_top)
+        //
+        // winit 0.13 -> winit 0.15
+
+        // TODO: Add all the extensions for X11 / Mac / Windows,
+        // like setting the taskbar icon, setting the titlebar icon, etc.
+
+        if options.state.is_fullscreen {
             let monitor = match options.monitor {
                 WindowMonitorTarget::Primary => events_loop.get_primary_monitor(),
                 WindowMonitorTarget::Custom(ref id) => id.clone(),
             };
 
             window = window.with_fullscreen(Some(monitor));
+        }
+
+        if let Some((min_w, min_h)) = options.state.size.min_dimensions {
+            window = window.with_min_dimensions(min_w, min_h);
+        }
+
+        if let Some((max_w, max_h)) = options.state.size.max_dimensions {
+            window = window.with_max_dimensions(max_w, max_h);
         }
 
         fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
@@ -501,6 +442,11 @@ impl<T: LayoutScreen> Window<T> {
             .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
 
         let hidpi_factor = gl_window.hidpi_factor();
+
+        if let Some(WindowPosition { x, y }) = options.state.position {
+            gl_window.window().set_position(x as i32, y as i32);
+        }
+
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
         unsafe {
@@ -607,7 +553,7 @@ impl<T: LayoutScreen> Window<T> {
 
         let window = Window {
             events_loop: events_loop,
-            options: options,
+            state: options.state,
             renderer: Some(renderer),
             display: display,
             compositor: compositor,
@@ -638,6 +584,64 @@ impl<T: LayoutScreen> Window<T> {
         MonitorIter {
             inner: EventsLoop::new().get_available_monitors(),
         }
+    }
+
+    /// Updates the window state, diff the `self.state` with the `new_state`
+    /// and updating the platform window to reflect the changes
+    ///
+    /// Note: Currently, setting `mouse_state.position`, `window.size` or
+    /// `window.position` has no effect on the platform window, since they are very
+    /// frequently modified by the user (other properties are always set by the
+    /// application developer)
+    pub fn update_window_state(&mut self, new_state: WindowState) {
+
+        let gl_window = self.display.gl_window();
+        let window = gl_window.window();
+        let old_state = &mut self.state;
+
+        // Compare the old and new state, field by field
+
+        if old_state.title != new_state.title {
+            window.set_title(&new_state.title);
+        }
+
+        if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
+            window.set_cursor(new_state.mouse_state.mouse_cursor_type);
+        }
+
+        if old_state.is_maximized != new_state.is_maximized {
+            window.set_maximized(new_state.is_maximized);
+        }
+
+        if old_state.is_fullscreen != new_state.is_fullscreen {
+            if new_state.is_fullscreen {
+                window.set_fullscreen(Some(window.get_current_monitor()));
+            } else {
+                window.set_fullscreen(None);
+            }
+        }
+
+        if old_state.has_decorations != new_state.has_decorations {
+            window.set_decorations(new_state.has_decorations);
+        }
+
+        if old_state.is_visible != new_state.is_visible {
+            if new_state.is_visible {
+                window.show();
+            } else {
+                window.hide();
+            }
+        }
+
+        if old_state.size.min_dimensions != new_state.size.min_dimensions {
+            window.set_min_dimensions(new_state.size.min_dimensions);
+        }
+
+        if old_state.size.max_dimensions != new_state.size.max_dimensions {
+            window.set_max_dimensions(new_state.size.max_dimensions);
+        }
+
+        *old_state = new_state;
     }
 }
 

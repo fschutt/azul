@@ -9,7 +9,6 @@
     width:  [[ my_id | 200px ]];
     height: 200px;
     min-height: 400px;
-    min-width: 500px;
     text-align: center;
     flex-direction: row;
     flex-wrap: nowrap;

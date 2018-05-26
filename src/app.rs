@@ -154,10 +154,6 @@ impl<'a, T: LayoutScreen> App<'a, T> {
 
                 ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowId { id: idx });
 
-                if window.css.is_dirty {
-                    frame_event_info.should_redraw_window = true;
-                }
-
                 // Macro to avoid duplication between the new_window_size and the new_dpi_factor event
                 // TODO: refactor this into proper functions (when the WindowState is working)
                 macro_rules! update_display {

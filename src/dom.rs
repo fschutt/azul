@@ -69,8 +69,6 @@ impl<T: LayoutScreen> Eq for Callback<T> { }
 
 impl<T: LayoutScreen> Copy for Callback<T> { }
 
-use traits::Widget;
-
 /// List of allowed DOM node types that are supported by `azul`.
 ///
 /// All node types are purely convenience functions around `Div`,

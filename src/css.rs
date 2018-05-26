@@ -1,4 +1,5 @@
 //! CSS parsing and styling
+use FastHashMap;
 use std::ops::Add;
 use css_parser::{ParsedCssProperty, CssParsingError};
 
@@ -21,11 +22,11 @@ const RELAYOUT_RULES: [&str; 13] = [
 #[derive(Debug, Clone, PartialEq)]
 pub struct Css {
     pub(crate) rules: Vec<CssRule>,
-    /*
-    /// The dynamic properties that have to be set for this frame
-    rules_to_change: FastHashMap<String, ParsedCssProperty>,
-    */
-    pub(crate) is_dirty: bool,
+    /// The dynamic properties that have to be overridden for this frame
+    ///
+    /// - `String`: The ID of the dynamic property
+    /// - `ParsedCssProperty`: What to override it with
+    pub(crate) dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
     /// Has the CSS changed in a way where it needs a re-layout?
     ///
     /// Ex. if only a background color has changed, we need to redraw, but we
@@ -122,8 +123,8 @@ impl Css {
     pub fn empty() -> Self {
         Self {
             rules: Vec::new(),
-            is_dirty: false,
             needs_relayout: false,
+            dynamic_css_overrides: FastHashMap::default(),
         }
     }
 
@@ -219,10 +220,9 @@ impl Css {
 
         Ok(Self {
             rules: css_rules,
-            // force repaint for the first frame
-            is_dirty: true,
             // force re-layout for the first frame
             needs_relayout: true,
+            dynamic_css_overrides: FastHashMap::default(),
         })
     }
 

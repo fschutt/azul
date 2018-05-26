@@ -1,3 +1,4 @@
+use window_state::WindowState;
 use task::Task;
 use dom::UpdateScreen;
 use traits::LayoutScreen;
@@ -16,12 +17,18 @@ use std::sync::{Arc, Mutex};
 pub struct AppState<'a, T: LayoutScreen> {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: Arc<Mutex<T>>,
+    /// Note: this isn't the real window state. This is a "mock" window state which
+    /// can be modified by the user, i.e:
+    /// ```no_run,ignore
+    /// app_state.windows[event.window_id].css.set_dynamic_property("my_id", ("color", "orange).into());
+    /// ```
+    pub windows: Vec<WindowState>,
     /// Fonts and images that are currently loaded into the app
     pub(crate) resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
     pub(crate) deamons: FastHashMap<String, fn(&mut T) -> UpdateScreen>,
     /// Currently running tasks (asynchronous functions running on a different thread)
-    pub(crate) tasks: Vec<Task>
+    pub(crate) tasks: Vec<Task>,
 }
 
 impl<'a, T: LayoutScreen> AppState<'a, T> {
@@ -30,6 +37,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     pub fn new(initial_data: T) -> Self {
         Self {
             data: Arc::new(Mutex::new(initial_data)),
+            windows: Vec::new(),
             resources: AppResources::default(),
             deamons: FastHashMap::default(),
             tasks: Vec::new(),
