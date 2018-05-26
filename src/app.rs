@@ -225,6 +225,9 @@ impl<'a, T: LayoutScreen> App<'a, T> {
             if self.app_state.run_all_deamons() == UpdateScreen::Redraw {
                 // TODO: What to do?
             }
+
+            // Clean up finished tasks
+            self.app_state.clean_up_finished_tasks();
         }
     }
 
@@ -380,6 +383,14 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                   true);
             window.display.swap_buffers().unwrap();
         }
+    }
+}
+
+impl<'a, T: LayoutScreen + Send + 'static> App<'a, T> {
+    /// Tasks, once started, cannot be stopped, which is why there is no `.delete()` function
+    pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
+    {
+        self.app_state.add_task(callback);
     }
 }
 
