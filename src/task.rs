@@ -12,8 +12,12 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn new<T: LayoutScreen + Send + 'static>(app_state: Arc<Mutex<T>>, callback: fn(Arc<Mutex<T>>, Arc<()>) -> ()) -> Self {
-
+    pub fn new<T>(
+        app_state: &Arc<Mutex<T>>,
+        callback: fn(Arc<Mutex<T>>, Arc<()>))
+    -> Self
+    where T: LayoutScreen + Send + 'static
+    {
         let thread_check = Arc::new(());
         let thread_weak = Arc::downgrade(&thread_check);
         let app_state_clone = app_state.clone();
@@ -28,7 +32,7 @@ impl Task {
         }
     }
 
-    pub fn is_ready(&self) -> bool {
+    pub fn is_finished(&self) -> bool {
         self.dropcheck.upgrade().is_none()
     }
 }

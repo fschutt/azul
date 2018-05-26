@@ -1,3 +1,4 @@
+use task::Task;
 use dom::UpdateScreen;
 use traits::LayoutScreen;
 use resources::{AppResources};
@@ -19,6 +20,8 @@ pub struct AppState<'a, T: LayoutScreen> {
     pub(crate) resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
     pub(crate) deamons: FastHashMap<String, fn(&mut T) -> UpdateScreen>,
+    /// Currently running tasks (asynchronous functions running on a different thread)
+    pub(crate) tasks: Vec<Task>
 }
 
 impl<'a, T: LayoutScreen> AppState<'a, T> {
@@ -29,6 +32,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
             data: Arc::new(Mutex::new(initial_data)),
             resources: AppResources::default(),
             deamons: FastHashMap::default(),
+            tasks: Vec::new(),
         }
     }
 
@@ -184,5 +188,20 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
             }
         }
         should_update_screen
+    }
+
+    /// Remove all tasks that have finished executing
+    pub(crate) fn clean_up_finished_tasks(&mut self)
+    {
+        self.tasks.retain(|x| x.is_finished());
+    }
+}
+
+impl<'a, T: LayoutScreen + Send + 'static> AppState<'a, T> {
+    /// Tasks, once started, cannot be stopped
+    pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
+    {
+        let task = Task::new(&self.data, callback);
+        self.tasks.push(task);
     }
 }
