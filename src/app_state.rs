@@ -7,7 +7,6 @@ use image::ImageError;
 use font::FontError;
 use std::collections::hash_map::Entry::*;
 use FastHashMap;
-use deamon::DeamonCallback;
 use std::sync::{Arc, Mutex};
 
 /// Wrapper for your application data. In order to be layout-able,
@@ -19,7 +18,7 @@ pub struct AppState<'a, T: LayoutScreen> {
     /// Fonts and images that are currently loaded into the app
     pub(crate) resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
-    pub(crate) deamons: FastHashMap<String, DeamonCallback<T>>,
+    pub(crate) deamons: FastHashMap<String, fn(&mut T) -> UpdateScreen>,
 }
 
 impl<'a, T: LayoutScreen> AppState<'a, T> {
@@ -163,7 +162,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
         let id_string = id.into();
         match self.deamons.entry(id_string) {
             Occupied(_) => false,
-            Vacant(v) => { v.insert(DeamonCallback::new(deamon)); true },
+            Vacant(v) => { v.insert(deamon); true },
         }
     }
 
@@ -176,11 +175,9 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     /// Run all currently registered deamons
     pub(crate) fn run_all_deamons(&self) -> UpdateScreen {
         let mut should_update_screen = UpdateScreen::DontRedraw;
+        let mut lock = self.data.lock().unwrap();
         for deamon in self.deamons.values().cloned() {
-            let should_update = {
-                let mut lock = self.data.lock().unwrap();
-                (deamon.callback)(&mut lock)
-            };
+            let should_update = (deamon)(&mut lock);
             if should_update == UpdateScreen::Redraw &&
                should_update_screen == UpdateScreen::DontRedraw {
                 should_update_screen = UpdateScreen::Redraw;
