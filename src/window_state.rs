@@ -9,6 +9,10 @@ use glium::glutin::{
 use dom::On;
 use menu::{ApplicationMenu, ContextMenu};
 
+const DEFAULT_TITLE: &str = "Azul App";
+const DEFAULT_WIDTH: u32 = 800;
+const DEFAULT_HEIGHT: u32 = 600;
+
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Debug, Default, Clone)]
 pub struct KeyboardState
@@ -106,26 +110,24 @@ pub struct WindowSize {
 impl Default for WindowSize {
     fn default() -> Self {
         Self {
-            width: 800,
-            height: 600,
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
             min_dimensions: None,
             max_dimensions: None,
         }
     }
 }
 
-impl WindowState
-{
-    /// Creates a new window state
-    pub(crate) fn new<S: Into<String>>(title: S, width: u32, height: u32) -> Self {
+impl Default for WindowState {
+    fn default() -> Self {
         Self {
-            title: title.into(),
+            title: DEFAULT_TITLE.into(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
             application_menu: None,
             context_menu: None,
             position: None,
-            size: WindowSize { width, height, .. Default::default() },
+            size: WindowSize::default(),
             is_maximized: false,
             is_fullscreen: false,
             has_decorations: true,
@@ -134,7 +136,10 @@ impl WindowState
             is_always_on_top: false,
         }
     }
+}
 
+impl WindowState
+{
     // Determine which event / which callback(s) should be called and in which order
     //
     // This function also updates / mutates the current window state,

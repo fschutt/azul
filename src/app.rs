@@ -358,7 +358,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     pub fn mock_render_frame(&mut self) {
         use prelude::*;
         let hidden_create_options = WindowCreateOptions {
-            class: WindowClass::Hidden,
+            state: WindowState { is_visible: false, .. Default::default() },
             /// force sofware renderer (OSMesa)
             renderer_type: RendererType::Software,
             .. Default::default()
