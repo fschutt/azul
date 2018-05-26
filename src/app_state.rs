@@ -1,3 +1,4 @@
+use window::FakeWindow;
 use window_state::WindowState;
 use task::Task;
 use dom::UpdateScreen;
@@ -20,9 +21,12 @@ pub struct AppState<'a, T: LayoutScreen> {
     /// Note: this isn't the real window state. This is a "mock" window state which
     /// can be modified by the user, i.e:
     /// ```no_run,ignore
-    /// app_state.windows[event.window_id].css.set_dynamic_property("my_id", ("color", "orange).into());
+    /// // For one frame, set the dynamic CSS value with `my_id` to `color: orange`
+    /// app_state.windows[event.window].css.set_dynamic_property("my_id", ("color", "orange")).unwrap();
+    /// // Update the title
+    /// app_state.windows[event.window].state.title = "Hello";
     /// ```
-    pub windows: Vec<WindowState>,
+    pub windows: Vec<FakeWindow>,
     /// Fonts and images that are currently loaded into the app
     pub(crate) resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
@@ -122,7 +126,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     ///      }
     /// }
     ///
-    /// fn my_callback(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
+    /// fn my_callback(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
     ///     /// Here you can add your font at runtime to the app_state
     ///     app_state.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
     ///     UpdateScreen::DontRedraw
