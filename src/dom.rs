@@ -1,3 +1,4 @@
+use window::WindowEvent;
 use traits::GetCssId;
 use app_state::AppState;
 use traits::LayoutScreen;
@@ -34,7 +35,7 @@ pub enum UpdateScreen {
 /// The CSS is not affected by this, so if you push to the windows' CSS inside the
 /// function, the screen will not be automatically redrawn, unless you return an
 /// `UpdateScreen::Redraw` from the function
-pub struct Callback<T: LayoutScreen>(pub fn(&mut AppState<T>) -> UpdateScreen);
+pub struct Callback<T: LayoutScreen>(pub fn(&mut AppState<T>, WindowEvent) -> UpdateScreen);
 
 impl<T: LayoutScreen> fmt::Debug for Callback<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

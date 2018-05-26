@@ -1,4 +1,5 @@
 //! CSS parsing and styling
+use traits::IntoParsedCssProperty;
 use FastHashMap;
 use std::ops::Add;
 use css_parser::{ParsedCssProperty, CssParsingError};
@@ -32,6 +33,32 @@ pub struct Css {
     /// Ex. if only a background color has changed, we need to redraw, but we
     /// don't need to re-layout the frame
     pub(crate) needs_relayout: bool,
+}
+
+/// Fake CSS that can be changed by the user
+#[derive(Debug, Default, Clone)]
+pub struct FakeCss {
+    pub dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
+}
+
+impl FakeCss {
+    /// Set a dynamic CSS property for the duration of one frame
+    pub fn set_dynamic_property<'a, S, T>(&mut self, id: S, css_value: T)
+    -> Result<(), CssParsingError<'a>>
+    where S: Into<String>,
+          T: IntoParsedCssProperty<'a>,
+    {
+        let value = css_value.into_parsed_css_property()?;
+        self.dynamic_css_overrides.insert(id.into(), value);
+        Ok(())
+    }
+
+    /// Library-internal only: clear the dynamic overrides
+    ///
+    /// Is usually invoked at the end of the frame, to get a clean slate
+    pub(crate) fn clear(&mut self) {
+        self.dynamic_css_overrides = FastHashMap::default();
+    }
 }
 
 /// Error that can happen during the parsing of a CSS value

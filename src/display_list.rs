@@ -651,14 +651,25 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
         }
     }
 
+    // Assert that the types of two properties matches
+    fn property_type_matches(a: &ParsedCssProperty, b: &ParsedCssProperty) -> bool {
+        use std::mem::discriminant;
+        discriminant(a) == discriminant(b)
+    }
+
     for constraint in &rect.styled_node.css_constraints.list {
         use css::CssDeclaration::*;
         match constraint {
             Static(static_property) => apply_parsed_css_property(rect, static_property),
             Dynamic(dynamic_property) => {
-                let calculated_property = css_overrides.get(&dynamic_property.dynamic_id)
-                    .unwrap_or(&dynamic_property.default);
-                apply_parsed_css_property(rect, calculated_property);
+                let calculated_property = css_overrides.get(&dynamic_property.dynamic_id);
+                if let Some(overridden_property) = calculated_property {
+                    assert!(property_type_matches(overridden_property, &dynamic_property.default),
+                            "css values don't have the same discriminant type");
+                    apply_parsed_css_property(rect, overridden_property);
+                } else {
+                    apply_parsed_css_property(rect, &dynamic_property.default);
+                }
             }
         }
     }

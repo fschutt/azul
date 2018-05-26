@@ -1,5 +1,6 @@
 use dom::UpdateScreen;
-use css::Css;
+use window::FakeWindow;
+use css::{Css, FakeCss};
 use resources::AppResources;
 use app_state::AppState;
 use traits::LayoutScreen;
@@ -59,7 +60,12 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// Spawn a new window on the screen. If an application has no windows,
     /// the [`run`](#method.run) function will exit immediately.
     pub fn create_window(&mut self, options: WindowCreateOptions, css: Css) -> Result<(), WindowCreateError> {
-        self.windows.push(Window::new(options, css)?);
+        let window = Window::new(options, css)?;
+        self.app_state.windows.push(FakeWindow {
+            state: window.state.clone(),
+            css: FakeCss::default(),
+        });
+        self.windows.push(window);
         Ok(())
     }
 
@@ -136,10 +142,19 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                     for item in hit_test_results.items {
                         let callback_list_opt = ui_state_cache[idx].node_ids_to_callbacks_list.get(&item.tag.0);
                         if let Some(callback_list) = callback_list_opt {
+                            use window::WindowEvent;
                             // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
-                            // currently, just invoke all actions
+                            // Currently, this just invoke all actions
+                            let window_event = WindowEvent {
+                                window: idx,
+                                // TODO: currently we don't have information about what DOM node was hit
+                                number_of_previous_siblings: None,
+                                cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
+                                cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
+                            };
+
                             for callback_id in callback_list.values() {
-                                let update = (ui_state_cache[idx].callback_list[callback_id].0)(&mut self.app_state);
+                                let update = (ui_state_cache[idx].callback_list[callback_id].0)(&mut self.app_state, window_event);
                                 if update == UpdateScreen::Redraw {
                                     should_update_screen = UpdateScreen::Redraw;
                                 }
@@ -149,6 +164,11 @@ impl<'a, T: LayoutScreen> App<'a, T> {
 
                     if should_update_screen == UpdateScreen::Redraw {
                         frame_event_info.should_redraw_window = true;
+                        // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
+                        // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
+                        // TODO: .clone() and .clear() can be one operation
+                        window.css.dynamic_css_overrides = self.app_state.windows[idx].css.dynamic_css_overrides.clone();
+                        self.app_state.windows[idx].css.clear();
                     }
                 }
 
@@ -198,6 +218,9 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                     let time_end = ::std::time::Instant::now();
                     debug_has_repainted = Some(time_end - time_start);
                 }
+
+                // Update the window state every frame, no matter if the window has gotten an event or not
+                window.update_window_state(self.app_state.windows[idx].state.clone());
             }
 
             // close windows if necessary

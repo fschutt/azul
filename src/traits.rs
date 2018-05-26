@@ -7,6 +7,7 @@ use id_tree::{NodeId, Arena};
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::Hash;
+use css_parser::{ParsedCssProperty, CssParsingError};
 
 pub trait LayoutScreen {
     /// Updates the DOM, must be provided by the final application.
@@ -38,6 +39,26 @@ pub(crate) struct ParsedCss<'a> {
     pub(crate) pure_div_rules: Vec<&'a CssRule>,
     pub(crate) pure_class_rules: Vec<&'a CssRule>,
     pub(crate) pure_id_rules: Vec<&'a CssRule>,
+}
+
+/// This trait exists because `TryFrom` / `TryInto` are not yet stabilized.
+///
+/// This is the same as `Into<ParsedCssProperty>`, but with an additional error case
+/// (the conversion could fail)
+pub trait IntoParsedCssProperty<'a> {
+    fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>>;
+}
+
+impl<'a> IntoParsedCssProperty<'a> for ParsedCssProperty {
+    fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>> {
+        Ok(self.clone())
+    }
+}
+
+impl<'a> IntoParsedCssProperty<'a> for (&'a str, &'a str) {
+    fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>> {
+        ParsedCssProperty::from_kv(self.0, self.1)
+    }
 }
 
 impl<'a> ParsedCss<'a> {

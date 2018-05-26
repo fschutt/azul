@@ -68,7 +68,7 @@ macro_rules! typed_pixel_value_parser {
 
 /// A successfully parsed CSS property
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ParsedCssProperty {
+pub enum ParsedCssProperty {
     BorderRadius(BorderRadius),
     BackgroundColor(BackgroundColor),
     TextColor(TextColor),

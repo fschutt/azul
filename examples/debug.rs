@@ -20,9 +20,16 @@ impl LayoutScreen for MyAppData {
     }
 }
 
-fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
+fn my_button_click_handler(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
 
-    // app_state.data[event.window_id].css.set_dynamic_property("my_id", ("color", "orange).into());
+    // TODO: The DisplayList does somehow not register / override the new ID
+    // This is probably an issue of timing, see the notes in the app.rs file
+    app_state.windows[event.window].css.set_dynamic_property("my_id", ("width", "500px")).unwrap();
+
+    // This works: When the mouse is moved over the button, the title switches to "Hello".
+    // TODO: performance optimize this
+    app_state.windows[event.window].state.title = String::from("Hello");
+
     let should_start_deamon = {
         let mut app_state_lock = app_state.data.lock().unwrap();
         app_state_lock.my_data += 1;
@@ -34,6 +41,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen 
     } else {
         app_state.delete_deamon("hello");
     }
+
     UpdateScreen::Redraw
 }
 

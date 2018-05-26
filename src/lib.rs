@@ -110,10 +110,11 @@ pub mod prelude {
     pub use webrender::api::{ColorF, ColorU};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, WindowCreateError,
-                     WindowMonitorTarget, RendererType};
+                     WindowMonitorTarget, RendererType, WindowEvent};
     pub use window_state::WindowState;
     pub use font::FontError;
     pub use images::ImageType;
+    pub use css_parser::{CssParsingError, ParsedCssProperty};
 
     // from the extern crate image
     pub use image::ImageError;

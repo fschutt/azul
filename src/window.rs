@@ -1,5 +1,6 @@
 //! Window creation module
 
+use css::FakeCss;
 use window_state::{WindowState, WindowPosition};
 use std::{time::Duration, fmt};
 
@@ -32,11 +33,38 @@ use compositor::Compositor;
 /// azul-internal ID for a window
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct WindowId {
-    pub id: usize,
+    pub(crate) id: usize,
 }
 
 impl WindowId {
     pub fn new(id: usize) -> Self { Self { id: id } }
+}
+
+/// User-modifiable fake window
+#[derive(Debug, Clone)]
+pub struct FakeWindow {
+    /// The CSS (use this field to override dynamic CSS ids).
+    pub css: FakeCss,
+    /// The window state for the next frame
+    pub state: WindowState,
+}
+
+/// Window event that is passed to the user when a callback is invoked
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct WindowEvent {
+    /// The ID of the window that the event was clicked on (for indexing into
+    /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
+    pub window: usize,
+    /// The nth child of the parent DOM node will generate a value of `Some(n)`
+    /// when it is hit - i.e. if an element is hit, this number is set to
+    ///
+    /// Is set to `None` if the hit element is the root of the window
+    /// (since the root node obviously has no parent).
+    pub number_of_previous_siblings: Option<usize>,
+    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
+    pub cursor_relative_to_item: (f32, f32),
+    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
+    pub cursor_in_viewport: (f32, f32),
 }
 
 /// Options on how to initially create the window
