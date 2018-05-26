@@ -3,7 +3,6 @@ use css::Css;
 use resources::AppResources;
 use app_state::AppState;
 use traits::LayoutScreen;
-use input::hit_test_ui;
 use ui_state::UiState;
 use ui_description::UiDescription;
 
@@ -15,7 +14,7 @@ use std::io::Read;
 use images::{ImageType};
 use image::ImageError;
 use font::FontError;
-use webrender::api::RenderApi;
+use webrender::api::{RenderApi, HitTestFlags};
 
 /// Graphical application that maintains some kind of application state
 pub struct App<'a, T: LayoutScreen> {
@@ -126,10 +125,11 @@ impl<'a, T: LayoutScreen> App<'a, T> {
                     let cursor_x = frame_event_info.cur_cursor_pos.0 as f32;
                     let cursor_y = frame_event_info.cur_cursor_pos.1 as f32;
                     let point = WorldPoint::new(cursor_x, cursor_y);
-                    let hit_test_results = hit_test_ui(&window.internal.api,
-                                                        window.internal.document_id,
-                                                        Some(window.internal.pipeline_id),
-                                                        point);
+                    let hit_test_results =  window.internal.api.hit_test(
+                                                window.internal.document_id,
+                                                Some(window.internal.pipeline_id),
+                                                point,
+                                                HitTestFlags::FIND_ALL);
 
                     let mut should_update_screen = UpdateScreen::DontRedraw;
 
