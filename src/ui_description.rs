@@ -1,3 +1,4 @@
+use css_parser::ParsedCssProperty;
 use FastHashMap;
 use id_tree::{Arena, NodeId};
 use traits::LayoutScreen;
@@ -21,6 +22,8 @@ pub struct UiDescription<T: LayoutScreen> {
     /// and the reference to that style has to live as least as long as the `self.styled_nodes`
     /// This is why we need this field here
     pub(crate) default_style_of_node: StyledNode,
+    /// The CSS properties that should be overridden for this frame, cloned from the `Css`
+    pub(crate) dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
 }
 
 impl<T: LayoutScreen> Clone for UiDescription<T> {
@@ -30,6 +33,7 @@ impl<T: LayoutScreen> Clone for UiDescription<T> {
             ui_descr_root: self.ui_descr_root.clone(),
             styled_nodes: self.styled_nodes.clone(),
             default_style_of_node: self.default_style_of_node.clone(),
+            dynamic_css_overrides: self.dynamic_css_overrides.clone(),
         }
     }
 }
@@ -41,12 +45,13 @@ impl<T: LayoutScreen> Default for UiDescription<T> {
             ui_descr_root: None,
             styled_nodes: BTreeMap::new(),
             default_style_of_node: StyledNode::default(),
+            dynamic_css_overrides: FastHashMap::default(),
         }
     }
 }
 
 impl<T: LayoutScreen> UiDescription<T> {
-    pub fn from_ui_state(ui_state: &UiState<T>, style: &mut Css) -> Self
+    pub fn from_ui_state(ui_state: &UiState<T>, style: &Css) -> Self
     {
         T::style_dom(&ui_state.dom, style)
     }

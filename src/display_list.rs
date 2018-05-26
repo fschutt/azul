@@ -91,7 +91,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         let display_rect_arena = arena.transform(|node, node_id| {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let mut rect = DisplayRectangle::new(node.tag, style);
-            populate_css_properties(&mut rect);
+            populate_css_properties(&mut rect, &ui_description.dynamic_css_overrides);
             rect
         });
 
@@ -619,41 +619,46 @@ fn push_font(
 }
 
 /// Populate and parse the CSS style properties
-fn populate_css_properties(rect: &mut DisplayRectangle)
+fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHashMap<String, ParsedCssProperty>)
 {
+    use css_parser::ParsedCssProperty::{self, *};
+
+    fn apply_parsed_css_property(rect: &mut DisplayRectangle, property: &ParsedCssProperty) {
+        match property {
+            BorderRadius(b)             => { rect.style.border_radius = Some(*b);                   },
+            BackgroundColor(c)          => { rect.style.background_color = Some(*c);                },
+            TextColor(t)                => { rect.style.font_color = Some(*t);                      },
+            Border(widths, details)     => { rect.style.border = Some((*widths, *details));         },
+            Background(b)               => { rect.style.background = Some(b.clone());               },
+            FontSize(f)                 => { rect.style.font_size = Some(*f);                       },
+            FontFamily(f)               => { rect.style.font_family = Some(f.clone());              },
+            TextOverflow(to)            => { rect.style.text_overflow = Some(*to);                  },
+            TextAlign(ta)               => { rect.style.text_align = Some(*ta);                     },
+            BoxShadow(opt_box_shadow)   => { rect.style.box_shadow = *opt_box_shadow;               },
+
+            Width(w)                    => { rect.layout.width = Some(*w);                          },
+            Height(h)                   => { rect.layout.height = Some(*h);                         },
+            MinWidth(mw)                => { rect.layout.min_width = Some(*mw);                     },
+            MinHeight(mh)               => { rect.layout.min_height = Some(*mh);                    },
+            MaxWidth(mw)                => { rect.layout.max_width = Some(*mw);                     },
+            MaxHeight(mh)               => { rect.layout.max_height = Some(*mh);                    },
+
+            FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
+            FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
+            JustifyContent(j)           => { rect.layout.justify_content = Some(*j);                },
+            AlignItems(a)               => { rect.layout.align_items = Some(*a);                    },
+            AlignContent(a)             => { rect.layout.align_content = Some(*a);                  },
+        }
+    }
+
     for constraint in &rect.styled_node.css_constraints.list {
         use css::CssDeclaration::*;
         match constraint {
-            Static(static_property) => {
-                use css_parser::ParsedCssProperty::*;
-                match static_property {
-                    BorderRadius(b)             => { rect.style.border_radius = Some(*b);                   },
-                    BackgroundColor(c)          => { rect.style.background_color = Some(*c);                },
-                    TextColor(t)                => { rect.style.font_color = Some(*t);                      },
-                    Border(widths, details)     => { rect.style.border = Some((*widths, *details));         },
-                    Background(b)               => { rect.style.background = Some(b.clone());               },
-                    FontSize(f)                 => { rect.style.font_size = Some(*f);                       },
-                    FontFamily(f)               => { rect.style.font_family = Some(f.clone());              },
-                    TextOverflow(to)            => { rect.style.text_overflow = Some(*to);                  },
-                    TextAlign(ta)               => { rect.style.text_align = Some(*ta);                     },
-                    BoxShadow(opt_box_shadow)   => { rect.style.box_shadow = *opt_box_shadow;               },
-
-                    Width(w)                    => { rect.layout.width = Some(*w);                          },
-                    Height(h)                   => { rect.layout.height = Some(*h);                         },
-                    MinWidth(mw)                => { rect.layout.min_width = Some(*mw);                     },
-                    MinHeight(mh)               => { rect.layout.min_height = Some(*mh);                    },
-                    MaxWidth(mw)                => { rect.layout.max_width = Some(*mw);                     },
-                    MaxHeight(mh)               => { rect.layout.max_height = Some(*mh);                    },
-
-                    FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
-                    FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
-                    JustifyContent(j)           => { rect.layout.justify_content = Some(*j);                },
-                    AlignItems(a)               => { rect.layout.align_items = Some(*a);                    },
-                    AlignContent(a)             => { rect.layout.align_content = Some(*a);                  },
-                }
-            },
-            Dynamic(_) => {
-                // TODO
+            Static(static_property) => apply_parsed_css_property(rect, static_property),
+            Dynamic(dynamic_property) => {
+                let calculated_property = css_overrides.get(&dynamic_property.dynamic_id)
+                    .unwrap_or(&dynamic_property.default);
+                apply_parsed_css_property(rect, calculated_property);
             }
         }
     }

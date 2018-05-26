@@ -110,10 +110,10 @@ pub mod prelude {
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
     pub use traits::LayoutScreen;
     pub use webrender::api::{ColorF, ColorU};
-    pub use window::{MonitorIter, Window, WindowCreateOptions,
-                     WindowId, WindowPlacement};
-    pub use window::{MouseMode, UpdateBehaviour, UpdateMode, WindowClass,
-                     WindowCreateError, WindowDecorations, WindowMonitorTarget, RendererType};
+    pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
+                     MouseMode, UpdateBehaviour, UpdateMode, WindowCreateError,
+                     WindowMonitorTarget, RendererType};
+    pub use window_state::WindowState;
     pub use font::FontError;
     pub use images::ImageType;
 

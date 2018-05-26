@@ -21,8 +21,7 @@ pub trait LayoutScreen {
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    fn style_dom(dom: &Dom<Self>, css: &mut Css) -> UiDescription<Self> where Self: Sized {
-        css.is_dirty = false;
+    fn style_dom(dom: &Dom<Self>, css: &Css) -> UiDescription<Self> where Self: Sized {
         match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, 0)
     }
 }
@@ -33,10 +32,6 @@ pub trait GetCssId {
     /// Returns the top-level CSS identifier for this
     fn get_css_id(&self) -> &'static str;
 }
-
-pub trait Widget: GetCssId + Clone + PartialEq + Eq + Hash { }
-
-impl<T: GetCssId + Clone + PartialEq + Eq + Hash> Widget for T { }
 
 pub(crate) struct ParsedCss<'a> {
     pub(crate) pure_global_rules: Vec<&'a CssRule>,
@@ -135,7 +130,8 @@ fn match_dom_css_selectors<'a, T: LayoutScreen>(
         ui_descr_arena: (*arena).clone(),
         ui_descr_root: Some(root),
         styled_nodes: styled_nodes,
-        .. Default::default()
+        default_style_of_node: StyledNode::default(),
+        dynamic_css_overrides: css.dynamic_css_overrides.clone(),
     }
 }
 

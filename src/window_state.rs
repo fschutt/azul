@@ -57,25 +57,29 @@ pub struct WindowState
     /// Current title of the window
     pub title: String,
     /// The state of the keyboard for this frame
-    pub keyboard_state: KeyboardState,
+    pub(crate) keyboard_state: KeyboardState,
     /// The "global" application menu of this window (one window usually only has one menu)
     pub application_menu: Option<ApplicationMenu>,
     /// The current context menu for this window
     pub context_menu: Option<ContextMenu>,
-    /// The x and y positon, (0, 0) by default
-    pub position: WindowPosition,
+    /// The x and y position, or None to let the WM decide where to put the window (default)
+    pub position: Option<WindowPosition>,
     /// The state of the mouse
-    pub mouse_state: MouseState,
+    pub(crate) mouse_state: MouseState,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// Is the window currently maximized
-    pub maximized: bool,
+    pub is_maximized: bool,
     /// Is the window currently fullscreened?
-    pub fullscreen: bool,
+    pub is_fullscreen: bool,
     /// Does the window have decorations (close, minimize, maximize, title bar)?
-    pub decorations: bool,
+    pub has_decorations: bool,
     /// Is the window currently visible?
-    pub visible: bool,
+    pub is_visible: bool,
+    /// Is the window background transparent?
+    pub is_transparent: bool,
+    /// Is the window always on top?
+    pub is_always_on_top: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -84,15 +88,6 @@ pub struct WindowPosition {
     pub x: u32,
     /// Y position from the top of the screen
     pub y: u32,
-}
-
-impl Default for WindowPosition {
-    fn default() -> Self {
-        Self {
-            x: 0,
-            y: 0,
-        }
-    }
 }
 
 
@@ -106,7 +101,6 @@ pub struct WindowSize {
     pub min_dimensions: Option<(u32, u32)>,
     /// Maximum dimensions of the window
     pub max_dimensions: Option<(u32, u32)>,
-
 }
 
 impl Default for WindowSize {
@@ -123,19 +117,21 @@ impl Default for WindowSize {
 impl WindowState
 {
     /// Creates a new window state
-    pub(crate) fn new<S: Into<String>>(width: u32, height: u32, title: S ) -> Self {
+    pub(crate) fn new<S: Into<String>>(title: S, width: u32, height: u32) -> Self {
         Self {
             title: title.into(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
             application_menu: None,
             context_menu: None,
-            position: WindowPosition::default(),
+            position: None,
             size: WindowSize { width, height, .. Default::default() },
-            maximized: false,
-            fullscreen: false,
-            decorations: true,
-            visible: true,
+            is_maximized: false,
+            is_fullscreen: false,
+            has_decorations: true,
+            is_visible: true,
+            is_transparent: false,
+            is_always_on_top: false,
         }
     }
 

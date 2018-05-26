@@ -22,6 +22,7 @@ impl LayoutScreen for MyAppData {
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>) -> UpdateScreen {
 
+    // app_state.data[event.window_id].css.set_dynamic_property("my_id", ("color", "orange).into());
     let should_start_deamon = {
         let mut app_state_lock = app_state.data.lock().unwrap();
         app_state_lock.my_data += 1;
