@@ -1,5 +1,4 @@
 use dom::UpdateScreen;
-use deamon::DeamonCallback;
 use css::Css;
 use resources::AppResources;
 use app_state::AppState;
