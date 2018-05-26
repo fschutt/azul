@@ -65,8 +65,6 @@ pub mod task;
 pub mod svg;
 /// Font & image resource handling, lookup and caching
 mod resources;
-/// Input handling (mostly glium)
-mod input;
 /// UI Description & display list handling (webrender)
 mod ui_description;
 /// Constraint handling
