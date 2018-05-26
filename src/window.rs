@@ -29,10 +29,6 @@ use cache::{EditVariableCache, DomTreeCache};
 use id_tree::NodeId;
 use compositor::Compositor;
 
-const DEFAULT_TITLE: &str = "Azul App";
-const DEFAULT_WIDTH: u32 = 800;
-const DEFAULT_HEIGHT: u32 = 600;
-
 /// azul-internal ID for a window
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct WindowId {
@@ -71,7 +67,7 @@ pub struct WindowCreateOptions {
 impl Default for WindowCreateOptions {
     fn default() -> Self {
         Self {
-            state: WindowState::new(DEFAULT_TITLE, DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            state: WindowState::default(),
             background: ColorF::new(1.0, 1.0, 1.0, 1.0),
             clear_stencil: None,
             clear_depth: None,
