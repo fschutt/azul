@@ -98,25 +98,46 @@ mod platform_ext;
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
 
-pub use app::App;
-pub use app_state::AppState;
-pub use css::Css;
-
 /// Quick exports of common types
 pub mod prelude {
-    pub use {App, AppState, Css};
+    pub use app::App;
+    pub use app_state::AppState;
+    pub use css::{Css, FakeCss};
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
     pub use traits::LayoutScreen;
-    pub use webrender::api::{ColorF, ColorU};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, WindowCreateError,
                      WindowMonitorTarget, RendererType, WindowEvent};
     pub use window_state::WindowState;
     pub use font::FontError;
     pub use images::ImageType;
-    pub use css_parser::{CssParsingError, ParsedCssProperty};
+    pub use css_parser::{
+        ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
+        BorderWidths, BorderDetails, Background, FontSize,
+        FontFamily, TextOverflowBehaviour, TextAlignment,
+        BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
+        LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
+        LayoutMaxHeight, LayoutWrap, LayoutDirection,
+        LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
+        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId,
+
+        LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
+        Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
+        ExtendMode, PixelValue,
+    };
 
     // from the extern crate image
     pub use image::ImageError;
 }
 
+/// Re-exports of errors
+pub mod errors {
+    pub use css_parser::{
+        CssParsingError, CssBorderParseError, CssShadowParseError, InvalidValueErr,
+        PixelParseError, CssImageParseError, CssFontFamilyParseError,
+        CssBackgroundParseError, CssColorParseError, CssBorderRadiusParseError,
+        CssDirectionParseError, CssGradientStopParseError, CssShapeParseError,
+    };
+    pub use simplecss::Error as CssSyntaxError;
+    pub use css::{CssParseError, DynamicCssParseError};
+}

@@ -3,6 +3,7 @@ use traits::IntoParsedCssProperty;
 use FastHashMap;
 use std::ops::Add;
 use css_parser::{ParsedCssProperty, CssParsingError};
+use errors::CssSyntaxError;
 
 #[cfg(target_os="windows")]
 const NATIVE_CSS_WINDOWS: &str = include_str!("../assets/native_windows.css");
@@ -65,7 +66,7 @@ impl FakeCss {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssParseError<'a> {
     /// A hard error in the CSS syntax
-    ParseError(::simplecss::Error),
+    ParseError(CssSyntaxError),
     /// Braces are not balanced properly
     UnclosedBlock,
     /// Invalid syntax, such as `#div { #div: "my-value" }`

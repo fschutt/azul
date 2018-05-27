@@ -1,9 +1,15 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-use webrender::api::{ColorU, BorderRadius, LayoutVector2D, LayoutPoint,
-                    ColorF, BoxShadowClipMode, LayoutSize, BorderStyle,
-                    BorderDetails, BorderSide, NormalBorder, BorderWidths,
-                    ExtendMode, LayoutRect, LayoutPixel};
+pub use euclid::{TypedSize2D, SideOffsets2D};
+pub use webrender::api::{
+    BorderRadius, BorderWidths, BorderDetails, NormalBorder,
+    NinePatchBorder, GradientBorder, RadialGradientBorder,
+    LayoutPixel, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
+    Gradient, RadialGradient, LayoutPoint, LayoutSize,
+    ExtendMode
+};
+// TODO: 9patch images!
+use webrender::api::{BorderStyle, BorderSide, LayoutRect};
 use std::num::{ParseIntError, ParseFloatError};
 use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
