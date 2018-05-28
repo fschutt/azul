@@ -14,7 +14,7 @@ pub struct MyAppData {
 
 impl LayoutScreen for MyAppData {
     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
-        Dom::new(NodeType::Label(format!("{}", self.my_data)))
+        Dom::new(NodeType::Label(format!("Hello\tbutton\ncool")))
             .with_class("__azul-native-button")
             .with_event(On::MouseUp, Callback(my_button_click_handler))
     }

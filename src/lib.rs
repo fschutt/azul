@@ -21,6 +21,7 @@
 
 
 #![deny(unused_must_use)]
+#![deny(missing_copy_implementations)]
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
@@ -114,7 +115,7 @@ pub mod prelude {
     pub use css_parser::{
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
         BorderWidths, BorderDetails, Background, FontSize,
-        FontFamily, TextOverflowBehaviour, TextAlignment,
+        FontFamily, TextOverflowBehaviour, TextAlignmentHorz,
         BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
         LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
         LayoutMaxHeight, LayoutWrap, LayoutDirection,
@@ -123,7 +124,7 @@ pub mod prelude {
 
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
         Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
-        ExtendMode, PixelValue,
+        ExtendMode, PixelValue, PercentageValue,
     };
 
     // from the extern crate image
@@ -134,7 +135,8 @@ pub mod prelude {
 pub mod errors {
     pub use css_parser::{
         CssParsingError, CssBorderParseError, CssShadowParseError, InvalidValueErr,
-        PixelParseError, CssImageParseError, CssFontFamilyParseError,
+        PixelParseError, CssImageParseError, CssFontFamilyParseError, CssMetric,
+        PercentageParseError,
         CssBackgroundParseError, CssColorParseError, CssBorderRadiusParseError,
         CssDirectionParseError, CssGradientStopParseError, CssShapeParseError,
     };
