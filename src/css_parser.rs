@@ -83,8 +83,9 @@ pub enum ParsedCssProperty {
     FontSize(FontSize),
     FontFamily(FontFamily),
     TextOverflow(TextOverflowBehaviour),
-    TextAlign(TextAlignment),
+    TextAlign(TextAlignmentHorz),
     BoxShadow(Option<BoxShadowPreDisplayItem>),
+    LineHeight(LineHeight),
 
     Width(LayoutWidth),
     Height(LayoutHeight),
@@ -105,7 +106,8 @@ impl_from_no_lifetimes!(Background, ParsedCssProperty::Background);
 impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
 impl_from_no_lifetimes!(FontFamily, ParsedCssProperty::FontFamily);
 impl_from_no_lifetimes!(TextOverflowBehaviour, ParsedCssProperty::TextOverflow);
-impl_from_no_lifetimes!(TextAlignment, ParsedCssProperty::TextAlign);
+impl_from_no_lifetimes!(TextAlignmentHorz, ParsedCssProperty::TextAlign);
+impl_from_no_lifetimes!(LineHeight, ParsedCssProperty::LineHeight);
 
 impl_from_no_lifetimes!(LayoutWidth, ParsedCssProperty::Width);
 impl_from_no_lifetimes!(LayoutHeight, ParsedCssProperty::Height);
@@ -150,6 +152,7 @@ impl ParsedCssProperty {
             "font-size"         => Ok(parse_css_font_size(value)?.into()),
             "font-family"       => Ok(parse_css_font_family(value)?.into()),
             "box-shadow"        => Ok(parse_css_box_shadow(value)?.into()),
+            "line-height"       => Ok(parse_line_height(value)?.into()),
 
             "width"             => Ok(parse_layout_width(value)?.into()),
             "height"            => Ok(parse_layout_height(value)?.into()),
@@ -180,6 +183,7 @@ pub enum CssParsingError<'a> {
     CssShadowParseError(CssShadowParseError<'a>),
     InvalidValueErr(InvalidValueErr<'a>),
     PixelParseError(PixelParseError<'a>),
+    PercentageParseError(PercentageParseError),
     CssImageParseError(CssImageParseError<'a>),
     CssFontFamilyParseError(CssFontFamilyParseError<'a>),
     CssBackgroundParseError(CssBackgroundParseError<'a>),
@@ -206,14 +210,27 @@ impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
     }
 }
 
+impl<'a> From<PercentageParseError> for CssParsingError<'a> {
+    fn from(e: PercentageParseError) -> Self {
+        CssParsingError::PercentageParseError(e)
+    }
+}
+
 /// Simple "invalid value" error, used for
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct PixelValue {
-    metric: CssMetric,
-    number: f32,
+    pub metric: CssMetric,
+    pub number: f32,
+}
+
+/// "100%" or "1.0" value
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct PercentageValue {
+    /// Normalized value, 100% = 1.0
+    pub number: f32,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -382,6 +399,36 @@ fn parse_pixel_value<'a>(input: &'a str)
 
     Ok(PixelValue {
         metric: unit,
+        number: number,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PercentageParseError {
+    ValueParseErr(ParseFloatError),
+}
+
+// Parse "1.2" or "120%" (similar to parse_pixel_value)
+fn parse_percentage_value(input: &str)
+-> Result<PercentageValue, PercentageParseError>
+{
+    let mut split_pos = 0;
+    for (idx, ch) in input.char_indices() {
+        if ch.is_numeric() || ch == '.' {
+            split_pos = idx;
+        }
+    }
+
+    split_pos += 1;
+
+    let unit = &input[split_pos..];
+    let mut number = input[..split_pos].parse::<f32>().map_err(|e| PercentageParseError::ValueParseErr(e))?;
+
+    if unit == "%" {
+        number /= 100.0;
+    }
+
+    Ok(PercentageValue {
         number: number,
     })
 }
@@ -1231,7 +1278,7 @@ pub enum CssGradientStopParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GradientStopPre {
     pub offset: Option<f32>, // this is set to None if there was no offset that could be parsed
     pub color: ColorF,
@@ -1382,6 +1429,9 @@ pub struct LayoutMinHeight(pub PixelValue);
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutMaxHeight(pub PixelValue);
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LineHeight(pub PercentageValue);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutDirection {
     Horizontal,
@@ -1455,15 +1505,28 @@ impl Default for TextOverflowBehaviour {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TextAlignment {
-    Center,
+pub enum TextAlignmentHorz {
     Left,
+    Center,
     Right,
 }
 
-impl Default for TextAlignment {
+impl Default for TextAlignmentHorz {
     fn default() -> Self {
-        TextAlignment::Left
+        TextAlignmentHorz::Left
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TextAlignmentVert {
+    Top,
+    Center,
+    Bottom,
+}
+
+impl Default for TextAlignmentVert {
+    fn default() -> Self {
+        TextAlignmentVert::Top
     }
 }
 
@@ -1486,9 +1549,11 @@ pub(crate) struct RectStyle {
     /// Text color
     pub(crate) font_color: Option<TextColor>,
     /// Text alignment
-    pub(crate) text_align: Option<TextAlignment>,
+    pub(crate) text_align: Option<TextAlignmentHorz>,
     /// Text overflow behaviour
     pub(crate) text_overflow: Option<TextOverflowBehaviour>,
+    /// `line-height` property
+    pub(crate) line_height: Option<LineHeight>,
 }
 
 // Layout constraints for a given rectangle, such as ""
@@ -1513,6 +1578,12 @@ typed_pixel_value_parser!(parse_layout_min_height, LayoutMinHeight);
 typed_pixel_value_parser!(parse_layout_min_width, LayoutMinWidth);
 typed_pixel_value_parser!(parse_layout_max_width, LayoutMaxWidth);
 typed_pixel_value_parser!(parse_layout_max_height, LayoutMaxHeight);
+
+fn parse_line_height(input: &str)
+-> Result<LineHeight, PercentageParseError>
+{
+    parse_percentage_value(input).and_then(|e| Ok(LineHeight(e)))
+}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct FontSize(pub PixelValue);
@@ -1618,7 +1689,7 @@ multi_type_parser!(parse_layout_text_overflow, TextOverflowBehaviour,
                     ["visible", Visible],
                     ["hidden", Hidden]);
 
-multi_type_parser!(parse_layout_text_align, TextAlignment,
+multi_type_parser!(parse_layout_text_align, TextAlignmentHorz,
                     ["center", Center],
                     ["left", Left],
                     ["right", Right]);

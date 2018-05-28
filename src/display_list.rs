@@ -397,7 +397,7 @@ fn push_text<T: LayoutScreen>(
     use dom::NodeType::*;
     use euclid::{TypedPoint2D, Length};
     use text_layout;
-    use css_parser::{TextAlignment, TextOverflowBehaviour};
+    use css_parser::{TextAlignmentHorz, TextOverflowBehaviour};
 
     // NOTE: If the text is outside the current bounds, webrender will not display the text, i.e. clip it
     let arena = display_list.ui_descr.ui_descr_arena.borrow();
@@ -417,8 +417,8 @@ fn push_text<T: LayoutScreen>(
     };
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
-    let font_size = Length::new(font_size.0.to_pixels());
-    let font_size_app_units = (font_size.0 as i32) * AU_PER_PX;
+    let font_size = font_size.0.to_pixels();
+    let font_size_app_units = (font_size as i32) * AU_PER_PX;
     let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
     let font_size_app_units = Au(font_size_app_units as i32); // * text_layout::WEBRENDER_DPI_HACK) as i32
     let font_result = push_font(font_id, font_size_app_units,
@@ -429,11 +429,23 @@ fn push_text<T: LayoutScreen>(
         None => return,
     };
 
+    let vert_alignment = TextAlignmentVert::Center; // TODO
+    let line_height = style.line_height;
+
     let font = &app_resources.font_data[font_id].0;
-    let alignment = style.text_align.unwrap_or(TextAlignment::default());
+    let horz_alignment = style.text_align.unwrap_or(TextAlignmentHorz::default());
     let overflow_behaviour = style.text_overflow.unwrap_or(TextOverflowBehaviour::default());
+
     let positioned_glyphs = text_layout::put_text_in_bounds(
-        text, font, font_size, alignment, overflow_behaviour, bounds);
+        text,
+        font,
+        font_size,
+        line_height,
+        horz_alignment,
+        vert_alignment,
+        overflow_behaviour,
+        bounds
+    );
 
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
     let flags = FontInstanceFlags::SUBPIXEL_BGR;
@@ -635,6 +647,7 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             TextOverflow(to)            => { rect.style.text_overflow = Some(*to);                  },
             TextAlign(ta)               => { rect.style.text_align = Some(*ta);                     },
             BoxShadow(opt_box_shadow)   => { rect.style.box_shadow = *opt_box_shadow;               },
+            LineHeight(lh)              => { rect.style.line_height = Some(*lh);                     },
 
             Width(w)                    => { rect.layout.width = Some(*w);                          },
             Height(h)                   => { rect.layout.height = Some(*h);                         },
