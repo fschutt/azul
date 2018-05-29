@@ -202,6 +202,7 @@ pub struct LayoutOverflow {
 }
 
 impl LayoutOverflow {
+
     // "merges" two LayoutOverflow properties
     pub fn merge(&mut self, other: &LayoutOverflow) {
         fn merge_property(p: &mut TextOverflowBehaviour, other: &TextOverflowBehaviour) {
@@ -213,6 +214,18 @@ impl LayoutOverflow {
 
         merge_property(&mut self.horizontal, &other.horizontal);
         merge_property(&mut self.vertical, &other.vertical);
+    }
+
+    pub fn allows_horizontal_overflow(&self) -> bool {
+        use self::TextOverflowBehaviourInner::*;
+        match self.horizontal {
+            TextOverflowBehaviour::Modified(m) => match m {
+                Scroll | Auto => true,
+                Hidden | Visible => false,
+            },
+            // default: allow horizontal overflow
+            TextOverflowBehaviour::NotModified => false,
+        }
     }
 }
 

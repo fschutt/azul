@@ -371,10 +371,10 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
-    use css_parser::{TextAlignment, PixelParseError, InvalidValueErr};
+    use css_parser::{TextAlignmentHorz, PixelParseError, InvalidValueErr};
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
-        Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(TextAlignment::Center)))
+        Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(TextAlignmentHorz::Center)))
     );
 
     assert_eq!(
@@ -394,7 +394,7 @@ fn test_detect_static_or_dynamic_property() {
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            default: ParsedCssProperty::TextAlign(TextAlignment::Center),
+            default: ParsedCssProperty::TextAlign(TextAlignmentHorz::Center),
             dynamic_id: String::from("hello"),
         }))
     );
