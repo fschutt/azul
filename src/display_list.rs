@@ -24,6 +24,7 @@ use {
     css::Css,
     cache::DomChangeSet,
     ui_description::CssConstraintList,
+    text_layout::TextOverflowPass2,
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -434,16 +435,16 @@ fn push_text<T: LayoutScreen>(
 
     let font = &app_resources.font_data[font_id].0;
     let horz_alignment = style.text_align.unwrap_or(TextAlignmentHorz::default());
-    let overflow_behaviour = style.text_overflow.unwrap_or(TextOverflowBehaviour::default());
+    let scrollbar_display_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
-    let positioned_glyphs = text_layout::put_text_in_bounds(
+    let (positioned_glyphs, scrollbar_info) = text_layout::put_text_in_bounds(
         text,
         font,
         font_size,
         line_height,
         horz_alignment,
         vert_alignment,
-        overflow_behaviour,
+        &scrollbar_display_behaviour,
         bounds
     );
 
@@ -453,7 +454,23 @@ fn push_text<T: LayoutScreen>(
         render_mode: FontRenderMode::Subpixel,
         flags: flags,
     };
+
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
+
+    // If the rectangle should have a scrollbar, push a scrollbar onto the display list
+    push_scrollbar(info, builder, &scrollbar_display_behaviour, &scrollbar_info, bounds)
+}
+
+/// Adds a scrollbar to the left or bottom side of a rectangle.
+/// TODO: make styling configurable (like the width / style of the scrollbar)
+fn push_scrollbar(
+    info: &PrimitiveInfo<LayoutPixel>,
+    builder: &mut DisplayListBuilder,
+    display_behaviour: &LayoutOverflow,
+    scrollbar_info: &TextOverflowPass2,
+    bounds: &TypedRect<f32, LayoutPixel>)
+{
+    // TODO: add a scrollbar to the rectangle
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
@@ -644,7 +661,13 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             Background(b)               => { rect.style.background = Some(b.clone());               },
             FontSize(f)                 => { rect.style.font_size = Some(*f);                       },
             FontFamily(f)               => { rect.style.font_family = Some(f.clone());              },
-            TextOverflow(to)            => { rect.style.text_overflow = Some(*to);                  },
+            Overflow(o)                 => {
+                if let Some(ref mut existing_overflow) = rect.style.overflow {
+                    existing_overflow.merge(o);
+                } else {
+                    rect.style.overflow = Some(*o)
+                }
+            },
             TextAlign(ta)               => { rect.style.text_align = Some(*ta);                     },
             BoxShadow(opt_box_shadow)   => { rect.style.box_shadow = *opt_box_shadow;               },
             LineHeight(lh)              => { rect.style.line_height = Some(*lh);                     },

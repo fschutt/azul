@@ -39,7 +39,7 @@ pub struct Callback<T: LayoutScreen>(pub fn(&mut AppState<T>, WindowEvent) -> Up
 
 impl<T: LayoutScreen> fmt::Debug for Callback<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Callback @ {:x?}", self.0 as usize)
+        write!(f, "Callback @ 0x{:x}", self.0 as usize)
     }
 }
 
