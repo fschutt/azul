@@ -3,7 +3,7 @@
 use webrender::api::*;
 use euclid::{Length, TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
-use css_parser::{TextAlignmentHorz, TextAlignmentVert, LineHeight, TextOverflowBehaviour};
+use css_parser::{TextAlignmentHorz, TextAlignmentVert, LineHeight, LayoutOverflow};
 
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
 /// Without this adjustment, we won't have the correct horizontal spacing
@@ -128,7 +128,7 @@ impl<'a> Lines<'a>
     /// This function will only process the glyphs until they overflow
     /// (we don't process glyphs that are out of the bounds of the rectangle, since
     /// they don't get drawn anyway).
-    pub(crate) fn get_glyphs(&mut self, text: &str, overflow_behaviour: TextOverflowBehaviour)
+    pub(crate) fn get_glyphs(&mut self, text: &str, overflow: &LayoutOverflow)
     -> (Vec<GlyphInstance>, TextOverflowPass2)
     {
         let font = &self.font;
@@ -160,11 +160,11 @@ impl<'a> Lines<'a>
         let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text, font);
 
         // (3) Determine if the words will overflow the bounding rectangle
-        let overflow_pass_1 = estimate_overflow_pass_1(&words, &self.bounds.size, &font_metrics, &overflow_behaviour);
+        let overflow_pass_1 = estimate_overflow_pass_1(&words, &self.bounds.size, &font_metrics, &overflow);
 
         // (4) If the lines overflow, subtract the space needed for the scrollbars and calculate the length
         // again (TODO: already layout characters here?)
-        let overflow_pass_2 = estimate_overflow_pass_2(&mut words, &self.bounds.size, &font_metrics, &overflow_behaviour, overflow_pass_1);
+        let overflow_pass_2 = estimate_overflow_pass_2(&mut words, &self.bounds.size, &font_metrics, &overflow, overflow_pass_1);
 
         // (5) Align text to the left, initial layout of glyphs
         let (mut positioned_glyphs, line_break_offsets) =
@@ -312,7 +312,7 @@ fn estimate_overflow_pass_1(
     words: &[SemanticWordItem],
     rect: &TypedSize2D<f32, LayoutPixel>,
     font_metrics: &FontMetrics,
-    overflow_behaviour: &TextOverflowBehaviour)
+    overflow: &LayoutOverflow)
 -> TextOverflowPass1
 {
     let FontMetrics { space_width, tab_width, vertical_advance } = *font_metrics;
@@ -346,7 +346,7 @@ fn estimate_overflow_pass_2(
     words: &[SemanticWordItem],
     rect: &TypedSize2D<f32, LayoutPixel>,
     font_metrics: &FontMetrics,
-    overflow_behaviour: &TextOverflowBehaviour,
+    overflow: &LayoutOverflow,
     pass1: TextOverflowPass1)
 -> TextOverflowPass2
 {
@@ -563,9 +563,9 @@ pub(crate) fn put_text_in_bounds<'a>(
     line_height: Option<LineHeight>,
     horz_align: TextAlignmentHorz,
     vert_align: TextAlignmentVert,
-    overflow_behaviour: TextOverflowBehaviour,
+    overflow: &LayoutOverflow,
     bounds: &TypedRect<f32, LayoutPixel>)
--> Vec<GlyphInstance>
+-> (Vec<GlyphInstance>, TextOverflowPass2)
 {
     let mut lines = Lines::from_bounds(
         bounds,
@@ -575,6 +575,5 @@ pub(crate) fn put_text_in_bounds<'a>(
         font_size * RUSTTYPE_SIZE_HACK * PX_TO_PT,
         line_height);
 
-    let (glyphs, overflow) = lines.get_glyphs(text, overflow_behaviour);
-    glyphs
+    lines.get_glyphs(text, overflow)
 }

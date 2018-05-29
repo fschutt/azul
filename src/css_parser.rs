@@ -82,7 +82,6 @@ pub enum ParsedCssProperty {
     Background(Background),
     FontSize(FontSize),
     FontFamily(FontFamily),
-    TextOverflow(TextOverflowBehaviour),
     TextAlign(TextAlignmentHorz),
     BoxShadow(Option<BoxShadowPreDisplayItem>),
     LineHeight(LineHeight),
@@ -99,13 +98,14 @@ pub enum ParsedCssProperty {
     JustifyContent(LayoutJustifyContent),
     AlignItems(LayoutAlignItems),
     AlignContent(LayoutAlignContent),
+    Overflow(LayoutOverflow),
 }
 
 impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
 impl_from_no_lifetimes!(Background, ParsedCssProperty::Background);
 impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
 impl_from_no_lifetimes!(FontFamily, ParsedCssProperty::FontFamily);
-impl_from_no_lifetimes!(TextOverflowBehaviour, ParsedCssProperty::TextOverflow);
+impl_from_no_lifetimes!(LayoutOverflow, ParsedCssProperty::Overflow);
 impl_from_no_lifetimes!(TextAlignmentHorz, ParsedCssProperty::TextAlign);
 impl_from_no_lifetimes!(LineHeight, ParsedCssProperty::LineHeight);
 
@@ -166,11 +166,53 @@ impl ParsedCssProperty {
             "justify-content"   => Ok(parse_layout_justify_content(value)?.into()),
             "align-items"       => Ok(parse_layout_align_items(value)?.into()),
             "align-content"     => Ok(parse_layout_align_content(value)?.into()),
-            "overflow"          => Ok(parse_layout_text_overflow(value)?.into()),
+            "overflow"          => {
+                let overflow_both_directions = parse_layout_text_overflow(value)?;
+                Ok(LayoutOverflow {
+                    horizontal: TextOverflowBehaviour::Modified(overflow_both_directions),
+                    vertical: TextOverflowBehaviour::Modified(overflow_both_directions),
+                }.into())
+            },
+            "overflow-x"        => {
+                let overflow_x = parse_layout_text_overflow(value)?;
+                Ok(LayoutOverflow {
+                    horizontal: TextOverflowBehaviour::Modified(overflow_x),
+                    vertical: TextOverflowBehaviour::default(),
+                }.into())
+            },
+            "overflow-y"        => {
+                let overflow_y = parse_layout_text_overflow(value)?;
+                Ok(LayoutOverflow {
+                    horizontal: TextOverflowBehaviour::default(),
+                    vertical: TextOverflowBehaviour::Modified(overflow_y),
+                }.into())
+            },
             "text-align"        => Ok(parse_layout_text_align(value)?.into()),
 
             _ => Err((key, value).into())
         }
+    }
+}
+
+/// Wrapper for the `overflow-{x,y}` + `overflow` property
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct LayoutOverflow {
+    pub horizontal: TextOverflowBehaviour,
+    pub vertical: TextOverflowBehaviour,
+}
+
+impl LayoutOverflow {
+    // "merges" two LayoutOverflow properties
+    pub fn merge(&mut self, other: &LayoutOverflow) {
+        fn merge_property(p: &mut TextOverflowBehaviour, other: &TextOverflowBehaviour) {
+            if *other == TextOverflowBehaviour::NotModified {
+                return;
+            }
+            *p = *other;
+        }
+
+        merge_property(&mut self.horizontal, &other.horizontal);
+        merge_property(&mut self.vertical, &other.vertical);
     }
 }
 
@@ -1488,6 +1530,18 @@ pub enum LayoutAlignContent {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TextOverflowBehaviour {
+    NotModified,
+    Modified(TextOverflowBehaviourInner),
+}
+
+impl Default for TextOverflowBehaviour {
+    fn default() -> Self {
+        TextOverflowBehaviour::NotModified
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TextOverflowBehaviourInner {
     /// Always shows a scroll bar, overflows on scroll
     Scroll,
     /// Does not show a scroll bar by default, only when text is overflowing
@@ -1498,9 +1552,9 @@ pub enum TextOverflowBehaviour {
     Visible,
 }
 
-impl Default for TextOverflowBehaviour {
+impl Default for TextOverflowBehaviourInner {
     fn default() -> Self {
-        TextOverflowBehaviour::Auto
+        TextOverflowBehaviourInner::Auto
     }
 }
 
@@ -1551,7 +1605,7 @@ pub(crate) struct RectStyle {
     /// Text alignment
     pub(crate) text_align: Option<TextAlignmentHorz>,
     /// Text overflow behaviour
-    pub(crate) text_overflow: Option<TextOverflowBehaviour>,
+    pub(crate) overflow: Option<LayoutOverflow>,
     /// `line-height` property
     pub(crate) line_height: Option<LineHeight>,
 }
@@ -1683,7 +1737,7 @@ multi_type_parser!(parse_shape, Shape,
                     ["circle", Circle],
                     ["ellipse", Ellipse]);
 
-multi_type_parser!(parse_layout_text_overflow, TextOverflowBehaviour,
+multi_type_parser!(parse_layout_text_overflow, TextOverflowBehaviourInner,
                     ["auto", Auto],
                     ["scroll", Scroll],
                     ["visible", Visible],
