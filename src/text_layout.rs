@@ -48,6 +48,16 @@ enum SemanticWordItem {
     Return,
 }
 
+impl SemanticWordItem {
+    pub fn is_return(&self) -> bool {
+        use self::SemanticWordItem::*;
+        match self {
+            Return => true,
+            _ => false,
+        }
+    }
+}
+
 /// Returned struct for the pass-1 text run test.
 ///
 /// Once the text is parsed and split into words + normalized, we can calculate
@@ -81,6 +91,16 @@ pub(crate) enum TextOverflow {
     /// Text is in bounds, how much space (in pixels) is available until
     /// the edge of the rectangle? Necessary for centering / aligning text vertically.
     InBounds(f32),
+}
+
+impl TextOverflow {
+    pub fn is_overflowing(&self) -> bool {
+        use self::TextOverflow::*;
+        match self {
+            IsOverflowing(_) => true,
+            InBounds(_) => false,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -131,17 +151,12 @@ impl<'a> Lines<'a>
     pub(crate) fn get_glyphs(&mut self, text: &str, overflow: &LayoutOverflow)
     -> (Vec<GlyphInstance>, TextOverflowPass2)
     {
+        use css_parser::{TextOverflowBehaviour, TextOverflowBehaviourInner};
+
         let font = &self.font;
         let font_size = Scale::uniform(self.font_size);
-        let max_horizontal_width = self.bounds.size.width;
-
         let line_height = match self.line_height { Some(lh) => (lh.0).number, None => 1.0 };
-        // Maximum number of lines that can be shown in the rectangle
-        // before the text overflows
-        let max_lines_before_overflow = (self.bounds.size.height / (self.font_size * line_height)).floor() as usize;
-        // Width of the ' ' (space) character (for adding spacing between words)
         let space_width = self.font.glyph(' ').scaled(Scale::uniform(self.font_size)).h_metrics().advance_width;
-
         let tab_width = 4.0 * space_width; // TODO: make this configurable
 
         let font_metrics = FontMetrics {
@@ -164,11 +179,16 @@ impl<'a> Lines<'a>
 
         // (4) If the lines overflow, subtract the space needed for the scrollbars and calculate the length
         // again (TODO: already layout characters here?)
-        let overflow_pass_2 = estimate_overflow_pass_2(&mut words, &self.bounds.size, &font_metrics, &overflow, overflow_pass_1);
+        let (new_size, overflow_pass_2) = estimate_overflow_pass_2(&words, &self.bounds.size, &font_metrics, &overflow, overflow_pass_1);
+
+        let max_horizontal_text_width = if overflow.allows_horizontal_overflow() { None } else { Some(new_size.width) };
+
+        // Maximum number of lines that can be shown in the rectangle before the text overflows
+        let max_lines_before_overflow = (new_size.height / (self.font_size * line_height)).floor() as usize;
 
         // (5) Align text to the left, initial layout of glyphs
         let (mut positioned_glyphs, line_break_offsets) =
-            words_to_left_aligned_glyphs(words, font, self.font_size, max_horizontal_width, max_lines_before_overflow, &font_metrics);
+            words_to_left_aligned_glyphs(words, font, self.font_size, max_horizontal_text_width, max_lines_before_overflow, &font_metrics);
 
         // (6) Add the harfbuzz adjustments to the positioned glyphs
         apply_harfbuzz_adjustments(&mut positioned_glyphs, harfbuzz_adjustments);
@@ -310,48 +330,144 @@ fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: Scale)
 #[inline(always)]
 fn estimate_overflow_pass_1(
     words: &[SemanticWordItem],
-    rect: &TypedSize2D<f32, LayoutPixel>,
+    rect_dimensions: &TypedSize2D<f32, LayoutPixel>,
     font_metrics: &FontMetrics,
     overflow: &LayoutOverflow)
 -> TextOverflowPass1
 {
+    use self::SemanticWordItem::*;
+
     let FontMetrics { space_width, tab_width, vertical_advance } = *font_metrics;
 
-    /*
-        /// Always shows a scroll bar, overflows on scroll
-        Scroll,
-        /// Does not show a scroll bar by default, only when text is overflowing
-        Auto,
-        /// Never shows a scroll bar, simply clips text
-        Hidden,
-        /// Doesn't show a scroll bar, simply overflows the text
-        Visible,
-    */
+    let max_text_line_len_horizontal = 0.0;
 
-    let mut min_w = 0.0;
-    // Minimum height necessary for all the returns
-    let mut min_h = 0.0;
+    // Determine the maximum width and height that the text needs for layout
 
-    for word in words {
-        match word {
-            SemanticWordItem::Word(Word { total_width, .. }) => { },
-            SemanticWordItem::Tab => { },
-            SemanticWordItem::Return => { },
+    // This is actually tricky. Horizontal scrollbars and vertical scrollbars
+    // behave differently.
+    //
+    // Vertical scrollbars always show the length - when the
+    // vertical length = the height of the rectangle, the scrollbar (the actual bar)
+    // is 0.5x the height of the rectangle, aligned at the top.
+    //
+    // Horizontal scrollbars, on the other hand, are 1.0x the width of the rectangle,
+    // when the width is filled.
+
+    // TODO: this is duplicated code
+
+    let mut max_hor_len = None;
+
+    let vertical_length = {
+        if overflow.allows_horizontal_overflow() {
+            // If we can overflow horizontally, we only need to sum up the `Return`
+            // characters, since the actual length of the line doesn't matter
+            words.iter().filter(|w| w.is_return()).count() as f32 * vertical_advance
+        } else {
+            // TODO: should this be cached? The calculation is probably quick, but this
+            // is essentially the same thing as we do in the actual text layout stage
+            let mut max_line_cursor: f32 = 0.0;
+            let mut cur_line_cursor = 0.0;
+            let mut cur_vertical = 0.0;
+
+            for w in words {
+                match w {
+                    Word(w) => {
+                        if cur_line_cursor + w.total_width > rect_dimensions.width {
+                            max_line_cursor = max_line_cursor.max(cur_line_cursor);
+                            cur_line_cursor = 0.0;
+                            cur_vertical += vertical_advance;
+                        } else {
+                            cur_line_cursor += w.total_width;
+                        }
+                    },
+                    // TODO: also check for rect break after tabs? Kinda pointless, isn't it?
+                    Tab => cur_line_cursor += tab_width,
+                    Return => {
+                        max_line_cursor = max_line_cursor.max(cur_line_cursor);
+                        cur_line_cursor = 0.0;
+                        cur_vertical += vertical_advance;
+                    }
+                }
+            }
+
+            max_hor_len = Some(cur_line_cursor);
+
+            cur_vertical
         }
+    };
+
+    let vertical_length = if vertical_length > rect_dimensions.height {
+        TextOverflow::IsOverflowing(vertical_length - rect_dimensions.height)
+    } else {
+        TextOverflow::InBounds(rect_dimensions.height - vertical_length)
+    };
+
+    let horizontal_length = {
+
+        let horz_max = if overflow.allows_horizontal_overflow() {
+
+            let mut cur_line_cursor = 0.0;
+            let mut max_line_cursor: f32 = 0.0;
+
+            for w in words {
+                match w {
+                    Word(w) => cur_line_cursor += w.total_width,
+                    Tab => cur_line_cursor += tab_width,
+                    Return => {
+                        max_line_cursor = max_line_cursor.max(cur_line_cursor);
+                        cur_line_cursor = 0.0;
+                    }
+                }
+            }
+
+            max_line_cursor
+        } else {
+           max_hor_len.unwrap()
+        };
+
+        if horz_max > rect_dimensions.width {
+            TextOverflow::IsOverflowing(horz_max - rect_dimensions.width)
+        } else {
+            TextOverflow::InBounds(rect_dimensions.width - horz_max)
+        }
+    };
+
+    TextOverflowPass1 {
+        horizontal: horizontal_length,
+        vertical: vertical_length,
     }
 }
 
 #[inline(always)]
 fn estimate_overflow_pass_2(
     words: &[SemanticWordItem],
-    rect: &TypedSize2D<f32, LayoutPixel>,
+    rect_dimensions: &TypedSize2D<f32, LayoutPixel>,
     font_metrics: &FontMetrics,
     overflow: &LayoutOverflow,
     pass1: TextOverflowPass1)
--> TextOverflowPass2
+-> (TypedSize2D<f32, LayoutPixel>, TextOverflowPass2)
 {
     let FontMetrics { space_width, tab_width, vertical_advance } = *font_metrics;
 
+    let mut new_size = *rect_dimensions;
+
+    // TODO: make this 10px stylable
+
+    // Subtract the space necessary for the scrollbars from the rectangle
+    if pass1.horizontal.is_overflowing() {
+        new_size.width -= 10.0;
+    }
+
+    if pass1.vertical.is_overflowing() {
+        new_size.height -= 10.0;
+    }
+
+    let recalc_scrollbar_info = estimate_overflow_pass_1(words, &new_size, font_metrics, overflow);
+
+    (new_size, TextOverflowPass2 {
+        horizontal: recalc_scrollbar_info.horizontal,
+        vertical: recalc_scrollbar_info.vertical,
+    })
 }
 
 #[inline(always)]
@@ -380,12 +496,14 @@ fn calculate_harfbuzz_adjustments<'a>(text: &str, font: &Font<'a>)
     Vec::new() // TODO
 }
 
+/// If `max_horizontal_width` is `None`, it means that the text is allowed to overflow
+/// the rectangle horizontally
 #[inline(always)]
 fn words_to_left_aligned_glyphs<'a>(
     words: Vec<SemanticWordItem>,
     font: &Font<'a>,
     font_size: f32,
-    max_horizontal_width: f32,
+    max_horizontal_width: Option<f32>,
     max_lines_before_overflow: usize,
     font_metrics: &FontMetrics)
 -> (Vec<GlyphInstance>, Vec<(usize, f32)>)
@@ -396,11 +514,16 @@ fn words_to_left_aligned_glyphs<'a>(
     // left-aligned
     let mut left_aligned_glyphs = Vec::<GlyphInstance>::new();
 
+    enum WordCaretMax {
+        SomeMaxWidth(f32),
+        NoMaxWidth(f32),
+    }
+
     // The line break offsets (neded for center- / right-aligned text contains:
     //
     // - The index of the glyph at which the line breaks
     // - How much space each line has (to the right edge of the containing rectangle)
-    let mut line_break_offsets = Vec::<(usize, f32)>::new();
+    let mut line_break_offsets = Vec::<(usize, WordCaretMax)>::new();
 
     let v_metrics_scaled = font.v_metrics(Scale::uniform(vertical_advance));
     let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
@@ -410,16 +533,28 @@ fn words_to_left_aligned_glyphs<'a>(
     // word_caret is the current X position of the "pen" we are writing with
     let mut word_caret = 0.0;
     let mut current_line_num = 0;
+    let mut max_word_caret = 0.0;
 
     for word in words {
         use self::SemanticWordItem::*;
         match word {
             Word(word) => {
-                let text_overflows_rect = word_caret + word.total_width > max_horizontal_width;
+                let text_overflows_rect = match max_horizontal_width {
+                    Some(max) => word_caret + word.total_width > max,
+                    // If we don't have a maximum horizontal width, the text can overflow the
+                    // bounding rectangle in the horizontal direction
+                    None => false,
+                };
 
-                // Line break occurred
                 if text_overflows_rect {
-                    line_break_offsets.push((left_aligned_glyphs.len() - 1, max_horizontal_width - word_caret));
+                    let space_until_horz_return = match max_horizontal_width {
+                        Some(s) => WordCaretMax::SomeMaxWidth(s - word_caret),
+                        None => WordCaretMax::NoMaxWidth(word_caret),
+                    };
+                    line_break_offsets.push((left_aligned_glyphs.len() - 1, space_until_horz_return));
+                    if word_caret > max_word_caret {
+                        max_word_caret = word_caret;
+                    }
                     word_caret = 0.0;
                     current_line_num += 1;
                 }
@@ -436,17 +571,25 @@ fn words_to_left_aligned_glyphs<'a>(
                 // NOTE: has to happen BEFORE the `break` statment, since we use the word_caret
                 // later for the last line
                 word_caret += word.total_width + space_width;
-
+    /*
                 if current_line_num > max_lines_before_overflow {
                     break;
                 }
+    */
             },
             Tab => {
                 word_caret += tab_width;
             },
             Return => {
                 // TODO: dupliated code
-                line_break_offsets.push((left_aligned_glyphs.len() - 1, max_horizontal_width - word_caret));
+                let space_until_horz_return = match max_horizontal_width {
+                    Some(s) => WordCaretMax::SomeMaxWidth(s - word_caret),
+                    None => WordCaretMax::NoMaxWidth(word_caret),
+                };
+                line_break_offsets.push((left_aligned_glyphs.len() - 1, space_until_horz_return));
+                if word_caret > max_word_caret {
+                    max_word_caret = word_caret;
+                }
                 word_caret = 0.0;
                 current_line_num += 1;
             },
@@ -455,8 +598,23 @@ fn words_to_left_aligned_glyphs<'a>(
 
     // push the infos about the last line
     if !left_aligned_glyphs.is_empty() {
-        line_break_offsets.push((left_aligned_glyphs.len() - 1, max_horizontal_width - word_caret));
+        let space_until_horz_return = match max_horizontal_width {
+            Some(s) => WordCaretMax::SomeMaxWidth(s - word_caret),
+            None => WordCaretMax::NoMaxWidth(word_caret),
+        };
+        line_break_offsets.push((left_aligned_glyphs.len() - 1, space_until_horz_return));
+        if word_caret > max_word_caret {
+            max_word_caret = word_caret;
+        }
     }
+
+    let line_break_offsets = line_break_offsets.into_iter().map(|(line, space_r)| {
+        let space_r = match space_r {
+            WordCaretMax::SomeMaxWidth(s) => s,
+            WordCaretMax::NoMaxWidth(word_caret) => max_word_caret - word_caret,
+        };
+        (line, space_r)
+    }).collect();
 
     (left_aligned_glyphs, line_break_offsets)
 }

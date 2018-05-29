@@ -115,7 +115,7 @@ pub mod prelude {
     pub use css_parser::{
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
         BorderWidths, BorderDetails, Background, FontSize,
-        FontFamily, TextOverflowBehaviour, TextAlignmentHorz,
+        FontFamily, TextOverflowBehaviour, TextOverflowBehaviourInner, TextAlignmentHorz,
         BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
         LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
         LayoutMaxHeight, LayoutWrap, LayoutDirection,
