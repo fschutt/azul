@@ -475,7 +475,7 @@ fn push_text<T: LayoutScreen>(
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 
     // If the rectangle should have a scrollbar, push a scrollbar onto the display list
-    push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds)
+    push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds, &style.border)
 }
 
 /// Adds a scrollbar to the left or bottom side of a rectangle.
@@ -485,9 +485,18 @@ fn push_scrollbar(
     display_behaviour: &LayoutOverflow,
     scrollbar_info: &TextOverflowPass2,
     scrollbar_style: &ScrollbarInfo,
-    bounds: &TypedRect<f32, LayoutPixel>)
+    bounds: &TypedRect<f32, LayoutPixel>,
+    border: &Option<(BorderWidths, BorderDetails)>)
 {
     use euclid::TypedPoint2D;
+
+    // The border is inside the rectangle - subtract the border width on the left and bottom side,
+    // so that the scrollbar is laid out correctly
+    let mut bounds = *bounds;
+    if let Some((border_widths, _)) = border {
+        bounds.size.width -= border_widths.left;
+        bounds.size.height -= border_widths.bottom;
+    }
 
     {
         // Background of scrollbar (vertical)
@@ -498,7 +507,7 @@ fn push_scrollbar(
 
         let scrollbar_vertical_background_info = PrimitiveInfo {
             rect: scrollbar_vertical_background,
-            clip_rect: *bounds,
+            clip_rect: bounds,
             is_backface_visible: false,
             tag: None, // TODO: for hit testing
         };
@@ -519,7 +528,7 @@ fn push_scrollbar(
 
         let scrollbar_vertical_bar_info = PrimitiveInfo {
             rect: scrollbar_vertical_bar,
-            clip_rect: *bounds,
+            clip_rect: bounds,
             is_backface_visible: false,
             tag: None, // TODO: for hit testing
         };
@@ -528,8 +537,8 @@ fn push_scrollbar(
     }
 
     {
-        // Triangle 1
-        let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
+        // Triangle top
+        let mut scrollbar_triangle_rect = TypedRect::<f32, LayoutPixel> {
             origin: TypedPoint2D::new(
                 bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
                 bounds.origin.y + scrollbar_style.padding as f32),
@@ -538,7 +547,16 @@ fn push_scrollbar(
                 (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32),
         };
 
-        push_triangle(&scrollbar_vertical_bar, builder, &scrollbar_style.triangle_style, TriangleDirection::PointUp);
+        scrollbar_triangle_rect.origin.x += scrollbar_triangle_rect.size.width / 4.0;
+        scrollbar_triangle_rect.origin.y += scrollbar_triangle_rect.size.height / 4.0;
+        scrollbar_triangle_rect.size.width /= 2.0;
+        scrollbar_triangle_rect.size.height /= 2.0;
+
+        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_style, TriangleDirection::PointUp);
+
+        // Triangle bottom
+        scrollbar_triangle_rect.origin.y += bounds.size.height - scrollbar_style.width as f32 + scrollbar_style.padding as f32;
+        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_style, TriangleDirection::PointDown);
     }
 }
 

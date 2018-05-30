@@ -1,6 +1,5 @@
 .__azul-native-button {
     background-color: #fcfcfc;
-    color: tomato;
     border: 1px solid #b7b7b7;
     border-radius: 4px;
     box-shadow: 0px 0px 3px #c5c5c5ad;
@@ -9,7 +8,6 @@
     width:  [[ my_id | 200px ]];
     height: 200px;
     min-height: 400px;
-    text-align: center;
     flex-direction: row;
     flex-wrap: nowrap;
     justify-content: space-around;
@@ -18,7 +16,7 @@
 }
 
 * {
-    font-size: 16px;
+    font-size: 12px;
     font-family: "Webly Sleeky UI", sans-serif;
     color: black;
 }
