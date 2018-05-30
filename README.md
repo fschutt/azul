@@ -371,22 +371,26 @@ and reduce duplication (so you don't have to do `extern crate image`, just do `u
 ### Current
 
 - Supported CSS attributes (syntax is the same as CSS, expect when marked otherwise):
-    - `background-color`
-    - `background`: **Note**: `image()` takes an ID instead of a URL, see below.
-    - `color`
     - `border-radius`
+    - `background-color`
+    - `color`
+    - `border`
+    - `background`: **Note**: `image()` takes an ID instead of a URL, see below.
     - `font-size`
-    - `font-family`: **Note**: same as with the `background` property, you need to register fonts first, see below.
-    - `text-align`: **Note**: block-text is not supported.
-    - `width`
-    - `height`
-    - `min-width`
-    - `min-height`
-    - `flex-direction`: **Note**: not implemented yet
-    - `flex-wrap`: **Note**: not implemented yet
-    - `justify-content`: **Note**: not implemented yet
-    - `align-items`: **Note**: not implemented yet
-    - `align-content`: **Note**: not implemented yet
+    - `font-family`: **Note**: Like images, you need to register font IDs first (from Rust)
+    - `box-shadow`
+    - `line-height`
+    - `width`, `min-width`, `max-width`
+    - `height`, `min-height`, `max-height`
+    - `align-items`: **Note**: Currently only implemented for centering text vertically
+    - `overflow`, `overflow-x`, `overflow-y`
+    - `text-align`: **Note**: Justified text is not supported.
+
+- Not implemented yet, but planned:
+    - `flex-wrap`
+    - `flex-direction`
+    - `justify-content`
+    - `align-content`
 
 Remarks:
 
