@@ -527,6 +527,80 @@ fn push_scrollbar(
         push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_style);
     }
 
+    {
+        // Triangle 1
+        let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
+            origin: TypedPoint2D::new(
+                bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
+                bounds.origin.y + scrollbar_style.padding as f32),
+            size: TypedSize2D::new(
+                (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
+                (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32),
+        };
+
+        push_triangle(&scrollbar_vertical_bar, builder, &scrollbar_style.triangle_style, TriangleDirection::PointUp);
+    }
+}
+
+enum TriangleDirection {
+    PointUp,
+    PointDown,
+    PointRight,
+    PointLeft,
+}
+
+fn push_triangle(
+    bounds: &TypedRect<f32, LayoutPixel>,
+    builder: &mut DisplayListBuilder,
+    style: &RectStyle,
+    direction: TriangleDirection)
+{
+    use euclid::TypedPoint2D;
+    use self::TriangleDirection::*;
+
+    // see: https://css-tricks.com/snippets/css/css-triangle/
+    // uses the "3d effect" for making a triangle
+
+    let background_color = match style.background_color {
+        None => return,
+        Some(s) => s,
+    };
+
+    let triangle_rect_info = PrimitiveInfo {
+        rect: *bounds,
+        clip_rect: *bounds,
+        is_backface_visible: false,
+        tag: None,
+    };
+
+    const TRANSPARENT: ColorU = ColorU { r: 0,    b: 0,   g: 0,   a: 0  };
+
+    // make all borders but one transparent
+    let [b_left, b_right, b_top, b_bottom] = match direction {
+        PointUp         => [(TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (background_color.0, BorderStyle::Solid) ],
+        PointDown       => [(TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (background_color.0, BorderStyle::Solid),  (TRANSPARENT, BorderStyle::Hidden)],
+        PointLeft       => [(TRANSPARENT, BorderStyle::Hidden), (background_color.0, BorderStyle::Solid),  (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden)],
+        PointRight      => [(background_color.0, BorderStyle::Solid),  (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden)],
+    };
+
+    let border_details = BorderDetails::Normal(NormalBorder {
+        left:   BorderSide { color: b_left.0.into(),         style: b_left.1   },
+        right:  BorderSide { color: b_right.0.into(),        style: b_right.1  },
+        top:    BorderSide { color: b_top.0.into(),          style: b_top.1    },
+        bottom: BorderSide { color: b_bottom.0.into(),       style: b_bottom.1 },
+        radius: BorderRadius::zero(),
+    });
+
+    // make the borders half the width / height of the rectangle,
+    // so that the border looks like a triangle
+    let border_widths = BorderWidths {
+        left: bounds.size.width / 2.0,
+        top: bounds.size.height / 2.0,
+        right: bounds.size.width / 2.0,
+        bottom: bounds.size.height / 2.0,
+    };
+
+    builder.push_border(&triangle_rect_info, border_widths, border_details);
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
