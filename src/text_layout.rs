@@ -167,10 +167,13 @@ pub(crate) fn get_glyphs<'a>(
     let font_size_no_line_height = Scale::uniform(font_size);
     let space_width = font.glyph(' ').scaled(font_size_no_line_height).h_metrics().advance_width;
     let tab_width = 4.0 * space_width; // TODO: make this configurable
-    let offset_top = font.v_metrics(font_size_with_line_height).ascent;
+
+    let v_metrics_scaled = font.v_metrics(font_size_with_line_height);
+    let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
+    let offset_top = v_metrics_scaled.ascent;
 
     let font_metrics = FontMetrics {
-        vertical_advance: font_size_with_line_height.y,
+        vertical_advance: v_advance_scaled,
         space_width: space_width,
         tab_width: tab_width,
         offset_top: offset_top,
@@ -375,7 +378,7 @@ fn estimate_overflow_pass_1(
             // is essentially the same thing as we do in the actual text layout stage
             let mut max_line_cursor: f32 = 0.0;
             let mut cur_line_cursor = 0.0;
-            let mut cur_vertical = offset_top;
+            let mut cur_line = 0;
 
             for w in words {
                 match w {
@@ -383,22 +386,23 @@ fn estimate_overflow_pass_1(
                         if cur_line_cursor + w.total_width > rect_dimensions.width {
                             max_line_cursor = max_line_cursor.max(cur_line_cursor);
                             cur_line_cursor = 0.0;
-                            cur_vertical += vertical_advance;
-                        } else {
-                            cur_line_cursor += w.total_width;
+                            cur_line += 1;
                         }
+                        cur_line_cursor += w.total_width + space_width;
                     },
                     // TODO: also check for rect break after tabs? Kinda pointless, isn't it?
                     Tab => cur_line_cursor += tab_width,
                     Return => {
                         max_line_cursor = max_line_cursor.max(cur_line_cursor);
                         cur_line_cursor = 0.0;
-                        cur_vertical += vertical_advance;
+                        cur_line += 1;
                     }
                 }
             }
 
             max_hor_len = Some(cur_line_cursor);
+
+            let cur_vertical = (cur_line as f32 * vertical_advance) + offset_top;
 
             cur_vertical
         }
@@ -476,7 +480,12 @@ fn estimate_overflow_pass_2(
         new_size.width -= scrollbar_info.width as f32;
     }
 
-    let recalc_scrollbar_info = estimate_overflow_pass_1(words, &new_size, font_metrics, overflow);
+    // If the words are not overflowing, just take the result from the first pass
+    let recalc_scrollbar_info = if pass1.horizontal.is_overflowing() || pass1.vertical.is_overflowing() {
+        estimate_overflow_pass_1(words, &new_size, font_metrics, overflow)
+    } else {
+        pass1
+    };
 
     (new_size, TextOverflowPass2 {
         horizontal: recalc_scrollbar_info.horizontal,
@@ -537,9 +546,6 @@ fn words_to_left_aligned_glyphs<'a>(
     // - How much space each line has (to the right edge of the containing rectangle)
     let mut line_break_offsets = Vec::<(usize, WordCaretMax)>::new();
 
-    let v_metrics_scaled = font.v_metrics(Scale::uniform(vertical_advance));
-    let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
-
     // word_caret is the current X position of the "pen" we are writing with
     let mut word_caret = 0.0;
     let mut current_line_num = 0;
@@ -571,15 +577,13 @@ fn words_to_left_aligned_glyphs<'a>(
 
                 for mut glyph in word.glyphs {
                     let push_x = word_caret;
-                    let push_y = (current_line_num as f32 * v_advance_scaled) + offset_top;
+                    let push_y = (current_line_num as f32 * vertical_advance) + offset_top;
                     glyph.point.x += push_x;
                     glyph.point.y += push_y;
                     left_aligned_glyphs.push(glyph);
                 }
 
                 // Add the word width to the current word_caret
-                // NOTE: has to happen BEFORE the `break` statment, since we use the word_caret
-                // later for the last line
                 word_caret += word.total_width + space_width;
             },
             Tab => {
