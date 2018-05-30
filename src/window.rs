@@ -506,7 +506,7 @@ impl<T: LayoutScreen> Window<T> {
                 enable_aa: true,
                 clear_color: clear_color,
                 enable_render_on_scroll: false,
-                cached_programs: Some(ProgramCache::new()),
+                cached_programs: Some(ProgramCache::new(None)),
                 renderer_kind: if native {
                     RendererKind::Native
                 } else {

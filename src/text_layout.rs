@@ -3,30 +3,13 @@
 use webrender::api::*;
 use euclid::{Length, TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
-use css_parser::{TextAlignmentHorz, TextAlignmentVert, LineHeight, LayoutOverflow};
+use css_parser::{TextAlignmentHorz, RectStyle, TextAlignmentVert, LineHeight, LayoutOverflow};
 
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
 /// Without this adjustment, we won't have the correct horizontal spacing
 const RUSTTYPE_SIZE_HACK: f32 = 72.0 / 41.0;
 
 const PX_TO_PT: f32 = 72.0 / 96.0;
-
-/// Lines is responsible for layouting the lines of the rectangle to
-struct Lines<'a> {
-    /// Horizontal text alignment
-    horz_align: TextAlignmentHorz,
-    /// Vertical text alignment (only respected when the
-    /// characters don't overflow the bounds)
-    vert_align: TextAlignmentVert,
-    /// Line height multiplier (X * `self.font_size`) - default 1.0
-    line_height: Option<LineHeight>,
-    /// The font to use for layouting the characters
-    font: &'a Font<'a>,
-    // Font size of the font
-    font_size: f32,
-    /// The bounds of the lines (bounding rectangle)
-    bounds: TypedRect<f32, LayoutPixel>,
-}
 
 #[derive(Debug)]
 struct Word {
@@ -109,6 +92,22 @@ struct HarfbuzzAdjustment(pub f32);
 #[derive(Debug, Copy, Clone)]
 struct KnuthPlassAdjustment(pub f32);
 
+/// Holds info necessary for layouting / styling scrollbars
+#[derive(Debug, Clone)]
+pub(crate) struct ScrollbarInfo {
+    /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
+    /// of the scrollbar in pixels
+    pub(crate) width: usize,
+    /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
+    pub(crate) padding: usize,
+    /// Style of the scrollbar (how to draw it)
+    pub(crate) bar_style: RectStyle,
+    /// How to draw the "up / down" arrows
+    pub(crate) triangle_style: RectStyle,
+    /// Style of the scrollbar background
+    pub(crate) background_style: RectStyle,
+}
+
 /// Temporary struct so I don't have to pass the three parameters around seperately all the time
 #[derive(Debug, Copy, Clone)]
 struct FontMetrics {
@@ -118,98 +117,107 @@ struct FontMetrics {
     tab_width: f32,
     /// font_size * line_height
     vertical_advance: f32,
+    /// Offset of the font from the top of the bounding rectangle
+    offset_top: f32,
 }
 
-impl<'a> Lines<'a>
+/// ## Inputs
+///
+/// - `bounds`: The bounds of the rectangle containing the text
+/// - `horiz_alignment`: Usually parsed from the `text-align` attribute: horizontal alignment of the text
+/// - `vert_alignment`: Usually parsed from the `align-items` attribute on the parent node
+///    or the `align-self` on the child node: horizontal alignment of the text
+/// - `font`: The font to use for layouting
+/// - `font_size`: The font size (without line height)
+/// - `line_height`: The line height (100% = 1.0). I.e. `line-height = 1.2;` scales the text vertically by 1.2x
+/// - `text`: The actual text to layout. Will be unicode-normalized after the Unicode Normalization Form C
+///   (canonical decomposition followed by canonical composition).
+/// - `overflow`: If the scrollbars should be show, parsed from the `overflow-{x / y}` fields
+/// - `scrollbar_info`: Mostly used to reserve space for the scrollbar, if necessary.
+///
+/// ## Returns
+///
+/// - `Vec<GlyphInstance>`: The layouted glyphs. If a scrollbar is necessary, they will be layouted so that
+///   the scrollbar has space to the left or bottom (so it doesn't overlay the text)
+/// - `TextOverflowPass2`: This is internally used for aligning text (horizontally / vertically), but
+///   it is necessary for drawing the scrollbars later on, to determine the height of the bar. Contains
+///   info about if the text has overflown the rectangle, and if yes, by how many pixels
+///
+/// ## Notes
+///
+/// This function is currently very expensive, since it doesn't cache the string. So it does many small
+/// allocations. This should be cleaned up in the future by caching `BlobStrings` and only re-layouting
+/// when it's absolutely necessary.
+pub(crate) fn get_glyphs<'a>(
+    bounds: &TypedRect<f32, LayoutPixel>,
+    horiz_alignment: TextAlignmentHorz,
+    vert_alignment: TextAlignmentVert,
+    font: &'a Font<'a>,
+    font_size: f32,
+    line_height: Option<LineHeight>,
+    text: &str,
+    overflow: &LayoutOverflow,
+    scrollbar_info: &ScrollbarInfo)
+-> (Vec<GlyphInstance>, TextOverflowPass2)
 {
-    #[inline]
-    pub(crate) fn from_bounds(
-        bounds: &TypedRect<f32, LayoutPixel>,
-        horiz_alignment: TextAlignmentHorz,
-        vert_alignment: TextAlignmentVert,
-        font: &'a Font<'a>,
-        font_size: f32,
-        line_height: Option<LineHeight>)
-    -> Self
-    {
-        Self {
-            horz_align: horiz_alignment,
-            vert_align: vert_alignment,
-            line_height: line_height,
-            font: font,
-            bounds: *bounds,
-            font_size: font_size,
-        }
-    }
+    use css_parser::{TextOverflowBehaviour, TextOverflowBehaviourInner};
 
-    /// NOTE: The glyphs are in the space of the bounds, not of the layer!
-    /// You'd need to offset them by `bounds.origin` to get the correct position
-    ///
-    /// This function will only process the glyphs until they overflow
-    /// (we don't process glyphs that are out of the bounds of the rectangle, since
-    /// they don't get drawn anyway).
-    pub(crate) fn get_glyphs(&mut self, text: &str, overflow: &LayoutOverflow)
-    -> (Vec<GlyphInstance>, TextOverflowPass2)
-    {
-        use css_parser::{TextOverflowBehaviour, TextOverflowBehaviourInner};
+    let line_height = match line_height { Some(lh) => (lh.0).number, None => 1.0 };
+    let font_size_with_line_height = Scale::uniform(font_size * line_height);
+    let font_size_no_line_height = Scale::uniform(font_size);
+    let space_width = font.glyph(' ').scaled(font_size_no_line_height).h_metrics().advance_width;
+    let tab_width = 4.0 * space_width; // TODO: make this configurable
+    let offset_top = font.v_metrics(font_size_with_line_height).ascent;
 
-        let font = &self.font;
-        let font_size = Scale::uniform(self.font_size);
-        let line_height = match self.line_height { Some(lh) => (lh.0).number, None => 1.0 };
-        let space_width = self.font.glyph(' ').scaled(Scale::uniform(self.font_size)).h_metrics().advance_width;
-        let tab_width = 4.0 * space_width; // TODO: make this configurable
+    let font_metrics = FontMetrics {
+        vertical_advance: font_size_with_line_height.y,
+        space_width: space_width,
+        tab_width: tab_width,
+        offset_top: offset_top,
+    };
 
-        let font_metrics = FontMetrics {
-            vertical_advance: self.font_size * line_height,
-            space_width: space_width,
-            tab_width: tab_width,
-        };
+    // (1) Split the text into semantic items (word, tab or newline)
+    // This function also normalizes the unicode characters and calculates kerning.
+    //
+    // TODO: cache the words somewhere
+    let words = split_text_into_words(text, font, font_size_no_line_height);
 
-        // (1) Split the text into semantic items (word, tab or newline)
-        // This function also normalizes the unicode characters and calculates kerning.
-        //
-        // TODO: cache the words somewhere
-        let words = split_text_into_words(text, font, font_size);
+    // (2) Calculate the additions / subtractions that have to be take into account
+    let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text, font);
 
-        // (2) Calculate the additions / subtractions that have to be take into account
-        let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text, font);
+    // (3) Determine if the words will overflow the bounding rectangle
+    let overflow_pass_1 = estimate_overflow_pass_1(&words, &bounds.size, &font_metrics, &overflow);
 
-        // (3) Determine if the words will overflow the bounding rectangle
-        let overflow_pass_1 = estimate_overflow_pass_1(&words, &self.bounds.size, &font_metrics, &overflow);
+    // (4) If the lines overflow, subtract the space needed for the scrollbars and calculate the length
+    // again (TODO: already layout characters here?)
+    let (new_size, overflow_pass_2) =
+        estimate_overflow_pass_2(&words, &bounds.size, &font_metrics, &overflow, scrollbar_info, overflow_pass_1);
 
-        // (4) If the lines overflow, subtract the space needed for the scrollbars and calculate the length
-        // again (TODO: already layout characters here?)
-        let (new_size, overflow_pass_2) = estimate_overflow_pass_2(&words, &self.bounds.size, &font_metrics, &overflow, overflow_pass_1);
+    let max_horizontal_text_width = if overflow.allows_horizontal_overflow() { None } else { Some(new_size.width) };
 
-        let max_horizontal_text_width = if overflow.allows_horizontal_overflow() { None } else { Some(new_size.width) };
+    // (5) Align text to the left, initial layout of glyphs
+    let (mut positioned_glyphs, line_break_offsets) =
+        words_to_left_aligned_glyphs(words, font, max_horizontal_text_width, &font_metrics);
 
-        // Maximum number of lines that can be shown in the rectangle before the text overflows
-        let max_lines_before_overflow = (new_size.height / (self.font_size * line_height)).floor() as usize;
+    // (6) Add the harfbuzz adjustments to the positioned glyphs
+    apply_harfbuzz_adjustments(&mut positioned_glyphs, harfbuzz_adjustments);
 
-        // (5) Align text to the left, initial layout of glyphs
-        let (mut positioned_glyphs, line_break_offsets) =
-            words_to_left_aligned_glyphs(words, font, self.font_size, max_horizontal_text_width, max_lines_before_overflow, &font_metrics);
+    // (7) Calculate the Knuth-Plass adjustments for the (now layouted) glyphs
+    let knuth_plass_adjustments = calculate_knuth_plass_adjustments(&positioned_glyphs, &line_break_offsets);
 
-        // (6) Add the harfbuzz adjustments to the positioned glyphs
-        apply_harfbuzz_adjustments(&mut positioned_glyphs, harfbuzz_adjustments);
+    // (8) Add the Knuth-Plass adjustments to the positioned glyphs
+    apply_knuth_plass_adjustments(&mut positioned_glyphs, knuth_plass_adjustments);
 
-        // (7) Calculate the Knuth-Plass adjustments for the (now layouted) glyphs
-        let knuth_plass_adjustments = calculate_knuth_plass_adjustments(&positioned_glyphs, &line_break_offsets);
+    // (9) Align text horizontally (early return if left-aligned)
+    align_text_horz(horiz_alignment, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
 
-        // (8) Add the Knuth-Plass adjustments to the positioned glyphs
-        apply_knuth_plass_adjustments(&mut positioned_glyphs, knuth_plass_adjustments);
+    // (10) Align text vertically (early return if text overflows)
+    align_text_vert(vert_alignment, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
 
-        // (9) Align text horizontally (early return if left-aligned)
-        align_text_horz(self.horz_align, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
+    // (11) Add the self.origin to all the glyphs to bring them from glyph space into world space
+    add_origin(&mut positioned_glyphs, bounds.origin.x, bounds.origin.y);
 
-        // (10) Align text vertically (early return if text overflows)
-        align_text_vert(self.vert_align, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
-
-        // (11) Add the self.origin to all the glyphs to bring them from glyph space into world space
-        add_origin(&mut positioned_glyphs, self.bounds.origin.x, self.bounds.origin.y);
-
-        (positioned_glyphs, overflow_pass_2)
-    }
+    (positioned_glyphs, overflow_pass_2)
 }
 
 #[inline(always)]
@@ -337,7 +345,7 @@ fn estimate_overflow_pass_1(
 {
     use self::SemanticWordItem::*;
 
-    let FontMetrics { space_width, tab_width, vertical_advance } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, offset_top } = *font_metrics;
 
     let max_text_line_len_horizontal = 0.0;
 
@@ -367,7 +375,7 @@ fn estimate_overflow_pass_1(
             // is essentially the same thing as we do in the actual text layout stage
             let mut max_line_cursor: f32 = 0.0;
             let mut cur_line_cursor = 0.0;
-            let mut cur_vertical = 0.0;
+            let mut cur_vertical = offset_top;
 
             for w in words {
                 match w {
@@ -444,22 +452,28 @@ fn estimate_overflow_pass_2(
     rect_dimensions: &TypedSize2D<f32, LayoutPixel>,
     font_metrics: &FontMetrics,
     overflow: &LayoutOverflow,
+    scrollbar_info: &ScrollbarInfo,
     pass1: TextOverflowPass1)
 -> (TypedSize2D<f32, LayoutPixel>, TextOverflowPass2)
 {
-    let FontMetrics { space_width, tab_width, vertical_advance } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, offset_top } = *font_metrics;
 
     let mut new_size = *rect_dimensions;
 
     // TODO: make this 10px stylable
 
     // Subtract the space necessary for the scrollbars from the rectangle
+    //
+    // NOTE: this is switched around - if the text overflows vertically, the
+    // scrollbar gets shown on the right edge, so we need to subtract from the
+    // **width** of the rectangle.
+
     if pass1.horizontal.is_overflowing() {
-        new_size.width -= 10.0;
+        new_size.height -= scrollbar_info.width as f32;
     }
 
     if pass1.vertical.is_overflowing() {
-        new_size.height -= 10.0;
+        new_size.width -= scrollbar_info.width as f32;
     }
 
     let recalc_scrollbar_info = estimate_overflow_pass_1(words, &new_size, font_metrics, overflow);
@@ -502,13 +516,11 @@ fn calculate_harfbuzz_adjustments<'a>(text: &str, font: &Font<'a>)
 fn words_to_left_aligned_glyphs<'a>(
     words: Vec<SemanticWordItem>,
     font: &Font<'a>,
-    font_size: f32,
     max_horizontal_width: Option<f32>,
-    max_lines_before_overflow: usize,
     font_metrics: &FontMetrics)
 -> (Vec<GlyphInstance>, Vec<(usize, f32)>)
 {
-    let FontMetrics { space_width, tab_width, vertical_advance } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, offset_top } = *font_metrics;
 
     // left_aligned_glyphs stores the X and Y coordinates of the positioned glyphs,
     // left-aligned
@@ -527,8 +539,6 @@ fn words_to_left_aligned_glyphs<'a>(
 
     let v_metrics_scaled = font.v_metrics(Scale::uniform(vertical_advance));
     let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
-
-    let offset_top = v_metrics_scaled.ascent;
 
     // word_caret is the current X position of the "pen" we are writing with
     let mut word_caret = 0.0;
@@ -571,11 +581,6 @@ fn words_to_left_aligned_glyphs<'a>(
                 // NOTE: has to happen BEFORE the `break` statment, since we use the word_caret
                 // later for the last line
                 word_caret += word.total_width + space_width;
-    /*
-                if current_line_num > max_lines_before_overflow {
-                    break;
-                }
-    */
             },
             Tab => {
                 word_caret += tab_width;
@@ -722,16 +727,18 @@ pub(crate) fn put_text_in_bounds<'a>(
     horz_align: TextAlignmentHorz,
     vert_align: TextAlignmentVert,
     overflow: &LayoutOverflow,
+    scrollbar_info: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>)
 -> (Vec<GlyphInstance>, TextOverflowPass2)
 {
-    let mut lines = Lines::from_bounds(
+    get_glyphs(
         bounds,
         horz_align,
         vert_align,
         font,
         font_size * RUSTTYPE_SIZE_HACK * PX_TO_PT,
-        line_height);
-
-    lines.get_glyphs(text, overflow)
+        line_height,
+        text,
+        overflow,
+        scrollbar_info)
 }
