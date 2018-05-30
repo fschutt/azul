@@ -345,11 +345,6 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                             &full_screen_rect,
                             BoxShadowClipMode::Inset);
 
-            push_border(
-                &info,
-                &mut builder,
-                &rect.style);
-
             push_text(
                 &info,
                 &self,
@@ -360,6 +355,11 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
                 &render_api,
                 &bounds,
                 &mut resource_updates);
+
+            push_border(
+                &info,
+                &mut builder,
+                &rect.style);
 
             // Pop clip
             if clip_region_id.is_some() {
@@ -421,9 +421,8 @@ fn push_text<T: LayoutScreen>(
     let font_size = font_size.0.to_pixels();
     let font_size_app_units = (font_size as i32) * AU_PER_PX;
     let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
-    let font_size_app_units = Au(font_size_app_units as i32); // * text_layout::WEBRENDER_DPI_HACK) as i32
-    let font_result = push_font(font_id, font_size_app_units,
-        resource_updates, app_resources, render_api);
+    let font_size_app_units = Au(font_size_app_units as i32);
+    let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
 
     let font_instance_key = match font_result {
         Some(f) => f,
@@ -438,16 +437,16 @@ fn push_text<T: LayoutScreen>(
     let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
     let mut scrollbar_bar_style = RectStyle::default();
-    scrollbar_bar_style.background_color = Some(BackgroundColor(ColorU { r: 80, g: 80, b: 80, a: 255 }));
+    scrollbar_bar_style.background_color = Some(BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }));
 
     let mut scrollbar_background_style = RectStyle::default();
     scrollbar_background_style.background_color = Some(BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }));
 
     let mut scrollbar_triangle_style = RectStyle::default();
-    scrollbar_triangle_style.background_color = Some(BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }));
+    scrollbar_triangle_style.background_color = Some(BackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }));
 
     let scrollbar_style = ScrollbarInfo {
-        width: 27,
+        width: 17,
         padding: 2,
         background_style: scrollbar_background_style,
         triangle_style: scrollbar_triangle_style,
@@ -476,21 +475,58 @@ fn push_text<T: LayoutScreen>(
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 
     // If the rectangle should have a scrollbar, push a scrollbar onto the display list
-    push_scrollbar(info, builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds)
+    push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds)
 }
 
 /// Adds a scrollbar to the left or bottom side of a rectangle.
 /// TODO: make styling configurable (like the width / style of the scrollbar)
 fn push_scrollbar(
-    info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
     display_behaviour: &LayoutOverflow,
     scrollbar_info: &TextOverflowPass2,
     scrollbar_style: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>)
 {
-    // TODO: add a scrollbar to the rectangle
-    println!("text overflow: {:#?}", scrollbar_info)
+    use euclid::TypedPoint2D;
+
+    {
+        // Background of scrollbar (vertical)
+        let scrollbar_vertical_background = TypedRect::<f32, LayoutPixel> {
+            origin: TypedPoint2D::new(bounds.origin.x + bounds.size.width - scrollbar_style.width as f32, bounds.origin.y),
+            size: TypedSize2D::new(scrollbar_style.width as f32, bounds.size.height),
+        };
+
+        let scrollbar_vertical_background_info = PrimitiveInfo {
+            rect: scrollbar_vertical_background,
+            clip_rect: *bounds,
+            is_backface_visible: false,
+            tag: None, // TODO: for hit testing
+        };
+
+        push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_style);
+    }
+
+    {
+        // Actual scroll bar
+        let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
+            origin: TypedPoint2D::new(
+                bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
+                bounds.origin.y + scrollbar_style.width as f32),
+            size: TypedSize2D::new(
+                (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
+                 bounds.size.height - (scrollbar_style.width * 2) as f32),
+        };
+
+        let scrollbar_vertical_bar_info = PrimitiveInfo {
+            rect: scrollbar_vertical_bar,
+            clip_rect: *bounds,
+            is_backface_visible: false,
+            tag: None, // TODO: for hit testing
+        };
+
+        push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_style);
+    }
+
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
