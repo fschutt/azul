@@ -24,7 +24,7 @@ use {
     css::Css,
     cache::DomChangeSet,
     ui_description::CssConstraintList,
-    text_layout::TextOverflowPass2,
+    text_layout::{TextOverflowPass2, ScrollbarInfo},
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -435,7 +435,24 @@ fn push_text<T: LayoutScreen>(
 
     let font = &app_resources.font_data[font_id].0;
     let horz_alignment = style.text_align.unwrap_or(TextAlignmentHorz::default());
-    let scrollbar_display_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+    let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+
+    let mut scrollbar_bar_style = RectStyle::default();
+    scrollbar_bar_style.background_color = Some(BackgroundColor(ColorU { r: 80, g: 80, b: 80, a: 255 }));
+
+    let mut scrollbar_background_style = RectStyle::default();
+    scrollbar_background_style.background_color = Some(BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }));
+
+    let mut scrollbar_triangle_style = RectStyle::default();
+    scrollbar_triangle_style.background_color = Some(BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }));
+
+    let scrollbar_style = ScrollbarInfo {
+        width: 27,
+        padding: 2,
+        background_style: scrollbar_background_style,
+        triangle_style: scrollbar_triangle_style,
+        bar_style: scrollbar_bar_style,
+    };
 
     let (positioned_glyphs, scrollbar_info) = text_layout::put_text_in_bounds(
         text,
@@ -444,7 +461,8 @@ fn push_text<T: LayoutScreen>(
         line_height,
         horz_alignment,
         vert_alignment,
-        &scrollbar_display_behaviour,
+        &overflow_behaviour,
+        &scrollbar_style,
         bounds
     );
 
@@ -458,7 +476,7 @@ fn push_text<T: LayoutScreen>(
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 
     // If the rectangle should have a scrollbar, push a scrollbar onto the display list
-    push_scrollbar(info, builder, &scrollbar_display_behaviour, &scrollbar_info, bounds)
+    push_scrollbar(info, builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds)
 }
 
 /// Adds a scrollbar to the left or bottom side of a rectangle.
@@ -468,9 +486,11 @@ fn push_scrollbar(
     builder: &mut DisplayListBuilder,
     display_behaviour: &LayoutOverflow,
     scrollbar_info: &TextOverflowPass2,
+    scrollbar_style: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>)
 {
     // TODO: add a scrollbar to the rectangle
+    println!("text overflow: {:#?}", scrollbar_info)
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the

@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 
 [dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "60f417726a817051108a0124c8ba77fd9c6c52cf" }
 cassowary = "0.3.0"
 simplecss = "0.1.0"
 twox-hash = "1.1.0"
@@ -19,6 +18,10 @@ harfbuzz_rs = "0.1.0"
 resvg = "0.2.0"
 lyon = { version = "0.10.0", features = ["extra"] }
 lazy_static = "1.0.0"
+
+[dependencies.webrender]
+git = "https://github.com/servo/webrender"
+rev = "5e4f257d9f3cdb5691ac62f3affe2e9189d66447"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)
