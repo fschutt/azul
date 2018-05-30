@@ -688,14 +688,10 @@ fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], l
     // i.e. the last line has to end with the last glyph
     assert!(glyphs.len() - 1 == line_breaks[line_breaks.len() - 1].0);
 
-    if alignment == TextAlignmentHorz::Left {
-        return;
-    }
-
     let multiply_factor = match alignment {
         Left => { return; },
-        Right => 1.0, // move the line by the full width
         Center => 0.5, // move the line by the half width
+        Right => 1.0, // move the line by the full width
     };
 
     let mut current_line_num = 0;
@@ -711,6 +707,23 @@ fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], l
 #[inline(always)]
 fn align_text_vert(alignment: TextAlignmentVert, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)], overflow: &TextOverflowPass2) {
 
+    use self::TextOverflow::*;
+    use self::TextAlignmentVert::*;
+
+    assert!(glyphs.len() - 1 == line_breaks[line_breaks.len() - 1].0);
+
+    let multiply_factor = match alignment {
+        Top => return,
+        Center => 0.5,
+        Bottom => 1.0,
+    };
+
+    let space_to_add = match overflow.vertical {
+        IsOverflowing(_) => return,
+        InBounds(s) => s * multiply_factor,
+    };
+
+    glyphs.iter_mut().for_each(|g| g.point.y += space_to_add);
 }
 
 /// Adds the X and Y offset to each glyph in the positioned glyph
