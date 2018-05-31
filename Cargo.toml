@@ -15,7 +15,7 @@ rusttype = "0.5.2"
 app_units = "0.6"
 unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
-resvg = "0.2.0"
+svg = "0.5.10"
 lyon = { version = "0.10.0", features = ["extra"] }
 lazy_static = "1.0.0"
 

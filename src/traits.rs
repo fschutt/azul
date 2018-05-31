@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::hash::Hash;
 use css_parser::{ParsedCssProperty, CssParsingError};
+use std::sync::{Arc, Mutex};
 
 pub trait LayoutScreen {
     /// Updates the DOM, must be provided by the final application.
@@ -47,6 +48,21 @@ pub(crate) struct ParsedCss<'a> {
 /// (the conversion could fail)
 pub trait IntoParsedCssProperty<'a> {
     fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>>;
+}
+
+pub trait ModifyAppState<T: LayoutScreen> {
+    /// Modifies the app state and then returns if the modification was successful
+    /// Takes a FnMut that modifies the state
+    fn modify<F>(&self, closure: F) -> bool where F: FnMut(&mut T);
+}
+
+impl<T: LayoutScreen> ModifyAppState<T> for Arc<Mutex<T>> {
+    fn modify<F>(&self, mut closure: F) -> bool where F: FnMut(&mut T) {
+        match self.lock().as_mut() {
+            Ok(lock) => { closure(&mut *lock); true },
+            Err(_) => false,
+        }
+    }
 }
 
 impl<'a> IntoParsedCssProperty<'a> for ParsedCssProperty {

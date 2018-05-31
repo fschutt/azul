@@ -105,7 +105,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     /// Looks if any new images need to be uploaded and stores the in the image resources
     fn update_resources(
         api: &RenderApi,
-        app_resources: &mut AppResources,
+        app_resources: &mut AppResources<T>,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         Self::update_image_resources(api, app_resources, resource_updates);
@@ -114,7 +114,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
 
     fn update_image_resources(
         api: &RenderApi,
-        app_resources: &mut AppResources,
+        app_resources: &mut AppResources<T>,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use images::{ImageState, ImageInfo};
@@ -164,7 +164,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
     // have two HashMaps that need to be updated
     fn update_font_resources(
         api: &RenderApi,
-        app_resources: &mut AppResources,
+        app_resources: &mut AppResources<T>,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontState;
@@ -214,7 +214,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
         pipeline_id: PipelineId,
         ui_solver: &mut UiSolver<T>,
         css: &mut Css,
-        app_resources: &mut AppResources,
+        app_resources: &mut AppResources<T>,
         render_api: &RenderApi,
         mut has_window_size_changed: bool)
     -> Option<DisplayListBuilder>
@@ -390,7 +390,7 @@ fn push_text<T: LayoutScreen>(
     rect_idx: NodeId,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    app_resources: &mut AppResources,
+    app_resources: &mut AppResources<T>,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>)
@@ -674,12 +674,12 @@ fn push_box_shadow(
 }
 
 #[inline]
-fn push_background(
+fn push_background<T: LayoutScreen>(
     info: &PrimitiveInfo<LayoutPixel>,
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    app_resources: &AppResources)
+    app_resources: &AppResources<T>)
 {
     let background = match style.background {
         Some(ref bg) => bg,
@@ -745,11 +745,11 @@ fn push_border(
 }
 
 #[inline]
-fn push_font(
+fn push_font<T: LayoutScreen>(
     font_id: &css_parser::Font,
     font_size_app_units: Au,
     resource_updates: &mut Vec<ResourceUpdate>,
-    app_resources: &mut AppResources,
+    app_resources: &mut AppResources<T>,
     render_api: &RenderApi)
 -> Option<FontInstanceKey>
 {

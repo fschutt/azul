@@ -492,7 +492,7 @@ fn parse_percentage_value(input: &str)
 ///
 /// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
 /// "#00FF00" -> ColorF { r: 0, g: 255, b: 0 })
-fn parse_css_color<'a>(input: &'a str)
+pub(crate) fn parse_css_color<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     if input.starts_with('#') {
