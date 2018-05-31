@@ -5,11 +5,14 @@ use azul::prelude::*;
 const TEST_CSS: &str = include_str!("test_content.css");
 const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
 const TEST_IMAGE: &[u8] = include_bytes!("../assets/images/cat_image.jpg");
+const TEST_SVG: &[u8] = include_bytes!("../assets/svg/test.svg");
 
 #[derive(Debug)]
 pub struct MyAppData {
     // Your app data goes here
     pub my_data: u32,
+    // SVG IDs
+    pub my_svg_ids: Vec<SvgLayerId>,
 }
 
 impl LayoutScreen for MyAppData {
@@ -37,6 +40,11 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, event: WindowEve
     // TODO: performance optimize this
     app_state.windows[event.window].state.title = String::from("Hello");
 
+    // SVG parsing test
+    let mut svg_ids = app_state.add_svg(TEST_SVG).unwrap();
+    println!("{:?}", svg_ids);
+    app_state.data.modify(|data| data.my_svg_ids.append(&mut svg_ids));
+
     UpdateScreen::Redraw
 }
 
@@ -47,6 +55,7 @@ fn main() {
 
     let my_app_data = MyAppData {
         my_data: 0,
+        my_svg_ids: Vec::new(),
     };
 
     let mut app = App::new(my_app_data);

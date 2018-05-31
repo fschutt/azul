@@ -35,8 +35,8 @@ pub extern crate image;
 #[macro_use]
 extern crate lazy_static;
 extern crate euclid;
-extern crate resvg;
 extern crate lyon;
+extern crate svg as svg_crate;
 extern crate webrender;
 extern crate cassowary;
 extern crate twox_hash;
@@ -105,7 +105,7 @@ pub mod prelude {
     pub use app_state::AppState;
     pub use css::{Css, FakeCss};
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
-    pub use traits::LayoutScreen;
+    pub use traits::{LayoutScreen, ModifyAppState};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, WindowCreateError,
                      WindowMonitorTarget, RendererType, WindowEvent};
@@ -127,6 +127,8 @@ pub mod prelude {
         ExtendMode, PixelValue, PercentageValue,
     };
 
+    pub use svg::{SvgLayerId, SvgLayer};
+
     // from the extern crate image
     pub use image::ImageError;
 }
@@ -142,4 +144,5 @@ pub mod errors {
     };
     pub use simplecss::Error as CssSyntaxError;
     pub use css::{CssParseError, DynamicCssParseError};
+    pub use svg::SvgParseError;
 }

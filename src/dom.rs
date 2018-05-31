@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use webrender::api::ColorU;
 use glium::Texture2d;
-use svg::Svg;
+use svg::SvgLayerId;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
@@ -76,64 +76,23 @@ impl<T: LayoutScreen> Copy for Callback<T> { }
 /// `Image` and `Label`. For example a `Ul` is simply a convenience
 /// wrapper around a repeated (`Div` + `Label`) clone where the first
 /// `Div` is shaped like a circle (for `Ul`).
-pub enum NodeType<T: LayoutScreen> {
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub enum NodeType {
     /// Regular div
     Div,
     /// A label that can be (optionally) be selectable with the mouse
     Label(String),
-    Svg(Svg<T>),
+    SvgLayer(SvgLayerId),
     // GlTexture
 }
 
-impl<T: LayoutScreen> fmt::Debug for NodeType<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "NodeType<{}>", self.get_css_id())
-    }
-}
-
-impl<T: LayoutScreen> Clone for NodeType<T> {
-    fn clone(&self) -> Self {
-        use self::NodeType::*;
-        match self {
-            Div => Div,
-            Label(text) => Label(text.clone()),
-            Svg(svg) => Svg(svg.clone()),
-        }
-    }
-}
-
-impl<T: LayoutScreen> PartialEq for NodeType<T> {
-    fn eq(&self, rhs: &Self) -> bool {
-        use self::NodeType::*;
-        match (self, rhs) {
-            (Div, Div) => true,
-            (Label(a), Label(b)) => a == b,
-            (Svg(a), Svg(b)) => *a == *b,
-            _ => false,
-        }
-    }
-}
-
-impl<T: LayoutScreen> Eq for NodeType<T> { }
-
-impl<T: LayoutScreen> Hash for NodeType<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        use self::NodeType::*;
-        match self {
-            Div => 0.hash(state),
-            Label(l) => { 1.hash(state); l.hash(state) },
-            Svg(s) => { 2.hash(state); s.hash(state) },
-        }
-    }
-}
-
-impl<T: LayoutScreen> GetCssId for NodeType<T> {
+impl GetCssId for NodeType {
     fn get_css_id(&self) -> &'static str {
         use self::NodeType::*;
         match *self {
             Div => "div",
             Label(_) => "p",
-            Svg(_) => "svg",
+            SvgLayer(_) => "svg",
         }
     }
 }
@@ -176,7 +135,7 @@ pub enum On {
 #[derive(PartialEq, Eq)]
 pub(crate) struct NodeData<T: LayoutScreen> {
     /// `div`
-    pub node_type: NodeType<T>,
+    pub node_type: NodeType,
     /// `#main`
     pub id: Option<String>,
     /// `.myclass .otherclass`
@@ -250,7 +209,7 @@ impl<T: LayoutScreen> CallbackList<T> {
 
 impl<T: LayoutScreen> NodeData<T> {
     /// Creates a new NodeData
-    pub fn new(node_type: NodeType<T>) -> Self {
+    pub fn new(node_type: NodeType) -> Self {
         Self {
             node_type: node_type,
             id: None,
@@ -329,7 +288,7 @@ impl<T: LayoutScreen> Dom<T> {
 
     /// Creates an empty DOM
     #[inline]
-    pub fn new(node_type: NodeType<T>) -> Self {
+    pub fn new(node_type: NodeType) -> Self {
         let mut arena = Arena::new();
         let root = arena.new_node(NodeData::new(node_type));
         Self {

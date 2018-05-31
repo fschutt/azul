@@ -459,7 +459,7 @@ fn render<T: LayoutScreen>(
     window: &mut Window<T>,
     _window_id: &WindowId,
     ui_description: &UiDescription<T>,
-    app_resources: &mut AppResources,
+    app_resources: &mut AppResources<T>,
     has_window_size_changed: bool)
 {
     use webrender::api::*;
