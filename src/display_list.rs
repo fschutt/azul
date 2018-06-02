@@ -14,7 +14,7 @@ use cassowary::{Constraint, Solver, Variable};
 use {
     FastHashMap,
     resources::AppResources,
-    traits::LayoutScreen,
+    traits::Layout,
     constraints::{DisplayRect, CssConstraint},
     ui_description::{UiDescription, StyledNode},
     window::{WindowDimensions, UiSolver},
@@ -30,7 +30,7 @@ use {
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
 const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("sans-serif");
 
-pub(crate) struct DisplayList<'a, T: LayoutScreen + 'a> {
+pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
     pub(crate) rectangles: Arena<DisplayRectangle<'a>>
 }
@@ -55,12 +55,12 @@ pub(crate) struct DisplayRectangle<'a> {
 /// with re-creation it can take up to 9 ms. So the goal is to not re-create constraints
 /// if their contents haven't changed.
 #[derive(Default)]
-pub(crate) struct SolvedLayout<T: LayoutScreen> {
+pub(crate) struct SolvedLayout<T: Layout> {
     // List of previously solved constraints
     pub(crate) solved_constraints: FastHashMap<NodeId, NodeData<T>>,
 }
 
-impl<T: LayoutScreen> SolvedLayout<T> {
+impl<T: Layout> SolvedLayout<T> {
     pub fn empty() -> Self {
         Self {
             solved_constraints: FastHashMap::default(),
@@ -80,7 +80,7 @@ impl<'a> DisplayRectangle<'a> {
     }
 }
 
-impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
+impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
     ///
@@ -281,7 +281,7 @@ impl<'a, T: LayoutScreen + 'a> DisplayList<'a, T> {
             // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
 
             // debug rectangle
-            let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 200.0));
+            let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), ui_solver.window_dimensions.layout_size);
 
             let info = LayoutPrimitiveInfo {
                 rect: bounds,
@@ -384,7 +384,7 @@ fn push_rect(info: &PrimitiveInfo<LayoutPixel>, builder: &mut DisplayListBuilder
 }
 
 #[inline]
-fn push_text<T: LayoutScreen>(
+fn push_text<T: Layout>(
     info: &PrimitiveInfo<LayoutPixel>,
     display_list: &DisplayList<T>,
     rect_idx: NodeId,
@@ -674,7 +674,7 @@ fn push_box_shadow(
 }
 
 #[inline]
-fn push_background<T: LayoutScreen>(
+fn push_background<T: Layout>(
     info: &PrimitiveInfo<LayoutPixel>,
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
@@ -745,7 +745,7 @@ fn push_border(
 }
 
 #[inline]
-fn push_font<T: LayoutScreen>(
+fn push_font<T: Layout>(
     font_id: &css_parser::Font,
     font_size_app_units: Au,
     resource_updates: &mut Vec<ResourceUpdate>,

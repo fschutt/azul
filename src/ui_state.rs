@@ -1,17 +1,17 @@
-use traits::LayoutScreen;
+use traits::Layout;
 use window::WindowId;
 use std::collections::BTreeMap;
 use dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On};
 use app_state::AppState;
 use std::fmt;
 
-pub struct UiState<T: LayoutScreen> {
+pub struct UiState<T: Layout> {
     pub dom: Dom<T>,
     pub callback_list: BTreeMap<u64, Callback<T>>,
     pub node_ids_to_callbacks_list: BTreeMap<u64, BTreeMap<On, u64>>,
 }
 
-impl<T: LayoutScreen> fmt::Debug for UiState<T> {
+impl<T: Layout> fmt::Debug for UiState<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "UiState {{ \
@@ -25,7 +25,7 @@ impl<T: LayoutScreen> fmt::Debug for UiState<T> {
     }
 }
 
-impl<T: LayoutScreen> UiState<T> {
+impl<T: Layout> UiState<T> {
     pub(crate) fn from_app_state(app_state: &AppState<T>, window_id: WindowId) -> Self
     {
         use dom::{Dom, On};
@@ -33,7 +33,7 @@ impl<T: LayoutScreen> UiState<T> {
         // Only shortly lock the data to get the dom out
          let dom: Dom<T> = {
             let dom_lock = app_state.data.lock().unwrap();
-            dom_lock.get_dom(window_id)
+            dom_lock.layout(window_id)
         };
 
         unsafe { NODE_ID = 0 };

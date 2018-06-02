@@ -39,7 +39,7 @@ use std::collections::BTreeMap;
 use constraints::DisplayRect;
 use cassowary::Solver;
 use id_tree::{NodeId, Arena};
-use traits::LayoutScreen;
+use traits::Layout;
 use dom::NodeData;
 use std::ops::Deref;
 
@@ -83,7 +83,7 @@ impl DomTreeCache {
         }
     }
 
-    pub(crate) fn update<T: LayoutScreen>(&mut self, new_root: NodeId, new_nodes_arena: &Arena<NodeData<T>>) -> DomChangeSet {
+    pub(crate) fn update<T: Layout>(&mut self, new_root: NodeId, new_nodes_arena: &Arena<NodeData<T>>) -> DomChangeSet {
 
         use std::hash::Hash;
 
@@ -158,7 +158,7 @@ impl DomTreeCache {
                             current_root: NodeId,
                             current_dom_arena: &Arena<NodeData<T>>,
                             changeset: &mut DomChangeSet)
-    where T: LayoutScreen
+    where T: Layout
     {
         let mut old_child_iterator = previous_root.children(previous_hash_arena);
         let mut new_child_iterator = current_root.children(previous_hash_arena);

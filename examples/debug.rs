@@ -15,36 +15,25 @@ pub struct MyAppData {
     pub my_svg_ids: Vec<SvgLayerId>,
 }
 
-impl LayoutScreen for MyAppData {
-    fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
-        Dom::new(NodeType::Label(format!(
-            "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, \
-            sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam \
-            voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, \
-            no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, \
-            consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore \
-            magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et \
-            ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.")))
+impl Layout for MyAppData {
+    fn layout(&self, _window_id: WindowId) -> Dom<MyAppData> {
+        let mut dom = Dom::new(NodeType::Label(format!("Load SVG file")))
             .with_class("__azul-native-button")
-            .with_event(On::MouseUp, Callback(my_button_click_handler))
+            .with_event(On::MouseUp, Callback(my_button_click_handler));
+
+        for polygon in &self.my_svg_ids {
+            // Draw the cached polygon by its ID
+            dom.add_sibling(Dom::new(NodeType::SvgLayer(*polygon)));
+        }
+
+        dom
     }
 }
 
-fn my_button_click_handler(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
-
-    // TODO: The DisplayList does somehow not register / override the new ID
-    // This is probably an issue of timing, see the notes in the app.rs file
-    app_state.windows[event.window].css.set_dynamic_property("my_id", ("width", "500px")).unwrap();
-
-    // This works: When the mouse is moved over the button, the title switches to "Hello".
-    // TODO: performance optimize this
-    app_state.windows[event.window].state.title = String::from("Hello");
-
-    // SVG parsing test
+fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
+    // Load and parse the SVG file, register polygon data as IDs
     let mut svg_ids = app_state.add_svg(TEST_SVG).unwrap();
-    println!("{:?}", svg_ids);
     app_state.data.modify(|data| data.my_svg_ids.append(&mut svg_ids));
-
     UpdateScreen::Redraw
 }
 
