@@ -1,7 +1,7 @@
 use css_parser::ParsedCssProperty;
 use FastHashMap;
 use id_tree::{Arena, NodeId};
-use traits::LayoutScreen;
+use traits::Layout;
 use ui_state::UiState;
 use css::Css;
 use dom::NodeData;
@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::collections::BTreeMap;
 use css::CssDeclaration;
 
-pub struct UiDescription<T: LayoutScreen> {
+pub struct UiDescription<T: Layout> {
     pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,
     /// ID of the root node of the arena (usually NodeId(0))
     pub(crate) ui_descr_root: Option<NodeId>,
@@ -26,7 +26,7 @@ pub struct UiDescription<T: LayoutScreen> {
     pub(crate) dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
 }
 
-impl<T: LayoutScreen> Clone for UiDescription<T> {
+impl<T: Layout> Clone for UiDescription<T> {
     fn clone(&self) -> Self {
         Self {
             ui_descr_arena: self.ui_descr_arena.clone(),
@@ -38,7 +38,7 @@ impl<T: LayoutScreen> Clone for UiDescription<T> {
     }
 }
 
-impl<T: LayoutScreen> Default for UiDescription<T> {
+impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         Self {
             ui_descr_arena: Rc::new(RefCell::new(Arena::new())),
@@ -50,7 +50,7 @@ impl<T: LayoutScreen> Default for UiDescription<T> {
     }
 }
 
-impl<T: LayoutScreen> UiDescription<T> {
+impl<T: Layout> UiDescription<T> {
     pub fn from_ui_state(ui_state: &UiState<T>, style: &Css) -> Self
     {
         T::style_dom(&ui_state.dom, style)

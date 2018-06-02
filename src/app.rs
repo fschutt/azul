@@ -3,7 +3,7 @@ use window::FakeWindow;
 use css::{Css, FakeCss};
 use resources::AppResources;
 use app_state::AppState;
-use traits::LayoutScreen;
+use traits::Layout;
 use ui_state::UiState;
 use ui_description::UiDescription;
 
@@ -18,7 +18,7 @@ use font::FontError;
 use webrender::api::{RenderApi, HitTestFlags};
 
 /// Graphical application that maintains some kind of application state
-pub struct App<'a, T: LayoutScreen> {
+pub struct App<'a, T: Layout> {
     /// The graphical windows, indexed by ID
     windows: Vec<Window<T>>,
     /// The global application state
@@ -47,7 +47,7 @@ impl Default for FrameEventInfo {
     }
 }
 
-impl<'a, T: LayoutScreen> App<'a, T> {
+impl<'a, T: Layout> App<'a, T> {
 
     /// Create a new, empty application. This does not open any windows.
     pub fn new(initial_data: T) -> Self {
@@ -325,8 +325,8 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     /// #
     /// # struct MyAppData { }
     /// #
-    /// # impl LayoutScreen for MyAppData {
-    /// #     fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
+    /// # impl Layout for MyAppData {
+    /// #     fn layout(&self, _window_id: WindowId) -> Dom<MyAppData> {
     /// #         Dom::new(NodeType::Div)
     /// #    }
     /// # }
@@ -405,7 +405,7 @@ impl<'a, T: LayoutScreen> App<'a, T> {
     }
 }
 
-impl<'a, T: LayoutScreen + Send + 'static> App<'a, T> {
+impl<'a, T: Layout + Send + 'static> App<'a, T> {
     /// Tasks, once started, cannot be stopped, which is why there is no `.delete()` function
     pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
     {
@@ -455,7 +455,7 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
     false
 }
 
-fn render<T: LayoutScreen>(
+fn render<T: Layout>(
     window: &mut Window<T>,
     _window_id: &WindowId,
     ui_description: &UiDescription<T>,

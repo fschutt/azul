@@ -1,7 +1,7 @@
 use window::WindowEvent;
 use traits::GetCssId;
 use app_state::AppState;
-use traits::LayoutScreen;
+use traits::Layout;
 use std::collections::BTreeMap;
 use id_tree::{NodeId, Arena};
 use std::sync::{Arc, Mutex};
@@ -35,15 +35,15 @@ pub enum UpdateScreen {
 /// The CSS is not affected by this, so if you push to the windows' CSS inside the
 /// function, the screen will not be automatically redrawn, unless you return an
 /// `UpdateScreen::Redraw` from the function
-pub struct Callback<T: LayoutScreen>(pub fn(&mut AppState<T>, WindowEvent) -> UpdateScreen);
+pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, WindowEvent) -> UpdateScreen);
 
-impl<T: LayoutScreen> fmt::Debug for Callback<T> {
+impl<T: Layout> fmt::Debug for Callback<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Callback @ 0x{:x}", self.0 as usize)
     }
 }
 
-impl<T: LayoutScreen> Clone for Callback<T> {
+impl<T: Layout> Clone for Callback<T> {
     fn clone(&self) -> Self {
         Callback(self.0.clone())
     }
@@ -53,22 +53,22 @@ impl<T: LayoutScreen> Clone for Callback<T> {
 /// as a unique ID for the function. This way, we can hash and compare DOM nodes
 /// (to create diffs between two states). Comparing usizes is more efficient
 /// than re-creating the whole DOM and serves as a caching mechanism.
-impl<T: LayoutScreen> Hash for Callback<T> {
+impl<T: Layout> Hash for Callback<T> {
   fn hash<H>(&self, state: &mut H) where H: Hasher {
     state.write_usize(self.0 as usize);
   }
 }
 
 /// Basically compares the function pointers and types for equality
-impl<T: LayoutScreen> PartialEq for Callback<T> {
+impl<T: Layout> PartialEq for Callback<T> {
   fn eq(&self, rhs: &Self) -> bool {
     self.0 as usize == rhs.0 as usize
   }
 }
 
-impl<T: LayoutScreen> Eq for Callback<T> { }
+impl<T: Layout> Eq for Callback<T> { }
 
-impl<T: LayoutScreen> Copy for Callback<T> { }
+impl<T: Layout> Copy for Callback<T> { }
 
 /// List of allowed DOM node types that are supported by `azul`.
 ///
@@ -133,7 +133,7 @@ pub enum On {
 }
 
 #[derive(PartialEq, Eq)]
-pub(crate) struct NodeData<T: LayoutScreen> {
+pub(crate) struct NodeData<T: Layout> {
     /// `div`
     pub node_type: NodeType,
     /// `#main`
@@ -146,7 +146,7 @@ pub(crate) struct NodeData<T: LayoutScreen> {
     pub tag: Option<u64>,
 }
 
-impl<T: LayoutScreen> Hash for NodeData<T> {
+impl<T: Layout> Hash for NodeData<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
         self.id.hash(state);
@@ -159,7 +159,7 @@ impl<T: LayoutScreen> Hash for NodeData<T> {
 
 use cache::DomHash;
 
-impl<T: LayoutScreen> NodeData<T> {
+impl<T: Layout> NodeData<T> {
     pub fn calculate_node_data_hash(&self) -> DomHash {
         use std::hash::Hash;
         use twox_hash::XxHash;
@@ -169,7 +169,7 @@ impl<T: LayoutScreen> NodeData<T> {
     }
 }
 
-impl<T: LayoutScreen> Clone for NodeData<T> {
+impl<T: Layout> Clone for NodeData<T> {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.clone(),
@@ -181,7 +181,7 @@ impl<T: LayoutScreen> Clone for NodeData<T> {
     }
 }
 
-impl<T: LayoutScreen> fmt::Debug for NodeData<T> {
+impl<T: Layout> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "NodeData {{ \
@@ -199,7 +199,7 @@ impl<T: LayoutScreen> fmt::Debug for NodeData<T> {
     }
 }
 
-impl<T: LayoutScreen> CallbackList<T> {
+impl<T: Layout> CallbackList<T> {
     fn special_clone(&self) -> Self {
         Self {
             callbacks: self.callbacks.clone(),
@@ -207,7 +207,7 @@ impl<T: LayoutScreen> CallbackList<T> {
     }
 }
 
-impl<T: LayoutScreen> NodeData<T> {
+impl<T: Layout> NodeData<T> {
     /// Creates a new NodeData
     pub fn new(node_type: NodeType) -> Self {
         Self {
@@ -234,14 +234,14 @@ impl<T: LayoutScreen> NodeData<T> {
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[derive(Clone, PartialEq, Eq)]
-pub struct Dom<T: LayoutScreen> {
+pub struct Dom<T: Layout> {
     pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) root: NodeId,
     pub(crate) current_root: NodeId,
     pub(crate) last: NodeId,
 }
 
-impl<T: LayoutScreen> fmt::Debug for Dom<T> {
+impl<T: Layout> fmt::Debug for Dom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
         "Dom {{ \
@@ -258,11 +258,11 @@ impl<T: LayoutScreen> fmt::Debug for Dom<T> {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct CallbackList<T: LayoutScreen> {
+pub(crate) struct CallbackList<T: Layout> {
     pub(crate) callbacks: BTreeMap<On, Callback<T>>
 }
 
-impl<T: LayoutScreen> Hash for CallbackList<T> {
+impl<T: Layout> Hash for CallbackList<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for callback in &self.callbacks {
             callback.hash(state);
@@ -270,13 +270,13 @@ impl<T: LayoutScreen> Hash for CallbackList<T> {
     }
 }
 
-impl<T: LayoutScreen> fmt::Debug for CallbackList<T> {
+impl<T: Layout> fmt::Debug for CallbackList<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CallbackList (length: {:?})", self.callbacks.len())
     }
 }
 
-impl<T: LayoutScreen> CallbackList<T> {
+impl<T: Layout> CallbackList<T> {
     pub fn new() -> Self {
         Self {
             callbacks: BTreeMap::new(),
@@ -284,7 +284,7 @@ impl<T: LayoutScreen> CallbackList<T> {
     }
 }
 
-impl<T: LayoutScreen> Dom<T> {
+impl<T: Layout> Dom<T> {
 
     /// Creates an empty DOM
     #[inline]
@@ -359,7 +359,7 @@ impl<T: LayoutScreen> Dom<T> {
     }
 }
 
-impl<T: LayoutScreen> Dom<T> {
+impl<T: Layout> Dom<T> {
 
     pub(crate) fn collect_callbacks(
         &self,

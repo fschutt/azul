@@ -1,7 +1,7 @@
 //! Preliminary async IO / Task system
 
 use app_state::AppState;
-use traits::LayoutScreen;
+use traits::Layout;
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{spawn, JoinHandle};
 
@@ -16,7 +16,7 @@ impl Task {
         app_state: &Arc<Mutex<T>>,
         callback: fn(Arc<Mutex<T>>, Arc<()>))
     -> Self
-    where T: LayoutScreen + Send + 'static
+    where T: Layout + Send + 'static
     {
         let thread_check = Arc::new(());
         let thread_weak = Arc::downgrade(&thread_check);

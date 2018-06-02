@@ -1,4 +1,4 @@
-use traits::LayoutScreen;
+use traits::Layout;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{ImageKey, FontKey, FontInstanceKey};
 use FastHashMap;
@@ -24,7 +24,7 @@ use svg::{SvgLayerId, SvgLayer, SvgParseError, SvgRegistry};
 /// Images and fonts can be references across window contexts
 /// (not yet tested, but should work).
 #[derive(Clone)]
-pub(crate) struct AppResources<'a, T: LayoutScreen> {
+pub(crate) struct AppResources<'a, T: Layout> {
     /// Image cache
     pub(crate) images: FastHashMap<String, ImageState>,
     // Fonts are trickier to handle than images.
@@ -42,7 +42,7 @@ pub(crate) struct AppResources<'a, T: LayoutScreen> {
     pub(crate) svg_registry: SvgRegistry<T>,
 }
 
-impl<'a, T: LayoutScreen> Default for AppResources<'a, T> {
+impl<'a, T: Layout> Default for AppResources<'a, T> {
     fn default() -> Self {
         Self {
             svg_registry: SvgRegistry::default(),
@@ -53,7 +53,7 @@ impl<'a, T: LayoutScreen> Default for AppResources<'a, T> {
     }
 }
 
-impl<'a, T: LayoutScreen> AppResources<'a, T> {
+impl<'a, T: Layout> AppResources<'a, T> {
 
     /// See `AppState::add_image()`
     pub(crate) fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)

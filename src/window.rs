@@ -24,7 +24,7 @@ use cassowary::{
 };
 
 use display_list::SolvedLayout;
-use traits::LayoutScreen;
+use traits::Layout;
 use css::Css;
 use cache::{EditVariableCache, DomTreeCache};
 use id_tree::NodeId;
@@ -311,7 +311,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window<T: LayoutScreen> {
+pub struct Window<T: Layout> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     /// Current state of the window, stores the keyboard / mouse state,
@@ -366,7 +366,7 @@ impl WindowDimensions {
 }
 
 /// Solver for solving the UI of the current window
-pub(crate) struct UiSolver<T: LayoutScreen> {
+pub(crate) struct UiSolver<T: Layout> {
     /// The actual solver
     pub(crate) solver: Solver,
     /// Dimensions of the root window
@@ -380,7 +380,7 @@ pub(crate) struct UiSolver<T: LayoutScreen> {
     pub(crate) dom_tree_cache: DomTreeCache,
 }
 
-impl<T: LayoutScreen> UiSolver<T> {
+impl<T: Layout> UiSolver<T> {
     pub(crate) fn query_bounds_of_rect(&self, rect_id: NodeId) {
         // TODO: After solving the UI, use this function to get the actual coordinates of an item in the UI.
         // This function should cache values accordingly
@@ -398,7 +398,7 @@ pub(crate) struct WindowInternal {
     pub(crate) hidpi_factor: f32,
 }
 
-impl<T: LayoutScreen> Window<T> {
+impl<T: Layout> Window<T> {
 
     /// Creates a new window
     pub fn new(options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
@@ -669,7 +669,7 @@ impl<T: LayoutScreen> Window<T> {
     }
 }
 
-impl<T: LayoutScreen> Drop for Window<T> {
+impl<T: Layout> Drop for Window<T> {
     fn drop(&mut self) {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();

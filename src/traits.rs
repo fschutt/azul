@@ -10,7 +10,7 @@ use std::hash::Hash;
 use css_parser::{ParsedCssProperty, CssParsingError};
 use std::sync::{Arc, Mutex};
 
-pub trait LayoutScreen {
+pub trait Layout {
     /// Updates the DOM, must be provided by the final application.
     ///
     /// On each frame, a completely new DOM tree is generated. The final
@@ -19,7 +19,7 @@ pub trait LayoutScreen {
     /// The `style_dom` looks through the given DOM rules, applies the style and
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
-    fn get_dom(&self, window_id: WindowId) -> Dom<Self> where Self: Sized;
+    fn layout(&self, window_id: WindowId) -> Dom<Self> where Self: Sized;
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
@@ -50,13 +50,13 @@ pub trait IntoParsedCssProperty<'a> {
     fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>>;
 }
 
-pub trait ModifyAppState<T: LayoutScreen> {
+pub trait ModifyAppState<T: Layout> {
     /// Modifies the app state and then returns if the modification was successful
     /// Takes a FnMut that modifies the state
     fn modify<F>(&self, closure: F) -> bool where F: FnMut(&mut T);
 }
 
-impl<T: LayoutScreen> ModifyAppState<T> for Arc<Mutex<T>> {
+impl<T: Layout> ModifyAppState<T> for Arc<Mutex<T>> {
     fn modify<F>(&self, mut closure: F) -> bool where F: FnMut(&mut T) {
         match self.lock().as_mut() {
             Ok(lock) => { closure(&mut *lock); true },
@@ -138,7 +138,7 @@ impl<'a> ParsedCss<'a> {
     }
 }
 
-fn match_dom_css_selectors<'a, T: LayoutScreen>(
+fn match_dom_css_selectors<'a, T: Layout>(
     root: NodeId,
     arena: &Rc<RefCell<Arena<NodeData<T>>>>,
     parsed_css: &ParsedCss<'a>,
@@ -172,7 +172,7 @@ fn match_dom_css_selectors<'a, T: LayoutScreen>(
     }
 }
 
-fn match_dom_css_selectors_inner<'a, T: LayoutScreen>(
+fn match_dom_css_selectors_inner<'a, T: Layout>(
     root: NodeId,
     arena: &Arena<NodeData<T>>,
     parsed_css: &ParsedCss<'a>,
@@ -202,7 +202,7 @@ fn match_dom_css_selectors_inner<'a, T: LayoutScreen>(
 
 /// Cascade the rules, put them into the list
 #[allow(unused_variables)]
-fn cascade_constraints<'a, T: LayoutScreen>(
+fn cascade_constraints<'a, T: Layout>(
     node: &NodeData<T>,
     list: &mut CssConstraintList,
     parsed_css: &ParsedCss<'a>,

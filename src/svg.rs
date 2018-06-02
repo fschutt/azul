@@ -2,7 +2,7 @@ use std::io::Read;
 use lyon::path::default::Path;
 use webrender::api::ColorU;
 use dom::Callback;
-use traits::LayoutScreen;
+use traits::Layout;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use FastHashMap;
 use std::hash::{Hash, Hasher};
@@ -17,13 +17,13 @@ pub(crate) static mut SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);
 pub struct SvgLayerId(usize);
 
 #[derive(Clone)]
-pub(crate) struct SvgRegistry<T: LayoutScreen> {
+pub(crate) struct SvgRegistry<T: Layout> {
     // note: one "layer" merely describes one or more polygons that have the same style
     layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
 }
 
 
-impl<T: LayoutScreen> Default for SvgRegistry<T> {
+impl<T: Layout> Default for SvgRegistry<T> {
     fn default() -> Self {
         Self {
             layers: FastHashMap::default(),
@@ -31,7 +31,7 @@ impl<T: LayoutScreen> Default for SvgRegistry<T> {
     }
 }
 
-impl<T: LayoutScreen> fmt::Debug for SvgRegistry<T> {
+impl<T: Layout> fmt::Debug for SvgRegistry<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for layer in self.layers.keys() {
             write!(f, "{:?}", layer)?;
@@ -40,7 +40,7 @@ impl<T: LayoutScreen> fmt::Debug for SvgRegistry<T> {
     }
 }
 
-impl<T: LayoutScreen> SvgRegistry<T> {
+impl<T: Layout> SvgRegistry<T> {
 
     pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
         let new_svg_id = SvgLayerId(unsafe { SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst) });
@@ -87,13 +87,13 @@ impl From<IoError> for SvgParseError {
     }
 }
 
-pub struct SvgLayer<T: LayoutScreen> {
+pub struct SvgLayer<T: Layout> {
     pub data: SvgLayerType,
     pub callbacks: SvgCallbacks<T>,
     pub style: SvgStyle,
 }
 
-impl<T: LayoutScreen> Clone for SvgLayer<T> {
+impl<T: Layout> Clone for SvgLayer<T> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -103,7 +103,7 @@ impl<T: LayoutScreen> Clone for SvgLayer<T> {
     }
 }
 
-pub enum SvgCallbacks<T: LayoutScreen> {
+pub enum SvgCallbacks<T: Layout> {
     // No callbacks for this layer
     None,
     /// Call the callback on any of the items
@@ -113,7 +113,7 @@ pub enum SvgCallbacks<T: LayoutScreen> {
     Some(Vec<(usize, Callback<T>)>),
 }
 
-impl<T: LayoutScreen> Clone for SvgCallbacks<T> {
+impl<T: Layout> Clone for SvgCallbacks<T> {
     fn clone(&self) -> Self {
         use self::SvgCallbacks::*;
         match self {
@@ -124,7 +124,7 @@ impl<T: LayoutScreen> Clone for SvgCallbacks<T> {
     }
 }
 
-impl<T: LayoutScreen> Hash for SvgCallbacks<T> {
+impl<T: Layout> Hash for SvgCallbacks<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         use self::SvgCallbacks::*;
         match self {
@@ -141,13 +141,13 @@ impl<T: LayoutScreen> Hash for SvgCallbacks<T> {
     }
 }
 
-impl<T: LayoutScreen> PartialEq for SvgCallbacks<T> {
+impl<T: Layout> PartialEq for SvgCallbacks<T> {
     fn eq(&self, rhs: &Self) -> bool {
         self == rhs
     }
 }
 
-impl<T: LayoutScreen> Eq for SvgCallbacks<T> { }
+impl<T: Layout> Eq for SvgCallbacks<T> { }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
 pub struct SvgStyle {
@@ -245,9 +245,9 @@ mod svg_to_lyon {
     use svg::{SvgCircle, SvgRect, SvgParseError, SvgLayer, SvgStyle};
     use svg_crate::node::element::path::Parameters;
     use svg_crate::node::element::tag::Tag;
-    use traits::LayoutScreen;
+    use traits::Layout;
 
-    pub fn parse_from<R: Read, T: LayoutScreen>(svg_source: R)
+    pub fn parse_from<R: Read, T: Layout>(svg_source: R)
     -> Result<Vec<SvgLayer<T>>, SvgParseError>
     {
         use svg_crate::{read, parser::{Event, Error}};

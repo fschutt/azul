@@ -2,7 +2,7 @@ use window::FakeWindow;
 use window_state::WindowState;
 use task::Task;
 use dom::UpdateScreen;
-use traits::LayoutScreen;
+use traits::Layout;
 use resources::{AppResources};
 use std::io::Read;
 use images::ImageType;
@@ -14,9 +14,9 @@ use std::sync::{Arc, Mutex};
 use svg::{SvgLayerId, SvgLayer, SvgParseError, SvgRegistry};
 
 /// Wrapper for your application data. In order to be layout-able,
-/// you need to satisfy the `LayoutScreen` trait (how the application
+/// you need to satisfy the `Layout` trait (how the application
 /// should be laid out)
-pub struct AppState<'a, T: LayoutScreen> {
+pub struct AppState<'a, T: Layout> {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: Arc<Mutex<T>>,
     /// Note: this isn't the real window state. This is a "mock" window state which
@@ -36,7 +36,7 @@ pub struct AppState<'a, T: LayoutScreen> {
     pub(crate) tasks: Vec<Task>,
 }
 
-impl<'a, T: LayoutScreen> AppState<'a, T> {
+impl<'a, T: Layout> AppState<'a, T> {
 
     /// Creates a new `AppState`
     pub fn new(initial_data: T) -> Self {
@@ -119,8 +119,8 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     ///
     /// struct MyAppData { }
     ///
-    /// impl LayoutScreen for MyAppData {
-    ///      fn get_dom(&self, _window_id: WindowId) -> Dom<MyAppData> {
+    /// impl Layout for MyAppData {
+    ///      fn layout(&self, _window_id: WindowId) -> Dom<MyAppData> {
     ///          let mut dom = Dom::new(NodeType::Div);
     ///          dom.event(On::MouseEnter, Callback(my_callback));
     ///          dom
@@ -241,7 +241,7 @@ impl<'a, T: LayoutScreen> AppState<'a, T> {
     }
 }
 
-impl<'a, T: LayoutScreen + Send + 'static> AppState<'a, T> {
+impl<'a, T: Layout + Send + 'static> AppState<'a, T> {
     /// Tasks, once started, cannot be stopped
     pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
     {
