@@ -7,7 +7,7 @@ use traits::Layout;
 use ui_state::UiState;
 use ui_description::UiDescription;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 use glium::glutin::Event;
 use euclid::TypedScale;
@@ -16,6 +16,8 @@ use images::{ImageType};
 use image::ImageError;
 use font::FontError;
 use webrender::api::{RenderApi, HitTestFlags};
+use glium::SwapBuffersError;
+use std::fmt;
 
 /// Graphical application that maintains some kind of application state
 pub struct App<'a, T: Layout> {
@@ -23,6 +25,35 @@ pub struct App<'a, T: Layout> {
     windows: Vec<Window<T>>,
     /// The global application state
     pub app_state: AppState<'a, T>,
+}
+
+/// Error returned by the `.run()` function
+///
+/// If the `.run()` function would panic, that would need `T` to
+/// implement `Debug`, which is not necessary if we just return an error.
+pub enum RuntimeError<T: Layout> {
+    // Could not swap the display (drawing error)
+    GlSwapError(SwapBuffersError),
+    ArcUnlockError,
+    MutexPoisonError(PoisonError<T>),
+}
+
+impl<T: Layout> From<PoisonError<T>> for RuntimeError<T> {
+    fn from(e: PoisonError<T>) -> Self {
+        RuntimeError::MutexPoisonError(e)
+    }
+}
+
+impl<T: Layout> From<SwapBuffersError> for RuntimeError<T> {
+    fn from(e: SwapBuffersError) -> Self {
+        RuntimeError::GlSwapError(e)
+    }
+}
+
+impl<T: Layout> fmt::Debug for RuntimeError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub(crate) struct FrameEventInfo {
@@ -73,45 +104,45 @@ impl<'a, T: Layout> App<'a, T> {
     /// This is the "main app loop", "main game loop" or whatever you want to call it.
     /// Usually this is the last function you call in your `main()` function, since exiting
     /// it means that the user has closed all windows and wants to close the app.
-    pub fn run(&mut self)
+    ///
+    /// When all windows are closed, this function returns the internal data again.
+    /// This is useful for ex. CLI application that run procedurally, but then want to
+    /// open a window temporarily, to ask for user input in a "nicer" way than a pure
+    /// CLI-way.
+    ///
+    /// This way you can do this:
+    ///
+    /// ```no_run,ignore
+    /// let app = App::new(MyData { username: None, password: None });
+    /// app.create_window(WindowCreateOptions::default(), Css::native());
+    ///
+    /// // pop open a window that asks the user for his username and password...
+    /// let MyData { username, password } = app.run();
+    ///
+    /// // continue the rest of the program here...
+    /// println!("username: {:?}, password: {:?}", username, password);
+    /// ```
+    pub fn run(mut self) -> Result<T, RuntimeError<T>>
     {
-        let mut ui_state_cache = Vec::with_capacity(self.windows.len());
-        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
+        self.run_inner()?;
+        let unique_arc = Arc::try_unwrap(self.app_state.data).map_err(|_| RuntimeError::ArcUnlockError)?;
+        unique_arc.into_inner().map_err(|e| e.into())
+    }
 
-        // first redraw, initialize cache
-        {
-            for (idx, _) in self.windows.iter().enumerate() {
-                ui_state_cache.push(UiState::from_app_state(&self.app_state, WindowId { id: idx }));
-            }
+    fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
+        use std::{thread, time::{Duration, Instant}};
 
-            // First repaint, otherwise the window would be black on startup
-            for (idx, window) in self.windows.iter_mut().enumerate() {
-                ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                render(window, &WindowId { id: idx, },
-                      &ui_description_cache[idx],
-                      &mut self.app_state.resources,
-                      true);
-                window.display.swap_buffers().unwrap();
-            }
-        }
+        let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
+        let mut ui_description_cache = Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
 
-        'render_loop: loop {
+        while !self.windows.is_empty() {
 
-            use webrender::api::{DeviceUintSize, WorldPoint, DeviceUintPoint,
-                                 DeviceUintRect, LayoutSize, Transaction};
-            use dom::UpdateScreen;
-
+            let time_start = Instant::now();
             let mut closed_windows = Vec::<usize>::new();
 
-            let time_start = ::std::time::Instant::now();
-            let mut debug_has_repainted = None;
-
-            // TODO: Use threads on a per-window basis.
-            // Currently, events in one window will block all others
             for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
 
-                let current_window_id = WindowId { id: idx };
-
+                let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
 
                 window.events_loop.poll_events(|event| {
@@ -121,133 +152,142 @@ impl<'a, T: Layout> App<'a, T> {
                     }
                 });
 
-                // update the state
                 if frame_event_info.should_swap_window {
-                    window.display.swap_buffers().unwrap();
+                    window.display.swap_buffers()?;
                 }
 
                 if frame_event_info.should_hittest {
-
-                    let cursor_x = frame_event_info.cur_cursor_pos.0 as f32;
-                    let cursor_y = frame_event_info.cur_cursor_pos.1 as f32;
-                    let point = WorldPoint::new(cursor_x, cursor_y);
-                    let hit_test_results =  window.internal.api.hit_test(
-                                                window.internal.document_id,
-                                                Some(window.internal.pipeline_id),
-                                                point,
-                                                HitTestFlags::FIND_ALL);
-
-                    let mut should_update_screen = UpdateScreen::DontRedraw;
-
-                    for item in hit_test_results.items {
-                        let callback_list_opt = ui_state_cache[idx].node_ids_to_callbacks_list.get(&item.tag.0);
-                        if let Some(callback_list) = callback_list_opt {
-                            use window::WindowEvent;
-                            // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
-                            // Currently, this just invoke all actions
-                            let window_event = WindowEvent {
-                                window: idx,
-                                // TODO: currently we don't have information about what DOM node was hit
-                                number_of_previous_siblings: None,
-                                cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
-                                cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
-                            };
-
-                            for callback_id in callback_list.values() {
-                                let update = (ui_state_cache[idx].callback_list[callback_id].0)(&mut self.app_state, window_event);
-                                if update == UpdateScreen::Redraw {
-                                    should_update_screen = UpdateScreen::Redraw;
-                                }
-                            }
-                        }
-                    }
-
-                    if should_update_screen == UpdateScreen::Redraw {
-                        frame_event_info.should_redraw_window = true;
-                        // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
-                        // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
-                        // TODO: .clone() and .clear() can be one operation
-                        window.css.dynamic_css_overrides = self.app_state.windows[idx].css.dynamic_css_overrides.clone();
-                        self.app_state.windows[idx].css.clear();
-                    }
+                    Self::do_hit_test_and_call_callbacks(window, window_id, &mut frame_event_info, &ui_state_cache, &mut self.app_state);
                 }
 
                 ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowId { id: idx });
 
-                // Macro to avoid duplication between the new_window_size and the new_dpi_factor event
-                // TODO: refactor this into proper functions (when the WindowState is working)
-                macro_rules! update_display {
-                    () => (
-                        let mut txn = Transaction::new();
-                        let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
-
-                        txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
-                        window.internal.api.send_transaction(window.internal.document_id, txn);
-                        render(window,
-                               &current_window_id,
-                               &ui_description_cache[idx],
-                               &mut self.app_state.resources,
-                               true);
-
-                        let time_end = ::std::time::Instant::now();
-                        debug_has_repainted = Some(time_end - time_start);
-                    )
-                }
-
-                if let Some((w, h)) = frame_event_info.new_window_size {
-                    window.internal.layout_size = LayoutSize::new(w as f32, h as f32);
-                    window.internal.framebuffer_size = DeviceUintSize::new(w, h);
-                    update_display!();
-                    continue;
-                }
-
-                if let Some(dpi) = frame_event_info.new_dpi_factor {
-                    window.internal.hidpi_factor = dpi;
-                    update_display!();
-                    continue;
-                }
+                // Update the window state that we got from the frame event (updates window dimensions and DPI)
+                window.update_from_external_window_state(&mut frame_event_info);
+                // Update the window state every frame that was set by the user
+                window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
 
                 if frame_event_info.should_redraw_window {
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                    render(window,
-                           &current_window_id,
-                           &ui_description_cache[idx],
-                           &mut self.app_state.resources,
-                           frame_event_info.new_window_size.is_some());
-
-                    let time_end = ::std::time::Instant::now();
-                    debug_has_repainted = Some(time_end - time_start);
+                    Self::update_display(&window);
+                    render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
                 }
-
-                // Update the window state every frame, no matter if the window has gotten an event or not
-                window.update_window_state(self.app_state.windows[idx].state.clone());
             }
 
-            // close windows if necessary
-            for closed_window_id in closed_windows {
-                let closed_window_id = closed_window_id;
+            // Close windows if necessary
+            closed_windows.into_iter().for_each(|closed_window_id| {
                 ui_state_cache.remove(closed_window_id);
                 ui_description_cache.remove(closed_window_id);
                 self.windows.remove(closed_window_id);
-            }
+            });
 
-            if self.windows.is_empty() {
-                break;
-            } else {
-                if let Some(restate_time) = debug_has_repainted {
-                    println!("frame time: {:?} ms", restate_time.subsec_nanos() as f32 / 1_000_000.0);
-                }
-                ::std::thread::sleep(::std::time::Duration::from_millis(16));
-            }
+            // Run deamons and remove them from the even queue if they are finished
+            self.app_state.run_all_deamons();
 
-            // Run deamons and remove them from
-            if self.app_state.run_all_deamons() == UpdateScreen::Redraw {
-                // TODO: What to do?
-            }
-
-            // Clean up finished tasks
+            // Clean up finished tasks, remove them if possible
             self.app_state.clean_up_finished_tasks();
+
+            // Wait until 16ms have passed
+            let time_end = Instant::now();
+            let diff = time_end - time_start;
+            if diff < Duration::from_millis(16) {
+                thread::sleep(diff);
+            }
         }
+
+        Ok(())
+    }
+
+    fn update_display(window: &Window<T>)
+    {
+        use webrender::api::{Transaction, DeviceUintRect, DeviceUintPoint};
+
+        let mut txn = Transaction::new();
+        let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
+
+        txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
+        window.internal.api.send_transaction(window.internal.document_id, txn);
+    }
+
+    fn do_hit_test_and_call_callbacks(
+        window: &mut Window<T>,
+        window_id: WindowId,
+        info: &mut FrameEventInfo,
+        ui_state_cache: &[UiState<T>],
+        app_state: &mut AppState<T>)
+    {
+        use dom::UpdateScreen;
+        use webrender::api::WorldPoint;
+
+        let cursor_x = info.cur_cursor_pos.0 as f32;
+        let cursor_y = info.cur_cursor_pos.1 as f32;
+        let point = WorldPoint::new(cursor_x, cursor_y);
+        let hit_test_results =  window.internal.api.hit_test(
+            window.internal.document_id,
+            Some(window.internal.pipeline_id),
+            point,
+            HitTestFlags::FIND_ALL);
+
+        let mut should_update_screen = UpdateScreen::DontRedraw;
+
+        for item in hit_test_results.items {
+            let callback_list_opt = ui_state_cache[window_id.id].node_ids_to_callbacks_list.get(&item.tag.0);
+            if let Some(callback_list) = callback_list_opt {
+                use window::WindowEvent;
+                // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
+                // Currently, this just invoke all actions
+                let window_event = WindowEvent {
+                    window: window_id.id,
+                    // TODO: currently we don't have information about what DOM node was hit
+                    number_of_previous_siblings: None,
+                    cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
+                    cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
+                };
+
+                for callback_id in callback_list.values() {
+                    let update = (ui_state_cache[window_id.id].callback_list[callback_id].0)(app_state, window_event);
+                    if update == UpdateScreen::Redraw {
+                        should_update_screen = UpdateScreen::Redraw;
+                    }
+                }
+            }
+        }
+
+        if should_update_screen == UpdateScreen::Redraw {
+            info.should_redraw_window = true;
+            // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
+            // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
+            // TODO: .clone() and .clear() can be one operation
+            window.css.dynamic_css_overrides = app_state.windows[window_id.id].css.dynamic_css_overrides.clone();
+            // clear the dynamic CSS overrides
+            app_state.windows[window_id.id].css.clear();
+        }
+    }
+
+    fn initialize_ui_state(windows: &[Window<T>], app_state: &AppState<'a, T>)
+    -> Vec<UiState<T>>
+    {
+        windows.iter().enumerate().map(|(idx, _)|
+            UiState::from_app_state(app_state, WindowId { id: idx })
+        ).collect()
+    }
+
+    /// First repaint, otherwise the window would be black on startup
+    fn do_first_redraw(
+        windows: &mut [Window<T>],
+        app_state: &mut AppState<'a, T>,
+        ui_state_cache: &[UiState<T>])
+    -> Vec<UiDescription<T>>
+    {
+        let mut ui_description_cache = vec![UiDescription::default(); windows.len()];
+
+        for (idx, window) in windows.iter_mut().enumerate() {
+            ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+            render(window, &WindowId { id: idx, }, &ui_description_cache[idx], &mut app_state.resources, true);
+            window.display.swap_buffers().unwrap();
+        }
+
+        ui_description_cache
     }
 
     /// Add an image to the internal resources
