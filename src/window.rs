@@ -29,6 +29,7 @@ use css::Css;
 use cache::{EditVariableCache, DomTreeCache};
 use id_tree::NodeId;
 use compositor::Compositor;
+use app::FrameEventInfo;
 
 /// azul-internal ID for a window
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
@@ -617,7 +618,7 @@ impl<T: Layout> Window<T> {
     /// `window.position` has no effect on the platform window, since they are very
     /// frequently modified by the user (other properties are always set by the
     /// application developer)
-    pub fn update_window_state(&mut self, new_state: WindowState) {
+    pub(crate) fn update_from_user_window_state(&mut self, new_state: WindowState) {
 
         let gl_window = self.display.gl_window();
         let window = gl_window.window();
@@ -666,6 +667,21 @@ impl<T: Layout> Window<T> {
         }
 
         *old_state = new_state;
+    }
+
+    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
+        use webrender::api::{DeviceUintSize, WorldPoint, LayoutSize};
+
+        if let Some((w, h)) = frame_event_info.new_window_size {
+            self.internal.layout_size = LayoutSize::new(w as f32, h as f32);
+            self.internal.framebuffer_size = DeviceUintSize::new(w, h);
+            frame_event_info.should_redraw_window = true;
+        }
+
+        if let Some(dpi) = frame_event_info.new_dpi_factor {
+            self.internal.hidpi_factor = dpi;
+            frame_event_info.should_redraw_window = true;
+        }
     }
 }
 

@@ -58,5 +58,5 @@ fn main() {
     // TODO: Multi-window apps currently crash
     // Need to re-factor the event loop for that
     app.create_window(WindowCreateOptions::default(), css).unwrap();
-    app.run();
+    app.run().unwrap();
 }
