@@ -46,14 +46,6 @@ extern crate app_units;
 extern crate unicode_normalization;
 extern crate harfbuzz_rs;
 
-/// Global application (Initialization starts here)
-mod app;
-/// Wrapper for the application data & application state
-mod app_state;
-/// Styling & CSS parsing
-mod css;
-/// Text layout
-mod text_layout;
 /// DOM / HTML node handling
 pub mod dom;
 /// The layout traits for creating a layout-able application
@@ -64,6 +56,16 @@ pub mod window;
 pub mod task;
 /// SVG / path flattering module (lyon)
 pub mod svg;
+/// Built-in widgets
+pub mod widgets;
+/// Global application (Initialization starts here)
+mod app;
+/// Wrapper for the application data & application state
+mod app_state;
+/// Styling & CSS parsing
+mod css;
+/// Text layout
+mod text_layout;
 /// Font & image resource handling, lookup and caching
 mod resources;
 /// UI Description & display list handling (webrender)
@@ -94,6 +96,8 @@ mod menu;
 mod compositor;
 /// Platform extensions (non-portable window extensions for Win32, Wayland, X11, Cocoa)
 mod platform_ext;
+/// Module for caching long texts (including their layout / character positions) across multiple frames
+mod text_cache;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
@@ -105,7 +109,7 @@ pub mod prelude {
     pub use app_state::AppState;
     pub use css::{Css, FakeCss};
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
-    pub use traits::{Layout, ModifyAppState};
+    pub use traits::{Layout, ModifyAppState, GetDom};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, WindowCreateError,
                      WindowMonitorTarget, RendererType, WindowEvent};

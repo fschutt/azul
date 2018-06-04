@@ -1,9 +1,24 @@
 //! Module for loading and handling images
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::ImageFormat as WebrenderImageFormat;
 use image::{ImageResult, ImageFormat, guess_format};
 use image::{self, ImageError, DynamicImage, GenericImage};
 use webrender::api::{ImageData, ImageDescriptor, ImageKey};
+
+static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ImageId {
+    id: usize,
+}
+
+pub(crate) fn new_image_id() -> ImageId {
+    let unique_id =IMAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+    ImageId {
+        id: unique_id,
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ImageType {

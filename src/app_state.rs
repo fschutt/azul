@@ -1,3 +1,4 @@
+use text_cache::TextId;
 use window::FakeWindow;
 use window_state::WindowState;
 use task::Task;
@@ -238,6 +239,20 @@ impl<'a, T: Layout> AppState<'a, T> {
     pub(crate) fn clean_up_finished_tasks(&mut self)
     {
         self.tasks.retain(|x| x.is_finished());
+    }
+
+    pub fn add_text<S: Into<String>>(&mut self, text: S)
+    -> TextId
+    {
+        self.resources.add_text(text)
+    }
+
+    pub fn delete_text(&mut self, id: TextId) {
+        self.resources.delete_text(id);
+    }
+
+    pub fn clear_all_texts(&mut self) {
+        self.resources.clear_all_texts();
     }
 }
 

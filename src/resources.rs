@@ -1,3 +1,4 @@
+use text_cache::TextRegistry;
 use traits::Layout;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{ImageKey, FontKey, FontInstanceKey};
@@ -12,6 +13,7 @@ use app_units::Au;
 use css_parser;
 use css_parser::Font::ExternalFont;
 use svg::{SvgLayerId, SvgLayer, SvgParseError, SvgRegistry};
+use text_cache::TextId;
 
 /// Font and image keys
 ///
@@ -40,6 +42,8 @@ pub(crate) struct AppResources<'a, T: Layout> {
     /// Stores the polygon data for all SVGs. Polygons can be shared across windows
     /// without duplicating the data. This doesn't store any rendering-related data, only the polygons
     pub(crate) svg_registry: SvgRegistry<T>,
+    /// Stores long texts across frames
+    pub(crate) text_registry: TextRegistry,
 }
 
 impl<'a, T: Layout> Default for AppResources<'a, T> {
@@ -49,6 +53,7 @@ impl<'a, T: Layout> Default for AppResources<'a, T> {
             fonts: FastHashMap::default(),
             font_data: FastHashMap::default(),
             images: FastHashMap::default(),
+            text_registry: TextRegistry::default(),
         }
     }
 }
@@ -166,10 +171,24 @@ impl<'a, T: Layout> AppResources<'a, T> {
         self.svg_registry.clear_all_layers();
     }
 
+    pub(crate) fn add_text<S: Into<String>>(&mut self, text: S)
+    -> TextId
+    {
+        self.text_registry.add_text(text)
+    }
+
+    pub(crate) fn delete_text(&mut self, id: TextId) {
+        self.text_registry.delete_text(id);
+    }
+
+    pub(crate) fn clear_all_texts(&mut self) {
+        self.text_registry.clear_all_texts();
+    }
+
     /// Parses an input source, parses the SVG, adds the shapes as layers into
     /// the registry, returns the IDs of the added shapes, in the order that
     /// they appeared in the SVG text.
-    pub fn add_svg<R: Read>(&mut self, input: R)
+    pub(crate) fn add_svg<R: Read>(&mut self, input: R)
     -> Result<Vec<SvgLayerId>, SvgParseError>
     {
         self.svg_registry.add_svg(input)

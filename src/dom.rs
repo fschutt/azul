@@ -12,6 +12,9 @@ use std::hash::{Hash, Hasher};
 use webrender::api::ColorU;
 use glium::Texture2d;
 use svg::SvgLayerId;
+use images::ImageId;
+use cache::DomHash;
+use text_cache::TextId;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
@@ -78,21 +81,58 @@ impl<T: Layout> Copy for Callback<T> { }
 /// `Div` is shaped like a circle (for `Ul`).
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum NodeType {
-    /// Regular div
+    /// Regular div with no particular type of data attached
     Div,
-    /// A label that can be (optionally) be selectable with the mouse
+    /// A small label that can be (optionally) be selectable with the mouse
     Label(String),
-    SvgLayer(SvgLayerId),
-    // GlTexture
+    /// Larger amount of text, that has to be cached
+    Text(TextId),
+    /// An image that is rendered by webrender. The id is aquired by the
+    /// `AppState::add_image()` function
+    Image(ImageId),
+    /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
+    /// Equality and Hash values are only checked by the OpenGl texture ID,
+    /// azul does not check that the contents of two textures are the same
+    GlTexture(Texture),
 }
+
+#[derive(Debug, Clone)]
+pub struct Texture {
+    inner: Rc<Texture2d>,
+}
+
+impl Texture {
+    fn new(tex: Texture2d) -> Self {
+        Self {
+            inner: Rc::new(tex),
+        }
+    }
+}
+
+impl Hash for Texture {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        use glium::GlObject;
+        self.inner.get_id().hash(state);
+    }
+}
+
+impl PartialEq for Texture {
+    fn eq(&self, other: &Texture) -> bool {
+        use glium::GlObject;
+        self.inner.get_id() == other.inner.get_id()
+    }
+}
+
+impl Eq for Texture { }
 
 impl GetCssId for NodeType {
     fn get_css_id(&self) -> &'static str {
         use self::NodeType::*;
         match *self {
             Div => "div",
-            Label(_) => "p",
-            SvgLayer(_) => "svg",
+            Label(_) | Text(_) => "p",
+            Image(_) => "image",
+            GlTexture(_) => "texture",
         }
     }
 }
@@ -156,8 +196,6 @@ impl<T: Layout> Hash for NodeData<T> {
         self.events.hash(state);
     }
 }
-
-use cache::DomHash;
 
 impl<T: Layout> NodeData<T> {
     pub fn calculate_node_data_hash(&self) -> DomHash {

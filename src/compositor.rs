@@ -118,6 +118,7 @@ pub const VERTEXBUFFER_FOR_FULL_SCREEN_QUAD: [SimpleGpuVertex;3] = [
 ];
 
 impl Compositor {
+
     pub fn new() -> Self {
         Self::default()
     }
