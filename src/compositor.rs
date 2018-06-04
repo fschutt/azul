@@ -2,7 +2,10 @@
 //! This makes it possible to use OpenGL images in the background and compose SVG elements
 //! into the UI.
 
-use std::sync::{Arc, Mutex};
+use FastHashMap;
+use webrender::{ExternalImageHandler, ExternalImageSource};
+use webrender::api::{ExternalImageId, TexelRect, DevicePixel};
+use std::sync::{Arc, Mutex, atomic::{Ordering, AtomicBool}};
 
 use glium::{
     Program, VertexBuffer, Display,
@@ -11,17 +14,13 @@ use glium::{
     backend::Facade,
 };
 use webrender::ExternalImage;
-
-#[derive(Default, Debug)]
-pub struct Compositor {
-    textures: Vec<Texture2d>,
-}
+use euclid::TypedPoint2D;
 
 // I'd wrap this in a `Arc<Mutex<>>`, but this is only available on nightly
 // So, for now, this is completely thread-unsafe
 //
-// However, this should be fine, as we initialize the program only from the main thread
-// and never de-initialize it
+// However, this should be fine, as we initialize the program only from the main
+// thread and never de-initialize it
 static mut SHADER_FULL_SCREEN: Option<CombineTwoTexturesProgram> = None;
 
 pub const INDICES_NO_INDICES_TRIANGLE_STRIP: NoIndices = NoIndices(TriangleStrip);
@@ -117,12 +116,48 @@ pub const VERTEXBUFFER_FOR_FULL_SCREEN_QUAD: [SimpleGpuVertex;3] = [
     },
 ];
 
+#[derive(Debug)]
+pub struct Compositor {
+    textures: FastHashMap<ExternalImageId, Texture2d>,
+    locked: AtomicBool,
+}
+
+impl Default for Compositor {
+    fn default() -> Self {
+        Self {
+            textures: FastHashMap::default(),
+            locked: AtomicBool::new(false),
+        }
+    }
+}
+
+impl ExternalImageHandler for Compositor {
+    fn lock(&mut self, key: ExternalImageId, _channel_index: u8) -> ExternalImage {
+        use glium::GlObject;
+
+        let texture = &self.textures[&key];
+        self.locked.compare_and_swap(false, true, Ordering::SeqCst);
+
+        ExternalImage {
+            uv: TexelRect {
+                uv0: TypedPoint2D::zero(),
+                uv1: TypedPoint2D::<f32, DevicePixel>::new(texture.width() as f32, texture.height() as f32),
+            },
+            source: ExternalImageSource::NativeTexture(texture.get_id()),
+        }
+    }
+
+    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {
+        self.locked.compare_and_swap(true, false, Ordering::SeqCst);
+    }
+}
+
 impl Compositor {
 
     pub fn new() -> Self {
         Self::default()
     }
-
+/*
     pub fn push_texture(&mut self, texture: Texture2d) {
         self.textures.push(texture);
     }
@@ -155,6 +190,7 @@ impl Compositor {
 
         Some(initial_tex)
     }
+*/
 }
 
 #[derive(Debug)]
@@ -236,22 +272,3 @@ impl CombineTwoTexturesProgram {
         target
     }
 }
-
-/*
-impl ExternalImageHandler for Compositor {
-    // Do not perform any actual locking since rendering happens on the main thread
-    fn lock(&mut self, key: ExternalImageId, _channel_index: u8) -> webrender::ExternalImage {
-        let descriptor = resources::resources().image_loader.texture_descriptors[&key.0];
-        ExternalImage {
-            uv: TexelRect {
-                uv0: TypedPoint2D::zero(),
-                uv1: TypedPoint2D::<f32, DevicePixel>::new(descriptor.width as f32, descriptor.height as f32),
-            },
-            source: webrender::ExternalImageSource::NativeTexture(key.0 as _),
-        }
-    }
-
-    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {
-    }
-}
-*/

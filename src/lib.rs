@@ -112,7 +112,7 @@ pub mod prelude {
     pub use traits::{Layout, ModifyAppState, GetDom};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, WindowCreateError,
-                     WindowMonitorTarget, RendererType, WindowEvent};
+                     WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
     pub use window_state::WindowState;
     pub use font::FontError;
     pub use images::ImageType;

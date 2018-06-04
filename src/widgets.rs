@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 
+use svg::SvgLayerId;
+use window::ReadOnlyWindow;
 use traits::GetDom;
 use traits::Layout;
 use dom::{Dom, NodeType};
@@ -41,5 +43,23 @@ impl GetDom for Button {
             Text(s) => button_root.add_child(Dom::new(NodeType::Label(s)))
         }
         button_root
+    }
+}
+
+// TODO: This must be implementable as a widget, otherwise we can
+// forget
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Svg {
+    pub layers: Vec<SvgLayerId>,
+}
+
+impl Svg {
+    fn dom<T: Layout>(window: &ReadOnlyWindow) -> Dom<T> {
+        let mut svg_root = Dom::new(NodeType::Div).with_class("__azul-native-svg");
+
+        // todo: implement window drawing
+
+        svg_root
     }
 }

@@ -1,8 +1,10 @@
 //! Window creation module
 
+use glium::backend::Facade;
+use glium::backend::Context;
 use css::FakeCss;
 use window_state::{WindowState, WindowPosition};
-use std::{time::Duration, fmt};
+use std::{time::Duration, fmt, rc::Rc};
 
 use webrender::{
     api::*,
@@ -42,12 +44,57 @@ impl WindowId {
 }
 
 /// User-modifiable fake window
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FakeWindow {
     /// The CSS (use this field to override dynamic CSS ids).
     pub css: FakeCss,
     /// The window state for the next frame
     pub state: WindowState,
+    /// An Rc to the original WindowContext - this is only so that
+    /// the user can create textures and other OpenGL content in the window
+    /// but not change any window properties from underneath - this would
+    /// lead to mismatch between the
+    pub(crate) read_only_window: Rc<Display>,
+}
+
+impl FakeWindow {
+    pub fn get_window(&self) -> ReadOnlyWindow {
+        ReadOnlyWindow {
+            inner: self.read_only_window.clone()
+        }
+    }
+}
+
+pub struct ReadOnlyWindow {
+    pub(crate) inner: Rc<Display>,
+}
+
+impl Facade for ReadOnlyWindow {
+    fn get_context(&self) -> &Rc<Context> {
+        self.inner.get_context()
+    }
+}
+
+impl ReadOnlyWindow {
+    // Since webrender is asynchronous, we can't let the user draw
+    // directly onto the frame or the texture since that has to be timed
+    // with webrender
+}
+
+pub struct WindowInfo {
+    pub window_id: WindowId,
+    pub window: ReadOnlyWindow,
+}
+
+impl fmt::Debug for FakeWindow {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+            "FakeWindow {{\
+                css: {:?}, \
+                state: {:?}, \
+                read_only_window: Rc<Display>, \
+            }}", self.css, self.state)
+    }
 }
 
 /// Window event that is passed to the user when a callback is invoked
@@ -327,12 +374,9 @@ pub struct Window<T: Layout> {
     /// The webrender renderer
     pub(crate) renderer: Option<Renderer>,
     /// The display, i.e. the window
-    pub(crate) display: Display,
+    pub(crate) display: Rc<Display>,
     /// The `WindowInternal` allows us to solve some borrowing issues
     pub(crate) internal: WindowInternal,
-    /// The compositor caches and stores OpenGL textures, so that we can
-    /// render custom elements behind the UI if needed.
-    pub(crate) compositor: Compositor,
     /// The solver for the UI, for caching the results of the computations
     pub(crate) solver: UiSolver<T>,
     // The background thread that is running for this window.
@@ -540,7 +584,7 @@ impl<T: Layout> Window<T> {
         let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, Some(options.background));
 
         use self::RendererType::*;
-        let (renderer, sender) = match options.renderer_type {
+        let (mut renderer, sender) = match options.renderer_type {
             Hardware => {
                 // force hardware renderer
                 Renderer::new(gl, notifier, opts_native).unwrap()
@@ -574,14 +618,13 @@ impl<T: Layout> Window<T> {
         solver.suggest_value(window_dim.width_var, window_dim.width() as f64).unwrap();
         solver.suggest_value(window_dim.height_var, window_dim.height() as f64).unwrap();
 
-        let compositor = Compositor::new();
+        renderer.set_external_image_handler(Box::new(Compositor::new()));
 
         let window = Window {
             events_loop: events_loop,
             state: options.state,
             renderer: Some(renderer),
-            display: display,
-            compositor: compositor,
+            display: Rc::new(display),
             css: css,
             internal: WindowInternal {
                 layout_size: layout_size,

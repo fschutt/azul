@@ -1,5 +1,5 @@
 use traits::Layout;
-use window::WindowId;
+use window::WindowInfo;
 use std::collections::BTreeMap;
 use dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On};
 use app_state::AppState;
@@ -26,14 +26,14 @@ impl<T: Layout> fmt::Debug for UiState<T> {
 }
 
 impl<T: Layout> UiState<T> {
-    pub(crate) fn from_app_state(app_state: &AppState<T>, window_id: WindowId) -> Self
+    pub(crate) fn from_app_state(app_state: &AppState<T>, window_info: WindowInfo) -> Self
     {
         use dom::{Dom, On};
 
         // Only shortly lock the data to get the dom out
          let dom: Dom<T> = {
             let dom_lock = app_state.data.lock().unwrap();
-            dom_lock.layout(window_id)
+            dom_lock.layout(window_info)
         };
 
         unsafe { NODE_ID = 0 };

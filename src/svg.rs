@@ -158,13 +158,6 @@ impl<T: Layout> Clone for SvgLayer<T> {
     }
 }
 
-// TODO: This must be implementable as a texture!
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Svg {
-    pub layers: Vec<SvgLayerId>,
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct SvgWorldPixel;
 

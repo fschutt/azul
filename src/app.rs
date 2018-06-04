@@ -96,6 +96,7 @@ impl<'a, T: Layout> App<'a, T> {
         self.app_state.windows.push(FakeWindow {
             state: window.state.clone(),
             css: FakeCss::default(),
+            read_only_window: window.display.clone(),
         });
         self.windows.push(window);
         Ok(())
@@ -132,6 +133,7 @@ impl<'a, T: Layout> App<'a, T> {
 
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
         use std::{thread, time::{Duration, Instant}};
+        use window::{ReadOnlyWindow, WindowInfo};
 
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
         let mut ui_description_cache = Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
@@ -143,9 +145,13 @@ impl<'a, T: Layout> App<'a, T> {
 
             for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
 
+                unsafe {
+                    use glium::glutin::GlContext;
+                    window.display.gl_window().make_current().unwrap();
+                }
+
                 // TODO: move this somewhere else
                 let svg_shader = &self.app_state.resources.svg_registry.init_shader(&window.display);
-                println!("shader: {:?}", svg_shader);
 
                 let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
@@ -165,20 +171,24 @@ impl<'a, T: Layout> App<'a, T> {
                     Self::do_hit_test_and_call_callbacks(window, window_id, &mut frame_event_info, &ui_state_cache, &mut self.app_state);
                 }
 
-                ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowId { id: idx });
+                ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowInfo {
+                    window_id: WindowId { id: idx },
+                    window: ReadOnlyWindow {
+                        inner: window.display.clone(),
+                    }
+                });
 
                 // Update the window state that we got from the frame event (updates window dimensions and DPI)
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
                 window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
-/*
-                if frame_event_info.should_redraw_window {
 
+                if frame_event_info.should_redraw_window {
+                    println!("updating window!");
+                    ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+                    Self::update_display(&window);
+                    render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
                 }
-*/
-                ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                Self::update_display(&window);
-                render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
             }
 
             // Close windows if necessary
@@ -274,8 +284,15 @@ impl<'a, T: Layout> App<'a, T> {
     fn initialize_ui_state(windows: &[Window<T>], app_state: &AppState<'a, T>)
     -> Vec<UiState<T>>
     {
-        windows.iter().enumerate().map(|(idx, _)|
-            UiState::from_app_state(app_state, WindowId { id: idx })
+        use window::{ReadOnlyWindow, WindowInfo};
+
+        windows.iter().enumerate().map(|(idx, w)|
+            UiState::from_app_state(app_state, WindowInfo {
+                window_id: WindowId { id: idx },
+                window: ReadOnlyWindow {
+                    inner: w.display.clone(),
+                }
+            })
         ).collect()
     }
 
