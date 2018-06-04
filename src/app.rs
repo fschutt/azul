@@ -1,3 +1,4 @@
+use text_cache::TextId;
 use dom::UpdateScreen;
 use window::FakeWindow;
 use css::{Css, FakeCss};
@@ -142,6 +143,10 @@ impl<'a, T: Layout> App<'a, T> {
 
             for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
 
+                // TODO: move this somewhere else
+                let svg_shader = &self.app_state.resources.svg_registry.init_shader(&window.display);
+                println!("shader: {:?}", svg_shader);
+
                 let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
 
@@ -166,12 +171,14 @@ impl<'a, T: Layout> App<'a, T> {
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
                 window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
-
+/*
                 if frame_event_info.should_redraw_window {
-                    ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-                    Self::update_display(&window);
-                    render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
+
                 }
+*/
+                ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+                Self::update_display(&window);
+                render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
             }
 
             // Close windows if necessary
@@ -403,6 +410,20 @@ impl<'a, T: Layout> App<'a, T> {
         -> bool
     {
         self.app_state.delete_deamon(id)
+    }
+
+    pub fn add_text<S: Into<String>>(&mut self, text: S)
+    -> TextId
+    {
+        self.app_state.add_text(text)
+    }
+
+    pub fn delete_text(&mut self, id: TextId) {
+        self.app_state.delete_text(id);
+    }
+
+    pub fn clear_all_texts(&mut self) {
+        self.app_state.clear_all_texts();
     }
 
     /// Mock rendering function, for creating a hidden window and rendering one frame

@@ -1,6 +1,7 @@
 extern crate azul;
 
 use azul::prelude::*;
+use azul::widgets::*;
 
 const TEST_CSS: &str = include_str!("test_content.css");
 const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
@@ -16,16 +17,21 @@ pub struct MyAppData {
 }
 
 impl Layout for MyAppData {
-    fn layout(&self, _window_id: WindowId) -> Dom<MyAppData> {
-        let mut dom = Dom::new(NodeType::Label(format!("Load SVG file")))
-            .with_class("__azul-native-button")
-            .with_event(On::MouseUp, Callback(my_button_click_handler));
+    fn layout(&self, _window_id: WindowId)
+    -> Dom<MyAppData>
+    {
+        let mut dom = Dom::new(NodeType::Div);
 
-        for polygon in &self.my_svg_ids {
-            // Draw the cached polygon by its ID
-            dom.add_sibling(Dom::new(NodeType::SvgLayer(*polygon)));
+        dom.add_child(
+            Button::with_label("Load SVG file").dom()
+            .with_event(On::MouseUp, Callback(my_button_click_handler)));
+/*
+        if !self.my_svg_ids.is_empty() {
+            dom.add_sibling(
+                Svg::new(self.my_svg_ids.clone())
+                .dom())
         }
-
+*/
         dom
     }
 }
@@ -33,6 +39,7 @@ impl Layout for MyAppData {
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
     // Load and parse the SVG file, register polygon data as IDs
     let mut svg_ids = app_state.add_svg(TEST_SVG).unwrap();
+    println!("adding svg ids: {:?}", svg_ids);
     app_state.data.modify(|data| data.my_svg_ids.append(&mut svg_ids));
     UpdateScreen::Redraw
 }

@@ -377,10 +377,14 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
 #[inline]
 fn push_rect(info: &PrimitiveInfo<LayoutPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
+    const TRANSPARENT: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
+    let background = style.background_color.and_then(|col| Some(col.0)).unwrap_or(TRANSPARENT);
+    builder.push_rect(&info, background.into());
+    /*
     match style.background_color {
         Some(bg) => builder.push_rect(&info, bg.0.into()),
         None => builder.push_clear_rect(&info),
-    }
+    }*/
 }
 
 #[inline]

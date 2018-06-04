@@ -1,3 +1,11 @@
+use std::rc::Rc;
+use glium::DrawParameters;
+use glium::IndexBuffer;
+use glium::VertexBuffer;
+use glium::Display;
+use glium::Texture2d;
+use glium::Program;
+use webrender::api::ColorF;
 use std::io::Read;
 use lyon::path::default::Path;
 use webrender::api::ColorU;
@@ -9,25 +17,72 @@ use std::hash::{Hash, Hasher};
 use svg_crate::parser::Error as SvgError;
 use std::io::Error as IoError;
 use std::fmt;
+use euclid::TypedRect;
 
 /// In order to store / compare SVG files, we have to
 pub(crate) static mut SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);
 
+const SVG_VERTEX_SHADER: &str = "
+    #version 130
+
+    in vec2 xy;
+
+    uniform vec2 bbox_origin;
+    uniform vec2 bbox_size;
+    uniform float z_index;
+
+    void main() {
+        gl_Position = vec4(vec2(-1.0) + ((xy - bbox_origin) / bbox_size), z_index, 1.0);
+    }";
+
+const SVG_FRAGMENT_SHADER: &str = "
+    #version 130
+    uniform vec4 color;
+
+    void main() {
+        gl_FragColor = color;
+    }
+";
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct SvgLayerId(usize);
+
+#[derive(Debug, Clone)]
+pub struct SvgShader {
+    program: Rc<Program>,
+}
+
+impl SvgShader {
+    pub fn new(display: &Display) -> Self {
+        Self {
+            program: Rc::new(Program::from_source(display, SVG_VERTEX_SHADER, SVG_FRAGMENT_SHADER, None).unwrap()),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct SvgRegistry<T: Layout> {
     // note: one "layer" merely describes one or more polygons that have the same style
     layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
+    shader: Option<SvgShader>,
 }
-
 
 impl<T: Layout> Default for SvgRegistry<T> {
     fn default() -> Self {
         Self {
             layers: FastHashMap::default(),
+            shader: None,
         }
+    }
+}
+
+impl<T: Layout> SvgRegistry<T> {
+    /// Builds and compiles the shader if the shader isn't already present
+    pub(crate) fn init_shader(&mut self, display: &Display) -> SvgShader {
+        if self.shader.is_none() {
+            self.shader = Some(SvgShader::new(display));
+        }
+        self.shader.as_ref().and_then(|s| Some(s.clone())).unwrap()
     }
 }
 
@@ -101,6 +156,49 @@ impl<T: Layout> Clone for SvgLayer<T> {
             style: self.style.clone(),
         }
     }
+}
+
+// TODO: This must be implementable as a texture!
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Svg {
+    pub layers: Vec<SvgLayerId>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct SvgWorldPixel;
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct SvgVert {
+    pub(crate) xy: (f32, f32),
+}
+
+implement_vertex!(SvgVert, xy);
+
+pub(crate) fn draw_polygons(
+    target: &mut Texture2d,
+    shader: &SvgShader,
+    color: &ColorF,
+    bbox: &TypedRect<f32, SvgWorldPixel>,
+    vbuf: &VertexBuffer<SvgVert>,
+    ibuf: &IndexBuffer<u32>,
+    z_index: f32)
+{
+    use glium::Surface;
+
+    let draw_options = DrawParameters {
+        primitive_restart_index: true,
+        .. Default::default()
+    };
+
+    let uniforms = uniform! {
+        bbox_origin: (bbox.origin.x, bbox.origin.y),
+        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+        z_index: z_index,
+        color: (color.r, color.g, color.b, color.a),
+    };
+
+    target.as_surface().draw(vbuf, ibuf, &*shader.program, &uniforms, &draw_options).unwrap();
 }
 
 pub enum SvgCallbacks<T: Layout> {
