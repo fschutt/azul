@@ -17,7 +17,8 @@ use {
     traits::Layout,
     constraints::{DisplayRect, CssConstraint},
     ui_description::{UiDescription, StyledNode},
-    window::{WindowDimensions, UiSolver},
+    window::UiSolver,
+    window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css_parser::{self, *},
     dom::NodeData,
@@ -216,10 +217,14 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         css: &mut Css,
         app_resources: &mut AppResources<T>,
         render_api: &RenderApi,
-        mut has_window_size_changed: bool)
+        mut has_window_size_changed: bool,
+        window_size: &WindowSize)
     -> Option<DisplayListBuilder>
     {
+        use euclid::TypedScale;
+
         let mut changeset = None;
+
         if let Some(root) = self.ui_descr.ui_descr_root {
             let local_changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
             ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &local_changeset);
@@ -235,7 +240,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 let arena = &*self.ui_descr.ui_descr_arena.borrow();
                 let dom_hash = &ui_solver.dom_tree_cache.previous_layout.arena[rect_idx];
                 let display_rect = ui_solver.edit_variable_cache.map[&dom_hash.data];
-                let layout_contraints = create_layout_constraints(rect, rect_idx, &self.rectangles, &ui_solver.window_dimensions);
+                let layout_contraints = create_layout_constraints(rect, rect_idx, &self.rectangles, window_size);
                 let cassowary_constraints = css_constraints_to_cassowary_constraints(&display_rect.1, &layout_contraints);
                 ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
             }
@@ -266,8 +271,10 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         css.needs_relayout = false;
 
-        let layout_size = ui_solver.window_dimensions.layout_size;
-        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, layout_size, self.rectangles.nodes_len());
+        let framebuffer_size = LayoutSize::new(window_size.width as f32, window_size.height as f32);
+        let hidpi_factor = TypedScale::new(window_size.hidpi_factor);
+        let whole_window_layout_size = framebuffer_size.to_f32() / hidpi_factor;
+        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, whole_window_layout_size, self.rectangles.nodes_len());
         let mut resource_updates = Vec::<ResourceUpdate>::new();
         let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 
@@ -275,13 +282,15 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
         for rect_idx in self.rectangles.linear_iter() {
+
             let rect = &self.rectangles[rect_idx].data;
+            // println!("encountered rect: {:#?}", rect);
 
             // ask the solver what the bounds of the current rectangle is
             // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
 
-            // debug rectangle
-            let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), ui_solver.window_dimensions.layout_size);
+            // temporary: fill the whole window
+            let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), whole_window_layout_size);
 
             let info = LayoutPrimitiveInfo {
                 rect: bounds,
@@ -377,14 +386,10 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
 #[inline]
 fn push_rect(info: &PrimitiveInfo<LayoutPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
-    const TRANSPARENT: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
-    let background = style.background_color.and_then(|col| Some(col.0)).unwrap_or(TRANSPARENT);
-    builder.push_rect(&info, background.into());
-    /*
     match style.background_color {
         Some(bg) => builder.push_rect(&info, bg.0.into()),
         None => builder.push_clear_rect(&info),
-    }*/
+    }
 }
 
 #[inline]
@@ -868,7 +873,7 @@ fn create_layout_constraints<'a>(
     rect: &DisplayRectangle,
     rect_id: NodeId,
     arena: &Arena<DisplayRectangle<'a>>,
-    window_dimensions: &WindowDimensions)
+    window_size: &WindowSize)
 -> Vec<CssConstraint>
 {
     use css_parser;
@@ -877,7 +882,7 @@ fn create_layout_constraints<'a>(
 
     let mut layout_constraints = Vec::<CssConstraint>::new();
     let max_width = arena.get_wh_for_rectangle(rect_id, WidthOrHeight::Width)
-                         .unwrap_or(window_dimensions.layout_size.width);
+                         .unwrap_or(window_size.width as f32);
 
     println!("max width for rectangle with the ID {} is: {}", rect_id, max_width);
 

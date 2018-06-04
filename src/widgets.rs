@@ -36,18 +36,14 @@ impl Button {
 impl GetDom for Button {
     fn dom<T: Layout>(self) -> Dom<T> {
         use self::ButtonContent::*;
-
-        let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");
-        match self.content {
-            Image(i) => button_root.add_child(Dom::new(NodeType::Image(i))),
-            Text(s) => button_root.add_child(Dom::new(NodeType::Label(s)))
-        }
-        button_root
+        /*let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");
+        button_root.add_child(*/match self.content {
+            Image(i) => Dom::new(NodeType::Image(i)).with_class("__azul-native-button"),
+            Text(s) => Dom::new(NodeType::Label(s)).with_class("__azul-native-button"),
+        }/*);
+        button_root*/
     }
 }
-
-// TODO: This must be implementable as a widget, otherwise we can
-// forget
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Svg {

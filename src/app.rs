@@ -157,6 +157,7 @@ impl<'a, T: Layout> App<'a, T> {
                 let mut frame_event_info = FrameEventInfo::default();
 
                 window.events_loop.poll_events(|event| {
+                    println!("event! : {:?}", event);
                     let should_close = process_event(event, &mut frame_event_info);
                     if should_close {
                         closed_windows.push(idx);
@@ -165,6 +166,7 @@ impl<'a, T: Layout> App<'a, T> {
 
                 if frame_event_info.should_swap_window {
                     window.display.swap_buffers()?;
+                    continue;
                 }
 
                 if frame_event_info.should_hittest {
@@ -184,7 +186,6 @@ impl<'a, T: Layout> App<'a, T> {
                 window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
 
                 if frame_event_info.should_redraw_window {
-                    println!("updating window!");
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
                     Self::update_display(&window);
                     render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
@@ -217,12 +218,15 @@ impl<'a, T: Layout> App<'a, T> {
 
     fn update_display(window: &Window<T>)
     {
+
         use webrender::api::{Transaction, DeviceUintRect, DeviceUintPoint};
+        use euclid::TypedSize2D;
 
         let mut txn = Transaction::new();
-        let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), window.internal.framebuffer_size);
+        let framebuffer_size = TypedSize2D::new(window.state.size.width, window.state.size.height);
+        let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), framebuffer_size);
 
-        txn.set_window_parameters(window.internal.framebuffer_size, bounds, window.internal.hidpi_factor);
+        txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor);
         window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
@@ -529,6 +533,7 @@ fn render<T: Layout>(
 {
     use webrender::api::*;
     use display_list::DisplayList;
+    use euclid::TypedSize2D;
 
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(
@@ -537,7 +542,8 @@ fn render<T: Layout>(
         &mut window.css,
         app_resources,
         &window.internal.api,
-        has_window_size_changed);
+        has_window_size_changed,
+        &window.state.size);
 
     if let Some(new_builder) = builder {
         // only finalize the list if we actually need to. Otherwise just redraw the last display list
@@ -546,13 +552,14 @@ fn render<T: Layout>(
 
     let mut txn = Transaction::new();
 
+    let framebuffer_size = TypedSize2D::new(window.state.size.width, window.state.size.height);
+    let layout_size = framebuffer_size.to_f32() / TypedScale::new(window.state.size.hidpi_factor);
+
     txn.set_display_list(
         window.internal.epoch,
         None,
-        window.internal.layout_size,
-        (window.internal.pipeline_id,
-         window.solver.window_dimensions.layout_size,
-         window.internal.last_display_list_builder.clone()),
+        layout_size,
+        (window.internal.pipeline_id, layout_size, window.internal.last_display_list_builder.clone()),
         true,
     );
 
@@ -561,5 +568,5 @@ fn render<T: Layout>(
     window.internal.api.send_transaction(window.internal.document_id, txn);
 
     window.renderer.as_mut().unwrap().update();
-    window.renderer.as_mut().unwrap().render(window.internal.framebuffer_size).unwrap();
+    window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 }

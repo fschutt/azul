@@ -95,12 +95,14 @@ pub struct WindowPosition {
 }
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone)]
 pub struct WindowSize {
     /// Width of the window
     pub width: u32,
     /// Height of the window
     pub height: u32,
+    /// DPI factor of the window
+    pub hidpi_factor: f32,
     /// Minimum dimensions of the window
     pub min_dimensions: Option<(u32, u32)>,
     /// Maximum dimensions of the window
@@ -112,6 +114,7 @@ impl Default for WindowSize {
         Self {
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
+            hidpi_factor: 1.0,
             min_dimensions: None,
             max_dimensions: None,
         }

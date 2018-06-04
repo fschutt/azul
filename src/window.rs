@@ -425,8 +425,6 @@ impl WindowDimensions {
 pub(crate) struct UiSolver<T: Layout> {
     /// The actual solver
     pub(crate) solver: Solver,
-    /// Dimensions of the root window
-    pub(crate) window_dimensions: WindowDimensions,
     /// Solved layout from the previous frame (empty by default)
     /// This is necessary for caching the constraints of the given layout
     pub(crate) solved_layout: SolvedLayout<T>,
@@ -445,14 +443,16 @@ impl<T: Layout> UiSolver<T> {
 
 pub(crate) struct WindowInternal {
     pub(crate) last_display_list_builder: BuiltDisplayList,
-    pub(crate) layout_size: LayoutSize,
     pub(crate) api: RenderApi,
     pub(crate) epoch: Epoch,
-    pub(crate) framebuffer_size: DeviceUintSize,
     pub(crate) pipeline_id: PipelineId,
     pub(crate) document_id: DocumentId,
-    pub(crate) hidpi_factor: f32,
 }
+
+/*
+pub(crate) layout_size: LayoutSize,
+pub(crate) framebuffer_size: DeviceUintSize,
+*/
 
 impl<T: Layout> Window<T> {
 
@@ -638,18 +638,14 @@ impl<T: Layout> Window<T> {
             display: Rc::new(display),
             css: css,
             internal: WindowInternal {
-                layout_size: layout_size,
                 api: api,
                 epoch: epoch,
-                framebuffer_size: framebuffer_size,
                 pipeline_id: pipeline_id,
                 document_id: document_id,
-                hidpi_factor: hidpi_factor,
                 last_display_list_builder: BuiltDisplayList::default(),
             },
             solver: UiSolver {
                 solver: solver,
-                window_dimensions: window_dim,
                 solved_layout: SolvedLayout::empty(),
                 edit_variable_cache: EditVariableCache::empty(),
                 dom_tree_cache: DomTreeCache::empty(),
@@ -682,14 +678,17 @@ impl<T: Layout> Window<T> {
 
         if old_state.title != new_state.title {
             window.set_title(&new_state.title);
+            old_state.title = new_state.title;
         }
 
         if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
             window.set_cursor(new_state.mouse_state.mouse_cursor_type);
+            old_state.mouse_state.mouse_cursor_type = new_state.mouse_state.mouse_cursor_type;
         }
 
         if old_state.is_maximized != new_state.is_maximized {
             window.set_maximized(new_state.is_maximized);
+            old_state.is_maximized = new_state.is_maximized;
         }
 
         if old_state.is_fullscreen != new_state.is_fullscreen {
@@ -698,10 +697,12 @@ impl<T: Layout> Window<T> {
             } else {
                 window.set_fullscreen(None);
             }
+            old_state.is_fullscreen = new_state.is_fullscreen;
         }
 
         if old_state.has_decorations != new_state.has_decorations {
             window.set_decorations(new_state.has_decorations);
+            old_state.has_decorations = new_state.has_decorations;
         }
 
         if old_state.is_visible != new_state.is_visible {
@@ -710,30 +711,31 @@ impl<T: Layout> Window<T> {
             } else {
                 window.hide();
             }
+            old_state.is_visible = new_state.is_visible;
         }
 
         if old_state.size.min_dimensions != new_state.size.min_dimensions {
             window.set_min_dimensions(new_state.size.min_dimensions);
+            old_state.size.min_dimensions = new_state.size.min_dimensions;
         }
 
         if old_state.size.max_dimensions != new_state.size.max_dimensions {
             window.set_max_dimensions(new_state.size.max_dimensions);
+            old_state.size.max_dimensions = new_state.size.max_dimensions;
         }
-
-        *old_state = new_state;
     }
 
     pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
         use webrender::api::{DeviceUintSize, WorldPoint, LayoutSize};
 
         if let Some((w, h)) = frame_event_info.new_window_size {
-            self.internal.layout_size = LayoutSize::new(w as f32, h as f32);
-            self.internal.framebuffer_size = DeviceUintSize::new(w, h);
+            self.state.size.width = w;
+            self.state.size.height = h;
             frame_event_info.should_redraw_window = true;
         }
 
         if let Some(dpi) = frame_event_info.new_dpi_factor {
-            self.internal.hidpi_factor = dpi;
+            self.state.size.hidpi_factor = dpi;
             frame_event_info.should_redraw_window = true;
         }
     }
