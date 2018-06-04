@@ -32,8 +32,6 @@ pub extern crate glium;
 pub extern crate gleam;
 pub extern crate image;
 
-#[macro_use]
-extern crate lazy_static;
 extern crate euclid;
 extern crate lyon;
 extern crate svg as svg_crate;
@@ -94,8 +92,8 @@ mod menu;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
 /// top of each other
 mod compositor;
-/// Platform extensions (non-portable window extensions for Win32, Wayland, X11, Cocoa)
-mod platform_ext;
+// /// Platform extensions (non-portable window extensions for Win32, Wayland, X11, Cocoa)
+// mod platform_ext;
 /// Module for caching long texts (including their layout / character positions) across multiple frames
 mod text_cache;
 

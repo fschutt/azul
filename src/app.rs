@@ -157,7 +157,6 @@ impl<'a, T: Layout> App<'a, T> {
                 let mut frame_event_info = FrameEventInfo::default();
 
                 window.events_loop.poll_events(|event| {
-                    println!("event! : {:?}", event);
                     let should_close = process_event(event, &mut frame_event_info);
                     if should_close {
                         closed_windows.push(idx);
@@ -509,13 +508,14 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
                 WindowEvent::HiDPIFactorChanged(dpi) => {
                     frame_event_info.new_dpi_factor = Some(dpi);
                 },
-                WindowEvent::CloseRequested => {
+                WindowEvent::Closed => {
                     return true;
                 }
                 _ => { },
             }
         },
         Event::Awakened => {
+            println!("received awakened event!");
             frame_event_info.should_swap_window = true;
         },
         _ => { },
@@ -564,6 +564,7 @@ fn render<T: Layout>(
     );
 
     txn.set_root_pipeline(window.internal.pipeline_id);
+    println!("generating frame!");
     txn.generate_frame();
     window.internal.api.send_transaction(window.internal.document_id, txn);
 
