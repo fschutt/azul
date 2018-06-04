@@ -390,7 +390,7 @@ impl<'a, T: Layout> App<'a, T> {
     /// # struct MyAppData { }
     /// #
     /// # impl Layout for MyAppData {
-    /// #     fn layout(&self, _window_id: WindowId) -> Dom<MyAppData> {
+    /// #     fn layout(&self, _window_id: WindowInfo) -> Dom<MyAppData> {
     /// #         Dom::new(NodeType::Div)
     /// #    }
     /// # }
@@ -465,21 +465,8 @@ impl<'a, T: Layout> App<'a, T> {
             .. Default::default()
         };
         self.create_window(hidden_create_options, Css::native()).unwrap();
-        let mut ui_state_cache = Vec::with_capacity(self.windows.len());
-        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-
-        for (idx, _) in self.windows.iter().enumerate() {
-            ui_state_cache.push(UiState::from_app_state(&self.app_state, WindowId { id: idx }));
-        }
-
-        for (idx, window) in self.windows.iter_mut().enumerate() {
-            ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-            render(window, &WindowId { id: idx, },
-                  &ui_description_cache[idx],
-                  &mut self.app_state.resources,
-                  true);
-            window.display.swap_buffers().unwrap();
-        }
+        let ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
+        Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
     }
 }
 
