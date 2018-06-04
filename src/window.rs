@@ -296,6 +296,17 @@ struct Notifier {
     events_loop_proxy: EventsLoopProxy,
 }
 
+// For some reason, the wayland implementation has problems with this (?)
+// However, the glium documentation explicitly says that EventsLoopProxy can
+// be shared across threads.
+//
+// This was working absolutely fine before #cc6a8b, so I don't really get why
+// this code suddenly doesn't compile anymore on wayland - I didn't even touch
+// the code related to the notifier in months and didn't change the glium version
+// and now it suddenly doesn't want to compile anymore.
+unsafe impl Send for Notifier { }
+unsafe impl Sync for Notifier { }
+
 impl Notifier {
     fn new(events_loop_proxy: EventsLoopProxy) -> Notifier {
         Notifier {
