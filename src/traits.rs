@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use dom::{NodeData, Dom};
 use ui_description::{StyledNode, CssConstraintList, UiDescription};
 use css::{Css, CssRule};
-use window::WindowId;
+use window::WindowInfo;
 use id_tree::{NodeId, Arena};
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -23,7 +23,7 @@ pub trait Layout {
     /// The `style_dom` looks through the given DOM rules, applies the style and
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
-    fn layout(&self, window_id: WindowId) -> Dom<Self> where Self: Sized;
+    fn layout(&self, window_id: WindowInfo) -> Dom<Self> where Self: Sized;
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.

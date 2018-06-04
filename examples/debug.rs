@@ -17,7 +17,7 @@ pub struct MyAppData {
 }
 
 impl Layout for MyAppData {
-    fn layout(&self, _window_id: WindowId)
+    fn layout(&self, info: WindowInfo)
     -> Dom<MyAppData>
     {
         let mut dom = Dom::new(NodeType::Div);
@@ -25,13 +25,13 @@ impl Layout for MyAppData {
         dom.add_child(
             Button::with_label("Load SVG file").dom()
             .with_event(On::MouseUp, Callback(my_button_click_handler)));
-/*
+    /*
         if !self.my_svg_ids.is_empty() {
             dom.add_sibling(
                 Svg::new(self.my_svg_ids.clone())
-                .dom())
+                .dom(&info.window))
         }
-*/
+    */
         dom
     }
 }
@@ -62,8 +62,7 @@ fn main() {
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
     // app.delete_image("Cat01");
 
-    // TODO: Multi-window apps currently crash
-    // Need to re-factor the event loop for that
+    app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
     app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run().unwrap();
 }
