@@ -7,7 +7,7 @@ authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 cassowary = "0.3.0"
 simplecss = "0.1.0"
 twox-hash = "1.1.0"
-glium = { git = "https://github.com/fschutt/glium", branch = "mapedit-winit-windows-ext" }
+glium = "0.21.0"
 gleam = "0.5"
 euclid = "0.17"
 image = "0.19.0"
@@ -17,11 +17,10 @@ unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
 svg = "0.5.10"
 lyon = { version = "0.10.0", features = ["extra"] }
-lazy_static = "1.0.0"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "5e4f257d9f3cdb5691ac62f3affe2e9189d66447"
+rev = "952521658aaf331e7b7382fb18ca1d8b7bfc9dc8"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)

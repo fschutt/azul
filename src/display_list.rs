@@ -314,9 +314,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             builder.push_stacking_context(
                 &info,
                 clip_region_id,
-                None,
                 TransformStyle::Flat,
-                None,
                 MixBlendMode::Normal,
                 Vec::new(),
                 GlyphRasterSpace::Screen,
