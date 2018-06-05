@@ -122,9 +122,8 @@ impl<'a, T: Layout> AppState<'a, T> {
     ///
     /// impl Layout for MyAppData {
     ///      fn layout(&self, _window_id: WindowInfo) -> Dom<MyAppData> {
-    ///          let mut dom = Dom::new(NodeType::Div);
-    ///          dom.event(On::MouseEnter, Callback(my_callback));
-    ///          dom
+    ///          Dom::new(NodeType::Div)
+    ///             .with_callback(On::MouseEnter, Callback(my_callback))
     ///      }
     /// }
     ///

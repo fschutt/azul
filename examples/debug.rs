@@ -20,19 +20,7 @@ impl Layout for MyAppData {
     fn layout(&self, info: WindowInfo)
     -> Dom<MyAppData>
     {
-        // let mut dom = Dom::new(NodeType::Div);
-
-        /*dom.add_child(*/
-            Button::with_label("Load SVG file").dom()
-            .with_event(On::MouseUp, Callback(my_button_click_handler))//);
-    /*
-        if !self.my_svg_ids.is_empty() {
-            dom.add_sibling(
-                Svg::new(self.my_svg_ids.clone())
-                .dom(&info.window))
-        }
-    */
-        // dom
+        Svg::empty().dom(&info.window)
     }
 }
 

@@ -51,12 +51,21 @@ pub struct Svg {
 }
 
 impl Svg {
-    fn dom<T: Layout>(window: &ReadOnlyWindow) -> Dom<T> {
-        let mut svg_root = Dom::new(NodeType::Div).with_class("__azul-native-svg");
+    // todo: remove this later
+    pub fn empty() -> Self {
+        Self { layers: Vec::new() }
+    }
 
-        // todo: implement window drawing
+    pub fn dom<T: Layout>(&self, window: &ReadOnlyWindow) -> Dom<T> {
+        use glium::Surface;
 
-        svg_root
+        let tex = window.create_texture(800, 800);
+        tex.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
+
+        Dom::new(NodeType::Div)
+        .with_class("__azul-native-svg")
+            .with_child(Dom::new(NodeType::GlTexture(tex)))
+            .with_id("my_opengl_id")
     }
 }
 
