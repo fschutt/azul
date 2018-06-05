@@ -3,7 +3,7 @@
 use webrender::api::*;
 use euclid::{Length, TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
-use css_parser::{TextAlignmentHorz, RectStyle, TextAlignmentVert, LineHeight, LayoutOverflow};
+use css_parser::{TextAlignmentHorz, BackgroundColor, TextAlignmentVert, LineHeight, LayoutOverflow};
 
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
 /// Without this adjustment, we won't have the correct horizontal spacing
@@ -101,11 +101,11 @@ pub(crate) struct ScrollbarInfo {
     /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
     pub(crate) padding: usize,
     /// Style of the scrollbar (how to draw it)
-    pub(crate) bar_style: RectStyle,
+    pub(crate) bar_color: BackgroundColor,
     /// How to draw the "up / down" arrows
-    pub(crate) triangle_style: RectStyle,
+    pub(crate) triangle_color: BackgroundColor,
     /// Style of the scrollbar background
-    pub(crate) background_style: RectStyle,
+    pub(crate) background_color: BackgroundColor,
 }
 
 /// Temporary struct so I don't have to pass the three parameters around seperately all the time

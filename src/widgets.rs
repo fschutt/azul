@@ -36,12 +36,12 @@ impl Button {
 impl GetDom for Button {
     fn dom<T: Layout>(self) -> Dom<T> {
         use self::ButtonContent::*;
-        /*let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");
-        button_root.add_child(*/match self.content {
-            Image(i) => Dom::new(NodeType::Image(i)).with_class("__azul-native-button"),
-            Text(s) => Dom::new(NodeType::Label(s)).with_class("__azul-native-button"),
-        }/*);
-        button_root*/
+        let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");
+        button_root.add_child(match self.content {
+            Image(i) => Dom::new(NodeType::Image(i)),
+            Text(s) => Dom::new(NodeType::Label(s)),
+        });
+        button_root
     }
 }
 
@@ -57,5 +57,22 @@ impl Svg {
         // todo: implement window drawing
 
         svg_root
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Label {
+    pub text: String,
+}
+
+impl Label {
+    pub fn new<S: Into<String>>(text: S) -> Self {
+        Self { text: text.into() }
+    }
+}
+
+impl GetDom for Label {
+    fn dom<T: Layout>(self) -> Dom<T> {
+        Dom::new(NodeType::Label(self.text))
     }
 }

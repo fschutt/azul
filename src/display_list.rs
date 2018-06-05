@@ -21,7 +21,7 @@ use {
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css_parser::{self, *},
-    dom::NodeData,
+    dom::{NodeData, NodeType::{self, *}},
     css::Css,
     cache::DomChangeSet,
     ui_description::CssConstraintList,
@@ -253,19 +253,13 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             None => true,
             Some(c) => c.is_empty()
         };
-/*
-        // early return if we have nothing
-        if !css.needs_relayout && changeset_is_useless && !has_window_size_changed {
-            return None;
-        }
-*/
 
         // recalculate the actual layout
         if css.needs_relayout || has_window_size_changed {
             /*
-                for change in solver.fetch_changes() {
-                    println!("change: - {:?}", change);
-                }
+            for change in solver.fetch_changes() {
+                println!("change: - {:?}", change);
+            }
             */
         }
 
@@ -283,97 +277,23 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         for rect_idx in self.rectangles.linear_iter() {
 
-            let rect = &self.rectangles[rect_idx].data;
-            // println!("encountered rect: {:#?}", rect);
+            let display_rectangle = &self.rectangles[rect_idx].data;
+            let arena = self.ui_descr.ui_descr_arena.borrow();
+            let node_type = &arena[rect_idx].data.node_type;
 
             // ask the solver what the bounds of the current rectangle is
             // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
 
-            // temporary: fill the whole window
-            let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0), whole_window_layout_size);
-
-            let info = LayoutPrimitiveInfo {
-                rect: bounds,
-                clip_rect: bounds,
-                is_backface_visible: true,
-                tag: rect.tag.and_then(|tag| Some((tag, 0))),
-            };
-
-            let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
-                let region = ComplexClipRegion {
-                    rect: bounds,
-                    radii: border_radius,
-                    mode: ClipMode::Clip,
-                };
-                Some(builder.define_clip(bounds, vec![region], None))
-            });
-
-            // TODO: expose 3D-transform in CSS
-            // TODO: expose blend-modes in CSS
-            // TODO: expose filters (blur, hue, etc.) in CSS
-            builder.push_stacking_context(
-                &info,
-                clip_region_id,
-                TransformStyle::Flat,
-                MixBlendMode::Normal,
-                Vec::new(),
-                GlyphRasterSpace::Screen,
-            );
-
-            // Push the "outset" box shadow, before the clip is active
-            push_box_shadow(
+            // temporary: fill the whole window with each rectangle
+            displaylist_handle_rect(
                 &mut builder,
-                &rect.style,
-                &bounds,
-                &full_screen_rect,
-                BoxShadowClipMode::Outset);
-
-            // Push clip
-            if let Some(id) = clip_region_id {
-                builder.push_clip_id(id);
-            }
-
-            push_rect(
-                &info,
-                &mut builder,
-                &rect.style);
-
-            push_background(
-                &info,
-                &bounds,
-                &mut builder,
-                &rect.style,
-                &app_resources);
-
-            // push the inset shadow (if any)
-            push_box_shadow(&mut builder,
-                            &rect.style,
-                            &bounds,
-                            &full_screen_rect,
-                            BoxShadowClipMode::Inset);
-
-            push_text(
-                &info,
-                &self,
-                rect_idx,
-                &mut builder,
-                &rect.style,
+                display_rectangle,
+                node_type,
+                full_screen_rect, /* replace this with the real bounds */
+                full_screen_rect,
                 app_resources,
-                &render_api,
-                &bounds,
+                render_api,
                 &mut resource_updates);
-
-            push_border(
-                &info,
-                &mut builder,
-                &rect.style);
-
-            // Pop clip
-            if clip_region_id.is_some() {
-                builder.pop_clip_id();
-            }
-
-            builder.pop_stacking_context();
         }
 
         render_api.update_resources(resource_updates);
@@ -382,19 +302,136 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-#[inline]
-fn push_rect(info: &PrimitiveInfo<LayoutPixel>, builder: &mut DisplayListBuilder, style: &RectStyle) {
-    match style.background_color {
-        Some(bg) => builder.push_rect(&info, bg.0.into()),
-        None => builder.push_clear_rect(&info),
+fn displaylist_handle_rect<T: Layout>(
+    builder: &mut DisplayListBuilder,
+    rect: &DisplayRectangle,
+    html_node: &NodeType,
+    bounds: TypedRect<f32, LayoutPixel>,
+    full_screen_rect: TypedRect<f32, LayoutPixel>,
+    app_resources: &mut AppResources<T>,
+    render_api: &RenderApi,
+    resource_updates: &mut Vec<ResourceUpdate>)
+{
+    let info = LayoutPrimitiveInfo {
+        rect: bounds,
+        clip_rect: bounds,
+        is_backface_visible: false,
+        tag: rect.tag.and_then(|tag| Some((tag, 0))),
+    };
+
+    let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
+        let region = ComplexClipRegion {
+            rect: bounds,
+            radii: border_radius,
+            mode: ClipMode::Clip,
+        };
+        Some(builder.define_clip(bounds, vec![region], None))
+    });
+
+    // Push the "outset" box shadow, before the clip is active
+    push_box_shadow(
+        builder,
+        &rect.style,
+        &bounds,
+        &full_screen_rect,
+        BoxShadowClipMode::Outset);
+
+    if let Some(id) = clip_region_id {
+        builder.push_clip_id(id);
     }
+
+    if let Some(ref bg_col) = rect.style.background_color {
+        push_rect(&info, builder, bg_col);
+    }
+
+    if let Some(ref bg) = rect.style.background {
+        push_background(
+            &info,
+            &bounds,
+            builder,
+            bg,
+            &app_resources);
+    };
+
+    // Push the inset shadow (if any)
+    push_box_shadow(builder,
+                    &rect.style,
+                    &bounds,
+                    &full_screen_rect,
+                    BoxShadowClipMode::Inset);
+
+    push_border(
+        &info,
+        builder,
+        &rect.style);
+
+    // handle the special content of the node
+    match html_node {
+        Div => { /* nothing special to do */ },
+        Label(text) => {
+            // println!("encountered text with style: {:#?}", rect.style);
+            push_text(
+                &info,
+                text,
+                builder,
+                &rect.style,
+                app_resources,
+                &render_api,
+                &bounds,
+                resource_updates);
+        },
+        Text(text_id) => {
+
+        },
+        Image(image_id) => {
+
+        },
+        GlTexture(texture) => {
+            // This is probably going to destroy the texture too early, and not
+            // going to work properly. So this is simply an attempt at getting something going
+            use glium::GlObject;
+            let opaque = true;
+            let allow_mipmaps = true;
+            let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
+            let key = render_api.generate_image_key();
+            let data = ImageData::External(ExternalImageData {
+                id: ExternalImageId(texture.inner.get_id() as u64), // todo: is this how you pass a texture handle?
+                channel_index: 0,
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+            });
+
+            resource_updates.push(ResourceUpdate::AddImage(
+                AddImage { key, descriptor, data, tiling: None }
+            ));
+
+            builder.push_image(
+                &info,
+                bounds.size,
+                LayoutSize::zero(),
+                ImageRendering::Auto,
+                AlphaType::Alpha,
+                key);
+        },
+    }
+
+    if clip_region_id.is_some() {
+        builder.pop_clip_id();
+    }
+}
+
+#[inline]
+fn push_rect(
+    info: &PrimitiveInfo<LayoutPixel>,
+    builder: &mut DisplayListBuilder,
+    color: &BackgroundColor)
+{
+    builder.push_rect(&info, color.0.into());
 }
 
 #[inline]
 fn push_text<T: Layout>(
     info: &PrimitiveInfo<LayoutPixel>,
-    display_list: &DisplayList<T>,
-    rect_idx: NodeId,
+    text: &str,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     app_resources: &mut AppResources<T>,
@@ -406,14 +443,6 @@ fn push_text<T: Layout>(
     use euclid::{TypedPoint2D, Length};
     use text_layout;
     use css_parser::{TextAlignmentHorz, TextOverflowBehaviour};
-
-    // NOTE: If the text is outside the current bounds, webrender will not display the text, i.e. clip it
-    let arena = display_list.ui_descr.ui_descr_arena.borrow();
-
-    let text = match arena[rect_idx].data.node_type {
-        Label(ref text) => text,
-        _ => return,
-    };
 
     if text.is_empty() {
         return;
@@ -443,21 +472,12 @@ fn push_text<T: Layout>(
     let horz_alignment = style.text_align.unwrap_or(TextAlignmentHorz::default());
     let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
-    let mut scrollbar_bar_style = RectStyle::default();
-    scrollbar_bar_style.background_color = Some(BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }));
-
-    let mut scrollbar_background_style = RectStyle::default();
-    scrollbar_background_style.background_color = Some(BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }));
-
-    let mut scrollbar_triangle_style = RectStyle::default();
-    scrollbar_triangle_style.background_color = Some(BackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }));
-
     let scrollbar_style = ScrollbarInfo {
         width: 17,
         padding: 2,
-        background_style: scrollbar_background_style,
-        triangle_style: scrollbar_triangle_style,
-        bar_style: scrollbar_bar_style,
+        background_color: BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
+        triangle_color: BackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
+        bar_color: BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
     };
 
     let (positioned_glyphs, scrollbar_info) = text_layout::put_text_in_bounds(
@@ -519,7 +539,7 @@ fn push_scrollbar(
             tag: None, // TODO: for hit testing
         };
 
-        push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_style);
+        push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_color);
     }
 
     {
@@ -540,7 +560,7 @@ fn push_scrollbar(
             tag: None, // TODO: for hit testing
         };
 
-        push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_style);
+        push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_color);
     }
 
     {
@@ -559,11 +579,11 @@ fn push_scrollbar(
         scrollbar_triangle_rect.size.width /= 2.0;
         scrollbar_triangle_rect.size.height /= 2.0;
 
-        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_style, TriangleDirection::PointUp);
+        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointUp);
 
         // Triangle bottom
         scrollbar_triangle_rect.origin.y += bounds.size.height - scrollbar_style.width as f32 + scrollbar_style.padding as f32;
-        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_style, TriangleDirection::PointDown);
+        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointDown);
     }
 }
 
@@ -577,7 +597,7 @@ enum TriangleDirection {
 fn push_triangle(
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    style: &RectStyle,
+    background_color: &BackgroundColor,
     direction: TriangleDirection)
 {
     use euclid::TypedPoint2D;
@@ -585,11 +605,6 @@ fn push_triangle(
 
     // see: https://css-tricks.com/snippets/css/css-triangle/
     // uses the "3d effect" for making a triangle
-
-    let background_color = match style.background_color {
-        None => return,
-        Some(s) => s,
-    };
 
     let triangle_rect_info = PrimitiveInfo {
         rect: *bounds,
@@ -685,14 +700,9 @@ fn push_background<T: Layout>(
     info: &PrimitiveInfo<LayoutPixel>,
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    style: &RectStyle,
+    background: &Background,
     app_resources: &AppResources<T>)
 {
-    let background = match style.background {
-        Some(ref bg) => bg,
-        None => return,
-    };
-
     match background {
         Background::RadialGradient(gradient) => {
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
