@@ -98,7 +98,7 @@ pub enum NodeType {
 
 #[derive(Debug, Clone)]
 pub struct Texture {
-    inner: Rc<Texture2d>,
+    pub(crate) inner: Rc<Texture2d>,
 }
 
 impl Texture {
@@ -361,36 +361,48 @@ impl<T: Layout> Dom<T> {
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_id<S: Into<String>>(mut self, id: S) -> Self {
-        self.id(id);
+        self.set_id(id);
         self
     }
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_class<S: Into<String>>(mut self, class: S) -> Self {
-        self.class(class);
+        self.set_class(class);
         self
     }
 
     /// Same as `event`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_event(mut self, on: On, callback: Callback<T>) -> Self {
-        self.event(on, callback);
+    pub fn with_callback(mut self, on: On, callback: Callback<T>) -> Self {
+        self.set_callback(on, callback);
         self
     }
 
     #[inline]
-    pub fn id<S: Into<String>>(&mut self, id: S) {
+    pub fn with_child(mut self, child: Self) -> Self {
+        self.add_child(child);
+        self
+    }
+
+    #[inline]
+    pub fn with_sibling(mut self, sibling: Self) -> Self {
+        self.add_sibling(sibling);
+        self
+    }
+
+    #[inline]
+    pub fn set_id<S: Into<String>>(&mut self, id: S) {
         self.arena.borrow_mut()[self.last].data.id = Some(id.into());
     }
 
     #[inline]
-    pub fn class<S: Into<String>>(&mut self, class: S) {
+    pub fn set_class<S: Into<String>>(&mut self, class: S) {
         self.arena.borrow_mut()[self.last].data.classes.push(class.into());
     }
 
     #[inline]
-    pub fn event(&mut self, on: On, callback: Callback<T>) {
+    pub fn set_callback(&mut self, on: On, callback: Callback<T>) {
         self.arena.borrow_mut()[self.last].data.events.callbacks.insert(on, callback);
         self.arena.borrow_mut()[self.last].data.tag = Some(unsafe { NODE_ID });
         unsafe { NODE_ID += 1; };
