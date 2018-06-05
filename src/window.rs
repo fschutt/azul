@@ -1,5 +1,6 @@
 //! Window creation module
 
+use dom::Texture;
 use glium::backend::Facade;
 use glium::backend::Context;
 use css::FakeCss;
@@ -79,6 +80,11 @@ impl ReadOnlyWindow {
     // Since webrender is asynchronous, we can't let the user draw
     // directly onto the frame or the texture since that has to be timed
     // with webrender
+    pub fn create_texture(&self, width: u32, height: u32) -> Texture {
+        use glium::texture::texture2d::Texture2d;
+        let tex = Texture2d::empty(&*self.inner, width, height).unwrap();
+        Texture::new(tex)
+    }
 }
 
 pub struct WindowInfo {

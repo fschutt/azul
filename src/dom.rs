@@ -15,6 +15,7 @@ use svg::SvgLayerId;
 use images::ImageId;
 use cache::DomHash;
 use text_cache::TextId;
+use glium::framebuffer::SimpleFrameBuffer;
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static mut NODE_ID: u64 = 0;
@@ -102,10 +103,14 @@ pub struct Texture {
 }
 
 impl Texture {
-    fn new(tex: Texture2d) -> Self {
+    pub(crate) fn new(tex: Texture2d) -> Self {
         Self {
             inner: Rc::new(tex),
         }
+    }
+
+    pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
+        self.inner.as_surface()
     }
 }
 

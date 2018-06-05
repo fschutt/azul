@@ -390,10 +390,12 @@ fn displaylist_handle_rect<T: Layout>(
             // This is probably going to destroy the texture too early, and not
             // going to work properly. So this is simply an attempt at getting something going
             use glium::GlObject;
+
             let opaque = true;
             let allow_mipmaps = true;
             let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
             let key = render_api.generate_image_key();
+
             let data = ImageData::External(ExternalImageData {
                 id: ExternalImageId(texture.inner.get_id() as u64), // todo: is this how you pass a texture handle?
                 channel_index: 0,
