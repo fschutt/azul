@@ -535,9 +535,12 @@ fn render<T: Layout>(
     use display_list::DisplayList;
     use euclid::TypedSize2D;
 
+    println!("epoch: {:?}", window.internal.epoch);
+
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(
         window.internal.pipeline_id,
+        window.internal.epoch,
         &mut window.solver,
         &mut window.css,
         app_resources,

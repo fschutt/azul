@@ -1,3 +1,5 @@
+use webrender::api::Epoch;
+use dom::Texture;
 use text_cache::TextRegistry;
 use traits::Layout;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -40,10 +42,19 @@ pub(crate) struct AppResources<'a, T: Layout> {
     // we first need to create one.
     pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
     /// Stores the polygon data for all SVGs. Polygons can be shared across windows
-    /// without duplicating the data. This doesn't store any rendering-related data, only the polygons
+    /// without duplicating the data. This doesn't store any rendering-related data,
+    /// only the polygons
     pub(crate) svg_registry: SvgRegistry<T>,
     /// Stores long texts across frames
     pub(crate) text_registry: TextRegistry,
+    /// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
+    /// as webrender needs it for drawing. To transparently do this, we store the epoch that the
+    /// texture was originally created with, and check, **after we have drawn the frame**,
+    /// if there are any textures that need cleanup.
+    ///
+    /// Because the Texture2d is wrapped in an Rc, the destructor (which cleans up the OpenGL
+    /// texture) does not run until we remove the textures
+    pub(crate) not_freed_gl_textures: FastHashMap<Epoch, Vec<Texture>>
 }
 
 impl<'a, T: Layout> Default for AppResources<'a, T> {
@@ -54,6 +65,7 @@ impl<'a, T: Layout> Default for AppResources<'a, T> {
             font_data: FastHashMap::default(),
             images: FastHashMap::default(),
             text_registry: TextRegistry::default(),
+            not_freed_gl_textures: FastHashMap::default(),
         }
     }
 }
@@ -183,6 +195,16 @@ impl<'a, T: Layout> AppResources<'a, T> {
 
     pub(crate) fn clear_all_texts(&mut self) {
         self.text_registry.clear_all_texts();
+    }
+
+    /// This function should be called after webrender is done with drawing
+    /// all the textures for a certain frame ID (i.e. "epoch") - meaning after
+    /// `display.swap_buffers()` is done. Since the `Texture` is simply a
+    /// wrapper around `Rc<Texture2d>`, invoking this function will destruct
+    /// the last `Rc` that holds a reference to the handle and execute the
+    /// destructor for all OpenGL textures that are currently in use.
+    pub(crate) fn clean_up_gl_textures_for_epoch(&mut self, epoch: &Epoch) {
+        self.not_freed_gl_textures.remove(epoch);
     }
 
     /// Parses an input source, parses the SVG, adds the shapes as layers into

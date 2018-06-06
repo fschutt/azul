@@ -61,11 +61,13 @@ impl Svg {
 
         let tex = window.create_texture(800, 800);
         tex.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
-
+/*
         Dom::new(NodeType::Div)
         .with_class("__azul-native-svg")
             .with_child(Dom::new(NodeType::GlTexture(tex)))
             .with_id("my_opengl_id")
+*/
+        Dom::new(NodeType::GlTexture(tex))
     }
 }
 
