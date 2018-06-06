@@ -213,6 +213,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     pub fn into_display_list_builder(
         &self,
         pipeline_id: PipelineId,
+        current_epoch: Epoch,
         ui_solver: &mut UiSolver<T>,
         css: &mut Css,
         app_resources: &mut AppResources<T>,
@@ -293,7 +294,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 full_screen_rect,
                 app_resources,
                 render_api,
-                &mut resource_updates);
+                &mut resource_updates,
+                current_epoch);
         }
 
         render_api.update_resources(resource_updates);
@@ -310,7 +312,8 @@ fn displaylist_handle_rect<T: Layout>(
     full_screen_rect: TypedRect<f32, LayoutPixel>,
     app_resources: &mut AppResources<T>,
     render_api: &RenderApi,
-    resource_updates: &mut Vec<ResourceUpdate>)
+    resource_updates: &mut Vec<ResourceUpdate>,
+    current_epoch: Epoch)
 {
     let info = LayoutPrimitiveInfo {
         rect: bounds,
@@ -413,6 +416,9 @@ fn displaylist_handle_rect<T: Layout>(
                 ImageRendering::Auto,
                 AlphaType::Alpha,
                 key);
+
+            app_resources.not_freed_gl_textures.entry(current_epoch).or_insert(Vec::new())
+                .push(texture.clone());
         },
     }
 
