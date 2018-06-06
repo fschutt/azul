@@ -59,7 +59,7 @@ impl Svg {
     pub fn dom<T: Layout>(&self, window: &ReadOnlyWindow) -> Dom<T> {
         use glium::Surface;
 
-        let tex = window.create_texture(800, 800);
+        let tex = window.create_texture(800, 600);
         tex.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
 /*
         Dom::new(NodeType::Div)

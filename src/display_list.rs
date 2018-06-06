@@ -213,7 +213,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     pub fn into_display_list_builder(
         &self,
         pipeline_id: PipelineId,
-        current_epoch: Epoch,
         ui_solver: &mut UiSolver<T>,
         css: &mut Css,
         app_resources: &mut AppResources<T>,
@@ -294,8 +293,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 full_screen_rect,
                 app_resources,
                 render_api,
-                &mut resource_updates,
-                current_epoch);
+                &mut resource_updates);
         }
 
         render_api.update_resources(resource_updates);
@@ -312,8 +310,7 @@ fn displaylist_handle_rect<T: Layout>(
     full_screen_rect: TypedRect<f32, LayoutPixel>,
     app_resources: &mut AppResources<T>,
     render_api: &RenderApi,
-    resource_updates: &mut Vec<ResourceUpdate>,
-    current_epoch: Epoch)
+    resource_updates: &mut Vec<ResourceUpdate>)
 {
     let info = LayoutPrimitiveInfo {
         rect: bounds,
@@ -393,14 +390,18 @@ fn displaylist_handle_rect<T: Layout>(
             // This is probably going to destroy the texture too early, and not
             // going to work properly. So this is simply an attempt at getting something going
             use glium::GlObject;
+            use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
             let opaque = true;
             let allow_mipmaps = true;
             let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
             let key = render_api.generate_image_key();
+            let external_image_id = ExternalImageId(texture.inner.get_id() as u64);
+
+            println!("pushing texture with ID: {:?}", external_image_id);
 
             let data = ImageData::External(ExternalImageData {
-                id: ExternalImageId(texture.inner.get_id() as u64), // todo: is this how you pass a texture handle?
+                id: external_image_id,
                 channel_index: 0,
                 image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             });
@@ -417,8 +418,7 @@ fn displaylist_handle_rect<T: Layout>(
                 AlphaType::Alpha,
                 key);
 
-            app_resources.not_freed_gl_textures.entry(current_epoch).or_insert(Vec::new())
-                .push(texture.clone());
+            ACTIVE_GL_TEXTURES.lock().unwrap().insert(external_image_id, ActiveTexture { texture: texture.clone() });
         },
     }
 
