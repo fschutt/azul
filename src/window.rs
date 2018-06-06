@@ -333,8 +333,7 @@ impl RenderNotifier for Notifier {
         self.events_loop_proxy.wakeup().unwrap_or_else(|_| { eprintln!("couldn't wakeup event loop"); });
     }
 
-    fn new_frame_ready(&self, id: DocumentId, _scrolled: bool, _composite_needed: bool) {
-        println!("sending wakeup event: {:?}", id);
+    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool) {
         self.wake_up();
     }
 }
@@ -636,7 +635,7 @@ impl<T: Layout> Window<T> {
         solver.suggest_value(window_dim.width_var, window_dim.width() as f64).unwrap();
         solver.suggest_value(window_dim.height_var, window_dim.height() as f64).unwrap();
 
-        renderer.set_external_image_handler(Box::new(Compositor::new()));
+        renderer.set_external_image_handler(Box::new(Compositor::default()));
 
         let window = Window {
             events_loop: events_loop,

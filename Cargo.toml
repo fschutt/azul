@@ -17,6 +17,7 @@ unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
 svg = "0.5.10"
 lyon = { version = "0.10.0", features = ["extra"] }
+lazy_static = "1.0.1"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"

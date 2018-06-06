@@ -312,6 +312,7 @@ impl<'a, T: Layout> App<'a, T> {
             ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
             render(window, &WindowId { id: idx, }, &ui_description_cache[idx], &mut app_state.resources, true);
             window.display.swap_buffers().unwrap();
+
         }
 
         ui_description_cache
@@ -515,7 +516,6 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
             }
         },
         Event::Awakened => {
-            println!("received awakened event!");
             frame_event_info.should_swap_window = true;
         },
         _ => { },
@@ -535,12 +535,9 @@ fn render<T: Layout>(
     use display_list::DisplayList;
     use euclid::TypedSize2D;
 
-    println!("epoch: {:?}", window.internal.epoch);
-
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(
         window.internal.pipeline_id,
-        window.internal.epoch,
         &mut window.solver,
         &mut window.css,
         app_resources,
@@ -567,7 +564,6 @@ fn render<T: Layout>(
     );
 
     txn.set_root_pipeline(window.internal.pipeline_id);
-    println!("generating frame!");
     txn.generate_frame();
     window.internal.api.send_transaction(window.internal.document_id, txn);
 
