@@ -57,17 +57,22 @@ impl Svg {
     }
 
     pub fn dom<T: Layout>(&self, window: &ReadOnlyWindow) -> Dom<T> {
-        use glium::Surface;
-
-        let tex = window.create_texture(800, 600);
-        tex.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
 /*
+        use glium::Surface;
+        window.make_current();
+        let tex = window.create_texture(800, 600);
+        {
+            let mut surface = tex.as_surface();
+            surface.clear_color_and_depth((0.0, 1.0, 0.0, 1.0), 1.0);
+        }
         Dom::new(NodeType::Div)
         .with_class("__azul-native-svg")
             .with_child(Dom::new(NodeType::GlTexture(tex)))
             .with_id("my_opengl_id")
 */
-        Dom::new(NodeType::GlTexture(tex))
+        // Dom::new(NodeType::GlTexture(tex))
+        Dom::new(NodeType::Div)
+            .with_class("__azul-native-button")
     }
 }
 
