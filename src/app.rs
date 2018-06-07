@@ -64,6 +64,7 @@ pub(crate) struct FrameEventInfo {
     pub(crate) cur_cursor_pos: (f64, f64),
     pub(crate) new_window_size: Option<(u32, u32)>,
     pub(crate) new_dpi_factor: Option<f32>,
+    pub(crate) is_resize_event: bool,
 }
 
 impl Default for FrameEventInfo {
@@ -75,6 +76,7 @@ impl Default for FrameEventInfo {
             cur_cursor_pos: (0.0, 0.0),
             new_window_size: None,
             new_dpi_factor: None,
+            is_resize_event: false,
         }
     }
 }
@@ -138,20 +140,22 @@ impl<'a, T: Layout> App<'a, T> {
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
         let mut ui_description_cache = Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
 
+        let mut force_redraw_cache = vec![0_usize; self.windows.len()];
+
         while !self.windows.is_empty() {
 
             let time_start = Instant::now();
             let mut closed_windows = Vec::<usize>::new();
 
             for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
-
+/*
                 unsafe {
                     use glium::glutin::GlContext;
                     window.display.gl_window().make_current().unwrap();
                 }
-
+*/
                 // TODO: move this somewhere else
-                let svg_shader = &self.app_state.resources.svg_registry.init_shader(&window.display);
+                // let svg_shader = &self.app_state.resources.svg_registry.init_shader(&window.display);
 
                 let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
@@ -163,30 +167,45 @@ impl<'a, T: Layout> App<'a, T> {
                     }
                 });
 
-                if frame_event_info.should_swap_window {
+                if frame_event_info.is_resize_event {
+                    // This is a hack because during a resize event, winit eats the "awakened"
+                    // event. So what we do is that we call the layout-and-render again, to
+                    // trigger a second "awakened" event. So when the window is resized, the
+                    // layout function is called twice (the first event will be eaten by winit)
+                    //
+                    // This is a reported bug and should be fixed somewhere in July
+                    force_redraw_cache[idx] = 3;
+                }
+
+                if frame_event_info.should_swap_window || frame_event_info.is_resize_event {
                     window.display.swap_buffers()?;
-                    continue;
+                    if let Some(i) = force_redraw_cache.get_mut(idx) {
+                        *i -= 1;
+                    }
                 }
 
                 if frame_event_info.should_hittest {
                     Self::do_hit_test_and_call_callbacks(window, window_id, &mut frame_event_info, &ui_state_cache, &mut self.app_state);
                 }
 
-                ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowInfo {
-                    window_id: WindowId { id: idx },
-                    window: ReadOnlyWindow {
-                        inner: window.display.clone(),
-                    }
-                });
-
                 // Update the window state that we got from the frame event (updates window dimensions and DPI)
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
                 window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
 
-                if frame_event_info.should_redraw_window {
+                if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
+                    // Call the Layout::layout() fn, get the DOM
+                    ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowInfo {
+                        window_id: WindowId { id: idx },
+                        window: ReadOnlyWindow {
+                            inner: window.display.clone(),
+                        }
+                    });
+                    // Style the DOM
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+                    // send webrender the size and buffer of the display
                     Self::update_display(&window);
+                    // render the window (webrender will send an Awakened event when the frame is done)
                     render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
                 }
             }
@@ -195,6 +214,7 @@ impl<'a, T: Layout> App<'a, T> {
             closed_windows.into_iter().for_each(|closed_window_id| {
                 ui_state_cache.remove(closed_window_id);
                 ui_description_cache.remove(closed_window_id);
+                force_redraw_cache.remove(closed_window_id);
                 self.windows.remove(closed_window_id);
             });
 
@@ -217,7 +237,6 @@ impl<'a, T: Layout> App<'a, T> {
 
     fn update_display(window: &Window<T>)
     {
-
         use webrender::api::{Transaction, DeviceUintRect, DeviceUintPoint};
         use euclid::TypedSize2D;
 
@@ -311,8 +330,6 @@ impl<'a, T: Layout> App<'a, T> {
         for (idx, window) in windows.iter_mut().enumerate() {
             ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
             render(window, &WindowId { id: idx, }, &ui_description_cache[idx], &mut app_state.resources, true);
-            window.display.swap_buffers().unwrap();
-
         }
 
         ui_description_cache
@@ -502,12 +519,15 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
                 },
                 WindowEvent::Resized(w, h) => {
                     frame_event_info.new_window_size = Some((w, h));
+                    frame_event_info.is_resize_event = true;
+                    frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::Refresh => {
                     frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::HiDPIFactorChanged(dpi) => {
                     frame_event_info.new_dpi_factor = Some(dpi);
+                    frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::Closed => {
                     return true;
@@ -565,8 +585,8 @@ fn render<T: Layout>(
 
     txn.set_root_pipeline(window.internal.pipeline_id);
     txn.generate_frame();
-    window.internal.api.send_transaction(window.internal.document_id, txn);
 
+    window.internal.api.send_transaction(window.internal.document_id, txn);
     window.renderer.as_mut().unwrap().update();
     window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 }

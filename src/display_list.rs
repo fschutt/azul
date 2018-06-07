@@ -398,8 +398,6 @@ fn displaylist_handle_rect<T: Layout>(
             let key = render_api.generate_image_key();
             let external_image_id = ExternalImageId(texture.inner.get_id() as u64);
 
-            println!("pushing texture with ID: {:?}", external_image_id);
-
             let data = ImageData::External(ExternalImageData {
                 id: external_image_id,
                 channel_index: 0,
@@ -897,11 +895,10 @@ fn create_layout_constraints<'a>(
     use constraints::{SizeConstraint, Strength};
 
     let mut layout_constraints = Vec::<CssConstraint>::new();
+    /*
     let max_width = arena.get_wh_for_rectangle(rect_id, WidthOrHeight::Width)
                          .unwrap_or(window_size.width as f32);
-
-    println!("max width for rectangle with the ID {} is: {}", rect_id, max_width);
-
+    */
     layout_constraints.push(CssConstraint::Size((SizeConstraint::Width(200.0), Strength(STRONG))));
     layout_constraints.push(CssConstraint::Size((SizeConstraint::Height(200.0), Strength(STRONG))));
 

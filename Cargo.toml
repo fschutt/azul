@@ -21,7 +21,7 @@ lazy_static = "1.0.1"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "952521658aaf331e7b7382fb18ca1d8b7bfc9dc8"
+rev = "2e381e0325f367429810099d5abf76e674f697ed"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)

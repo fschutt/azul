@@ -85,6 +85,19 @@ impl ReadOnlyWindow {
         let tex = Texture2d::empty(&*self.inner, width, height).unwrap();
         Texture::new(tex)
     }
+
+    pub fn make_current(&self) {
+        unsafe {
+            use glium::glutin::GlContext;
+            self.inner.gl_window().make_current().unwrap();
+        }
+    }
+/*
+    pub fn undbind_fb(&self) {
+        let gl = self.inner.
+            gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    }
+*/
 }
 
 pub struct WindowInfo {
@@ -455,11 +468,6 @@ pub(crate) struct WindowInternal {
     pub(crate) document_id: DocumentId,
 }
 
-/*
-pub(crate) layout_size: LayoutSize,
-pub(crate) framebuffer_size: DeviceUintSize,
-*/
-
 impl<T: Layout> Window<T> {
 
     /// Creates a new window
@@ -507,8 +515,16 @@ impl<T: Layout> Window<T> {
                     opengl_version: (3, 2),
                     opengles_version: (3, 0),
                 })
-                .with_gl_profile(GlProfile::Core)
-                .with_gl_debug_flag(false);
+                .with_gl_profile(GlProfile::Core);
+
+            #[cfg(debug_assertions)] {
+                builder = builder.with_gl_debug_flag(true);
+            }
+
+            #[cfg(not(debug_assertions))] {
+                builder = builder.with_gl_debug_flag(false);
+            }
+
             if vsync {
                 builder = builder.with_vsync(true);
             }
@@ -518,40 +534,20 @@ impl<T: Layout> Window<T> {
             builder
         }
 
-        // For some reason, there is GL_INVALID_OPERATION stuff going on,
-        // but the display works fine. TODO: report this to glium
-
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
             .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
             .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
             .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
 
-        let hidpi_factor = gl_window.hidpi_factor();
-
         if let Some(WindowPosition { x, y }) = options.state.position {
             gl_window.window().set_position(x as i32, y as i32);
         }
 
+        #[cfg(debug_assertions)]
+        let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
+        #[cfg(not(debug_assertions))]
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
-
-        unsafe {
-            display.gl_window().make_current()?;
-        }
-
-        // draw the first frame in the background color
-        use glium::Surface;
-        let mut frame = display.draw();
-        if let Some(depth) = options.clear_depth {
-            if let Some(stencil) = options.clear_stencil {
-                frame.clear_all_srgb((options.background.r, options.background.g, options.background.b, options.background.a), depth, stencil);
-            }
-            frame.clear_color_srgb_and_depth((options.background.r, options.background.g, options.background.b, options.background.a), depth);
-        } else if let Some(stencil) = options.clear_stencil {
-            frame.clear_color_srgb_and_stencil((options.background.r, options.background.g, options.background.b, options.background.a), stencil);
-        }
-        frame.clear_color_srgb(options.background.r, options.background.g, options.background.b, options.background.a);
-        frame.finish()?;
 
         let device_pixel_ratio = display.gl_window().hidpi_factor();
 
@@ -567,7 +563,8 @@ impl<T: Layout> Window<T> {
                 enable_subpixel_aa: true,
                 enable_aa: true,
                 clear_color: clear_color,
-                enable_render_on_scroll: false,
+                enable_render_on_scroll: true,
+                enable_scrollbars: true,
                 cached_programs: Some(ProgramCache::new(None)),
                 renderer_kind: if native {
                     RendererKind::Native
