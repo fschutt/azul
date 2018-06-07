@@ -92,12 +92,23 @@ impl ReadOnlyWindow {
             self.inner.gl_window().make_current().unwrap();
         }
     }
-/*
-    pub fn undbind_fb(&self) {
-        let gl = self.inner.
-            gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+
+    pub fn unbind_framebuffer(&self) {
+        let gl = match self.inner.gl_window().get_api() {
+            glutin::Api::OpenGl => unsafe {
+                gl::GlFns::load_with(|symbol|
+                    self.inner.gl_window().get_proc_address(symbol) as *const _)
+            },
+            glutin::Api::OpenGlEs => unsafe {
+                gl::GlesFns::load_with(|symbol|
+                    self.inner.gl_window().get_proc_address(symbol) as *const _)
+            },
+            glutin::Api::WebGl => unreachable!(),
+        };
+
+        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
     }
-*/
+
 }
 
 pub struct WindowInfo {
