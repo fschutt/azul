@@ -10,26 +10,29 @@ const TEST_SVG: &[u8] = include_bytes!("../assets/svg/test.svg");
 
 #[derive(Debug)]
 pub struct MyAppData {
-    // Your app data goes here
-    pub my_data: u32,
-    // SVG IDs
-    pub my_svg_ids: Vec<SvgLayerId>,
+    pub svg: Option<(SvgCache<MyAppData>, Vec<SvgLayerId>)>,
 }
 
 impl Layout for MyAppData {
     fn layout(&self, info: WindowInfo)
     -> Dom<MyAppData>
     {
-        Svg::empty().dom(&info.window)
+        if let Some((svg_cache, svg_layers)) = &self.svg {
+            Svg::with_layers(svg_layers).dom(&info.window, &svg_cache)
+        } else {
+            // TODO: This currently crashes because of the double-redraw bug
+            Dom::new(NodeType::Div)
+                .with_class("__azul-native-button")
+                .with_callback(On::MouseUp, Callback(my_button_click_handler))
+        }
     }
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
     // Load and parse the SVG file, register polygon data as IDs
-/*
-    let mut svg_ids = app_state.add_svg(TEST_SVG).unwrap();
-    app_state.data.modify(|data| data.my_svg_ids.append(&mut svg_ids));
-*/
+    let mut svg_cache = SvgCache::empty();
+    let svg_layers= svg_cache.add_svg(TEST_SVG).unwrap();
+    app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
     UpdateScreen::Redraw
 }
 
@@ -39,8 +42,7 @@ fn main() {
     let css = Css::new_from_string(TEST_CSS).unwrap();
 
     let my_app_data = MyAppData {
-        my_data: 0,
-        my_svg_ids: Vec::new(),
+        svg: None,
     };
 
     let mut app = App::new(my_app_data);

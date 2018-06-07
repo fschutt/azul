@@ -131,7 +131,7 @@ pub mod prelude {
         ExtendMode, PixelValue, PercentageValue,
     };
 
-    pub use svg::{SvgLayerId, SvgLayer};
+    pub use svg::{SvgLayerId, SvgLayer, SvgCache};
 
     // from the extern crate image
     pub use image::ImageError;

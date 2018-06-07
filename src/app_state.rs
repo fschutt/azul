@@ -12,7 +12,7 @@ use font::FontError;
 use std::collections::hash_map::Entry::*;
 use FastHashMap;
 use std::sync::{Arc, Mutex};
-use svg::{SvgLayerId, SvgLayer, SvgParseError, SvgRegistry};
+use svg::{SvgLayerId, SvgLayer, SvgParseError};
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `Layout` trait (how the application
@@ -30,7 +30,7 @@ pub struct AppState<'a, T: Layout> {
     /// ```
     pub windows: Vec<FakeWindow>,
     /// Fonts and images that are currently loaded into the app
-    pub(crate) resources: AppResources<'a, T>,
+    pub(crate) resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
     pub(crate) deamons: FastHashMap<String, fn(&mut T) -> UpdateScreen>,
     /// Currently running tasks (asynchronous functions running on a different thread)
@@ -187,37 +187,6 @@ impl<'a, T: Layout> AppState<'a, T> {
     /// already a deamon with the same ID
     pub fn delete_deamon<S: AsRef<str>>(&mut self, id: S) -> bool {
         self.deamons.remove(id.as_ref()).is_some()
-    }
-
-    /// A "SvgLayer" represents one or more shapes that get drawn using the same style (necessary for batching).
-    /// Adds the SVG layer as a resource to the internal resources, the returns the ID, which you can use in the
-    /// `NodeType::SvgLayer` to draw the SVG layer.
-    pub fn add_svg_layer(&mut self, layer: SvgLayer<T>)
-    -> SvgLayerId
-    {
-        self.resources.add_svg_layer(layer)
-    }
-
-    /// Deletes a specific shape from the app-internal resources. When drawing with an invalid ID, the app will crash
-    /// (in debug mode) or simply not draw the shape (in release mode)
-    pub fn delete_svg_layer(&mut self, svg_id: SvgLayerId)
-    {
-        self.resources.delete_svg_layer(svg_id);
-    }
-
-    /// Clears all crate-internal resources and shapes. Use with care.
-    pub fn clear_all_svg_layers(&mut self)
-    {
-        self.resources.clear_all_svg_layers();
-    }
-
-    /// Parses an input source, parses the SVG, adds the shapes as layers into
-    /// the registry, returns the IDs of the added shapes, in the order that
-    /// they appeared in the SVG text.
-    pub fn add_svg<R: Read>(&mut self, input: R)
-    -> Result<Vec<SvgLayerId>, SvgParseError>
-    {
-        self.resources.add_svg(input)
     }
 
     /// Run all currently registered deamons
