@@ -1,6 +1,7 @@
 ---
 name: Feature request
 about: Suggest an idea to improve azul
+label: feature-request
 
 ---
 

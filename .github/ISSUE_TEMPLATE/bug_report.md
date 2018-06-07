@@ -1,6 +1,7 @@
 ---
 name: Bug report
 about: Report a problem encountered while using azul
+label: bug
 
 ---
 
