@@ -168,7 +168,7 @@ impl<'a, T: Layout> App<'a, T> {
                     }
                 }
 
-                if frame_event_info.is_resize_event {
+                if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
                     // This is a hack because during a resize event, winit eats the "awakened"
                     // event. So what we do is that we call the layout-and-render again, to
                     // trigger a second "awakened" event. So when the window is resized, the
@@ -181,7 +181,7 @@ impl<'a, T: Layout> App<'a, T> {
                 if frame_event_info.should_swap_window || frame_event_info.is_resize_event {
                     window.display.swap_buffers()?;
                     if let Some(i) = force_redraw_cache.get_mut(idx) {
-                        i.saturating_sub(1);
+                       if *i > 0 { *i -= 1 };
                     }
                 }
 
