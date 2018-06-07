@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+use glium::backend::Facade;
 use std::rc::Rc;
 use glium::DrawParameters;
 use glium::IndexBuffer;
@@ -49,44 +51,49 @@ pub struct SvgLayerId(usize);
 
 #[derive(Debug, Clone)]
 pub struct SvgShader {
-    program: Rc<Program>,
+    pub program: Rc<Program>,
 }
 
 impl SvgShader {
-    pub fn new(display: &Display) -> Self {
+    pub fn new<F: Facade + ?Sized>(display: &F) -> Self {
         Self {
             program: Rc::new(Program::from_source(display, SVG_VERTEX_SHADER, SVG_FRAGMENT_SHADER, None).unwrap()),
         }
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct SvgRegistry<T: Layout> {
+pub struct SvgCache<T: Layout> {
     // note: one "layer" merely describes one or more polygons that have the same style
-    layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
-    shader: Option<SvgShader>,
+    pub layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
+    shader: Mutex<Option<SvgShader>>,
 }
 
-impl<T: Layout> Default for SvgRegistry<T> {
+impl<T: Layout> Default for SvgCache<T> {
     fn default() -> Self {
         Self {
             layers: FastHashMap::default(),
-            shader: None,
+            shader: Mutex::new(None),
         }
     }
 }
 
-impl<T: Layout> SvgRegistry<T> {
-    /// Builds and compiles the shader if the shader isn't already present
-    pub(crate) fn init_shader(&mut self, display: &Display) -> SvgShader {
-        if self.shader.is_none() {
-            self.shader = Some(SvgShader::new(display));
+impl<T: Layout> SvgCache<T> {
+
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Builds and compiles the SVG shader if the shader isn't already present
+    pub fn init_shader<F: Facade + ?Sized>(&self, display: &F) -> SvgShader {
+        let mut shader_lock = self.shader.lock().unwrap();
+        if shader_lock.is_none() {
+            *shader_lock = Some(SvgShader::new(display));
         }
-        self.shader.as_ref().and_then(|s| Some(s.clone())).unwrap()
+        shader_lock.as_ref().and_then(|s| Some(s.clone())).unwrap()
     }
 }
 
-impl<T: Layout> fmt::Debug for SvgRegistry<T> {
+impl<T: Layout> fmt::Debug for SvgCache<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for layer in self.layers.keys() {
             write!(f, "{:?}", layer)?;
@@ -95,7 +102,7 @@ impl<T: Layout> fmt::Debug for SvgRegistry<T> {
     }
 }
 
-impl<T: Layout> SvgRegistry<T> {
+impl<T: Layout> SvgCache<T> {
 
     pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
         let new_svg_id = SvgLayerId(unsafe { SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst) });
@@ -156,42 +163,6 @@ impl<T: Layout> Clone for SvgLayer<T> {
             style: self.style.clone(),
         }
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct SvgWorldPixel;
-
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct SvgVert {
-    pub(crate) xy: (f32, f32),
-}
-
-implement_vertex!(SvgVert, xy);
-
-pub(crate) fn draw_polygons(
-    target: &mut Texture2d,
-    shader: &SvgShader,
-    color: &ColorF,
-    bbox: &TypedRect<f32, SvgWorldPixel>,
-    vbuf: &VertexBuffer<SvgVert>,
-    ibuf: &IndexBuffer<u32>,
-    z_index: f32)
-{
-    use glium::Surface;
-
-    let draw_options = DrawParameters {
-        primitive_restart_index: true,
-        .. Default::default()
-    };
-
-    let uniforms = uniform! {
-        bbox_origin: (bbox.origin.x, bbox.origin.y),
-        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
-        z_index: z_index,
-        color: (color.r, color.g, color.b, color.a),
-    };
-
-    target.as_surface().draw(vbuf, ibuf, &*shader.program, &uniforms, &draw_options).unwrap();
 }
 
 pub enum SvgCallbacks<T: Layout> {

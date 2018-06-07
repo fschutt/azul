@@ -76,6 +76,10 @@ impl Facade for ReadOnlyWindow {
     }
 }
 
+use glium::{Vertex, VertexBuffer, IndexBuffer, index::PrimitiveType};
+use glium::vertex::BufferCreationError as VertexBufferCreationError;
+use glium::index::BufferCreationError as IndexBufferCreationError;
+
 impl ReadOnlyWindow {
     // Since webrender is asynchronous, we can't let the user draw
     // directly onto the frame or the texture since that has to be timed
@@ -109,6 +113,16 @@ impl ReadOnlyWindow {
         gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
     }
 
+    pub fn make_vertex_buffer<T: Vertex>(&self, data: &[T])
+    -> Result<VertexBuffer<T>, VertexBufferCreationError>
+    {
+        VertexBuffer::new(self, data)
+    }
+    pub fn make_index_buffer(&self, prim_type: PrimitiveType, data: &[u32])
+    -> Result<IndexBuffer<u32>, IndexBufferCreationError>
+    {
+        IndexBuffer::new(self, prim_type, data)
+    }
 }
 
 pub struct WindowInfo {
@@ -143,6 +157,18 @@ pub struct WindowEvent {
     pub cursor_relative_to_item: (f32, f32),
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
     pub cursor_in_viewport: (f32, f32),
+}
+
+impl WindowEvent {
+    // Mock window event, used for testing / calling callbacks without a window
+    pub fn mock() -> Self {
+        Self {
+            window: 0,
+            number_of_previous_siblings: None,
+            cursor_relative_to_item: (0.0, 0.0),
+            cursor_in_viewport: (0.0, 0.0),
+        }
+    }
 }
 
 /// Options on how to initially create the window

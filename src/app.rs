@@ -147,25 +147,26 @@ impl<'a, T: Layout> App<'a, T> {
             let time_start = Instant::now();
             let mut closed_windows = Vec::<usize>::new();
 
-            for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
+            'window_loop: for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
 /*
                 unsafe {
                     use glium::glutin::GlContext;
                     window.display.gl_window().make_current().unwrap();
                 }
 */
-                // TODO: move this somewhere else
-                // let svg_shader = &self.app_state.resources.svg_registry.init_shader(&window.display);
-
                 let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
 
-                window.events_loop.poll_events(|event| {
+                let mut events = Vec::new();
+                window.events_loop.poll_events(|e| events.push(e));
+
+                for event in events {
                     let should_close = process_event(event, &mut frame_event_info);
                     if should_close {
                         closed_windows.push(idx);
+                        continue 'window_loop;
                     }
-                });
+                }
 
                 if frame_event_info.is_resize_event {
                     // This is a hack because during a resize event, winit eats the "awakened"
@@ -180,7 +181,7 @@ impl<'a, T: Layout> App<'a, T> {
                 if frame_event_info.should_swap_window || frame_event_info.is_resize_event {
                     window.display.swap_buffers()?;
                     if let Some(i) = force_redraw_cache.get_mut(idx) {
-                        *i -= 1;
+                        i.saturating_sub(1);
                     }
                 }
 
@@ -548,7 +549,7 @@ fn render<T: Layout>(
     window: &mut Window<T>,
     _window_id: &WindowId,
     ui_description: &UiDescription<T>,
-    app_resources: &mut AppResources<T>,
+    app_resources: &mut AppResources,
     has_window_size_changed: bool)
 {
     use webrender::api::*;

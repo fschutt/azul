@@ -106,7 +106,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     /// Looks if any new images need to be uploaded and stores the in the image resources
     fn update_resources(
         api: &RenderApi,
-        app_resources: &mut AppResources<T>,
+        app_resources: &mut AppResources,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         Self::update_image_resources(api, app_resources, resource_updates);
@@ -115,7 +115,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
     fn update_image_resources(
         api: &RenderApi,
-        app_resources: &mut AppResources<T>,
+        app_resources: &mut AppResources,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use images::{ImageState, ImageInfo};
@@ -165,7 +165,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     // have two HashMaps that need to be updated
     fn update_font_resources(
         api: &RenderApi,
-        app_resources: &mut AppResources<T>,
+        app_resources: &mut AppResources,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontState;
@@ -215,7 +215,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         pipeline_id: PipelineId,
         ui_solver: &mut UiSolver<T>,
         css: &mut Css,
-        app_resources: &mut AppResources<T>,
+        app_resources: &mut AppResources,
         render_api: &RenderApi,
         mut has_window_size_changed: bool,
         window_size: &WindowSize)
@@ -302,13 +302,13 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-fn displaylist_handle_rect<T: Layout>(
+fn displaylist_handle_rect(
     builder: &mut DisplayListBuilder,
     rect: &DisplayRectangle,
     html_node: &NodeType,
     bounds: TypedRect<f32, LayoutPixel>,
     full_screen_rect: TypedRect<f32, LayoutPixel>,
-    app_resources: &mut AppResources<T>,
+    app_resources: &mut AppResources,
     render_api: &RenderApi,
     resource_updates: &mut Vec<ResourceUpdate>)
 {
@@ -435,12 +435,12 @@ fn push_rect(
 }
 
 #[inline]
-fn push_text<T: Layout>(
+fn push_text(
     info: &PrimitiveInfo<LayoutPixel>,
     text: &str,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    app_resources: &mut AppResources<T>,
+    app_resources: &mut AppResources,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>)
@@ -702,12 +702,12 @@ fn push_box_shadow(
 }
 
 #[inline]
-fn push_background<T: Layout>(
+fn push_background(
     info: &PrimitiveInfo<LayoutPixel>,
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
     background: &Background,
-    app_resources: &AppResources<T>)
+    app_resources: &AppResources)
 {
     match background {
         Background::RadialGradient(gradient) => {
@@ -768,11 +768,11 @@ fn push_border(
 }
 
 #[inline]
-fn push_font<T: Layout>(
+fn push_font(
     font_id: &css_parser::Font,
     font_size_app_units: Au,
     resource_updates: &mut Vec<ResourceUpdate>,
-    app_resources: &mut AppResources<T>,
+    app_resources: &mut AppResources,
     render_api: &RenderApi)
 -> Option<FontInstanceKey>
 {

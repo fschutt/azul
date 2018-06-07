@@ -14,7 +14,7 @@ use std::collections::hash_map::Entry::*;
 use app_units::Au;
 use css_parser;
 use css_parser::Font::ExternalFont;
-use svg::{SvgLayerId, SvgLayer, SvgParseError, SvgRegistry};
+use svg::{SvgLayerId, SvgLayer, SvgParseError};
 use text_cache::TextId;
 
 /// Font and image keys
@@ -28,7 +28,7 @@ use text_cache::TextId;
 /// Images and fonts can be references across window contexts
 /// (not yet tested, but should work).
 #[derive(Clone)]
-pub(crate) struct AppResources<'a, T: Layout> {
+pub(crate) struct AppResources<'a> {
     /// Image cache
     pub(crate) images: FastHashMap<String, ImageState>,
     // Fonts are trickier to handle than images.
@@ -41,18 +41,13 @@ pub(crate) struct AppResources<'a, T: Layout> {
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
     pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
-    /// Stores the polygon data for all SVGs. Polygons can be shared across windows
-    /// without duplicating the data. This doesn't store any rendering-related data,
-    /// only the polygons
-    pub(crate) svg_registry: SvgRegistry<T>,
     /// Stores long texts across frames
     pub(crate) text_registry: TextRegistry,
 }
 
-impl<'a, T: Layout> Default for AppResources<'a, T> {
+impl<'a> Default for AppResources<'a> {
     fn default() -> Self {
         Self {
-            svg_registry: SvgRegistry::default(),
             fonts: FastHashMap::default(),
             font_data: FastHashMap::default(),
             images: FastHashMap::default(),
@@ -61,7 +56,7 @@ impl<'a, T: Layout> Default for AppResources<'a, T> {
     }
 }
 
-impl<'a, T: Layout> AppResources<'a, T> {
+impl<'a> AppResources<'a> {
 
     /// See `AppState::add_image()`
     pub(crate) fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
@@ -153,27 +148,6 @@ impl<'a, T: Layout> AppResources<'a, T> {
         }
     }
 
-    /// A "SvgLayer" represents one or more shapes that get drawn using the same style (necessary for batching).
-    /// Adds the SVG layer as a resource to the internal resources, the returns the ID, which you can use in the
-    /// `NodeType::SvgLayer` to draw the SVG layer.
-    pub(crate) fn add_svg_layer(&mut self, layer: SvgLayer<T>)
-    -> SvgLayerId
-    {
-        self.svg_registry.add_layer(layer)
-    }
-
-    /// See `AppState::`
-    pub(crate) fn delete_svg_layer(&mut self, svg_id: SvgLayerId)
-    {
-        self.svg_registry.delete_layer(svg_id);
-    }
-
-    /// Clears all crate-internal resources and shapes. Use with care.
-    pub(crate) fn clear_all_svg_layers(&mut self)
-    {
-        self.svg_registry.clear_all_layers();
-    }
-
     pub(crate) fn add_text<S: Into<String>>(&mut self, text: S)
     -> TextId
     {
@@ -186,14 +160,5 @@ impl<'a, T: Layout> AppResources<'a, T> {
 
     pub(crate) fn clear_all_texts(&mut self) {
         self.text_registry.clear_all_texts();
-    }
-
-    /// Parses an input source, parses the SVG, adds the shapes as layers into
-    /// the registry, returns the IDs of the added shapes, in the order that
-    /// they appeared in the SVG text.
-    pub(crate) fn add_svg<R: Read>(&mut self, input: R)
-    -> Result<Vec<SvgLayerId>, SvgParseError>
-    {
-        self.svg_registry.add_svg(input)
     }
 }

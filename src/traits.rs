@@ -57,11 +57,11 @@ pub trait IntoParsedCssProperty<'a> {
 pub trait ModifyAppState<T: Layout> {
     /// Modifies the app state and then returns if the modification was successful
     /// Takes a FnMut that modifies the state
-    fn modify<F>(&self, closure: F) -> bool where F: FnMut(&mut T);
+    fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T);
 }
 
 impl<T: Layout> ModifyAppState<T> for Arc<Mutex<T>> {
-    fn modify<F>(&self, mut closure: F) -> bool where F: FnMut(&mut T) {
+    fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T) {
         match self.lock().as_mut() {
             Ok(lock) => { closure(&mut *lock); true },
             Err(_) => false,
