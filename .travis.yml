@@ -1,20 +1,37 @@
 language: rust
 
-sudo: false
-
 cache: cargo
+
+rust:
+  - stable
+  - beta
+  - nightly
 
 os:
   - linux
   - osx
 
-rust:
-  - stable
-
 matrix:
   fast_finish: true
 
-# Required for kcov
+# We can't test OpenGL 3.2 on Travis, the shader compilation fails
+# because glium does a check first if it has a OGL 3.2 context
+script:
+  - cargo clean
+  - cargo build --verbose --examples
+  - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
+
+matrix:
+  allow_failures:
+  - rust: nightly
+  - rust: beta
+
+# before_install:
+#   - sudo apt-get update
+
+install:
+  - PATH=$PATH:/home/travis/.cargo/bin
+
 addons:
   apt:
     update: true
@@ -28,23 +45,21 @@ addons:
       - libiberty-dev
       - zlib1g-dev
 
-# We can't test OpenGL 3.2 on Travis, the shader compilation fails
-# because glium does a check first if it has a OGL 3.2 context
-script:
-  - cargo build --verbose --examples
-  - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
-
 after_success: |
-  wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-  tar xzf master.tar.gz &&
-  cd kcov-master &&
+  wget https://github.com/SimonKagstrom/kcov/archive/v34.tar.gz &&
+  tar xzf v34.tar.gz &&
+  cd kcov-34 &&
   mkdir build &&
   cd build &&
   cmake .. &&
   make &&
   sudo make install &&
   cd ../.. &&
-  rm -rf kcov-master &&
-  kcov –-coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo,/usr/lib --verify target/debug/azul-* &&
+  rm -rf kcov-34 &&
+  find target/debug -maxdepth 1 -name 'azul-*' -type f | while read file; do
+    [ -x $file ] || continue;
+    mkdir -p "target/cov/$(basename $file)";
+    kcov --exclude-pattern=/.cargo,/usr/lib  --include-path="$(pwd)" --verify "target/cov/$(basename $file)" "$file";
+  done &&
   bash <(curl -s https://codecov.io/bash) &&
   echo "Uploaded code coverage"
