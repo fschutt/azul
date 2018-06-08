@@ -20,14 +20,17 @@ use svg_crate::parser::Error as SvgError;
 use std::io::Error as IoError;
 use std::fmt;
 use euclid::TypedRect;
+use lyon::tessellation::VertexBuffers;
+use std::cell::UnsafeCell;
 
 /// In order to store / compare SVG files, we have to
-pub(crate) static mut SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);
 
 const SVG_VERTEX_SHADER: &str = "
     #version 130
 
     in vec2 xy;
+    in vec2 normal;
 
     uniform vec2 bbox_origin;
     uniform vec2 bbox_size;
@@ -41,8 +44,10 @@ const SVG_FRAGMENT_SHADER: &str = "
     #version 130
     uniform vec4 color;
 
+    out vec4 out_color;
+
     void main() {
-        gl_FragColor = color;
+        out_color = color;
     }
 ";
 
@@ -64,7 +69,10 @@ impl SvgShader {
 
 pub struct SvgCache<T: Layout> {
     // note: one "layer" merely describes one or more polygons that have the same style
-    pub layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
+    layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
+    // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
+    gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
+    vertex_index_buffer_cache: UnsafeCell<FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>>,
     shader: Mutex<Option<SvgShader>>,
 }
 
@@ -72,6 +80,8 @@ impl<T: Layout> Default for SvgCache<T> {
     fn default() -> Self {
         Self {
             layers: FastHashMap::default(),
+            gpu_ready_to_upload_cache: FastHashMap::default(),
+            vertex_index_buffer_cache: UnsafeCell::new(FastHashMap::default()),
             shader: Mutex::new(None),
         }
     }
@@ -91,6 +101,44 @@ impl<T: Layout> SvgCache<T> {
         }
         shader_lock.as_ref().and_then(|s| Some(s.clone())).unwrap()
     }
+
+    /// Note: panics if the ID isn't found.
+    ///
+    /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
+    /// in sync, a panic should never happen
+    pub fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
+    -> &'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)
+    {
+        use std::collections::hash_map::Entry::*;
+        use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
+
+        // First, we need the SvgCache to call this function immutably, otherwise we can't
+        // use it from the Layout::layout() function
+        //
+        // Rust does also not "understand" that we want to return a reference into
+        // self.vertex_index_buffer_cache, so the reference that we are returning lives as
+        // long as the self.gpu_ready_to_upload_cache (at least until it's removed)
+
+        // We need to use UnsafeCell here - when using a regular RefCell, Rust thinks we
+        // are destroying the reference after the borrow, but that isn't true.
+
+        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
+        let rnotmut = &self.gpu_ready_to_upload_cache;
+
+        rmut.entry(*id).or_insert_with(|| {
+            let (vbuf, ibuf) = rnotmut.get(id).as_ref().unwrap();
+            let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
+            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
+            (vertex_buffer, index_buffer)
+        })
+    }
+
+    pub fn get_style(&self, id: &SvgLayerId)
+    -> SvgStyle
+    {
+        self.layers.get(id).as_ref().unwrap().style
+    }
+
 }
 
 impl<T: Layout> fmt::Debug for SvgCache<T> {
@@ -105,17 +153,25 @@ impl<T: Layout> fmt::Debug for SvgCache<T> {
 impl<T: Layout> SvgCache<T> {
 
     pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
-        let new_svg_id = SvgLayerId(unsafe { SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst) });
+        let new_svg_id = SvgLayerId(SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst));
+        let (vertex_buf, index_buf) = tesselate_layer_data(&layer.data);
         self.layers.insert(new_svg_id, layer);
+        self.gpu_ready_to_upload_cache.insert(new_svg_id, (vertex_buf, index_buf));
         new_svg_id
     }
 
     pub fn delete_layer(&mut self, svg_id: SvgLayerId) {
         self.layers.remove(&svg_id);
+        self.gpu_ready_to_upload_cache.remove(&svg_id);
+        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
+        rmut.remove(&svg_id);
     }
 
     pub fn clear_all_layers(&mut self) {
         self.layers.clear();
+        self.gpu_ready_to_upload_cache.clear();
+        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
+        rmut.clear();
     }
 
     /// Parses an input source, parses the SVG, adds the shapes as layers into
@@ -127,6 +183,25 @@ impl<T: Layout> SvgCache<T> {
                 self.add_layer(layer))
             .collect())
     }
+}
+
+fn tesselate_layer_data(layer_data: &[SvgLayerType]) -> (Vec<SvgVert>, Vec<u32>) {
+    const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
+
+    let mut last_index = 0;
+    let mut vertex_buf = Vec::<SvgVert>::new();
+    let mut index_buf = Vec::<u32>::new();
+
+    for layer in layer_data {
+        let VertexBuffers { vertices, indices } = layer.tesselate();
+        let vertices_len = vertices.len();
+        vertex_buf.extend(vertices.into_iter());
+        index_buf.extend(indices.into_iter().map(|i| i as u32 + last_index as u32));
+        index_buf.push(GL_RESTART_INDEX);
+        last_index += vertices_len;
+    }
+
+    (vertex_buf, index_buf)
 }
 
 #[derive(Debug)]
@@ -150,7 +225,7 @@ impl From<IoError> for SvgParseError {
 }
 
 pub struct SvgLayer<T: Layout> {
-    pub data: SvgLayerType,
+    pub data: Vec<SvgLayerType>,
     pub callbacks: SvgCallbacks<T>,
     pub style: SvgStyle,
 }
@@ -274,6 +349,79 @@ pub enum SvgLayerType {
     Text(String),
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct SvgVert {
+    pub xy: (f32, f32),
+    pub normal: (f32, f32),
+}
+
+implement_vertex!(SvgVert, xy, normal);
+
+#[derive(Debug, Copy, Clone)]
+pub struct SvgWorldPixel;
+
+impl SvgLayerType {
+    pub fn tesselate(&self)
+    -> VertexBuffers<SvgVert>
+    {
+        use self::SvgLayerType::*;
+        use lyon::tessellation::{VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator};
+        use lyon::tessellation::basic_shapes::{fill_circle, fill_rounded_rectangle};
+        use lyon::geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D};
+        use lyon::tessellation::basic_shapes::BorderRadii;
+
+        let mut geometry = VertexBuffers::new();
+
+        match self {
+            Polygon(p) => {
+                let mut tessellator = FillTessellator::new();
+                tessellator.tessellate_path(
+                    p.path_iter(),
+                    &FillOptions::default(),
+                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+                        SvgVert {
+                            xy: (vertex.position.x, vertex.position.y),
+                            normal: (vertex.normal.x, vertex.position.y),
+                        }
+                    }),
+                ).unwrap();
+            },
+            Circle(c) => {
+                fill_circle(
+                    TypedPoint2D::new(c.center_x, c.center_y), c.radius, &FillOptions::default(),
+                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+                        SvgVert {
+                            xy: (vertex.position.x, vertex.position.y),
+                            normal: (vertex.normal.x, vertex.position.y),
+                        }
+                    }
+                ));
+            },
+            Rect(r) => {
+                fill_rounded_rectangle(
+                    &TypedRect::new(TypedPoint2D::new(r.x, r.y), TypedSize2D::new(r.width, r.height)),
+                    &BorderRadii {
+                        top_left: r.rx,
+                        top_right: r.rx,
+                        bottom_left: r.rx,
+                        bottom_right: r.rx,
+                    },
+                    &FillOptions::default(),
+                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+                        SvgVert {
+                            xy: (vertex.position.x, vertex.position.y),
+                            normal: (vertex.normal.x, vertex.position.y),
+                        }
+                    }
+                ));
+            },
+            Text(_t) => { },
+        }
+
+        geometry
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct SvgCircle {
     pub center_x: f32,
@@ -366,7 +514,7 @@ mod svg_to_lyon {
             })
             .map(|(data, style)| {
                 SvgLayer {
-                    data: data,
+                    data: vec![data],
                     callbacks: SvgCallbacks::None,
                     style: style,
                 }

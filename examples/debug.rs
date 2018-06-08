@@ -20,7 +20,6 @@ impl Layout for MyAppData {
         if let Some((svg_cache, svg_layers)) = &self.svg {
             Svg::with_layers(svg_layers).dom(&info.window, &svg_cache)
         } else {
-            // TODO: This currently crashes because of the double-redraw bug
             Dom::new(NodeType::Div)
                 .with_class("__azul-native-button")
                 .with_callback(On::MouseUp, Callback(my_button_click_handler))

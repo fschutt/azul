@@ -112,17 +112,6 @@ impl ReadOnlyWindow {
 
         gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
     }
-
-    pub fn make_vertex_buffer<T: Vertex>(&self, data: &[T])
-    -> Result<VertexBuffer<T>, VertexBufferCreationError>
-    {
-        VertexBuffer::new(self, data)
-    }
-    pub fn make_index_buffer(&self, prim_type: PrimitiveType, data: &[u32])
-    -> Result<IndexBuffer<u32>, IndexBufferCreationError>
-    {
-        IndexBuffer::new(self, prim_type, data)
-    }
 }
 
 pub struct WindowInfo {
@@ -553,12 +542,12 @@ impl<T: Layout> Window<T> {
                     opengles_version: (3, 0),
                 })
                 .with_gl_profile(GlProfile::Core);
-
+            /*
             #[cfg(debug_assertions)] {
                 builder = builder.with_gl_debug_flag(true);
             }
-
-            #[cfg(not(debug_assertions))] {
+            */
+            /*#[cfg(not(debug_assertions))] */ {
                 builder = builder.with_gl_debug_flag(false);
             }
 
@@ -581,9 +570,9 @@ impl<T: Layout> Window<T> {
             gl_window.window().set_position(x as i32, y as i32);
         }
 
-        #[cfg(debug_assertions)]
-        let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
-        #[cfg(not(debug_assertions))]
+        // #[cfg(debug_assertions)]
+        // let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
+        // #[cfg(not(debug_assertions))]
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
         let device_pixel_ratio = display.gl_window().hidpi_factor();
