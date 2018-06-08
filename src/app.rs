@@ -168,16 +168,6 @@ impl<'a, T: Layout> App<'a, T> {
                     }
                 }
 
-                if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
-                    // This is a hack because during a resize event, winit eats the "awakened"
-                    // event. So what we do is that we call the layout-and-render again, to
-                    // trigger a second "awakened" event. So when the window is resized, the
-                    // layout function is called twice (the first event will be eaten by winit)
-                    //
-                    // This is a reported bug and should be fixed somewhere in July
-                    force_redraw_cache[idx] = 3;
-                }
-
                 if frame_event_info.should_swap_window || frame_event_info.is_resize_event {
                     window.display.swap_buffers()?;
                     if let Some(i) = force_redraw_cache.get_mut(idx) {
@@ -187,6 +177,16 @@ impl<'a, T: Layout> App<'a, T> {
 
                 if frame_event_info.should_hittest {
                     Self::do_hit_test_and_call_callbacks(window, window_id, &mut frame_event_info, &ui_state_cache, &mut self.app_state);
+                }
+
+                if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
+                    // This is a hack because during a resize event, winit eats the "awakened"
+                    // event. So what we do is that we call the layout-and-render again, to
+                    // trigger a second "awakened" event. So when the window is resized, the
+                    // layout function is called twice (the first event will be eaten by winit)
+                    //
+                    // This is a reported bug and should be fixed somewhere in July
+                    force_redraw_cache[idx] = 2;
                 }
 
                 // Update the window state that we got from the frame event (updates window dimensions and DPI)
