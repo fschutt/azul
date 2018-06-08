@@ -3,7 +3,7 @@
 //! into the UI.
 
 use dom::Texture;
-use FastHashMap;
+use {FastHashMap, FastHashSet};
 use webrender::{ExternalImageHandler, ExternalImageSource};
 use webrender::api::{ExternalImageId, TexelRect, DevicePixel};
 use std::sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}};
@@ -26,6 +26,7 @@ lazy_static! {
     /// Because the Texture2d is wrapped in an Rc, the destructor (which cleans up the OpenGL
     /// texture) does not run until we remove the textures
     pub(crate) static ref ACTIVE_GL_TEXTURES: Mutex<FastHashMap<ExternalImageId, ActiveTexture>> = Mutex::new(FastHashMap::default());
+    pub(crate) static ref TO_DELETE_TEXTURES: Mutex<FastHashSet<ExternalImageId>> = Mutex::new(FastHashSet::default());
 }
 
 /// The Texture struct is public to the user
@@ -68,6 +69,7 @@ impl ExternalImageHandler for Compositor {
     }
 
     fn unlock(&mut self, key: ExternalImageId, _channel_index: u8) {
-        ACTIVE_GL_TEXTURES.lock().unwrap().remove(&key);
+        TO_DELETE_TEXTURES.lock().unwrap().insert(key);
+        // ACTIVE_GL_TEXTURES.lock().unwrap().remove(&key);
     }
 }

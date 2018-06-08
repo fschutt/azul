@@ -171,7 +171,13 @@ impl<'a, T: Layout> App<'a, T> {
                 if frame_event_info.should_swap_window || frame_event_info.is_resize_event {
                     window.display.swap_buffers()?;
                     if let Some(i) = force_redraw_cache.get_mut(idx) {
-                       if *i > 0 { *i -= 1 };
+                        if *i > 0 { *i -= 1 };
+                        if *i == 0 {
+                            use compositor::{TO_DELETE_TEXTURES, ACTIVE_GL_TEXTURES};
+                            let mut to_delete_lock = TO_DELETE_TEXTURES.lock().unwrap();
+                            let mut active_textures_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
+                            to_delete_lock.drain().for_each(|tex| { active_textures_lock.remove(&tex); });
+                        }
                     }
                 }
 
