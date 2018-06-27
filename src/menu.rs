@@ -49,3 +49,11 @@ pub mod command_ids {
     // "Test" menu
     pub const CMD_TEST: u16 = 9001;
 }
+
+// Empty test, for some reason codecov doesn't detect any files (and therefore
+// doesn't report codecov % correctly) except if they have at least one test in
+// the file. This is an empty test, which should be updated later on
+#[test]
+fn __codecov_test_menu_file() {
+
+}
