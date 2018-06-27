@@ -1,5 +1,9 @@
+use css_parser::FontSize;
+use text_layout::SemanticWordItem;
 use FastHashMap;
 use std::sync::atomic::{Ordering, AtomicUsize};
+use css_parser::Font;
+use std::rc::Rc;
 
 static TEXT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -10,29 +14,40 @@ fn new_text_id() -> TextId {
     }
 }
 
+/// A unique ID by which a large block of text can be uniquely identified
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct TextId {
     inner: usize,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct TextRegistry {
-    inner: FastHashMap<TextId, String>
+#[derive(Debug, Clone)]
+pub(crate) enum LargeString {
+    Raw(String),
+    /// The `Vec<SemanticWordItem>` stores the individual word, so we don't need
+    /// to store it again. The `words` is stored in an Rc, so that we don't need to
+    /// duplicate it for every font size.
+    Cached { font: Font, size: FontSize, words: Rc<Vec<SemanticWordItem>> },
 }
 
-impl TextRegistry {
+/// Cache for accessing large amounts of text
+#[derive(Debug, Default, Clone)]
+pub(crate) struct TextCache {
+    /// Gives you the mapping from the TextID to the actual, UTF-8 String
+    pub(crate) cached_strings: FastHashMap<TextId, LargeString>,
+}
 
-    pub(crate) fn add_text<S: Into<String>>(&mut self, text: S) -> TextId {
+impl TextCache {
+    pub(crate) fn add_text(&mut self, text: LargeString) -> TextId {
         let id = new_text_id();
-        self.inner.insert(id, text.into());
+        self.cached_strings.insert(id, text);
         id
     }
 
     pub(crate) fn delete_text(&mut self, id: TextId) {
-        self.inner.remove(&id);
+        self.cached_strings.remove(&id);
     }
 
     pub(crate) fn clear_all_texts(&mut self) {
-        self.inner.clear();
+        self.cached_strings.clear();
     }
 }

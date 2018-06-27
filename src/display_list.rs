@@ -26,6 +26,8 @@ use {
     cache::DomChangeSet,
     ui_description::CssConstraintList,
     text_layout::{TextOverflowPass2, ScrollbarInfo},
+    images::ImageId,
+    text_cache::TextId,
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -59,6 +61,36 @@ pub(crate) struct DisplayRectangle<'a> {
 pub(crate) struct SolvedLayout<T: Layout> {
     // List of previously solved constraints
     pub(crate) solved_constraints: FastHashMap<NodeId, NodeData<T>>,
+}
+
+/// This is used for caching large strings (in the `push_text` function)
+/// In the cached version, you can lookup the text as well as the dimensions of
+/// the words in the `AppResources`. For the `Uncached` version, you'll have to re-
+/// calculate it on every frame.
+pub(crate) enum TextInfo<'a> {
+    Cached(TextId),
+    Uncached(&'a str),
+}
+
+impl<'a> TextInfo<'a> {
+    /// Returns if the inner text is empty. Returns false if the ID does not exist
+    fn is_empty_text(&self, app_resources: &AppResources)
+    -> bool
+    {
+        use self::TextInfo::*;
+        use text_cache::LargeString;
+
+        match self {
+            Cached(text_id) => {
+                match app_resources.text_cache.cached_strings.get(text_id) {
+                    Some(LargeString::Raw(r)) => r.is_empty(),
+                    Some(LargeString::Cached { words, .. }) => words.is_empty(),
+                    None => false,
+                }
+            }
+            Uncached(s) => s.is_empty(),
+        }
+    }
 }
 
 impl<T: Layout> SolvedLayout<T> {
@@ -120,8 +152,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     {
         use images::{ImageState, ImageInfo};
 
-        let mut updated_images = Vec::<(String, (ImageData, ImageDescriptor))>::new();
-        let mut to_delete_images = Vec::<(String, Option<ImageKey>)>::new();
+        let mut updated_images = Vec::<(ImageId, (ImageData, ImageDescriptor))>::new();
+        let mut to_delete_images = Vec::<(ImageId, Option<ImageKey>)>::new();
 
         // possible performance bottleneck (duplicated cloning) !!
         for (key, value) in app_resources.images.iter() {
@@ -369,10 +401,9 @@ fn displaylist_handle_rect(
     match html_node {
         Div => { /* nothing special to do */ },
         Label(text) => {
-            // println!("encountered text with style: {:#?}", rect.style);
             push_text(
                 &info,
-                text,
+                &TextInfo::Uncached(text),
                 builder,
                 &rect.style,
                 app_resources,
@@ -381,14 +412,21 @@ fn displaylist_handle_rect(
                 resource_updates);
         },
         Text(text_id) => {
-
+            push_text(
+                &info,
+                &TextInfo::Cached(*text_id),
+                builder,
+                &rect.style,
+                app_resources,
+                &render_api,
+                &bounds,
+                resource_updates);
         },
         Image(image_id) => {
-
+            push_image(&info, builder, &bounds, app_resources, image_id);
         },
         GlTexture(texture) => {
-            // This is probably going to destroy the texture too early, and not
-            // going to work properly. So this is simply an attempt at getting something going
+
             use glium::GlObject;
             use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
@@ -435,9 +473,9 @@ fn push_rect(
 }
 
 #[inline]
-fn push_text(
+fn push_text<'a>(
     info: &PrimitiveInfo<LayoutPixel>,
-    text: &str,
+    text: &TextInfo<'a>,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     app_resources: &mut AppResources,
@@ -450,7 +488,7 @@ fn push_text(
     use text_layout;
     use css_parser::{TextAlignmentHorz, TextOverflowBehaviour};
 
-    if text.is_empty() {
+    if text.is_empty_text(&*app_resources) {
         return;
     }
 
@@ -460,10 +498,8 @@ fn push_text(
     };
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
-    let font_size = font_size.0.to_pixels();
-    let font_size_app_units = (font_size as i32) * AU_PER_PX;
+    let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
     let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
-    let font_size_app_units = Au(font_size_app_units as i32);
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
 
     let font_instance_key = match font_result {
@@ -474,7 +510,6 @@ fn push_text(
     let vert_alignment = TextAlignmentVert::Center; // TODO
     let line_height = style.line_height;
 
-    let font = &app_resources.font_data[font_id].0;
     let horz_alignment = style.text_align.unwrap_or(TextAlignmentHorz::default());
     let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
@@ -486,16 +521,17 @@ fn push_text(
         bar_color: BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
     };
 
-    let (positioned_glyphs, scrollbar_info) = text_layout::put_text_in_bounds(
-        text,
-        font,
-        font_size,
-        line_height,
+    let (positioned_glyphs, scrollbar_info) = text_layout::get_glyphs(
+        app_resources,
+        bounds,
         horz_alignment,
         vert_alignment,
+        &font_id,
+        &font_size,
+        line_height,
+        text,
         &overflow_behaviour,
-        &scrollbar_style,
-        bounds
+        &scrollbar_style
     );
 
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
@@ -731,22 +767,34 @@ fn push_background(
             let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
-        Background::Image(image_id) => {
-            if let Some(image_info) = app_resources.images.get(&image_id.0) {
-                use images::ImageState::*;
-                match image_info {
-                    Uploaded(image_info) => {
-                        builder.push_image(
-                                &info,
-                                bounds.size,
-                                LayoutSize::zero(),
-                                ImageRendering::Auto,
-                                AlphaType::Alpha,
-                                image_info.key);
-                    },
-                    _ => { },
-                }
+        Background::Image(css_image_id) => {
+            if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&css_image_id.0) {
+                push_image(info, builder, bounds, app_resources, image_id);
             }
+        }
+    }
+}
+
+fn push_image(
+    info: &PrimitiveInfo<LayoutPixel>,
+    builder: &mut DisplayListBuilder,
+    bounds: &TypedRect<f32, LayoutPixel>,
+    app_resources: &AppResources,
+    image_id: &ImageId)
+{
+    if let Some(image_info) = app_resources.images.get(image_id) {
+        use images::ImageState::*;
+        match image_info {
+            Uploaded(image_info) => {
+                builder.push_image(
+                        &info,
+                        bounds.size,
+                        LayoutSize::zero(),
+                        ImageRendering::Auto,
+                        AlphaType::Alpha,
+                        image_info.key);
+            },
+            _ => { },
         }
     }
 }

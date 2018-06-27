@@ -1,6 +1,11 @@
+use images::ImageId;
+use css_parser::FontSize;
+use text_layout::RUSTTYPE_SIZE_HACK;
+use text_layout::PX_TO_PT;
+use text_layout::split_text_into_words;
 use webrender::api::Epoch;
 use dom::Texture;
-use text_cache::TextRegistry;
+use text_cache::TextCache;
 use traits::Layout;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{ImageKey, FontKey, FontInstanceKey};
@@ -29,8 +34,14 @@ use text_cache::TextId;
 /// (not yet tested, but should work).
 #[derive(Clone)]
 pub(crate) struct AppResources<'a> {
-    /// Image cache
-    pub(crate) images: FastHashMap<String, ImageState>,
+    /// When looking up images, there are two sources: Either the indirect way via using a
+    /// CssId (which is a String) or a direct ImageId. The indirect way requires one extra
+    /// lookup (to map from the stringified ID to the actual image ID). This is what this
+    /// HashMap is for
+    pub(crate) css_ids_to_image_ids: FastHashMap<String, ImageId>,
+    /// The actual image cache, does NOT store the image data, only stores it temporarily
+    /// while it is being uploaded to the GPU via webrender.
+    pub(crate) images: FastHashMap<ImageId, ImageState>,
     // Fonts are trickier to handle than images.
     // First, we duplicate the font - webrender wants the raw font data,
     // but we also need access to the font metrics. So we first parse the font
@@ -42,16 +53,17 @@ pub(crate) struct AppResources<'a> {
     // we first need to create one.
     pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
     /// Stores long texts across frames
-    pub(crate) text_registry: TextRegistry,
+    pub(crate) text_cache: TextCache,
 }
 
 impl<'a> Default for AppResources<'a> {
     fn default() -> Self {
         Self {
+            css_ids_to_image_ids: FastHashMap::default(),
             fonts: FastHashMap::default(),
             font_data: FastHashMap::default(),
             images: FastHashMap::default(),
-            text_registry: TextRegistry::default(),
+            text_cache: TextCache::default(),
         }
     }
 }
@@ -64,7 +76,17 @@ impl<'a> AppResources<'a> {
     {
         use images; // the module, not the crate!
 
-        match self.images.entry(id.into()) {
+        // TODO: Handle image decoding failure better!
+
+        let image_id = match self.css_ids_to_image_ids.entry(id.into()) {
+            Occupied(_) => return Ok(None),
+            Vacant(v) => {
+                let new_id = images::new_image_id();
+                v.insert(new_id)
+            },
+        };
+
+        match self.images.entry(*image_id) {
             Occupied(_) => Ok(None),
             Vacant(v) => {
                 let mut image_data = Vec::<u8>::new();
@@ -81,7 +103,9 @@ impl<'a> AppResources<'a> {
     pub(crate) fn delete_image<S: AsRef<str>>(&mut self, id: S)
         -> Option<()>
     {
-        match self.images.get_mut(id.as_ref()) {
+        let image_id = self.css_ids_to_image_ids.remove(id.as_ref())?;
+
+        match self.images.get_mut(&image_id) {
             None => None,
             Some(v) => {
                 let to_delete_image_key = match *v {
@@ -100,7 +124,12 @@ impl<'a> AppResources<'a> {
     pub(crate) fn has_image<S: AsRef<str>>(&mut self, id: S)
         -> bool
     {
-        self.images.get(id.as_ref()).is_some()
+        let image_id = match self.css_ids_to_image_ids.get(id.as_ref()) {
+            None => return false,
+            Some(s) => s,
+        };
+
+        self.images.get(image_id).is_some()
     }
 
     /// See `AppState::add_font()`
@@ -148,17 +177,34 @@ impl<'a> AppResources<'a> {
         }
     }
 
-    pub(crate) fn add_text<S: Into<String>>(&mut self, text: S)
+    pub(crate) fn add_text_uncached<S: Into<String>>(&mut self, text: S)
     -> TextId
     {
-        self.text_registry.add_text(text)
+        use text_cache::LargeString;
+        self.text_cache.add_text(LargeString::Raw(text.into()))
+    }
+
+    /// Calculates the widths for the words, then stores the widths of the words + the actual words
+    ///
+    /// This leads to a faster layout cycle, but has an upfront performance cost
+    pub(crate) fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &css_parser::Font, font_size: FontSize)
+    -> TextId
+    {
+        use rusttype::Scale;
+        use text_cache::LargeString;
+        use std::rc::Rc;
+
+        let font_size_no_line_height = Scale::uniform(font_size.0.to_pixels() * RUSTTYPE_SIZE_HACK * PX_TO_PT);
+        let rusttype_font = self.font_data.get(font_id).expect("in resources.add_text_cached(): could not get font for caching text");
+        let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height);
+        self.text_cache.add_text(LargeString::Cached { font: font_id.clone(), size: font_size, words: Rc::new(words) })
     }
 
     pub(crate) fn delete_text(&mut self, id: TextId) {
-        self.text_registry.delete_text(id);
+        self.text_cache.delete_text(id);
     }
 
     pub(crate) fn clear_all_texts(&mut self) {
-        self.text_registry.clear_all_texts();
+        self.text_cache.clear_all_texts();
     }
 }

@@ -29,6 +29,7 @@ impl<T: Layout> UiState<T> {
     pub(crate) fn from_app_state(app_state: &AppState<T>, window_info: WindowInfo) -> Self
     {
         use dom::{Dom, On};
+        use std::sync::atomic::Ordering;
 
         // Only shortly lock the data to get the dom out
          let dom: Dom<T> = {
@@ -36,8 +37,8 @@ impl<T: Layout> UiState<T> {
             dom_lock.layout(window_info)
         };
 
-        unsafe { NODE_ID = 0 };
-        unsafe { CALLBACK_ID = 0 };
+        NODE_ID.swap(0, Ordering::SeqCst);
+        CALLBACK_ID.swap(0, Ordering::SeqCst);
 
         let mut callback_list = BTreeMap::<u64, Callback<T>>::new();
         let mut node_ids_to_callbacks_list = BTreeMap::<u64, BTreeMap<On, u64>>::new();

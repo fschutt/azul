@@ -29,18 +29,24 @@ use std::{
 pub struct NonZeroUsizeHack(&'static ());
 
 impl NonZeroUsizeHack {
-    #[inline]
+    /// **NOTE**: Panics on overflow, since having a pointer that is zero is
+    /// undefined behaviour (it would bascially be casted to a `None`,
+    /// which is incorrect, so we rather panic on overflow to prevent that.
+    #[inline(always)]
     pub fn new(value: usize) -> Self {
         // Add 1 on insertion
-        let value = value + 1;
-        unsafe { NonZeroUsizeHack(&*(value as *const ())) }
+        let (new_value, has_overflown) = value.overflowing_add(1);
+        if has_overflown {
+            panic!("Overflow when creating DOM Node with ID {}", value);
+        } else {
+            unsafe { NonZeroUsizeHack(&*(new_value as *const ())) }
+        }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn get(self) -> usize {
         // Remove 1 on retrieval
         let value = self.0 as *const () as usize;
-        assert!(value != 0); // can never happen, since we add 1 it in the new() fn
         value - 1
     }
 }
