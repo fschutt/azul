@@ -603,3 +603,11 @@ fn render<T: Layout>(
     window.renderer.as_mut().unwrap().update();
     window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 }
+
+// Empty test, for some reason codecov doesn't detect any files (and therefore
+// doesn't report codecov % correctly) except if they have at least one test in
+// the file. This is an empty test, which should be updated later on
+#[test]
+fn __codecov_test_app_file() {
+
+}

@@ -810,3 +810,24 @@ fn add_origin(positioned_glyphs: &mut [GlyphInstance], x: f32, y: f32)
         c.point.y += y;
     }
 }
+
+#[test]
+fn test_it_should_add_origin() {
+    let mut instances = vec![
+        GlyphInstance {
+            index: 20,
+            point: TypedPoint2D::new(0.0, 0.0),
+        },
+        GlyphInstance {
+            index: 40,
+            point: TypedPoint2D::new(20.0, 10.0),
+        },
+    ];
+
+    add_origin(&mut instances, 13.0, 0.0);
+
+    assert_eq!(instances[0].point.x as usize, 13);
+    assert_eq!(instances[0].point.y as usize, 0);
+    assert_eq!(instances[1].point.x as usize, 33);
+    assert_eq!(instances[1].point.y as usize, 10);
+}

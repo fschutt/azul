@@ -195,3 +195,10 @@ pub(crate) fn premultiply(data: &mut [u8]) {
         pixel[0] = ((b * a + 128) / 255) as u8;
     }
 }
+
+#[test]
+fn test_premultiply() {
+    let mut color = [255, 0, 0, 127];
+    premultiply(&mut color);
+    assert_eq!(color, [127, 0, 0, 127]);
+}
