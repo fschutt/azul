@@ -13,6 +13,7 @@ use std::collections::hash_map::Entry::*;
 use FastHashMap;
 use std::sync::{Arc, Mutex};
 use svg::{SvgLayerId, SvgLayer, SvgParseError};
+use css_parser::{Font as FontId, FontSize, PixelValue};
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `Layout` trait (how the application
@@ -209,10 +210,17 @@ impl<'a, T: Layout> AppState<'a, T> {
         self.tasks.retain(|x| x.is_finished());
     }
 
-    pub fn add_text<S: Into<String>>(&mut self, text: S)
+    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
     -> TextId
     {
-        self.resources.add_text(text)
+        self.resources.add_text_uncached(text)
+    }
+
+    pub fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
+    -> TextId
+    {
+        let font_size = FontSize(font_size);
+        self.resources.add_text_cached(text, font_id, font_size)
     }
 
     pub fn delete_text(&mut self, id: TextId) {

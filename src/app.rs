@@ -1,3 +1,4 @@
+use css_parser::{Font as FontId, PixelValue, FontSize};
 use text_cache::TextId;
 use dom::UpdateScreen;
 use window::FakeWindow;
@@ -7,7 +8,6 @@ use app_state::AppState;
 use traits::Layout;
 use ui_state::UiState;
 use ui_description::UiDescription;
-
 use std::sync::{Arc, Mutex, PoisonError};
 use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
 use glium::glutin::Event;
@@ -457,10 +457,16 @@ impl<'a, T: Layout> App<'a, T> {
         self.app_state.delete_deamon(id)
     }
 
-    pub fn add_text<S: Into<String>>(&mut self, text: S)
+    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
     -> TextId
     {
-        self.app_state.add_text(text)
+        self.app_state.add_text_uncached(text)
+    }
+
+    pub fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
+    -> TextId
+    {
+        self.app_state.add_text_cached(text, font_id, font_size)
     }
 
     pub fn delete_text(&mut self, id: TextId) {

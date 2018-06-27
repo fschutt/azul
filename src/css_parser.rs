@@ -275,11 +275,19 @@ impl<'a> From<PercentageParseError> for CssParsingError<'a> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct PixelValue {
     pub metric: CssMetric,
     pub number: f32,
 }
+
+impl PartialEq for PixelValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.compare_equality_2digits(other)
+    }
+}
+
+impl Eq for PixelValue { }
 
 /// "100%" or "1.0" value
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -302,6 +310,19 @@ impl PixelValue {
             CssMetric::Pt => { self.number * PT_TO_PX },
             CssMetric::Em => { self.number * EM_HEIGHT },
         }
+    }
+
+    /// Compare the equality of two font sizes up to the 4th digit
+    ///
+    /// i.e. `1.234` == `1.235` because `123` == `123`
+    ///
+    /// Usually this precision is enough to determine if two font sizes are
+    /// "equal" since you can't really compare floating-point values
+    ///
+    /// Used for the `PartialEq` implementation
+    pub fn compare_equality_2digits(&self, other: &Self) -> bool {
+        (self.to_pixels() * 100.0) as usize ==
+        (other.to_pixels() * 100.0) as usize
     }
 }
 
@@ -1652,7 +1673,7 @@ fn parse_line_height(input: &str)
     parse_percentage_value(input).and_then(|e| Ok(LineHeight(e)))
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct FontSize(pub PixelValue);
 
 typed_pixel_value_parser!(parse_css_font_size, FontSize);

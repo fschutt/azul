@@ -16,10 +16,11 @@ use images::ImageId;
 use cache::DomHash;
 use text_cache::TextId;
 use glium::framebuffer::SimpleFrameBuffer;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// This is only accessed from the main thread, so it's safe to use
-pub(crate) static mut NODE_ID: u64 = 0;
-pub(crate) static mut CALLBACK_ID: u64 = 0;
+pub(crate) static NODE_ID: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// A callback function has to return if the screen should
 /// be updated after the function has run.PartialEq
@@ -409,8 +410,7 @@ impl<T: Layout> Dom<T> {
     #[inline]
     pub fn set_callback(&mut self, on: On, callback: Callback<T>) {
         self.arena.borrow_mut()[self.last].data.events.callbacks.insert(on, callback);
-        self.arena.borrow_mut()[self.last].data.tag = Some(unsafe { NODE_ID });
-        unsafe { NODE_ID += 1; };
+        self.arena.borrow_mut()[self.last].data.tag = Some(NODE_ID.fetch_add(1, Ordering::SeqCst) as u64);
     }
 }
 
@@ -425,8 +425,7 @@ impl<T: Layout> Dom<T> {
             let mut cb_id_list = BTreeMap::<On, u64>::new();
             let item = &self.arena.borrow()[item.inner_value()];
             for (on, callback) in item.data.events.callbacks.iter() {
-                let callback_id = unsafe { CALLBACK_ID };
-                unsafe { CALLBACK_ID += 1; }
+                let callback_id = CALLBACK_ID.fetch_add(1, Ordering::SeqCst) as u64;
                 callback_list.insert(callback_id, *callback);
                 cb_id_list.insert(*on, callback_id);
             }
