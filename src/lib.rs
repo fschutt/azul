@@ -38,6 +38,7 @@ pub extern crate image;
 
 #[macro_use]
 extern crate lazy_static;
+extern crate palette;
 extern crate euclid;
 extern crate lyon;
 extern crate resvg;

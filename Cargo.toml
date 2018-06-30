@@ -17,6 +17,7 @@ unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
 lyon = { version = "0.10.0", features = ["extra"] }
 lazy_static = "1.0.1"
+palette = "0.4.0"
 
 [dependencies.resvg]
 git = "https://github.com/RazrFalcon/resvg.git"
