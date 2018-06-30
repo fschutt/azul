@@ -127,6 +127,12 @@ impl<T: Layout> SvgCache<T> {
         shader_lock.as_ref().and_then(|s| Some(s.clone())).unwrap()
     }
 
+    pub fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
+    -> &'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)
+    {
+        
+    }
+    
     /// Note: panics if the ID isn't found.
     ///
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
