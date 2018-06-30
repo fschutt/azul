@@ -103,18 +103,25 @@ impl Svg {
         {
             let mut surface = tex.as_surface();
 
-            // TODO: cache the vertex buffers / index buffers
             for layer_id in &self.layers {
-                let (vertex_buffer, index_buffer) = svg_cache.get_vertices_and_indices(window, layer_id);
+                
+                use palette::Srgba;
 
+                let (vertex_buffer, index_buffer) = svg_cache.get_vertices_and_indices(window, layer_id);
                 let style = svg_cache.get_style(layer_id);
                 let color: ColorF = style.fill.unwrap_or(DEFAULT_COLOR).into();
+                let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
 
                 let uniforms = uniform! {
                     bbox_origin: (bbox.origin.x, bbox.origin.y),
                     bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
                     z_index: z_index,
-                    color: (color.r as f32, color.g as f32, color.b as f32, color.a as f32),
+                    color: (
+                        color.color.red as f32, 
+                        color.color.green as f32, 
+                        color.color.blue as f32, 
+                        color.alpha as f32
+                    ),
                 };
 
                 surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
