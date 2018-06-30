@@ -7,8 +7,7 @@ use azul::widgets::*;
 
 const TEST_CSS: &str = include_str!("test_content.css");
 const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
-const TEST_IMAGE: &[u8] = include_bytes!("../assets/images/cat_image.jpg");
-const TEST_SVG: &[u8] = include_bytes!("../assets/svg/test.svg");
+const TEST_SVG: &[u8] = include_bytes!("../assets/svg/tiger.svg");
 
 #[derive(Debug)]
 pub struct MyAppData {
@@ -31,9 +30,13 @@ impl Layout for MyAppData {
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
     // Load and parse the SVG file, register polygon data as IDs
+    use std::time::{Instant};
+    let start_time_loading_svg = Instant::now();
     let mut svg_cache = SvgCache::empty();
-    let svg_layers= svg_cache.add_svg(TEST_SVG).unwrap();
+    let svg_layers = svg_cache.add_svg(TEST_SVG).unwrap();
     app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
+    let time = (Instant::now() - start_time_loading_svg).subsec_nanos() as f32 / 1_000_000.0;
+    println!("time loading svg: {} milliseconds", time);
     UpdateScreen::Redraw
 }
 
@@ -41,20 +44,9 @@ fn main() {
 
     // Parse and validate the CSS
     let css = Css::new_from_string(TEST_CSS).unwrap();
-
-    let my_app_data = MyAppData {
-        svg: None,
-    };
-
-    let mut app = App::new(my_app_data);
+    let mut app = App::new(MyAppData { svg: None });
 
     app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
-    // app.delete_font("Webly Sleeky UI");
-
-    app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
-    // app.delete_image("Cat01");
-
-    // app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
     app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run().unwrap();
 }
