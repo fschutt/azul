@@ -3,10 +3,9 @@
 pub use euclid::{TypedSize2D, SideOffsets2D};
 pub use webrender::api::{
     BorderRadius, BorderWidths, BorderDetails, NormalBorder,
-    NinePatchBorder, GradientBorder, RadialGradientBorder,
-    LayoutPixel, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
-    Gradient, RadialGradient, LayoutPoint, LayoutSize,
-    ExtendMode
+    NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
+    ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
+    LayoutSize, ExtendMode
 };
 // TODO: 9patch images!
 use webrender::api::{BorderStyle, BorderSide, LayoutRect};

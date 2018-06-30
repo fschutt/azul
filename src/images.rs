@@ -181,18 +181,12 @@ pub(crate) fn is_image_opaque(format: WebrenderImageFormat, bytes: &[u8]) -> boo
 
 // From webrender/wrench
 // These are slow. Gecko's gfx/2d/Swizzle.cpp has better versions
-// This function also converts from RGBA8 to BRGA8
 pub(crate) fn premultiply(data: &mut [u8]) {
     for pixel in data.chunks_mut(4) {
         let a = u32::from(pixel[3]);
-        let r = u32::from(pixel[2]);
-        let g = u32::from(pixel[1]);
-        let b = u32::from(pixel[0]);
-
-        pixel[3] = a as u8;
-        pixel[2] = ((r * a + 128) / 255) as u8;
-        pixel[1] = ((g * a + 128) / 255) as u8;
-        pixel[0] = ((b * a + 128) / 255) as u8;
+        pixel[0] = (((pixel[0] as u32 * a) + 128) / 255) as u8;
+        pixel[1] = (((pixel[1] as u32 * a) + 128) / 255) as u8;
+        pixel[2] = (((pixel[2] as u32 * a) + 128) / 255) as u8;
     }
 }
 

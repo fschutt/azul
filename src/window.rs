@@ -372,7 +372,7 @@ impl RenderNotifier for Notifier {
         self.events_loop_proxy.wakeup().unwrap_or_else(|_| { eprintln!("couldn't wakeup event loop"); });
     }
 
-    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool) {
+    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) {
         self.wake_up();
     }
 }
