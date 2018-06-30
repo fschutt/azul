@@ -19,6 +19,10 @@
 //!
 //! For more examples, please look in the `/examples` folder.
 
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+)]
 
 #![deny(unused_must_use)]
 #![deny(missing_copy_implementations)]
