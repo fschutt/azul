@@ -20,17 +20,18 @@ use euclid::TypedRect;
 use dom::Callback;
 use traits::Layout;
 use FastHashMap;
+use id_tree::NonZeroUsizeHack;
 
 /// In order to store / compare SVG files, we have to
 pub(crate) static SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct SvgTransformId(usize);
+pub struct SvgTransformId(NonZeroUsizeHack);
 
 const SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub fn new_svg_transform_id() -> SvgTransformId {
-    SvgTransformId(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst))
+    SvgTransformId(NonZeroUsizeHack::new(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst)))
 }
 
 const SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);
