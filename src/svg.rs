@@ -1,30 +1,46 @@
+use resvg::usvg::ViewBox;
+use resvg::usvg::Transform;
 use std::sync::Mutex;
-use glium::backend::Facade;
-use std::rc::Rc;
-use glium::DrawParameters;
-use glium::IndexBuffer;
-use glium::VertexBuffer;
-use glium::Display;
-use glium::Texture2d;
-use glium::Program;
-use webrender::api::ColorF;
-use std::io::Read;
-use lyon::path::default::Path;
-use webrender::api::ColorU;
+use glium::{
+    backend::Facade,
+    DrawParameters, IndexBuffer, VertexBuffer, Display,
+    Texture2d, Program,
+};
+use std::{fmt, rc::Rc,
+    io::{Error as IoError, Read},
+    sync::atomic::{Ordering, AtomicUsize},
+    cell::UnsafeCell,
+    hash::{Hash, Hasher},
+};
+use lyon::{path::{PathEvent, default::Path}, tessellation::{LineCap, VertexBuffers, LineJoin}};
+use resvg::usvg::Error as SvgError;
+use webrender::api::{ColorU, ColorF};
+use euclid::TypedRect;
+
 use dom::Callback;
 use traits::Layout;
-use std::sync::atomic::{Ordering, AtomicUsize};
 use FastHashMap;
-use std::hash::{Hash, Hasher};
-use svg_crate::parser::Error as SvgError;
-use std::io::Error as IoError;
-use std::fmt;
-use euclid::TypedRect;
-use lyon::tessellation::VertexBuffers;
-use std::cell::UnsafeCell;
 
 /// In order to store / compare SVG files, we have to
 pub(crate) static SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SvgTransformId(usize);
+
+const SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
+
+pub fn new_svg_transform_id() -> SvgTransformId {
+    SvgTransformId(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst))
+}
+
+const SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SvgViewBoxId(usize);
+
+pub fn new_view_box_id() -> SvgViewBoxId {
+    SvgViewBoxId(SVG_VIEW_BOX_ID.fetch_add(1, Ordering::SeqCst))
+}
 
 const SVG_VERTEX_SHADER: &str = "
     #version 130
@@ -74,6 +90,12 @@ pub struct SvgCache<T: Layout> {
     gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
     vertex_index_buffer_cache: UnsafeCell<FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>>,
     shader: Mutex<Option<SvgShader>>,
+    // Stores the 2D transforms of the shapes on the screen. The vertices are
+    // offset by the X, Y value in the transforms struct. This should be expanded
+    // to full matrices later on, so you can do full 3D transformations
+    // on 2D shapes later on. For now, each transform is just an X, Y offset
+    transforms: FastHashMap<SvgTransformId, Transform>,
+    view_boxes: FastHashMap<SvgViewBoxId, ViewBox>,
 }
 
 impl<T: Layout> Default for SvgCache<T> {
@@ -83,6 +105,8 @@ impl<T: Layout> Default for SvgCache<T> {
             gpu_ready_to_upload_cache: FastHashMap::default(),
             vertex_index_buffer_cache: UnsafeCell::new(FastHashMap::default()),
             shader: Mutex::new(None),
+            transforms: FastHashMap::default(),
+            view_boxes: FastHashMap::default(),
         }
     }
 }
@@ -154,10 +178,17 @@ impl<T: Layout> SvgCache<T> {
 
     pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
         let new_svg_id = SvgLayerId(SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst));
-        let (vertex_buf, index_buf) = tesselate_layer_data(&layer.data);
+        // TODO: set tolerance based on zoom
+        let (vertex_buf, index_buf) = tesselate_layer_data(&layer.data, 0.01);
         self.layers.insert(new_svg_id, layer);
         self.gpu_ready_to_upload_cache.insert(new_svg_id, (vertex_buf, index_buf));
         new_svg_id
+    }
+
+    pub fn add_transforms(&mut self, transforms: FastHashMap<SvgTransformId, Transform>) {
+        transforms.into_iter().for_each(|(k, v)| {
+            self.transforms.insert(k, v);
+        });
     }
 
     pub fn delete_layer(&mut self, svg_id: SvgLayerId) {
@@ -177,29 +208,29 @@ impl<T: Layout> SvgCache<T> {
     /// Parses an input source, parses the SVG, adds the shapes as layers into
     /// the registry, returns the IDs of the added shapes, in the order that they appeared in the Svg
     pub fn add_svg<R: Read>(&mut self, input: R) -> Result<Vec<SvgLayerId>, SvgParseError> {
-        Ok(self::svg_to_lyon::parse_from(input)?
+        let (layers, transforms) = self::svg_to_lyon::parse_from(input, &mut self.view_boxes)?;
+        self.add_transforms(transforms);
+        Ok(layers
             .into_iter()
-            .map(|layer|
-                self.add_layer(layer))
+            .map(|layer| self.add_layer(layer))
             .collect())
     }
 }
 
-fn tesselate_layer_data(layer_data: &[SvgLayerType]) -> (Vec<SvgVert>, Vec<u32>) {
+fn tesselate_layer_data(layer_data: &SvgLayerType, tolerance: f32) -> (Vec<SvgVert>, Vec<u32>) {
     const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
     let mut index_buf = Vec::<u32>::new();
 
-    for layer in layer_data {
-        let VertexBuffers { vertices, indices } = layer.tesselate();
-        let vertices_len = vertices.len();
-        vertex_buf.extend(vertices.into_iter());
-        index_buf.extend(indices.into_iter().map(|i| i as u32 + last_index as u32));
-        index_buf.push(GL_RESTART_INDEX);
-        last_index += vertices_len;
-    }
+    let VertexBuffers { vertices, indices } = layer_data.tesselate(tolerance);
+    let vertices_len = vertices.len();
+
+    vertex_buf.extend(vertices.into_iter());
+    index_buf.extend(indices.into_iter().map(|i| i as u32 + last_index as u32));
+    index_buf.push(GL_RESTART_INDEX);
+    last_index += vertices_len;
 
     (vertex_buf, index_buf)
 }
@@ -225,9 +256,12 @@ impl From<IoError> for SvgParseError {
 }
 
 pub struct SvgLayer<T: Layout> {
-    pub data: Vec<SvgLayerType>,
+    pub data: SvgLayerType,
     pub callbacks: SvgCallbacks<T>,
     pub style: SvgStyle,
+    // ID in the transform idx
+    pub transform_id: Option<SvgTransformId>,
+    pub view_box_id: SvgViewBoxId,
 }
 
 impl<T: Layout> Clone for SvgLayer<T> {
@@ -236,6 +270,8 @@ impl<T: Layout> Clone for SvgLayer<T> {
             data: self.data.clone(),
             callbacks: self.callbacks.clone(),
             style: self.style.clone(),
+            transform_id: self.transform_id,
+            view_box_id: self.view_box_id,
         }
     }
 }
@@ -289,53 +325,101 @@ impl<T: Layout> Eq for SvgCallbacks<T> { }
 #[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
 pub struct SvgStyle {
     /// Stroke color
-    pub stroke: Option<ColorU>,
-    /// Stroke width * 1000, since otherwise `Hash` can't be derived
-    ///
-    /// i.e. a stroke width of `5.0` = `5000`.
-    pub stroke_width: Option<usize>,
+    pub stroke: Option<(ColorU, SvgStrokeOptions)>,
     /// Fill color
     pub fill: Option<ColorU>,
-    // missing:
-    //
-    // fill-opacity
-    // stroke-miterlimit
-    // stroke-dasharray
-    // stroke-opacity
+    // TODO: stroke-dasharray
 }
 
-impl SvgStyle {
-    /// Parses the Svg style from a string, on error returns the default `SvgStyle`.
-    pub fn from_svg_string(input: &str) -> Self {
-        use css_parser::parse_css_color;
-        use FastHashMap;
+// similar to lyon::SvgStrokeOptions, except the
+// thickness is a usize (f32 * 1000 as usize), in order
+// to implement Hash
+#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+pub struct SvgStrokeOptions {
+    /// What cap to use at the start of each sub-path.
+    ///
+    /// Default value: `LineCap::Butt`.
+    pub start_cap: SvgLineCap,
 
-        let mut style = FastHashMap::<&str, &str>::default();
+    /// What cap to use at the end of each sub-path.
+    ///
+    /// Default value: `LineCap::Butt`.
+    pub end_cap: SvgLineCap,
 
-        for kv in input.split(";") {
-            let mut iter = kv.trim().split(":");
-            let key = iter.next();
-            let value = iter.next();
-            if let (Some(k), Some(v)) = (key, value) {
-                style.insert(k, v);
-            }
-        }
+    /// See the SVG specification.
+    ///
+    /// Default value: `LineJoin::Miter`.
+    pub line_join: SvgLineJoin,
 
-        let fill = style.get("fill")
-            .and_then(|s| parse_css_color(s).ok());
+    /// Line width
+    ///
+    /// Default value: `StrokeOptions::DEFAULT_LINE_WIDTH`.
+    pub line_width: usize,
 
-        let stroke = style.get("stroke")
-            .and_then(|s| parse_css_color(s).ok());
+    /// See the SVG specification.
+    ///
+    /// Must be greater than or equal to 1.0.
+    /// Default value: `StrokeOptions::DEFAULT_MITER_LIMIT`.
+    pub miter_limit: usize,
 
-        let stroke_width = style.get("stroke-width")
-            .and_then(|s| s.parse::<f32>().ok())
-            .and_then(|sw_float| Some((sw_float * 1000.0) as usize));
+    /// Maximum allowed distance to the path when building an approximation.
+    ///
+    /// See [Flattening and tolerance](index.html#flattening-and-tolerance).
+    /// Default value: `StrokeOptions::DEFAULT_TOLERANCE`.
+    pub tolerance: usize,
+
+    /// Apply line width
+    ///
+    /// When set to false, the generated vertices will all be positioned in the centre
+    /// of the line. The width can be applied later on (eg in a vertex shader) by adding
+    /// the vertex normal multiplied by the line with to each vertex position.
+    ///
+    /// Default value: `true`.
+    pub apply_line_width: bool,
+}
+
+impl Default for SvgStrokeOptions {
+    fn default() -> Self {
+        const DEFAULT_MITER_LIMIT: f32 = 4.0;
+        const DEFAULT_LINE_WIDTH: f32 = 1.0;
+        const DEFAULT_TOLERANCE: f32 = 0.1;
 
         Self {
-            fill,
-            stroke_width,
-            stroke,
+            start_cap: SvgLineCap::default(),
+            end_cap: SvgLineCap::default(),
+            line_join: SvgLineJoin::default(),
+            line_width: (DEFAULT_LINE_WIDTH * 1000.0) as usize,
+            miter_limit: (DEFAULT_MITER_LIMIT * 1000.0) as usize,
+            tolerance: (DEFAULT_TOLERANCE * 1000.0) as usize,
+            apply_line_width: true,
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+pub enum SvgLineCap {
+    Butt,
+    Square,
+    Round,
+}
+
+impl Default for SvgLineCap {
+    fn default() -> Self {
+        SvgLineCap::Butt
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+pub enum SvgLineJoin {
+    Miter,
+    MiterClip,
+    Round,
+    Bevel,
+}
+
+impl Default for SvgLineJoin {
+    fn default() -> Self {
+        SvgLineJoin::Miter
     }
 }
 
@@ -343,7 +427,7 @@ impl SvgStyle {
 /// i.e. one SVG `<path></path>` element
 #[derive(Debug, Clone)]
 pub enum SvgLayerType {
-    Polygon(Path),
+    Polygon(Vec<PathEvent>),
     Circle(SvgCircle),
     Rect(SvgRect),
     Text(String),
@@ -361,22 +445,30 @@ implement_vertex!(SvgVert, xy, normal);
 pub struct SvgWorldPixel;
 
 impl SvgLayerType {
-    pub fn tesselate(&self)
+    pub fn tesselate(&self, tolerance: f32)
     -> VertexBuffers<SvgVert>
     {
         use self::SvgLayerType::*;
-        use lyon::tessellation::{VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator};
-        use lyon::tessellation::basic_shapes::{fill_circle, fill_rounded_rectangle};
-        use lyon::geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D};
-        use lyon::tessellation::basic_shapes::BorderRadii;
+        use lyon::tessellation::{
+            VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator,
+            path::{default::Builder, builder::{PathBuilder, FlatPathBuilder}},
+            basic_shapes::{fill_circle, fill_rounded_rectangle, BorderRadii},
+            geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
+        };
 
         let mut geometry = VertexBuffers::new();
 
         match self {
             Polygon(p) => {
+                let mut builder = Builder::with_capacity(p.len()).flattened(tolerance);
+                for event in p {
+                    builder.path_event(*event);
+                }
+                let path = builder.with_svg().build();
+
                 let mut tessellator = FillTessellator::new();
                 tessellator.tessellate_path(
-                    p.path_iter(),
+                    path.path_iter(),
                     &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
@@ -385,6 +477,8 @@ impl SvgLayerType {
                         }
                     }),
                 ).unwrap();
+
+                // TODO: stroke!
             },
             Circle(c) => {
                 fill_circle(
@@ -441,250 +535,161 @@ pub struct SvgRect {
 
 mod svg_to_lyon {
 
-    use svg_crate::node::Attributes;
-    use std::io::Read;
-    use std::collections::HashMap;
-    use lyon::path::default::Path;
+    use std::{slice, iter, io::Read};
     use lyon::{
-        path::{PathEvent, default::Builder, builder::SvgPathBuilder},
-        tessellation::{self, StrokeOptions},
         math::Point,
-        geom::{ArcFlags, euclid::{TypedPoint2D, TypedVector2D, Angle}},
-        path::{SvgEvent, builder::SvgBuilder},
+        path::{PathEvent, iterator::PathIter},
+        tessellation::{self, StrokeOptions},
     };
-    use svg::{SvgCircle, SvgRect, SvgParseError, SvgLayer, SvgStyle};
-    use svg_crate::node::element::path::Parameters;
-    use svg_crate::node::element::tag::Tag;
+    use resvg::usvg::{self, ViewBox, Transform, Tree, Path, PathSegment,
+        Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
+    use svg::{SvgLayer, SvgStrokeOptions, SvgLineCap, SvgLineJoin,
+        SvgLayerType, SvgStyle, SvgCallbacks, SvgParseError, SvgTransformId,
+        new_svg_transform_id, new_view_box_id, SvgViewBoxId};
     use traits::Layout;
+    use webrender::api::ColorU;
+    use FastHashMap;
 
-    pub fn parse_from<R: Read, T: Layout>(svg_source: R)
-    -> Result<Vec<SvgLayer<T>>, SvgParseError>
-    {
-        use svg_crate::{read, parser::{Event, Error}};
-        use std::mem::discriminant;
-        use svg::{SvgLayerType, SvgCallbacks};
+    pub fn parse_from<R: Read, T: Layout>(mut svg_source: R, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
+    -> Result<(Vec<SvgLayer<T>>, FastHashMap<SvgTransformId, Transform>), SvgParseError> {
+        let svg_source = {
+            let mut source_str = String::new();
+            svg_source.read_to_string(&mut source_str)?;
+            source_str
+        };
 
-        let file = read(svg_source)?;
+        let opt = Options::default();
+        let rtree = Tree::from_str(&svg_source, &opt).unwrap();
 
-        let mut last_err = None;
+        let mut layer_data = Vec::new();
+        let mut transform = None;
+        let mut transforms = FastHashMap::default();
 
-        let layer_data = file
-            // We are only interested in tags, not comments or other stuff
-            .filter_map(|event| match event {
-                    Event::Tag(id, _, attributes) => Some((id, attributes)),
-                    Event::Error(e) => { /* TODO: hacky */ last_err = Some(e); None },
-                    _ => None,
+        let view_box = rtree.svg_node().view_box;
+        let view_box_id = new_view_box_id();
+        view_boxes.insert(view_box_id, view_box);
+
+        for node in rtree.root().descendants() {
+            if let NodeKind::Path(p) = &*node.borrow() {
+                let mut style = SvgStyle::default();
+
+                // use the first transform component
+                if transform.is_none() {
+                    transform = Some(node.borrow().transform());
                 }
-            )
-            // assert that the shape has a style. If it doesn't have a style, we can't draw it,
-            // so there is no point in parsing it
-            .filter_map(|(id, attributes)| {
-                let svg_style = match attributes.get("style") {
-                    Some(style_string) => SvgStyle::from_svg_string(style_string),
-                    _ => return None,
-                };
-                Some((id, svg_style, attributes))
-            })
-            // Now parse the shape
-            .filter_map(|(id, style, attributes)| {
-                let layer_data = match id {
-                   "path" => match parse_path(&attributes) {
-                        None => return None,
-                        Some(s) => SvgLayerType::Polygon(s),
-                    }
-                   "circle" => match parse_circle(&attributes) {
-                        None => return None,
-                        Some(s) => SvgLayerType::Circle(s),
-                    },
-                   "rect" => match parse_rect(&attributes) {
-                        None => return None,
-                        Some(s) => SvgLayerType::Rect(s),
-                    },
-                   "flowRoot" => match parse_flow_root(&attributes) {
-                        None => return None,
-                        Some(s) => SvgLayerType::Text(s),
-                    },
-                   "text" => match parse_text(&attributes) {
-                        None => return None,
-                        Some(s) => SvgLayerType::Text(s),
-                    },
-                    _ => return None,
-                };
-                Some((layer_data, style))
-            })
-            .map(|(data, style)| {
-                SvgLayer {
-                    data: vec![data],
+
+                if let Some(ref fill) = p.fill {
+                    // fall back to always use color fill
+                    // no gradients (yet?)
+                    let color = match fill.paint {
+                        Paint::Color(c) => c,
+                        _ => FALLBACK_COLOR,
+                    };
+
+                    style.fill = Some(ColorU {
+                        r: color.red,
+                        g: color.green,
+                        b: color.blue,
+                        a: (fill.opacity.value() * 255.0) as u8
+                    });
+                }
+
+                if let Some(ref stroke) = p.stroke {
+                    style.stroke = Some(convert_stroke(stroke));
+                }
+
+                let transform_id = transform.and_then(|t| {
+                    let new_id = new_svg_transform_id();
+                    transforms.insert(new_id, t.clone());
+                    Some(new_id)
+                });
+
+                layer_data.push(SvgLayer {
+                    data: SvgLayerType::Polygon(p.segments.iter().map(|e| as_event(e)).collect()),
                     callbacks: SvgCallbacks::None,
                     style: style,
-                }
-            })
-            .collect();
-
-        if let Some(e) = last_err {
-            Err(e.into())
-        } else {
-            Ok(layer_data)
-        }
-    }
-
-    fn parse_path(attributes: &Attributes) -> Option<Path> {
-        use lyon::path::default::Builder;
-        use lyon::path::builder::SvgPathBuilder;
-        use lyon::path::builder::FlatPathBuilder;
-        use lyon::path::SvgEvent;
-        use svg_crate::node::element::{
-            tag::Path,
-            path::{Command, Command::*, Data},
-        };
-        use svg_crate::node::element::path::Position::*;
-
-        let data = attributes.get("d")?;
-        let data = Data::parse(data).ok()?;
-
-        let mut builder = SvgPathBuilder::new(Builder::new());
-
-        for command in data.iter() {
-            match command {
-                Move(position, parameters) => match position {
-                    Absolute => parameters.chunks(2).for_each(|chunk| match *chunk {
-                        [x, y] => builder.svg_event(SvgEvent::MoveTo(TypedPoint2D::new(x, y))),
-                        _ => { },
-                    }),
-                    Relative => parameters.chunks(2).for_each(|chunk| match *chunk {
-                        [x, y] => builder.svg_event(SvgEvent::RelativeMoveTo(TypedVector2D::new(x, y))),
-                        _ => { },
-                    }),
-                },
-                Line(position, parameters) => match position {
-                    Absolute => parameters.chunks(2).for_each(|chunk| match *chunk {
-                        [x, y] => builder.svg_event(SvgEvent::LineTo(TypedPoint2D::new(x, y))),
-                        _ => { },
-                    }),
-                    Relative => parameters.chunks(2).for_each(|chunk| match *chunk {
-                        [x, y] => builder.svg_event(SvgEvent::RelativeLineTo(TypedVector2D::new(x, y))),
-                        _ => { },
-                    }),
-                },
-                HorizontalLine(position, parameters) => match position {
-                    Absolute => parameters.iter().for_each(|num| builder.svg_event(SvgEvent::HorizontalLineTo(*num))),
-                    Relative => parameters.iter().for_each(|num| builder.svg_event(SvgEvent::RelativeHorizontalLineTo(*num))),
-                },
-                VerticalLine(position, parameters) => match position {
-                    Absolute => parameters.iter().for_each(|num| builder.svg_event(SvgEvent::VerticalLineTo(*num))),
-                    Relative => parameters.iter().for_each(|num| builder.svg_event(SvgEvent::RelativeVerticalLineTo(*num))),
-                },
-                QuadraticCurve(position, parameters) => match position {
-                    Absolute => parameters.chunks(4).for_each(|chunk| match *chunk {
-                        [x1, y1, x2, y2] => builder.svg_event(SvgEvent::QuadraticTo(TypedPoint2D::new(x1, y1), TypedPoint2D::new(x2, y2))),
-                        _ => { },
-                    }),
-                    Relative => parameters.chunks(4).for_each(|chunk| match *chunk {
-                        [x1, y1, x2, y2] => builder.svg_event(SvgEvent::RelativeQuadraticTo(
-                            TypedVector2D::new(x1, y1), TypedVector2D::new(x2, y2))),
-                        _ => { },
-                    }),
-                },
-                SmoothQuadraticCurve(position, parameters) => match position {
-                    Absolute => parameters.chunks(2).for_each(|chunk| match *chunk {
-                        [x, y] => builder.svg_event(SvgEvent::SmoothQuadraticTo(TypedPoint2D::new(x, y))),
-                        _ => { },
-                    }),
-                    Relative => parameters.chunks(2).for_each(|chunk| match *chunk {
-                        [x, y] => builder.svg_event(SvgEvent::SmoothRelativeQuadraticTo(TypedVector2D::new(x, y))),
-                        _ => { },
-                    }),
-                },
-                CubicCurve(position, parameters) => match position {
-                    Absolute => parameters.chunks(6).for_each(|chunk| match *chunk {
-                        [x1, y1, x2, y2, x3, y3] => builder.svg_event(SvgEvent::CubicTo(
-                            TypedPoint2D::new(x1, y1), TypedPoint2D::new(x2, y2), TypedPoint2D::new(x3, y3))),
-                        _ => { },
-                    }),
-                    Relative => parameters.chunks(6).for_each(|chunk| match *chunk {
-                        [x1, y1, x2, y2, x3, y3] => builder.svg_event(SvgEvent::RelativeCubicTo(
-                            TypedVector2D::new(x1, y1), TypedVector2D::new(x2, y2), TypedVector2D::new(x3, y3))),
-                        _ => { },
-                    }),
-                },
-                SmoothCubicCurve(position, parameters) => match position {
-                    Absolute => parameters.chunks(4).for_each(|chunk| match *chunk {
-                        [x1, y1, x2, y2] => builder.svg_event(SvgEvent::SmoothCubicTo(
-                            TypedPoint2D::new(x1, y1), TypedPoint2D::new(x2, y2))),
-                        _ => { },
-                    }),
-                    Relative => parameters.chunks(4).for_each(|chunk| match *chunk {
-                        [x1, y1, x2, y2] => builder.svg_event(SvgEvent::SmoothRelativeCubicTo(
-                            TypedVector2D::new(x1, y1), TypedVector2D::new(x2, y2))),
-                        _ => { },
-                    }),
-                },
-                EllipticalArc(position, parameters) => match position {
-                    Absolute => parameters.chunks(5).for_each(|chunk| match *chunk {
-                        [x1, y1, angle, x2, y2] => builder.svg_event(
-                            SvgEvent::ArcTo(
-                                TypedVector2D::new(x1, y1),
-                                Angle::degrees(angle),
-                                ArcFlags { large_arc: true, sweep: true, },
-                                TypedPoint2D::new(x2, y2)
-                            )),
-                        _ => { },
-                    }),
-                    Relative => parameters.chunks(5).for_each(|chunk| match *chunk {
-                        [x1, y1, angle, x2, y2] => builder.svg_event(
-                            SvgEvent::ArcTo(
-                                TypedVector2D::new(x1, y1),
-                                Angle::degrees(angle),
-                                ArcFlags { large_arc: true, sweep: true, },
-                                TypedPoint2D::new(x2, y2)
-                            )),
-                        _ => { },
-                    }),
-                },
-                Close => {
-                    builder.close();
-                },
+                    transform_id: transform_id,
+                    view_box_id: view_box_id,
+                })
             }
         }
 
-        Some(builder.build())
+        Ok((layer_data, transforms))
     }
 
-    fn parse_circle(attributes: &Attributes) -> Option<SvgCircle> {
-        let center_x = attributes.get("cx")?.parse::<f32>().ok()?;
-        let center_y = attributes.get("cy")?.parse::<f32>().ok()?;
-        let radius = attributes.get("r")?.parse::<f32>().ok()?;
-
-        Some(SvgCircle {
-            center_x,
-            center_y,
-            radius
-        })
+    // Map resvg::tree::PathSegment to lyon::path::PathEvent
+    fn as_event(ps: &PathSegment) -> PathEvent {
+        match *ps {
+            PathSegment::MoveTo { x, y } => PathEvent::MoveTo(Point::new(x as f32, y as f32)),
+            PathSegment::LineTo { x, y } => PathEvent::LineTo(Point::new(x as f32, y as f32)),
+            PathSegment::CurveTo { x1, y1, x2, y2, x, y, } => {
+                PathEvent::CubicTo(
+                    Point::new(x1 as f32, y1 as f32),
+                    Point::new(x2 as f32, y2 as f32),
+                    Point::new(x as f32, y as f32))
+            }
+            PathSegment::ClosePath => PathEvent::Close,
+        }
     }
 
-    fn parse_rect(attributes: &Attributes) -> Option<SvgRect> {
-        let width = attributes.get("width")?.parse::<f32>().ok()?;
-        let height = attributes.get("height")?.parse::<f32>().ok()?;
-        let x = attributes.get("x")?.parse::<f32>().ok()?;
-        let y = attributes.get("y")?.parse::<f32>().ok()?;
-        let rx = attributes.get("rx")?.parse::<f32>().ok()?;
-        let ry = attributes.get("ry")?.parse::<f32>().ok()?;
-        Some(SvgRect {
-            width,
-            height,
-            x, y,
-            rx, ry
-        })
+    pub struct PathConv<'a>(SegmentIter<'a>);
+
+    // Alias for the iterator returned by resvg::tree::Path::iter()
+    type SegmentIter<'a> = slice::Iter<'a, PathSegment>;
+
+    // Alias for our `interface` iterator
+    type PathConvIter<'a> = iter::Map<SegmentIter<'a>, fn(&PathSegment) -> PathEvent>;
+
+    // Provide a function which gives back a PathIter which is compatible with
+    // tesselators, so we don't have to implement the PathIterator trait
+    impl<'a> PathConv<'a> {
+        pub fn path_iter(self) -> PathIter<PathConvIter<'a>> {
+            PathIter::new(self.0.map(as_event))
+        }
     }
 
-    // TODO: use text attributes instead of string
-    fn parse_flow_root(attributes: &Attributes) -> Option<String> {
-        Some(String::from("hello"))
+    pub fn convert_path<'a>(p: &'a Path) -> PathConv<'a> {
+        PathConv(p.segments.iter())
     }
 
-    // TODO: use text attributes instead of string
-    fn parse_text(attributes: &Attributes) -> Option<String> {
-        Some(String::from("hello"))
+    pub const FALLBACK_COLOR: Color = Color {
+        red: 0,
+        green: 0,
+        blue: 0,
+    };
+
+    // dissect a resvg::Stroke into a webrender::ColorU + SvgStrokeOptions
+    pub fn convert_stroke(s: &Stroke) -> (ColorU, SvgStrokeOptions) {
+
+        let color = match s.paint {
+            Paint::Color(c) => c,
+            _ => FALLBACK_COLOR,
+        };
+        let line_cap = match s.linecap {
+            LineCap::Butt => SvgLineCap::Butt,
+            LineCap::Square => SvgLineCap::Square,
+            LineCap::Round => SvgLineCap::Round,
+        };
+        let line_join = match s.linejoin {
+            LineJoin::Miter => SvgLineJoin::Miter,
+            LineJoin::Bevel => SvgLineJoin::Bevel,
+            LineJoin::Round => SvgLineJoin::Round,
+        };
+
+        let opts = SvgStrokeOptions {
+            line_width: ((s.width as f32) * 1000.0) as usize,
+            start_cap: line_cap,
+            end_cap: line_cap,
+            line_join,
+            .. Default::default()
+        };
+
+        (ColorU {
+            r: color.red,
+            g: color.green,
+            b: color.blue,
+            a: (s.opacity.value() * 255.0) as u8
+        }, opts)
     }
 }
 

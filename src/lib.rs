@@ -36,7 +36,7 @@ pub extern crate image;
 extern crate lazy_static;
 extern crate euclid;
 extern crate lyon;
-extern crate svg as svg_crate;
+extern crate resvg;
 extern crate webrender;
 extern crate cassowary;
 extern crate twox_hash;
