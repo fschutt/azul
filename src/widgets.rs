@@ -106,25 +106,47 @@ impl Svg {
             for layer_id in &self.layers {
                 
                 use palette::Srgba;
-
-                let (vertex_buffer, index_buffer) = svg_cache.get_vertices_and_indices(window, layer_id);
                 let style = svg_cache.get_style(layer_id);
-                let color: ColorF = style.fill.unwrap_or(DEFAULT_COLOR).into();
-                let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
 
-                let uniforms = uniform! {
-                    bbox_origin: (bbox.origin.x, bbox.origin.y),
-                    bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
-                    z_index: z_index,
-                    color: (
-                        color.color.red as f32, 
-                        color.color.green as f32, 
-                        color.color.blue as f32, 
-                        color.alpha as f32
-                    ),
-                };
+                if let Some(color) = style.fill {
+                    let color: ColorF = color.into();                
+                    let (vertex_buffer, index_buffer) = svg_cache.get_vertices_and_indices(window, layer_id);
+                    let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
 
-                surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
+                    let uniforms = uniform! {
+                        bbox_origin: (bbox.origin.x, bbox.origin.y),
+                        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+                        z_index: z_index,
+                        color: (
+                            color.color.red as f32, 
+                            color.color.green as f32, 
+                            color.color.blue as f32, 
+                            color.alpha as f32
+                        ),
+                    };
+
+                    surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
+                }
+            
+                if let Some((stroke_color, stroke_options)) = style.stroke {
+                    let stroke_color: ColorF = stroke_color.into();
+                    let (stroke_vertex_buffer, stroke_index_buffer) = svg_cache.get_stroke_vertices_and_indices(window, layer_id);
+                    let stroke_color = Srgba::new(stroke_color.r, stroke_color.g, stroke_color.b, stroke_color.a).into_linear();
+
+                    let uniforms = uniform! {
+                        bbox_origin: (bbox.origin.x, bbox.origin.y),
+                        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+                        z_index: z_index,
+                        color: (
+                        stroke_color.color.red as f32, 
+                        stroke_color.color.green as f32, 
+                        stroke_color.color.blue as f32, 
+                        stroke_color.alpha as f32
+                        ),
+                    };
+
+                    surface.draw(stroke_vertex_buffer, stroke_index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
+                }
             }
         }
 
