@@ -27,7 +27,10 @@ pub trait Layout {
     /// The `style_dom` looks through the given DOM rules, applies the style and
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
+    #[cfg(not(test))]
     fn layout(&self, window_id: WindowInfo) -> Dom<Self> where Self: Sized;
+    #[cfg(test)]
+    fn layout(&self) -> Dom<Self> where Self: Sized;
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.

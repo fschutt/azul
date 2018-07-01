@@ -1,22 +1,23 @@
-use window::WindowEvent;
-use traits::GetCssId;
-use app_state::AppState;
-use traits::Layout;
-use std::collections::BTreeMap;
-use id_tree::{NodeId, Arena};
-use std::sync::{Arc, Mutex};
-use std::fmt;
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::hash::{Hash, Hasher};
+use std::{
+    fmt,
+    rc::Rc,
+    cell::RefCell,
+    hash::{Hash, Hasher},
+    sync::atomic::{AtomicUsize, Ordering},
+    collections::BTreeMap,
+};
 use webrender::api::ColorU;
-use glium::Texture2d;
-use svg::SvgLayerId;
-use images::ImageId;
-use cache::DomHash;
-use text_cache::TextId;
-use glium::framebuffer::SimpleFrameBuffer;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
+use {
+    window::WindowEvent,
+    svg::SvgLayerId,
+    images::ImageId,
+    cache::DomHash,
+    text_cache::TextId,
+    traits::{Layout, GetCssId},
+    app_state::AppState,
+    id_tree::{NodeId, Arena},
+};
 
 /// This is only accessed from the main thread, so it's safe to use
 pub(crate) static NODE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -436,10 +437,62 @@ impl<T: Layout> Dom<T> {
     }
 }
 
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
 #[test]
-fn __codecov_test_dom_file() {
+fn test_dom_sibling_1() {
+    
+    use window::WindowInfo;
 
+    struct TestLayout { }
+
+    impl Layout for TestLayout { 
+        fn layout(&self) -> Dom<Self> {
+            Dom::new(NodeType::Div)
+                .with_child(
+                    Dom::new(NodeType::Div)
+                    .with_id("sibling-1")
+                    .with_child(Dom::new(NodeType::Div)
+                        .with_id("sibling-1-child-1")))
+                .with_child(Dom::new(NodeType::Div)
+                    .with_id("sibling-2")
+                    .with_child(Dom::new(NodeType::Div)
+                        .with_id("sibling-2-child-1")))
+        }
+    }
+
+    let dom = TestLayout{ }.layout();
+    let arena = dom.arena.borrow();
+
+    assert_eq!(NodeId::new(0), dom.root);
+
+    assert_eq!(Some(String::from("sibling-1")),
+        arena[
+            arena[dom.root]
+            .first_child().expect("root has no first child")
+        ].data.id);
+    
+    assert_eq!(Some(String::from("sibling-2")),
+        arena[
+            arena[
+                arena[dom.root]
+                .first_child().expect("root has no first child")
+            ].next_sibling().expect("root has no second sibling")
+        ].data.id);
+    
+    assert_eq!(Some(String::from("sibling-1-child-1")),
+        arena[
+            arena[
+                arena[dom.root]
+                .first_child().expect("root has no first child")
+            ].first_child().expect("first child has no first child")
+        ].data.id);
+
+    assert_eq!(Some(String::from("sibling-2-child-1")),
+        arena[
+            arena[
+                arena[
+                    arena[dom.root]
+                    .first_child().expect("root has no first child")
+                ].next_sibling().expect("first child has no second sibling")
+            ].first_child().expect("second sibling has no first child")
+        ].data.id);
 }

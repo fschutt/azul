@@ -119,20 +119,21 @@ pub struct Node<T> {
 // Manual implementation, since `#[derive(Debug)]` requires `T: Debug`
 impl<T: fmt::Debug> fmt::Debug for Node<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Node {{ \
-                       parent: {:?}, \
-                       previous_sibling: {:?}, \
-                       next_sibling: {:?}, \
-                       first_child: {:?}, \
-                       last_child: {:?}, \
-                       data: {:?}, \
-                   }}",
-                   self.parent,
-                   self.previous_sibling,
-                   self.next_sibling,
-                   self.first_child,
-                   self.last_child,
-                   self.data)
+        write!(f, 
+            "Node {{ \
+               parent: {:?}, \
+               previous_sibling: {:?}, \
+               next_sibling: {:?}, \
+               first_child: {:?}, \
+               last_child: {:?}, \
+               data: {:?}, \
+           }}",
+           self.parent,
+           self.previous_sibling,
+           self.next_sibling,
+           self.first_child,
+           self.last_child,
+           self.data)
     }
 }
 
