@@ -30,15 +30,22 @@ impl<T: Layout> fmt::Debug for UiState<T> {
 }
 
 impl<T: Layout> UiState<T> {
+    #[allow(unused_imports, unused_variables)]
     pub(crate) fn from_app_state(app_state: &AppState<T>, window_info: WindowInfo) -> Self
     {
-        use dom::{Dom, On};
+        use dom::{Dom, On, NodeType};
         use std::sync::atomic::Ordering;
 
         // Only shortly lock the data to get the dom out
          let dom: Dom<T> = {
             let dom_lock = app_state.data.lock().unwrap();
-            dom_lock.layout(window_info)
+            #[cfg(test)]{
+                Dom::<T>::new(NodeType::Div)
+            }
+            
+            #[cfg(not(test))]{
+                dom_lock.layout(window_info)
+            }
         };
 
         NODE_ID.swap(0, Ordering::SeqCst);
