@@ -1,12 +1,10 @@
 //! Window creation module
 
-use dom::Texture;
-use glium::backend::Facade;
-use glium::backend::Context;
-use css::FakeCss;
-use window_state::{WindowState, WindowPosition};
-use std::{time::Duration, fmt, rc::Rc};
-
+use std::{
+    time::Duration, 
+    fmt, 
+    rc::Rc
+};
 use webrender::{
     api::*,
     Renderer, RendererOptions, RendererKind,
@@ -17,7 +15,7 @@ use glium::{
     debug::DebugCallbackBehavior,
     glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
              MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder},
-    backend::glutin::DisplayCreationError,
+    backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl;
 use euclid::TypedScale;
@@ -26,13 +24,17 @@ use cassowary::{
     strength::*,
 };
 
-use display_list::SolvedLayout;
-use traits::Layout;
-use css::Css;
-use cache::{EditVariableCache, DomTreeCache};
-use id_tree::NodeId;
-use compositor::Compositor;
-use app::FrameEventInfo;
+use {
+    dom::Texture,
+    css::{Css, FakeCss},
+    window_state::{WindowState, WindowPosition},
+    display_list::SolvedLayout,
+    traits::Layout,
+    cache::{EditVariableCache, DomTreeCache},
+    id_tree::NodeId,
+    compositor::Compositor,
+    app::FrameEventInfo,
+};
 
 /// azul-internal ID for a window
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]

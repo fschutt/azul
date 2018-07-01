@@ -1,12 +1,10 @@
-#![allow(non_snake_case)]
-
-use svg::SvgCache;
-use svg::SvgLayerId;
-use window::ReadOnlyWindow;
-use traits::GetDom;
-use traits::Layout;
-use dom::{Dom, NodeType};
-use images::ImageId;
+use {
+    svg::{SvgCache, SvgLayerId},
+    window::ReadOnlyWindow,
+    traits::{GetDom, Layout},
+    dom::{Dom, NodeType},
+    images::ImageId,
+};
 
 // --- button
 

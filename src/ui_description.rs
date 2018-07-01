@@ -1,14 +1,17 @@
-use css_parser::ParsedCssProperty;
-use FastHashMap;
-use id_tree::{Arena, NodeId};
-use traits::Layout;
-use ui_state::UiState;
-use css::Css;
-use dom::NodeData;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::collections::BTreeMap;
-use css::CssDeclaration;
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    collections::BTreeMap,
+};
+use {
+    FastHashMap,
+    css_parser::ParsedCssProperty,
+    id_tree::{Arena, NodeId},
+    traits::Layout,
+    ui_state::UiState,
+    css::{Css, CssDeclaration},
+    dom::NodeData,
+};
 
 pub struct UiDescription<T: Layout> {
     pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,

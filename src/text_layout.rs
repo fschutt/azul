@@ -1,11 +1,16 @@
 #![allow(unused_variables, dead_code)]
 
-use resources::AppResources;
-use display_list::TextInfo;
-use webrender::api::*;
+use webrender::api::{LayoutPixel, GlyphInstance};
 use euclid::{Length, TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
-use css_parser::{TextAlignmentHorz, FontSize, BackgroundColor, Font as FontId, TextAlignmentVert, LineHeight, LayoutOverflow};
+use {
+    resources::AppResources,
+    display_list::TextInfo,
+    css_parser::{
+        TextAlignmentHorz, FontSize, BackgroundColor, 
+        Font as FontId, TextAlignmentVert, LineHeight, LayoutOverflow
+    },
+};
 
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
 /// Without this adjustment, we won't have the correct horizontal spacing

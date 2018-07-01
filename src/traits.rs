@@ -1,14 +1,18 @@
-use std::collections::BTreeMap;
-use dom::{NodeData, Dom};
-use ui_description::{StyledNode, CssConstraintList, UiDescription};
-use css::{Css, CssRule};
-use window::WindowInfo;
-use id_tree::{NodeId, Arena};
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::hash::Hash;
-use css_parser::{ParsedCssProperty, CssParsingError};
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    rc::Rc,
+    cell::RefCell,
+    hash::Hash,
+    sync::{Arc, Mutex},
+};
+use {
+    dom::{NodeData, Dom},
+    ui_description::{StyledNode, CssConstraintList, UiDescription},
+    css::{Css, CssRule},
+    window::WindowInfo,
+    id_tree::{NodeId, Arena},
+    css_parser::{ParsedCssProperty, CssParsingError},
+};
 
 pub trait GetDom {
     fn dom<T: Layout>(self) -> Dom<T>;

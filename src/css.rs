@@ -1,9 +1,11 @@
 //! CSS parsing and styling
-use traits::IntoParsedCssProperty;
-use FastHashMap;
 use std::ops::Add;
-use css_parser::{ParsedCssProperty, CssParsingError};
-use errors::CssSyntaxError;
+use {
+    FastHashMap,
+    traits::IntoParsedCssProperty,
+    css_parser::{ParsedCssProperty, CssParsingError},
+    errors::CssSyntaxError,
+};
 
 #[cfg(target_os="windows")]
 const NATIVE_CSS_WINDOWS: &str = include_str!("../assets/native_windows.css");

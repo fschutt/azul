@@ -1,9 +1,12 @@
-use css_parser::FontSize;
-use text_layout::SemanticWordItem;
-use FastHashMap;
-use std::sync::atomic::{Ordering, AtomicUsize};
-use css_parser::Font;
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    sync::atomic::{Ordering, AtomicUsize},
+};
+use {
+    FastHashMap,
+    css_parser::{Font, FontSize},
+    text_layout::SemanticWordItem,
+};
 
 static TEXT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 

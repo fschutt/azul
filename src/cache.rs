@@ -35,13 +35,18 @@
 //! meaning that the variable was not present in the current DOM tree, so leaving the variables in the solver
 //! would be garbage.
 
-use std::collections::BTreeMap;
-use constraints::DisplayRect;
+use std::{
+    ops::Deref,
+    collections::BTreeMap,
+};
 use cassowary::Solver;
-use id_tree::{NodeId, Arena};
-use traits::Layout;
-use dom::NodeData;
-use std::ops::Deref;
+
+use {
+    constraints::DisplayRect,
+    id_tree::{NodeId, Arena},
+    traits::Layout,
+    dom::NodeData,
+};
 
 /// We keep the tree from the previous re-layout. Then, when a re-layout is required,
 /// we re-hash all the nodes, insert the

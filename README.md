@@ -16,6 +16,11 @@ and a CSS / DOM model for layout and rendering
 
 [Crates.io](https://crates.io/crates/azul) | [Library documentation](https://docs.rs/azul) | [User guide](http://azul.rs/)
 
+## Installation notes
+
+On Linux, you currently need to install `cmake` before you can use. It is used
+during the build process to compile freetype.
+
 ## Design
 
 azul is a library designed from the experience gathered during working with other
