@@ -12,10 +12,15 @@ use std::{fmt, rc::Rc,
     cell::UnsafeCell,
     hash::{Hash, Hasher},
 };
-use lyon::{path::{PathEvent, default::Path}, tessellation::{LineCap, VertexBuffers, LineJoin}};
+use lyon::tessellation::{
+    VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator,
+    LineCap, LineJoin, StrokeTessellator, StrokeOptions, StrokeVertex,
+    path::{default::{Builder, Path}, builder::{PathBuilder, FlatPathBuilder}, PathEvent},
+    basic_shapes::{fill_circle, stroke_circle, fill_rounded_rectangle, stroke_rounded_rectangle, BorderRadii},
+    geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
+};
 use resvg::usvg::Error as SvgError;
 use webrender::api::{ColorU, ColorF};
-use euclid::TypedRect;
 
 use dom::Callback;
 use traits::Layout;
@@ -89,7 +94,9 @@ pub struct SvgCache<T: Layout> {
     layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
     // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
     gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
+    stroke_gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
     vertex_index_buffer_cache: UnsafeCell<FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>>,
+    stroke_vertex_index_buffer_cache: UnsafeCell<FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>>,
     shader: Mutex<Option<SvgShader>>,
     // Stores the 2D transforms of the shapes on the screen. The vertices are
     // offset by the X, Y value in the transforms struct. This should be expanded
@@ -104,7 +111,9 @@ impl<T: Layout> Default for SvgCache<T> {
         Self {
             layers: FastHashMap::default(),
             gpu_ready_to_upload_cache: FastHashMap::default(),
+            stroke_gpu_ready_to_upload_cache: FastHashMap::default(),
             vertex_index_buffer_cache: UnsafeCell::new(FastHashMap::default()),
+            stroke_vertex_index_buffer_cache: UnsafeCell::new(FastHashMap::default()),
             shader: Mutex::new(None),
             transforms: FastHashMap::default(),
             view_boxes: FastHashMap::default(),
@@ -130,9 +139,20 @@ impl<T: Layout> SvgCache<T> {
     pub fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
     -> &'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)
     {
-        
+        use std::collections::hash_map::Entry::*;
+        use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
+
+        let rmut = unsafe { &mut *self.stroke_vertex_index_buffer_cache.get() };
+        let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
+
+        rmut.entry(*id).or_insert_with(|| {
+            let (vbuf, ibuf) = rnotmut.get(id).as_ref().unwrap();
+            let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
+            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
+            (vertex_buffer, index_buffer)
+        })
     }
-    
+
     /// Note: panics if the ID isn't found.
     ///
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
@@ -184,32 +204,50 @@ impl<T: Layout> fmt::Debug for SvgCache<T> {
 impl<T: Layout> SvgCache<T> {
 
     pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
-        let new_svg_id = SvgLayerId(SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst));
         // TODO: set tolerance based on zoom
-        let (vertex_buf, index_buf) = tesselate_layer_data(&layer.data, 0.01);
-        self.layers.insert(new_svg_id, layer);
+        let new_svg_id = SvgLayerId(SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst));
+
+        let ((vertex_buf, index_buf), opt_stroke) =
+            tesselate_layer_data(&layer.data, 0.01, layer.style.stroke.and_then(|s| Some(s.1.clone())));
+
         self.gpu_ready_to_upload_cache.insert(new_svg_id, (vertex_buf, index_buf));
+
+        if let Some((stroke_vertex_buf, stroke_index_buf)) = opt_stroke {
+            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, (stroke_vertex_buf, stroke_index_buf));
+        }
+
+        self.layers.insert(new_svg_id, layer);
+
         new_svg_id
+    }
+
+    pub fn delete_layer(&mut self, svg_id: SvgLayerId) {
+        self.layers.remove(&svg_id);
+        self.gpu_ready_to_upload_cache.remove(&svg_id);
+        self.stroke_gpu_ready_to_upload_cache.remove(&svg_id);
+        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
+        let stroke_rmut = unsafe { &mut *self.stroke_vertex_index_buffer_cache.get() };
+        rmut.remove(&svg_id);
+        stroke_rmut.remove(&svg_id);
+    }
+
+    pub fn clear_all_layers(&mut self) {
+        self.layers.clear();
+
+        self.gpu_ready_to_upload_cache.clear();
+        self.stroke_gpu_ready_to_upload_cache.clear();
+
+        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
+        rmut.clear();
+
+        let stroke_rmut = unsafe { &mut *self.stroke_vertex_index_buffer_cache.get() };
+        stroke_rmut.clear();
     }
 
     pub fn add_transforms(&mut self, transforms: FastHashMap<SvgTransformId, Transform>) {
         transforms.into_iter().for_each(|(k, v)| {
             self.transforms.insert(k, v);
         });
-    }
-
-    pub fn delete_layer(&mut self, svg_id: SvgLayerId) {
-        self.layers.remove(&svg_id);
-        self.gpu_ready_to_upload_cache.remove(&svg_id);
-        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
-        rmut.remove(&svg_id);
-    }
-
-    pub fn clear_all_layers(&mut self) {
-        self.layers.clear();
-        self.gpu_ready_to_upload_cache.clear();
-        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
-        rmut.clear();
     }
 
     /// Parses an input source, parses the SVG, adds the shapes as layers into
@@ -224,22 +262,43 @@ impl<T: Layout> SvgCache<T> {
     }
 }
 
-fn tesselate_layer_data(layer_data: &SvgLayerType, tolerance: f32) -> (Vec<SvgVert>, Vec<u32>) {
+fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: Option<SvgStrokeOptions>)
+-> ((Vec<SvgVert>, Vec<u32>), Option<(Vec<SvgVert>, Vec<u32>)>)
+{
     const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
     let mut index_buf = Vec::<u32>::new();
 
-    let VertexBuffers { vertices, indices } = layer_data.tesselate(tolerance);
-    let vertices_len = vertices.len();
+    let mut last_stroke_index = 0;
+    let mut stroke_vertex_buf = Vec::<SvgVert>::new();
+    let mut stroke_index_buf = Vec::<u32>::new();
 
-    vertex_buf.extend(vertices.into_iter());
-    index_buf.extend(indices.into_iter().map(|i| i as u32 + last_index as u32));
-    index_buf.push(GL_RESTART_INDEX);
-    last_index += vertices_len;
+    for layer in layer_data.get() {
 
-    (vertex_buf, index_buf)
+        let (VertexBuffers { vertices, indices }, stroke_vertices) = layer.tesselate(tolerance, stroke_options);
+
+        let vertices_len = vertices.len();
+        vertex_buf.extend(vertices.into_iter());
+        index_buf.extend(indices.into_iter().map(|i| i as u32 + last_index as u32));
+        index_buf.push(GL_RESTART_INDEX);
+        last_index += vertices_len;
+
+        if let Some(VertexBuffers { vertices, indices }) = stroke_vertices {
+            let stroke_vertices_len = vertices.len();
+            stroke_vertex_buf.extend(vertices.into_iter());
+            stroke_index_buf.extend(indices.into_iter().map(|i| i as u32 + last_stroke_index as u32));
+            stroke_index_buf.push(GL_RESTART_INDEX);
+            last_stroke_index += stroke_vertices_len;
+        }
+    }
+
+    if stroke_options.is_some() {
+        ((vertex_buf, index_buf), Some((stroke_vertex_buf, stroke_index_buf)))
+    } else {
+        ((vertex_buf, index_buf), None)
+    }
 }
 
 #[derive(Debug)]
@@ -263,12 +322,27 @@ impl From<IoError> for SvgParseError {
 }
 
 pub struct SvgLayer<T: Layout> {
-    pub data: SvgLayerType,
+    pub data: LayerType,
     pub callbacks: SvgCallbacks<T>,
     pub style: SvgStyle,
-    // ID in the transform idx
     pub transform_id: Option<SvgTransformId>,
     pub view_box_id: SvgViewBoxId,
+}
+
+#[derive(Debug, Clone)]
+pub enum LayerType {
+    KnownSize([SvgLayerType; 1]),
+    UnknownSize(Vec<SvgLayerType>),
+}
+
+impl LayerType {
+    pub fn get(&self) -> &[SvgLayerType] {
+        use self::LayerType::*;
+        match self {
+            KnownSize(a) => &a[..],
+            UnknownSize(b) => &b[..],
+        }
+    }
 }
 
 impl<T: Layout> Clone for SvgLayer<T> {
@@ -385,6 +459,24 @@ pub struct SvgStrokeOptions {
     pub apply_line_width: bool,
 }
 
+impl Into<StrokeOptions> for SvgStrokeOptions {
+    fn into(self) -> StrokeOptions {
+        let target = StrokeOptions::default()
+            .with_tolerance(self.tolerance as f32 / 1000.0)
+            .with_start_cap(self.start_cap.into())
+            .with_end_cap(self.end_cap.into())
+            .with_line_join(self.line_join.into())
+            .with_line_width(self.line_width as f32 / 1000.0)
+            .with_miter_limit(self.miter_limit as f32 / 1000.0);
+
+        if !self.apply_line_width {
+            target.dont_apply_line_width()
+        } else {
+            target
+        }
+    }
+}
+
 impl Default for SvgStrokeOptions {
     fn default() -> Self {
         const DEFAULT_MITER_LIMIT: f32 = 4.0;
@@ -416,6 +508,18 @@ impl Default for SvgLineCap {
     }
 }
 
+impl Into<LineCap> for SvgLineCap {
+    #[inline]
+    fn into(self) -> LineCap {
+        use self::SvgLineCap::*;
+        match self {
+            Butt => LineCap::Butt,
+            Square => LineCap::Square,
+            Round => LineCap::Round,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Hash)]
 pub enum SvgLineJoin {
     Miter,
@@ -427,6 +531,19 @@ pub enum SvgLineJoin {
 impl Default for SvgLineJoin {
     fn default() -> Self {
         SvgLineJoin::Miter
+    }
+}
+
+impl Into<LineJoin> for SvgLineJoin {
+    #[inline]
+    fn into(self) -> LineJoin {
+        use self::SvgLineJoin::*;
+        match self {
+            Miter => LineJoin::Miter,
+            MiterClip => LineJoin::MiterClip,
+            Round => LineJoin::Round,
+            Bevel => LineJoin::Bevel,
+        }
     }
 }
 
@@ -451,22 +568,20 @@ implement_vertex!(SvgVert, xy, normal);
 #[derive(Debug, Copy, Clone)]
 pub struct SvgWorldPixel;
 
-impl SvgLayerType {
-    pub fn tesselate(&self, tolerance: f32)
-    -> VertexBuffers<SvgVert>
-    {
-        use self::SvgLayerType::*;
-        use lyon::tessellation::{
-            VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator,
-            path::{default::Builder, builder::{PathBuilder, FlatPathBuilder}},
-            basic_shapes::{fill_circle, fill_rounded_rectangle, BorderRadii},
-            geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
-        };
 
+impl SvgLayerType {
+    pub fn tesselate(&self, tolerance: f32, stroke: Option<SvgStrokeOptions>)
+    -> (VertexBuffers<SvgVert>, Option<VertexBuffers<SvgVert>>)
+    {
         let mut geometry = VertexBuffers::new();
+        let mut stroke_geometry = VertexBuffers::new();
+        let stroke = stroke.and_then(|s| {
+            let s: StrokeOptions = s.into();
+            Some(s.with_tolerance(tolerance))
+        });
 
         match self {
-            Polygon(p) => {
+            SvgLayerType::Polygon(p) => {
                 let mut builder = Builder::with_capacity(p.len()).flattened(tolerance);
                 for event in p {
                     builder.path_event(*event);
@@ -485,11 +600,24 @@ impl SvgLayerType {
                     }),
                 ).unwrap();
 
-                // TODO: stroke!
+                if let Some(ref stroke_options) = stroke {
+                    let mut stroke_tess = StrokeTessellator::new();
+                    stroke_tess.tessellate_path(
+                        path.path_iter(),
+                        stroke_options,
+                        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+                            SvgVert {
+                                xy: (vertex.position.x, vertex.position.y),
+                                normal: (vertex.normal.x, vertex.position.y),
+                            }
+                        }),
+                    );
+                }
             },
-            Circle(c) => {
-                fill_circle(
-                    TypedPoint2D::new(c.center_x, c.center_y), c.radius, &FillOptions::default(),
+            SvgLayerType::Circle(c) => {
+                let center = TypedPoint2D::new(c.center_x, c.center_y);
+                let radius = c.radius;
+                fill_circle(center, radius, &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
                             xy: (vertex.position.x, vertex.position.y),
@@ -497,17 +625,29 @@ impl SvgLayerType {
                         }
                     }
                 ));
+
+                if let Some(ref stroke_options) = stroke {
+                    stroke_circle(center, radius, stroke_options,
+                        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+                            SvgVert {
+                                xy: (vertex.position.x, vertex.position.y),
+                                normal: (vertex.normal.x, vertex.position.y),
+                            }
+                        }
+                    ));
+                }
             },
-            Rect(r) => {
-                fill_rounded_rectangle(
-                    &TypedRect::new(TypedPoint2D::new(r.x, r.y), TypedSize2D::new(r.width, r.height)),
-                    &BorderRadii {
-                        top_left: r.rx,
-                        top_right: r.rx,
-                        bottom_left: r.rx,
-                        bottom_right: r.rx,
-                    },
-                    &FillOptions::default(),
+            SvgLayerType::Rect(r) => {
+                let size = TypedSize2D::new(r.width, r.height);
+                let rect = TypedRect::new(TypedPoint2D::new(r.x, r.y), size);
+                let radii = BorderRadii {
+                    top_left: r.rx,
+                    top_right: r.rx,
+                    bottom_left: r.rx,
+                    bottom_right: r.rx,
+                };
+
+                fill_rounded_rectangle(&rect, &radii, &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
                             xy: (vertex.position.x, vertex.position.y),
@@ -515,11 +655,26 @@ impl SvgLayerType {
                         }
                     }
                 ));
+
+                if let Some(ref stroke_options) = stroke {
+                    stroke_rounded_rectangle(&rect, &radii, stroke_options,
+                        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+                            SvgVert {
+                                xy: (vertex.position.x, vertex.position.y),
+                                normal: (vertex.normal.x, vertex.position.y),
+                            }
+                        }
+                    ));
+                }
             },
-            Text(_t) => { },
+            SvgLayerType::Text(_t) => { },
         }
 
-        geometry
+        if stroke.is_some() {
+            (geometry, Some(stroke_geometry))
+        } else {
+            (geometry, None)
+        }
     }
 }
 
@@ -552,7 +707,7 @@ mod svg_to_lyon {
         Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
     use svg::{SvgLayer, SvgStrokeOptions, SvgLineCap, SvgLineJoin,
         SvgLayerType, SvgStyle, SvgCallbacks, SvgParseError, SvgTransformId,
-        new_svg_transform_id, new_view_box_id, SvgViewBoxId};
+        new_svg_transform_id, new_view_box_id, SvgViewBoxId, LayerType};
     use traits::Layout;
     use webrender::api::ColorU;
     use FastHashMap;
@@ -612,7 +767,7 @@ mod svg_to_lyon {
                 });
 
                 layer_data.push(SvgLayer {
-                    data: SvgLayerType::Polygon(p.segments.iter().map(|e| as_event(e)).collect()),
+                    data: LayerType::KnownSize([SvgLayerType::Polygon(p.segments.iter().map(|e| as_event(e)).collect())]),
                     callbacks: SvgCallbacks::None,
                     style: style,
                     transform_id: transform_id,
@@ -637,26 +792,6 @@ mod svg_to_lyon {
             }
             PathSegment::ClosePath => PathEvent::Close,
         }
-    }
-
-    pub struct PathConv<'a>(SegmentIter<'a>);
-
-    // Alias for the iterator returned by resvg::tree::Path::iter()
-    type SegmentIter<'a> = slice::Iter<'a, PathSegment>;
-
-    // Alias for our `interface` iterator
-    type PathConvIter<'a> = iter::Map<SegmentIter<'a>, fn(&PathSegment) -> PathEvent>;
-
-    // Provide a function which gives back a PathIter which is compatible with
-    // tesselators, so we don't have to implement the PathIterator trait
-    impl<'a> PathConv<'a> {
-        pub fn path_iter(self) -> PathIter<PathConvIter<'a>> {
-            PathIter::new(self.0.map(as_event))
-        }
-    }
-
-    pub fn convert_path<'a>(p: &'a Path) -> PathConv<'a> {
-        PathConv(p.segments.iter())
     }
 
     pub const FALLBACK_COLOR: Color = Color {
