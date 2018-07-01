@@ -1,15 +1,16 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-pub use euclid::{TypedSize2D, SideOffsets2D};
-pub use webrender::api::{
-    BorderRadius, BorderWidths, BorderDetails, NormalBorder,
-    NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
-    ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
-    LayoutSize, ExtendMode
-};
-// TODO: 9patch images!
-use webrender::api::{BorderStyle, BorderSide, LayoutRect};
 use std::num::{ParseIntError, ParseFloatError};
+pub use {
+    euclid::{TypedSize2D, SideOffsets2D},
+    webrender::api::{
+        BorderRadius, BorderWidths, BorderDetails, NormalBorder,
+        NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
+        ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
+        LayoutSize, ExtendMode
+    },
+};
+use webrender::api::{BorderStyle, BorderSide, LayoutRect};
 use euclid::{TypedRotation2D, Angle, TypedPoint2D};
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;

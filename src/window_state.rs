@@ -3,11 +3,12 @@
 
 use glium::glutin::{
     Window, Event, WindowEvent, KeyboardInput, ElementState,
-    MouseCursor, VirtualKeyCode, MouseButton, MouseScrollDelta, TouchPhase
+    MouseCursor, VirtualKeyCode, MouseButton, MouseScrollDelta, TouchPhase,
 };
-
-use dom::On;
-use menu::{ApplicationMenu, ContextMenu};
+use {
+    dom::On,
+    menu::{ApplicationMenu, ContextMenu},
+};
 
 const DEFAULT_TITLE: &str = "Azul App";
 const DEFAULT_WIDTH: u32 = 800;
@@ -168,9 +169,61 @@ fn update_mouse_cursor(window: &Window, old: &MouseCursor, new: &MouseCursor) {
     }
 }
 
-// TODO
 fn virtual_key_code_to_char(code: VirtualKeyCode) -> Option<char> {
-    Some('a')
+    use glium::glutin::VirtualKeyCode::*;
+    match code {
+        Key1 => Some('1'),
+        Key2 => Some('2'),
+        Key3 => Some('3'),
+        Key4 => Some('4'),
+        Key5 => Some('5'),
+        Key6 => Some('6'),
+        Key7 => Some('7'),
+        Key8 => Some('8'),
+        Key9 => Some('9'),
+        Key0 => Some('0'),
+        A => Some('a'),
+        B => Some('b'),
+        C => Some('c'),
+        D => Some('d'),
+        E => Some('e'),
+        F => Some('f'),
+        G => Some('g'),
+        H => Some('h'),
+        I => Some('i'),
+        J => Some('j'),
+        K => Some('k'),
+        L => Some('l'),
+        M => Some('m'),
+        N => Some('n'),
+        O => Some('a'),
+        P => Some('p'),
+        Q => Some('q'),
+        R => Some('r'),
+        S => Some('s'),
+        T => Some('t'),
+        U => Some('u'),
+        V => Some('v'),
+        W => Some('w'),
+        X => Some('x'),
+        Y => Some('y'),
+        Z => Some('z'),
+        Return | NumpadEnter => Some('\n'),
+        Space => Some(' '),
+        Caret => Some('^'),
+        Apostrophe => Some('\''),
+        Backslash => Some('\\'),
+        Colon | Period=> Some('.'),
+        Comma | NumpadComma => Some(','),
+        Divide | Slash => Some('/'),
+        Equals | NumpadEquals => Some('='),
+        Grave => Some('´'),
+        Minus | Subtract => Some('-'),
+        Multiply => Some('*'),
+        Semicolon => Some(':'),
+        Tab => Some('\t'),
+        _ => None
+    }
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore

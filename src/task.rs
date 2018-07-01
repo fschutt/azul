@@ -1,9 +1,13 @@
 //! Preliminary async IO / Task system
 
-use app_state::AppState;
-use traits::Layout;
-use std::sync::{Arc, Mutex, Weak};
-use std::thread::{spawn, JoinHandle};
+use std::{
+    sync::{Arc, Mutex, Weak},
+    thread::{spawn, JoinHandle},
+};
+use {
+    app_state::AppState,
+    traits::Layout,
+};
 
 pub struct Task {
     // Task is in progress

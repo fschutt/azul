@@ -1,24 +1,27 @@
-use css_parser::{Font as FontId, PixelValue, FontSize};
-use text_cache::TextId;
-use dom::UpdateScreen;
-use window::FakeWindow;
-use css::{Css, FakeCss};
-use resources::AppResources;
-use app_state::AppState;
-use traits::Layout;
-use ui_state::UiState;
-use ui_description::UiDescription;
-use std::sync::{Arc, Mutex, PoisonError};
-use window::{Window, WindowCreateOptions, WindowCreateError, WindowId};
-use glium::glutin::Event;
-use euclid::TypedScale;
-use std::io::Read;
-use images::{ImageType};
-use image::ImageError;
-use font::FontError;
+use std::{
+    fmt,
+    io::Read,
+    sync::{Arc, Mutex, PoisonError},
+};
+use glium::{SwapBuffersError, glutin::Event};
 use webrender::api::{RenderApi, HitTestFlags};
-use glium::SwapBuffersError;
-use std::fmt;
+use image::ImageError;
+use euclid::TypedScale;
+use {
+    images::ImageType,
+    errors::FontError,
+    window::{Window, WindowCreateOptions, WindowCreateError, WindowId},
+    css_parser::{Font as FontId, PixelValue, FontSize},
+    text_cache::TextId,
+    dom::UpdateScreen,
+    window::FakeWindow,
+    css::{Css, FakeCss},
+    resources::AppResources,
+    app_state::AppState,
+    traits::Layout,
+    ui_state::UiState,
+    ui_description::UiDescription,
+};
 
 /// Graphical application that maintains some kind of application state
 pub struct App<'a, T: Layout> {

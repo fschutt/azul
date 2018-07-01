@@ -1,31 +1,39 @@
-use resvg::usvg::ViewBox;
-use resvg::usvg::Transform;
-use std::sync::Mutex;
+use std::{
+    fmt, 
+    rc::Rc,
+    io::{Error as IoError, Read},
+    sync::{Mutex, atomic::{Ordering, AtomicUsize}},
+    cell::UnsafeCell,
+    hash::{Hash, Hasher},
+};
 use glium::{
     backend::Facade,
     DrawParameters, IndexBuffer, VertexBuffer, Display,
     Texture2d, Program,
 };
-use std::{fmt, rc::Rc,
-    io::{Error as IoError, Read},
-    sync::atomic::{Ordering, AtomicUsize},
-    cell::UnsafeCell,
-    hash::{Hash, Hasher},
-};
-use lyon::tessellation::{
-    VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator,
-    LineCap, LineJoin, StrokeTessellator, StrokeOptions, StrokeVertex,
-    path::{default::{Builder, Path}, builder::{PathBuilder, FlatPathBuilder}, PathEvent},
-    basic_shapes::{fill_circle, stroke_circle, fill_rounded_rectangle, stroke_rounded_rectangle, BorderRadii},
+use lyon::{
+    tessellation::{
+        VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator,
+        LineCap, LineJoin, StrokeTessellator, StrokeOptions, StrokeVertex,
+        basic_shapes::{
+            fill_circle, stroke_circle, fill_rounded_rectangle, 
+            stroke_rounded_rectangle, BorderRadii
+        },
+    },
+    path::{
+        default::{Builder, Path}, 
+        builder::{PathBuilder, FlatPathBuilder}, PathEvent,
+    },
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
 };
-use resvg::usvg::Error as SvgError;
+use resvg::usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF};
-
-use dom::Callback;
-use traits::Layout;
-use FastHashMap;
-use id_tree::NonZeroUsizeHack;
+use {
+    FastHashMap,
+    dom::Callback,
+    traits::Layout,
+    id_tree::NonZeroUsizeHack,
+};
 
 /// In order to store / compare SVG files, we have to
 pub(crate) static SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);

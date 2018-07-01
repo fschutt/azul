@@ -1,9 +1,13 @@
-use traits::Layout;
-use window::WindowInfo;
-use std::collections::BTreeMap;
-use dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On};
-use app_state::AppState;
-use std::fmt;
+use std::{
+    fmt,
+    collections::BTreeMap,
+};
+use {
+    window::WindowInfo,
+    traits::Layout,
+    dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On},
+    app_state::AppState,
+};
 
 pub struct UiState<T: Layout> {
     pub dom: Dom<T>,

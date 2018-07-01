@@ -116,10 +116,9 @@ pub mod prelude {
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
     pub use traits::{Layout, ModifyAppState, GetDom};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
-                     MouseMode, UpdateBehaviour, UpdateMode, WindowCreateError,
+                     MouseMode, UpdateBehaviour, UpdateMode, 
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
     pub use window_state::WindowState;
-    pub use font::FontError;
     pub use images::ImageType;
     pub use css_parser::{
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
@@ -137,9 +136,6 @@ pub mod prelude {
     };
 
     pub use svg::{SvgLayerId, SvgLayer, SvgCache};
-
-    // from the extern crate image
-    pub use image::ImageError;
 }
 
 /// Re-exports of errors
@@ -154,4 +150,7 @@ pub mod errors {
     pub use simplecss::Error as CssSyntaxError;
     pub use css::{CssParseError, DynamicCssParseError};
     pub use svg::SvgParseError;
+    pub use font::FontError;
+    pub use window::WindowCreateError;
+    pub use image::ImageError;
 }

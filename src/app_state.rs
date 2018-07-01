@@ -1,19 +1,23 @@
-use text_cache::TextId;
-use window::FakeWindow;
-use window_state::WindowState;
-use task::Task;
-use dom::UpdateScreen;
-use traits::Layout;
-use resources::{AppResources};
-use std::io::Read;
-use images::ImageType;
+use std::{
+    io::Read,
+    collections::hash_map::Entry::*,
+    sync::{Arc, Mutex},
+};
 use image::ImageError;
-use font::FontError;
-use std::collections::hash_map::Entry::*;
-use FastHashMap;
-use std::sync::{Arc, Mutex};
-use svg::{SvgLayerId, SvgLayer, SvgParseError};
-use css_parser::{Font as FontId, FontSize, PixelValue};
+use {
+    FastHashMap,
+    text_cache::TextId,
+    window::FakeWindow,
+    window_state::WindowState,
+    task::Task,
+    dom::UpdateScreen,
+    traits::Layout,
+    resources::AppResources,
+    images::ImageType,
+    font::FontError,
+    svg::{SvgLayerId, SvgLayer, SvgParseError},
+    css_parser::{Font as FontId, FontSize, PixelValue},
+};
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `Layout` trait (how the application

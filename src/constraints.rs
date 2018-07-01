@@ -1,8 +1,10 @@
 //! Constraint building (mostly taken from `limn_layout`)
 
-use cassowary::{Solver, Variable, Constraint};
-use cassowary::WeightedRelation::{EQ, GE};
-use cassowary::strength::{WEAK, REQUIRED};
+use cassowary::{
+    Solver, Variable, Constraint,
+    WeightedRelation::{EQ, GE},
+    strength::{WEAK, REQUIRED},
+};
 use euclid::{Point2D, Size2D};
 
 pub type Size = Size2D<f32>;
