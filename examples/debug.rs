@@ -29,14 +29,9 @@ impl Layout for MyAppData {
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
-    // Load and parse the SVG file, register polygon data as IDs
-    use std::time::{Instant};
-    let start_time_loading_svg = Instant::now();
     let mut svg_cache = SvgCache::empty();
     let svg_layers = svg_cache.add_svg(TEST_SVG).unwrap();
     app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
-    let time = (Instant::now() - start_time_loading_svg).subsec_nanos() as f32 / 1_000_000.0;
-    println!("time loading svg: {} milliseconds", time);
     UpdateScreen::Redraw
 }
 
