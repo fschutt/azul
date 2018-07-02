@@ -4,10 +4,11 @@ extern crate azul;
 
 use azul::prelude::*;
 use azul::widgets::*;
+use azul::dialogs::*;
+use std::fs;
 
 const TEST_CSS: &str = include_str!("test_content.css");
 const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
-const TEST_SVG: &[u8] = include_bytes!("../assets/svg/tiger.svg");
 
 #[derive(Debug)]
 pub struct MyAppData {
@@ -29,10 +30,19 @@ impl Layout for MyAppData {
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
-    let mut svg_cache = SvgCache::empty();
-    let svg_layers = svg_cache.add_svg(TEST_SVG).unwrap();
-    app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
-    UpdateScreen::Redraw
+    open_file_dialog(None, None)
+        .and_then(|path| fs::read_to_string(path.clone()).ok())
+        .and_then(|contents| {
+            let mut svg_cache = SvgCache::empty();
+            let svg_layers = svg_cache.add_svg(&contents).ok()?;
+            app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
+            message_box("File loaded successfully");
+            Some(UpdateScreen::Redraw)
+        })
+        .unwrap_or_else(|| {
+
+            UpdateScreen::DontRedraw
+        })
 }
 
 fn main() {
