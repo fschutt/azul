@@ -31,6 +31,8 @@ lyon = { version = "0.10.0", features = ["extra"] }
 lazy_static = "1.0.1"
 palette = "0.4.0"
 tinyfiledialogs = "3.3.5"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = "0.0.4"
 
 [dependencies.resvg]

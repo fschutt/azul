@@ -30,7 +30,7 @@ impl Layout for MyAppData {
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
-    open_file_dialog(None, Some(&["svg"]))
+    open_file_dialog(None, None)
         .and_then(|path| fs::read_to_string(path.clone()).ok())
         .and_then(|contents| {
             let mut svg_cache = SvgCache::empty();
