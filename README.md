@@ -1,7 +1,6 @@
 # azul
 
-# WARNING: This README has been written for the future (so I have a "spec" and don't need to update it for the 0.1 release).
-# The features advertised won't work yet, they will work when the 0.1 version releases on crates.io.
+# WARNING: The features advertised don't work yet.
 # See the /examples folder for an example of what's currently possible.
 
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -11,10 +10,12 @@
 [![codecov](https://codecov.io/gh/maps4print/azul/branch/master/graph/badge.svg)](https://codecov.io/gh/maps4print/azul)
 [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.26%20stable-blue.svg)]()
 
-azul is a cross-platform, stylable GUI framework using Mozillas `webrender` engine for rendering
-and a CSS / DOM model for layout and rendering
+azul is a cross-platform, stylable GUI framework using Mozillas `webrender`
+engine for rendering and a CSS / DOM model for layout and rendering
 
-[Crates.io](https://crates.io/crates/azul) | [Library documentation](https://docs.rs/azul) | [User guide](http://azul.rs/)
+[Crates.io](https://crates.io/crates/azul) | 
+[Library documentation](https://docs.rs/azul) | 
+[User guide](http://azul.rs/)
 
 ## Installation notes
 
@@ -23,29 +24,30 @@ during the build process to compile freetype.
 
 ## Design
 
-azul is a library designed from the experience gathered during working with other
-GUI toolkits. azul is very different from (QT / GTK / FLTK / etc.) in the following regards:
+azul is a library designed from the experience gathered during working with
+other GUI toolkits. azul is very different from (QT / GTK / FLTK / etc.) in the
+following regards:
 
-- GUIs are seen as a "view" into your applications data, they are not "objects" like
-  in any other toolkit. There is no `button.setActive(true)` for example, as that would
-  introduce stateful design.
+- GUIs are seen as a "view" into your applications data, they are not "objects" 
+  like in any other toolkit. There is no `button.setActive(true)` for example, 
+  as that would introduce stateful design.
 - Widgets types are simply enums that "serialize" themselves into a DOM tree.
 - The DOM is immutable and gets re-generated every frame. This makes testing
   and debugging very easy, since if you give the `get_dom()` function a
-  specific data model, you always get the same DOM back (`get_dom()` is a pure function).
-  This comes at a slight performance cost, however in practice the cost isn't too
-  high and it makes the seperation of application data and GUI data very clean.
+  specific data model, you always get the same DOM back (`get_dom()` is a pure 
+  function). This comes at a slight performance cost, however in practice the 
+  cost isn't too high and it makes the seperation of application data and GUI 
+  data very clean.
 - The layout model closely follows the CSS flexbox model. The default for CSS is
   `display:flex` instead of `display:static` (keep that in mind). Some semantics
   of CSS are not the same, especially the `image` and `vertical-align` properties.
   However, most attributes work in azul, same as they do in CSS, i.e. `color`,
   `linear-gradient`, etc.
 - azul trades a slight bit of performance for better usability. azul is not meant
-  for game UIs, it is currently too slow for that (currently using 2 - 4 ms per frame)
-- azul does not have any asyncronous callbacks - you can implement them manually by
-  using threads, but we will wait until the Rust compiler stabilizes async / await
-  later this year (should be stabilized until Dec 2018).
-- azul links everything statically, including freetype and
+  for game UIs, it is currently too slow for that (currently using 2 - 4 ms per 
+  frame)
+- azul links everything statically, including freetype and OSMesa (in case the target
+  system has no hardware accelerated drawing available)
 
 ## Data model / Reactive programming
 
@@ -57,86 +59,109 @@ programming / memory model. One image says more than 1000 words:
 This creates a very simple programming flow:
 
 ```rust
-// Your data model
+use azul::prelude::*;
+use azul::widgets::*;
+
+// Your data model that stores everything except the visual 
+// representation of the app
+#[derive(Default)]
 struct DataModel {
-    /* store anything you want here that is relevant to the application */
+    // Store anything relevant to the application here 
+    // i.e. settings, a counter, user login data, application data
+    // the current application zoom, whatever. 
+    //
+    // This decouples visual components from another - instead of
+    // updating the visual representation of another component 
+    // on an event, they only update the data they operate on.
+    //
+    // For example:
+    user_name: Option<(Username, Password)>
 }
 
 // Data model -> DOM
-impl LayoutScreen for DataModel {
-    fn get_dom(&self, _window_id: WindowId) -> Dom<Self> {
-        /* DataModel is read-only here, "serialize" from the data model into a UI */
-        Dom::new(NodeType::Button { text: hello, .. })
-            .with_event(On::MouseDown, Callback::Sync(my_button_was_clicked))
+impl Layout for DataModel {
+    fn layout(&self, _info: WindowInfo) -> Dom<DataModel> {
+        // DataModel is read-only here, "serialize" from the data model into a UI
+        // 
+        // Conditional logic / updating the contents of an existing window
+        // is very easy - instead of something like `screen.remove(LoginButton);`
+        // `screen.add(HelloLabel)`, we can simply write:
+        match self.user_name {
+            None => Button::with_text("Please log in").dom()
+                        .with_event(On::MouseUp, Callback(login_callback)),
+            Some((user, _)) => Label::with_text(format!("Hello {}", user)).dom() 
+        }
     }
 }
 
 // Callback updates data model, when the button is clicked
-fn my_button_was_clicked(_app_state: &mut AppState<MyAppData>) -> UpdateScreen {
-    println!("Button clicked!");
-    // performance optimization, tell azul that this function doesn't change the UI
-    // azul will still redraw when the window is resized / CSS events changed
-    // but by default, azul only redraws when it's absolutely necessary.
-    UpdateScreen::DontRedraw
+fn login_callback(app_state: &mut AppState<DataModel>) -> UpdateScreen {
+    // Let's just log the user in once he clicks the button
+    app_state.data.user_name = Some(("Jon Doe", "12345"));
+    UpdateScreen::Redraw
 }
 
 fn main() {
-    let mut app = App::new(DataModel { });
+    // Initialize the initial state of the app
+    let mut app = App::new(DataModel::default());
+    // Create as many initial windows as you want
     app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
-    app.run();
+    // Run it!
+    app.run().unwrap();
 }
 ```
 
-This makes it easy to compose the UI from a set of functions, where each function
-creates a sub-DOM that can be composed into a larger UI:
+This makes it easy to compose the UI from a set of functions, where each 
+function creates a sub-DOM that can be composed into a larger UI:
 
 ```rust
-impl LayoutScreen for DataModel {
-    fn get_dom(&self, _window_id: WindowId) -> Dom<Self> {
-        let mut dom = Dom::new();
+impl Layout for DataModel {
+    fn layout(&self, _window_id: WindowId) -> Dom<DataModel> {
         if !self.is_email_sent {
-            dom.add_child(email_recipients_list(&self.names));
-            dom.add_child(email_send_button());
+            Dom::new(NodeType::Div)
+                .with_child(email_recipients_list(&self.names));
+                .with_child(email_send_button());
         } else {
-            dom.add_child(no_email_label());
+            Dom::new(NodeType::Div)
+                .with_child(no_email_label());
         }
-        dom
     }
 }
 
-fn email_recipients_list(names: &[String]) -> Dom<Self> {
+fn email_recipients_list(names: &[String]) -> Dom<DataModel> {
     let mut names_list = Dom::new(NodeType::Div);
     for name in names {
-        names_list.add_child(Dom::new(NodeType::Label {
-            text: name,
-        }));
+        names_list.add_child(Label::new(name).dom());
     }
     names_list
 }
 
 fn email_send_button() -> Dom<Self> {
-    Dom::new(NodeType::Button { text: hello, .. })
+    Button::labeled("Send email").dom()
         .with_id("email-send-button")
-        .with_event(On::MouseDown, Callback::Sync(my_button_was_clicked))
+        .with_event(On::MouseUp, Callback(send_email))
 }
 
 fn no_email_label() -> Dom<Self> {
-    Dom::new(NodeType::Button { text: "No email to send!", .. })
-        .with_id("email-done-label")
+    Button::labeled("No email to send!").dom()
+        .with_id("no-email-label")
 }
 
-fn send_email(app_state: &mut AppState<DataModel>, _window_id: WindowId) -> UpdateScreen {
+fn send_email(app_state: &mut AppState<DataModel>, _: WindowEvent) -> UpdateScreen {
     app_state.data.is_email_sent = false;
-    // trigger a redraw, so the list gets removed from the screen
-    // and the "No email to send!" message is displayed instead
     UpdateScreen::Redraw
 }
 ```
 
 And this is why azul doesn't really have a large API like other frameworks -
-that's really all there is to it! Didn't I say it was simple to learn?
+that's really all there is to it! The widgets themselves might require you to
+pass a cache or some state across into the `.dom()` function, but the core 
+model doesn't change. Meaning, if you remove / add visual components, it 
+doesn't break the whole application as long as the data model stays the same.
+A visual component has no knowledge of any other components, it only acts on 
+the data model.
 
-The benefit of this is that it's very simple to test:
+The benefit of this is that it's very simple to refactor and to test:
 
 ```rust
 #[test]
@@ -147,155 +172,113 @@ fn test_it_should_send_the_email() {
 }
 ```
 
-However, this model gets a bit tricky when you want to know about additional
-information in the callback (such as determining which email recipient of the
-list was clicked on).
+As well as to write DOM  / visual regression tests:
 
-// TODO: explain how to send hit test IDs in the callback
+```rust
+#[test]
+fn test_layout_email_dom() {
+    let dom = DataModel { is_email_sent: false }.layout();
+    let arena = dom.arena.borrow();
+
+    let expected = NodeType::Label(String::from("Send email"));
+    let got = arena[arena[dom.root].first_child().unwrap()].data.data;
+
+    assert_eq!(expected, got);
+}
+```
+
+The inner workings of the DOM are only available in testing functions, not 
+regular code. 
+
+You might have noticed that a `WindowEvent` gets passed to the callback. 
+This struct contains callback information that is necessary to determine what 
+item (of a bigger list, for example) was interacted with. Ex. if you have 
+100 list items, you don't want to write 100 callbacks for each one, but rather
+have one callback that acts on which ID was selected. The `WindowEvent` 
+gives you the necessary information to react to these events.
 
 ## Updating window properties
 
-You may have noticed that the callback takes in a `AppState<DataModel>`, not
-the `DataModel` directly. This is because you can change the window settings, for
-example the title of the window:
+You may also have noticed that the callback takes in a `AppState<DataModel>`,
+not the `DataModel` directly. This is because you can change the window 
+settings, for example the title of the window:
 
 ```rust
-fn callback(app_state: &mut AppState<DataModel>, window_id: WindowId) -> UpdateScreen {
+fn callback(app_state: &mut AppState<DataModel>, _: WindowEvent) -> UpdateScreen {
     app_state.windows[window_id].window.title = "Hello";
     app_state.windows[window_id].window.menu += "&Application > &Quit\tAlt+F4";
 }
 ```
 
-Note how there isn't any `.get_title()` or `.set_title()`. Simply setting the title
-is enough to invoke the (stateful) Win32 / X11 / Wayland / Cocoa functions for setting
-the window title.
+Note how there isn't any `.get_title()` or `.set_title()`. Simply setting the 
+title is enough to invoke the (stateful) Win32 / X11 / Wayland / Cocoa functions 
+for setting the window title. You can query the active title / mouse or keyboard 
+state in the same way.
 
-## Working with blocking IO
+## Async I/O
 
-Bloking IO is when you have to wait for something to complete, a website returning
-HTMl / JSON. Azul has to continouusly poll if the execution has finished.
+When you have to perform a larger task, such as waiting for network content or
+waiting for a large file to be loaded, you don't want to block the user 
+interface, which would give a bad experience. 
 
-For this, azul has a mechanism called a "Task" (similar to C#). A Task starts a
-background thread and azul registers it and looks if the thread has finished yet.
-Usually you lock the data model when the task is done, i.e. when you've finished loading
-the file / website, etc.
+Instead, azul provides two mechanisms: a `Task` and a `Deamon`. Both are 
+essentially function callbacks, but the `Task` gets run on a seperate thread 
+(one thread per task) while a `Deamon` gets run on the same thread as the main
+UI.
+
+azul takes care of querying if the `Task` or `Deamon` has finished. Both have
+access to the applications data model and can modify it (without race conditions):
 
 ```rust
+use std::{thread, time::Duration};
 
 struct DataModel {
-    website_data: Option<String>,
+    website: Option<String>,
 }
 
-impl LayoutScreen {
-    /// Note: `get_dom` is called in a thread-safe way by azul.
-    fn get_dom(&self, _window_id: WindowId) -> Dom<Self> {
-        let mut dom = Dom::new();
-        match self.website_data {
-            Some(data) => dom.append_child(Dom::new(NodeType::Label { text: data.clone() })),
-            None => dom.append_child(
-                Dom::new(NodeType::Button { text: "Download the website", .. })
-                    .with_event(On::Click, Callback::Async(start_download))),
+impl Layout for DataModel {
+    fn layout(&self, _: WindowInfo) -> Dom<DataModel> {
+        match self.website {
+            None => 
+                Dom::new()
+                    .with_child(Button::labeled("Click to download").dom())
+                    .with_event(On::MouseUp, Callback(start_download))
+            Some(data) => 
+                Dom::new()
+                    .with_child(Label::new(data.clone()).dom()),
         }
-        dom
     }
 }
 
-// Note: push_background_task are only implemented on Arc<Mutex<T>>, not T itself.
-fn start_download(app_state: &mut Arc<Mutex<AppState<DataModel>>>, _window_id: WindowId) -> UpdateScreen {
-    // background_fns creates a background thread that clones the app_state Arc,
-    // waits until the thread has completed and then calls `get_dom()` on completion, to update the UI
-    app_state.push_background_task(Task(download_website));
+fn start_download(app_state: &mut AppState<DataModel>, _: WindowEvent) -> UpdateScreen {
+    app_state.add_task(download_website);
     UpdateScreen::DontRedraw
 }
 
-// Note: The `_drop` is necessary so that azul can tell that the thread has finished executing.
 fn download_website(app_state: Arc<Mutex<AppState<DataModel>>>, _drop: Arc<()>) {
     // simulate slow, blocking IO
-    ::std::thread::sleep(::std::time::Duration::from_secs(5));
-    // only lock the Arc when done with the work
-    let app_state = app_state.lock().unwrap();
-    app_state.data.website_data = Some("<html><h1>Hello</h1></html>".into());
+    thread::sleep(Duration::from_secs(5));
+    app_state.modify(|data| data.website = Some("<h1>Hello</h1>".into()));
 }
 ```
 
-Note that there is no "wait". If you call `app_state.lock()` in the `download_website` function,
-it will block the main thread, so only call it once you are done with the blocking IO.
+The `app_state.modify` is a only conveniece function that locks and unlocks your
+data model. The `_drop` variable is necessary so that azul can see when the thread
+has finished and join it afterwards. 
 
-These concepts currently start full, OS-level threads. However, generally in
-desktop applications, you don't start 10k tasks at once, maybe 4 - 5 max. This concept
-will be replaced by async / await syntax, until then it uses the OS threads.
-
-## Deamons
-
-Sometimes you want to run functions independent of the user interacting with the application.
-Example: you want to update a progress bar to how what percentage of a file has loaded. Or
-you want to start a timer. For this, azul has "deamons" or "polling functions", that run
-continouusly in the background, until they stop.
-
-```rust
-use std::time::Duration;
-
-struct DataModel {
-    // technically you'd only need to store the Instant of the start,
-    // but this is just to demonstrate how deamons work
-    stopwatch: Option<(Instant, Duration)>,
-}
-
-impl LayoutScreen {
-    // pseudocode, you can imagine what display_stop_watch, create_stop_timer_btn
-    // and create_start_timer_button do
-    fn get_dom(&self, _window_id: WindowId) -> Dom<Self> {
-        let mut dom = Dom::new();
-        match stopwatch {
-            Some(_, current_duration) => {
-                dom.append_child(display_stop_watch(current_duration));
-                dom.append_child(
-                    create_stop_timer_btn()
-                    .with_callback(On::MouseDown, Callback::Sync(stop_timer))
-                );
-            },
-            None => {
-                dom.append_child(
-                    create_start_timer_button()
-                    .with_callback(On::MouseDown, Callback::Sync(start_timer))
-                )
-            }
-        }
-        dom
-    }
-
-    fn start_timer(app_state: &mut AppState<DataModel>>>, _window_id: WindowId) -> UpdateScreen {
-        app_state.stopwatch = Some(Instant::now(), Duration::from_secs(0));
-        // Deamons are identified by ID, to allow to run ex. multiple timers at once
-        app_state.push_deamon("timer_1", Callback::Sync(update_timer));
-        UpdateScreen::Redraw
-    }
-
-    fn update_timer(app_state: &mut AppState<DataModel>>>, _window_id: WindowId) -> UpdateScreen {
-        app_state.data.last_time.1 = Instant::now() - app_state.data.last_time.0;
-        // Trigger a redraw on every frame
-        UpdateScreen::Redraw
-    }
-
-    fn stop_timer(app_state: &mut AppState<DataModel>>>, _window_id: WindowId) -> UpdateScreen {
-        app_state.pop_deamon("timer_1");
-        UpdateScreen::Redraw
-    }
-}
-```
-
-Polling functions / deamons are useful when implementing actions that should run
-independently if the user interacts with the application or not.
+A `Task` starts one full, OS-level thread. Usually doing this is a bad idea for 
+performance, since you may at one point have too many threads running. However, in
+desktop applications, you usually don't run  1000 tasks at once, maybe 4 - 5 maximum.
+For this, OS-level threads are usually sufficient and performant enough.
 
 ## Styling
 
-azul comes with default styles that mimick the operating-system native style.
+Azul has default visual styles that mimick the sperating-systems native style.
 However, you can overwrite parts (or everything) with your custom CSS styles:
 
 ```rust
 let default_css = Css::native();
-let my_css = Css::new_from_string(include_str!("my_custom.css"));
-// Use the default CSS as a fallback, but overwrite only the styles in my_custom.css
+let my_css = Css::new_from_string(include_str!("my_custom.css")).unwrap();
 let custom_css = default_css + my_css;
 ```
 
@@ -303,120 +286,167 @@ The default styles are implemented using CSS classes, with the special name
 `.__azul-native-<node type>`, i.e. `__azul-native-button` for styling buttons,
 `.__azul-native-scrollbar` for styling scrollbars, etc.
 
-You can add and remove CSS styles dynamically using `my_style.push_css_rule(CssRule::new("color", "#fff"));`.
-However, this will trigger a re-build of the CSS rules, relayout and re-style, and is
-generally not recommended. It is recommended that you don't over-use this feature and rather switch out
-CSS blocks in the `get_dom()` method, rather than changing CSS properties:
+## Dynamic CSS properties
 
-```css
-.btn-active { color: blue; }
-.btn-danger { color: red; }
-```
+You can override CSS properties from Rust during runtime, but after every frame
+the modifications are cleared again. You do not have to "unset" a CSS style once the 
+state of your application changes. Example:
+
 ```rust
-if self.button[i].is_danger {
-    dom.class("btn-danger");
-} else {
-    dom.class("btn-active");
+struct Discord { light_theme: bool }
+
+impl Layout for Discord {
+    fn layout(&self, _: WindowInfo) -> Dom<Discord> {
+        Dom::new(NodeType::Div)
+            .with_class("background")
+            .with_event(On::MouseOver, Callback(mouse_over_window))
+    }
 }
-```
 
-instead of:
-
-```rust
-if self.button[i].is_danger {
-    app_data.windows[window_id].css.push_rule(".btn-active { color: red; }");
-} else {
-    // warning: pushing CSS is stateful and won't be re-generated every frame
-    // DONT DO THIS, VERY BAD PERFORMANCE
-    app_data.windows[window_id].css.push_rule(".btn-active { color: blue; }");
+fn mouse_over_window(_: &mut AppState<Discord>, window: WindowEvent) -> UpdateScreen {
+    window.css.set("theme_background_color", ("color", "#fff")).unwrap();
+    UpdateScreen::Redraw
 }
-```
 
-## SVG / Canvas API
-
-**NOTE: This README was written for the future, not implemented yet**
-
-For drawing custom graphics, azul has a high-performance 2D vector & raster API.
-The core of the custom-drawing API is based on an OpenGL texture. A `NodeType::SvgComponent`
-consists of "layers", like in Photoshop, which are OpenGL textures composited on top
-of each other. To make it easier to display vector graphics, you can directly initialize
-a component from a SVG file (uses the `resvg` parser, `usvg` minifaction, `lyon` triangulation
-and `glium` drawing libraries):
-
-```rust
-// Don't parse and SVG in the `get_dom()` function, store the parsed SVG in
-// the data model, to cache it
-let svg_parsed = Svg::new_from_string(include_str!("hello.svg"));
-
-dom.add_child
-    Dom::new(NodeType::DrawComponent(
-        DrawComponent::Svg {
-            layers: vec![
-                ("layer-01", svg_parsed.into(), SvgCallbacks::None)
-            ],
+fn main() {
+    let css = Css::new_from_string("
+        .hovered {
+            color: [[ theme_background_color | #333 ]];
         }
-    ))
-    .with_id("my-svg")
-);
+    ").unwrap();
+    let mut app = App::new(Discord { light_theme: false })
+    app.create_window(WindowCreateOptions::default(), css).unwrap();
+    app.run().unwrap();
+}
 ```
 
-If you want callbacks on any item **inside** the SVG, i.e. when someone clicks or hovers on / over a shape,
-you can register a callback for that, using the `SvgCallbacks`.
+The `[[ variable | default ]]` denotes a "dynamic CSS property". If the 
+`theme_background_color` variable isn't set for this frame, it will use the 
+default. The reason why the CSS state is unset on every frame is to prevent 
+forgetting to unset it. Especially with highly conditional styling, this 
+can easily lead to bugs (i.e. only set this button to green if a certain setting
+is set to true, but not if today is Wednesday).
 
-// TODO: explain how to register custom events
+The second reason is to make CSS properties testable, i.e. in the same way that
+you can test state properties, you can test CSS properties. Azuls philosophy is
+that the state of the previous frame never affects the current frame. Only the
+data model can affect the visual content, there is no `.setBackground("blue")` 
+because at some point, you'd have to write a function to un-set the background 
+again - this stateful design can quickly lead to visual bugs.
 
-In order to draw your own vector graphics, without putting the data through an SVG parser
-first, you can build the layers yourself (ex. from the SVG data).
+## SVG / OpenGL API
 
-Since azul needs the image library anyway (for decoding), it is re-exported, to improve build times
-and reduce duplication (so you don't have to do `extern crate image`, just do `use azul::image;`)
+For drawing custom graphics, azul has a high-performance 2D vector API. It also 
+allows you to load and draw SVG files (with the exceptions of gradients: gradients
+in SVG files are not yet supported). But azul itself does not know about SVG shapes
+at all - so how the SVG widget implemented?
 
-## Other features
+The solution is to draw the SVG to an OpenGL texture and hand that to azul. This
+way, the SVG drawing component could even be implemented in an external crate, if
+you really wanted to. This mechanism also allows for completely custom drawing 
+(let's say: a game, a 3D viewer, etc.) to be drawn.
 
-### Current
+The SVG component currently uses  the `resvg` parser, `usvg` minifaction and the
+`lyon` triangulation libraries). Of course you can also add custom shapes 
+(bezier curves, circles, lines, whatever) programatically, without going through
+the SVG parser:
 
-- Supported CSS attributes (syntax is the same as CSS, expect when marked otherwise):
-    - `border-radius`
-    - `background-color`
-    - `color`
-    - `border`
-    - `background`: **Note**: `image()` takes an ID instead of a URL, see below.
-    - `font-size`
-    - `font-family`: **Note**: Like images, you need to register font IDs first (from Rust)
-    - `box-shadow`
-    - `line-height`
-    - `width`, `min-width`, `max-width`
-    - `height`, `min-height`, `max-height`
-    - `align-items`: **Note**: Currently only implemented for centering text vertically
-    - `overflow`, `overflow-x`, `overflow-y`
-    - `text-align`: **Note**: Justified text is not supported.
+```rust
+const TEST_SVG: &str = include_str!("tiger.svg");
 
-- Not implemented yet, but planned:
-    - `flex-wrap`
-    - `flex-direction`
-    - `justify-content`
-    - `align-content`
+impl Layout for Model {
+    fn layout() {
+        if let Some((svg_cache, svg_layers)) = self.svg {
+            Svg::with_layers(svg_layers).dom(&info.window, &svg_cache)
+        } else {
+             Button::labeled("Load SVG file").dom()
+                .with_callback(load_svg)
+        }
+    }
+}
 
-Remarks:
+fn load_svg(app_state: &mut AppState<MyAppData>, _: WindowEvent) -> UpdateScreen {
+    let mut svg_cache = SvgCache::empty();
+    let svg_layers = svg_cache.add_svg(TEST_SVG).unwrap();
+    app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
+    UpdateScreen::Redraw
+}
+```
 
-1. Any measurements can be given in `px` or `em`. `px` does not respect high-DPI scaling, while `em` does.
-   The default is `1em` = `16px * high_dpi_scale`
-2. Images and fonts are external resources that have to be cached. Use `app.add_image("id", my_image_data)`
-   or `app_state.add_image()`, then you can use the `"id"` that you gave the image in the CSS.
-   If an image is not present on a displayed div (i.e. you added it to the CSS, but forgot to add the image),
-   the following happens:
-   - In debug mode, the app crashes with a message (to notify you of the failure)
-   - In release mode, the app doesn't display the image (how could it?) and silently fails
-   The same goes for fonts (azul does currently not load any default font, but that is subject to change)
-3. CSS rules are (within a block), parsed from top to bottom, so:
+This is one of the few exceptions where azul allows persistent data across frames
+since it wouldn't be performant enough otherwise. Ideally you'd have to load, triangulate 
+and draw the SVG file on every frame, but this isn't performant. You might have
+noticed that the `.dom()` function takes in an extra parameter: The `svg_cache`
+and the `info.window`. This way, the `svg_cache` handles everything necessary to
+cache vertex buffers / the triangulated layers and shapes, only the drawing itself
+is done on every frame.
+
+Additionally, you can also register callbacks on any item **inside** the SVG using the 
+`SvgCallbacks`, i.e. when someone clicks on or hovers over a certain shape. In order 
+to draw your own vector data (for example in order to make a vector graphics editor),
+you can build the "SVG layers" yourself (ex. from the SVG data). Each layer is 
+batch-rendered, so you can draw many lines or polygons in one draw call, as long as
+they share the same `SvgStyle`.
+
+## Supported CSS attributes
+
+### Implemented
+
+This is a list of CSS attributes that are currently implemented. They work in 
+the same way as on a regular web page, except if noted otherwise:
+
+- `border-radius`
+- `background-color`
+- `color`
+- `border`
+- `background`                              [see #1]
+- `font-size`
+- `font-family`                             [see #1]
+- `box-shadow`
+- `line-height`
+- `width`, `min-width`, `max-width`
+- `height`, `min-height`, `max-height`
+- `align-items`                             [see #2]
+- `overflow`, `overflow-x`, `overflow-y`
+- `text-align`                              [see #3]
+
+Notes:
+
+1. `image()` takes an ID instead of a URL. Images and fonts are external resources 
+    that have to be cached. Use `app.add_image("id", my_image_data)` or 
+    `app_state.add_image()`, then you can use the `"id"` in the CSS to select 
+    your image.
+    If an image is not present on a displayed div (i.e. you added it to the CSS, 
+    but forgot to add the image), the following happens:
+    - In debug mode, the app crashes with a descriptive error message
+    - In release mode, the app doesn't display the image and logs the error
+2.  Currently `align-items` is only implemented to center text vertically
+3.  Justified text is not (yet) supported
+
+### Planned
+
+These properties are planned for the next (currently 0.1) release:
+
+- `flex-wrap`
+- `flex-direction`
+- `justify-content`
+- `align-content`
+
+### Remarks
+
+1. Any measurements can be given in `px`, `pt` or `em`. `pt` does not 
+   respect high-DPI scaling, while `em` and `px` do. The default is `1em` = 
+   `16px * high_dpi_scale`
+2. CSS rules are (within a block), parsed from top to bottom, ex:
    ```css
    #my_div {
        background: image("Cat01");
        background: linear-gradient("");
    }
    ```
-   ... will give you the linear gradient, not display the image.
-4. Maybe the most important thing, cascading is currently extremely buggy,
+   This will draw a linear gradient, not the image, since the `linear-gradient` rule
+   overwrote the `image` rule.
+3. Maybe the most important thing, cascading is currently extremely buggy,
    the best result is done if you do everything via classes / ids and not mix them:
    ```css
    /* Will work */
@@ -424,31 +454,44 @@ Remarks:
    /* Won't work */
    .general #specific .very-specific { color: black; }
    ```
-   The CSS parser currently only supports CSS 2.1, not CSS 3 attributes (esp. animations)
-   Animations are a feature to be implemented.
+
+The CSS parser currently only supports CSS 2.1, not CSS 3 attributes. Animations 
+are not done in CSS, but rather by using dynamic CSS properties (see above)
 
 ### Planned
 
-- Animations (should be implemented in CSS, not in Rust, no breaking change necessary)
-- WEBM Video playback (using libvp9 / rust-media, will be exposed the same way as images, using IDs, no breaking change)
-- Asynchronous callbacks (waiting on rustc to stabilize async / await)
-- Looping / polling functions (important to drive futures Executors / update the app state continouusly)
+- WEBM Video playback (using libvp9 / rust-media, will be exposed the same way as 
+  images, using IDs, no breaking change)
 
-## CPU & Memory usage
+## CPU / memory usage / startup time
 
-azul checks for all the displays in an infinite loop. Windows run by default at
-60 FPS, but you can limit / unlimit this in the `WindowCreateOptions`. With these
-default settings, azul uses ~ 0 - 0.5% CPU and ~ 39MB RAM. However, if you add images
-and fonts, the data for these has to be kept in memory (with the uncompressed RGBA
-values), so the memory usage can spike to 60MB or more once images are involved.
-The redraw time (when using hardware acceleration) lies between 2 and 4 milliseconds,
-i.e. 400 - 200 FPS. However, azul will only redraw the screen when absolutely necessary,
-so the real FPS is usually much lower. This is usually fast enough for most desktop
-applications, but not for games. However, if you use the SVG API (which skips the layout step and
-uses absolute positioning), this library may be fast enough for drawing the UI in your game (~ 1 ms).
+While efficiency is definitely one goal, ease of use is the first and foremost
+goal. In order to respond to events, azul runs in an infinite loop and checks all
+windows for incoming events, which consumes around 0-0.5% CPU when idling.
 
-The startup time depends on how many fonts / images you add on startup, the default
-time is between 100 and 200 ms for an app with no images and a single font.
+A default window, with no fonts or images added takes up roughly 39MB of RAM and
+5MB in binary size. This usage can go up once you load more images and fonts, since
+azul has to load and keep the images in RAM. 
+
+The frame time (i.e. the time necessary to draw a single frame, including layout) 
+lies between 2 - 5 milliseconds, which equals roughly 200 - 500 frames per second. 
+However, azul limits this frame time and only redraws the window when absolutely 
+necessary, in order to not waste the users battery life. 
+
+The startup time depends on how many fonts / images you add on startup, the
+default time is between 100 and 200 ms for an app with no images and a single font.
+
+## Thanks
+
+Several projects have helped azul severely and should be noted here:
+
+- Chris Tollidays [limn](https://github.com/christolliday/limn) framework has helped
+  severely with discovering undocumented parts of webrender as well as working with
+  constraints (the `constraints.rs` file was copied from limn with the [permission of
+  the author](https://github.com/christolliday/limn/issues/22#issuecomment-362545167))
+- Nicolas Silva for his work on [lyon](https://github.com/nical/lyon) - without this, 
+  the SVG renderer wouldn't have been possible
+- All webrender contributors who have been patient enough to answer my questions on IRC
 
 ## License
 
