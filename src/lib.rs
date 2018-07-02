@@ -51,6 +51,7 @@ extern crate app_units;
 extern crate unicode_normalization;
 extern crate harfbuzz_rs;
 extern crate tinyfiledialogs;
+#[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
 /// DOM / HTML node handling
