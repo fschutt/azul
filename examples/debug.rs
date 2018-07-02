@@ -36,7 +36,6 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
             let mut svg_cache = SvgCache::empty();
             let svg_layers = svg_cache.add_svg(&contents).ok()?;
             app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
-            message_box("File loaded successfully");
             Some(UpdateScreen::Redraw)
         })
         .unwrap_or_else(|| {
