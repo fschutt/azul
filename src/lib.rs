@@ -50,6 +50,8 @@ extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
 extern crate harfbuzz_rs;
+extern crate tinyfiledialogs;
+extern crate nfd;
 
 /// DOM / HTML node handling
 pub mod dom;
@@ -63,6 +65,8 @@ pub mod task;
 pub mod svg;
 /// Built-in widgets
 pub mod widgets;
+/// Bindings to the native file-chooser, color picker, etc. dialogs
+pub mod dialogs;
 /// Global application (Initialization starts here)
 mod app;
 /// Wrapper for the application data & application state
@@ -116,7 +120,7 @@ pub mod prelude {
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
     pub use traits::{Layout, ModifyAppState, GetDom};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
-                     MouseMode, UpdateBehaviour, UpdateMode, 
+                     MouseMode, UpdateBehaviour, UpdateMode,
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
     pub use window_state::WindowState;
     pub use images::ImageType;
