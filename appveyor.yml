@@ -1,9 +1,6 @@
 environment:
   global:
-    # This will be used as part of the zipfile name
-    # TODO change the project name
     PROJECT_NAME: azul
-  # TODO feel free to delete targets/channels you don't need
   matrix:
     # Disable windows-gnu because appveyor has problems installing CMAKE correctly
     # (CMAKE_C_COMPILER not set)
@@ -22,8 +19,12 @@ environment:
     - TARGET: x86_64-pc-windows-msvc
       CHANNEL: stable
 
+branches:
+  only:
+    - master
+
 # Install Rust and Cargo
-# (Based on from https://github.com/rust-lang/libc/blob/master/appveyor.yml)
+# Based on https://github.com/rust-lang/libc/blob/master/appveyor.yml
 install:
   - appveyor DownloadFile https://win.rustup.rs/ -FileName rustup-init.exe
   - rustup-init -yv --default-toolchain %channel% --default-host %target%
@@ -33,13 +34,12 @@ install:
   - rustc -vV
   - cargo -vV
 
-# 'cargo test' takes care of building for us, so disable Appveyor's build stage. This prevents
-# the "directory does not contain a project or solution file" error.
+# 'cargo test' takes care of building for us, so disable Appveyor's build stage.
+# This prevents the "directory does not contain a project or solution file" error.
 # source: https://github.com/starkat99/appveyor-rust/blob/master/appveyor.yml#L113
 build: false
 
 # Equivalent to Travis' `script` phase
-# TODO modify this phase as you see fit
 test_script:
   - cargo build --verbose --examples
   - cargo test --verbose --features "doc-test no-opengl-tests"
