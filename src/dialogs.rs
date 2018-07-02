@@ -1,9 +1,6 @@
 use tinyfiledialogs::MessageBoxIcon;
 use tinyfiledialogs::DefaultColorValue;
 
-/// Default color in the color picker
-const DEFAULT_COLOR: [u8; 3] = [0, 0, 0];
-
 /// Ok or cancel result, returned from the `msg_box_ok_cancel` function
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum OkCancel {
@@ -29,6 +26,11 @@ impl From<OkCancel> for ::tinyfiledialogs::OkCancel {
             OkCancel::Cancel => ::tinyfiledialogs::OkCancel::Cancel,
         }
     }
+}
+
+/// "Ok / Cancel" MsgBox (title, message, icon, default)
+pub fn msg_box_ok_cancel(title: &str, message: &str, icon: MessageBoxIcon, default: OkCancel) -> OkCancel {
+    ::tinyfiledialogs::message_box_ok_cancel(title, message, icon, default.into()).into()
 }
 
 /// Yes or No result, returned from the `msg_box_yes_no` function
@@ -91,9 +93,12 @@ pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
     ::tinyfiledialogs::message_box_ok(title, message, icon)
 }
 
-/// "Ok / Cancel" MsgBox (title, message, icon, default)
-pub fn msg_box_ok_cancel(title: &str, message: &str, icon: MessageBoxIcon, default: OkCancel) -> OkCancel {
-    ::tinyfiledialogs::message_box_ok_cancel(title, message, icon, default.into()).into()
+/// Wrapper around `message_box_ok` with the default title "Info" + an info icon.
+///
+/// Note: If you are too young to remember Visual Basics glorious `MsgBox`
+/// then I pity you. Those were the days.
+pub fn msg_box(content: &str) {
+    msg_box_ok("Info", content, MessageBoxIcon::Info);
 }
 
 /// Color value (hex or rgb) to open the `color_chooser_dialog` with
@@ -102,6 +107,9 @@ pub enum ColorValue<'a> {
     Hex(&'a str),
     RGB(&'a [u8; 3]),
 }
+
+/// Default color in the color picker
+const DEFAULT_COLOR: [u8; 3] = [0, 0, 0];
 
 impl<'a> Default for ColorValue<'a> {
     fn default() -> Self {
@@ -126,13 +134,25 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorValue>)
     ::tinyfiledialogs::color_chooser_dialog(title, default)
 }
 
-// We don't use tinyfiledialogs for file dialogs
-// because it doesn't handle Unicode correctly
+// The difference between tinyfiledialogs and nfd is that nfd links
+// to a specific dialog at compile time, while tinyfiledialogs selects
+// the dialog at runtime from a set of specific dialogs (i.e. Mate, KDE, 
+// dolphin, whatever). This (a) doesn't force the library user to choose
+// a specific dialog, (b) won't look non-native (GTK3 on a KDE env can 
+// look jarring) and (c) doesn't require the user to install extra libraries
+//
+// The only reason why we don't use tinyfiledialogs everywhere is because
+// it doesn't handle unicode correctly (so if the user has öüä in his username,
+// it won't return a correct file path). However, tinyfiledialogs **does**
+// handle Unicode correctly on Linux. So the solution is to use tinyfiledialogs
+// on Linux (because of the dependency issue) and nfd everywhere else (because
+// of better Unicode)
 
 /// Open a single file, returns `None` if the user canceled the dialog.
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
+#[cfg(not(target_os = "linux"))]
 pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
 -> Option<String>
 {
@@ -147,7 +167,21 @@ pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>
     }
 }
 
+/// Open a single file, returns `None` if the user canceled the dialog.
+///
+/// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
+/// "doc" and "docx" files
+#[cfg(target_os = "linux")]
+pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
+-> Option<String> 
+{
+    let filter_list = filter_list.map(|f| (f, ""));
+    let path = default_path.unwrap_or("");
+    ::tinyfiledialogs::open_file_dialog("Open File", path, filter_list)
+}
+
 /// Open a directory, returns `None` if the user canceled the dialog
+#[cfg(not(target_os = "linux"))]
 pub fn open_directory_dialog(default_path: Option<&str>)
 -> Option<String>
 {
@@ -159,11 +193,20 @@ pub fn open_directory_dialog(default_path: Option<&str>)
     }
 }
 
+/// Open a directory, returns `None` if the user canceled the dialog
+#[cfg(target_os = "linux")]
+pub fn open_directory_dialog(default_path: Option<&str>)
+-> Option<String> 
+{
+    ::tinyfiledialogs::select_folder_dialog("Open Filder", default_path.unwrap_or(""))
+}
+
 /// Open multiple files at once, returns `None` if the user canceled the dialog,
 /// otherwise returns the `Vec<String>` with the given file paths
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
+#[cfg(not(target_os = "linux"))]
 pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
 -> Option<Vec<String>>
 {
@@ -179,7 +222,22 @@ pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Optio
     }
 }
 
+/// Open multiple files at once, returns `None` if the user canceled the dialog,
+/// otherwise returns the `Vec<String>` with the given file paths
+///
+/// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
+/// "doc" and "docx" files
+#[cfg(target_os = "linux")]
+pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
+-> Option<Vec<String>> 
+{
+    let filter_list = filter_list.map(|f| (f, ""));
+    let path = default_path.unwrap_or("");
+    ::tinyfiledialogs::open_file_dialog_multi("Open Folder", path, filter_list)
+}
+
 /// Opens a save file dialog, returns `None` if the user canceled the dialog
+#[cfg(not(target_os = "linux"))]
 pub fn save_file_dialog(default_path: Option<&str>)
 -> Option<String>
 {
@@ -191,12 +249,13 @@ pub fn save_file_dialog(default_path: Option<&str>)
     }
 }
 
-/// Wrapper around `message_box_ok` with the default title "Info" + an info icon.
-///
-/// Note: If you are too young to remember Visual Basics glorious `MsgBox`
-/// then I pity you. Those were the days.
-pub fn msg_box(content: &str) {
-    msg_box_ok("Info", content, MessageBoxIcon::Info);
+/// Opens a save file dialog, returns `None` if the user canceled the dialog
+#[cfg(target_os = "linux")]
+pub fn save_file_dialog(default_path: Option<&str>)
+-> Option<String>
+{
+    let path = default_path.unwrap_or("");
+    ::tinyfiledialogs::save_file_dialog("Save File", path)
 }
 
 // TODO (at least on Windows):

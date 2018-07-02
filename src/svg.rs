@@ -874,7 +874,7 @@ mod svg_to_lyon {
     use webrender::api::ColorU;
     use FastHashMap;
 
-    pub fn parse_from<S: AsRef<str>, T: Layout>(mut svg_source: S, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
+    pub fn parse_from<S: AsRef<str>, T: Layout>(svg_source: S, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
     -> Result<(Vec<SvgLayer<T>>, FastHashMap<SvgTransformId, Transform>), SvgParseError> {
         let opt = Options::default();
         let rtree = Tree::from_str(svg_source.as_ref(), &opt).unwrap();
