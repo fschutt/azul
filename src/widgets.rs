@@ -136,10 +136,10 @@ impl Svg {
                         bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
                         z_index: z_index,
                         color: (
-                        stroke_color.color.red as f32,
-                        stroke_color.color.green as f32,
-                        stroke_color.color.blue as f32,
-                        stroke_color.alpha as f32
+                            stroke_color.color.red as f32,
+                            stroke_color.color.green as f32,
+                            stroke_color.color.blue as f32,
+                            stroke_color.alpha as f32
                         ),
                     };
 
