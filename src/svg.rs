@@ -1,5 +1,5 @@
 use std::{
-    fmt, 
+    fmt,
     rc::Rc,
     io::{Error as IoError, Read},
     sync::{Mutex, atomic::{Ordering, AtomicUsize}},
@@ -16,12 +16,12 @@ use lyon::{
         VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator,
         LineCap, LineJoin, StrokeTessellator, StrokeOptions, StrokeVertex,
         basic_shapes::{
-            fill_circle, stroke_circle, fill_rounded_rectangle, 
+            fill_circle, stroke_circle, fill_rounded_rectangle,
             stroke_rounded_rectangle, BorderRadii
         },
     },
     path::{
-        default::{Builder, Path}, 
+        default::{Builder, Path},
         builder::{PathBuilder, FlatPathBuilder}, PathEvent,
     },
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
@@ -260,7 +260,7 @@ impl<T: Layout> SvgCache<T> {
 
     /// Parses an input source, parses the SVG, adds the shapes as layers into
     /// the registry, returns the IDs of the added shapes, in the order that they appeared in the Svg
-    pub fn add_svg<R: Read>(&mut self, input: R) -> Result<Vec<SvgLayerId>, SvgParseError> {
+    pub fn add_svg<S: AsRef<str>>(&mut self, input: S) -> Result<Vec<SvgLayerId>, SvgParseError> {
         let (layers, transforms) = self::svg_to_lyon::parse_from(input, &mut self.view_boxes)?;
         self.add_transforms(transforms);
         Ok(layers
@@ -720,16 +720,10 @@ mod svg_to_lyon {
     use webrender::api::ColorU;
     use FastHashMap;
 
-    pub fn parse_from<R: Read, T: Layout>(mut svg_source: R, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
+    pub fn parse_from<S: AsRef<str>, T: Layout>(mut svg_source: S, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
     -> Result<(Vec<SvgLayer<T>>, FastHashMap<SvgTransformId, Transform>), SvgParseError> {
-        let svg_source = {
-            let mut source_str = String::new();
-            svg_source.read_to_string(&mut source_str)?;
-            source_str
-        };
-
         let opt = Options::default();
-        let rtree = Tree::from_str(&svg_source, &opt).unwrap();
+        let rtree = Tree::from_str(svg_source.as_ref(), &opt).unwrap();
 
         let mut layer_data = Vec::new();
         let mut transform = None;
