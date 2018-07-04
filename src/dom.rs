@@ -76,12 +76,7 @@ impl<T: Layout> Eq for Callback<T> { }
 
 impl<T: Layout> Copy for Callback<T> { }
 
-/// List of allowed DOM node types that are supported by `azul`.
-///
-/// All node types are purely convenience functions around `Div`,
-/// `Image` and `Label`. For example a `Ul` is simply a convenience
-/// wrapper around a repeated (`Div` + `Label`) clone where the first
-/// `Div` is shaped like a circle (for `Ul`).
+/// List of core DOM node types built-into by `azul`.
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum NodeType {
     /// Regular div with no particular type of data attached
@@ -439,12 +434,12 @@ impl<T: Layout> Dom<T> {
 
 #[test]
 fn test_dom_sibling_1() {
-    
+
     use window::WindowInfo;
 
     struct TestLayout { }
 
-    impl Layout for TestLayout { 
+    impl Layout for TestLayout {
         fn layout(&self) -> Dom<Self> {
             Dom::new(NodeType::Div)
                 .with_child(
@@ -469,7 +464,7 @@ fn test_dom_sibling_1() {
             arena[dom.root]
             .first_child().expect("root has no first child")
         ].data.id);
-    
+
     assert_eq!(Some(String::from("sibling-2")),
         arena[
             arena[
@@ -477,7 +472,7 @@ fn test_dom_sibling_1() {
                 .first_child().expect("root has no first child")
             ].next_sibling().expect("root has no second sibling")
         ].data.id);
-    
+
     assert_eq!(Some(String::from("sibling-1-child-1")),
         arena[
             arena[
