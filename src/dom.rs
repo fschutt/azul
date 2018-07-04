@@ -277,8 +277,7 @@ impl<T: Layout> NodeData<T> {
 pub struct Dom<T: Layout> {
     pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) root: NodeId,
-    pub(crate) current_root: NodeId,
-    pub(crate) last: NodeId,
+    pub(crate) head: NodeId,
 }
 
 impl<T: Layout> fmt::Debug for Dom<T> {
@@ -287,13 +286,11 @@ impl<T: Layout> fmt::Debug for Dom<T> {
         "Dom {{ \
             \tarena: {:?}, \
             \troot: {:?}, \
-            \tcurrent_root: {:?}, \
-            \tlast: {:?}, \
+            \thead: {:?}, \
         }}",
         self.arena,
         self.root,
-        self.current_root,
-        self.last)
+        self.head)
     }
 }
 
@@ -334,30 +331,129 @@ impl<T: Layout> Dom<T> {
         Self {
             arena: Rc::new(RefCell::new(arena)),
             root: root,
-            current_root: root,
-            last: root,
-        }
-    }
-
-    /// Adds a child DOM to the current DOM
-    #[inline]
-    pub fn add_child(&mut self, child: Self) {
-        for ch in child.root.children(&*child.arena.borrow()) {
-            let new_last = (*self.arena.borrow_mut()).new_node((*child.arena.borrow())[ch].data.special_clone());
-            self.last.append(new_last, &mut self.arena.borrow_mut());
-            self.last = new_last;
+            head: root,
         }
     }
 
     /// Adds a sibling to the current DOM
-    #[inline]
     pub fn add_sibling(&mut self, sibling: Self) {
-        for sib in sibling.root.following_siblings(&*sibling.arena.borrow()) {
-            let sibling_clone = (*sibling.arena.borrow())[sib].data.special_clone();
-            let new_sibling = (*self.arena.borrow_mut()).new_node(sibling_clone);
-            self.current_root.insert_after(new_sibling, &mut self.arena.borrow_mut());
-            self.current_root = new_sibling;
+        use id_tree::Node;
+
+        let self_len = self.arena.borrow().nodes_len();
+        let sibling_len = sibling.arena.borrow().nodes_len();
+
+        let mut self_arena = self.arena.borrow_mut();
+        let mut sibling_arena = sibling.arena.borrow_mut();
+
+        for node_id in 0..sibling_len {
+
+            let node: &mut Node<NodeData<T>> = &mut sibling_arena[NodeId::new(node_id)];
+
+            {
+                let mut b_node_parent_is_some = false;
+                if let Some(parent) = node.parent_mut() {
+                    *parent = *parent + self_len;
+                    b_node_parent_is_some = true;
+                }
+                if !b_node_parent_is_some {
+                    node.parent = self_arena[self.head].parent;
+                }
+            }
+
+            {
+                let mut b_node_previous_sibling_is_some = false;
+                if let Some(previous_sibling) = node.previous_sibling_mut() {
+                    *previous_sibling = *previous_sibling + self_len;
+                    b_node_previous_sibling_is_some = true;
+                }
+                if !b_node_previous_sibling_is_some {
+                    node.previous_sibling = Some(self.head);
+                }
+            }
+
+            if let Some(next_sibling) = node.next_sibling_mut() {
+                *next_sibling = *next_sibling + self_len;
+            }
+
+            if let Some(first_child) = node.first_child_mut() {
+                *first_child = *first_child + self_len;
+            }
+
+            if let Some(last_child) = node.last_child_mut() {
+                *last_child = *last_child + self_len;
+            }
         }
+
+        let head_node_id = NodeId::new(self_len);
+        self_arena[self.head].next_sibling = Some(head_node_id);
+        self.head = head_node_id;
+        (&mut *self_arena).append(&mut sibling_arena);
+    }
+
+    /// Adds a child DOM to the current DOM
+    pub fn add_child(&mut self, child: Self) {
+
+        use id_tree::Node;
+
+        let self_len = self.arena.borrow().nodes_len();
+        let child_len = child.arena.borrow().nodes_len();
+
+        let mut self_arena = self.arena.borrow_mut();
+        let mut child_arena = child.arena.borrow_mut();
+
+        let mut last_sibling = None;
+
+        for node_id in 0..child_len {
+            let node_id = NodeId::new(node_id);
+            let node: &mut Node<NodeData<T>> = &mut child_arena[node_id];
+
+            // WARNING: Order of these blocks is important!
+            {
+                let mut b_node_previous_sibling_is_some = false;
+                if let Some(previous_sibling) = node.previous_sibling_mut() {
+                    *previous_sibling = *previous_sibling + self_len;
+                    b_node_previous_sibling_is_some = true;
+                }
+                if !b_node_previous_sibling_is_some {
+                    let last_child = self_arena[self.head].last_child;
+                    if last_child.is_some() && node.parent.is_none() {
+                        node.previous_sibling = last_child;
+                        self_arena[last_child.unwrap()].next_sibling = Some(node_id + self_len);
+                    }
+                }
+            }
+
+            {
+                let mut b_node_parent_is_some = false;
+                if let Some(parent) = node.parent_mut() {
+                    *parent = *parent + self_len;
+                    b_node_parent_is_some = true;
+                }
+                if !b_node_parent_is_some {
+                    if node.next_sibling.is_none() {
+                        // We have encountered the last root item
+                        last_sibling = Some(node_id);
+                    }
+                    node.parent = Some(self.head);
+                }
+            }
+
+            if let Some(next_sibling) = node.next_sibling_mut() {
+                *next_sibling = *next_sibling + self_len;
+            }
+
+            if let Some(first_child) = node.first_child_mut() {
+                *first_child = *first_child + self_len;
+            }
+
+            if let Some(last_child) = node.last_child_mut() {
+                *last_child = *last_child + self_len;
+            }
+        }
+
+        self_arena[self.head].first_child.get_or_insert(NodeId::new(self_len));
+        self_arena[self.head].last_child = Some(last_sibling.unwrap() + self_len);
+        (&mut *self_arena).append(&mut child_arena);
     }
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
@@ -395,18 +491,18 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn set_id<S: Into<String>>(&mut self, id: S) {
-        self.arena.borrow_mut()[self.last].data.id = Some(id.into());
+        self.arena.borrow_mut()[self.head].data.id = Some(id.into());
     }
 
     #[inline]
     pub fn set_class<S: Into<String>>(&mut self, class: S) {
-        self.arena.borrow_mut()[self.last].data.classes.push(class.into());
+        self.arena.borrow_mut()[self.head].data.classes.push(class.into());
     }
 
     #[inline]
     pub fn set_callback(&mut self, on: On, callback: Callback<T>) {
-        self.arena.borrow_mut()[self.last].data.events.callbacks.insert(on, callback);
-        self.arena.borrow_mut()[self.last].data.tag = Some(NODE_ID.fetch_add(1, Ordering::SeqCst) as u64);
+        self.arena.borrow_mut()[self.head].data.events.callbacks.insert(on, callback);
+        self.arena.borrow_mut()[self.head].data.tag = Some(NODE_ID.fetch_add(1, Ordering::SeqCst) as u64);
     }
 }
 
