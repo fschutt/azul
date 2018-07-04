@@ -64,10 +64,11 @@ const SVG_VERTEX_SHADER: &str = "
 
     uniform vec2 bbox_origin;
     uniform vec2 bbox_size;
+    uniform vec2 offset;
     uniform float z_index;
 
     void main() {
-        gl_Position = vec4(vec2(-1.0) + ((xy - bbox_origin) / bbox_size), z_index, 1.0);
+        gl_Position = vec4(vec2(-1.0) + ((xy - bbox_origin) / bbox_size) + (offset / bbox_size), z_index, 1.0);
     }";
 
 const SVG_FRAGMENT_SHADER: &str = "

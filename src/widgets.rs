@@ -1,7 +1,7 @@
 use {
     svg::{SvgCache, SvgLayerId},
     window::ReadOnlyWindow,
-    traits::{GetDom, Layout},
+    traits::Layout,
     dom::{Dom, NodeType},
     images::ImageId,
 };
@@ -32,10 +32,8 @@ impl Button {
             content: ButtonContent::Image(image),
         }
     }
-}
 
-impl GetDom for Button {
-    fn dom<T: Layout>(self) -> Dom<T> {
+    pub fn dom<T: Layout>(self) -> Dom<T> {
         use self::ButtonContent::*;
         let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");
         button_root.add_child(match self.content {
@@ -97,6 +95,7 @@ impl Svg {
         let z_index: f32 = 0.5;
         let bbox = Svg::make_bbox((0.0, 0.0), (800.0, 600.0));
         let shader = svg_cache.init_shader(window);
+        let offset = (400.0_f32, 200.0_f32);
 
         {
             let mut surface = tex.as_surface();
@@ -121,6 +120,7 @@ impl Svg {
                             color.color.blue as f32,
                             color.alpha as f32
                         ),
+                        offset: (offset.0 as f32, offset.1 as f32)
                     };
 
                     surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
@@ -141,6 +141,7 @@ impl Svg {
                             stroke_color.color.blue as f32,
                             stroke_color.alpha as f32
                         ),
+                        offset: (offset.0 as f32, offset.1 as f32)
                     };
 
                     surface.draw(stroke_vertex_buffer, stroke_index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
@@ -173,10 +174,8 @@ impl Label {
     pub fn new<S: Into<String>>(text: S) -> Self {
         Self { text: text.into() }
     }
-}
 
-impl GetDom for Label {
-    fn dom<T: Layout>(self) -> Dom<T> {
+    pub fn dom<T: Layout>(self) -> Dom<T> {
         Dom::new(NodeType::Label(self.text))
     }
 }

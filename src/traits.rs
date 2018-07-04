@@ -14,10 +14,6 @@ use {
     css_parser::{ParsedCssProperty, CssParsingError},
 };
 
-pub trait GetDom {
-    fn dom<T: Layout>(self) -> Dom<T>;
-}
-
 pub trait Layout {
     /// Updates the DOM, must be provided by the final application.
     ///
