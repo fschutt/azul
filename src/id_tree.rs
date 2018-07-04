@@ -3,7 +3,7 @@
 use std::{
     mem,
     fmt,
-    ops::{Index, IndexMut, Deref},
+    ops::{Index, Add, IndexMut, Deref},
     hash::{Hasher, Hash},
     collections::BTreeMap,
     cmp::Ordering,
@@ -48,6 +48,13 @@ impl NonZeroUsizeHack {
         // Remove 1 on retrieval
         let value = self.0 as *const () as usize;
         value - 1
+    }
+}
+
+impl Add<usize> for NonZeroUsizeHack {
+    type Output = NonZeroUsizeHack;
+    fn add(self, other: usize) -> NonZeroUsizeHack {
+        NonZeroUsizeHack::new(self.get() + other)
     }
 }
 
@@ -98,6 +105,16 @@ impl NodeId {
     }
 }
 
+impl Add<usize> for NodeId {
+    type Output = NodeId;
+
+    fn add(self, other: usize) -> NodeId {
+        NodeId {
+            index: self.index + other
+        }
+    }
+}
+
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.index.get())
@@ -106,20 +123,18 @@ impl fmt::Display for NodeId {
 
 #[derive(Clone, PartialEq)]
 pub struct Node<T> {
-    // Keep these private (with read-only accessors) so that we can keep them consistent.
-    // E.g. the parent of a node’s child is that node.
-    parent: Option<NodeId>,
-    previous_sibling: Option<NodeId>,
-    next_sibling: Option<NodeId>,
-    first_child: Option<NodeId>,
-    last_child: Option<NodeId>,
+    pub(crate) parent: Option<NodeId>,
+    pub(crate) previous_sibling: Option<NodeId>,
+    pub(crate) next_sibling: Option<NodeId>,
+    pub(crate) first_child: Option<NodeId>,
+    pub(crate) last_child: Option<NodeId>,
     pub data: T,
 }
 
 // Manual implementation, since `#[derive(Debug)]` requires `T: Debug`
 impl<T: fmt::Debug> fmt::Debug for Node<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, 
+        write!(f,
             "Node {{ \
                parent: {:?}, \
                previous_sibling: {:?}, \
@@ -191,9 +206,9 @@ impl<T> Arena<T> {
     }
 
     /// Return an iterator over the indices in the internal arenas Vec<T>
-    pub fn linear_iter(&self) -> LinearIterator<T> {
+    pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
-            arena: &self,
+            arena_len: self.nodes.len(),
             position: 0,
         }
     }
@@ -221,6 +236,12 @@ impl<T> Arena<T> {
 
     pub fn is_empty(&self) -> bool {
         self.nodes_len() == 0
+    }
+
+    /// Appends another arena to the end of the current arena.
+    /// Highly unsafe if you don't know what you're doing
+    pub(crate) fn append(&mut self, other: &mut Arena<T>) {
+        self.nodes.append(&mut other.nodes);
     }
 }
 
@@ -274,19 +295,39 @@ impl<T> IndexMut<NodeId> for Arena<T> {
 
 impl<T> Node<T> {
     /// Return the ID of the parent node, unless this node is the root of the tree.
+    #[inline(always)]
     pub fn parent(&self) -> Option<NodeId> { self.parent }
 
+    #[inline(always)]
+    pub fn parent_mut(&mut self) -> Option<&mut NodeId> { self.parent.as_mut() }
+
     /// Return the ID of the first child of this node, unless it has no child.
+    #[inline(always)]
     pub fn first_child(&self) -> Option<NodeId> { self.first_child }
 
+    #[inline(always)]
+    pub fn first_child_mut(&mut self) -> Option<&mut NodeId> { self.first_child.as_mut() }
+
     /// Return the ID of the last child of this node, unless it has no child.
+    #[inline(always)]
     pub fn last_child(&self) -> Option<NodeId> { self.last_child }
 
-    /// Return the ID of the previous sibling of this node, unless it is a first child.
-    pub fn previous_sibling(&self) -> Option<NodeId> { self.previous_sibling }
+    #[inline(always)]
+    pub fn last_child_mut(&mut self) -> Option<&mut NodeId> { self.last_child.as_mut() }
 
     /// Return the ID of the previous sibling of this node, unless it is a first child.
+    #[inline(always)]
+    pub fn previous_sibling(&self) -> Option<NodeId> { self.previous_sibling }
+
+    #[inline(always)]
+    pub fn previous_sibling_mut(&mut self) -> Option<&mut NodeId> { self.previous_sibling.as_mut() }
+
+    /// Return the ID of the previous sibling of this node, unless it is a first child.
+    #[inline(always)]
     pub fn next_sibling(&self) -> Option<NodeId> { self.next_sibling }
+
+    #[inline(always)]
+    pub fn next_sibling_mut(&mut self) -> Option<&mut NodeId> { self.next_sibling.as_mut() }
 }
 
 
@@ -499,16 +540,16 @@ macro_rules! impl_node_iterator {
 
 /// An linear iterator, does not respec the DOM in any way,
 /// it just iterates over the nodes like a Vec
-pub struct LinearIterator<'a, T: 'a> {
-    arena: &'a Arena<T>,
+pub struct LinearIterator {
+    arena_len: usize,
     position: usize,
 }
 
-impl<'a, T> Iterator for LinearIterator<'a, T> {
+impl Iterator for LinearIterator {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
-        if self.position > (self.arena.nodes.len() - 1) {
+        if self.position > (self.arena_len - 1) {
             None
         } else {
             let new_id = Some(NodeId::new(self.position));
