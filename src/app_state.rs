@@ -17,6 +17,7 @@ use {
     font::FontError,
     svg::{SvgLayerId, SvgLayer, SvgParseError},
     css_parser::{Font as FontId, FontSize, PixelValue},
+    errors::ClipboardError,
 };
 
 /// Wrapper for your application data. In order to be layout-able,
@@ -233,6 +234,20 @@ impl<'a, T: Layout> AppState<'a, T> {
 
     pub fn clear_all_texts(&mut self) {
         self.resources.clear_all_texts();
+    }
+
+    /// Get the contents of the system clipboard as a string
+    pub(crate) fn get_clipboard_string(&mut self) 
+    -> Result<String, ClipboardError> 
+    {
+        self.resources.get_clipboard_string()
+    }
+
+    /// Set the contents of the system clipboard as a string
+    pub(crate) fn set_clipboard_string(&mut self, contents: String) 
+    -> Result<(), ClipboardError> 
+    {
+        self.resources.set_clipboard_string(contents)
     }
 }
 

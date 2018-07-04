@@ -9,7 +9,7 @@ use image::ImageError;
 use euclid::TypedScale;
 use {
     images::ImageType,
-    errors::FontError,
+    errors::{FontError, ClipboardError},
     window::{Window, WindowCreateOptions, WindowCreateError, WindowId},
     css_parser::{Font as FontId, PixelValue, FontSize},
     text_cache::TextId,
@@ -478,6 +478,20 @@ impl<'a, T: Layout> App<'a, T> {
 
     pub fn clear_all_texts(&mut self) {
         self.app_state.clear_all_texts();
+    }
+
+    /// Get the contents of the system clipboard as a string
+    pub(crate) fn get_clipboard_string(&mut self) 
+    -> Result<String, ClipboardError> 
+    {
+        self.app_state.get_clipboard_string()
+    }
+
+    /// Set the contents of the system clipboard as a string
+    pub(crate) fn set_clipboard_string(&mut self, contents: String) 
+    -> Result<(), ClipboardError> 
+    {
+        self.app_state.set_clipboard_string(contents)
     }
 
     /// Mock rendering function, for creating a hidden window and rendering one frame

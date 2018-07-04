@@ -21,6 +21,7 @@ use css_parser;
 use css_parser::Font::ExternalFont;
 use svg::{SvgLayerId, SvgLayer, SvgParseError};
 use text_cache::TextId;
+use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 
 /// Font and image keys
 ///
@@ -32,7 +33,6 @@ use text_cache::TextId;
 ///
 /// Images and fonts can be references across window contexts
 /// (not yet tested, but should work).
-#[derive(Clone)]
 pub(crate) struct AppResources<'a> {
     /// When looking up images, there are two sources: Either the indirect way via using a
     /// CssId (which is a String) or a direct ImageId. The indirect way requires one extra
@@ -54,6 +54,8 @@ pub(crate) struct AppResources<'a> {
     pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
     /// Stores long texts across frames
     pub(crate) text_cache: TextCache,
+    /// Keyboard clipboard storage and retrieval functionality
+    clipboard: SystemClipboard,
 }
 
 impl<'a> Default for AppResources<'a> {
@@ -64,6 +66,7 @@ impl<'a> Default for AppResources<'a> {
             font_data: FastHashMap::default(),
             images: FastHashMap::default(),
             text_cache: TextCache::default(),
+            clipboard: SystemClipboard::new().unwrap(),
         }
     }
 }
@@ -206,6 +209,18 @@ impl<'a> AppResources<'a> {
 
     pub(crate) fn clear_all_texts(&mut self) {
         self.text_cache.clear_all_texts();
+    }
+
+    pub(crate) fn get_clipboard_string(&mut self) 
+    -> Result<String, ClipboardError> 
+    {
+        self.clipboard.get_string_contents()
+    }
+
+    pub(crate) fn set_clipboard_string(&mut self, contents: String) 
+    -> Result<(), ClipboardError> 
+    {
+        self.clipboard.set_string_contents(contents)
     }
 }
 

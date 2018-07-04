@@ -51,6 +51,8 @@ extern crate app_units;
 extern crate unicode_normalization;
 extern crate harfbuzz_rs;
 extern crate tinyfiledialogs;
+extern crate clipboard2;
+
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
@@ -158,4 +160,6 @@ pub mod errors {
     pub use font::FontError;
     pub use window::WindowCreateError;
     pub use image::ImageError;
+    // TODO: re-export the sub-types of ClipboardError!
+    pub use clipboard2::ClipboardError;
 }
