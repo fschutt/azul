@@ -121,7 +121,7 @@ pub mod prelude {
     pub use app_state::AppState;
     pub use css::{Css, FakeCss};
     pub use dom::{Dom, NodeType, Callback, CheckboxState, On, UpdateScreen};
-    pub use traits::{Layout, ModifyAppState, GetDom};
+    pub use traits::{Layout, ModifyAppState};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode,
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
