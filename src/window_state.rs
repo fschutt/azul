@@ -59,6 +59,8 @@ impl Default for MouseState {
 #[derive(Debug, Clone)]
 pub struct WindowState
 {
+    /// Previous window state, used for determining mouseout, etc. events
+    pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Current title of the window
     pub title: String,
     /// The state of the keyboard for this frame
@@ -125,6 +127,7 @@ impl Default for WindowSize {
 impl Default for WindowState {
     fn default() -> Self {
         Self {
+            previous_window_state: None,
             title: DEFAULT_TITLE.into(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
@@ -148,18 +151,78 @@ impl WindowState
     //
     // This function also updates / mutates the current window state,
     // so that we are ready for the next frame
-    pub(crate) fn determine_callback(&mut self, event: &Event) -> Vec<On> {
-/*
-        pub enum On {
-            MouseOver,
-            MouseDown,
-            MouseUp,
-            MouseEnter,
-            MouseLeave,
+    pub(crate) fn determine_callbacks(&mut self, event: &Event) -> Option<Vec<On>> {
+
+        use glium::glutin::Event::WindowEvent;
+        use glium::glutin::WindowEvent::*;
+        use glium::glutin::{ElementState, MouseButton };
+
+        let event = if let WindowEvent { event, .. } = event { Some(event) } else { None };
+        let event = event?;
+
+        // store the current window state so we can set it in this.previous_window_state later on
+        let mut previous_state = Box::new(self.clone());
+        previous_state.previous_window_state = None;
+
+        let mut events_vec = Vec::<On>::new();
+
+        // TODO: right mouse down / middle mouse down?
+        match event {
+
+            // mouse pressed
+            MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
+                if !self.mouse_state.left_down {
+                    events_vec.push(On::MouseDown);
+                }
+                self.mouse_state.left_down = true;
+            },
+            MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
+                if !self.mouse_state.right_down {
+                    events_vec.push(On::MouseDown);
+                }
+                self.mouse_state.right_down = true;
+            },
+            MouseInput { state: ElementState::Pressed, button: MouseButton::Middle, .. } => {
+                if !self.mouse_state.middle_down {
+                    events_vec.push(On::MouseDown);
+                }
+                self.mouse_state.middle_down = true;
+            },
+
+
+            // mouse released
+            MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
+                if self.mouse_state.left_down {
+                    events_vec.push(On::MouseUp);
+                }
+                self.mouse_state.left_down = false;
+            },
+            MouseInput { state: ElementState::Released, button: MouseButton::Right, .. } => {
+                if self.mouse_state.right_down {
+                    events_vec.push(On::MouseUp);
+                }
+                self.mouse_state.right_down = false;
+            },
+            MouseInput { state: ElementState::Released, button: MouseButton::Middle, .. } => {
+                if self.mouse_state.middle_down {
+                    events_vec.push(On::MouseUp);
+                }
+                self.mouse_state.middle_down = false;
+            },
+
+
+            _ => {
+                // TODO
+            }
         }
-*/
-        // TODO
-        Vec::new()
+
+        self.previous_window_state = Some(previous_state);
+
+        if events_vec.is_empty() {
+            None
+        } else {
+            Some(events_vec)
+        }
     }
 }
 

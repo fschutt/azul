@@ -163,7 +163,7 @@ impl<'a, T: Layout> App<'a, T> {
                 let mut events = Vec::new();
                 window.events_loop.poll_events(|e| events.push(e));
 
-                for event in events {
+                for event in &events {
                     let should_close = process_event(event, &mut frame_event_info);
                     if should_close {
                         closed_windows.push(idx);
@@ -184,10 +184,6 @@ impl<'a, T: Layout> App<'a, T> {
                     }
                 }
 
-                if frame_event_info.should_hittest {
-                    Self::do_hit_test_and_call_callbacks(window, window_id, &mut frame_event_info, &ui_state_cache, &mut self.app_state);
-                }
-
                 if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
                     // This is a hack because during a resize event, winit eats the "awakened"
                     // event. So what we do is that we call the layout-and-render again, to
@@ -202,6 +198,18 @@ impl<'a, T: Layout> App<'a, T> {
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
                 window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
+
+                if frame_event_info.should_hittest {
+                    for event in &events {
+                        do_hit_test_and_call_callbacks(
+                            event,
+                            window,
+                            window_id,
+                            &mut frame_event_info,
+                            &ui_state_cache,
+                            &mut self.app_state);
+                    }
+                }
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
                     // Call the Layout::layout() fn, get the DOM
@@ -256,61 +264,6 @@ impl<'a, T: Layout> App<'a, T> {
 
         txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor);
         window.internal.api.send_transaction(window.internal.document_id, txn);
-    }
-
-    fn do_hit_test_and_call_callbacks(
-        window: &mut Window<T>,
-        window_id: WindowId,
-        info: &mut FrameEventInfo,
-        ui_state_cache: &[UiState<T>],
-        app_state: &mut AppState<T>)
-    {
-        use dom::UpdateScreen;
-        use webrender::api::WorldPoint;
-
-        let cursor_x = info.cur_cursor_pos.0 as f32;
-        let cursor_y = info.cur_cursor_pos.1 as f32;
-        let point = WorldPoint::new(cursor_x, cursor_y);
-        let hit_test_results =  window.internal.api.hit_test(
-            window.internal.document_id,
-            Some(window.internal.pipeline_id),
-            point,
-            HitTestFlags::FIND_ALL);
-
-        let mut should_update_screen = UpdateScreen::DontRedraw;
-
-        for item in hit_test_results.items {
-            let callback_list_opt = ui_state_cache[window_id.id].node_ids_to_callbacks_list.get(&item.tag.0);
-            if let Some(callback_list) = callback_list_opt {
-                use window::WindowEvent;
-                // TODO: filter by `On` type (On::MouseOver, On::MouseLeave, etc.)
-                // Currently, this just invoke all actions
-                let window_event = WindowEvent {
-                    window: window_id.id,
-                    // TODO: currently we don't have information about what DOM node was hit
-                    number_of_previous_siblings: None,
-                    cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
-                    cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
-                };
-
-                for callback_id in callback_list.values() {
-                    let update = (ui_state_cache[window_id.id].callback_list[callback_id].0)(app_state, window_event);
-                    if update == UpdateScreen::Redraw {
-                        should_update_screen = UpdateScreen::Redraw;
-                    }
-                }
-            }
-        }
-
-        if should_update_screen == UpdateScreen::Redraw {
-            info.should_redraw_window = true;
-            // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
-            // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
-            // TODO: .clone() and .clear() can be one operation
-            window.css.dynamic_css_overrides = app_state.windows[window_id.id].css.dynamic_css_overrides.clone();
-            // clear the dynamic CSS overrides
-            app_state.windows[window_id.id].css.clear();
-        }
     }
 
     fn initialize_ui_state(windows: &[Window<T>], app_state: &AppState<'a, T>)
@@ -481,15 +434,15 @@ impl<'a, T: Layout> App<'a, T> {
     }
 
     /// Get the contents of the system clipboard as a string
-    pub(crate) fn get_clipboard_string(&mut self) 
-    -> Result<String, ClipboardError> 
+    pub(crate) fn get_clipboard_string(&mut self)
+    -> Result<String, ClipboardError>
     {
         self.app_state.get_clipboard_string()
     }
 
     /// Set the contents of the system clipboard as a string
-    pub(crate) fn set_clipboard_string(&mut self, contents: String) 
-    -> Result<(), ClipboardError> 
+    pub(crate) fn set_clipboard_string(&mut self, contents: String)
+    -> Result<(), ClipboardError>
     {
         self.app_state.set_clipboard_string(contents)
     }
@@ -529,7 +482,71 @@ impl<'a, T: Layout + Send + 'static> App<'a, T> {
     }
 }
 
-fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
+fn do_hit_test_and_call_callbacks<T: Layout>(
+    event: &Event,
+    window: &mut Window<T>,
+    window_id: WindowId,
+    info: &mut FrameEventInfo,
+    ui_state_cache: &[UiState<T>],
+    app_state: &mut AppState<T>)
+{
+    use dom::UpdateScreen;
+    use webrender::api::WorldPoint;
+    use window::WindowEvent;
+    use dom::Callback;
+
+    let cursor_x = info.cur_cursor_pos.0 as f32;
+    let cursor_y = info.cur_cursor_pos.1 as f32;
+    let point = WorldPoint::new(cursor_x, cursor_y);
+    let hit_test_results =  window.internal.api.hit_test(
+        window.internal.document_id,
+        Some(window.internal.pipeline_id),
+        point,
+        HitTestFlags::FIND_ALL);
+
+    let mut should_update_screen = UpdateScreen::DontRedraw;
+
+    let callbacks_filter_list = window.state.determine_callbacks(event);
+    if callbacks_filter_list.is_none() { return; }
+    let callbacks_filter_list = callbacks_filter_list.unwrap();
+
+    for item in hit_test_results.items {
+
+        let callback_list = ui_state_cache[window_id.id].node_ids_to_callbacks_list.get(&item.tag.0);
+        if callback_list.is_none() { continue; }
+        let callback_list = callback_list.unwrap();
+
+        // TODO: currently we don't have information about what DOM node was hit
+        let window_event = WindowEvent {
+            window: window_id.id,
+            number_of_previous_siblings: None,
+            cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
+            cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
+        };
+
+        // Invoke callback if necessary
+        for on_filter in &callbacks_filter_list {
+            if let Some(callback_id) = callback_list.get(on_filter) {
+                let Callback(callback_func) = ui_state_cache[window_id.id].callback_list[callback_id];
+                if (callback_func)(app_state, window_event) == UpdateScreen::Redraw {
+                    should_update_screen = UpdateScreen::Redraw;
+                }
+            }
+        }
+    }
+
+    if should_update_screen == UpdateScreen::Redraw {
+        info.should_redraw_window = true;
+        // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
+        // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
+        // TODO: .clone() and .clear() can be one operation
+        window.css.dynamic_css_overrides = app_state.windows[window_id.id].css.dynamic_css_overrides.clone();
+        // clear the dynamic CSS overrides
+        app_state.windows[window_id.id].css.clear();
+    }
+}
+
+fn process_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> bool {
     use glium::glutin::WindowEvent;
     match event {
         Event::WindowEvent {
@@ -537,18 +554,21 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
             event
         } => {
             match event {
+                WindowEvent::MouseInput { .. } => {
+                    frame_event_info.should_hittest = true;
+                },
                 WindowEvent::CursorMoved {
                     device_id,
                     position,
                     modifiers,
                 } => {
                     frame_event_info.should_hittest = true;
-                    frame_event_info.cur_cursor_pos = position;
+                    frame_event_info.cur_cursor_pos = *position;
 
                     let (_, _, _) = (window_id, device_id, modifiers);
                 },
                 WindowEvent::Resized(w, h) => {
-                    frame_event_info.new_window_size = Some((w, h));
+                    frame_event_info.new_window_size = Some((*w, *h));
                     frame_event_info.is_resize_event = true;
                     frame_event_info.should_redraw_window = true;
                 },
@@ -556,7 +576,7 @@ fn process_event(event: Event, frame_event_info: &mut FrameEventInfo) -> bool {
                     frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::HiDPIFactorChanged(dpi) => {
-                    frame_event_info.new_dpi_factor = Some(dpi);
+                    frame_event_info.new_dpi_factor = Some(*dpi);
                     frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::Closed => {
