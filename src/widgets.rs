@@ -21,19 +21,25 @@ pub enum ButtonContent {
 }
 
 impl Button {
-    pub fn with_label<S: Into<String>>(text: S) -> Self {
+    pub fn with_label<S>(text: S) 
+    -> Self where S: Into<String>
+    {
         Self {
             content: ButtonContent::Text(text.into()),
         }
     }
 
-    pub fn with_image(image: ImageId) -> Self {
+    pub fn with_image(image: ImageId) 
+    -> Self 
+    {
         Self {
             content: ButtonContent::Image(image),
         }
     }
 
-    pub fn dom<T: Layout>(self) -> Dom<T> {
+    pub fn dom<T>(self) 
+    -> Dom<T> where T: Layout
+    {
         use self::ButtonContent::*;
         let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");
         button_root.add_child(match self.content {
@@ -63,23 +69,31 @@ impl Svg {
 
     // todo: remove this later
     #[inline]
-    pub fn empty() -> Self {
+    pub fn empty() 
+    -> Self 
+    {
         Self { layers: Vec::new(), enable_fxaa: true }
     }
 
     #[inline]
-    pub fn with_layers(layers: &Vec<SvgLayerId>) -> Self {
+    pub fn with_layers(layers: &Vec<SvgLayerId>) 
+    -> Self 
+    {
         Self { layers: layers.clone(), enable_fxaa: true }
     }
 
     #[inline]
-    pub fn with_fxaa(mut self, enable_fxaa: bool) -> Self {
+    pub fn with_fxaa(mut self, enable_fxaa: bool) 
+    -> Self 
+    {
         self.enable_fxaa = enable_fxaa;
         self
     }
 
-    pub fn dom<T: Layout>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>) -> Dom<T> {
-
+    /// Renders the SVG to an OpenGL texture and creates the DOM
+    pub fn dom<T>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>) 
+    -> Dom<T> where T: Layout
+    {
         const DEFAULT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
 
         window.make_current();
@@ -93,7 +107,10 @@ impl Svg {
         };
 
         let z_index: f32 = 0.5;
-        let bbox = Svg::make_bbox((0.0, 0.0), (800.0, 600.0));
+        let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
+                origin: TypedPoint2D::new(0.0, 0.0), 
+                size: TypedSize2D::new(800.0, 600.0),
+        };
         let shader = svg_cache.init_shader(window);
         let offset = (400.0_f32, 200.0_f32);
 
@@ -157,10 +174,6 @@ impl Svg {
 
         Dom::new(NodeType::GlTexture(tex))
     }
-
-    pub fn make_bbox((origin_x, origin_y): (f32, f32), (size_x, size_y): (f32, f32)) -> TypedRect<f32, SvgWorldPixel> {
-        TypedRect::<f32, SvgWorldPixel>::new(TypedPoint2D::new(origin_x, origin_y), TypedSize2D::new(size_x, size_y))
-    }
 }
 
 // --- label
@@ -171,13 +184,38 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new<S: Into<String>>(text: S) -> Self {
+    pub fn new<S>(text: S) 
+    -> Self where S: Into<String>
+    {
         Self { text: text.into() }
     }
 
-    pub fn dom<T: Layout>(self) -> Dom<T> {
+    pub fn dom<T>(self) 
+    -> Dom<T> where T: Layout
+    {
         Dom::new(NodeType::Label(self.text))
     }
+}
+
+// -- checkbox (TODO)
+
+/// State of a checkbox (disabled, checked, etc.)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub enum CheckboxState {
+    /// `[■]`
+    Active,
+    /// `[✔]`
+    Checked,
+    /// Greyed out checkbox
+    Disabled {
+        /// Should the checkbox fire on a mouseover / mouseup, etc. event
+        ///
+        /// This can be useful for showing warnings / tooltips / help messages
+        /// as to why this checkbox is disabled
+        fire_on_click: bool,
+    },
+    /// `[ ]`
+    Unchecked
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore

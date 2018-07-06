@@ -61,6 +61,8 @@ pub struct FakeWindow {
 }
 
 impl FakeWindow {
+    /// Returns a read-only window which can be used to create / draw
+    /// custom OpenGL texture during the `.layout()` phase
     pub fn get_window(&self) -> ReadOnlyWindow {
         ReadOnlyWindow {
             inner: self.read_only_window.clone()
@@ -68,6 +70,8 @@ impl FakeWindow {
     }
 }
 
+/// Read-only window which can be used to create / draw
+/// custom OpenGL texture during the `.layout()` phase
 pub struct ReadOnlyWindow {
     pub(crate) inner: Rc<Display>,
 }
@@ -92,6 +96,8 @@ impl ReadOnlyWindow {
         Texture::new(tex)
     }
 
+    /// Make the window active (OpenGL) - necessary before
+    /// starting to draw on any window-owned texture
     pub fn make_current(&self) {
         unsafe {
             use glium::glutin::GlContext;
@@ -99,6 +105,10 @@ impl ReadOnlyWindow {
         }
     }
 
+    /// Unbind the current framebuffer manually. Is also executed on `Drop`. 
+    ///
+    /// TODO: Is it necessary to expose this or is it enough to just
+    /// unbind the framebuffer on drop?
     pub fn unbind_framebuffer(&self) {
         let gl = match self.inner.gl_window().get_api() {
             glutin::Api::OpenGl => unsafe {
@@ -113,6 +123,12 @@ impl ReadOnlyWindow {
         };
 
         gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    }
+}
+
+impl Drop for ReadOnlyWindow {
+    fn drop(&mut self) {
+        self.unbind_framebuffer();
     }
 }
 
