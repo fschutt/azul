@@ -42,7 +42,7 @@ rev = "0eaf6bdc6811e469ee655246cc39ed0b37329fd3"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "34a498f7e46c385a189299e7369e204e1cb2060c"
+rev = "686eca6e7ce3501b3bd5349d33684aaead73857d"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)
