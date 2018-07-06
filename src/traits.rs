@@ -14,6 +14,8 @@ use {
     css_parser::{ParsedCssProperty, CssParsingError},
 };
 
+/// The core trait that has to be implemented for the app model to provide a
+/// Model -> View serialization.
 pub trait Layout {
     /// Updates the DOM, must be provided by the final application.
     ///
@@ -35,13 +37,6 @@ pub trait Layout {
     }
 }
 
-/// Trait for any node type, registers a new top-level CSS id, i.e.
-/// `body`, `div`, etc. for custom types
-pub trait GetCssId {
-    /// Returns the top-level CSS identifier for this
-    fn get_css_id(&self) -> &'static str;
-}
-
 pub(crate) struct ParsedCss<'a> {
     pub(crate) pure_global_rules: Vec<&'a CssRule>,
     pub(crate) pure_div_rules: Vec<&'a CssRule>,
@@ -49,14 +44,32 @@ pub(crate) struct ParsedCss<'a> {
     pub(crate) pure_id_rules: Vec<&'a CssRule>,
 }
 
+/// Convenience trait for the `css.set_dynamic_property()` function.
+/// 
 /// This trait exists because `TryFrom` / `TryInto` are not yet stabilized.
+/// This is the same as `Into<ParsedCssProperty>`, but with an additional error
+/// case (since the parsing of the CSS value could potentially fail)
 ///
-/// This is the same as `Into<ParsedCssProperty>`, but with an additional error case
-/// (the conversion could fail)
+/// Using this trait you can write: `css.set_dynamic_property("var", ("width", "500px"))`
+/// because `IntoParsedCssProperty` is implemented for `(&str, &str)`. 
+///
+/// Note that the properties have to be re-parsed on every frame (which incurs a 
+/// small per-frame performance hit), however `("width", "500px")` is easier to 
+/// read than `ParsedCssProperty::Width(PixelValue::Pixels(500))`
 pub trait IntoParsedCssProperty<'a> {
     fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>>;
 }
 
+/// Convenience trait that allows the `app_state.modify()` - only implemented for
+/// `Arc<Mutex<T: Layout>` - shortly locks the app state mutex, modifies it and unlocks 
+/// it again.
+///
+/// Note: Usually when doing asynchronous programming you don't want to block the main
+/// UI. While Rust executes the `app_state.modify()` closure, your `AppState` gets
+/// locked, meaning that no layout can happen and no other thread or callback can write
+/// to the apps data. In order to make your app performant, don't do heavy computations
+/// inside the closure, only use it to write or copy data in and out of the application
+/// state.
 pub trait ModifyAppState<T: Layout> {
     /// Modifies the app state and then returns if the modification was successful
     /// Takes a FnMut that modifies the state
@@ -216,7 +229,6 @@ fn cascade_constraints<'a, T: Layout>(
     css: &Css)
 {
     for div_rule in &parsed_css.pure_div_rules {
-        use traits::GetCssId;
         if *node.node_type.get_css_id() == div_rule.html_type {
             push_rule(list, div_rule);
         }

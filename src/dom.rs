@@ -14,7 +14,7 @@ use {
     images::ImageId,
     cache::DomHash,
     text_cache::TextId,
-    traits::{Layout, GetCssId},
+    traits::Layout,
     app_state::AppState,
     id_tree::{NodeId, Arena},
 };
@@ -94,6 +94,24 @@ pub enum NodeType {
     GlTexture(Texture),
 }
 
+impl NodeType {
+    pub(crate) fn get_css_id(&self) -> &'static str {
+        use self::NodeType::*;
+        match self {
+            Div => "div",
+            Label(_) | Text(_) => "p",
+            Image(_) => "image",
+            GlTexture(_) => "texture",
+        }
+    }
+}
+
+/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
+/// 
+/// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
+/// when you are done with your OpenGL drawing, otherwise webrender will render
+/// to the texture, not the window, so your texture will actually never show up.
+/// If you use a `Texture` and you get a blank screen, this is probably why.
 #[derive(Debug, Clone)]
 pub struct Texture {
     pub(crate) inner: Rc<Texture2d>,
@@ -106,6 +124,15 @@ impl Texture {
         }
     }
 
+    /// Prepares the texture for drawing - you can only draw
+    /// on a framebuffer, the texture itself is readonly from the
+    /// OpenGL drivers point of view. 
+    /// 
+    /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
+    /// when you are done with your OpenGL drawing, otherwise webrender will render
+    /// to the texture instead of the window, so your texture will actually 
+    /// never show up on the screen, since it is never rendered.
+    /// If you use a `Texture` and you get a blank screen, this is probably why.
     pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
         self.inner.as_surface()
     }
@@ -119,6 +146,8 @@ impl Hash for Texture {
 }
 
 impl PartialEq for Texture {
+    /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
+    /// actual contents of the texture.
     fn eq(&self, other: &Texture) -> bool {
         use glium::GlObject;
         self.inner.get_id() == other.inner.get_id()
@@ -126,37 +155,6 @@ impl PartialEq for Texture {
 }
 
 impl Eq for Texture { }
-
-impl GetCssId for NodeType {
-    fn get_css_id(&self) -> &'static str {
-        use self::NodeType::*;
-        match *self {
-            Div => "div",
-            Label(_) | Text(_) => "p",
-            Image(_) => "image",
-            GlTexture(_) => "texture",
-        }
-    }
-}
-
-/// State of a checkbox (disabled, checked, etc.)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub enum CheckboxState {
-    /// `[■]`
-    Active,
-    /// `[✔]`
-    Checked,
-    /// Greyed out checkbox
-    Disabled {
-        /// Should the checkbox fire on a mouseover / mouseup, etc. event
-        ///
-        /// This can be useful for showing warnings / tooltips / help messages
-        /// as to why this checkbox is disabled
-        fire_on_click: bool,
-    },
-    /// `[ ]`
-    Unchecked
-}
 
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
