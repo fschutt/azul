@@ -209,6 +209,8 @@ impl<'a, T: Layout> App<'a, T> {
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
                 window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
+                // Reset the scroll amount to 0 (for the next frame)
+                window.clear_scroll_state();
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
                     // Call the Layout::layout() fn, get the DOM
@@ -433,14 +435,14 @@ impl<'a, T: Layout> App<'a, T> {
     }
 
     /// Get the contents of the system clipboard as a string
-    pub(crate) fn get_clipboard_string(&mut self)
+    pub fn get_clipboard_string(&mut self)
     -> Result<String, ClipboardError>
     {
         self.app_state.get_clipboard_string()
     }
 
     /// Set the contents of the system clipboard as a string
-    pub(crate) fn set_clipboard_string(&mut self, contents: String)
+    pub fn set_clipboard_string(&mut self, contents: String)
     -> Result<(), ClipboardError>
     {
         self.app_state.set_clipboard_string(contents)
@@ -521,6 +523,9 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> Win
                     frame_event_info.new_dpi_factor = Some(*dpi);
                     frame_event_info.should_redraw_window = true;
                 },
+                WindowEvent::MouseWheel { .. } => {
+                    frame_event_info.should_hittest = true;
+                }
                 WindowEvent::Closed => {
                     return WindowCloseEvent::AboutToClose;
                 }

@@ -1,8 +1,8 @@
 //! Window creation module
 
 use std::{
-    time::Duration, 
-    fmt, 
+    time::Duration,
+    fmt,
     rc::Rc
 };
 use webrender::{
@@ -27,7 +27,7 @@ use cassowary::{
 use {
     dom::Texture,
     css::{Css, FakeCss},
-    window_state::{WindowState, WindowPosition},
+    window_state::{WindowState, MouseState, KeyboardState, WindowPosition},
     display_list::SolvedLayout,
     traits::Layout,
     cache::{EditVariableCache, DomTreeCache},
@@ -68,6 +68,16 @@ impl FakeWindow {
             inner: self.read_only_window.clone()
         }
     }
+
+    /// Returns a copy of the current windows mouse state. We don't want the library
+    /// user to be able to modify this state, only to read it
+    pub fn get_mouse_state(&self) -> MouseState {
+        self.state.mouse_state.clone()
+    }
+
+    pub fn get_keyboard_state(&self) -> KeyboardState {
+        self.state.keyboard_state.clone()
+    }
 }
 
 /// Read-only window which can be used to create / draw
@@ -105,7 +115,7 @@ impl ReadOnlyWindow {
         }
     }
 
-    /// Unbind the current framebuffer manually. Is also executed on `Drop`. 
+    /// Unbind the current framebuffer manually. Is also executed on `Drop`.
     ///
     /// TODO: Is it necessary to expose this or is it enough to just
     /// unbind the framebuffer on drop?
@@ -785,6 +795,12 @@ impl<T: Layout> Window<T> {
             self.state.size.hidpi_factor = dpi;
             frame_event_info.should_redraw_window = true;
         }
+    }
+
+    /// Resets the mouse states `scroll_x` and `scroll_y` to 0
+    pub(crate) fn clear_scroll_state(&mut self) {
+        self.state.mouse_state.scroll_x = 0.0;
+        self.state.mouse_state.scroll_y = 0.0;
     }
 }
 

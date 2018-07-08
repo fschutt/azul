@@ -107,7 +107,7 @@ impl NodeType {
 }
 
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-/// 
+///
 /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
 /// when you are done with your OpenGL drawing, otherwise webrender will render
 /// to the texture, not the window, so your texture will actually never show up.
@@ -126,11 +126,11 @@ impl Texture {
 
     /// Prepares the texture for drawing - you can only draw
     /// on a framebuffer, the texture itself is readonly from the
-    /// OpenGL drivers point of view. 
-    /// 
+    /// OpenGL drivers point of view.
+    ///
     /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
     /// when you are done with your OpenGL drawing, otherwise webrender will render
-    /// to the texture instead of the window, so your texture will actually 
+    /// to the texture instead of the window, so your texture will actually
     /// never show up on the screen, since it is never rendered.
     /// If you use a `Texture` and you get a blank screen, this is probably why.
     pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
@@ -164,12 +164,32 @@ pub enum On {
     /// Mouse cursor has is over element and is pressed
     /// (not good for "click" events - use `MouseUp` instead)
     MouseDown,
+    /// (Specialization of `MouseDown`). Fires only if the left mouse button
+    /// has been pressed while cursor was over the element
+    LeftMouseDown,
+    /// (Specialization of `MouseDown`). Fires only if the middle mouse button
+    /// has been pressed while cursor was over the element
+    MiddleMouseDown,
+    /// (Specialization of `MouseDown`). Fires only if the right mouse button
+    /// has been pressed while cursor was over the element
+    RightMouseDown,
     /// Mouse button has been released while cursor was over the element
     MouseUp,
+    /// (Specialization of `MouseUp`). Fires only if the left mouse button has
+    /// been released while cursor was over the element
+    LeftMouseUp,
+    /// (Specialization of `MouseUp`). Fires only if the middle mouse button has
+    /// been released while cursor was over the element
+    MiddleMouseUp,
+    /// (Specialization of `MouseUp`). Fires only if the right mouse button has
+    /// been released while cursor was over the element
+    RightMouseUp,
     /// Mouse cursor has entered the element
     MouseEnter,
     /// Mouse cursor has left the element
     MouseLeave,
+    /// Mousewheel / touchpad scrolling
+    Scroll,
 }
 
 #[derive(PartialEq, Eq)]
