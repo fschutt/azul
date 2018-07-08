@@ -24,9 +24,17 @@ impl Layout for MyAppData {
         } else {
             Dom::new(NodeType::Div)
                 .with_class("__azul-native-button")
-                .with_callback(On::MouseUp, Callback(my_button_click_handler))
+                .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
+                .with_callback(On::Scroll, Callback(on_scroll))
         }
     }
+}
+
+fn on_scroll(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
+    let mouse_state = app_state.windows[event.window].get_mouse_state();
+    // TODO: copy mouse state of window to mouse state of FakeWindow
+    println!("scroll!: x: {}, y: {}", mouse_state.scroll_x, mouse_state.scroll_y);
+    UpdateScreen::DontRedraw
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {

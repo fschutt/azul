@@ -34,12 +34,16 @@ pub struct MouseState
     pub mouse_cursor_type: MouseCursor,
     //// Where is the mouse cursor? Set to `None` if the window is not focused
     pub mouse_cursor: Option<(i32, i32)>,
-    //// Is the left MB down?
+    //// Is the left mouse button down?
     pub left_down: bool,
-    //// Is the right MB down?
+    //// Is the right mouse button down?
     pub right_down: bool,
-    //// Is the middle MB down?
+    //// Is the middle mouse button down?
     pub middle_down: bool,
+    /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame
+    pub scroll_x: f32,
+    /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame
+    pub scroll_y: f32,
 }
 
 impl Default for MouseState {
@@ -51,6 +55,8 @@ impl Default for MouseState {
             left_down: false,
             right_down: false,
             middle_down: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
         }
     }
 }
@@ -173,18 +179,21 @@ impl WindowState
                     Left => {
                         if !self.mouse_state.left_down {
                             events_vec.push(On::MouseDown);
+                            events_vec.push(On::LeftMouseDown);
                         }
                         self.mouse_state.left_down = true;
                     },
                     Right => {
                         if !self.mouse_state.right_down {
                             events_vec.push(On::MouseDown);
+                            events_vec.push(On::RightMouseDown);
                         }
                         self.mouse_state.right_down = true;
                     },
                     Middle => {
                         if !self.mouse_state.middle_down {
                             events_vec.push(On::MouseDown);
+                            events_vec.push(On::MiddleMouseDown);
                         }
                         self.mouse_state.middle_down = true;
                     },
@@ -196,27 +205,37 @@ impl WindowState
                     Left => {
                         if self.mouse_state.left_down {
                             events_vec.push(On::MouseUp);
+                            events_vec.push(On::LeftMouseUp);
                         }
                         self.mouse_state.left_down = false;
                     },
                     Right => {
                         if self.mouse_state.right_down {
                             events_vec.push(On::MouseUp);
+                            events_vec.push(On::RightMouseUp);
                         }
                         self.mouse_state.right_down = false;
                     },
                     Middle => {
                         if self.mouse_state.middle_down {
                             events_vec.push(On::MouseUp);
+                            events_vec.push(On::MiddleMouseUp);
                         }
                         self.mouse_state.middle_down = false;
                     },
                     _ => { }
                 }
             },
-            _ => {
-                // TODO
-            }
+            MouseWheel { delta, .. } => {
+                let (scroll_x_px, scroll_y_px) = match delta {
+                    MouseScrollDelta::PixelDelta(x, y) => (*x, *y),
+                    MouseScrollDelta::LineDelta(x, y) => (x * 100.0, y * 100.0),
+                };
+                self.mouse_state.scroll_x = scroll_x_px;
+                self.mouse_state.scroll_y = scroll_y_px;
+                events_vec.push(On::Scroll);
+            },
+            _ => { }
         }
 
         self.previous_window_state = Some(previous_state);
