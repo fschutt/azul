@@ -32,8 +32,8 @@ pub struct MouseState
 {
     /// Current mouse cursor type
     pub mouse_cursor_type: MouseCursor,
-    //// Where is the mouse cursor? Set to `None` if the window is not focused
-    pub mouse_cursor: Option<(i32, i32)>,
+    //// Where is the mouse cursor currently? Set to `None` if the window is not focused
+    pub cursor_pos: Option<(f64, f64)>,
     //// Is the left mouse button down?
     pub left_down: bool,
     //// Is the right mouse button down?
@@ -51,7 +51,7 @@ impl Default for MouseState {
     fn default() -> Self {
         Self {
             mouse_cursor_type: MouseCursor::Default,
-            mouse_cursor: Some((0, 0)),
+            cursor_pos: Some((0.0, 0.0)),
             left_down: false,
             right_down: false,
             middle_down: false,
@@ -240,6 +240,29 @@ impl WindowState
 
         self.previous_window_state = Some(previous_state);
         events_vec
+    }
+
+    /// After the initial events are filtered, this will update the mouse
+    /// cursor position, if the event is a `CursorMoved` and set it to `None`
+    /// if the cursor has left the window
+    pub(crate) fn update_mouse_cursor_position(&mut self, event: &Event) {
+        match event {
+            Event::WindowEvent { event, .. } => {
+                match event {
+                    WindowEvent::CursorMoved { position, .. } => {
+                        self.mouse_state.cursor_pos = Some(*position);
+                    },
+                    WindowEvent::CursorLeft { .. } => {
+                        self.mouse_state.cursor_pos = None;
+                    },
+                    WindowEvent::CursorEntered { .. } => {
+                        self.mouse_state.cursor_pos = Some((0.0, 0.0))
+                    },
+                    _ => { }
+                }
+            },
+            _ => { },
+        }
     }
 }
 

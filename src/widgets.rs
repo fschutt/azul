@@ -21,7 +21,7 @@ pub enum ButtonContent {
 }
 
 impl Button {
-    pub fn with_label<S>(text: S) 
+    pub fn with_label<S>(text: S)
     -> Self where S: Into<String>
     {
         Self {
@@ -29,15 +29,15 @@ impl Button {
         }
     }
 
-    pub fn with_image(image: ImageId) 
-    -> Self 
+    pub fn with_image(image: ImageId)
+    -> Self
     {
         Self {
             content: ButtonContent::Image(image),
         }
     }
 
-    pub fn dom<T>(self) 
+    pub fn dom<T>(self)
     -> Dom<T> where T: Layout
     {
         use self::ButtonContent::*;
@@ -52,10 +52,27 @@ impl Button {
 
 // --- svg
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Svg {
+    /// Currently active layers
     pub layers: Vec<SvgLayerId>,
+    /// Pan (horizontal, vertical) in pixels
+    pub pan: (f32, f32),
+    /// 1.0 = default zoom
+    pub zoom: f32,
+    /// Whether an FXAA shader should be applied to the resulting OpenGL texture
     pub enable_fxaa: bool,
+}
+
+impl Default for Svg {
+    fn default() -> Self {
+        Self {
+            layers: Vec::new(),
+            pan: (0.0, 0.0),
+            zoom: 1.0,
+            enable_fxaa: false,
+        }
+    }
 }
 
 use glium::{Texture2d, draw_parameters::DrawParameters,
@@ -67,31 +84,39 @@ use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
 
 impl Svg {
 
-    // todo: remove this later
     #[inline]
-    pub fn empty() 
-    -> Self 
+    pub fn with_layers(layers: Vec<SvgLayerId>)
+    -> Self
     {
-        Self { layers: Vec::new(), enable_fxaa: true }
+        Self { layers: layers, .. Default::default() }
     }
 
     #[inline]
-    pub fn with_layers(layers: &Vec<SvgLayerId>) 
-    -> Self 
+    pub fn with_pan(mut self, horz: f32, vert: f32)
+    -> Self
     {
-        Self { layers: layers.clone(), enable_fxaa: true }
+        self.pan = (horz, vert);
+        self
     }
 
     #[inline]
-    pub fn with_fxaa(mut self, enable_fxaa: bool) 
-    -> Self 
+    pub fn with_zoom(mut self, zoom: f32)
+    -> Self
+    {
+        self.zoom = zoom;
+        self
+    }
+
+    #[inline]
+    pub fn with_fxaa(mut self, enable_fxaa: bool)
+    -> Self
     {
         self.enable_fxaa = enable_fxaa;
         self
     }
 
     /// Renders the SVG to an OpenGL texture and creates the DOM
-    pub fn dom<T>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>) 
+    pub fn dom<T>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>)
     -> Dom<T> where T: Layout
     {
         const DEFAULT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
@@ -108,11 +133,13 @@ impl Svg {
 
         let z_index: f32 = 0.5;
         let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
-                origin: TypedPoint2D::new(0.0, 0.0), 
+                origin: TypedPoint2D::new(0.0, 0.0),
                 size: TypedSize2D::new(800.0, 600.0),
         };
         let shader = svg_cache.init_shader(window);
         let offset = (400.0_f32, 200.0_f32);
+
+        println!("pan: {:?}, zoom: {:?}", self.pan, self.zoom);
 
         {
             let mut surface = tex.as_surface();
@@ -184,13 +211,13 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn new<S>(text: S) 
+    pub fn new<S>(text: S)
     -> Self where S: Into<String>
     {
         Self { text: text.into() }
     }
 
-    pub fn dom<T>(self) 
+    pub fn dom<T>(self)
     -> Dom<T> where T: Layout
     {
         Dom::new(NodeType::Label(self.text))
