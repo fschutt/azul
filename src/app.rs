@@ -164,10 +164,21 @@ impl<'a, T: Layout> App<'a, T> {
                 window.events_loop.poll_events(|e| events.push(e));
 
                 for event in &events {
-                    let should_close = process_event(event, &mut frame_event_info);
-                    if should_close {
+                    if preprocess_event(event, &mut frame_event_info) == WindowCloseEvent::AboutToClose {
                         closed_windows.push(idx);
                         continue 'window_loop;
+                    }
+                }
+
+                if frame_event_info.should_hittest {
+                    for event in &events {
+                        do_hit_test_and_call_callbacks(
+                            event,
+                            window,
+                            window_id,
+                            &mut frame_event_info,
+                            &ui_state_cache,
+                            &mut self.app_state);
                     }
                 }
 
@@ -198,18 +209,6 @@ impl<'a, T: Layout> App<'a, T> {
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
                 window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
-
-                if frame_event_info.should_hittest {
-                    for event in &events {
-                        do_hit_test_and_call_callbacks(
-                            event,
-                            window,
-                            window_id,
-                            &mut frame_event_info,
-                            &ui_state_cache,
-                            &mut self.app_state);
-                    }
-                }
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
                     // Call the Layout::layout() fn, get the DOM
@@ -482,73 +481,13 @@ impl<'a, T: Layout + Send + 'static> App<'a, T> {
     }
 }
 
-fn do_hit_test_and_call_callbacks<T: Layout>(
-    event: &Event,
-    window: &mut Window<T>,
-    window_id: WindowId,
-    info: &mut FrameEventInfo,
-    ui_state_cache: &[UiState<T>],
-    app_state: &mut AppState<T>)
-{
-    use dom::UpdateScreen;
-    use webrender::api::WorldPoint;
-    use window::WindowEvent;
-    use dom::Callback;
-
-    let cursor_x = info.cur_cursor_pos.0 as f32;
-    let cursor_y = info.cur_cursor_pos.1 as f32;
-    let point = WorldPoint::new(cursor_x, cursor_y);
-
-    let hit_test_results =  window.internal.api.hit_test(
-        window.internal.document_id,
-        Some(window.internal.pipeline_id),
-        point,
-        HitTestFlags::FIND_ALL);
-
-    let mut should_update_screen = UpdateScreen::DontRedraw;
-
-    let callbacks_filter_list = window.state.determine_callbacks(event);
-    if callbacks_filter_list.is_none() { return; }
-    let callbacks_filter_list = callbacks_filter_list.unwrap();
-
-    // NOTE: for some reason hit_test_results is empty...
-    // ... but only when the mouse is relased - possible timing issue?
-    for item in hit_test_results.items {
-        let callback_list = ui_state_cache[window_id.id].node_ids_to_callbacks_list.get(&item.tag.0);
-        if callback_list.is_none() { continue; }
-        let callback_list = callback_list.unwrap();
-
-        // TODO: currently we don't have information about what DOM node was hit
-        let window_event = WindowEvent {
-            window: window_id.id,
-            number_of_previous_siblings: None,
-            cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
-            cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
-        };
-
-        // Invoke callback if necessary
-        for on_filter in &callbacks_filter_list {
-            if let Some(callback_id) = callback_list.get(on_filter) {
-                let Callback(callback_func) = ui_state_cache[window_id.id].callback_list[callback_id];
-                if (callback_func)(app_state, window_event) == UpdateScreen::Redraw {
-                    should_update_screen = UpdateScreen::Redraw;
-                }
-            }
-        }
-    }
-
-    if should_update_screen == UpdateScreen::Redraw {
-        info.should_redraw_window = true;
-        // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
-        // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
-        // TODO: .clone() and .clear() can be one operation
-        window.css.dynamic_css_overrides = app_state.windows[window_id.id].css.dynamic_css_overrides.clone();
-        // clear the dynamic CSS overrides
-        app_state.windows[window_id.id].css.clear();
-    }
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum WindowCloseEvent {
+    AboutToClose,
+    NoCloseEvent,
 }
 
-fn process_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> bool {
+fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> WindowCloseEvent {
     use glium::glutin::WindowEvent;
 
     match event {
@@ -583,7 +522,7 @@ fn process_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> bool {
                     frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::Closed => {
-                    return true;
+                    return WindowCloseEvent::AboutToClose;
                 }
                 _ => { },
             }
@@ -594,7 +533,69 @@ fn process_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> bool {
         _ => { },
     }
 
-    false
+    WindowCloseEvent::NoCloseEvent
+}
+
+fn do_hit_test_and_call_callbacks<T: Layout>(
+    event: &Event,
+    window: &mut Window<T>,
+    window_id: WindowId,
+    info: &mut FrameEventInfo,
+    ui_state_cache: &[UiState<T>],
+    app_state: &mut AppState<T>)
+{
+    use dom::UpdateScreen;
+    use webrender::api::WorldPoint;
+    use window::WindowEvent;
+    use dom::Callback;
+
+    let cursor_x = info.cur_cursor_pos.0 as f32;
+    let cursor_y = info.cur_cursor_pos.1 as f32;
+    let point = WorldPoint::new(cursor_x, cursor_y);
+
+    let hit_test_results =  window.internal.api.hit_test(
+        window.internal.document_id,
+        Some(window.internal.pipeline_id),
+        point,
+        HitTestFlags::FIND_ALL);
+
+    let mut should_update_screen = UpdateScreen::DontRedraw;
+
+    let callbacks_filter_list = window.state.determine_callbacks(event);
+
+    // NOTE: for some reason hit_test_results is empty...
+    // ... but only when the mouse is relased - possible timing issue?
+    for (item, callback_list) in hit_test_results.items.iter().filter_map(|item|
+        ui_state_cache[window_id.id].node_ids_to_callbacks_list
+        .get(&item.tag.0)
+        .and_then(|callback_list| Some((item, callback_list)))
+    ) {
+        // TODO: currently we don't have information about what DOM node was hit
+        let window_event = WindowEvent {
+            window: window_id.id,
+            number_of_previous_siblings: None,
+            cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
+            cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
+        };
+
+        // Invoke callback if necessary
+        for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_list.get(on)) {
+            let Callback(callback_func) = ui_state_cache[window_id.id].callback_list[callback_id];
+            if (callback_func)(app_state, window_event) == UpdateScreen::Redraw {
+                should_update_screen = UpdateScreen::Redraw;
+            }
+        }
+    }
+
+    if should_update_screen == UpdateScreen::Redraw {
+        info.should_redraw_window = true;
+        // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
+        // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
+        // TODO: .clone() and .clear() can be one operation
+        window.css.dynamic_css_overrides = app_state.windows[window_id.id].css.dynamic_css_overrides.clone();
+        // clear the dynamic CSS overrides
+        app_state.windows[window_id.id].css.clear();
+    }
 }
 
 fn render<T: Layout>(
