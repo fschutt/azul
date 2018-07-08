@@ -151,15 +151,14 @@ impl WindowState
     //
     // This function also updates / mutates the current window state,
     // so that we are ready for the next frame
-    pub(crate) fn determine_callbacks(&mut self, event: &Event) -> Option<Vec<On>> {
+    pub(crate) fn determine_callbacks(&mut self, event: &Event) -> Vec<On> {
 
         use glium::glutin::Event::WindowEvent;
         use glium::glutin::WindowEvent::*;
         use glium::glutin::{ElementState, MouseButton };
         use glium::glutin::MouseButton::*;
 
-        let event = if let WindowEvent { event, .. } = event { Some(event) } else { None };
-        let event = event?;
+        let event = if let WindowEvent { event, .. } = event { event } else { return Vec::new(); };
 
         // store the current window state so we can set it in this.previous_window_state later on
         let mut previous_state = Box::new(self.clone());
@@ -221,12 +220,7 @@ impl WindowState
         }
 
         self.previous_window_state = Some(previous_state);
-
-        if events_vec.is_empty() {
-            None
-        } else {
-            Some(events_vec)
-        }
+        events_vec
     }
 }
 
