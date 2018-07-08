@@ -12,29 +12,46 @@ const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
 
 #[derive(Debug)]
 pub struct MyAppData {
-    pub svg: Option<(SvgCache<MyAppData>, Vec<SvgLayerId>)>,
+    pub map: Option<Map>,
+}
+
+#[derive(Debug)]
+pub struct Map {
+    pub cache: SvgCache<MyAppData>,
+    pub layers: Vec<SvgLayerId>,
+    pub zoom: f32,
+    pub pan_horz: f32,
+    pub pan_vert: f32,
 }
 
 impl Layout for MyAppData {
     fn layout(&self, info: WindowInfo)
     -> Dom<MyAppData>
     {
-        if let Some((svg_cache, svg_layers)) = &self.svg {
-            Svg::with_layers(svg_layers).dom(&info.window, &svg_cache)
+        if let Some(map) = &self.map {
+            Svg::with_layers(map.layers.clone())
+                .with_pan(map.pan_horz, map.pan_vert)
+                .with_zoom(map.zoom)
+                .dom(&info.window, &map.cache)
+                .with_callback(On::Scroll, Callback(scroll_map_contents))
         } else {
             Dom::new(NodeType::Div)
                 .with_class("__azul-native-button")
                 .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
-                .with_callback(On::Scroll, Callback(on_scroll))
         }
     }
 }
 
-fn on_scroll(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
-    let mouse_state = app_state.windows[event.window].get_mouse_state();
-    // TODO: copy mouse state of window to mouse state of FakeWindow
-    println!("scroll!: x: {}, y: {}", mouse_state.scroll_x, mouse_state.scroll_y);
-    UpdateScreen::DontRedraw
+fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
+    app_state.data.modify(|data| {
+        if let Some(map) = data.map.as_mut() {
+            let mouse_state = app_state.windows[event.window].get_mouse_state();
+            map.pan_horz += mouse_state.scroll_x;
+            map.pan_vert += mouse_state.scroll_y;
+        }
+    });
+
+    UpdateScreen::Redraw
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
@@ -43,7 +60,13 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
         .and_then(|contents| {
             let mut svg_cache = SvgCache::empty();
             let svg_layers = svg_cache.add_svg(&contents).ok()?;
-            app_state.data.modify(|data| data.svg = Some((svg_cache, svg_layers)));
+            app_state.data.modify(|data| data.map = Some(Map {
+                cache: svg_cache,
+                layers: svg_layers,
+                zoom: 1.0,
+                pan_horz: 0.0,
+                pan_vert: 0.0,
+            }));
             Some(UpdateScreen::Redraw)
         })
         .unwrap_or_else(|| {
@@ -55,7 +78,7 @@ fn main() {
 
     // Parse and validate the CSS
     let css = Css::new_from_string(TEST_CSS).unwrap();
-    let mut app = App::new(MyAppData { svg: None });
+    let mut app = App::new(MyAppData { map: None });
 
     app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
     app.create_window(WindowCreateOptions::default(), css).unwrap();

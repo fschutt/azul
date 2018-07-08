@@ -69,15 +69,26 @@ impl FakeWindow {
         }
     }
 
-    /// Returns a copy of the current windows mouse state. We don't want the library
-    /// user to be able to modify this state, only to read it
-    pub fn get_mouse_state(&self) -> MouseState {
-        self.state.mouse_state.clone()
+    pub(crate) fn set_keyboard_state(&mut self, kb: &KeyboardState) {
+        self.state.keyboard_state = kb.clone();
     }
 
+    pub(crate) fn set_mouse_state(&mut self, mouse: &MouseState) {
+        self.state.mouse_state = *mouse;
+    }
+
+    /// Returns a copy of the current keyboard keyboard state. We don't want the library
+    /// user to be able to modify this state, only to read it.
     pub fn get_keyboard_state(&self) -> KeyboardState {
         self.state.keyboard_state.clone()
     }
+
+    /// Returns a copy of the current windows mouse state. We don't want the library
+    /// user to be able to modify this state, only to read it
+    pub fn get_mouse_state(&self) -> MouseState {
+        self.state.mouse_state
+    }
+
 }
 
 /// Read-only window which can be used to create / draw

@@ -168,6 +168,7 @@ impl<'a, T: Layout> App<'a, T> {
                         closed_windows.push(idx);
                         continue 'window_loop;
                     }
+                    window.state.update_mouse_cursor_position(event);
                 }
 
                 if frame_event_info.should_hittest {
@@ -493,23 +494,14 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> Win
     use glium::glutin::WindowEvent;
 
     match event {
-        Event::WindowEvent {
-            window_id,
-            event
-        } => {
+        Event::WindowEvent { event, .. } => {
             match event {
                 WindowEvent::MouseInput { .. } => {
                     frame_event_info.should_hittest = true;
                 },
-                WindowEvent::CursorMoved {
-                    device_id,
-                    position,
-                    modifiers,
-                } => {
+                WindowEvent::CursorMoved { position, .. } => {
                     frame_event_info.should_hittest = true;
                     frame_event_info.cur_cursor_pos = *position;
-
-                    let (_, _, _) = (window_id, device_id, modifiers);
                 },
                 WindowEvent::Resized(w, h) => {
                     frame_event_info.new_window_size = Some((*w, *h));
@@ -525,10 +517,10 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> Win
                 },
                 WindowEvent::MouseWheel { .. } => {
                     frame_event_info.should_hittest = true;
-                }
+                },
                 WindowEvent::Closed => {
                     return WindowCloseEvent::AboutToClose;
-                }
+                },
                 _ => { },
             }
         },
@@ -553,9 +545,9 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     use webrender::api::WorldPoint;
     use window::WindowEvent;
     use dom::Callback;
+    use window_state::{KeyboardState, MouseState};
 
-    let cursor_x = info.cur_cursor_pos.0 as f32;
-    let cursor_y = info.cur_cursor_pos.1 as f32;
+    let (cursor_x, cursor_y) = window.state.mouse_state.cursor_pos.and_then(|(x, y)| Some((x as f32, y as f32))).unwrap_or((0.0, 0.0));
     let point = WorldPoint::new(cursor_x, cursor_y);
 
     let hit_test_results =  window.internal.api.hit_test(
@@ -567,6 +559,9 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     let mut should_update_screen = UpdateScreen::DontRedraw;
 
     let callbacks_filter_list = window.state.determine_callbacks(event);
+    // TODO: this should be refactored - currently very stateful and error-prone!
+    app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
+    app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
 
     // NOTE: for some reason hit_test_results is empty...
     // ... but only when the mouse is relased - possible timing issue?
@@ -591,6 +586,9 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
             }
         }
     }
+
+    app_state.windows[window_id.id].set_keyboard_state(&KeyboardState::default());
+    app_state.windows[window_id.id].set_mouse_state(&MouseState::default());
 
     if should_update_screen == UpdateScreen::Redraw {
         info.should_redraw_window = true;
