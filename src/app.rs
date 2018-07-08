@@ -498,6 +498,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     let cursor_x = info.cur_cursor_pos.0 as f32;
     let cursor_y = info.cur_cursor_pos.1 as f32;
     let point = WorldPoint::new(cursor_x, cursor_y);
+
     let hit_test_results =  window.internal.api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
@@ -510,8 +511,9 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     if callbacks_filter_list.is_none() { return; }
     let callbacks_filter_list = callbacks_filter_list.unwrap();
 
+    // NOTE: for some reason hit_test_results is empty...
+    // ... but only when the mouse is relased - possible timing issue?
     for item in hit_test_results.items {
-
         let callback_list = ui_state_cache[window_id.id].node_ids_to_callbacks_list.get(&item.tag.0);
         if callback_list.is_none() { continue; }
         let callback_list = callback_list.unwrap();
@@ -548,6 +550,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
 
 fn process_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> bool {
     use glium::glutin::WindowEvent;
+
     match event {
         Event::WindowEvent {
             window_id,

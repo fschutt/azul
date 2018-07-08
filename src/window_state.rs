@@ -156,6 +156,7 @@ impl WindowState
         use glium::glutin::Event::WindowEvent;
         use glium::glutin::WindowEvent::*;
         use glium::glutin::{ElementState, MouseButton };
+        use glium::glutin::MouseButton::*;
 
         let event = if let WindowEvent { event, .. } = event { Some(event) } else { None };
         let event = event?;
@@ -168,49 +169,52 @@ impl WindowState
 
         // TODO: right mouse down / middle mouse down?
         match event {
-
-            // mouse pressed
-            MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
-                if !self.mouse_state.left_down {
-                    events_vec.push(On::MouseDown);
+            MouseInput { state: ElementState::Pressed, button, .. } => {
+                match button {
+                    Left => {
+                        if !self.mouse_state.left_down {
+                            events_vec.push(On::MouseDown);
+                        }
+                        self.mouse_state.left_down = true;
+                    },
+                    Right => {
+                        if !self.mouse_state.right_down {
+                            events_vec.push(On::MouseDown);
+                        }
+                        self.mouse_state.right_down = true;
+                    },
+                    Middle => {
+                        if !self.mouse_state.middle_down {
+                            events_vec.push(On::MouseDown);
+                        }
+                        self.mouse_state.middle_down = true;
+                    },
+                    _ => { }
                 }
-                self.mouse_state.left_down = true;
             },
-            MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. } => {
-                if !self.mouse_state.right_down {
-                    events_vec.push(On::MouseDown);
+            MouseInput { state: ElementState::Released, button, .. } => {
+                match button {
+                    Left => {
+                        if self.mouse_state.left_down {
+                            events_vec.push(On::MouseUp);
+                        }
+                        self.mouse_state.left_down = false;
+                    },
+                    Right => {
+                        if self.mouse_state.right_down {
+                            events_vec.push(On::MouseUp);
+                        }
+                        self.mouse_state.right_down = false;
+                    },
+                    Middle => {
+                        if self.mouse_state.middle_down {
+                            events_vec.push(On::MouseUp);
+                        }
+                        self.mouse_state.middle_down = false;
+                    },
+                    _ => { }
                 }
-                self.mouse_state.right_down = true;
             },
-            MouseInput { state: ElementState::Pressed, button: MouseButton::Middle, .. } => {
-                if !self.mouse_state.middle_down {
-                    events_vec.push(On::MouseDown);
-                }
-                self.mouse_state.middle_down = true;
-            },
-
-
-            // mouse released
-            MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
-                if self.mouse_state.left_down {
-                    events_vec.push(On::MouseUp);
-                }
-                self.mouse_state.left_down = false;
-            },
-            MouseInput { state: ElementState::Released, button: MouseButton::Right, .. } => {
-                if self.mouse_state.right_down {
-                    events_vec.push(On::MouseUp);
-                }
-                self.mouse_state.right_down = false;
-            },
-            MouseInput { state: ElementState::Released, button: MouseButton::Middle, .. } => {
-                if self.mouse_state.middle_down {
-                    events_vec.push(On::MouseUp);
-                }
-                self.mouse_state.middle_down = false;
-            },
-
-
             _ => {
                 // TODO
             }
