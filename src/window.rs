@@ -581,12 +581,12 @@ impl<T: Layout> Window<T> {
                     opengles_version: (3, 0),
                 })
                 .with_gl_profile(GlProfile::Core);
-            /*
+
             #[cfg(debug_assertions)] {
                 builder = builder.with_gl_debug_flag(true);
             }
-            */
-            /*#[cfg(not(debug_assertions))] */ {
+
+            #[cfg(not(debug_assertions))] {
                 builder = builder.with_gl_debug_flag(false);
             }
 
@@ -609,9 +609,9 @@ impl<T: Layout> Window<T> {
             gl_window.window().set_position(x as i32, y as i32);
         }
 
-        // #[cfg(debug_assertions)]
-        // let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
-        // #[cfg(not(debug_assertions))]
+        #[cfg(debug_assertions)]
+        let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
+        #[cfg(not(debug_assertions))]
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
         let device_pixel_ratio = display.gl_window().hidpi_factor();

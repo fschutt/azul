@@ -121,8 +121,6 @@ impl Svg {
     {
         const DEFAULT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
 
-        window.make_current();
-
         let tex = window.create_texture(800, 600);
         tex.as_surface().clear_color(1.0, 1.0, 1.0, 1.0);
 
@@ -137,9 +135,6 @@ impl Svg {
                 size: TypedSize2D::new(800.0, 600.0),
         };
         let shader = svg_cache.init_shader(window);
-        let offset = (400.0_f32, 200.0_f32);
-
-        println!("pan: {:?}, zoom: {:?}", self.pan, self.zoom);
 
         {
             let mut surface = tex.as_surface();
@@ -164,7 +159,7 @@ impl Svg {
                             color.color.blue as f32,
                             color.alpha as f32
                         ),
-                        offset: (offset.0 as f32, offset.1 as f32)
+                        offset: (self.pan.0, self.pan.1)
                     };
 
                     surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
@@ -185,7 +180,7 @@ impl Svg {
                             stroke_color.color.blue as f32,
                             stroke_color.alpha as f32
                         ),
-                        offset: (offset.0 as f32, offset.1 as f32)
+                        offset: (self.pan.0, self.pan.1)
                     };
 
                     surface.draw(stroke_vertex_buffer, stroke_index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
@@ -196,8 +191,6 @@ impl Svg {
         if self.enable_fxaa {
             // TODO: apply FXAA shader
         }
-
-        window.unbind_framebuffer();
 
         Dom::new(NodeType::GlTexture(tex))
     }

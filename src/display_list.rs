@@ -442,6 +442,8 @@ fn displaylist_handle_rect(
                 image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             });
 
+            ACTIVE_GL_TEXTURES.lock().unwrap().insert(external_image_id, ActiveTexture { texture: texture.clone() });
+
             resource_updates.push(ResourceUpdate::AddImage(
                 AddImage { key, descriptor, data, tiling: None }
             ));
@@ -453,8 +455,6 @@ fn displaylist_handle_rect(
                 ImageRendering::Auto,
                 AlphaType::Alpha,
                 key);
-
-            ACTIVE_GL_TEXTURES.lock().unwrap().insert(external_image_id, ActiveTexture { texture: texture.clone() });
         },
     }
 
