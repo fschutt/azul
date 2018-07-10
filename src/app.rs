@@ -245,10 +245,10 @@ impl<'a, T: Layout> App<'a, T> {
             self.app_state.clean_up_finished_tasks();
 
             // Wait until 16ms have passed
-            let time_end = Instant::now();
-            let diff = time_end - time_start;
-            if diff < Duration::from_millis(16) {
-                thread::sleep(diff);
+            let diff = time_start.elapsed();
+            const FRAME_TIME: Duration = Duration::from_millis(16);
+            if diff < FRAME_TIME {
+                thread::sleep(FRAME_TIME - diff);
             }
         }
 
