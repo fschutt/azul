@@ -9,7 +9,7 @@ use std::{
 use glium::{
     backend::Facade,
     DrawParameters, IndexBuffer, VertexBuffer, Display,
-    Texture2d, Program,
+    Texture2d, Program, Api,
 };
 use lyon::{
     tessellation::{
@@ -56,8 +56,10 @@ pub fn new_view_box_id() -> SvgViewBoxId {
     SvgViewBoxId(SVG_VIEW_BOX_ID.fetch_add(1, Ordering::SeqCst))
 }
 
+const SHADER_VERSION_GL: &str = "#version 150";
+const SHADER_VERSION_GLES: &str = "#version 300 es";
+
 const SVG_VERTEX_SHADER: &str = "
-    #version 130
 
     in vec2 xy;
     in vec2 normal;
@@ -71,10 +73,16 @@ const SVG_VERTEX_SHADER: &str = "
         gl_Position = vec4(vec2(-1.0) + ((xy - bbox_origin) / bbox_size) + (offset / bbox_size), z_index, 1.0);
     }";
 
-const SVG_FRAGMENT_SHADER: &str = "
-    #version 130
-    uniform vec4 color;
+fn prefix_gl_version(shader: &str, gl: Api) -> String {
+    match gl {
+        Api::Gl => format!("{}\n{}", SHADER_VERSION_GL, shader),
+        Api::GlEs => format!("{}\n{}", SHADER_VERSION_GLES, shader),
+    }
+}
 
+const SVG_FRAGMENT_SHADER: &str = "
+
+    uniform vec4 color;
     out vec4 out_color;
 
     void main() {
@@ -89,7 +97,7 @@ const SVG_FRAGMENT_SHADER: &str = "
 // - `uv`
 // - `source`
 const SVG_FXAA_VERTEX_SHADER: &str = "
-    #version 130
+
     precision mediump float;
 
     out vec2 v_rgbNW;
@@ -166,7 +174,6 @@ const SVG_FXAA_VERTEX_SHADER: &str = "
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 const SVG_FXAA_FRAG_SHADER: &str = "
-    #version 130
 
     #define FXAA_REDUCE_MIN   (1.0/ 128.0)
     #define FXAA_REDUCE_MUL   (1.0 / 8.0)
@@ -246,8 +253,12 @@ pub struct SvgShader {
 
 impl SvgShader {
     pub fn new<F: Facade + ?Sized>(display: &F) -> Self {
+        let current_gl_api = display.get_context().get_opengl_version().0;
+        let vertex_source_prefixed = prefix_gl_version(SVG_VERTEX_SHADER, current_gl_api);
+        let fragment_source_prefixed = prefix_gl_version(SVG_FRAGMENT_SHADER, current_gl_api);
+
         Self {
-            program: Rc::new(Program::from_source(display, SVG_VERTEX_SHADER, SVG_FRAGMENT_SHADER, None).unwrap()),
+            program: Rc::new(Program::from_source(display, &vertex_source_prefixed, &fragment_source_prefixed, None).unwrap()),
         }
     }
 }
