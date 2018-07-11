@@ -61,6 +61,11 @@ const SHADER_VERSION_GLES: &str = "#version 300 es";
 
 const SVG_VERTEX_SHADER: &str = "
 
+    precision highp float;
+
+    #define attribute in
+    #define varying out
+
     in vec2 xy;
     in vec2 normal;
 
@@ -81,6 +86,11 @@ fn prefix_gl_version(shader: &str, gl: Api) -> String {
 }
 
 const SVG_FRAGMENT_SHADER: &str = "
+
+    precision highp float;
+
+    #define attribute in
+    #define varying out
 
     uniform vec4 color;
     out vec4 out_color;
