@@ -453,8 +453,11 @@ impl<'a, T: Layout> App<'a, T> {
             .. Default::default()
         };
         self.create_window(hidden_create_options, Css::native()).unwrap();
-        let ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
-        Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
+        // TODO: do_first_redraw shouldn't exist, need to find a better way to update the resources
+        // This will make App::delete_font doc-test fail if run without `no-opengl-tests`.
+        //
+        // let ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
+        // Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
     }
 }
 
