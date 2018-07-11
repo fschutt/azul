@@ -41,8 +41,8 @@ git = "https://github.com/RazrFalcon/resvg.git"
 rev = "0eaf6bdc6811e469ee655246cc39ed0b37329fd3"
 
 [dependencies.webrender]
-git = "https://github.com/fschutt/webrender"
-branch = "fix_webrender_messing_with_active_shader"
+git = "https://github.com/servo/webrender"
+rev = "a30fd2286f424e528e3bde502d1a11ed5ef7ec31"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)
