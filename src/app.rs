@@ -141,9 +141,8 @@ impl<'a, T: Layout> App<'a, T> {
         use window::{ReadOnlyWindow, WindowInfo};
 
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
-        let mut ui_description_cache = Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
-
-        let mut force_redraw_cache = vec![0_usize; self.windows.len()];
+        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
+        let mut force_redraw_cache = vec![1_usize; self.windows.len()];
 
         while !self.windows.is_empty() {
 
@@ -281,23 +280,6 @@ impl<'a, T: Layout> App<'a, T> {
                 }
             })
         ).collect()
-    }
-
-    /// First repaint, otherwise the window would be black on startup
-    fn do_first_redraw(
-        windows: &mut [Window<T>],
-        app_state: &mut AppState<'a, T>,
-        ui_state_cache: &[UiState<T>])
-    -> Vec<UiDescription<T>>
-    {
-        let mut ui_description_cache = vec![UiDescription::default(); windows.len()];
-
-        for (idx, window) in windows.iter_mut().enumerate() {
-            ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
-            render(window, &WindowId { id: idx, }, &ui_description_cache[idx], &mut app_state.resources, true);
-        }
-
-        ui_description_cache
     }
 
     /// Add an image to the internal resources
