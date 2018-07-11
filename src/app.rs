@@ -294,6 +294,7 @@ impl<'a, T: Layout> App<'a, T> {
 
         for (idx, window) in windows.iter_mut().enumerate() {
             ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+            Self::update_display(&window);
             render(window, &WindowId { id: idx, }, &ui_description_cache[idx], &mut app_state.resources, true);
         }
 
