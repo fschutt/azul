@@ -17,7 +17,7 @@ use glium::{
              MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder},
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
-use gleam::gl;
+use gleam::gl::{self, Gl};
 use euclid::TypedScale;
 use cassowary::{
     Variable, Solver,
@@ -645,19 +645,10 @@ impl<T: Layout> Window<T> {
             let (width, height) = display.gl_window().get_inner_size_pixels().unwrap();
             DeviceUintSize::new(width, height)
         };
+
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
 
-        let gl = match display.gl_window().get_api() {
-            glutin::Api::OpenGl => unsafe {
-                gl::GlFns::load_with(|symbol|
-                    display.gl_window().get_proc_address(symbol) as *const _)
-            },
-            glutin::Api::OpenGlEs => unsafe {
-                gl::GlesFns::load_with(|symbol|
-                    display.gl_window().get_proc_address(symbol) as *const _)
-            },
-            glutin::Api::WebGl => return Err(WindowCreateError::WebGlNotSupported),
-        };
+        let gl = get_gl_context(&display)?;
 
         let opts_native = get_renderer_opts(true, device_pixel_ratio, Some(options.background));
         let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, Some(options.background));
@@ -812,6 +803,18 @@ impl<T: Layout> Window<T> {
     pub(crate) fn clear_scroll_state(&mut self) {
         self.state.mouse_state.scroll_x = 0.0;
         self.state.mouse_state.scroll_y = 0.0;
+    }
+}
+
+pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateError> {
+    match display.gl_window().get_api() {
+        glutin::Api::OpenGl => Ok(unsafe {
+            gl::GlFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
+        }),
+        glutin::Api::OpenGlEs => Ok(unsafe {
+            gl::GlesFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
+        }),
+        glutin::Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
     }
 }
 

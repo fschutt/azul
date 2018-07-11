@@ -4,9 +4,9 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 use glium::{SwapBuffersError, glutin::Event};
-use webrender::api::{RenderApi, HitTestFlags};
+use webrender::api::{RenderApi, HitTestFlags, DevicePixel};
 use image::ImageError;
-use euclid::TypedScale;
+use euclid::{TypedScale, TypedSize2D};
 use {
     images::ImageType,
     errors::{FontError, ClipboardError},
@@ -645,7 +645,23 @@ fn render<T: Layout>(
 
     window.internal.api.send_transaction(window.internal.document_id, txn);
     window.renderer.as_mut().unwrap().update();
+
+    render_inner(window, framebuffer_size);
+}
+
+// See: https://github.com/servo/webrender/pull/2880
+// webrender doesn't reset the active shader back to what it was, but rather sets it
+// to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
+fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D<u32, DevicePixel>) {
+
+    use glium::backend::Facade;
+    use gleam::gl;
+    use window::get_gl_context;
+
+    let mut current_program = [0_i32];
+    unsafe { get_gl_context(&window.display).unwrap().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
     window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
+    get_gl_context(&window.display).unwrap().use_program(current_program[0] as u32);
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore
