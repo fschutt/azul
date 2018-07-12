@@ -144,6 +144,7 @@ pub mod prelude {
     };
 
     pub use svg::{SvgLayerId, SvgLayer, SvgCache};
+    pub use glium::glutin::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
 }
 
 /// Re-exports of errors

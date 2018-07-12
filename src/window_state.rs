@@ -4,26 +4,51 @@
 use glium::glutin::{
     Window, Event, WindowEvent, KeyboardInput, ElementState,
     MouseCursor, VirtualKeyCode, MouseButton, MouseScrollDelta, TouchPhase,
+    ModifiersState, dpi::{LogicalPosition, LogicalSize},
 };
+use std::collections::HashSet;
 use {
     dom::On,
     menu::{ApplicationMenu, ContextMenu},
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
-const DEFAULT_WIDTH: u32 = 800;
-const DEFAULT_HEIGHT: u32 = 600;
+const DEFAULT_WIDTH: f64 = 800.0;
+const DEFAULT_HEIGHT: f64 = 600.0;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Debug, Default, Clone)]
 pub struct KeyboardState
 {
-    /// Modifier keys that are currently actively pressed during this frame
-    pub modifiers: Vec<VirtualKeyCode>,
-    /// Hidden keys, such as the "n" in CTRL + n. Always lowercase
-    pub hidden_keys: Vec<char>,
-    /// Actual keys pressed during this frame (i.e. regular text input)
-    pub keys: Vec<char>,
+    // Modifier keys that are currently actively pressed during this frame
+    //
+    // Note: These are tracked seperately by glium to prevent missing state changes
+    // when the window isn't focused
+
+    /// Shift key
+    pub shift_down: bool,
+    /// Ctrl key
+    pub ctrl_down: bool,
+    /// Alt key
+    pub alt_down: bool,
+    /// `Super / Windows / Command` key
+    pub super_down: bool,
+    /// Currently pressed keys
+    pub current_keys: HashSet<char>,
+}
+
+impl KeyboardState {
+
+    fn update_from_modifier_state(&mut self, state: ModifiersState) {
+        self.shift_down = state.shift;
+        self.ctrl_down = state.ctrl;
+        self.alt_down = state.alt;
+        self.super_down = state.logo;
+    }
+
+    pub(crate) fn clear_keys(&mut self) {
+        self.current_keys.clear();
+    }
 }
 
 /// Mouse position on the screen
@@ -33,7 +58,7 @@ pub struct MouseState
     /// Current mouse cursor type
     pub mouse_cursor_type: MouseCursor,
     //// Where is the mouse cursor currently? Set to `None` if the window is not focused
-    pub cursor_pos: Option<(f64, f64)>,
+    pub cursor_pos: Option<LogicalPosition>,
     //// Is the left mouse button down?
     pub left_down: bool,
     //// Is the right mouse button down?
@@ -41,9 +66,9 @@ pub struct MouseState
     //// Is the middle mouse button down?
     pub middle_down: bool,
     /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame
-    pub scroll_x: f32,
+    pub scroll_x: f64,
     /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame
-    pub scroll_y: f32,
+    pub scroll_y: f64,
 }
 
 impl Default for MouseState {
@@ -51,7 +76,7 @@ impl Default for MouseState {
     fn default() -> Self {
         Self {
             mouse_cursor_type: MouseCursor::Default,
-            cursor_pos: Some((0.0, 0.0)),
+            cursor_pos: Some(LogicalPosition::new(0.0, 0.0)),
             left_down: false,
             right_down: false,
             middle_down: false,
@@ -76,7 +101,7 @@ pub struct WindowState
     /// The current context menu for this window
     pub context_menu: Option<ContextMenu>,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<WindowPosition>,
+    pub position: Option<LogicalPosition>,
     /// The state of the mouse
     pub(crate) mouse_state: MouseState,
     /// Size of the window + max width / max height: 800 x 600 by default
@@ -95,34 +120,23 @@ pub struct WindowState
     pub is_always_on_top: bool,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct WindowPosition {
-    /// X position from the left side of the screen
-    pub x: u32,
-    /// Y position from the top of the screen
-    pub y: u32,
-}
-
-
 #[derive(Debug, Copy, Clone)]
 pub struct WindowSize {
-    /// Width of the window
-    pub width: u32,
-    /// Height of the window
-    pub height: u32,
+    /// Width and height of the window, in logical
+    /// units (may not correspond to the physical on-screen size)
+    pub dimensions: LogicalSize,
     /// DPI factor of the window
-    pub hidpi_factor: f32,
+    pub hidpi_factor: f64,
     /// Minimum dimensions of the window
-    pub min_dimensions: Option<(u32, u32)>,
+    pub min_dimensions: Option<LogicalSize>,
     /// Maximum dimensions of the window
-    pub max_dimensions: Option<(u32, u32)>,
+    pub max_dimensions: Option<LogicalSize>,
 }
 
 impl Default for WindowSize {
     fn default() -> Self {
         Self {
-            width: DEFAULT_WIDTH,
-            height: DEFAULT_HEIGHT,
+            dimensions: LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
             hidpi_factor: 1.0,
             min_dimensions: None,
             max_dimensions: None,
@@ -163,6 +177,7 @@ impl WindowState
         use glium::glutin::WindowEvent::*;
         use glium::glutin::{ElementState, MouseButton };
         use glium::glutin::MouseButton::*;
+        use glium::glutin::dpi::LogicalPosition;
 
         let event = if let WindowEvent { event, .. } = event { event } else { return Vec::new(); };
 
@@ -172,7 +187,6 @@ impl WindowState
 
         let mut events_vec = Vec::<On>::new();
 
-        // TODO: right mouse down / middle mouse down?
         match event {
             MouseInput { state: ElementState::Pressed, button, .. } => {
                 match button {
@@ -228,10 +242,10 @@ impl WindowState
             },
             MouseWheel { delta, .. } => {
                 let (scroll_x_px, scroll_y_px) = match delta {
-                    MouseScrollDelta::PixelDelta(x, y) => (*x, *y),
-                    MouseScrollDelta::LineDelta(x, y) => (x * 100.0, y * 100.0),
+                    MouseScrollDelta::PixelDelta(LogicalPosition { x, y }) => (*x, *y),
+                    MouseScrollDelta::LineDelta(x, y) => (*x as f64 * 100.0, *y as f64 * 100.0),
                 };
-                self.mouse_state.scroll_x = scroll_x_px;
+                self.mouse_state.scroll_x = -scroll_x_px;
                 self.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
                 events_vec.push(On::Scroll);
             },
@@ -240,6 +254,27 @@ impl WindowState
 
         self.previous_window_state = Some(previous_state);
         events_vec
+    }
+
+    pub(crate) fn update_keyboard_modifiers(&mut self, event: &Event) {
+        let modifiers = match event {
+            Event::WindowEvent { event, .. } => {
+                match event {
+                    WindowEvent::KeyboardInput { input: KeyboardInput { modifiers, .. }, .. } |
+                    WindowEvent::CursorMoved { modifiers, .. } |
+                    WindowEvent::MouseWheel { modifiers, .. } |
+                    WindowEvent::MouseInput { modifiers, .. } => {
+                        Some(modifiers)
+                    },
+                    _ => None,
+                }
+            },
+            _ => None,
+        };
+
+        if let Some(modifiers) = modifiers {
+            self.keyboard_state.update_from_modifier_state(*modifiers);
+        }
     }
 
     /// After the initial events are filtered, this will update the mouse
@@ -256,13 +291,41 @@ impl WindowState
                         self.mouse_state.cursor_pos = None;
                     },
                     WindowEvent::CursorEntered { .. } => {
-                        self.mouse_state.cursor_pos = Some((0.0, 0.0))
+                        self.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
                     },
                     _ => { }
                 }
             },
             _ => { },
         }
+    }
+
+    /// Updates self.keyboard_state to reflect what characters are currently held down
+    pub(crate) fn update_keyboard_pressed_chars(&mut self, event: &Event) {
+        use glium::glutin::KeyboardInput;
+
+        match event {
+            Event::WindowEvent { event, .. } => {
+                match event {
+                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(vk), .. }, .. } => {
+                        if let Some(ch) = virtual_key_code_to_char(*vk) {
+                            self.keyboard_state.current_keys.insert(ch);
+                        }
+                    },
+                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(vk), .. }, .. } => {
+                        if let Some(ch) = virtual_key_code_to_char(*vk) {
+                            self.keyboard_state.current_keys.remove(&ch);
+                        }
+                    },
+                    WindowEvent::Focused(false) => {
+                        self.keyboard_state.clear_keys();
+                    },
+                    _ => { },
+                }
+            },
+            _ => { }
+        }
+
     }
 }
 

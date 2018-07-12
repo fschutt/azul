@@ -8,11 +8,11 @@ use {
 };
 
 #[cfg(target_os="windows")]
-const NATIVE_CSS_WINDOWS: &str = include_str!("../assets/native_windows.css");
+const NATIVE_CSS_WINDOWS: &str = include_str!("styles/native_windows.css");
 #[cfg(target_os="linux")]
-const NATIVE_CSS_LINUX: &str = include_str!("../assets/native_linux.css");
+const NATIVE_CSS_LINUX: &str = include_str!("styles/native_linux.css");
 #[cfg(target_os="macos")]
-const NATIVE_CSS_MACOS: &str = include_str!("../assets/native_macos.css");
+const NATIVE_CSS_MACOS: &str = include_str!("styles/native_macos.css");
 
 /// All the keys that, when changed, can trigger a re-layout
 const RELAYOUT_RULES: [&str; 13] = [

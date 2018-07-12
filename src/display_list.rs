@@ -297,10 +297,10 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         css.needs_relayout = false;
 
-        let framebuffer_size = LayoutSize::new(window_size.width as f32, window_size.height as f32);
-        let hidpi_factor = TypedScale::new(window_size.hidpi_factor);
-        let whole_window_layout_size = framebuffer_size.to_f32() / hidpi_factor;
-        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, whole_window_layout_size, self.rectangles.nodes_len());
+        use glium::glutin::dpi::LogicalSize;
+
+        let LogicalSize { width, height } = window_size.dimensions;
+        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
         let mut resource_updates = Vec::<ResourceUpdate>::new();
         let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 

@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 use glium::{SwapBuffersError, glutin::Event};
+use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 use webrender::api::{RenderApi, HitTestFlags, DevicePixel};
 use image::ImageError;
 use euclid::{TypedScale, TypedSize2D};
@@ -64,9 +65,9 @@ pub(crate) struct FrameEventInfo {
     pub(crate) should_redraw_window: bool,
     pub(crate) should_swap_window: bool,
     pub(crate) should_hittest: bool,
-    pub(crate) cur_cursor_pos: (f64, f64),
-    pub(crate) new_window_size: Option<(u32, u32)>,
-    pub(crate) new_dpi_factor: Option<f32>,
+    pub(crate) cur_cursor_pos: LogicalPosition,
+    pub(crate) new_window_size: Option<LogicalSize>,
+    pub(crate) new_dpi_factor: Option<f64>,
     pub(crate) is_resize_event: bool,
 }
 
@@ -76,7 +77,7 @@ impl Default for FrameEventInfo {
             should_redraw_window: false,
             should_swap_window: false,
             should_hittest: false,
-            cur_cursor_pos: (0.0, 0.0),
+            cur_cursor_pos: LogicalPosition::new(0.0, 0.0),
             new_window_size: None,
             new_dpi_factor: None,
             is_resize_event: false,
@@ -168,6 +169,8 @@ impl<'a, T: Layout> App<'a, T> {
                         continue 'window_loop;
                     }
                     window.state.update_mouse_cursor_position(event);
+                    window.state.update_keyboard_modifiers(event);
+                    window.state.update_keyboard_pressed_chars(event);
                 }
 
                 if frame_event_info.should_hittest {
@@ -260,10 +263,11 @@ impl<'a, T: Layout> App<'a, T> {
         use euclid::TypedSize2D;
 
         let mut txn = Transaction::new();
-        let framebuffer_size = TypedSize2D::new(window.state.size.width, window.state.size.height);
+        let physical_fb_dimensions = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
+        let framebuffer_size = TypedSize2D::new(physical_fb_dimensions.width as u32, physical_fb_dimensions.height as u32);
         let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), framebuffer_size);
 
-        txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor);
+        txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor as f32);
         window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
@@ -477,6 +481,7 @@ enum WindowCloseEvent {
 
 fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> WindowCloseEvent {
     use glium::glutin::WindowEvent;
+    use glium::glutin::dpi::LogicalSize;
 
     match event {
         Event::WindowEvent { event, .. } => {
@@ -488,22 +493,22 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> Win
                     frame_event_info.should_hittest = true;
                     frame_event_info.cur_cursor_pos = *position;
                 },
-                WindowEvent::Resized(w, h) => {
-                    frame_event_info.new_window_size = Some((*w, *h));
+                WindowEvent::Resized(wh) => {
+                    frame_event_info.new_window_size = Some(*wh);
                     frame_event_info.is_resize_event = true;
                     frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::Refresh => {
                     frame_event_info.should_redraw_window = true;
                 },
-                WindowEvent::HiDPIFactorChanged(dpi) => {
+                WindowEvent::HiDpiFactorChanged(dpi) => {
                     frame_event_info.new_dpi_factor = Some(*dpi);
                     frame_event_info.should_redraw_window = true;
                 },
                 WindowEvent::MouseWheel { .. } => {
                     frame_event_info.should_hittest = true;
                 },
-                WindowEvent::Closed => {
+                WindowEvent::CloseRequested => {
                     return WindowCloseEvent::AboutToClose;
                 },
                 _ => { },
@@ -532,7 +537,12 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     use dom::Callback;
     use window_state::{KeyboardState, MouseState};
 
-    let (cursor_x, cursor_y) = window.state.mouse_state.cursor_pos.and_then(|(x, y)| Some((x as f32, y as f32))).unwrap_or((0.0, 0.0));
+    let (cursor_x, cursor_y) = window.state.mouse_state.cursor_pos
+        .and_then(|pos| {
+            let physical_position = pos.to_physical(window.state.size.hidpi_factor);
+            Some((physical_position.x as f32, physical_position.y as f32))
+        }).unwrap_or((0.0, 0.0));
+
     let point = WorldPoint::new(cursor_x, cursor_y);
 
     let hit_test_results =  window.internal.api.hit_test(
@@ -614,8 +624,11 @@ fn render<T: Layout>(
 
     let mut txn = Transaction::new();
 
-    let framebuffer_size = TypedSize2D::new(window.state.size.width, window.state.size.height);
-    let layout_size = framebuffer_size.to_f32() / TypedScale::new(window.state.size.hidpi_factor);
+    let LogicalSize { width, height } = window.state.size.dimensions;
+    let layout_size = TypedSize2D::new(width as f32, height as f32);
+
+    let framebuffer_size_physical = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
+    let framebuffer_size = TypedSize2D::new(framebuffer_size_physical.width as u32, framebuffer_size_physical.height as u32);
 
     txn.set_display_list(
         window.internal.epoch,
