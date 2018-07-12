@@ -73,9 +73,12 @@ const SVG_VERTEX_SHADER: &str = "
     uniform vec2 bbox_size;
     uniform vec2 offset;
     uniform float z_index;
+    uniform float zoom;
 
     void main() {
-        gl_Position = vec4(vec2(-1.0) + ((xy - bbox_origin) / bbox_size) + (offset / bbox_size), z_index, 1.0);
+        vec2 position_centered = (xy - bbox_origin) / bbox_size;
+        vec2 position_zoomed = position_centered * vec2(zoom);
+        gl_Position = vec4(vec2(-1.0) + position_zoomed + (offset / bbox_size), z_index, 1.0);
     }";
 
 fn prefix_gl_version(shader: &str, gl: Api) -> String {

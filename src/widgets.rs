@@ -121,7 +121,8 @@ impl Svg {
     {
         const DEFAULT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
 
-        let tex = window.create_texture(800, 600);
+        let (window_width, window_height) = window.get_physical_size();
+        let tex = window.create_texture(window_width as u32, window_height as u32);
         tex.as_surface().clear_color(1.0, 1.0, 1.0, 1.0);
 
         let draw_options = DrawParameters {
@@ -132,7 +133,7 @@ impl Svg {
         let z_index: f32 = 0.5;
         let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
                 origin: TypedPoint2D::new(0.0, 0.0),
-                size: TypedSize2D::new(800.0, 600.0),
+                size: TypedSize2D::new(window_width as f32, window_height as f32),
         };
         let shader = svg_cache.init_shader(window);
 
@@ -159,7 +160,8 @@ impl Svg {
                             color.color.blue as f32,
                             color.alpha as f32
                         ),
-                        offset: (self.pan.0, self.pan.1)
+                        offset: (self.pan.0, self.pan.1),
+                        zoom: self.zoom,
                     };
 
                     surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
@@ -180,7 +182,8 @@ impl Svg {
                             stroke_color.color.blue as f32,
                             stroke_color.alpha as f32
                         ),
-                        offset: (self.pan.0, self.pan.1)
+                        offset: (self.pan.0, self.pan.1),
+                        zoom: self.zoom,
                     };
 
                     surface.draw(stroke_vertex_buffer, stroke_index_buffer, &shader.program, &uniforms, &draw_options).unwrap();

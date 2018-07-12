@@ -14,7 +14,7 @@ use glium::{
     IncompatibleOpenGl, Display,
     debug::DebugCallbackBehavior,
     glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
-             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder},
+             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, dpi::LogicalSize},
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
@@ -27,7 +27,7 @@ use cassowary::{
 use {
     dom::Texture,
     css::{Css, FakeCss},
-    window_state::{WindowState, MouseState, KeyboardState, WindowPosition},
+    window_state::{WindowState, MouseState, KeyboardState},
     display_list::SolvedLayout,
     traits::Layout,
     cache::{EditVariableCache, DomTreeCache},
@@ -108,6 +108,12 @@ use glium::vertex::BufferCreationError as VertexBufferCreationError;
 use glium::index::BufferCreationError as IndexBufferCreationError;
 
 impl ReadOnlyWindow {
+
+    pub fn get_physical_size(&self) -> (u32, u32) {
+        let hidpi = self.inner.gl_window().get_hidpi_factor();
+        self.inner.gl_window().get_inner_size().unwrap().to_physical(hidpi).into()
+    }
+
     // Since webrender is asynchronous, we can't let the user draw
     // directly onto the frame or the texture since that has to be timed
     // with webrender
@@ -538,10 +544,19 @@ impl<T: Layout> Window<T> {
     /// Creates a new window
     pub fn new(options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
 
+        use glium::glutin::dpi::{LogicalPosition, LogicalSize};
+
         let events_loop = EventsLoop::new();
 
+        let monitor = match options.monitor {
+            WindowMonitorTarget::Primary => events_loop.get_primary_monitor(),
+            WindowMonitorTarget::Custom(ref id) => id.clone(),
+        };
+
+        let hidpi_factor = monitor.get_hidpi_factor();
+
         let mut window = WindowBuilder::new()
-            .with_dimensions(options.state.size.width, options.state.size.height)
+            .with_dimensions(options.state.size.dimensions)
             .with_title(options.state.title.clone())
             .with_decorations(options.state.has_decorations)
             .with_visibility(options.state.is_visible)
@@ -558,20 +573,15 @@ impl<T: Layout> Window<T> {
         // like setting the taskbar icon, setting the titlebar icon, etc.
 
         if options.state.is_fullscreen {
-            let monitor = match options.monitor {
-                WindowMonitorTarget::Primary => events_loop.get_primary_monitor(),
-                WindowMonitorTarget::Custom(ref id) => id.clone(),
-            };
-
             window = window.with_fullscreen(Some(monitor));
         }
 
-        if let Some((min_w, min_h)) = options.state.size.min_dimensions {
-            window = window.with_min_dimensions(min_w, min_h);
+        if let Some(min_dim) = options.state.size.min_dimensions {
+            window = window.with_min_dimensions(min_dim);
         }
 
-        if let Some((max_w, max_h)) = options.state.size.max_dimensions {
-            window = window.with_max_dimensions(max_w, max_h);
+        if let Some(max_dim) = options.state.size.max_dimensions {
+            window = window.with_max_dimensions(max_dim);
         }
 
         fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
@@ -596,6 +606,7 @@ impl<T: Layout> Window<T> {
             if srgb {
                 builder = builder.with_srgb(true);
             }
+
             builder
         }
 
@@ -605,8 +616,8 @@ impl<T: Layout> Window<T> {
             .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
             .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
 
-        if let Some(WindowPosition { x, y }) = options.state.position {
-            gl_window.window().set_position(x as i32, y as i32);
+        if let Some(pos) = options.state.position {
+            gl_window.window().set_position(pos);
         }
 
         #[cfg(debug_assertions)]
@@ -614,7 +625,7 @@ impl<T: Layout> Window<T> {
         #[cfg(not(debug_assertions))]
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
-        let device_pixel_ratio = display.gl_window().hidpi_factor();
+        let device_pixel_ratio = display.gl_window().get_hidpi_factor();
 
         // this exists because RendererOptions isn't Clone-able
         fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
@@ -641,8 +652,7 @@ impl<T: Layout> Window<T> {
         }
 
         let framebuffer_size = {
-            #[allow(deprecated)]
-            let (width, height) = display.gl_window().get_inner_size_pixels().unwrap();
+            let (width, height) = display.gl_window().get_inner_size().unwrap().to_physical(hidpi_factor).into();
             DeviceUintSize::new(width, height)
         };
 
@@ -650,8 +660,8 @@ impl<T: Layout> Window<T> {
 
         let gl = get_gl_context(&display)?;
 
-        let opts_native = get_renderer_opts(true, device_pixel_ratio, Some(options.background));
-        let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, Some(options.background));
+        let opts_native = get_renderer_opts(true, device_pixel_ratio as f32, Some(options.background));
+        let opts_osmesa = get_renderer_opts(false, device_pixel_ratio as f32, Some(options.background));
 
         use self::RendererType::*;
         let (mut renderer, sender) = match options.renderer_type {
@@ -674,7 +684,7 @@ impl<T: Layout> Window<T> {
         let document_id = api.add_document(framebuffer_size, 0);
         let epoch = Epoch(0);
         let pipeline_id = PipelineId(0, 0);
-        let layout_size = framebuffer_size.to_f32() / TypedScale::new(device_pixel_ratio);
+        let layout_size = framebuffer_size.to_f32() / TypedScale::new(device_pixel_ratio as f32);
 /*
         let (sender, receiver) = channel();
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
@@ -774,12 +784,12 @@ impl<T: Layout> Window<T> {
         }
 
         if old_state.size.min_dimensions != new_state.size.min_dimensions {
-            window.set_min_dimensions(new_state.size.min_dimensions);
+            window.set_min_dimensions(new_state.size.min_dimensions.and_then(|dim| Some(dim.into())));
             old_state.size.min_dimensions = new_state.size.min_dimensions;
         }
 
         if old_state.size.max_dimensions != new_state.size.max_dimensions {
-            window.set_max_dimensions(new_state.size.max_dimensions);
+            window.set_max_dimensions(new_state.size.max_dimensions.and_then(|dim| Some(dim.into())));
             old_state.size.max_dimensions = new_state.size.max_dimensions;
         }
     }
@@ -787,9 +797,8 @@ impl<T: Layout> Window<T> {
     pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
         use webrender::api::{DeviceUintSize, WorldPoint, LayoutSize};
 
-        if let Some((w, h)) = frame_event_info.new_window_size {
-            self.state.size.width = w;
-            self.state.size.height = h;
+        if let Some(new_size) = frame_event_info.new_window_size {
+            self.state.size.dimensions = new_size;
             frame_event_info.should_redraw_window = true;
         }
 
