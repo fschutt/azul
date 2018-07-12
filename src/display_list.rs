@@ -309,7 +309,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         for rect_idx in self.rectangles.linear_iter() {
 
-            let display_rectangle = &self.rectangles[rect_idx].data;
             let arena = self.ui_descr.ui_descr_arena.borrow();
             let node_type = &arena[rect_idx].data.node_type;
 
@@ -319,7 +318,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             // temporary: fill the whole window with each rectangle
             displaylist_handle_rect(
                 &mut builder,
-                display_rectangle,
+                rect_idx,
+                &self.rectangles,
                 node_type,
                 full_screen_rect, /* replace this with the real bounds */
                 full_screen_rect,
@@ -334,9 +334,10 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-fn displaylist_handle_rect(
+fn displaylist_handle_rect<'a>(
     builder: &mut DisplayListBuilder,
-    rect: &DisplayRectangle,
+    rect_idx: NodeId,
+    arena: &Arena<DisplayRectangle<'a>>,
     html_node: &NodeType,
     bounds: TypedRect<f32, LayoutPixel>,
     full_screen_rect: TypedRect<f32, LayoutPixel>,
@@ -344,6 +345,8 @@ fn displaylist_handle_rect(
     render_api: &RenderApi,
     resource_updates: &mut Vec<ResourceUpdate>)
 {
+    let rect = &arena[rect_idx].data;
+
     let info = LayoutPrimitiveInfo {
         rect: bounds,
         clip_rect: bounds,
@@ -397,6 +400,8 @@ fn displaylist_handle_rect(
         builder,
         &rect.style);
 
+    let (horz_alignment, vert_alignment) = determine_text_alignment(rect_idx, arena);
+
     // handle the special content of the node
     match html_node {
         Div => { /* nothing special to do */ },
@@ -409,7 +414,9 @@ fn displaylist_handle_rect(
                 app_resources,
                 &render_api,
                 &bounds,
-                resource_updates);
+                resource_updates,
+                horz_alignment,
+                vert_alignment);
         },
         Text(text_id) => {
             push_text(
@@ -420,7 +427,9 @@ fn displaylist_handle_rect(
                 app_resources,
                 &render_api,
                 &bounds,
-                resource_updates);
+                resource_updates,
+                horz_alignment,
+                vert_alignment);
         },
         Image(image_id) => {
             push_image(&info, builder, &bounds, app_resources, image_id);
@@ -463,6 +472,46 @@ fn displaylist_handle_rect(
     }
 }
 
+/// For a given rectangle, determines what text alignment should be used
+fn determine_text_alignment<'a>(rect_idx: NodeId, arena: &Arena<DisplayRectangle<'a>>)
+-> (TextAlignmentHorz, TextAlignmentVert)
+{
+    let mut horz_alignment = TextAlignmentHorz::default();
+    let mut vert_alignment = TextAlignmentVert::default();
+
+    let rect = &arena[rect_idx];
+
+    if let Some((Some(flex_direction), Some(justify_content))) = rect.parent.and_then(|parent| {
+        let parent = &arena[parent];
+        Some((parent.data.layout.direction, parent.data.layout.justify_content))
+    }) {
+        use css_parser::{LayoutDirection::*, LayoutJustifyContent::*};
+
+        match flex_direction {
+            Horizontal => {
+                horz_alignment = match justify_content {
+                    Start => TextAlignmentHorz::Left,
+                    End => TextAlignmentHorz::Right,
+                    Center | SpaceBetween | SpaceAround => TextAlignmentHorz::Center,
+                };
+            },
+            Vertical => {
+                vert_alignment = match justify_content {
+                    Start => TextAlignmentVert::Top,
+                    End => TextAlignmentVert::Bottom,
+                    Center | SpaceBetween | SpaceAround => TextAlignmentVert::Center,
+                };
+            },
+        }
+    }
+
+    if let Some(text_align) = rect.data.style.text_align {
+        horz_alignment = text_align;
+    }
+
+    (horz_alignment, vert_alignment)
+}
+
 #[inline]
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
@@ -481,7 +530,9 @@ fn push_text<'a>(
     app_resources: &mut AppResources,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
-    resource_updates: &mut Vec<ResourceUpdate>)
+    resource_updates: &mut Vec<ResourceUpdate>,
+    horz_alignment: TextAlignmentHorz,
+    vert_alignment: TextAlignmentVert)
 {
     use dom::NodeType::*;
     use euclid::{TypedPoint2D, Length};
@@ -507,10 +558,8 @@ fn push_text<'a>(
         None => return,
     };
 
-    let vert_alignment = TextAlignmentVert::Center; // TODO
     let line_height = style.line_height;
 
-    let horz_alignment = style.text_align.unwrap_or(TextAlignmentHorz::default());
     let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
     let scrollbar_style = ScrollbarInfo {
@@ -543,8 +592,16 @@ fn push_text<'a>(
 
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 
+    use text_layout::TextOverflow;
+
     // If the rectangle should have a scrollbar, push a scrollbar onto the display list
-    push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds, &style.border)
+    // TODO !!!
+    if let TextOverflow::IsOverflowing(amount_vert) = scrollbar_info.vertical {
+        push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds, &style.border)
+    }
+    if let TextOverflow::IsOverflowing(amount_horz) = scrollbar_info.horizontal {
+        push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds, &style.border)
+    }
 }
 
 /// Adds a scrollbar to the left or bottom side of a rectangle.

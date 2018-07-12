@@ -60,13 +60,93 @@ pub(crate) struct AppResources<'a> {
 
 impl<'a> Default for AppResources<'a> {
     fn default() -> Self {
+        let mut default_font_data = FastHashMap::default();
+        load_system_fonts(&mut default_font_data);
+
         Self {
             css_ids_to_image_ids: FastHashMap::default(),
             fonts: FastHashMap::default(),
-            font_data: FastHashMap::default(),
+            font_data: default_font_data,
             images: FastHashMap::default(),
             text_cache: TextCache::default(),
             clipboard: SystemClipboard::new().unwrap(),
+        }
+    }
+}
+
+fn load_system_fonts<'a>(fonts: &mut FastHashMap<css_parser::Font, (::rusttype::Font<'a>, FontState)>) {
+
+    use font_loader::system_fonts::{self, FontPropertyBuilder};
+    use css_parser::Font::BuiltinFont;
+    use font::rusttype_load_font;
+
+    // preferred ordering in which the fonts should be loaded
+    // technically this ignores the fontconfig <prefer> attribute, since font_loader
+    // doesn't respect that, currently
+
+    // serif
+    let sysfonts = system_fonts::query_all();
+
+    let mut serif_builder = FontPropertyBuilder::new();
+    for font in &sysfonts {
+        match &**font {
+            "Times New Roman"       => { serif_builder = serif_builder.family("Times New Roman"); break; }
+            "Times"                 => { serif_builder = serif_builder.family("Times"); break; }
+            "Georgia"               => { serif_builder = serif_builder.family("Georgia"); break; }
+            "DejaVu Serif"          => { serif_builder = serif_builder.family("DejaVu Serif"); break; }
+            "GNU Unifont"           => { serif_builder = serif_builder.family("GNU Unifont"); break; }
+            other                   => { serif_builder = serif_builder.family(other); }
+        }
+    }
+
+    if let Some((font_bytes, idx)) = system_fonts::get(&serif_builder.build()) {
+        match rusttype_load_font(font_bytes.clone(), Some(idx)) {
+            Ok(f) =>  { fonts.insert(BuiltinFont("serif"), (f, FontState::ReadyForUpload(font_bytes))); },
+            Err(e) => println!("error loading serif font: {:?}", e),
+        }
+    }
+
+    // sans-serif
+    let mut sans_serif_builder = FontPropertyBuilder::new();
+    for font in &sysfonts {
+        match &**font {
+            "Segoe UI"             => { sans_serif_builder = sans_serif_builder.family("Segoe UI"); break; }
+            "Segoe UI Semibold"    => { sans_serif_builder = sans_serif_builder.family("Segoe UI Semibold"); break; }
+            "Arial"                => { sans_serif_builder = sans_serif_builder.family("Arial"); break; }
+            "Helvetica"            => { sans_serif_builder = sans_serif_builder.family("Helvetica"); break; }
+            "Helvetica Neue"       => { sans_serif_builder = sans_serif_builder.family("Helvetica Neue"); break; }
+            "Verdana"               => { sans_serif_builder = sans_serif_builder.family("Verdana"); break; }
+            other                   => { sans_serif_builder = sans_serif_builder.family(other); }
+        }
+    }
+
+    if let Some((font_bytes, idx)) = system_fonts::get(&sans_serif_builder.build()) {
+        match rusttype_load_font(font_bytes.clone(), Some(idx)) {
+            Ok(f) =>  { fonts.insert(BuiltinFont("sans-serif"), (f, FontState::ReadyForUpload(font_bytes))); },
+            Err(e) => println!("error loading sans-serif font: {:?}", e),
+        }
+    }
+
+    // monospace
+    let mut monospace_builder = FontPropertyBuilder::new();
+    for font in system_fonts::query_specific(&mut FontPropertyBuilder::new().monospace().build()) {
+        match &*font {
+            "Consolas"          => { monospace_builder = monospace_builder.family("Consolas"); break; },
+            "Courier New"       => { monospace_builder = monospace_builder.family("Courier New"); break; }
+            "Lucida Console"    => { monospace_builder = monospace_builder.family("Lucida Console"); break; }
+            "Noto Mono"         => { monospace_builder = monospace_builder.family("Noto Mono"); break; }
+            "Ubuntu Mono"       => { monospace_builder = monospace_builder.family("Ubuntu Mono"); break; }
+            "Liberation Mono"   => { monospace_builder = monospace_builder.family("Liberation Mono"); break; }
+            "Droid Sans Mono"   => { monospace_builder = monospace_builder.family("Droid Sans Mono"); break; }
+            "DejaVu Sans Mono"  => { monospace_builder = monospace_builder.family("DejaVu Sans Mono"); break; }
+            other               => { monospace_builder = monospace_builder.family(other); }
+        }
+    }
+
+    if let Some((font_bytes, idx)) = system_fonts::get(&monospace_builder.build()) {
+        match rusttype_load_font(font_bytes.clone(), Some(idx)) {
+            Ok(f) =>  { fonts.insert(BuiltinFont("monospace"), (f, FontState::ReadyForUpload(font_bytes))); },
+            Err(e) => println!("error loading monospace font: {:?}", e),
         }
     }
 }
@@ -146,7 +226,7 @@ impl<'a> AppResources<'a> {
             Vacant(v) => {
                 let mut font_data = Vec::<u8>::new();
                 data.read_to_end(&mut font_data).map_err(|e| FontError::IoError(e))?;
-                let parsed_font = font::rusttype_load_font(font_data.clone())?;
+                let parsed_font = font::rusttype_load_font(font_data.clone(), None)?;
                 v.insert((parsed_font, FontState::ReadyForUpload(font_data)));
                 Ok(Some(()))
             },
@@ -211,14 +291,14 @@ impl<'a> AppResources<'a> {
         self.text_cache.clear_all_texts();
     }
 
-    pub(crate) fn get_clipboard_string(&mut self) 
-    -> Result<String, ClipboardError> 
+    pub(crate) fn get_clipboard_string(&mut self)
+    -> Result<String, ClipboardError>
     {
         self.clipboard.get_string_contents()
     }
 
-    pub(crate) fn set_clipboard_string(&mut self, contents: String) 
-    -> Result<(), ClipboardError> 
+    pub(crate) fn set_clipboard_string(&mut self, contents: String)
+    -> Result<(), ClipboardError>
     {
         self.clipboard.set_string_contents(contents)
     }
