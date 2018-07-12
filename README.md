@@ -24,8 +24,11 @@ CMake is used during the build process to compile servo-freetype.
 For interfacing with the system clipboard, you also need `xorg-dev` or
 `libxcb-xkb-dev`.
 
+Since azul uses the system-native fonts by default, you'll also need
+`libfontconfig1-dev` and your users will need `libfontconfig` installed.
+
 ```
-sudo apt install cmake libxcb-xkb-dev
+sudo apt install cmake libxcb-xkb-dev libfontconfig libfontconfig1-dev
 ```
 
 ## Design

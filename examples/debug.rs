@@ -8,7 +8,6 @@ use azul::dialogs::*;
 use std::fs;
 
 const TEST_CSS: &str = include_str!("test_content.css");
-const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
 
 #[derive(Debug)]
 pub struct MyAppData {
@@ -35,8 +34,7 @@ impl Layout for MyAppData {
                 .dom(&info.window, &map.cache)
                 .with_callback(On::Scroll, Callback(scroll_map_contents))
         } else {
-            Dom::new(NodeType::Div)
-                .with_class("__azul-native-button")
+            Button::with_label("Load SVG").dom()
                 .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }
@@ -79,8 +77,6 @@ fn main() {
     // Parse and validate the CSS
     let css = Css::new_from_string(TEST_CSS).unwrap();
     let mut app = App::new(MyAppData { map: None });
-
-    app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
     app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run().unwrap();
 }

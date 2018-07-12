@@ -7,7 +7,7 @@ use {
     resources::AppResources,
     display_list::TextInfo,
     css_parser::{
-        TextAlignmentHorz, FontSize, BackgroundColor, 
+        TextAlignmentHorz, FontSize, BackgroundColor,
         Font as FontId, TextAlignmentVert, LineHeight, LayoutOverflow
     },
 };

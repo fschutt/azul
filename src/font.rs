@@ -35,9 +35,9 @@ impl From<RusttypeError> for FontError {
 }
 
 /// Read font data to get font information, v_metrics, glyph info etc.
-pub(crate) fn rusttype_load_font<'a>(data: Vec<u8>) -> Result<Font<'a>, FontError> {
+pub(crate) fn rusttype_load_font<'a>(data: Vec<u8>, index: Option<i32>) -> Result<Font<'a>, FontError> {
     let collection = FontCollection::from_bytes(data)?;
-    let font = collection.clone().into_font().unwrap_or(collection.font_at(0)?);
+    let font = collection.clone().into_font().unwrap_or(collection.font_at(index.and_then(|i| Some(i as usize)).unwrap_or(0))?);
     Ok(font)
 }
 
