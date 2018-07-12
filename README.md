@@ -21,14 +21,15 @@ engine for rendering and a CSS / DOM model for layout and rendering
 On Linux, you currently need to install `cmake` before you can use azul.
 CMake is used during the build process to compile servo-freetype.
 
-For interfacing with the system clipboard, you also need `xorg-dev` or
-`libxcb-xkb-dev`.
+For interfacing with the system clipboard, you also need `libxcb-xkb-dev`.
+Since azul uses the system-native fonts by default, you'll also need 
+`libfontconfig1-dev` (which includes expat and freetype2). 
 
-Since azul uses the system-native fonts by default, you'll also need
-`libfontconfig1-dev` and your users will need `libfontconfig` installed.
+Your users will need to install `libfontconfig` and 
+`libxcb-xkb1` installed (remember this for packaging rpm or deb packages).
 
 ```
-sudo apt install cmake libxcb-xkb-dev libfontconfig libfontconfig1-dev
+sudo apt install cmake libxcb-xkb-dev libfontconfig1-dev
 ```
 
 ## Design

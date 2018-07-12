@@ -80,75 +80,20 @@ fn load_system_fonts<'a>(fonts: &mut FastHashMap<css_parser::Font, (::rusttype::
     use css_parser::Font::BuiltinFont;
     use font::rusttype_load_font;
 
-    // preferred ordering in which the fonts should be loaded
-    // technically this ignores the fontconfig <prefer> attribute, since font_loader
-    // doesn't respect that, currently
-
-    // serif
-    let sysfonts = system_fonts::query_all();
-
-    let mut serif_builder = FontPropertyBuilder::new();
-    for font in &sysfonts {
-        match &**font {
-            "Times New Roman"       => { serif_builder = serif_builder.family("Times New Roman"); break; }
-            "Times"                 => { serif_builder = serif_builder.family("Times"); break; }
-            "Georgia"               => { serif_builder = serif_builder.family("Georgia"); break; }
-            "DejaVu Serif"          => { serif_builder = serif_builder.family("DejaVu Serif"); break; }
-            "GNU Unifont"           => { serif_builder = serif_builder.family("GNU Unifont"); break; }
-            other                   => { serif_builder = serif_builder.family(other); }
+    fn insert_font<'b>(fonts: &mut FastHashMap<css_parser::Font, (::rusttype::Font<'b>, FontState)>, target: &'static str) {
+        if let Some((font_bytes, idx)) = system_fonts::get(&FontPropertyBuilder::new().family(target).build()) {
+            match rusttype_load_font(font_bytes.clone(), Some(idx)) {
+                Ok(f) =>  { fonts.insert(BuiltinFont(target), (f, FontState::ReadyForUpload(font_bytes))); },
+                Err(e) => println!("error loading {} font: {:?}", target, e),
+            }
         }
     }
 
-    if let Some((font_bytes, idx)) = system_fonts::get(&serif_builder.build()) {
-        match rusttype_load_font(font_bytes.clone(), Some(idx)) {
-            Ok(f) =>  { fonts.insert(BuiltinFont("serif"), (f, FontState::ReadyForUpload(font_bytes))); },
-            Err(e) => println!("error loading serif font: {:?}", e),
-        }
-    }
-
-    // sans-serif
-    let mut sans_serif_builder = FontPropertyBuilder::new();
-    for font in &sysfonts {
-        match &**font {
-            "Segoe UI"             => { sans_serif_builder = sans_serif_builder.family("Segoe UI"); break; }
-            "Segoe UI Semibold"    => { sans_serif_builder = sans_serif_builder.family("Segoe UI Semibold"); break; }
-            "Arial"                => { sans_serif_builder = sans_serif_builder.family("Arial"); break; }
-            "Helvetica"            => { sans_serif_builder = sans_serif_builder.family("Helvetica"); break; }
-            "Helvetica Neue"       => { sans_serif_builder = sans_serif_builder.family("Helvetica Neue"); break; }
-            "Verdana"               => { sans_serif_builder = sans_serif_builder.family("Verdana"); break; }
-            other                   => { sans_serif_builder = sans_serif_builder.family(other); }
-        }
-    }
-
-    if let Some((font_bytes, idx)) = system_fonts::get(&sans_serif_builder.build()) {
-        match rusttype_load_font(font_bytes.clone(), Some(idx)) {
-            Ok(f) =>  { fonts.insert(BuiltinFont("sans-serif"), (f, FontState::ReadyForUpload(font_bytes))); },
-            Err(e) => println!("error loading sans-serif font: {:?}", e),
-        }
-    }
-
-    // monospace
-    let mut monospace_builder = FontPropertyBuilder::new();
-    for font in system_fonts::query_specific(&mut FontPropertyBuilder::new().monospace().build()) {
-        match &*font {
-            "Consolas"          => { monospace_builder = monospace_builder.family("Consolas"); break; },
-            "Courier New"       => { monospace_builder = monospace_builder.family("Courier New"); break; }
-            "Lucida Console"    => { monospace_builder = monospace_builder.family("Lucida Console"); break; }
-            "Noto Mono"         => { monospace_builder = monospace_builder.family("Noto Mono"); break; }
-            "Ubuntu Mono"       => { monospace_builder = monospace_builder.family("Ubuntu Mono"); break; }
-            "Liberation Mono"   => { monospace_builder = monospace_builder.family("Liberation Mono"); break; }
-            "Droid Sans Mono"   => { monospace_builder = monospace_builder.family("Droid Sans Mono"); break; }
-            "DejaVu Sans Mono"  => { monospace_builder = monospace_builder.family("DejaVu Sans Mono"); break; }
-            other               => { monospace_builder = monospace_builder.family(other); }
-        }
-    }
-
-    if let Some((font_bytes, idx)) = system_fonts::get(&monospace_builder.build()) {
-        match rusttype_load_font(font_bytes.clone(), Some(idx)) {
-            Ok(f) =>  { fonts.insert(BuiltinFont("monospace"), (f, FontState::ReadyForUpload(font_bytes))); },
-            Err(e) => println!("error loading monospace font: {:?}", e),
-        }
-    }
+    insert_font(fonts, "serif");
+    insert_font(fonts, "sans-serif");
+    insert_font(fonts, "monospace");
+    insert_font(fonts, "cursive");
+    insert_font(fonts, "fantasy");
 }
 
 impl<'a> AppResources<'a> {

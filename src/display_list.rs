@@ -584,7 +584,12 @@ fn push_text<'a>(
     );
 
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
-    let flags = FontInstanceFlags::SUBPIXEL_BGR;
+    let mut flags = FontInstanceFlags::empty();
+    flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
+    flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
+    flags.set(FontInstanceFlags::FORCE_AUTOHINT, true);
+    flags.set(FontInstanceFlags::LCD_VERTICAL, true);
+
     let options = GlyphOptions {
         render_mode: FontRenderMode::Subpixel,
         flags: flags,

@@ -34,7 +34,7 @@ impl Layout for MyAppData {
                 .dom(&info.window, &map.cache)
                 .with_callback(On::Scroll, Callback(scroll_map_contents))
         } else {
-            Button::with_label("Load SVG").dom()
+            Button::with_label("Azul App").dom()
                 .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }

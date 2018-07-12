@@ -23,7 +23,7 @@ glium = "0.21.0"
 gleam = "0.5"
 euclid = "0.17"
 image = "0.19.0"
-rusttype = "0.5.2"
+rusttype = "0.6.2"
 app_units = "0.6"
 unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
@@ -43,7 +43,7 @@ rev = "0eaf6bdc6811e469ee655246cc39ed0b37329fd3"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "a30fd2286f424e528e3bde502d1a11ed5ef7ec31"
+rev = "091e9c53acd71fea20da18ea3a3d5eec7ac6c7d5"
 
 [features]
 # The reason we do this is because doctests don't get cfg(test)
