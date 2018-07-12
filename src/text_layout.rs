@@ -201,7 +201,7 @@ pub(crate) fn get_glyphs<'a>(
 
     let v_metrics_scaled = target_font.0.v_metrics(font_size_with_line_height);
     let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
-    let offset_top = v_metrics_scaled.ascent;
+    let offset_top = v_metrics_scaled.ascent / 2.0;
 
     let font_metrics = FontMetrics {
         vertical_advance: v_advance_scaled,
@@ -380,22 +380,29 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                 // Regular character
                 use rusttype::Point;
 
-                let g = font.glyph(cur_char).scaled(font_size);
+                let g = font.glyph(cur_char);
+
+                // calculate the real width
+                let glyph_metrics = g.standalone().get_data().unwrap();
+                let extents = glyph_metrics.extents.unwrap();
+                let horz_rect_width = extents.max.x - extents.min.x;
+                let horiz_advance = horz_rect_width as f32 * glyph_metrics.scale_for_1_pixel * font_size.x;
+
                 let id = g.id();
 
                 if let Some(last) = last_glyph {
-                    word_caret += font.pair_kerning(font_size, last, g.id());
+                    word_caret += font.pair_kerning(font_size, last, id);
                 }
 
-                let g = g.positioned(Point { x: word_caret, y: 0.0 });
+                let word_caret_saved = word_caret;
+
                 last_glyph = Some(id);
-                let horiz_advance = g.unpositioned().h_metrics().advance_width;
                 word_caret += horiz_advance;
                 cur_word_length += horiz_advance;
 
                 glyphs_in_this_word.push(GlyphInstance {
                     index: id.0,
-                    point: TypedPoint2D::new(g.position().x, g.position().y),
+                    point: TypedPoint2D::new(word_caret_saved, 0.0),
                 });
 
                 chars_in_this_word.push(cur_char);

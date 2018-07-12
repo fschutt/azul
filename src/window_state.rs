@@ -232,7 +232,7 @@ impl WindowState
                     MouseScrollDelta::LineDelta(x, y) => (x * 100.0, y * 100.0),
                 };
                 self.mouse_state.scroll_x = scroll_x_px;
-                self.mouse_state.scroll_y = scroll_y_px;
+                self.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
                 events_vec.push(On::Scroll);
             },
             _ => { }
