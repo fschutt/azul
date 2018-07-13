@@ -36,25 +36,29 @@ use {
     window::ReadOnlyWindow,
 };
 
-/// In order to store / compare SVG files, we have to
-pub(crate) static SVG_BLOB_ID: AtomicUsize = AtomicUsize::new(0);
+static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
+static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
+static SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SvgTransformId(NonZeroUsizeHack);
 
-const SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
-
 pub fn new_svg_transform_id() -> SvgTransformId {
     SvgTransformId(NonZeroUsizeHack::new(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst)))
 }
-
-const SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SvgViewBoxId(usize);
 
 pub fn new_view_box_id() -> SvgViewBoxId {
     SvgViewBoxId(SVG_VIEW_BOX_ID.fetch_add(1, Ordering::SeqCst))
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SvgLayerId(usize);
+
+pub fn new_svg_layer_id() -> SvgLayerId {
+    SvgLayerId(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
 }
 
 const SHADER_VERSION_GL: &str = "#version 150";
@@ -257,9 +261,6 @@ const SVG_FXAA_FRAG_SHADER: &str = "
     }
 ";
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct SvgLayerId(usize);
-
 #[derive(Debug, Clone)]
 pub struct SvgShader {
     pub program: Rc<Program>,
@@ -393,7 +394,7 @@ impl<T: Layout> SvgCache<T> {
 
     pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
         // TODO: set tolerance based on zoom
-        let new_svg_id = SvgLayerId(SVG_BLOB_ID.fetch_add(1, Ordering::SeqCst));
+        let new_svg_id = new_svg_layer_id();
 
         let ((vertex_buf, index_buf), opt_stroke) =
             tesselate_layer_data(&layer.data, 0.01, layer.style.stroke.and_then(|s| Some(s.1.clone())));

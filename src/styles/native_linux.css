@@ -1,6 +1,6 @@
 .__azul-native-button {
     border: 1px solid #b7b7b7;
-    border-radius: 5.5px;
+    border-radius: 4px;
     box-shadow: 0px 0px 3px #c5c5c5ad;
     background: linear-gradient(#fcfcfc, #efefef);
     width:  [[ my_id | 200px ]];
@@ -12,7 +12,7 @@
 }
 
 * {
-    font-size: 14px;
+    font-size: 10px;
     font-family: sans-serif;
     color: #4c4c4c;
     background-color: #e7e7e7;
