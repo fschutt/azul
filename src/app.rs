@@ -626,7 +626,6 @@ fn render<T: Layout>(
 
     let LogicalSize { width, height } = window.state.size.dimensions;
     let layout_size = TypedSize2D::new(width as f32, height as f32);
-
     let framebuffer_size_physical = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
     let framebuffer_size = TypedSize2D::new(framebuffer_size_physical.width as u32, framebuffer_size_physical.height as u32);
 

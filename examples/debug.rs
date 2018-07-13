@@ -34,7 +34,7 @@ impl Layout for MyAppData {
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
-            Button::with_label("Azul App").dom()
+            Button::with_label("SVG Datei öffnen...").dom()
                 .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }

@@ -542,7 +542,7 @@ pub(crate) struct WindowInternal {
 impl<T: Layout> Window<T> {
 
     /// Creates a new window
-    pub fn new(options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
+    pub fn new(mut options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
 
         use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 
@@ -554,6 +554,7 @@ impl<T: Layout> Window<T> {
         };
 
         let hidpi_factor = monitor.get_hidpi_factor();
+        options.state.size.hidpi_factor = hidpi_factor;
 
         let mut window = WindowBuilder::new()
             .with_dimensions(options.state.size.dimensions)
@@ -592,13 +593,13 @@ impl<T: Layout> Window<T> {
                 })
                 .with_gl_profile(GlProfile::Core);
 
-            #[cfg(debug_assertions)] {
+            /*#[cfg(debug_assertions)] {
                 builder = builder.with_gl_debug_flag(true);
             }
 
-            #[cfg(not(debug_assertions))] {
+            #[cfg(not(debug_assertions))] {*/
                 builder = builder.with_gl_debug_flag(false);
-            }
+            // }
 
             if vsync {
                 builder = builder.with_vsync(true);
@@ -620,9 +621,9 @@ impl<T: Layout> Window<T> {
             gl_window.window().set_position(pos);
         }
 
-        #[cfg(debug_assertions)]
+        /*#[cfg(debug_assertions)]
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(debug_assertions))]*/
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
         let device_pixel_ratio = display.gl_window().get_hidpi_factor();
@@ -685,6 +686,7 @@ impl<T: Layout> Window<T> {
         let epoch = Epoch(0);
         let pipeline_id = PipelineId(0, 0);
         let layout_size = framebuffer_size.to_f32() / TypedScale::new(device_pixel_ratio as f32);
+
 /*
         let (sender, receiver) = channel();
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
@@ -699,7 +701,7 @@ impl<T: Layout> Window<T> {
         solver.suggest_value(window_dim.height_var, window_dim.height() as f64).unwrap();
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
-
+        
         let window = Window {
             events_loop: events_loop,
             state: options.state,
