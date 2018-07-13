@@ -4,7 +4,7 @@ use std::{
 };
 use {
     FastHashMap,
-    css_parser::{Font, FontSize},
+    css_parser::{FontId, FontSize},
     text_layout::SemanticWordItem,
 };
 
@@ -29,7 +29,7 @@ pub(crate) enum LargeString {
     /// The `Vec<SemanticWordItem>` stores the individual word, so we don't need
     /// to store it again. The `words` is stored in an Rc, so that we don't need to
     /// duplicate it for every font size.
-    Cached { font: Font, size: FontSize, words: Rc<Vec<SemanticWordItem>> },
+    Cached { font: FontId, size: FontSize, words: Rc<Vec<SemanticWordItem>> },
 }
 
 /// Cache for accessing large amounts of text

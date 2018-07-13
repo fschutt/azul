@@ -31,7 +31,7 @@ use {
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
-const DEFAULT_BUILTIN_FONT_SANS_SERIF: css_parser::Font = Font::BuiltinFont("sans-serif");
+const DEFAULT_BUILTIN_FONT_SANS_SERIF: FontId = FontId::BuiltinFont("sans-serif");
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -201,12 +201,13 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontState;
+        use css_parser::FontId;
 
-        let mut updated_fonts = Vec::<(::css_parser::Font, Vec<u8>)>::new();
-        let mut to_delete_fonts = Vec::<(::css_parser::Font, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
+        let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
+        let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
 
         for (key, value) in app_resources.font_data.iter() {
-            match value.1 {
+            match value.2 {
                 FontState::ReadyForUpload(ref bytes) => {
                     updated_fonts.push((key.clone(), bytes.clone()));
                 },
@@ -238,7 +239,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         for (resource_key, data) in updated_fonts.into_iter() {
             let key = api.generate_font_key();
             resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
-            app_resources.font_data.get_mut(&resource_key).unwrap().1 = FontState::Uploaded(key);
+            app_resources.font_data.get_mut(&resource_key).unwrap().2 = FontState::Uploaded(key);
         }
     }
 
@@ -879,7 +880,7 @@ fn push_border(
 
 #[inline]
 fn push_font(
-    font_id: &css_parser::Font,
+    font_id: &FontId,
     font_size_app_units: Au,
     resource_updates: &mut Vec<ResourceUpdate>,
     app_resources: &mut AppResources,
@@ -893,7 +894,7 @@ fn push_font(
         return None;
     }
 
-    let &(ref font, ref font_state) = match app_resources.font_data.get(font_id) {
+    let &(ref font, _, ref font_state) = match app_resources.font_data.get(font_id) {
         Some(f) => f,
         None => return None,
     };

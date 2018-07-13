@@ -18,9 +18,10 @@ use webrender::api::{ImageData, ImageDescriptor, ImageFormat};
 use std::collections::hash_map::Entry::*;
 use app_units::Au;
 use css_parser;
-use css_parser::Font::ExternalFont;
+use css_parser::FontId::{self, ExternalFont};
 use text_cache::TextId;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
+use rusttype::Font;
 
 /// Font and image keys
 ///
@@ -46,7 +47,7 @@ pub(crate) struct AppResources<'a> {
     // but we also need access to the font metrics. So we first parse the font
     // to make sure that nothing is going wrong. In the next draw call, we
     // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: FastHashMap<css_parser::Font, (::rusttype::Font<'a>, FontState)>,
+    pub(crate) font_data: FastHashMap<FontId, (::rusttype::Font<'a>, Vec<u8>, FontState)>,
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
@@ -73,16 +74,16 @@ impl<'a> Default for AppResources<'a> {
     }
 }
 
-fn load_system_fonts<'a>(fonts: &mut FastHashMap<css_parser::Font, (::rusttype::Font<'a>, FontState)>) {
+fn load_system_fonts<'a>(fonts: &mut FastHashMap<FontId, (::rusttype::Font<'a>, Vec<u8>, FontState)>) {
 
     use font_loader::system_fonts::{self, FontPropertyBuilder};
-    use css_parser::Font::BuiltinFont;
+    use css_parser::FontId::BuiltinFont;
     use font::rusttype_load_font;
 
-    fn insert_font<'b>(fonts: &mut FastHashMap<css_parser::Font, (::rusttype::Font<'b>, FontState)>, target: &'static str) {
+    fn insert_font<'b>(fonts: &mut FastHashMap<FontId, (::rusttype::Font<'b>, Vec<u8>, FontState)>, target: &'static str) {
         if let Some((font_bytes, idx)) = system_fonts::get(&FontPropertyBuilder::new().family(target).build()) {
             match rusttype_load_font(font_bytes.clone(), Some(idx)) {
-                Ok(f) =>  { fonts.insert(BuiltinFont(target), (f, FontState::ReadyForUpload(font_bytes))); },
+                Ok((f, b)) =>  { fonts.insert(BuiltinFont(target), (f, b, FontState::ReadyForUpload(font_bytes))); },
                 Err(e) => println!("error loading {} font: {:?}", target, e),
             }
         }
@@ -170,11 +171,15 @@ impl<'a> AppResources<'a> {
             Vacant(v) => {
                 let mut font_data = Vec::<u8>::new();
                 data.read_to_end(&mut font_data).map_err(|e| FontError::IoError(e))?;
-                let parsed_font = font::rusttype_load_font(font_data.clone(), None)?;
-                v.insert((parsed_font, FontState::ReadyForUpload(font_data)));
+                let (parsed_font, fd) = font::rusttype_load_font(font_data.clone(), None)?;
+                v.insert((parsed_font, fd, FontState::ReadyForUpload(font_data)));
                 Ok(Some(()))
             },
         }
+    }
+
+    pub fn get_font<'b>(&'b self, id: &FontId) -> Option<(&'b Font<'a>, &'b Vec<u8>)> {
+        self.font_data.get(id).and_then(|(font, bytes, _)| Some((font, bytes)))
     }
 
     /// Checks if a font is currently registered and ready-to-use
@@ -192,13 +197,13 @@ impl<'a> AppResources<'a> {
         match self.font_data.get_mut(&ExternalFont(id.into())) {
             None => None,
             Some(v) => {
-                let to_delete_font_key = match v.1 {
+                let to_delete_font_key = match v.2 {
                     FontState::Uploaded(ref font_key) => {
                         Some(font_key.clone())
                     },
                     _ => None,
                 };
-                v.1 = FontState::AboutToBeDeleted(to_delete_font_key);
+                v.2 = FontState::AboutToBeDeleted(to_delete_font_key);
                 Some(())
             }
         }
@@ -214,7 +219,7 @@ impl<'a> AppResources<'a> {
     /// Calculates the widths for the words, then stores the widths of the words + the actual words
     ///
     /// This leads to a faster layout cycle, but has an upfront performance cost
-    pub(crate) fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &css_parser::Font, font_size: FontSize)
+    pub(crate) fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &FontId, font_size: FontSize)
     -> TextId
     {
         use rusttype::Scale;

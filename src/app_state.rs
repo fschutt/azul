@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use image::ImageError;
+use rusttype::Font;
 use {
     FastHashMap,
     text_cache::TextId,
@@ -15,7 +16,7 @@ use {
     resources::AppResources,
     images::ImageType,
     font::FontError,
-    css_parser::{Font as FontId, FontSize, PixelValue},
+    css_parser::{FontId, FontSize, PixelValue},
     errors::ClipboardError,
 };
 
@@ -82,6 +83,7 @@ impl<'a, T: Layout> AppState<'a, T> {
     {
         self.resources.add_image(id, data, image_type)
     }
+
     /// Checks if an image is currently registered and ready-to-use
     pub fn has_image<S: AsRef<str>>(&mut self, id: S)
         -> bool
@@ -149,6 +151,10 @@ impl<'a, T: Layout> AppState<'a, T> {
         -> bool
     {
         self.resources.has_font(id)
+    }
+
+    pub fn get_font<'b>(&'b self, id: &FontId) -> Option<(&'b Font<'a>, &'b Vec<u8>)> {
+        self.resources.get_font(id)
     }
 
     /// Deletes a font from the internal app resources.
