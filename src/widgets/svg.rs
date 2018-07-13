@@ -738,12 +738,15 @@ impl Into<LineJoin> for SvgLineJoin {
 
 /// One "layer" is simply one or more polygons that get drawn using the same style
 /// i.e. one SVG `<path></path>` element
+///
+/// Note: If you want to draw text in a SVG element, you need to convert the character
+/// of the font to a `Vec<PathEvent` via `SvgLayerType::from_character`
 #[derive(Debug, Clone)]
 pub enum SvgLayerType {
     Polygon(Vec<PathEvent>),
     Circle(SvgCircle),
     Rect(SvgRect),
-    Text(String),
+    Text(Vec<PathEvent>),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -757,8 +760,25 @@ implement_vertex!(SvgVert, xy, normal);
 #[derive(Debug, Copy, Clone)]
 pub struct SvgWorldPixel;
 
+use rusttype::{Font, GlyphId};
 
 impl SvgLayerType {
+
+    pub fn from_character(ch: char, font: &Font) -> (GlyphId, Self) {
+        let glyph = font.glyph(ch);
+        let path_events = glyph
+         .standalone()
+         .get_data()
+         .unwrap().shape
+         .as_ref()
+         .unwrap()
+         .iter()
+         .map(svg_to_lyon::glyph_to_path_events)
+         .collect();
+
+        (glyph.id(), SvgLayerType::Text(path_events))
+    }
+
     pub fn tesselate(&self, tolerance: f32, stroke: Option<SvgStrokeOptions>)
     -> (VertexBuffers<SvgVert>, Option<VertexBuffers<SvgVert>>)
     {
@@ -770,7 +790,7 @@ impl SvgLayerType {
         });
 
         match self {
-            SvgLayerType::Polygon(p) => {
+            SvgLayerType::Polygon(p) | SvgLayerType::Text(p) => {
                 let mut builder = Builder::with_capacity(p.len()).flattened(tolerance);
                 for event in p {
                     builder.path_event(*event);
@@ -855,8 +875,7 @@ impl SvgLayerType {
                         }
                     ));
                 }
-            },
-            SvgLayerType::Text(_t) => { },
+            }
         }
 
         if stroke.is_some() {
@@ -900,6 +919,7 @@ mod svg_to_lyon {
     use traits::Layout;
     use webrender::api::ColorU;
     use FastHashMap;
+    use rusttype::Vertex;
 
     pub fn parse_from<S: AsRef<str>, T: Layout>(svg_source: S, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
     -> Result<(Vec<SvgLayer<T>>, FastHashMap<SvgTransformId, Transform>), SvgParseError> {
@@ -1015,6 +1035,18 @@ mod svg_to_lyon {
             b: color.blue,
             a: (s.opacity.value() * 255.0) as u8
         }, opts)
+    }
+
+    // Convert a Rusttype glyph to a Vec of PathEvents,
+    // in order to turn a glyph into a polygon
+    pub fn glyph_to_path_events(vertex: &Vertex)
+    -> PathEvent
+    {   use rusttype::VertexType;
+        match vertex.vertex_type() {
+            VertexType::CurveTo => PathEvent::QuadraticTo(Point::new(vertex.cx as f32, vertex.cy as f32), Point::new(vertex.x as f32, vertex.y as f32)),
+            VertexType::MoveTo => PathEvent::MoveTo(Point::new(vertex.x as f32, vertex.y as f32)),
+            VertexType::LineTo => PathEvent::LineTo(Point::new(vertex.x as f32, vertex.y as f32)),
+        }
     }
 }
 

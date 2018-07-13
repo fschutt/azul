@@ -23,7 +23,7 @@ glium = "0.22.0"
 gleam = "0.5"
 euclid = "0.17"
 image = "0.19.0"
-rusttype = "0.6.2"
+rusttype = { git = "https://github.com/fschutt/rusttype" }
 app_units = "0.6"
 unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
