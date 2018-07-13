@@ -65,8 +65,6 @@ pub mod traits;
 pub mod window;
 /// Async IO / task system
 pub mod task;
-/// SVG / path flattering module (lyon)
-pub mod svg;
 /// Built-in widgets
 pub mod widgets;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
@@ -142,8 +140,6 @@ pub mod prelude {
         Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
         ExtendMode, PixelValue, PercentageValue,
     };
-
-    pub use svg::{SvgLayerId, SvgLayer, SvgCache};
     pub use glium::glutin::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
 }
 
@@ -158,10 +154,12 @@ pub mod errors {
     };
     pub use simplecss::Error as CssSyntaxError;
     pub use css::{CssParseError, DynamicCssParseError};
-    pub use svg::SvgParseError;
     pub use font::FontError;
-    pub use window::WindowCreateError;
     pub use image::ImageError;
+
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
+
+    pub use window::WindowCreateError;
+    pub use widgets::svg::SvgParseError;
 }

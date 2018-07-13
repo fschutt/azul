@@ -19,7 +19,6 @@ use std::collections::hash_map::Entry::*;
 use app_units::Au;
 use css_parser;
 use css_parser::Font::ExternalFont;
-use svg::{SvgLayerId, SvgLayer, SvgParseError};
 use text_cache::TextId;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 

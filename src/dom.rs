@@ -10,7 +10,6 @@ use webrender::api::ColorU;
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use {
     window::WindowEvent,
-    svg::SvgLayerId,
     images::ImageId,
     cache::DomHash,
     text_cache::TextId,

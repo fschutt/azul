@@ -7,9 +7,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 use glium::{
-    backend::Facade,
+    backend::Facade, index::PrimitiveType,
     DrawParameters, IndexBuffer, VertexBuffer, Display,
-    Texture2d, Program, Api,
+    Texture2d, Program, Api, Surface,
 };
 use lyon::{
     tessellation::{
@@ -30,9 +30,10 @@ use resvg::usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF};
 use {
     FastHashMap,
-    dom::Callback,
+    dom::{Dom, NodeType, Callback},
     traits::Layout,
     id_tree::NonZeroUsizeHack,
+    window::ReadOnlyWindow,
 };
 
 /// In order to store / compare SVG files, we have to
@@ -892,7 +893,7 @@ mod svg_to_lyon {
     };
     use resvg::usvg::{self, ViewBox, Transform, Tree, Path, PathSegment,
         Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
-    use svg::{SvgLayer, SvgStrokeOptions, SvgLineCap, SvgLineJoin,
+    use widgets::svg::{SvgLayer, SvgStrokeOptions, SvgLineCap, SvgLineJoin,
         SvgLayerType, SvgStyle, SvgCallbacks, SvgParseError, SvgTransformId,
         new_svg_transform_id, new_view_box_id, SvgViewBoxId, LayerType};
     use traits::Layout;
@@ -1016,10 +1017,147 @@ mod svg_to_lyon {
     }
 }
 
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
+#[derive(Debug, Clone, PartialEq)]
+pub struct Svg {
+    /// Currently active layers
+    pub layers: Vec<SvgLayerId>,
+    /// Pan (horizontal, vertical) in pixels
+    pub pan: (f32, f32),
+    /// 1.0 = default zoom
+    pub zoom: f32,
+    /// Whether an FXAA shader should be applied to the resulting OpenGL texture
+    pub enable_fxaa: bool,
+}
+
+impl Default for Svg {
+    fn default() -> Self {
+        Self {
+            layers: Vec::new(),
+            pan: (0.0, 0.0),
+            zoom: 1.0,
+            enable_fxaa: false,
+        }
+    }
+}
+
+impl Svg {
+
+    #[inline]
+    pub fn with_layers(layers: Vec<SvgLayerId>)
+    -> Self
+    {
+        Self { layers: layers, .. Default::default() }
+    }
+
+    #[inline]
+    pub fn with_pan(mut self, horz: f32, vert: f32)
+    -> Self
+    {
+        self.pan = (horz, vert);
+        self
+    }
+
+    #[inline]
+    pub fn with_zoom(mut self, zoom: f32)
+    -> Self
+    {
+        self.zoom = zoom;
+        self
+    }
+
+    #[inline]
+    pub fn with_fxaa(mut self, enable_fxaa: bool)
+    -> Self
+    {
+        self.enable_fxaa = enable_fxaa;
+        self
+    }
+
+    /// Renders the SVG to an OpenGL texture and creates the DOM
+    pub fn dom<T>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>)
+    -> Dom<T> where T: Layout
+    {
+        const DEFAULT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
+
+        let (window_width, window_height) = window.get_physical_size();
+        let tex = window.create_texture(window_width as u32, window_height as u32);
+        tex.as_surface().clear_color(1.0, 1.0, 1.0, 1.0);
+
+        let draw_options = DrawParameters {
+            primitive_restart_index: true,
+            .. Default::default()
+        };
+
+        let z_index: f32 = 0.5;
+        let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
+                origin: TypedPoint2D::new(0.0, 0.0),
+                size: TypedSize2D::new(window_width as f32, window_height as f32),
+        };
+        let shader = svg_cache.init_shader(window);
+
+        {
+            let mut surface = tex.as_surface();
+
+            for layer_id in &self.layers {
+
+                use palette::Srgba;
+                let style = svg_cache.get_style(layer_id);
+
+                if let Some(color) = style.fill {
+                    let color: ColorF = color.into();
+                    let (vertex_buffer, index_buffer) = svg_cache.get_vertices_and_indices(window, layer_id);
+                    let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
+
+                    let uniforms = uniform! {
+                        bbox_origin: (bbox.origin.x, bbox.origin.y),
+                        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+                        z_index: z_index,
+                        color: (
+                            color.color.red as f32,
+                            color.color.green as f32,
+                            color.color.blue as f32,
+                            color.alpha as f32
+                        ),
+                        offset: (self.pan.0, self.pan.1),
+                        zoom: self.zoom,
+                    };
+
+                    surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
+                }
+
+                if let Some((stroke_color, _)) = style.stroke {
+                    let stroke_color: ColorF = stroke_color.into();
+                    let (stroke_vertex_buffer, stroke_index_buffer) = svg_cache.get_stroke_vertices_and_indices(window, layer_id);
+                    let stroke_color = Srgba::new(stroke_color.r, stroke_color.g, stroke_color.b, stroke_color.a).into_linear();
+
+                    let uniforms = uniform! {
+                        bbox_origin: (bbox.origin.x, bbox.origin.y),
+                        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+                        z_index: z_index,
+                        color: (
+                            stroke_color.color.red as f32,
+                            stroke_color.color.green as f32,
+                            stroke_color.color.blue as f32,
+                            stroke_color.alpha as f32
+                        ),
+                        offset: (self.pan.0, self.pan.1),
+                        zoom: self.zoom,
+                    };
+
+                    surface.draw(stroke_vertex_buffer, stroke_index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
+                }
+            }
+        }
+
+        if self.enable_fxaa {
+            // TODO: apply FXAA shader
+        }
+
+        Dom::new(NodeType::GlTexture(tex))
+    }
+}
+
 #[test]
-fn __codecov_test_svg_file() {
+fn __codecov_test_widget_svg_file() {
 
 }

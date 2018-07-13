@@ -15,7 +15,6 @@ use {
     resources::AppResources,
     images::ImageType,
     font::FontError,
-    svg::{SvgLayerId, SvgLayer, SvgParseError},
     css_parser::{Font as FontId, FontSize, PixelValue},
     errors::ClipboardError,
 };
