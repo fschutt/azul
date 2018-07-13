@@ -312,12 +312,13 @@ impl<T: Layout> Default for SvgCache<T> {
 
 impl<T: Layout> SvgCache<T> {
 
+    /// Creates an empty SVG cache
     pub fn empty() -> Self {
         Self::default()
     }
 
     /// Builds and compiles the SVG shader if the shader isn't already present
-    pub fn init_shader<F: Facade + ?Sized>(&self, display: &F) -> SvgShader {
+    fn init_shader<F: Facade + ?Sized>(&self, display: &F) -> SvgShader {
         let mut shader_lock = self.shader.lock().unwrap();
         if shader_lock.is_none() {
             *shader_lock = Some(SvgShader::new(display));
@@ -325,7 +326,7 @@ impl<T: Layout> SvgCache<T> {
         shader_lock.as_ref().and_then(|s| Some(s.clone())).unwrap()
     }
 
-    pub fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
+    fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
     -> &'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)
     {
         use std::collections::hash_map::Entry::*;
@@ -346,7 +347,7 @@ impl<T: Layout> SvgCache<T> {
     ///
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
     /// in sync, a panic should never happen
-    pub fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
+    fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
     -> &'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)
     {
         use std::collections::hash_map::Entry::*;
@@ -373,7 +374,7 @@ impl<T: Layout> SvgCache<T> {
         })
     }
 
-    pub fn get_style(&self, id: &SvgLayerId)
+    fn get_style(&self, id: &SvgLayerId)
     -> SvgStyle
     {
         self.layers.get(id).as_ref().unwrap().style

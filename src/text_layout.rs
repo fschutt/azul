@@ -8,7 +8,7 @@ use {
     display_list::TextInfo,
     css_parser::{
         TextAlignmentHorz, FontSize, BackgroundColor,
-        Font as FontId, TextAlignmentVert, LineHeight, LayoutOverflow
+        FontId, TextAlignmentVert, LineHeight, LayoutOverflow
     },
 };
 

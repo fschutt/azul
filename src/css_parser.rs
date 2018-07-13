@@ -1681,11 +1681,11 @@ typed_pixel_value_parser!(parse_css_font_size, FontSize);
 #[derive(Debug, PartialEq, Clone)]
 pub struct FontFamily {
     // parsed fonts, in order, i.e. "Webly Sleeky UI", "monospace", etc.
-    pub(crate) fonts: Vec<Font>
+    pub(crate) fonts: Vec<FontId>
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum Font {
+pub enum FontId {
     BuiltinFont(&'static str),
     ExternalFont(String),
 }
@@ -1722,12 +1722,14 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Cs
 
         if double_quote_iter.next().is_some() || single_quote_iter.next().is_some() {
             let stripped_font = strip_quotes(font)?;
-            fonts.push(Font::ExternalFont(stripped_font.0.into()));
+            fonts.push(FontId::ExternalFont(stripped_font.0.into()));
         } else {
             match font {
-                "serif"      => fonts.push(Font::BuiltinFont("serif")),
-                "sans-serif" => fonts.push(Font::BuiltinFont("sans-serif")),
-                "monospace"  => fonts.push(Font::BuiltinFont("monospace")),
+                "serif"      => fonts.push(FontId::BuiltinFont("serif")),
+                "sans-serif" => fonts.push(FontId::BuiltinFont("sans-serif")),
+                "monospace"  => fonts.push(FontId::BuiltinFont("monospace")),
+                "fantasy"    => fonts.push(FontId::BuiltinFont("fantasy")),
+                "cursive"    => fonts.push(FontId::BuiltinFont("cursive")),
                 _ => return Err(CssFontFamilyParseError::UnrecognizedBuiltinFont(font)),
             }
         }
@@ -2146,8 +2148,8 @@ mod css_tests {
     fn test_parse_css_font_family_1() {
         assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(FontFamily {
             fonts: vec![
-                Font::ExternalFont("Webly Sleeky UI".into()),
-                Font::BuiltinFont("monospace"),
+                FontId::ExternalFont("Webly Sleeky UI".into()),
+                FontId::BuiltinFont("monospace"),
             ]
         }));
     }
@@ -2156,10 +2158,9 @@ mod css_tests {
     fn test_parse_css_font_family_2() {
         assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(FontFamily {
             fonts: vec![
-                Font::ExternalFont("Webly Sleeky UI".into()),
+                FontId::ExternalFont("Webly Sleeky UI".into()),
             ]
         }));
-
     }
 
     #[test]

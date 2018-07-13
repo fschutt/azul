@@ -134,13 +134,14 @@ pub mod prelude {
         LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
         LayoutMaxHeight, LayoutWrap, LayoutDirection,
         LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
-        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId,
+        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId,
 
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
         Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
         ExtendMode, PixelValue, PercentageValue,
     };
     pub use glium::glutin::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
+    pub use rusttype::Font;
 }
 
 /// Re-exports of errors

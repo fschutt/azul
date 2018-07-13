@@ -12,7 +12,7 @@ use {
     images::ImageType,
     errors::{FontError, ClipboardError},
     window::{Window, WindowCreateOptions, WindowCreateError, WindowId},
-    css_parser::{Font as FontId, PixelValue, FontSize},
+    css_parser::{FontId, PixelValue, FontSize},
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
