@@ -1,5 +1,5 @@
-use tinyfiledialogs::MessageBoxIcon;
-use tinyfiledialogs::DefaultColorValue;
+pub use tinyfiledialogs::MessageBoxIcon;
+pub use tinyfiledialogs::DefaultColorValue;
 
 /// Ok or cancel result, returned from the `msg_box_ok_cancel` function
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

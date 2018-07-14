@@ -414,7 +414,7 @@ impl RenderNotifier for Notifier {
 
     fn wake_up(&self) {
         #[cfg(not(target_os = "android"))]
-        self.events_loop_proxy.wakeup().unwrap_or_else(|_| { eprintln!("couldn't wakeup event loop"); });
+        self.events_loop_proxy.wakeup().unwrap_or_else(|_| { error!("couldn't wakeup event loop"); });
     }
 
     fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) {

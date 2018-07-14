@@ -8,6 +8,8 @@ use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 use webrender::api::{RenderApi, HitTestFlags, DevicePixel};
 use image::ImageError;
 use euclid::{TypedScale, TypedSize2D};
+#[cfg(feature = "logging")]
+use log::LevelFilter;
 use {
     images::ImageType,
     errors::{FontError, ClipboardError},
@@ -85,10 +87,52 @@ impl Default for FrameEventInfo {
     }
 }
 
+#[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "logging"), derive(Copy))]
+pub struct AppConfig {
+    /// If enabled, logs error and info messages. 
+    /// 
+    /// Default is `Some(LevelFilter::Error)` to log all errors by default
+    #[cfg(feature = "logging")]
+    pub enable_logging: Option<LevelFilter>,
+    /// Path to the output log if the logger is enabled
+    #[cfg(feature = "logging")]
+    pub log_file_path: Option<String>,
+    /// If the app crashes / panics, a window with a message box pops up
+    /// Additionally, the error + backtrace gets logged to the output 
+    /// file (if logging is enabled).
+    #[cfg(feature = "logging")]
+    pub enable_visual_panic_hook: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            #[cfg(feature = "logging")]
+            enable_logging: Some(LevelFilter::Error),
+            #[cfg(feature = "logging")]
+            log_file_path: None,
+            #[cfg(feature = "logging")]
+            enable_visual_panic_hook: true,
+        }
+    }
+}
+
 impl<'a, T: Layout> App<'a, T> {
 
+    #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
-    pub fn new(initial_data: T) -> Self {
+    pub fn new(initial_data: T, config: AppConfig) -> Self {
+        #[cfg(feature = "logging")] {
+            if let Some(log_level) = config.enable_logging {
+                ::logging::set_up_logging(config.log_file_path, log_level);
+            }
+
+            if config.enable_visual_panic_hook {
+                ::logging::set_up_panic_hooks();
+            }
+        }
+        
         Self {
             windows: Vec::new(),
             app_state: AppState::new(initial_data),
@@ -368,7 +412,7 @@ impl<'a, T: Layout> App<'a, T> {
     /// # }
     /// #
     /// # fn main() {
-    /// let mut app = App::new(MyAppData { });
+    /// let mut app = App::new(MyAppData { }, AppConfig::default());
     /// app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
     /// app.delete_font("Webly Sleeky UI");
     /// // NOTE: The font isn't immediately removed, only in the next draw call
