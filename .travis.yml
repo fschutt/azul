@@ -19,6 +19,7 @@ matrix:
 script:
   - cargo clean
   - cargo build --verbose --examples
+  - cargo build --no-default-features
   - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
 
 matrix:

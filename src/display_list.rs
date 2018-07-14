@@ -890,7 +890,7 @@ fn push_font(
     use font::FontState;
 
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
-        eprintln!("warning: too big or too small font size");
+        error!("warning: too big or too small font size");
         return None;
     }
 
@@ -923,7 +923,7 @@ fn push_font(
             Some(*font_instance_key)
         },
         _ => {
-            eprintln!("warning: trying to use font {:?} that isn't available", font_id);
+            error!("warning: trying to use font {:?} that isn't available", font_id);
             None
         },
     }

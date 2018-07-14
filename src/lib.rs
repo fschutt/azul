@@ -53,6 +53,12 @@ extern crate harfbuzz_rs;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
 extern crate font_loader;
+#[macro_use(error, debug, info, log)]
+extern crate log;
+#[cfg(feature = "logging")]
+extern crate fern;
+#[cfg(feature = "logging")]
+extern crate backtrace;
 
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
@@ -109,6 +115,9 @@ mod compositor;
 // mod platform_ext;
 /// Module for caching long texts (including their layout / character positions) across multiple frames
 mod text_cache;
+/// Default logger, can be turned off with `feature = "logging"`
+#[cfg(feature = "logging")]
+mod logging;
 
 /// Faster implementation of a HashMap
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
@@ -116,7 +125,7 @@ type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDef
 
 /// Quick exports of common types
 pub mod prelude {
-    pub use app::App;
+    pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use css::{Css, FakeCss};
     pub use dom::{Dom, NodeType, Callback, On, UpdateScreen};
@@ -142,6 +151,9 @@ pub mod prelude {
     };
     pub use glium::glutin::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
     pub use rusttype::Font;
+
+    #[cfg(feature = "logging")]
+    pub use log::LevelFilter;
 }
 
 /// Re-exports of errors

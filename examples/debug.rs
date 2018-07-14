@@ -85,7 +85,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 }
 
 fn main() {
-    let mut app = App::new(MyAppData { map: None });
+    let mut app = App::new(MyAppData { map: None }, AppConfig::default());
     app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
     app.run().unwrap();
 }

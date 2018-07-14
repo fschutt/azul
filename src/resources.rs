@@ -84,7 +84,7 @@ fn load_system_fonts<'a>(fonts: &mut FastHashMap<FontId, (::rusttype::Font<'a>, 
         if let Some((font_bytes, idx)) = system_fonts::get(&FontPropertyBuilder::new().family(target).build()) {
             match rusttype_load_font(font_bytes.clone(), Some(idx)) {
                 Ok((f, b)) =>  { fonts.insert(BuiltinFont(target), (f, b, FontState::ReadyForUpload(font_bytes))); },
-                Err(e) => println!("error loading {} font: {:?}", target, e),
+                Err(e) => error!("Error loading {} font: {:?}", target, e),
             }
         }
     }
