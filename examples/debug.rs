@@ -35,7 +35,7 @@ impl Layout for MyAppData {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
             Button::with_label("SVG Datei öffnen...").dom()
-                .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
+               .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }
 }
@@ -69,6 +69,11 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
         .and_then(|path| fs::read_to_string(path.clone()).ok())
         .and_then(|contents| {
             let mut svg_cache = SvgCache::empty();
+
+            let (font, _) = app_state.get_font(&FontId::BuiltinFont("sans-serif"))?;
+            let ch = SvgLayerType::from_character('a', font);
+            println!("ch: {:?}", ch);
+
             let svg_layers = svg_cache.add_svg(&contents).ok()?;
             app_state.data.modify(|data| data.map = Some(Map {
                 cache: svg_cache,
