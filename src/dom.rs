@@ -191,8 +191,7 @@ pub enum On {
     Scroll,
 }
 
-#[derive(PartialEq, Eq)]
-pub(crate) struct NodeData<T: Layout> {
+pub struct NodeData<T: Layout> {
     /// `div`
     pub node_type: NodeType,
     /// `#main`
@@ -203,6 +202,30 @@ pub(crate) struct NodeData<T: Layout> {
     pub events: CallbackList<T>,
     /// Tag for hit-testing
     pub tag: Option<u64>,
+}
+
+impl<T: Layout> PartialEq for NodeData<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_type == other.node_type &&
+        self.id == other.id &&
+        self.classes == other.classes &&
+        self.events == other.events &&
+        self.tag == other.tag
+    }
+}
+
+impl<T: Layout> Eq for NodeData<T> { }
+
+impl<T: Layout> Default for NodeData<T> {
+    fn default() -> Self {
+        NodeData {
+            node_type: NodeType::Div,
+            id: None,
+            classes: Vec::new(),
+            events: CallbackList::default(),
+            tag: None,
+        }
+    }
 }
 
 impl<T: Layout> Hash for NodeData<T> {
@@ -217,7 +240,7 @@ impl<T: Layout> Hash for NodeData<T> {
 }
 
 impl<T: Layout> NodeData<T> {
-    pub fn calculate_node_data_hash(&self) -> DomHash {
+    pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
         use std::hash::Hash;
         use twox_hash::XxHash;
         let mut hasher = XxHash::default();
@@ -254,6 +277,17 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
         self.events,
         self.tag)
     }
+}
+
+impl<T: Layout> PartialEq for CallbackList<T> {
+  fn eq(&self, rhs: &Self) -> bool {
+    if self.callbacks.len() != rhs.callbacks.len() {
+        return false;
+    }
+    self.callbacks.iter().all(|(key, val)| {
+        rhs.callbacks.get(key) == Some(val)
+    })
+  }
 }
 
 impl<T: Layout> CallbackList<T> {
@@ -311,9 +345,17 @@ impl<T: Layout> fmt::Debug for Dom<T> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct CallbackList<T: Layout> {
-    pub(crate) callbacks: BTreeMap<On, Callback<T>>
+#[derive(Clone, Eq)]
+pub struct CallbackList<T: Layout> {
+    pub callbacks: BTreeMap<On, Callback<T>>
+}
+
+impl<T: Layout> Default for CallbackList<T> {
+    fn default() -> Self {
+        Self {
+            callbacks: BTreeMap::default(),
+        }
+    }
 }
 
 impl<T: Layout> Hash for CallbackList<T> {
@@ -338,6 +380,58 @@ impl<T: Layout> CallbackList<T> {
     }
 }
 
+use std::iter::FromIterator;
+
+impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
+    fn from_iter<I: IntoIterator<Item=Dom<T>>>(iter: I) -> Self {
+        let mut c = Dom::new(NodeType::Div);
+        for i in iter {
+            c.add_child(i);
+        }
+        c
+    }
+}
+
+impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
+    fn from_iter<I: IntoIterator<Item=NodeData<T>>>(iter: I) -> Self {
+        use id_tree::Node;
+
+        let mut nodes = Vec::new();
+        let mut idx = 0;
+
+        for i in iter {
+            let node = Node {
+                data: i,
+                parent: None,
+                previous_sibling: if idx == 0 { None } else { Some(NodeId::new(idx - 1)) },
+                next_sibling: Some(NodeId::new(idx + 1)),
+                last_child: None,
+                first_child: None,
+            };
+            nodes.push(node);
+            idx += 1;
+        }
+
+        let nodes_len = nodes.len();
+        if nodes_len > 0 {
+            if let Some(last) = nodes.get_mut(nodes_len - 1) {
+                last.next_sibling = None;
+            }
+        } else {
+            // WARNING: nodes can be empty, so the root
+            // could point to an invalid node!
+        }
+
+        Dom { head: NodeId::new(0), root: NodeId::new(0), arena: Rc::new(RefCell::new(Arena { nodes })) }
+    }
+}
+
+impl<T: Layout> FromIterator<NodeType> for Dom<T> {
+    fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
+        iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
+    }
+}
+
 impl<T: Layout> Dom<T> {
 
     /// Creates an empty DOM
@@ -358,6 +452,15 @@ impl<T: Layout> Dom<T> {
 
         let self_len = self.arena.borrow().nodes_len();
         let sibling_len = sibling.arena.borrow().nodes_len();
+
+        if sibling_len == 0 {
+            return; // No nodes to append, nothing to do
+        }
+
+        if self_len == 0 {
+            *self = sibling;
+            return;
+        }
 
         let mut self_arena = self.arena.borrow_mut();
         let mut sibling_arena = sibling.arena.borrow_mut();
@@ -414,6 +517,15 @@ impl<T: Layout> Dom<T> {
 
         let self_len = self.arena.borrow().nodes_len();
         let child_len = child.arena.borrow().nodes_len();
+
+        if child_len == 0 {
+            return; // No nodes to append, nothing to do
+        }
+
+        if self_len == 0 {
+            *self = child;
+            return;
+        }
 
         let mut self_arena = self.arena.borrow_mut();
         let mut child_arena = child.arena.borrow_mut();
@@ -603,4 +715,36 @@ fn test_dom_sibling_1() {
                 ].next_sibling().expect("first child has no second sibling")
             ].first_child().expect("second sibling has no first child")
         ].data.id);
+}
+
+#[test]
+fn test_dom_from_iter_1() {
+
+    use id_tree::Node;
+
+    struct TestLayout { }
+
+    impl Layout for TestLayout {
+        fn layout(&self) -> Dom<Self> {
+            (0..5).map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1)))).collect()
+        }
+    }
+
+    let dom = TestLayout{ }.layout();
+    let arena = dom.arena.borrow();
+
+    assert_eq!(arena.nodes.last(), Some(&Node {
+        parent: None,
+        previous_sibling: Some(NodeId::new(3)),
+        next_sibling: None,
+        first_child: None,
+        last_child: None,
+        data: NodeData {
+            node_type: NodeType::Label(String::from("5")),
+            id: None,
+            classes: Vec::new(),
+            tag: None,
+            events: CallbackList::default(),
+        }
+    }));
 }

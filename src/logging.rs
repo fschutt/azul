@@ -8,8 +8,8 @@ pub(crate) fn set_up_logging(log_file_path: Option<String>, log_level: LevelFilt
     use std::error::Error;
 
     /// Sets up the global logger
-    fn set_up_logging_internal(log_file_path: Option<String>, log_level: LevelFilter) 
-    -> Result<(), InitError> 
+    fn set_up_logging_internal(log_file_path: Option<String>, log_level: LevelFilter)
+    -> Result<(), InitError>
     {
 
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -18,7 +18,7 @@ pub(crate) fn set_up_logging(log_file_path: Option<String>, log_level: LevelFilt
 
         let log_location = {
             use std::env;
-        
+
             let mut exe_location = env::current_exe()
             .map_err(|_| InitError::Io(IoError::new(IoErrorKind::Other,
                 "Executable has no executable path (?), can't open log file")))?;
@@ -87,19 +87,8 @@ pub(crate) fn set_up_panic_hooks() {
             .lines()
             .filter(|l| !l.is_empty())
             .skip(11)
-            .collect::<Vec<&str>>();
-        let backtrace_len = backtrace_str.len();
-        let mut backtrace_str_new = Vec::<&str>::new();
-        
-        for (i, st) in backtrace_str.into_iter().enumerate() {
-            if i > backtrace_len - 10 {
-                break;
-            } else {
-                backtrace_str_new.push(st);
-            }
-        }
-
-        let backtrace_str = backtrace_str_new.join("\r\n");
+            .collect::<Vec<&str>>()
+            .join("\r\n");
 
         let thread = thread::current();
         let thread_name = thread.name().unwrap_or("<unnamed thread>");
@@ -152,7 +141,7 @@ fn format_backtrace(backtrace: &Backtrace) -> String {
             return format!("{} @ {:?}", UNRESOLVED_FN_STR, ip);
         }
 
-        // skip the first 10 symbols because they belong to the 
+        // skip the first 10 symbols because they belong to the
         // backtrace library and aren't relevant for debugging
         symbols.iter().map(|symbol| {
 
