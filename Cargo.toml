@@ -46,7 +46,7 @@ rev = "0eaf6bdc6811e469ee655246cc39ed0b37329fd3"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "091e9c53acd71fea20da18ea3a3d5eec7ac6c7d5"
+rev = "915ec3a047d5991284bf5655df3b043e6b9756fa"
 
 [features]
 default = ["logging"]

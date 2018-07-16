@@ -3,7 +3,7 @@
 use std::{
     mem,
     fmt,
-    ops::{Index, Add, IndexMut, Deref},
+    ops::{Index, Add, AddAssign, IndexMut, Deref},
     hash::{Hasher, Hash},
     collections::BTreeMap,
     cmp::Ordering,
@@ -29,17 +29,29 @@ use std::{
 pub struct NonZeroUsizeHack(&'static ());
 
 impl NonZeroUsizeHack {
-    /// **NOTE**: Panics on overflow, since having a pointer that is zero is
-    /// undefined behaviour (it would bascially be casted to a `None`,
-    /// which is incorrect, so we rather panic on overflow to prevent that.
-    #[inline(always)]
+    /// **NOTE**: In debug mode, it panics on overflow, since having a
+    /// pointer that is zero is undefined behaviour (it would bascially be
+    /// casted to a `None`), which is incorrect, so we rather panic on overflow
+    /// to prevent that.
+    ///
+    /// To trigger an overflow however, you'd need more that 4 billion DOM nodes -
+    /// it is more likely that you run out of RAM before you do that. The only thing
+    /// that could lead to an overflow would be a bug. Therefore, overflow-checking is
+    /// disabled in release mode.
+    #[cfg_attr(not(debug_assertions), inline(always))]
     pub fn new(value: usize) -> Self {
         // Add 1 on insertion
-        let (new_value, has_overflown) = value.overflowing_add(1);
-        if has_overflown {
-            panic!("Overflow when creating DOM Node with ID {}", value);
-        } else {
-            unsafe { NonZeroUsizeHack(&*(new_value as *const ())) }
+        #[cfg(debug_assertions)] {
+            let (new_value, has_overflown) = value.overflowing_add(1);
+            if has_overflown {
+                panic!("Overflow when creating DOM Node with ID {}", value);
+            } else {
+                unsafe { NonZeroUsizeHack(&*(new_value as *const ())) }
+            }
+        }
+
+        #[cfg(not(debug_assertions))] {
+            unsafe { NonZeroUsizeHack(&*((value + 1) as *const ())) }
         }
     }
 
@@ -105,7 +117,16 @@ impl NodeId {
     }
 }
 
+impl AddAssign<usize> for NodeId {
+    fn add_assign(&mut self, other: usize) {
+        *self = NodeId {
+            index: self.index + other
+        };
+    }
+}
+
 impl Add<usize> for NodeId {
+
     type Output = NodeId;
 
     fn add(self, other: usize) -> NodeId {

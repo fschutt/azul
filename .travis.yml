@@ -3,9 +3,8 @@ language: rust
 cache: cargo
 
 rust:
-  - stable
-  - beta
-  - nightly
+  - 1.26.0
+  - 1.27.1
 
 os:
   - linux
@@ -21,11 +20,6 @@ script:
   - cargo build --verbose --examples
   - cargo build --no-default-features
   - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
-
-matrix:
-  allow_failures:
-  - rust: nightly
-  - rust: beta
 
 # before_install:
 #   - sudo apt-get update
