@@ -67,12 +67,15 @@ pub(crate) struct SolvedLayout<T: Layout> {
 /// In the cached version, you can lookup the text as well as the dimensions of
 /// the words in the `AppResources`. For the `Uncached` version, you'll have to re-
 /// calculate it on every frame.
-pub(crate) enum TextInfo<'a> {
+/// 
+/// TODO: It should be possible to switch this over to a `&'a str`, but currently
+/// this leads to unsolvable borrowing issues.
+pub(crate) enum TextInfo {
     Cached(TextId),
-    Uncached(&'a str),
+    Uncached(String),
 }
 
-impl<'a> TextInfo<'a> {
+impl TextInfo {
     /// Returns if the inner text is empty.
     ///
     /// Returns true if the TextInfo::Cached TextId does not exist
@@ -244,12 +247,12 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         }
     }
 
-    pub fn into_display_list_builder<'b>(
+    pub fn into_display_list_builder(
         &self,
         pipeline_id: PipelineId,
         ui_solver: &mut UiSolver<T>,
         css: &mut Css,
-        app_resources: &'b mut AppResources<'b>,
+        app_resources: &mut AppResources,
         render_api: &RenderApi,
         mut has_window_size_changed: bool,
         window_size: &WindowSize)
@@ -336,14 +339,14 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-fn displaylist_handle_rect<'a, 'b>(
+fn displaylist_handle_rect<'a>(
     builder: &mut DisplayListBuilder,
     rect_idx: NodeId,
     arena: &Arena<DisplayRectangle<'a>>,
     html_node: &NodeType,
     bounds: TypedRect<f32, LayoutPixel>,
     full_screen_rect: TypedRect<f32, LayoutPixel>,
-    app_resources: &'b mut AppResources<'b>,
+    app_resources: &mut AppResources,
     render_api: &RenderApi,
     resource_updates: &mut Vec<ResourceUpdate>)
 {
@@ -410,7 +413,7 @@ fn displaylist_handle_rect<'a, 'b>(
         Label(text) => {
             push_text(
                 &info,
-                &TextInfo::Uncached(text),
+                &TextInfo::Uncached(text.clone()),
                 builder,
                 &rect.style,
                 app_resources,
@@ -524,12 +527,12 @@ fn push_rect(
 }
 
 #[inline]
-fn push_text<'a, 'b>(
+fn push_text(
     info: &PrimitiveInfo<LayoutPixel>,
-    text: &TextInfo<'a>,
+    text: &TextInfo,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    app_resources: &'b mut AppResources<'b>,
+    app_resources: &mut AppResources,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>,
