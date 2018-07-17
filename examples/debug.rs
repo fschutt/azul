@@ -71,10 +71,15 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
             let mut svg_cache = SvgCache::empty();
 
             let (font, _) = app_state.get_font(&FontId::BuiltinFont("sans-serif"))?;
-            let ch = SvgLayerType::from_character('a', font);
-            println!("ch: {:?}", ch);
 
-            let svg_layers = svg_cache.add_svg(&contents).ok()?;
+            let text_layer = LayerType::from_single_layer(SvgLayerType::from_character('a', font).1);
+            let svg_layer = SvgLayer::default_from_layer(text_layer, SvgStyle::filled(ColorU { r: 0, b: 0, g: 0, a: 200 }));
+
+            let mut svg_layers = svg_cache.add_svg(&contents).ok()?;
+
+            let text_layer_id = svg_cache.add_layer(svg_layer);
+            svg_layers.push(text_layer_id);
+
             app_state.data.modify(|data| data.map = Some(Map {
                 cache: svg_cache,
                 layers: svg_layers,

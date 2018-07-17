@@ -516,7 +516,21 @@ pub struct SvgLayer<T: Layout> {
     pub callbacks: SvgCallbacks<T>,
     pub style: SvgStyle,
     pub transform_id: Option<SvgTransformId>,
+    // TODO: This is currently not used
     pub view_box_id: SvgViewBoxId,
+}
+
+impl<T: Layout> SvgLayer<T> {
+    /// Shorthand for creating a SvgLayer from some data and style
+    pub fn default_from_layer(data: LayerType, style: SvgStyle) -> Self {
+        SvgLayer {
+            data,
+            callbacks: SvgCallbacks::None,
+            style,
+            transform_id: None,
+            view_box_id: new_view_box_id(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -532,6 +546,14 @@ impl LayerType {
             KnownSize(a) => &a[..],
             UnknownSize(b) => &b[..],
         }
+    }
+
+    pub fn from_polygons(data: Vec<SvgLayerType>) -> Self {
+        LayerType::UnknownSize(data)
+    }
+
+    pub fn from_single_layer(data: SvgLayerType) -> Self {
+        LayerType::KnownSize([data])
     }
 }
 
@@ -602,6 +624,21 @@ pub struct SvgStyle {
     // TODO: stroke-dasharray
 }
 
+impl SvgStyle {
+    pub fn stroked(color: ColorU, stroke_opts: SvgStrokeOptions) -> Self {
+        Self {
+            stroke: Some((color, stroke_opts)),
+            .. Default::default()
+        }
+    }
+
+    pub fn filled(color: ColorU) -> Self {
+        Self {
+            fill: Some(color),
+            .. Default::default()
+        }
+    }
+}
 // similar to lyon::SvgStrokeOptions, except the
 // thickness is a usize (f32 * 1000 as usize), in order
 // to implement Hash
@@ -774,7 +811,7 @@ impl SvgLayerType {
          .as_ref()
          .unwrap()
          .iter()
-         .map(svg_to_lyon::glyph_to_path_events)
+         .map(svg_to_lyon::rusttype_glyph_to_path_events)
          .collect();
 
         (glyph.id(), SvgLayerType::Text(path_events))
@@ -1040,13 +1077,18 @@ mod svg_to_lyon {
 
     // Convert a Rusttype glyph to a Vec of PathEvents,
     // in order to turn a glyph into a polygon
-    pub fn glyph_to_path_events(vertex: &Vertex)
+    pub fn rusttype_glyph_to_path_events(vertex: &Vertex)
     -> PathEvent
     {   use rusttype::VertexType;
+        // Rusttypes vertex type needs to be inverted in the Y axis
+        // in order to work with lyon correctly
         match vertex.vertex_type() {
-            VertexType::CurveTo => PathEvent::QuadraticTo(Point::new(vertex.cx as f32, vertex.cy as f32), Point::new(vertex.x as f32, vertex.y as f32)),
-            VertexType::MoveTo => PathEvent::MoveTo(Point::new(vertex.x as f32, vertex.y as f32)),
-            VertexType::LineTo => PathEvent::LineTo(Point::new(vertex.x as f32, vertex.y as f32)),
+            VertexType::CurveTo =>  PathEvent::QuadraticTo(
+                                        Point::new(vertex.cx as f32, -(vertex.cy as f32)),
+                                        Point::new(vertex.x as f32,  -(vertex.y as f32))
+                                    ),
+            VertexType::MoveTo =>   PathEvent::MoveTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
+            VertexType::LineTo =>   PathEvent::LineTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
         }
     }
 }
