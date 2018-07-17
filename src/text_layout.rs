@@ -18,11 +18,10 @@ pub(crate) const RUSTTYPE_SIZE_HACK: f32 = 72.0 / 41.0;
 
 pub(crate) const PX_TO_PT: f32 = 72.0 / 96.0;
 
+type Words = Vec<SemanticWordItem>;
+
 #[derive(Debug, Clone)]
 pub(crate) struct Word {
-    /// The original text. TODO: Move this out of here,
-    /// this field gets unnecessarily cloned
-    pub text: String,
     /// Glyphs, positions are relative to the first character of the word
     pub glyphs: Vec<GlyphInstance>,
     /// The sum of the width of all the characters
@@ -129,19 +128,18 @@ struct FontMetrics {
     offset_top: f32,
 }
 
-// TODO: hacky hacky shit. Seperate the text itself from the representation
-// so we don't have to clone the strings when we change or zoom the font
-fn get_string_from_words(words: &[SemanticWordItem]) -> String {
-    use self::SemanticWordItem::*;
-    let mut target = String::with_capacity(words.len());
-    for word in words {
-        match word {
-            Word(w) => target += &w.text,
-            Tab => target.push('\t'),
-            Return => target.push('\n'),
+enum WordRef<'a> {
+    Owned(Words),
+    Borrowed(&'a Words),
+}
+
+impl<'a> WordRef<'a> {
+    fn as_ref<'b: 'a>(&'b self) -> &'b Words {
+        match self {
+            WordRef::Owned(ref w) => w,
+            WordRef::Borrowed(w) => w,
         }
     }
-    target
 }
 
 /// ## Inputs
@@ -167,14 +165,8 @@ fn get_string_from_words(words: &[SemanticWordItem]) -> String {
 /// - `TextOverflowPass2`: This is internally used for aligning text (horizontally / vertically), but
 ///   it is necessary for drawing the scrollbars later on, to determine the height of the bar. Contains
 ///   info about if the text has overflown the rectangle, and if yes, by how many pixels
-///
-/// ## Notes
-///
-/// This function is currently very expensive, since it doesn't cache the string. So it does many small
-/// allocations. This should be cleaned up in the future by caching `BlobStrings` and only re-layouting
-/// when it's absolutely necessary.
-pub(crate) fn get_glyphs<'a>(
-    app_resources: &AppResources<'a>,
+pub(crate) fn get_glyphs<'a, 'b>(
+    app_resources: &'b mut AppResources<'b>,
     bounds: &TypedRect<f32, LayoutPixel>,
     horiz_alignment: TextAlignmentHorz,
     vert_alignment: TextAlignmentVert,
@@ -187,7 +179,6 @@ pub(crate) fn get_glyphs<'a>(
 -> (Vec<GlyphInstance>, TextOverflowPass2)
 {
     use css_parser::{TextOverflowBehaviour, TextOverflowBehaviourInner};
-    use text_cache::LargeString;
 
     let target_font = app_resources.font_data.get(target_font_id)
         .expect("Drawing with invalid font!");
@@ -216,52 +207,8 @@ pub(crate) fn get_glyphs<'a>(
     // This function also normalizes the unicode characters and calculates kerning.
     //
     // NOTE: This should be revisited, the caching does unnecessary cloning.
-    let (word_scale_factor, mut words) = match text {
-        TextInfo::Cached(text_id) => {
-            match app_resources.text_cache.cached_strings.get(text_id) {
-                Some(LargeString::Cached { font, size, words }) => {
-                    if font == target_font_id {
-                        use std::rc::Rc;
-                        // If the target font is the same as the initial font, but the font size differs,
-                        // all we have to do is to scale the widths of the words on the words
-                        let cloned_words: Vec<SemanticWordItem> = (&*(words.clone())).clone();
-                        if size == target_font_size {
-                            (None, cloned_words)
-                        } else {
-                            (Some(target_font_size.0.to_pixels() / size.0.to_pixels()), cloned_words)
-                        }
-                    } else {
-                        // generate new words struct based on the previous words
-                        let new_words = split_text_into_words(&get_string_from_words(words), &target_font.0, font_size_no_line_height);
-                        (None, new_words)
-                    }
-                },
-                Some(LargeString::Raw(s)) => {
-                    (None, split_text_into_words(s, &target_font.0, font_size_no_line_height))
-                },
-                None => panic!("Invalid TextId \"{:?}\" encountered in text_layout::get_glyphs", text_id),
-            }
-        },
-        TextInfo::Uncached(s) => (None, split_text_into_words(s, &target_font.0, font_size_no_line_height)),
-    };
-
-    // Scale the horizontal width of the words to match the new font size
-    // Since each word has a local origin (i.e. the first character of each word
-    // is at (0, 0)), we can simply scale the X position of each glyph by a
-    // certain factor.
-    //
-    // So if we previously had a 12pt font and now a 13pt font,
-    // we simply scale each glyph position by 13 / 12. This is faster than
-    // re-calculating the font metrics (from Rusttype) each time we scale a
-    // large amount of text.
-    if let Some(scale_factor) = word_scale_factor {
-        for word in words.iter_mut() {
-            if let SemanticWordItem::Word(ref mut w) = word {
-                w.glyphs.iter_mut().for_each(|g| g.point.x *= scale_factor);
-                w.total_width *= scale_factor;
-            }
-        }
-    }
+    let words = get_words_cached(text, &target_font.0, target_font_id, target_font_size, font_size_no_line_height, app_resources);
+    let words = words.as_ref();
 
     // (2) Calculate the additions / subtractions that have to be take into account
     // let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text, &target_font.0);
@@ -301,6 +248,88 @@ pub(crate) fn get_glyphs<'a>(
     (positioned_glyphs, overflow_pass_2)
 }
 
+fn get_words_cached<'a, 'b>(
+    text: &TextInfo<'a>,
+    font: &Font<'a>,
+    font_id: &FontId,
+    font_size: &FontSize,
+    font_size_no_line_height: Scale,
+    app_resources: &'b mut AppResources<'b>)
+-> WordRef<'b>
+{
+    use std::collections::hash_map::Entry::*;
+    use FastHashMap;
+
+    match text {
+        TextInfo::Cached(text_id) => {
+
+            let mut should_words_be_scaled = false;
+
+            match app_resources.text_cache.cached_strings.entry(*text_id) {
+                Occupied(font_hash_map) => {
+
+                    let font_size_map = font_hash_map.get_mut().entry(*font_id).or_insert_with(|| FastHashMap::default());
+                    let is_new_font = font_size_map.is_empty();
+
+                    match font_size_map.entry(*font_size) {
+                        Occupied(existing_font_size_words) => {
+                            // Text ID, Font ID and font size already exist - return the cache
+                            return WordRef::Borrowed(existing_font_size_words.get());
+                        }
+                        Vacant(v) => {
+                            if is_new_font {
+                                v.insert(split_text_into_words(&app_resources.text_cache.string_cache[text_id], font, font_size_no_line_height));
+                            } else {
+                                // If we can get the words from any other size, we can just scale them here
+                                // ex. if an existing font size gets scaled.
+                               should_words_be_scaled = true;
+                            }
+                        }
+                    }
+                },
+                Vacant(_) => panic!("Invalid TextId \"{:?}\" encountered in text_layout::get_words_cached", text_id),
+            }
+
+            // We have an entry in the font size -> words cache already, but it's not the right font size
+            // instead of recalculating the words, we simply scale them up.
+            if should_words_be_scaled {
+                let words_cloned = {
+                    let font_size_map = &app_resources.text_cache.cached_strings[&text_id][&font_id];
+                    let (ref old_font_size, ref next_words_for_font) = font_size_map.iter().next().unwrap();
+                    let mut words_cloned: Words = *next_words_for_font.clone();
+                    let scale_factor = font_size.0.to_pixels() / old_font_size.0.to_pixels();
+
+                    scale_words(&mut words_cloned, scale_factor);
+                    words_cloned
+                };
+
+                app_resources.text_cache.cached_strings[&text_id][&font_id].insert(*font_size, words_cloned);
+            }
+
+            WordRef::Borrowed(&app_resources.text_cache.cached_strings[&text_id][&font_id][&font_size])
+        },
+        TextInfo::Uncached(s) => WordRef::Owned(split_text_into_words(s, font, font_size_no_line_height)),
+    }
+}
+
+fn scale_words(words: &mut Words, scale_factor: f32) {
+    // Scale the horizontal width of the words to match the new font size
+    // Since each word has a local origin (i.e. the first character of each word
+    // is at (0, 0)), we can simply scale the X position of each glyph by a
+    // certain factor.
+    //
+    // So if we previously had a 12pt font and now a 13pt font,
+    // we simply scale each glyph position by 13 / 12. This is faster than
+    // re-calculating the font metrics (from Rusttype) each time we scale a
+    // large amount of text.
+    for word in words.iter_mut() {
+        if let SemanticWordItem::Word(ref mut w) = word {
+            w.glyphs.iter_mut().for_each(|g| g.point.x *= scale_factor);
+            w.total_width *= scale_factor;
+        }
+    }
+}
+
 /// This function is also used in the `text_cache` module for caching large strings.
 ///
 /// It is one of the most expensive functions, use with care.
@@ -318,7 +347,6 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
     let mut last_glyph = None;
 
     fn end_word(words: &mut Vec<SemanticWordItem>,
-                chars_in_this_word: &mut Vec<char>,
                 glyphs_in_this_word: &mut Vec<GlyphInstance>,
                 cur_word_length: &mut f32,
                 word_caret: &mut f32,
@@ -326,7 +354,6 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
     {
         // End of word
         words.push(SemanticWordItem::Word(Word {
-            text: chars_in_this_word.drain(..).collect(),
             glyphs: glyphs_in_this_word.drain(..).collect(),
             total_width: *cur_word_length,
         }));
@@ -344,7 +371,6 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                 if !chars_in_this_word.is_empty() {
                     end_word(
                         &mut words,
-                        &mut chars_in_this_word,
                         &mut glyphs_in_this_word,
                         &mut cur_word_length,
                         &mut word_caret,
@@ -357,7 +383,6 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                 if !chars_in_this_word.is_empty() {
                     end_word(
                         &mut words,
-                        &mut chars_in_this_word,
                         &mut glyphs_in_this_word,
                         &mut cur_word_length,
                         &mut word_caret,
@@ -369,7 +394,6 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                 if !chars_in_this_word.is_empty() {
                     end_word(
                         &mut words,
-                        &mut chars_in_this_word,
                         &mut glyphs_in_this_word,
                         &mut cur_word_length,
                         &mut word_caret,
@@ -414,7 +438,6 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
     if !chars_in_this_word.is_empty() {
         end_word(
             &mut words,
-            &mut chars_in_this_word,
             &mut glyphs_in_this_word,
             &mut cur_word_length,
             &mut word_caret,
@@ -610,7 +633,7 @@ fn calculate_harfbuzz_adjustments<'a>(text: &str, font: &Font<'a>)
 /// the rectangle horizontally
 #[inline(always)]
 fn words_to_left_aligned_glyphs<'a>(
-    words: Vec<SemanticWordItem>,
+    words: &[SemanticWordItem],
     font: &Font<'a>,
     max_horizontal_width: Option<f32>,
     font_metrics: &FontMetrics)
