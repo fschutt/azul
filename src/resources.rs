@@ -212,24 +212,40 @@ impl<'a> AppResources<'a> {
     pub(crate) fn add_text_uncached<S: Into<String>>(&mut self, text: S)
     -> TextId
     {
-        use text_cache::LargeString;
-        self.text_cache.add_text(LargeString::Raw(text.into()))
+        self.text_cache.add_text(text)
     }
 
     /// Calculates the widths for the words, then stores the widths of the words + the actual words
     ///
     /// This leads to a faster layout cycle, but has an upfront performance cost
-    pub(crate) fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &FontId, font_size: FontSize)
+    pub(crate) fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize)
     -> TextId
     {
         use rusttype::Scale;
-        use text_cache::LargeString;
         use std::rc::Rc;
 
-        let font_size_no_line_height = Scale::uniform(font_size.0.to_pixels() * RUSTTYPE_SIZE_HACK * PX_TO_PT);
-        let rusttype_font = self.font_data.get(font_id).expect("in resources.add_text_cached(): could not get font for caching text");
+        // First, insert the text into the text cache
+        let id = self.add_text_uncached(text);
+        self.cache_text(id, font_id.clone(), font_size);
+        id
+    }
+
+    /// Promotes (and calculates all the metrics) for a given text ID.
+    pub(crate) fn cache_text(&mut self, id: TextId, font: FontId, size: FontSize) {
+
+        use rusttype::Scale;
+
+        // We need to assume that the actual string contents have already been stored in self.text_cache
+        // Otherwise, how would the TextId be valid?
+        let text = self.text_cache.string_cache.get(&id).expect("Invalid text Id");
+        let font_size_no_line_height = Scale::uniform(size.0.to_pixels() * RUSTTYPE_SIZE_HACK * PX_TO_PT);
+        let rusttype_font = self.font_data.get(&font).expect("Invalid font ID");
         let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height);
-        self.text_cache.add_text(LargeString::Cached { font: font_id.clone(), size: font_size, words: Rc::new(words) })
+
+        self.text_cache.cached_strings
+            .entry(id).or_insert_with(|| FastHashMap::default())
+            .entry(font).or_insert_with(|| FastHashMap::default())
+            .insert(size, words);
     }
 
     pub(crate) fn delete_text(&mut self, id: TextId) {

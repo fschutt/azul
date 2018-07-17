@@ -23,34 +23,37 @@ pub struct TextId {
     inner: usize,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) enum LargeString {
-    Raw(String),
-    /// The `Vec<SemanticWordItem>` stores the individual word, so we don't need
-    /// to store it again. The `words` is stored in an Rc, so that we don't need to
-    /// duplicate it for every font size.
-    Cached { font: FontId, size: FontSize, words: Rc<Vec<SemanticWordItem>> },
-}
-
 /// Cache for accessing large amounts of text
 #[derive(Debug, Default, Clone)]
 pub(crate) struct TextCache {
-    /// Gives you the mapping from the TextID to the actual, UTF-8 String
-    pub(crate) cached_strings: FastHashMap<TextId, LargeString>,
+    /// Caches the layout of the strings / words.
+    ///
+    /// TextId -> FontId (to look up by font)
+    /// FontId -> FontSize (to categorize by size within a font)
+    /// FontSize -> layouted words (to cache the glyph widths on a per-font-size basis)
+    pub(crate) cached_strings: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<FontSize, Vec<SemanticWordItem>>>>,
+    /// Mapping from the TextID to the actual, UTF-8 String
+    ///
+    /// This is stored outside of the actual glyph calculation, because usually you don't
+    /// need the string, except for rebuilding a cached string (for example, when the font is changed)
+    pub(crate) string_cache: FastHashMap<TextId, String>,
 }
 
 impl TextCache {
-    pub(crate) fn add_text(&mut self, text: LargeString) -> TextId {
+    /// Add a new, large text to the resources
+    pub(crate) fn add_text<S: Into<String>>(&mut self, text: S) -> TextId {
         let id = new_text_id();
-        self.cached_strings.insert(id, text);
+        self.string_cache.insert(id, text.into());
         id
     }
 
     pub(crate) fn delete_text(&mut self, id: TextId) {
+        self.string_cache.remove(&id);
         self.cached_strings.remove(&id);
     }
 
     pub(crate) fn clear_all_texts(&mut self) {
+        self.string_cache.clear();
         self.cached_strings.clear();
     }
 }

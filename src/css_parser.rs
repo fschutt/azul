@@ -17,11 +17,11 @@ pub(crate) const EM_HEIGHT: f32 = 16.0;
 /// Webrender measures in points, not in pixels!
 pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
 
-// In case no font size is specified for a node, this will be subsituted as the
-// default font size
+// In case no font size is specified for a node,
+// this will be subsituted as the default font size
 pub(crate) const DEFAULT_FONT_SIZE: FontSize = FontSize(PixelValue {
     metric: CssMetric::Px,
-    number: 10.0,
+    number: 10_000,
 });
 
 /// Implements `From` for `$a`, mapping it to the `$b::$enum_type` variant
@@ -275,19 +275,22 @@ impl<'a> From<PercentageParseError> for CssParsingError<'a> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PixelValue {
     pub metric: CssMetric,
-    pub number: f32,
+    /// Has to be divided by 1000.0
+    pub number: isize,
 }
 
-impl PartialEq for PixelValue {
-    fn eq(&self, other: &Self) -> bool {
-        self.compare_equality_2digits(other)
+impl PixelValue {
+    pub fn to_pixels(&self) -> f32 {
+        match self.metric {
+            CssMetric::Px => { self.number as f32 / 1000.0 },
+            CssMetric::Pt => { (self.number as f32 / 1000.0) * PT_TO_PX },
+            CssMetric::Em => { (self.number as f32 / 1000.0) * EM_HEIGHT },
+        }
     }
 }
-
-impl Eq for PixelValue { }
 
 /// "100%" or "1.0" value
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -296,34 +299,11 @@ pub struct PercentageValue {
     pub number: f32,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
 pub enum CssMetric {
     Px,
     Pt,
     Em,
-}
-
-impl PixelValue {
-    pub fn to_pixels(&self) -> f32 {
-        match self.metric {
-            CssMetric::Px => { self.number },
-            CssMetric::Pt => { self.number * PT_TO_PX },
-            CssMetric::Em => { self.number * EM_HEIGHT },
-        }
-    }
-
-    /// Compare the equality of two font sizes up to the 4th digit
-    ///
-    /// i.e. `1.234` == `1.235` because `123` == `123`
-    ///
-    /// Usually this precision is enough to determine if two font sizes are
-    /// "equal" since you can't really compare floating-point values
-    ///
-    /// Used for the `PartialEq` implementation
-    pub fn compare_equality_2digits(&self, other: &Self) -> bool {
-        (self.to_pixels() * 100.0) as usize ==
-        (other.to_pixels() * 100.0) as usize
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -475,7 +455,7 @@ fn parse_pixel_value<'a>(input: &'a str)
 
     Ok(PixelValue {
         metric: unit,
-        number: number,
+        number: (number * 1000.0) as isize,
     })
 }
 
@@ -1673,7 +1653,7 @@ fn parse_line_height(input: &str)
     parse_percentage_value(input).and_then(|e| Ok(LineHeight(e)))
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct FontSize(pub PixelValue);
 
 typed_pixel_value_parser!(parse_css_font_size, FontSize);

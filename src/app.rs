@@ -90,8 +90,8 @@ impl Default for FrameEventInfo {
 #[derive(Debug, Clone)]
 #[cfg_attr(not(feature = "logging"), derive(Copy))]
 pub struct AppConfig {
-    /// If enabled, logs error and info messages. 
-    /// 
+    /// If enabled, logs error and info messages.
+    ///
     /// Default is `Some(LevelFilter::Error)` to log all errors by default
     #[cfg(feature = "logging")]
     pub enable_logging: Option<LevelFilter>,
@@ -99,7 +99,7 @@ pub struct AppConfig {
     #[cfg(feature = "logging")]
     pub log_file_path: Option<String>,
     /// If the app crashes / panics, a window with a message box pops up
-    /// Additionally, the error + backtrace gets logged to the output 
+    /// Additionally, the error + backtrace gets logged to the output
     /// file (if logging is enabled).
     #[cfg(feature = "logging")]
     pub enable_visual_panic_hook: bool,
@@ -132,7 +132,7 @@ impl<'a, T: Layout> App<'a, T> {
                 ::logging::set_up_panic_hooks();
             }
         }
-        
+
         Self {
             windows: Vec::new(),
             app_state: AppState::new(initial_data),
@@ -451,7 +451,7 @@ impl<'a, T: Layout> App<'a, T> {
         self.app_state.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
     -> TextId
     {
         self.app_state.add_text_cached(text, font_id, font_size)
@@ -640,11 +640,11 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     }
 }
 
-fn render<T: Layout>(
+fn render<'a, T: Layout>(
     window: &mut Window<T>,
     _window_id: &WindowId,
     ui_description: &UiDescription<T>,
-    app_resources: &mut AppResources,
+    app_resources: &'a mut AppResources<'a>,
     has_window_size_changed: bool)
 {
     use webrender::api::*;

@@ -226,7 +226,7 @@ impl<'a, T: Layout> AppState<'a, T> {
         self.resources.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: AsRef<str>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
     -> TextId
     {
         let font_size = FontSize(font_size);

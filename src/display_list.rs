@@ -73,19 +73,20 @@ pub(crate) enum TextInfo<'a> {
 }
 
 impl<'a> TextInfo<'a> {
-    /// Returns if the inner text is empty. Returns false if the ID does not exist
+    /// Returns if the inner text is empty.
+    ///
+    /// Returns true if the TextInfo::Cached TextId does not exist
+    /// (since in that case, it is "empty", so to speak)
     fn is_empty_text(&self, app_resources: &AppResources)
     -> bool
     {
         use self::TextInfo::*;
-        use text_cache::LargeString;
 
         match self {
             Cached(text_id) => {
-                match app_resources.text_cache.cached_strings.get(text_id) {
-                    Some(LargeString::Raw(r)) => r.is_empty(),
-                    Some(LargeString::Cached { words, .. }) => words.is_empty(),
-                    None => false,
+                match app_resources.text_cache.string_cache.get(text_id) {
+                    Some(s) => s.is_empty(),
+                    None => true,
                 }
             }
             Uncached(s) => s.is_empty(),
@@ -243,12 +244,12 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         }
     }
 
-    pub fn into_display_list_builder(
+    pub fn into_display_list_builder<'b>(
         &self,
         pipeline_id: PipelineId,
         ui_solver: &mut UiSolver<T>,
         css: &mut Css,
-        app_resources: &mut AppResources,
+        app_resources: &'b mut AppResources<'b>,
         render_api: &RenderApi,
         mut has_window_size_changed: bool,
         window_size: &WindowSize)
@@ -335,14 +336,14 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-fn displaylist_handle_rect<'a>(
+fn displaylist_handle_rect<'a, 'b>(
     builder: &mut DisplayListBuilder,
     rect_idx: NodeId,
     arena: &Arena<DisplayRectangle<'a>>,
     html_node: &NodeType,
     bounds: TypedRect<f32, LayoutPixel>,
     full_screen_rect: TypedRect<f32, LayoutPixel>,
-    app_resources: &mut AppResources,
+    app_resources: &'b mut AppResources<'b>,
     render_api: &RenderApi,
     resource_updates: &mut Vec<ResourceUpdate>)
 {
@@ -523,12 +524,12 @@ fn push_rect(
 }
 
 #[inline]
-fn push_text<'a>(
+fn push_text<'a, 'b>(
     info: &PrimitiveInfo<LayoutPixel>,
     text: &TextInfo<'a>,
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    app_resources: &mut AppResources,
+    app_resources: &'b mut AppResources<'b>,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>,
