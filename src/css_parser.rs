@@ -2076,12 +2076,12 @@ mod css_tests {
 
     #[test]
     fn test_parse_pixel_value_1() {
-        assert_eq!(parse_pixel_value("15px"), Ok(PixelValue { metric: CssMetric::Px, number: 15.0 }));
+        assert_eq!(parse_pixel_value("15px"), Ok(PixelValue { metric: CssMetric::Px, number: 15000 }));
     }
 
     #[test]
     fn test_parse_pixel_value_2() {
-        assert_eq!(parse_pixel_value("1.2em"), Ok(PixelValue { metric: CssMetric::Em, number: 1.2 }));
+        assert_eq!(parse_pixel_value("1.2em"), Ok(PixelValue { metric: CssMetric::Em, number: 1200 }));
     }
 
     #[test]
