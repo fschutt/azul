@@ -640,11 +640,11 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     }
 }
 
-fn render<'a, T: Layout>(
+fn render<T: Layout>(
     window: &mut Window<T>,
     _window_id: &WindowId,
     ui_description: &UiDescription<T>,
-    app_resources: &'a mut AppResources<'a>,
+    app_resources: &mut AppResources,
     has_window_size_changed: bool)
 {
     use webrender::api::*;

@@ -10,6 +10,7 @@ use {
         TextAlignmentHorz, FontSize, BackgroundColor,
         FontId, TextAlignmentVert, LineHeight, LayoutOverflow
     },
+    text_cache::{TextId, TextCache},
 };
 
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
@@ -128,20 +129,6 @@ struct FontMetrics {
     offset_top: f32,
 }
 
-enum WordRef<'a> {
-    Owned(Words),
-    Borrowed(&'a Words),
-}
-
-impl<'a> WordRef<'a> {
-    fn as_ref<'b: 'a>(&'b self) -> &'b Words {
-        match self {
-            WordRef::Owned(ref w) => w,
-            WordRef::Borrowed(w) => w,
-        }
-    }
-}
-
 /// ## Inputs
 ///
 /// - `app_resources`: This is only used for caching - if you already have a `LargeString`, which
@@ -165,15 +152,15 @@ impl<'a> WordRef<'a> {
 /// - `TextOverflowPass2`: This is internally used for aligning text (horizontally / vertically), but
 ///   it is necessary for drawing the scrollbars later on, to determine the height of the bar. Contains
 ///   info about if the text has overflown the rectangle, and if yes, by how many pixels
-pub(crate) fn get_glyphs<'a, 'b>(
-    app_resources: &'b mut AppResources<'b>,
+pub(crate) fn get_glyphs(
+    app_resources: &mut AppResources,
     bounds: &TypedRect<f32, LayoutPixel>,
     horiz_alignment: TextAlignmentHorz,
     vert_alignment: TextAlignmentVert,
     target_font_id: &FontId,
     target_font_size: &FontSize,
     line_height: Option<LineHeight>,
-    text: &TextInfo<'a>,
+    text: &TextInfo,
     overflow: &LayoutOverflow,
     scrollbar_info: &ScrollbarInfo)
 -> (Vec<GlyphInstance>, TextOverflowPass2)
@@ -207,8 +194,16 @@ pub(crate) fn get_glyphs<'a, 'b>(
     // This function also normalizes the unicode characters and calculates kerning.
     //
     // NOTE: This should be revisited, the caching does unnecessary cloning.
-    let words = get_words_cached(text, &target_font.0, target_font_id, target_font_size, font_size_no_line_height, app_resources);
-    let words = words.as_ref();
+    let words_owned;
+    let words = match text {
+        TextInfo::Cached(text_id) => {
+            get_words_cached(text_id, &target_font.0, target_font_id, target_font_size, font_size_no_line_height, &mut app_resources.text_cache)
+        },
+        TextInfo::Uncached(s) => {
+            words_owned = split_text_into_words(s, &target_font.0, font_size_no_line_height);
+            &words_owned
+        },
+    };
 
     // (2) Calculate the additions / subtractions that have to be take into account
     // let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text, &target_font.0);
@@ -248,68 +243,59 @@ pub(crate) fn get_glyphs<'a, 'b>(
     (positioned_glyphs, overflow_pass_2)
 }
 
-fn get_words_cached<'a, 'b>(
-    text: &TextInfo<'a>,
+fn get_words_cached<'a>(
+    text_id: &TextId,
     font: &Font<'a>,
     font_id: &FontId,
     font_size: &FontSize,
     font_size_no_line_height: Scale,
-    app_resources: &'b mut AppResources<'b>)
--> WordRef<'b>
+    text_cache: &'a mut TextCache)
+-> &'a Words
 {
     use std::collections::hash_map::Entry::*;
     use FastHashMap;
 
-    match text {
-        TextInfo::Cached(text_id) => {
+    let mut should_words_be_scaled = false;
 
-            let mut should_words_be_scaled = false;
+    match text_cache.cached_strings.entry(*text_id) {
+        Occupied(mut font_hash_map) => {
 
-            match app_resources.text_cache.cached_strings.entry(*text_id) {
-                Occupied(font_hash_map) => {
+            let font_size_map = font_hash_map.get_mut().entry(font_id.clone()).or_insert_with(|| FastHashMap::default());
+            let is_new_font = font_size_map.is_empty();
 
-                    let font_size_map = font_hash_map.get_mut().entry(*font_id).or_insert_with(|| FastHashMap::default());
-                    let is_new_font = font_size_map.is_empty();
-
-                    match font_size_map.entry(*font_size) {
-                        Occupied(existing_font_size_words) => {
-                            // Text ID, Font ID and font size already exist - return the cache
-                            return WordRef::Borrowed(existing_font_size_words.get());
-                        }
-                        Vacant(v) => {
-                            if is_new_font {
-                                v.insert(split_text_into_words(&app_resources.text_cache.string_cache[text_id], font, font_size_no_line_height));
-                            } else {
-                                // If we can get the words from any other size, we can just scale them here
-                                // ex. if an existing font size gets scaled.
-                               should_words_be_scaled = true;
-                            }
-                        }
+            match font_size_map.entry(*font_size) {
+                Occupied(existing_font_size_words) => { }
+                Vacant(v) => {
+                    if is_new_font {
+                        v.insert(split_text_into_words(&text_cache.string_cache[text_id], font, font_size_no_line_height));
+                    } else {
+                        // If we can get the words from any other size, we can just scale them here
+                        // ex. if an existing font size gets scaled.
+                       should_words_be_scaled = true;
                     }
-                },
-                Vacant(_) => panic!("Invalid TextId \"{:?}\" encountered in text_layout::get_words_cached", text_id),
+                }
             }
-
-            // We have an entry in the font size -> words cache already, but it's not the right font size
-            // instead of recalculating the words, we simply scale them up.
-            if should_words_be_scaled {
-                let words_cloned = {
-                    let font_size_map = &app_resources.text_cache.cached_strings[&text_id][&font_id];
-                    let (ref old_font_size, ref next_words_for_font) = font_size_map.iter().next().unwrap();
-                    let mut words_cloned: Words = *next_words_for_font.clone();
-                    let scale_factor = font_size.0.to_pixels() / old_font_size.0.to_pixels();
-
-                    scale_words(&mut words_cloned, scale_factor);
-                    words_cloned
-                };
-
-                app_resources.text_cache.cached_strings[&text_id][&font_id].insert(*font_size, words_cloned);
-            }
-
-            WordRef::Borrowed(&app_resources.text_cache.cached_strings[&text_id][&font_id][&font_size])
         },
-        TextInfo::Uncached(s) => WordRef::Owned(split_text_into_words(s, font, font_size_no_line_height)),
+        Vacant(_) => { },
     }
+
+    // We have an entry in the font size -> words cache already, but it's not the right font size
+    // instead of recalculating the words, we simply scale them up.
+    if should_words_be_scaled {
+        let words_cloned = {
+            let font_size_map = &text_cache.cached_strings[&text_id][&font_id];
+            let (old_font_size, next_words_for_font) = font_size_map.iter().next().unwrap();
+            let mut words_cloned: Words = next_words_for_font.clone();
+            let scale_factor = font_size.0.to_pixels() / old_font_size.0.to_pixels();
+
+            scale_words(&mut words_cloned, scale_factor);
+            words_cloned
+        };
+
+        text_cache.cached_strings.get_mut(&text_id).unwrap().get_mut(&font_id).unwrap().insert(*font_size, words_cloned);
+    }
+
+    text_cache.cached_strings.get(&text_id).unwrap().get(&font_id).unwrap().get(&font_size).unwrap()
 }
 
 fn scale_words(words: &mut Words, scale_factor: f32) {
@@ -685,12 +671,13 @@ fn words_to_left_aligned_glyphs<'a>(
                     current_line_num += 1;
                 }
 
-                for mut glyph in word.glyphs {
+                for glyph in &word.glyphs {
+                    let mut new_glyph = *glyph;
                     let push_x = word_caret;
                     let push_y = (current_line_num as f32 * vertical_advance) + offset_top;
-                    glyph.point.x += push_x;
-                    glyph.point.y += push_y;
-                    left_aligned_glyphs.push(glyph);
+                    new_glyph.point.x += push_x;
+                    new_glyph.point.y += push_y;
+                    left_aligned_glyphs.push(new_glyph);
                 }
 
                 // Add the word width to the current word_caret
