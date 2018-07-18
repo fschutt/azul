@@ -69,6 +69,8 @@ pub mod dom;
 pub mod dialogs;
 /// Async IO / task system
 pub mod task;
+/// Module for caching long texts (including their layout / character positions) across multiple frames
+pub mod text_cache;
 /// Text layout helper functions - useful for text layout outside of standard containers
 pub mod text_layout;
 /// The layout traits for creating a layout-able application
@@ -113,8 +115,6 @@ mod menu;
 mod compositor;
 // /// Platform extensions (non-portable window extensions for Win32, Wayland, X11, Cocoa)
 // mod platform_ext;
-/// Module for caching long texts (including their layout / character positions) across multiple frames
-mod text_cache;
 /// Default logger, can be turned off with `feature = "logging"`
 #[cfg(feature = "logging")]
 mod logging;
@@ -135,6 +135,7 @@ pub mod prelude {
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
     pub use window_state::WindowState;
     pub use images::ImageType;
+    pub use text_cache::{TextCache, TextId};
     pub use css_parser::{
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
         BorderWidths, BorderDetails, Background, FontSize,

@@ -19,18 +19,31 @@ pub(crate) const RUSTTYPE_SIZE_HACK: f32 = 72.0 / 41.0;
 
 pub(crate) const PX_TO_PT: f32 = 72.0 / 96.0;
 
-type Words = Vec<SemanticWordItem>;
-
+/// Words are a collection of glyph information, i.e. how much 
+/// horizontal space each of the words in a text block and how much 
+/// space each individual glyph take up.
+///
+/// This is important for calculating metrics such as the minimal 
+/// bounding box of a block of text, for example - without actually
+/// acessing the font at all.
+///
+/// Be careful when caching this - the `Words` are independent of the
+/// original font, so be sure to note the font ID if you cache this struct.
 #[derive(Debug, Clone)]
-pub(crate) struct Word {
+pub struct Words(Vec<SemanticWordItem>);
+
+/// A `Word` contains information about the layout of a single word
+#[derive(Debug, Clone)]
+pub struct Word {
     /// Glyphs, positions are relative to the first character of the word
     pub glyphs: Vec<GlyphInstance>,
     /// The sum of the width of all the characters
     pub total_width: f32,
 }
 
+/// Either a white-space delimited word, tab or return character
 #[derive(Debug, Clone)]
-pub(crate) enum SemanticWordItem {
+pub enum SemanticWordItem {
     /// Encountered a word (delimited by spaces)
     Word(Word),
     // `\t` or `x09`
@@ -209,7 +222,7 @@ pub(crate) fn get_glyphs(
     let max_horizontal_text_width = if overflow.allows_horizontal_overflow() { None } else { Some(new_size.width) };
 
     // (5) Align text to the left, initial layout of glyphs
-    let (mut positioned_glyphs, line_break_offsets) =
+    let (mut positioned_glyphs, line_break_offsets, _, _) =
         words_to_left_aligned_glyphs(words, &target_font.0, max_horizontal_text_width, &font_metrics);
 
     // (6) Add the harfbuzz adjustments to the positioned glyphs
@@ -330,7 +343,7 @@ fn scale_words(words: &mut Words, scale_factor: f32) {
     // we simply scale each glyph position by 13 / 12. This is faster than
     // re-calculating the font metrics (from Rusttype) each time we scale a
     // large amount of text.
-    for word in words.iter_mut() {
+    for word in words.0.iter_mut() {
         if let SemanticWordItem::Word(ref mut w) = word {
             w.glyphs.iter_mut().for_each(|g| g.point.x *= scale_factor);
             w.total_width *= scale_factor;
@@ -342,7 +355,7 @@ fn scale_words(words: &mut Words, scale_factor: f32) {
 ///
 /// It is one of the most expensive functions, use with care.
 pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: Scale)
--> Vec<SemanticWordItem>
+-> Words
 {
     use unicode_normalization::UnicodeNormalization;
 
@@ -452,19 +465,21 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
             &mut last_glyph);
     }
 
-    words
+    Words(words)
 }
 
 // First pass: calculate if the words will overflow (using the tabs)
 #[inline(always)]
 fn estimate_overflow_pass_1(
-    words: &[SemanticWordItem],
+    words: &Words,
     rect_dimensions: &TypedSize2D<f32, LayoutPixel>,
     font_metrics: &FontMetrics,
     overflow: &LayoutOverflow)
 -> TextOverflowPass1
 {
     use self::SemanticWordItem::*;
+    
+    let words = &words.0;
 
     let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
@@ -570,14 +585,14 @@ fn estimate_overflow_pass_1(
 
 #[inline(always)]
 fn estimate_overflow_pass_2(
-    words: &[SemanticWordItem],
+    words: &Words,
     rect_dimensions: &TypedSize2D<f32, LayoutPixel>,
     font_metrics: &FontMetrics,
     overflow: &LayoutOverflow,
     scrollbar_info: &ScrollbarInfo,
     pass1: TextOverflowPass1)
 -> (TypedSize2D<f32, LayoutPixel>, TextOverflowPass2)
-{
+{    
     let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
     let mut new_size = *rect_dimensions;
@@ -641,12 +656,14 @@ fn calculate_harfbuzz_adjustments<'a>(text: &str, font: &Font<'a>)
 /// the rectangle horizontally
 #[inline(always)]
 fn words_to_left_aligned_glyphs<'a>(
-    words: &[SemanticWordItem],
+    words: &Words,
     font: &Font<'a>,
     max_horizontal_width: Option<f32>,
     font_metrics: &FontMetrics)
--> (Vec<GlyphInstance>, Vec<(usize, f32)>)
+-> (Vec<GlyphInstance>, Vec<(usize, f32)>, f32, f32)
 {
+    let words = &words.0;
+
     let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
     // left_aligned_glyphs stores the X and Y coordinates of the positioned glyphs,
@@ -736,6 +753,9 @@ fn words_to_left_aligned_glyphs<'a>(
         }
     }
 
+    let min_enclosing_width = max_word_caret;
+    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + offset_top;
+
     let line_break_offsets = line_break_offsets.into_iter().map(|(line, space_r)| {
         let space_r = match space_r {
             WordCaretMax::SomeMaxWidth(s) => s,
@@ -744,7 +764,7 @@ fn words_to_left_aligned_glyphs<'a>(
         (line, space_r)
     }).collect();
 
-    (left_aligned_glyphs, line_break_offsets)
+    (left_aligned_glyphs, line_break_offsets, min_enclosing_width, min_enclosing_height)
 }
 
 #[inline(always)]
@@ -857,15 +877,33 @@ fn add_origin(positioned_glyphs: &mut [GlyphInstance], x: f32, y: f32)
 
 // -------------------------- PUBLIC API -------------------------- //
 
-/// Use `calculate_font_metrics` to calculate the `font_metrics` value.
-/// 
-/// This is useful if you need to layout many small texts in a loop, so we don't need to 
-/// re-calculate the metrics over and over again.
+pub type IndexOfLineBreak = usize;
+pub type RemainingSpaceToRight = f32;
+
+/// Returned result from the `layout_text` function
+#[derive(Debug, Clone)]
+pub struct LayoutTextResult {
+    /// The words, broken into 
+    pub words: Words,
+    /// Left-aligned glyphs
+    pub layouted_glyphs: Vec<GlyphInstance>,
+    /// The line_breaks contain:
+    ///
+    /// - The index of the glyph at which the line breaks (index into the `self.layouted_glyphs`)
+    /// - How much space each line has (to the right edge of the containing rectangle)
+    pub line_breaks: Vec<(IndexOfLineBreak, RemainingSpaceToRight)>,
+    /// Minimal width of the layouted text
+    pub min_width: f32,
+    /// Minimal height of the layouted text
+    pub min_height: f32,
+}
+
+/// Layout a string of text horizontally, given a font with its metrics.
 pub fn layout_text<'a>(
     text: &str, 
     font: &Font<'a>, 
     font_metrics: &FontMetrics) 
--> (Vec<GlyphInstance>, Vec<(usize, f32)>)
+-> LayoutTextResult
 {
     // NOTE: This function is different from the get_glyphs function that is
     // used internally to azul.
@@ -873,7 +911,12 @@ pub fn layout_text<'a>(
     // This function simply lays out a text, without trying to fit it into a rectangle.
     // This function does not calculate any overflow.
     let words = split_text_into_words(text, font, font_metrics.font_size_no_line_height);
-    words_to_left_aligned_glyphs(&words, font, None, font_metrics)
+    let (layouted_glyphs, line_breaks, min_width, min_height) = 
+        words_to_left_aligned_glyphs(&words, font, None, font_metrics);
+    
+    LayoutTextResult {
+        words, layouted_glyphs, line_breaks, min_width, min_height
+    }
 }
 
 #[test]

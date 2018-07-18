@@ -5,7 +5,7 @@ use std::{
 use {
     FastHashMap,
     css_parser::{FontId, FontSize},
-    text_layout::SemanticWordItem,
+    text_layout::Words,
 };
 
 static TEXT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -25,34 +25,34 @@ pub struct TextId {
 
 /// Cache for accessing large amounts of text
 #[derive(Debug, Default, Clone)]
-pub(crate) struct TextCache {
+pub struct TextCache {
     /// Caches the layout of the strings / words.
     ///
     /// TextId -> FontId (to look up by font)
     /// FontId -> FontSize (to categorize by size within a font)
     /// FontSize -> layouted words (to cache the glyph widths on a per-font-size basis)
-    pub(crate) cached_strings: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<FontSize, Vec<SemanticWordItem>>>>,
+    pub cached_strings: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<FontSize, Words>>>,
     /// Mapping from the TextID to the actual, UTF-8 String
     ///
     /// This is stored outside of the actual glyph calculation, because usually you don't
     /// need the string, except for rebuilding a cached string (for example, when the font is changed)
-    pub(crate) string_cache: FastHashMap<TextId, String>,
+    pub string_cache: FastHashMap<TextId, String>,
 }
 
 impl TextCache {
     /// Add a new, large text to the resources
-    pub(crate) fn add_text<S: Into<String>>(&mut self, text: S) -> TextId {
+    pub fn add_text<S: Into<String>>(&mut self, text: S) -> TextId {
         let id = new_text_id();
         self.string_cache.insert(id, text.into());
         id
     }
 
-    pub(crate) fn delete_text(&mut self, id: TextId) {
+    pub fn delete_text(&mut self, id: TextId) {
         self.string_cache.remove(&id);
         self.cached_strings.remove(&id);
     }
 
-    pub(crate) fn clear_all_texts(&mut self) {
+    pub fn clear_all_texts(&mut self) {
         self.string_cache.clear();
         self.cached_strings.clear();
     }
