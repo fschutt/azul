@@ -3,7 +3,7 @@ use std::{
     collections::BTreeMap,
 };
 use {
-    window::WindowInfo,
+    window::{WindowInfo, ReadOnlyWindow, WindowId},
     traits::Layout,
     dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On},
     app_state::AppState,
@@ -31,10 +31,16 @@ impl<T: Layout> fmt::Debug for UiState<T> {
 
 impl<T: Layout> UiState<T> {
     #[allow(unused_imports, unused_variables)]
-    pub(crate) fn from_app_state(app_state: &AppState<T>, window_info: WindowInfo) -> Self
+    pub(crate) fn from_app_state(app_state: &AppState<T>, window_id: WindowId, read_only_window: ReadOnlyWindow) -> Self
     {
         use dom::{Dom, On, NodeType};
         use std::sync::atomic::Ordering;
+
+        let window_info = WindowInfo {
+            window_id,
+            window: read_only_window,
+            texts: &app_state.resources.text_cache,
+        };
 
         // Only shortly lock the data to get the dom out
          let dom: Dom<T> = {

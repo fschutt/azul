@@ -34,7 +34,7 @@ impl Layout for MyAppData {
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
-            Button::with_label("SVG Datei öffnen...").dom()
+            Button::with_label("Open SVG file...").dom()
                .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }
@@ -85,7 +85,8 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
                 use azul::text_layout::*;
                 let font_metrics = FontMetrics::new(font, &FontSize::px(10.0), None);
                 let layout = layout_text("Hello World", font, &font_metrics);
-                println!("text layout glyphs: {:?}", layout.0);
+                println!("text layout glyphs: {:?}", layout.layouted_glyphs);
+                println!("text min w: {} min h: {}", layout.min_width, layout.min_height);
             }
 
             app_state.data.modify(|data| data.map = Some(Map {
@@ -95,6 +96,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
                 pan_horz: 0.0,
                 pan_vert: 0.0,
             }));
+            
             Some(UpdateScreen::Redraw)
         })
         .unwrap_or_else(|| {

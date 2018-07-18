@@ -261,12 +261,12 @@ impl<'a, T: Layout> App<'a, T> {
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
                     // Call the Layout::layout() fn, get the DOM
-                    ui_state_cache[idx] = UiState::from_app_state(&self.app_state, WindowInfo {
-                        window_id: WindowId { id: idx },
-                        window: ReadOnlyWindow {
-                            inner: window.display.clone(),
-                        }
-                    });
+                    let window_id = WindowId { id: idx };
+                    let read_only_window = ReadOnlyWindow { inner: window.display.clone() };
+                    ui_state_cache[idx] = UiState::from_app_state(
+                        &self.app_state, window_id, read_only_window
+                    );
+
                     // Style the DOM
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
                     // send webrender the size and buffer of the display
@@ -320,14 +320,11 @@ impl<'a, T: Layout> App<'a, T> {
     {
         use window::{ReadOnlyWindow, WindowInfo};
 
-        windows.iter().enumerate().map(|(idx, w)|
-            UiState::from_app_state(app_state, WindowInfo {
-                window_id: WindowId { id: idx },
-                window: ReadOnlyWindow {
-                    inner: w.display.clone(),
-                }
-            })
-        ).collect()
+        windows.iter().enumerate().map(|(idx, w)| {
+            let window_id = WindowId { id: idx };
+            let read_only_window = ReadOnlyWindow { inner: w.display.clone() };
+            UiState::from_app_state(app_state, window_id, read_only_window)
+        }).collect()
     }
 
     /// Add an image to the internal resources

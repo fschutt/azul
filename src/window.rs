@@ -33,6 +33,7 @@ use {
     cache::{EditVariableCache, DomTreeCache},
     id_tree::NodeId,
     compositor::Compositor,
+    text_cache::TextCache,
     app::FrameEventInfo,
 };
 
@@ -159,9 +160,10 @@ impl Drop for ReadOnlyWindow {
     }
 }
 
-pub struct WindowInfo {
+pub struct WindowInfo<'a> {
     pub window_id: WindowId,
     pub window: ReadOnlyWindow,
+    pub texts: &'a TextCache,
 }
 
 impl fmt::Debug for FakeWindow {
