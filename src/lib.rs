@@ -65,24 +65,24 @@ extern crate nfd;
 
 /// DOM / HTML node handling
 pub mod dom;
-/// The layout traits for creating a layout-able application
-pub mod traits;
-/// Window handling
-pub mod window;
-/// Async IO / task system
-pub mod task;
-/// Built-in widgets
-pub mod widgets;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
+/// Async IO / task system
+pub mod task;
+/// Text layout helper functions - useful for text layout outside of standard containers
+pub mod text_layout;
+/// The layout traits for creating a layout-able application
+pub mod traits;
+/// Built-in widgets
+pub mod widgets;
+/// Window handling
+pub mod window;
 /// Global application (Initialization starts here)
 mod app;
 /// Wrapper for the application data & application state
 mod app_state;
 /// Styling & CSS parsing
 mod css;
-/// Text layout
-mod text_layout;
 /// Font & image resource handling, lookup and caching
 mod resources;
 /// UI Description & display list handling (webrender)

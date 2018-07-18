@@ -277,12 +277,21 @@ pub struct InvalidValueErr<'a>(pub &'a str);
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PixelValue {
-    pub metric: CssMetric,
-    /// Has to be divided by 1000.0
-    pub number: isize,
+    metric: CssMetric,
+    /// Has to be divided by 1000.0 - PixelValue needs to implement Hash,
+    /// but Hash is not possible for floating-point values
+    number: isize,
 }
 
 impl PixelValue {
+
+    pub fn from_metric(metric: CssMetric, value: f32) -> Self {
+        Self {
+            metric: metric,
+            number: (value * 1000.0) as isize,
+        }
+    }
+
     pub fn to_pixels(&self) -> f32 {
         match self.metric {
             CssMetric::Px => { self.number as f32 / 1000.0 },
@@ -1654,9 +1663,26 @@ fn parse_line_height(input: &str)
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct FontSize(pub PixelValue);
+pub struct FontSize(pub(crate) PixelValue);
 
 typed_pixel_value_parser!(parse_css_font_size, FontSize);
+
+impl FontSize {
+    /// Creates the font size in pixel
+    pub fn px(value: f32) -> Self {
+        FontSize(PixelValue::from_metric(CssMetric::Px, value))
+    }
+
+    /// Creates the font size in em
+    pub fn em(value: f32) -> Self {
+        FontSize(PixelValue::from_metric(CssMetric::Em, value))
+    }
+
+    /// Creates the font size in point (pt)
+    pub fn pt(value: f32) -> Self {
+        FontSize(PixelValue::from_metric(CssMetric::Pt, value))
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FontFamily {
