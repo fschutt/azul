@@ -28,12 +28,14 @@ use lyon::{
 };
 use resvg::usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF};
+use rusttype::{Font, Glyph, GlyphId};
 use {
     FastHashMap,
     dom::{Dom, NodeType, Callback},
     traits::Layout,
     id_tree::NonZeroUsizeHack,
     window::ReadOnlyWindow,
+    css_parser::FontId,
 };
 
 static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
@@ -798,23 +800,56 @@ implement_vertex!(SvgVert, xy, normal);
 #[derive(Debug, Copy, Clone)]
 pub struct SvgWorldPixel;
 
-use rusttype::{Font, GlyphId};
+/// A vectorized font holds the glyphs for a given font, but in a vector format
+pub struct VectorizedFont {
+    /// Glyph -> Polygon map
+    pub(crate) glyph_map: FastHashMap<GlyphId, SvgLayerType>,
+}
+
+impl VectorizedFont {
+    pub fn from_font(font: &Font) -> Self {
+        let mut glyph_map = (0x0000..0xffff)
+        .filter_map(|i| {
+            let g = font.glyph(GlyphId(i));
+            if g.id() == GlyphId(0) {
+                None
+            } else {
+                Some(g)
+            }
+        })
+        .map(|g| (g.id(), glyph_to_svg_layer_type(g)))
+        .collect::<FastHashMap<GlyphId, SvgLayerType>>();
+
+        glyph_map.insert(GlyphId(0), glyph_to_svg_layer_type(font.glyph(GlyphId(0))));
+
+        Self { glyph_map }
+    }
+}
+
+fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> SvgLayerType {
+    SvgLayerType::Text(glyph
+        .standalone()
+        .get_data()
+        .unwrap().shape
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(svg_to_lyon::rusttype_glyph_to_path_events)
+        .collect())
+}
+
+pub struct VectorizedFontCache {
+    /// Font -> Vectorized glyph map
+    vectorized_fonts: FastHashMap<FontId, VectorizedFont>,
+}
 
 impl SvgLayerType {
 
     pub fn from_character(ch: char, font: &Font) -> (GlyphId, Self) {
         let glyph = font.glyph(ch);
-        let path_events = glyph
-         .standalone()
-         .get_data()
-         .unwrap().shape
-         .as_ref()
-         .unwrap()
-         .iter()
-         .map(svg_to_lyon::rusttype_glyph_to_path_events)
-         .collect();
-
-        (glyph.id(), SvgLayerType::Text(path_events))
+        let glyph_id = glyph.id();
+        let text_layer = glyph_to_svg_layer_type(glyph);
+        (glyph_id, text_layer)
     }
 
     pub fn tesselate(&self, tolerance: f32, stroke: Option<SvgStrokeOptions>)
