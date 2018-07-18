@@ -116,9 +116,10 @@ pub(crate) struct ScrollbarInfo {
     pub(crate) background_color: BackgroundColor,
 }
 
-/// Temporary struct so I don't have to pass the three parameters around seperately all the time
+/// Temporary struct that contains various metrics related to a font - 
+/// useful so we don't have to access the font to look up certain widths
 #[derive(Debug, Copy, Clone)]
-struct FontMetrics {
+pub struct FontMetrics {
     /// Width of the space character
     space_width: f32,
     /// Usually 4 * space_width
@@ -127,6 +128,12 @@ struct FontMetrics {
     vertical_advance: f32,
     /// Offset of the font from the top of the bounding rectangle
     offset_top: f32,
+    /// Font size (for rusttype, includes the `RUSTTYPE_SIZE_HACK`) in **pt** (not px)
+    /// Used for vertical layouting (since it includes the line height)
+    font_size_with_line_height: Scale,
+    /// Same as `font_size_with_line_height` but without the line height incorporated.
+    /// Used for horizontal layouting
+    font_size_no_line_height: Scale,
 }
 
 /// ## Inputs
@@ -167,26 +174,9 @@ pub(crate) fn get_glyphs(
 {
     use css_parser::{TextOverflowBehaviour, TextOverflowBehaviourInner};
 
-    let target_font = app_resources.font_data.get(target_font_id)
-        .expect("Drawing with invalid font!");
+    let target_font = app_resources.font_data.get(target_font_id).expect("Drawing with invalid font!");
 
-    let target_font_size_f32 = target_font_size.0.to_pixels() * RUSTTYPE_SIZE_HACK * PX_TO_PT;
-    let line_height = match line_height { Some(lh) => (lh.0).number, None => 1.0 };
-    let font_size_with_line_height = Scale::uniform(target_font_size_f32 * line_height);
-    let font_size_no_line_height = Scale::uniform(target_font_size_f32);
-    let space_width = target_font.0.glyph(' ').scaled(font_size_no_line_height).h_metrics().advance_width;
-    let tab_width = 4.0 * space_width; // TODO: make this configurable
-
-    let v_metrics_scaled = target_font.0.v_metrics(font_size_with_line_height);
-    let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
-    let offset_top = v_metrics_scaled.ascent / 2.0;
-
-    let font_metrics = FontMetrics {
-        vertical_advance: v_advance_scaled,
-        space_width: space_width,
-        tab_width: tab_width,
-        offset_top: offset_top,
-    };
+    let font_metrics = calculate_font_metrics(&target_font.0, target_font_size, line_height);
 
     // (1) Split the text into semantic items (word, tab or newline) OR get the cached
     // text and scale it accordingly.
@@ -197,10 +187,10 @@ pub(crate) fn get_glyphs(
     let words_owned;
     let words = match text {
         TextInfo::Cached(text_id) => {
-            get_words_cached(text_id, &target_font.0, target_font_id, target_font_size, font_size_no_line_height, &mut app_resources.text_cache)
+            get_words_cached(text_id, &target_font.0, target_font_id, target_font_size, font_metrics.font_size_no_line_height, &mut app_resources.text_cache)
         },
         TextInfo::Uncached(s) => {
-            words_owned = split_text_into_words(s, &target_font.0, font_size_no_line_height);
+            words_owned = split_text_into_words(s, &target_font.0, font_metrics.font_size_no_line_height);
             &words_owned
         },
     };
@@ -241,6 +231,38 @@ pub(crate) fn get_glyphs(
     add_origin(&mut positioned_glyphs, bounds.origin.x, bounds.origin.y);
 
     (positioned_glyphs, overflow_pass_2)
+}
+
+impl FontMetrics {
+    /// Given a font, font size and line height, calculates the `FontMetrics` necessary
+    /// which are later used to layout a block of text
+    pub fn new<'a>(font: &Font<'a>, font_size: &FontSize, line_height: Option<LineHeight>) -> Self {
+        calculate_font_metrics(font, font_size, line_height)
+    }
+}
+
+fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, line_height: Option<LineHeight>) -> FontMetrics {
+
+    let font_size_f32 = font_size.0.to_pixels() * RUSTTYPE_SIZE_HACK * PX_TO_PT;
+    let line_height = match line_height { Some(lh) => (lh.0).number, None => 1.0 };
+    let font_size_with_line_height = Scale::uniform(font_size_f32 * line_height);
+    let font_size_no_line_height = Scale::uniform(font_size_f32);
+
+    let space_width = font.glyph(' ').scaled(font_size_no_line_height).h_metrics().advance_width;
+    let tab_width = 4.0 * space_width; // TODO: make this configurable
+
+    let v_metrics_scaled = font.v_metrics(font_size_with_line_height);
+    let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
+    let offset_top = v_metrics_scaled.ascent / 2.0;
+
+    FontMetrics {
+        vertical_advance: v_advance_scaled,
+        space_width,
+        tab_width,
+        offset_top,
+        font_size_with_line_height,
+        font_size_no_line_height,
+    }
 }
 
 fn get_words_cached<'a>(
@@ -444,7 +466,7 @@ fn estimate_overflow_pass_1(
 {
     use self::SemanticWordItem::*;
 
-    let FontMetrics { space_width, tab_width, vertical_advance, offset_top } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
     let max_text_line_len_horizontal = 0.0;
 
@@ -556,7 +578,7 @@ fn estimate_overflow_pass_2(
     pass1: TextOverflowPass1)
 -> (TypedSize2D<f32, LayoutPixel>, TextOverflowPass2)
 {
-    let FontMetrics { space_width, tab_width, vertical_advance, offset_top } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
     let mut new_size = *rect_dimensions;
 
@@ -625,7 +647,7 @@ fn words_to_left_aligned_glyphs<'a>(
     font_metrics: &FontMetrics)
 -> (Vec<GlyphInstance>, Vec<(usize, f32)>)
 {
-    let FontMetrics { space_width, tab_width, vertical_advance, offset_top } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
     // left_aligned_glyphs stores the X and Y coordinates of the positioned glyphs,
     // left-aligned
@@ -831,6 +853,27 @@ fn add_origin(positioned_glyphs: &mut [GlyphInstance], x: f32, y: f32)
         c.point.x += x;
         c.point.y += y;
     }
+}
+
+// -------------------------- PUBLIC API -------------------------- //
+
+/// Use `calculate_font_metrics` to calculate the `font_metrics` value.
+/// 
+/// This is useful if you need to layout many small texts in a loop, so we don't need to 
+/// re-calculate the metrics over and over again.
+pub fn layout_text<'a>(
+    text: &str, 
+    font: &Font<'a>, 
+    font_metrics: &FontMetrics) 
+-> (Vec<GlyphInstance>, Vec<(usize, f32)>)
+{
+    // NOTE: This function is different from the get_glyphs function that is
+    // used internally to azul.
+    //
+    // This function simply lays out a text, without trying to fit it into a rectangle.
+    // This function does not calculate any overflow.
+    let words = split_text_into_words(text, font, font_metrics.font_size_no_line_height);
+    words_to_left_aligned_glyphs(&words, font, None, font_metrics)
 }
 
 #[test]
