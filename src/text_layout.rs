@@ -19,11 +19,11 @@ pub(crate) const RUSTTYPE_SIZE_HACK: f32 = 72.0 / 41.0;
 
 pub(crate) const PX_TO_PT: f32 = 72.0 / 96.0;
 
-/// Words are a collection of glyph information, i.e. how much 
-/// horizontal space each of the words in a text block and how much 
+/// Words are a collection of glyph information, i.e. how much
+/// horizontal space each of the words in a text block and how much
 /// space each individual glyph take up.
 ///
-/// This is important for calculating metrics such as the minimal 
+/// This is important for calculating metrics such as the minimal
 /// bounding box of a block of text, for example - without actually
 /// acessing the font at all.
 ///
@@ -129,7 +129,7 @@ pub(crate) struct ScrollbarInfo {
     pub(crate) background_color: BackgroundColor,
 }
 
-/// Temporary struct that contains various metrics related to a font - 
+/// Temporary struct that contains various metrics related to a font -
 /// useful so we don't have to access the font to look up certain widths
 #[derive(Debug, Copy, Clone)]
 pub struct FontMetrics {
@@ -266,7 +266,7 @@ fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, line_height
 
     let v_metrics_scaled = font.v_metrics(font_size_with_line_height);
     let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
-    let offset_top = v_metrics_scaled.ascent / 2.0;
+    let offset_top = v_advance_scaled / 2.0;
 
     FontMetrics {
         vertical_advance: v_advance_scaled,
@@ -478,7 +478,7 @@ fn estimate_overflow_pass_1(
 -> TextOverflowPass1
 {
     use self::SemanticWordItem::*;
-    
+
     let words = &words.0;
 
     let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
@@ -592,7 +592,7 @@ fn estimate_overflow_pass_2(
     scrollbar_info: &ScrollbarInfo,
     pass1: TextOverflowPass1)
 -> (TypedSize2D<f32, LayoutPixel>, TextOverflowPass2)
-{    
+{
     let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
     let mut new_size = *rect_dimensions;
@@ -883,7 +883,7 @@ pub type RemainingSpaceToRight = f32;
 /// Returned result from the `layout_text` function
 #[derive(Debug, Clone)]
 pub struct LayoutTextResult {
-    /// The words, broken into 
+    /// The words, broken into
     pub words: Words,
     /// Left-aligned glyphs
     pub layouted_glyphs: Vec<GlyphInstance>,
@@ -900,9 +900,9 @@ pub struct LayoutTextResult {
 
 /// Layout a string of text horizontally, given a font with its metrics.
 pub fn layout_text<'a>(
-    text: &str, 
-    font: &Font<'a>, 
-    font_metrics: &FontMetrics) 
+    text: &str,
+    font: &Font<'a>,
+    font_metrics: &FontMetrics)
 -> LayoutTextResult
 {
     // NOTE: This function is different from the get_glyphs function that is
@@ -911,9 +911,9 @@ pub fn layout_text<'a>(
     // This function simply lays out a text, without trying to fit it into a rectangle.
     // This function does not calculate any overflow.
     let words = split_text_into_words(text, font, font_metrics.font_size_no_line_height);
-    let (layouted_glyphs, line_breaks, min_width, min_height) = 
+    let (layouted_glyphs, line_breaks, min_width, min_height) =
         words_to_left_aligned_glyphs(&words, font, None, font_metrics);
-    
+
     LayoutTextResult {
         words, layouted_glyphs, line_breaks, min_width, min_height
     }

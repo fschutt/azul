@@ -13,6 +13,9 @@ os:
 matrix:
   fast_finish: true
 
+notifications:
+  email: false
+
 # We can't test OpenGL 3.2 on Travis, the shader compilation fails
 # because glium does a check first if it has a OGL 3.2 context
 script:
