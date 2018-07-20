@@ -39,7 +39,7 @@ impl<T: Layout> UiState<T> {
         let window_info = WindowInfo {
             window_id,
             window: read_only_window,
-            texts: &app_state.resources.text_cache,
+            resources: &app_state.resources,
         };
 
         // Only shortly lock the data to get the dom out
@@ -48,7 +48,7 @@ impl<T: Layout> UiState<T> {
             #[cfg(test)]{
                 Dom::<T>::new(NodeType::Div)
             }
-            
+
             #[cfg(not(test))]{
                 dom_lock.layout(window_info)
             }

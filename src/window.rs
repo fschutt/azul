@@ -35,6 +35,7 @@ use {
     compositor::Compositor,
     text_cache::TextCache,
     app::FrameEventInfo,
+    resources::AppResources,
 };
 
 /// azul-internal ID for a window
@@ -163,7 +164,7 @@ impl Drop for ReadOnlyWindow {
 pub struct WindowInfo<'a> {
     pub window_id: WindowId,
     pub window: ReadOnlyWindow,
-    pub texts: &'a TextCache,
+    pub resources: &'a AppResources<'a>,
 }
 
 impl fmt::Debug for FakeWindow {

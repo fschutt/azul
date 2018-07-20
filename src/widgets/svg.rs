@@ -65,6 +65,7 @@ pub fn new_svg_layer_id() -> SvgLayerId {
 
 const SHADER_VERSION_GL: &str = "#version 150";
 const SHADER_VERSION_GLES: &str = "#version 300 es";
+const DEFAULT_GLYPH_TOLERANCE: f32 = 0.01;
 
 const SVG_VERTEX_SHADER: &str = "
 
@@ -312,6 +313,32 @@ impl<T: Layout> Default for SvgCache<T> {
     }
 }
 
+fn fill_vertex_buffer_cache<'a, F: Facade>(
+    id: &SvgLayerId,
+    rmut: &'a mut FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>,
+    rnotmut: &FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
+    window: &F)
+    -> Option<&'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)>
+{
+    use std::collections::hash_map::Entry::*;
+
+    match rmut.entry(*id) {
+        Occupied(_) => { },
+        Vacant(v) => {
+            let (vbuf, ibuf) = match rnotmut.get(id).as_ref() {
+                Some(s) => s,
+                None => return None,
+            };
+            let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
+            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
+            ;
+            v.insert((vertex_buffer, index_buffer));
+        }
+    }
+
+    rmut.get(id)
+}
+
 impl<T: Layout> SvgCache<T> {
 
     /// Creates an empty SVG cache
@@ -329,7 +356,7 @@ impl<T: Layout> SvgCache<T> {
     }
 
     fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> &'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)
+    -> Option<&'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)>
     {
         use std::collections::hash_map::Entry::*;
         use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
@@ -337,12 +364,7 @@ impl<T: Layout> SvgCache<T> {
         let rmut = unsafe { &mut *self.stroke_vertex_index_buffer_cache.get() };
         let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
 
-        rmut.entry(*id).or_insert_with(|| {
-            let (vbuf, ibuf) = rnotmut.get(id).as_ref().unwrap();
-            let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
-            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
-            (vertex_buffer, index_buffer)
-        })
+        Some(fill_vertex_buffer_cache(id, rmut, rnotmut, window)?)
     }
 
     /// Note: panics if the ID isn't found.
@@ -350,7 +372,7 @@ impl<T: Layout> SvgCache<T> {
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
     /// in sync, a panic should never happen
     fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> &'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)
+    -> Option<&'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)>
     {
         use std::collections::hash_map::Entry::*;
         use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
@@ -368,12 +390,7 @@ impl<T: Layout> SvgCache<T> {
         let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
         let rnotmut = &self.gpu_ready_to_upload_cache;
 
-        rmut.entry(*id).or_insert_with(|| {
-            let (vbuf, ibuf) = rnotmut.get(id).as_ref().unwrap();
-            let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
-            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
-            (vertex_buffer, index_buffer)
-        })
+        Some(fill_vertex_buffer_cache(id, rmut, rnotmut, window)?)
     }
 
     fn get_style(&self, id: &SvgLayerId)
@@ -382,25 +399,12 @@ impl<T: Layout> SvgCache<T> {
         self.layers.get(id).as_ref().unwrap().style
     }
 
-}
-
-impl<T: Layout> fmt::Debug for SvgCache<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for layer in self.layers.keys() {
-            write!(f, "{:?}", layer)?;
-        }
-        Ok(())
-    }
-}
-
-impl<T: Layout> SvgCache<T> {
-
     pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
         // TODO: set tolerance based on zoom
         let new_svg_id = new_svg_layer_id();
 
         let ((vertex_buf, index_buf), opt_stroke) =
-            tesselate_layer_data(&layer.data, 0.01, layer.style.stroke.and_then(|s| Some(s.1.clone())));
+            tesselate_layer_data(&layer.data, DEFAULT_GLYPH_TOLERANCE, layer.style.stroke.and_then(|s| Some(s.1.clone())));
 
         self.gpu_ready_to_upload_cache.insert(new_svg_id, (vertex_buf, index_buf));
 
@@ -454,10 +458,20 @@ impl<T: Layout> SvgCache<T> {
     }
 }
 
+impl<T: Layout> fmt::Debug for SvgCache<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for layer in self.layers.keys() {
+            write!(f, "{:?}", layer)?;
+        }
+        Ok(())
+    }
+}
+
+const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
+
 fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: Option<SvgStrokeOptions>)
 -> ((Vec<SvgVert>, Vec<u32>), Option<(Vec<SvgVert>, Vec<u32>)>)
 {
-    const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
@@ -491,6 +505,26 @@ fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: 
     } else {
         ((vertex_buf, index_buf), None)
     }
+}
+
+/// Joins multiple SvgVert buffers to one and calculates the indices
+///
+/// TODO: Wrap this in a nicer API
+pub fn join_vertex_buffers(input: &[&VertexBuffers<SvgVert>]) -> (Vec<SvgVert>, Vec<u32>) {
+
+    let mut last_index = 0;
+    let mut vertex_buf = Vec::<SvgVert>::new();
+    let mut index_buf = Vec::<u32>::new();
+
+    for VertexBuffers { vertices, indices } in input {
+        let vertices_len = vertices.len();
+        vertex_buf.extend(vertices.into_iter());
+        index_buf.extend(indices.into_iter().map(|i| *i as u32 + last_index as u32));
+        index_buf.push(GL_RESTART_INDEX);
+        last_index += vertices_len;
+    }
+
+    (vertex_buf, index_buf)
 }
 
 #[derive(Debug)]
@@ -786,7 +820,6 @@ pub enum SvgLayerType {
     Polygon(Vec<PathEvent>),
     Circle(SvgCircle),
     Rect(SvgRect),
-    Text(Vec<PathEvent>),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -801,56 +834,106 @@ implement_vertex!(SvgVert, xy, normal);
 pub struct SvgWorldPixel;
 
 /// A vectorized font holds the glyphs for a given font, but in a vector format
+#[derive(Debug, Clone)]
 pub struct VectorizedFont {
     /// Glyph -> Polygon map
-    pub(crate) glyph_map: FastHashMap<GlyphId, SvgLayerType>,
+    glyph_polygon_map: FastHashMap<GlyphId, VertexBuffers<SvgVert>>,
+    /// Glyph -> Stroke map
+    glyph_stroke_map: FastHashMap<GlyphId, VertexBuffers<SvgVert>>,
 }
 
 impl VectorizedFont {
     pub fn from_font(font: &Font) -> Self {
-        let mut glyph_map = (0x0000..0xffff)
-        .filter_map(|i| {
+
+        let mut glyph_polygon_map = FastHashMap::default();
+        let mut glyph_stroke_map = FastHashMap::default();
+
+        let stroke_options = SvgStrokeOptions::default();
+
+        // TODO: In a regular font (4000 characters), this is pretty slow!
+
+        for g in (0..font.glyph_count() as u32).filter_map(|i| {
             let g = font.glyph(GlyphId(i));
             if g.id() == GlyphId(0) {
                 None
             } else {
                 Some(g)
             }
-        })
-        .map(|g| (g.id(), glyph_to_svg_layer_type(g)))
-        .collect::<FastHashMap<GlyphId, SvgLayerType>>();
+        }) {
+            // Tesselate all the font vertices and store them in the glyph map
+            let glyph_id = g.id();
+            if let Some((polygon_verts, stroke_verts)) =
+                glyph_to_svg_layer_type(g)
+                .and_then(|poly| Some(poly.tesselate(DEFAULT_GLYPH_TOLERANCE, Some(stroke_options))))
+            {
+                // safe unwrap, since we set the stroke_options to Some()
+                glyph_polygon_map.insert(glyph_id, polygon_verts);
+                glyph_stroke_map.insert(glyph_id, stroke_verts.unwrap());
+            }
+        }
 
-        glyph_map.insert(GlyphId(0), glyph_to_svg_layer_type(font.glyph(GlyphId(0))));
+        if let Some((polygon_verts_zero, stroke_verts_zero)) =
+            glyph_to_svg_layer_type(font.glyph(GlyphId(0)))
+            .and_then(|poly| Some(poly.tesselate(DEFAULT_GLYPH_TOLERANCE, Some(stroke_options))))
+        {
+            glyph_polygon_map.insert(GlyphId(0), polygon_verts_zero);
+            glyph_stroke_map.insert(GlyphId(0), stroke_verts_zero.unwrap());
+        }
 
-        Self { glyph_map }
+        Self { glyph_polygon_map, glyph_stroke_map }
+    }
+
+    pub fn get_fill_vertices(&self, id: &GlyphId) -> Option<&VertexBuffers<SvgVert>> {
+        let result = self.glyph_polygon_map.get(id);
+        result
+    }
+
+    pub fn get_stroke_vertices(&self, id: &GlyphId) -> Option<&VertexBuffers<SvgVert>> {
+        self.glyph_stroke_map.get(id)
     }
 }
 
-fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> SvgLayerType {
-    SvgLayerType::Text(glyph
+/// Converts a glyph to a `SvgLayerType::Polygon`
+fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> Option<SvgLayerType> {
+    Some(SvgLayerType::Polygon(glyph
         .standalone()
-        .get_data()
-        .unwrap().shape
-        .as_ref()
-        .unwrap()
+        .get_data()?.shape
+        .as_ref()?
         .iter()
         .map(svg_to_lyon::rusttype_glyph_to_path_events)
-        .collect())
+        .collect()))
 }
 
+#[derive(Debug, Default)]
 pub struct VectorizedFontCache {
     /// Font -> Vectorized glyph map
     vectorized_fonts: FastHashMap<FontId, VectorizedFont>,
 }
 
-impl SvgLayerType {
+impl VectorizedFontCache {
 
-    pub fn from_character(ch: char, font: &Font) -> (GlyphId, Self) {
-        let glyph = font.glyph(ch);
-        let glyph_id = glyph.id();
-        let text_layer = glyph_to_svg_layer_type(glyph);
-        (glyph_id, text_layer)
+    pub fn new() -> Self {
+        Self::default()
     }
+
+    pub fn insert_if_not_exist(&mut self, id: FontId, font: &Font) {
+        self.vectorized_fonts.entry(id).or_insert_with(|| VectorizedFont::from_font(font));
+    }
+
+    pub fn insert(&mut self, id: FontId, font: VectorizedFont) {
+        self.vectorized_fonts.insert(id, font);
+    }
+
+    pub fn get_font(&self, id: &FontId) -> Option<&VectorizedFont> {
+        self.vectorized_fonts.get(id)
+    }
+
+    pub fn remove_font(&mut self, id: &FontId) {
+        self.vectorized_fonts.remove(id);
+    }
+}
+
+impl SvgLayerType {
 
     pub fn tesselate(&self, tolerance: f32, stroke: Option<SvgStrokeOptions>)
     -> (VertexBuffers<SvgVert>, Option<VertexBuffers<SvgVert>>)
@@ -863,7 +946,7 @@ impl SvgLayerType {
         });
 
         match self {
-            SvgLayerType::Polygon(p) | SvgLayerType::Text(p) => {
+            SvgLayerType::Polygon(p) => {
                 let mut builder = Builder::with_capacity(p.len()).flattened(tolerance);
                 for event in p {
                     builder.path_event(*event);
@@ -1128,10 +1211,10 @@ mod svg_to_lyon {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Svg {
     /// Currently active layers
-    pub layers: Vec<SvgLayerId>,
+    pub layers: Vec<SvgLayerResource>,
     /// Pan (horizontal, vertical) in pixels
     pub pan: (f32, f32),
     /// 1.0 = default zoom
@@ -1151,10 +1234,26 @@ impl Default for Svg {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum SvgLayerResource {
+    Reference(SvgLayerId),
+    Direct {
+        style: SvgStyle,
+        fill: Option<VerticesIndicesBuffer>,
+        stroke: Option<VerticesIndicesBuffer>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct VerticesIndicesBuffer {
+    pub vertices: Vec<SvgVert>,
+    pub indices: Vec<u32>,
+}
+
 impl Svg {
 
     #[inline]
-    pub fn with_layers(layers: Vec<SvgLayerId>)
+    pub fn with_layers(layers: Vec<SvgLayerResource>)
     -> Self
     {
         Self { layers: layers, .. Default::default() }
@@ -1209,53 +1308,78 @@ impl Svg {
         {
             let mut surface = tex.as_surface();
 
-            for layer_id in &self.layers {
+            for layer in &self.layers {
 
                 use palette::Srgba;
-                let style = svg_cache.get_style(layer_id);
+
+                let style = match layer {
+                    SvgLayerResource::Reference(layer_id) => { svg_cache.get_style(layer_id) },
+                    SvgLayerResource::Direct { style, .. } => *style,
+                };
 
                 if let Some(color) = style.fill {
-                    let color: ColorF = color.into();
-                    let (vertex_buffer, index_buffer) = svg_cache.get_vertices_and_indices(window, layer_id);
-                    let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
+                    let mut direct_fill = None;
+                    if let Some((fill_vertices, fill_indices)) = match &layer {
+                        SvgLayerResource::Reference(layer_id) => svg_cache.get_vertices_and_indices(window, layer_id),
+                        SvgLayerResource::Direct { fill, .. } => fill.as_ref().and_then(|f| {
+                            let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
+                            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
+                            direct_fill = Some((vertex_buffer, index_buffer));
+                            Some(direct_fill.as_ref().unwrap())
+                        })}
+                    {
+                        let color: ColorF = color.into();
+                        let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
 
-                    let uniforms = uniform! {
-                        bbox_origin: (bbox.origin.x, bbox.origin.y),
-                        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
-                        z_index: z_index,
-                        color: (
-                            color.color.red as f32,
-                            color.color.green as f32,
-                            color.color.blue as f32,
-                            color.alpha as f32
-                        ),
-                        offset: (self.pan.0, self.pan.1),
-                        zoom: self.zoom,
-                    };
+                        let uniforms = uniform! {
+                            bbox_origin: (bbox.origin.x, bbox.origin.y),
+                            bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+                            z_index: z_index,
+                            color: (
+                                color.color.red as f32,
+                                color.color.green as f32,
+                                color.color.blue as f32,
+                                color.alpha as f32
+                            ),
+                            offset: (self.pan.0, self.pan.1),
+                            zoom: self.zoom,
+                        };
 
-                    surface.draw(vertex_buffer, index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
+                        surface.draw(fill_vertices, fill_indices, &shader.program, &uniforms, &draw_options).unwrap();
+                    }
                 }
 
                 if let Some((stroke_color, _)) = style.stroke {
-                    let stroke_color: ColorF = stroke_color.into();
-                    let (stroke_vertex_buffer, stroke_index_buffer) = svg_cache.get_stroke_vertices_and_indices(window, layer_id);
-                    let stroke_color = Srgba::new(stroke_color.r, stroke_color.g, stroke_color.b, stroke_color.a).into_linear();
 
-                    let uniforms = uniform! {
-                        bbox_origin: (bbox.origin.x, bbox.origin.y),
-                        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
-                        z_index: z_index,
-                        color: (
-                            stroke_color.color.red as f32,
-                            stroke_color.color.green as f32,
-                            stroke_color.color.blue as f32,
-                            stroke_color.alpha as f32
-                        ),
-                        offset: (self.pan.0, self.pan.1),
-                        zoom: self.zoom,
-                    };
+                    let mut direct_stroke = None;
+                    if let Some((stroke_vertices, stroke_indices)) = match &layer {
+                        SvgLayerResource::Reference(layer_id) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
+                        SvgLayerResource::Direct { stroke, .. } => stroke.as_ref().and_then(|f| {
+                            let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
+                            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
+                            direct_stroke = Some((vertex_buffer, index_buffer));
+                            Some(direct_stroke.as_ref().unwrap())
+                        })}
+                    {
+                        let stroke_color: ColorF = stroke_color.into();
+                        let stroke_color = Srgba::new(stroke_color.r, stroke_color.g, stroke_color.b, stroke_color.a).into_linear();
 
-                    surface.draw(stroke_vertex_buffer, stroke_index_buffer, &shader.program, &uniforms, &draw_options).unwrap();
+                        let uniforms = uniform! {
+                            bbox_origin: (bbox.origin.x, bbox.origin.y),
+                            bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+                            z_index: z_index,
+                            color: (
+                                stroke_color.color.red as f32,
+                                stroke_color.color.green as f32,
+                                stroke_color.color.blue as f32,
+                                stroke_color.alpha as f32
+                            ),
+                            offset: (self.pan.0, self.pan.1),
+                            zoom: self.zoom,
+                        };
+
+                        surface.draw(stroke_vertices, stroke_indices, &shader.program, &uniforms, &draw_options).unwrap();
+                    }
                 }
             }
         }
