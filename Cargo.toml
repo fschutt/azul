@@ -20,8 +20,8 @@ cassowary = "0.3.0"
 simplecss = "0.1.0"
 twox-hash = "1.1.0"
 glium = "0.22.0"
-gleam = "0.5"
-euclid = "0.17"
+gleam = "0.6"
+euclid = "0.18"
 image = "0.19.0"
 rusttype = { git = "https://github.com/fschutt/rusttype" }
 app_units = "0.6"
@@ -46,7 +46,7 @@ rev = "0eaf6bdc6811e469ee655246cc39ed0b37329fd3"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "915ec3a047d5991284bf5655df3b043e6b9756fa"
+rev = "2cb682553816200bb74ce75d3851753bc122f488"
 
 [features]
 default = ["logging"]

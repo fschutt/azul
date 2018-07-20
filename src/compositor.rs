@@ -72,7 +72,6 @@ impl ExternalImageHandler for Compositor {
 
     fn unlock(&mut self, key: ExternalImageId, _channel_index: u8) {
         TO_DELETE_TEXTURES.lock().unwrap().insert(key);
-        // ACTIVE_GL_TEXTURES.lock().unwrap().remove(&key);
     }
 }
 

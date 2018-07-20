@@ -68,7 +68,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
     open_file_dialog(None, None)
         .and_then(|path| fs::read_to_string(path.clone()).ok())
         .and_then(|contents| {
-            
+
             let mut svg_cache = SvgCache::empty();
 
             let (font, _) = app_state.get_font(&FontId::BuiltinFont("sans-serif"))?;
@@ -81,7 +81,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
             let text_layer_id = svg_cache.add_layer(svg_layer);
             svg_layers.push(text_layer_id);
 
-            {            
+            {
                 use azul::text_layout::*;
                 let font_metrics = FontMetrics::new(font, &FontSize::px(10.0), None);
                 let layout = layout_text("Hello World", font, &font_metrics);
@@ -96,7 +96,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
                 pan_horz: 0.0,
                 pan_vert: 0.0,
             }));
-            
+
             Some(UpdateScreen::Redraw)
         })
         .unwrap_or_else(|| {

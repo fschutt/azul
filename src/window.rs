@@ -703,7 +703,7 @@ impl<T: Layout> Window<T> {
         solver.suggest_value(window_dim.height_var, window_dim.height() as f64).unwrap();
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
-        
+
         let window = Window {
             events_loop: events_loop,
             state: options.state,
