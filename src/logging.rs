@@ -86,7 +86,6 @@ pub(crate) fn set_up_panic_hooks() {
         let backtrace_str = backtrace_str_old
             .lines()
             .filter(|l| !l.is_empty())
-            .skip(11)
             .collect::<Vec<&str>>()
             .join("\r\n");
 

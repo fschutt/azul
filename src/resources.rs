@@ -33,7 +33,7 @@ use rusttype::Font;
 ///
 /// Images and fonts can be references across window contexts
 /// (not yet tested, but should work).
-pub(crate) struct AppResources<'a> {
+pub struct AppResources<'a> {
     /// When looking up images, there are two sources: Either the indirect way via using a
     /// CssId (which is a String) or a direct ImageId. The indirect way requires one extra
     /// lookup (to map from the stringified ID to the actual image ID). This is what this

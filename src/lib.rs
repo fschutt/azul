@@ -152,6 +152,7 @@ pub mod prelude {
     };
     pub use glium::glutin::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
     pub use rusttype::Font;
+    pub use resources::AppResources;
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
