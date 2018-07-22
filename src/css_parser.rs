@@ -1682,6 +1682,10 @@ impl FontSize {
     pub fn pt(value: f32) -> Self {
         FontSize(PixelValue::from_metric(CssMetric::Pt, value))
     }
+
+    pub fn to_pixels(&self) -> f32 {
+        self.0.to_pixels()
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -27,7 +27,7 @@ use lyon::{
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
 };
 use resvg::usvg::{Error as SvgError, ViewBox, Transform};
-use webrender::api::{ColorU, ColorF};
+use webrender::api::{ColorU, ColorF, LayoutPixel};
 use rusttype::{Font, Glyph};
 use {
     FastHashMap,
@@ -35,7 +35,7 @@ use {
     traits::Layout,
     id_tree::NonZeroUsizeHack,
     window::ReadOnlyWindow,
-    css_parser::FontId,
+    css_parser::{FontId, FontSize},
 };
 
 pub use lyon::tessellation::VertexBuffers;
@@ -513,7 +513,7 @@ fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: 
 /// Joins multiple SvgVert buffers to one and calculates the indices
 ///
 /// TODO: Wrap this in a nicer API
-pub fn join_vertex_buffers(input: &[&VertexBuffers<SvgVert>]) -> (Vec<SvgVert>, Vec<u32>) {
+pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert>]) -> (Vec<SvgVert>, Vec<u32>) {
 
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
@@ -528,6 +528,22 @@ pub fn join_vertex_buffers(input: &[&VertexBuffers<SvgVert>]) -> (Vec<SvgVert>, 
     }
 
     (vertex_buf, index_buf)
+}
+
+pub fn scale_vertex_buffer(input: &mut [SvgVert], scale: &FontSize) {
+    let real_size = scale.to_pixels();
+    let scale_factor = real_size / 1024.0;
+    for vert in input {
+        vert.xy.0 *= scale_factor;
+        vert.xy.1 *= scale_factor;
+    }
+}
+
+pub fn transform_vertex_buffer(input: &mut [SvgVert], x: f32, y: f32) {
+    for vert in input {
+        vert.xy.0 += x;
+        vert.xy.1 += y;
+    }
 }
 
 #[derive(Debug)]
@@ -887,12 +903,16 @@ impl VectorizedFont {
     }
 }
 
-pub fn get_fill_vertices<'a>(vectorized_font: &'a VectorizedFont, id: &GlyphId) -> Option<&'a VertexBuffers<SvgVert>> {
-    vectorized_font.glyph_polygon_map.get(id)
+pub fn get_fill_vertices(vectorized_font: &VectorizedFont, id: &GlyphId)
+-> Option<VertexBuffers<SvgVert>>
+{
+    vectorized_font.glyph_polygon_map.get(id).cloned()
 }
 
-pub fn get_stroke_vertices<'a>(vectorized_font: &'a VectorizedFont, id: &GlyphId) -> Option<&'a VertexBuffers<SvgVert>> {
-    vectorized_font.glyph_stroke_map.get(id)
+pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, id: &GlyphId)
+-> Option<VertexBuffers<SvgVert>>
+{
+    vectorized_font.glyph_stroke_map.get(id).cloned()
 }
 
 /// Converts a glyph to a `SvgLayerType::Polygon`
