@@ -1,6 +1,6 @@
 #![allow(unused_variables, dead_code)]
 
-use webrender::api::{LayoutPixel, GlyphInstance};
+use webrender::api::LayoutPixel;
 use euclid::{Length, TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
 use {
@@ -12,6 +12,8 @@ use {
     },
     text_cache::{TextId, TextCache},
 };
+
+pub use webrender::api::GlyphInstance;
 
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
 /// Without this adjustment, we won't have the correct horizontal spacing

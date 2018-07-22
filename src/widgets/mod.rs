@@ -7,7 +7,8 @@ pub use self::svg::{
 	Svg, SvgLayerId, SvgLayer, LayerType,
 	SvgStyle, SvgLayerType, SvgWorldPixel, SvgLayerResource,
 	SvgCache, VectorizedFont, VectorizedFontCache, VerticesIndicesBuffer,
-    join_vertex_buffers
+    VertexBuffers, SvgVert, GlyphId,
+    join_vertex_buffers, get_fill_vertices, get_stroke_vertices,
 };
 pub use self::button::{Button, ButtonContent};
 pub use self::label::Label;
