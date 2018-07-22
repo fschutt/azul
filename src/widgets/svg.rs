@@ -13,7 +13,7 @@ use glium::{
 };
 use lyon::{
     tessellation::{
-        VertexBuffers, FillOptions, BuffersBuilder, FillVertex, FillTessellator,
+        FillOptions, BuffersBuilder, FillVertex, FillTessellator,
         LineCap, LineJoin, StrokeTessellator, StrokeOptions, StrokeVertex,
         basic_shapes::{
             fill_circle, stroke_circle, fill_rounded_rectangle,
@@ -28,7 +28,7 @@ use lyon::{
 };
 use resvg::usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF};
-use rusttype::{Font, Glyph, GlyphId};
+use rusttype::{Font, Glyph};
 use {
     FastHashMap,
     dom::{Dom, NodeType, Callback},
@@ -37,6 +37,9 @@ use {
     window::ReadOnlyWindow,
     css_parser::FontId,
 };
+
+pub use lyon::tessellation::VertexBuffers;
+pub use rusttype::GlyphId;
 
 static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
@@ -882,15 +885,14 @@ impl VectorizedFont {
 
         Self { glyph_polygon_map, glyph_stroke_map }
     }
+}
 
-    pub fn get_fill_vertices(&self, id: &GlyphId) -> Option<&VertexBuffers<SvgVert>> {
-        let result = self.glyph_polygon_map.get(id);
-        result
-    }
+pub fn get_fill_vertices<'a>(vectorized_font: &'a VectorizedFont, id: &GlyphId) -> Option<&'a VertexBuffers<SvgVert>> {
+    vectorized_font.glyph_polygon_map.get(id)
+}
 
-    pub fn get_stroke_vertices(&self, id: &GlyphId) -> Option<&VertexBuffers<SvgVert>> {
-        self.glyph_stroke_map.get(id)
-    }
+pub fn get_stroke_vertices<'a>(vectorized_font: &'a VectorizedFont, id: &GlyphId) -> Option<&'a VertexBuffers<SvgVert>> {
+    vectorized_font.glyph_stroke_map.get(id)
 }
 
 /// Converts a glyph to a `SvgLayerType::Polygon`
@@ -1293,11 +1295,6 @@ impl Svg {
         let tex = window.create_texture(window_width as u32, window_height as u32);
         tex.as_surface().clear_color(1.0, 1.0, 1.0, 1.0);
 
-        let draw_options = DrawParameters {
-            primitive_restart_index: true,
-            .. Default::default()
-        };
-
         let z_index: f32 = 0.5;
         let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
                 origin: TypedPoint2D::new(0.0, 0.0),
@@ -1305,12 +1302,15 @@ impl Svg {
         };
         let shader = svg_cache.init_shader(window);
 
+        let draw_options = DrawParameters {
+            primitive_restart_index: true,
+            .. Default::default()
+        };
+
         {
             let mut surface = tex.as_surface();
 
             for layer in &self.layers {
-
-                use palette::Srgba;
 
                 let style = match layer {
                     SvgLayerResource::Reference(layer_id) => { svg_cache.get_style(layer_id) },
@@ -1326,26 +1326,18 @@ impl Svg {
                             let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
                             direct_fill = Some((vertex_buffer, index_buffer));
                             Some(direct_fill.as_ref().unwrap())
-                        })}
-                    {
-                        let color: ColorF = color.into();
-                        let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
-
-                        let uniforms = uniform! {
-                            bbox_origin: (bbox.origin.x, bbox.origin.y),
-                            bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
-                            z_index: z_index,
-                            color: (
-                                color.color.red as f32,
-                                color.color.green as f32,
-                                color.color.blue as f32,
-                                color.alpha as f32
-                            ),
-                            offset: (self.pan.0, self.pan.1),
-                            zoom: self.zoom,
-                        };
-
-                        surface.draw(fill_vertices, fill_indices, &shader.program, &uniforms, &draw_options).unwrap();
+                    })} {
+                        draw_vertex_buffer_to_surface(
+                            &mut surface,
+                            &shader.program,
+                            &fill_vertices,
+                            &fill_indices,
+                            &draw_options,
+                            &bbox,
+                            color.into(),
+                            z_index,
+                            self.pan,
+                            self.zoom);
                     }
                 }
 
@@ -1361,24 +1353,17 @@ impl Svg {
                             Some(direct_stroke.as_ref().unwrap())
                         })}
                     {
-                        let stroke_color: ColorF = stroke_color.into();
-                        let stroke_color = Srgba::new(stroke_color.r, stroke_color.g, stroke_color.b, stroke_color.a).into_linear();
-
-                        let uniforms = uniform! {
-                            bbox_origin: (bbox.origin.x, bbox.origin.y),
-                            bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
-                            z_index: z_index,
-                            color: (
-                                stroke_color.color.red as f32,
-                                stroke_color.color.green as f32,
-                                stroke_color.color.blue as f32,
-                                stroke_color.alpha as f32
-                            ),
-                            offset: (self.pan.0, self.pan.1),
-                            zoom: self.zoom,
-                        };
-
-                        surface.draw(stroke_vertices, stroke_indices, &shader.program, &uniforms, &draw_options).unwrap();
+                        draw_vertex_buffer_to_surface(
+                            &mut surface,
+                            &shader.program,
+                            &stroke_vertices,
+                            &stroke_indices,
+                            &draw_options,
+                            &bbox,
+                            stroke_color.into(),
+                            z_index,
+                            self.pan,
+                            self.zoom);
                     }
                 }
             }
@@ -1390,6 +1375,39 @@ impl Svg {
 
         Dom::new(NodeType::GlTexture(tex))
     }
+}
+
+fn draw_vertex_buffer_to_surface<S: Surface>(
+        surface: &mut S,
+        shader: &Program,
+        vertices: &VertexBuffer<SvgVert>,
+        indices: &IndexBuffer<u32>,
+        draw_options: &DrawParameters,
+        bbox: &TypedRect<f32, SvgWorldPixel>,
+        color: ColorF,
+        z_index: f32,
+        pan: (f32, f32),
+        zoom: f32)
+{
+    use palette::Srgba;
+
+    let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
+
+    let uniforms = uniform! {
+        bbox_origin: (bbox.origin.x, bbox.origin.y),
+        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+        z_index: z_index,
+        color: (
+            color.color.red as f32,
+            color.color.green as f32,
+            color.color.blue as f32,
+            color.alpha as f32
+        ),
+        offset: (pan.0, pan.1),
+        zoom: zoom,
+    };
+
+    surface.draw(vertices, indices, shader, &uniforms, draw_options).unwrap();
 }
 
 #[test]
