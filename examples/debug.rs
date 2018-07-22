@@ -59,28 +59,50 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
     let font = resources.get_font(&FONT_ID).unwrap();
     let vectorized_font = vector_font_cache.get_font(&FONT_ID).unwrap();
 
-    let font_metrics = FontMetrics::new(&font.0, &FontSize::px(10.0), None);
+    let font_size = FontSize::px(10.0);
+    let font_metrics = FontMetrics::new(&font.0, &font_size, None);
     let layout = layout_text(&cur_string, &font.0, &font_metrics);
 
     let style = SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 });
 
-    fn get_vertices<'a>(
+    fn get_vertices(
+        font_size: &FontSize,
         glyph_ids: &[GlyphInstance],
-        vectorized_font: &'a VectorizedFont,
-        transform_func: fn(&'a VectorizedFont, &GlyphId) -> Option<&'a VertexBuffers<SvgVert>>
+        vectorized_font: &VectorizedFont,
+        transform_func: fn(&VectorizedFont, &GlyphId) -> Option<VertexBuffers<SvgVert>>
     ) -> VerticesIndicesBuffer
     {
-        let fill_buf = glyph_ids.iter().filter_map(|gid| {
-            transform_func(vectorized_font, &GlyphId(gid.index))
-        }).collect::<Vec<_>>();
+        let fill_buf = glyph_ids.iter()
+            .filter_map(|gid| {
+                transform_func(vectorized_font, &GlyphId(gid.index))
+                .and_then(|vertex_buf| Some((gid, vertex_buf)))
+            })
+            .map(|(gid, mut vertex_buf)| {
+                scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+                (gid, vertex_buf)
+            })
+            .map(|(gid, mut vertex_buf)| {
+                transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x, gid.point.y);
+                vertex_buf
+            })
+            /*.map(|vertex_buf| rotate_buf(vertex_buf, 5.0))*/
+            .collect::<Vec<_>>();
         let s = join_vertex_buffers(&fill_buf);
         VerticesIndicesBuffer { vertices: s.0, indices: s.1 }
     }
 
+    let fill_vertices = style.fill.and_then(|_| {
+        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, get_fill_vertices))
+    });
+
+    let stroke_vertices = style.stroke.and_then(|_| {
+        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, get_stroke_vertices))
+    });
+
     layers.push(SvgLayerResource::Direct {
         style,
-        fill: style.fill.and_then(|_| Some(get_vertices(&layout.layouted_glyphs, vectorized_font, get_fill_vertices))),
-        stroke: style.stroke.and_then(|_| Some(get_vertices(&layout.layouted_glyphs, vectorized_font, get_stroke_vertices))),
+        fill: fill_vertices,
+        stroke: stroke_vertices,
     });
 
     layers
