@@ -510,13 +510,21 @@ fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: 
 }
 
 /// Quick helper function to generate the vertices for a black circle at runtime
-pub fn quick_circle(x: f32, y: f32, radius: f32) -> SvgLayerResource {
-    let (fill, _) = tesselate_layer_data(&LayerType::from_single_layer(SvgLayerType::Circle(SvgCircle {
-        center_x: x,
-        center_y: y,
-        radius
-    })), 0.01, None);
-    let style = SvgStyle::filled(ColorU { r: 0, b: 0, g: 0, a: 255 });
+pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResource {
+    let (fill, _) = tesselate_layer_data(&LayerType::from_single_layer(SvgLayerType::Circle(circle)), 0.01, None);
+    let style = SvgStyle::filled(fill_color);
+    SvgLayerResource::Direct {
+        style: style,
+        fill: Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 }),
+        stroke: None,
+    }
+}
+
+/// Quick helper function to generate the layer for **multiple** circles (in one draw call)
+pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResource {
+    let circles = circles.iter().map(|c| SvgLayerType::Circle(*c)).collect();
+    let (fill, _) = tesselate_layer_data(&LayerType::from_polygons(circles), 0.01, None);
+    let style = SvgStyle::filled(fill_color);
     SvgLayerResource::Direct {
         style: style,
         fill: Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 }),
@@ -540,7 +548,7 @@ pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert>]) -> VerticesIndicesB
         index_buf.push(GL_RESTART_INDEX);
         last_index += vertices_len;
     }
-    
+
     VerticesIndicesBuffer { vertices: vertex_buf, indices: index_buf }
 }
 
@@ -876,13 +884,15 @@ implement_vertex!(SvgVert, xy, normal);
 #[derive(Debug, Copy, Clone)]
 pub struct SvgWorldPixel;
 
+use std::cell::RefCell;
+
 /// A vectorized font holds the glyphs for a given font, but in a vector format
 #[derive(Debug, Clone)]
 pub struct VectorizedFont {
     /// Glyph -> Polygon map
-    glyph_polygon_map: FastHashMap<GlyphId, VertexBuffers<SvgVert>>,
+    glyph_polygon_map: Rc<RefCell<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
     /// Glyph -> Stroke map
-    glyph_stroke_map: FastHashMap<GlyphId, VertexBuffers<SvgVert>>,
+    glyph_stroke_map: Rc<RefCell<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
 }
 
 impl VectorizedFont {
@@ -896,7 +906,7 @@ impl VectorizedFont {
         // TODO: In a regular font (4000 characters), this is pretty slow!
         // font.glyph_count() as u32
         // Pre-load the first 128 characters
-        for g in (0..128).filter_map(|i| {
+        for g in (0..1).filter_map(|i| {
             let g = font.glyph(GlyphId(i));
             if g.id() == GlyphId(0) {
                 None
@@ -924,20 +934,49 @@ impl VectorizedFont {
             glyph_stroke_map.insert(GlyphId(0), stroke_verts_zero.unwrap());
         }
 
-        Self { glyph_polygon_map, glyph_stroke_map }
+        Self {
+            glyph_polygon_map: Rc::new(RefCell::new(glyph_polygon_map)),
+            glyph_stroke_map: Rc::new(RefCell::new(glyph_stroke_map)),
+        }
+    }
+}
+use std::collections::hash_map::Entry::*;
+
+pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font, id: &GlyphId)
+-> Option<VertexBuffers<SvgVert>>
+{
+    let svg_stroke_opts = Some(SvgStrokeOptions::default());
+
+    match vectorized_font.glyph_polygon_map.borrow_mut().entry(*id) {
+        Occupied(o) => Some(o.get().clone()),
+        Vacant(v) => {
+            let g = original_font.glyph(*id);
+            let poly = glyph_to_svg_layer_type(g)?;
+            let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
+            v.insert(polygon_verts.clone());
+            vectorized_font.glyph_stroke_map.borrow_mut().insert(*id, stroke_verts.unwrap());
+            Some(polygon_verts)
+        }
     }
 }
 
-pub fn get_fill_vertices(vectorized_font: &VectorizedFont, id: &GlyphId)
+pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Font, id: &GlyphId)
 -> Option<VertexBuffers<SvgVert>>
 {
-    vectorized_font.glyph_polygon_map.get(id).cloned()
-}
+    let svg_stroke_opts = Some(SvgStrokeOptions::default());
 
-pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, id: &GlyphId)
--> Option<VertexBuffers<SvgVert>>
-{
-    vectorized_font.glyph_stroke_map.get(id).cloned()
+    match vectorized_font.glyph_stroke_map.borrow_mut().entry(*id) {
+        Occupied(o) => Some(o.get().clone()),
+        Vacant(v) => {
+            let g = original_font.glyph(*id);
+            let poly = glyph_to_svg_layer_type(g)?;
+            let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
+            let stroke_verts = stroke_verts.unwrap();
+            v.insert(stroke_verts.clone());
+            vectorized_font.glyph_polygon_map.borrow_mut().insert(*id, polygon_verts);
+            Some(stroke_verts)
+        }
+    }
 }
 
 /// Converts a glyph to a `SvgLayerType::Polygon`
