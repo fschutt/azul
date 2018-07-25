@@ -475,7 +475,6 @@ const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: Option<SvgStrokeOptions>)
 -> ((Vec<SvgVert>, Vec<u32>), Option<(Vec<SvgVert>, Vec<u32>)>)
 {
-
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
     let mut index_buf = Vec::<u32>::new();
@@ -510,10 +509,25 @@ fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: 
     }
 }
 
+/// Quick helper function to generate the vertices for a black circle at runtime
+pub fn quick_circle(x: f32, y: f32, radius: f32) -> SvgLayerResource {
+    let (fill, _) = tesselate_layer_data(&LayerType::from_single_layer(SvgLayerType::Circle(SvgCircle {
+        center_x: x,
+        center_y: y,
+        radius
+    })), 0.01, None);
+    let style = SvgStyle::filled(ColorU { r: 0, b: 0, g: 0, a: 255 });
+    SvgLayerResource::Direct {
+        style: style,
+        fill: Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 }),
+        stroke: None,
+    }
+}
+
 /// Joins multiple SvgVert buffers to one and calculates the indices
 ///
 /// TODO: Wrap this in a nicer API
-pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert>]) -> (Vec<SvgVert>, Vec<u32>) {
+pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert>]) -> VerticesIndicesBuffer {
 
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
@@ -526,8 +540,8 @@ pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert>]) -> (Vec<SvgVert>, V
         index_buf.push(GL_RESTART_INDEX);
         last_index += vertices_len;
     }
-
-    (vertex_buf, index_buf)
+    
+    VerticesIndicesBuffer { vertices: vertex_buf, indices: index_buf }
 }
 
 pub fn scale_vertex_buffer(input: &mut [SvgVert], scale: &FontSize) {
@@ -543,6 +557,16 @@ pub fn transform_vertex_buffer(input: &mut [SvgVert], x: f32, y: f32) {
     for vert in input {
         vert.xy.0 += x;
         vert.xy.1 += y;
+    }
+}
+
+/// sin and cos are the sinus and cosinus of the rotation
+pub fn rotate_vertex_buffer(input: &mut [SvgVert], sin: f32, cos: f32) {
+    for vert in input {
+        let (x, y) = vert.xy;
+        let new_x = (x * cos) - (y * sin);
+        let new_y = (x * sin) + (y * cos);
+        vert.xy = (new_x, new_y);
     }
 }
 
@@ -870,8 +894,9 @@ impl VectorizedFont {
         let stroke_options = SvgStrokeOptions::default();
 
         // TODO: In a regular font (4000 characters), this is pretty slow!
-
-        for g in (0..font.glyph_count() as u32).filter_map(|i| {
+        // font.glyph_count() as u32
+        // Pre-load the first 128 characters
+        for g in (0..128).filter_map(|i| {
             let g = font.glyph(GlyphId(i));
             if g.id() == GlyphId(0) {
                 None
