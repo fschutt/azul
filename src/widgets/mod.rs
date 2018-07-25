@@ -8,9 +8,10 @@ pub use self::svg::{
 	SvgStyle, SvgLayerType, SvgWorldPixel, SvgLayerResource,
 	SvgCache, VectorizedFont, VectorizedFontCache, VerticesIndicesBuffer,
     SvgStrokeOptions, VertexBuffers, SvgVert, GlyphId,
+    SvgCircle, SvgRect,
     join_vertex_buffers, get_fill_vertices, get_stroke_vertices,
     scale_vertex_buffer, transform_vertex_buffer, rotate_vertex_buffer,
-    quick_circle,
+    quick_circle, quick_circles,
 };
 pub use self::button::{Button, ButtonContent};
 pub use self::label::Label;

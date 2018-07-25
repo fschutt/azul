@@ -3,8 +3,9 @@ use std::{
     rc::Rc,
     io::{Error as IoError, Read},
     sync::{Mutex, atomic::{Ordering, AtomicUsize}},
-    cell::UnsafeCell,
+    cell::{UnsafeCell, RefCell},
     hash::{Hash, Hasher},
+    collections::hash_map::Entry::*,
 };
 use glium::{
     backend::Facade, index::PrimitiveType,
@@ -884,8 +885,6 @@ implement_vertex!(SvgVert, xy, normal);
 #[derive(Debug, Copy, Clone)]
 pub struct SvgWorldPixel;
 
-use std::cell::RefCell;
-
 /// A vectorized font holds the glyphs for a given font, but in a vector format
 #[derive(Debug, Clone)]
 pub struct VectorizedFont {
@@ -906,7 +905,7 @@ impl VectorizedFont {
         // TODO: In a regular font (4000 characters), this is pretty slow!
         // font.glyph_count() as u32
         // Pre-load the first 128 characters
-        for g in (0..1).filter_map(|i| {
+        for g in (0..128).filter_map(|i| {
             let g = font.glyph(GlyphId(i));
             if g.id() == GlyphId(0) {
                 None
@@ -940,7 +939,6 @@ impl VectorizedFont {
         }
     }
 }
-use std::collections::hash_map::Entry::*;
 
 pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font, id: &GlyphId)
 -> Option<VertexBuffers<SvgVert>>
