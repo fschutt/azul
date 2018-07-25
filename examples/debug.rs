@@ -69,26 +69,21 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         glyph_ids: &[GlyphInstance],
         vectorized_font: &VectorizedFont,
         original_font: &Font,
+        char_offsets: Vec<(f32, f32)>,
         transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
     ) -> VerticesIndicesBuffer
     {
         let character_rotations = vec![30.0_f32; glyph_ids.len()];
-        let char_offsets = test_bezier_points_offsets(glyph_ids, 0.0);
-
-        println!("char offsets: {:?}", char_offsets);
-
-        assert!(char_offsets.len() == glyph_ids.len());
 
         let fill_buf = glyph_ids.iter()
             .filter_map(|gid| {
                 // 1. Transform glyph to vertex buffer && filter out all glyphs
                 //    that don't have a vertex buffer
                 transform_func(vectorized_font, original_font, &GlyphId(gid.index))
-                .and_then(|vertex_buf| Some((gid, vertex_buf)))
             })
             .zip(character_rotations.into_iter())
             .zip(char_offsets.into_iter())
-            .map(|(((gid, mut vertex_buf), char_rot), (char_offset_x, char_offset_y))| {
+            .map(|((mut vertex_buf, char_rot), (char_offset_x, char_offset_y))| {
 
                 // 2. Scale characters to the final size
                 scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
@@ -99,9 +94,7 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
                 rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
 
                 // 4. Transform characters to their respective positions
-                transform_vertex_buffer(&mut vertex_buf.vertices,
-                    (gid.point.x * 2.0) + char_offset_x,
-                    (gid.point.y * 2.0) + char_offset_y);
+                transform_vertex_buffer(&mut vertex_buf.vertices, char_offset_x, char_offset_y);
 
                 vertex_buf
             })
@@ -110,12 +103,14 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         join_vertex_buffers(&fill_buf)
     }
 
+    let (circle_layer, char_offsets) = test_bezier_points_offsets(&layout.layouted_glyphs, 0.0);
+
     let fill_vertices = style.fill.and_then(|_| {
-        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, get_fill_vertices))
+        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, char_offsets.clone(), get_fill_vertices))
     });
 
     let stroke_vertices = style.stroke.and_then(|_| {
-        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, get_stroke_vertices))
+        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, char_offsets, get_stroke_vertices))
     });
 
     layers.push(SvgLayerResource::Direct {
@@ -123,6 +118,8 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         fill: fill_vertices,
         stroke: stroke_vertices,
     });
+
+    layers.push(circle_layer);
 
     // layers.append(&mut test_bezier_points());
     layers
@@ -142,19 +139,22 @@ impl BezierControlPoint {
 }
 
 /// Roughly estimate the length of a bezier curve arc using 10 samples
-fn estimate_arc_length(curve: &[BezierControlPoint;4]) -> f32 {
+fn estimate_arc_length(curve: &[BezierControlPoint;4]) -> (Vec<BezierControlPoint>, f32) {
 
     let mut origin = curve[0];
     let mut total_distance = 0.0;
+    let mut circles = vec![curve[0]];
 
     for i in 1..10 {
         let new_point = get_bezier_point_at(curve, i as f32 / 10.0);
         total_distance += origin.distance(&new_point);
+        circles.push(new_point);
         origin = new_point;
     }
 
     total_distance += origin.distance(&curve[3]);
-    total_distance
+    circles.push(curve[3]);
+    (circles, total_distance)
 }
 
 /// t is between 0.0 and 1.0 on the four points
@@ -178,7 +178,7 @@ fn get_bezier_point_at(curve: &[BezierControlPoint;4], t: f32) -> BezierControlP
     BezierControlPoint { x, y }
 }
 
-fn test_bezier_points_offsets(glyphs: &[GlyphInstance], start_offset: f32) -> Vec<(f32, f32)> {
+fn test_bezier_points_offsets(glyphs: &[GlyphInstance], mut start_offset: f32) -> (SvgLayerResource, Vec<(f32, f32)>) {
     let test_curve = [
         BezierControlPoint { x: 0.0, y: 0.0 },
         BezierControlPoint { x: 40.0, y: 120.0 },
@@ -186,13 +186,13 @@ fn test_bezier_points_offsets(glyphs: &[GlyphInstance], start_offset: f32) -> Ve
         BezierControlPoint { x: 120.0, y: 0.0 },
     ];
 
-    let curve_length = estimate_arc_length(&test_curve);
+    let (circles, curve_length) = estimate_arc_length(&test_curve);
 
-    let mut current_offset = start_offset;
     let mut offsets = vec![];
 
     for glyph in glyphs {
-        let char_bezier_pt = get_bezier_point_at(&test_curve, current_offset);
+        println!("start offset is: {:?}", start_offset);
+        let char_bezier_pt = get_bezier_point_at(&test_curve, start_offset);
         offsets.push((char_bezier_pt.x, char_bezier_pt.y));
 
         let x_advance_px = glyph.point.x * 2.0;
@@ -201,11 +201,11 @@ fn test_bezier_points_offsets(glyphs: &[GlyphInstance], start_offset: f32) -> Ve
         } else {
             0.0
         };
-
-        current_offset = start_offset + x_advance_percent;
+        start_offset += x_advance_percent;
     }
 
-    offsets
+    let circles = circles.into_iter().map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 1.0 }).collect::<Vec<_>>();
+    (quick_circles(&circles, ColorU { r: 0, b: 0, g: 0, a: 255 }), offsets)
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
