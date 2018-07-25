@@ -46,16 +46,14 @@ impl Layout for MyAppData {
 
 const FONT_ID: FontId = FontId::BuiltinFont("sans-serif");
 
+use azul::text_layout::*;
+
 fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFontCache, resources: &AppResources)
 -> Vec<SvgLayerResource>
 {
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
-    // layout the texts
-    use azul::text_layout::*;
-
-    let cur_string = "HelloWorld";
-
+    let cur_string = "Helloldakjfalfkjadlkfjdsalfkjdsalfkjdsf World";
     let font = resources.get_font(&FONT_ID).unwrap();
     let vectorized_font = vector_font_cache.get_font(&FONT_ID).unwrap();
 
@@ -65,6 +63,7 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
 
     let style = SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 });
 
+    // Calculates the layout for one word block
     fn get_vertices(
         font_size: &FontSize,
         glyph_ids: &[GlyphInstance],
@@ -72,23 +71,42 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         transform_func: fn(&VectorizedFont, &GlyphId) -> Option<VertexBuffers<SvgVert>>
     ) -> VerticesIndicesBuffer
     {
+        let character_rotations = vec![30.0_f32; glyph_ids.len()];
+        let char_offsets = test_bezier_points_offsets(glyph_ids, 0.0);
+
+        println!("char offsets: {:?}", char_offsets);
+
+        assert!(char_offsets.len() == glyph_ids.len());
+
         let fill_buf = glyph_ids.iter()
             .filter_map(|gid| {
+                // 1. Transform glyph to vertex buffer && filter out all glyphs 
+                //    that don't have a vertex buffer
                 transform_func(vectorized_font, &GlyphId(gid.index))
                 .and_then(|vertex_buf| Some((gid, vertex_buf)))
             })
-            .map(|(gid, mut vertex_buf)| {
+            .zip(character_rotations.into_iter())
+            .zip(char_offsets.into_iter())
+            .map(|(((gid, mut vertex_buf), char_rot), (char_offset_x, char_offset_y))| {
+                
+                // 2. Scale characters to the final size
                 scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
-                (gid, vertex_buf)
-            })
-            .map(|(gid, mut vertex_buf)| {
-                transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x, gid.point.y);
+
+                // 3. Rotate individual characters inside of the word
+                let char_angle = char_rot.to_radians();
+                let (char_sin, char_cos) = (char_angle.sin(), char_angle.cos());
+                rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
+
+                // 4. Transform characters to their respective positions
+                transform_vertex_buffer(&mut vertex_buf.vertices, 
+                    (gid.point.x * 2.0) + char_offset_x, 
+                    (gid.point.y * 2.0) + char_offset_y);
+                
                 vertex_buf
             })
-            /*.map(|vertex_buf| rotate_buf(vertex_buf, 5.0))*/
             .collect::<Vec<_>>();
-        let s = join_vertex_buffers(&fill_buf);
-        VerticesIndicesBuffer { vertices: s.0, indices: s.1 }
+
+        join_vertex_buffers(&fill_buf)
     }
 
     let fill_vertices = style.fill.and_then(|_| {
@@ -105,7 +123,88 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         stroke: stroke_vertices,
     });
 
+    // layers.append(&mut test_bezier_points());
     layers
+}
+
+#[derive(Debug, Copy, Clone)]
+struct BezierControlPoint {
+    x: f32,
+    y: f32,
+}
+
+impl BezierControlPoint {
+    /// Distance of two points
+    pub fn distance(&self, other: &Self) -> f32 {
+        ((other.x - self.x).powi(2) + (other.y - self.y).powi(2)).sqrt()
+    }
+}
+
+/// Roughly estimate the length of a bezier curve arc using 10 samples
+fn estimate_arc_length(curve: &[BezierControlPoint;4]) -> f32 {
+
+    let mut origin = curve[0];
+    let mut total_distance = 0.0;
+
+    for i in 1..10 {
+        let new_point = get_bezier_point_at(curve, i as f32 / 10.0);
+        total_distance += origin.distance(&new_point);
+        origin = new_point;
+    }
+
+    total_distance += origin.distance(&curve[3]);
+    total_distance
+}
+
+/// t is between 0.0 and 1.0 on the four points
+fn get_bezier_point_at(curve: &[BezierControlPoint;4], t: f32) -> BezierControlPoint {
+    let one_minus = 1.0 - t;
+    let one_minus_square = one_minus.powi(2);
+    let one_minus_cubic = one_minus.powi(3);
+
+    // Bezier curve formula for 4 control points
+    // (1 - t)
+    let x =         one_minus_cubic  *             curve[0].x
+            + 3.0 * one_minus_square * t         * curve[1].x
+            + 3.0 * one_minus        * t.powi(2) * curve[2].x
+            +                          t.powi(3) * curve[3].x;
+
+    let y =         one_minus_cubic  *             curve[0].y
+            + 3.0 * one_minus_square * t         * curve[1].y
+            + 3.0 * one_minus        * t.powi(2) * curve[2].y
+            +                          t.powi(3) * curve[3].y;
+
+    BezierControlPoint { x, y }
+}
+
+fn test_bezier_points_offsets(glyphs: &[GlyphInstance], start_offset: f32) -> Vec<(f32, f32)> {
+    let test_curve = [
+        BezierControlPoint { x: 0.0, y: 0.0 },
+        BezierControlPoint { x: 40.0, y: 120.0 },
+        BezierControlPoint { x: 80.0, y: 120.0 },
+        BezierControlPoint { x: 120.0, y: 0.0 },
+    ];
+
+    let curve_length = estimate_arc_length(&test_curve);
+
+    let mut current_offset = start_offset;
+    let mut offsets = vec![];
+
+    for glyph in glyphs {
+        let char_bezier_pt = get_bezier_point_at(&test_curve, current_offset);
+        offsets.push((char_bezier_pt.x, char_bezier_pt.y));
+
+        let x_advance_px = glyph.point.x * 2.0;
+        let x_advance_percent = if x_advance_px > 0.00001 {
+            x_advance_px / curve_length
+        } else {
+            0.0
+        };
+
+        current_offset = start_offset + x_advance_percent;
+    }
+
+    offsets
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
