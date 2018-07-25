@@ -68,7 +68,8 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         font_size: &FontSize,
         glyph_ids: &[GlyphInstance],
         vectorized_font: &VectorizedFont,
-        transform_func: fn(&VectorizedFont, &GlyphId) -> Option<VertexBuffers<SvgVert>>
+        original_font: &Font,
+        transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
     ) -> VerticesIndicesBuffer
     {
         let character_rotations = vec![30.0_f32; glyph_ids.len()];
@@ -80,15 +81,15 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
 
         let fill_buf = glyph_ids.iter()
             .filter_map(|gid| {
-                // 1. Transform glyph to vertex buffer && filter out all glyphs 
+                // 1. Transform glyph to vertex buffer && filter out all glyphs
                 //    that don't have a vertex buffer
-                transform_func(vectorized_font, &GlyphId(gid.index))
+                transform_func(vectorized_font, original_font, &GlyphId(gid.index))
                 .and_then(|vertex_buf| Some((gid, vertex_buf)))
             })
             .zip(character_rotations.into_iter())
             .zip(char_offsets.into_iter())
             .map(|(((gid, mut vertex_buf), char_rot), (char_offset_x, char_offset_y))| {
-                
+
                 // 2. Scale characters to the final size
                 scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
 
@@ -98,10 +99,10 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
                 rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
 
                 // 4. Transform characters to their respective positions
-                transform_vertex_buffer(&mut vertex_buf.vertices, 
-                    (gid.point.x * 2.0) + char_offset_x, 
+                transform_vertex_buffer(&mut vertex_buf.vertices,
+                    (gid.point.x * 2.0) + char_offset_x,
                     (gid.point.y * 2.0) + char_offset_y);
-                
+
                 vertex_buf
             })
             .collect::<Vec<_>>();
@@ -110,11 +111,11 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
     }
 
     let fill_vertices = style.fill.and_then(|_| {
-        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, get_fill_vertices))
+        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, get_fill_vertices))
     });
 
     let stroke_vertices = style.stroke.and_then(|_| {
-        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, get_stroke_vertices))
+        Some(get_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, get_stroke_vertices))
     });
 
     layers.push(SvgLayerResource::Direct {
