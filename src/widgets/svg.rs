@@ -538,7 +538,7 @@ pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResou
 /// ## Inputs
 ///
 /// - `lines`: Each item in `lines` is a line (represented by a `Vec<(x, y)>`).
-///            Lines that are shorter than 2 points are ignored / not rendered.
+///    Lines that are shorter than 2 points are ignored / not rendered.
 /// - `stroke_color`: The color of the line
 /// - `stroke_options`: If the line should be round, square, etc.
 pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_options: Option<SvgStrokeOptions>)
@@ -1372,6 +1372,49 @@ pub enum SvgLayerResource {
 pub struct VerticesIndicesBuffer {
     pub vertices: Vec<SvgVert>,
     pub indices: Vec<u32>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct BezierControlPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl BezierControlPoint {
+    /// Distance of two points
+    pub fn distance(&self, other: &Self) -> f32 {
+        ((other.x - self.x).powi(2) + (other.y - self.y).powi(2)).sqrt()
+    }
+}
+
+/// Bezier formula for cubic curves (start, handle 1, handle 2, end).
+///
+/// ## Inputs
+///
+/// - `curve`: The 4 handles of the curve
+/// - `t`: The interpolation amount - usually between 0.0 and 1.0 if the point
+///   should be between the start and end
+///
+/// ## Returns
+///
+/// - `BezierControlPoint`: The calculated point which lies on the curve,
+///    according the the bezier formula
+pub fn cubic_interpolate_bezier(curve: &[BezierControlPoint;4], t: f32) -> BezierControlPoint {
+    let one_minus = 1.0 - t;
+    let one_minus_square = one_minus.powi(2);
+    let one_minus_cubic = one_minus.powi(3);
+
+    let x =         one_minus_cubic  *             curve[0].x
+            + 3.0 * one_minus_square * t         * curve[1].x
+            + 3.0 * one_minus        * t.powi(2) * curve[2].x
+            +                          t.powi(3) * curve[3].x;
+
+    let y =         one_minus_cubic  *             curve[0].y
+            + 3.0 * one_minus_square * t         * curve[1].y
+            + 3.0 * one_minus        * t.powi(2) * curve[2].y
+            +                          t.powi(3) * curve[3].y;
+
+    BezierControlPoint { x, y }
 }
 
 impl Svg {

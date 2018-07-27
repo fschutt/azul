@@ -5,15 +5,16 @@ extern crate azul;
 use azul::prelude::*;
 use azul::widgets::*;
 use azul::dialogs::*;
+use azul::text_layout::*;
+
 use std::fs;
+
+const FONT_ID: FontId = FontId::BuiltinFont("sans-serif");
 
 #[derive(Debug)]
 pub struct MyAppData {
     pub map: Option<Map>,
 }
-
-// need: (Style, VertexBuffer<SvgVert>, IndexBuffer<u32>)
-// TODO: This will be slow at first if we don't cache this
 
 #[derive(Debug)]
 pub struct Map {
@@ -43,10 +44,6 @@ impl Layout for MyAppData {
         }
     }
 }
-
-const FONT_ID: FontId = FontId::BuiltinFont("sans-serif");
-
-use azul::text_layout::*;
 
 fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFontCache, resources: &AppResources)
 -> Vec<SvgLayerResource>
@@ -125,19 +122,6 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
     layers
 }
 
-#[derive(Debug, Copy, Clone)]
-struct BezierControlPoint {
-    x: f32,
-    y: f32,
-}
-
-impl BezierControlPoint {
-    /// Distance of two points
-    pub fn distance(&self, other: &Self) -> f32 {
-        ((other.x - self.x).powi(2) + (other.y - self.y).powi(2)).sqrt()
-    }
-}
-
 /// Roughly estimate the length of a bezier curve arc using 10 samples
 fn estimate_arc_length(curve: &[BezierControlPoint;4]) -> (Vec<BezierControlPoint>, f32) {
 
@@ -146,7 +130,7 @@ fn estimate_arc_length(curve: &[BezierControlPoint;4]) -> (Vec<BezierControlPoin
     let mut circles = vec![curve[0]];
 
     for i in 1..10 {
-        let new_point = get_bezier_point_at(curve, i as f32 / 10.0);
+        let new_point = cubic_interpolate_bezier(curve, i as f32 / 10.0);
         total_distance += origin.distance(&new_point);
         circles.push(new_point);
         origin = new_point;
@@ -155,27 +139,6 @@ fn estimate_arc_length(curve: &[BezierControlPoint;4]) -> (Vec<BezierControlPoin
     total_distance += origin.distance(&curve[3]);
     circles.push(curve[3]);
     (circles, total_distance)
-}
-
-/// t is between 0.0 and 1.0 on the four points
-fn get_bezier_point_at(curve: &[BezierControlPoint;4], t: f32) -> BezierControlPoint {
-    let one_minus = 1.0 - t;
-    let one_minus_square = one_minus.powi(2);
-    let one_minus_cubic = one_minus.powi(3);
-
-    // Bezier curve formula for 4 control points
-    // (1 - t)
-    let x =         one_minus_cubic  *             curve[0].x
-            + 3.0 * one_minus_square * t         * curve[1].x
-            + 3.0 * one_minus        * t.powi(2) * curve[2].x
-            +                          t.powi(3) * curve[3].x;
-
-    let y =         one_minus_cubic  *             curve[0].y
-            + 3.0 * one_minus_square * t         * curve[1].y
-            + 3.0 * one_minus        * t.powi(2) * curve[2].y
-            +                          t.powi(3) * curve[3].y;
-
-    BezierControlPoint { x, y }
 }
 
 fn test_bezier_points_offsets(glyphs: &[GlyphInstance], mut start_offset: f32) -> (SvgLayerResource, Vec<(f32, f32)>) {
@@ -191,8 +154,7 @@ fn test_bezier_points_offsets(glyphs: &[GlyphInstance], mut start_offset: f32) -
     let mut offsets = vec![];
 
     for glyph in glyphs {
-        println!("start offset is: {:?}", start_offset);
-        let char_bezier_pt = get_bezier_point_at(&test_curve, start_offset);
+        let char_bezier_pt = cubic_interpolate_bezier(&test_curve, start_offset);
         offsets.push((char_bezier_pt.x, char_bezier_pt.y));
 
         let x_advance_px = glyph.point.x * 2.0;
@@ -205,6 +167,7 @@ fn test_bezier_points_offsets(glyphs: &[GlyphInstance], mut start_offset: f32) -
     }
 
     let circles = circles.into_iter().map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 1.0 }).collect::<Vec<_>>();
+
     (quick_circles(&circles, ColorU { r: 0, b: 0, g: 0, a: 255 }), offsets)
 }
 
