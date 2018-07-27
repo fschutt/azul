@@ -533,6 +533,46 @@ pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResou
     }
 }
 
+/// Helper function to easily draw some lines at runtime
+///
+/// ## Inputs
+///
+/// - `lines`: Each item in `lines` is a line (represented by a `Vec<(x, y)>`).
+///            Lines that are shorter than 2 points are ignored / not rendered.
+/// - `stroke_color`: The color of the line
+/// - `stroke_options`: If the line should be round, square, etc.
+pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_options: Option<SvgStrokeOptions>)
+-> SvgLayerResource
+{
+    let stroke_options = stroke_options.unwrap_or_default();
+    let style = SvgStyle::stroked(stroke_color, stroke_options);
+
+    let polygons = lines.iter()
+        .filter(|line| line.len() < 2)
+        .map(|line| {
+
+            let first_point = &line[0];
+            let mut poly_events = vec![PathEvent::MoveTo(TypedPoint2D::new(first_point.0, first_point.1))];
+
+            for (x, y) in line.iter().skip(1) {
+                poly_events.push(PathEvent::LineTo(TypedPoint2D::new(*x, *y)));
+            }
+
+            SvgLayerType::Polygon(poly_events)
+        }).collect();
+
+    let (_, stroke) = tesselate_layer_data(&LayerType::from_polygons(polygons), 0.01, Some(stroke_options));
+
+    // Safe unwrap, since we passed Some(stroke_options) into tesselate_layer_data
+    let stroke = stroke.unwrap();
+
+    SvgLayerResource::Direct {
+        style: style,
+        fill: None,
+        stroke: Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 }),
+    }
+}
+
 /// Joins multiple SvgVert buffers to one and calculates the indices
 ///
 /// TODO: Wrap this in a nicer API
@@ -1328,7 +1368,7 @@ pub enum SvgLayerResource {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VerticesIndicesBuffer {
     pub vertices: Vec<SvgVert>,
     pub indices: Vec<u32>,
