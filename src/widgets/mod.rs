@@ -8,7 +8,7 @@ pub use self::svg::{
 	SvgStyle, SvgLayerType, SvgWorldPixel, SvgLayerResource,
 	SvgCache, VectorizedFont, VectorizedFontCache, VerticesIndicesBuffer,
     SvgStrokeOptions, VertexBuffers, SvgVert, GlyphId,
-    SvgCircle, SvgRect, BezierControlPoint,
+    SvgCircle, SvgRect, BezierControlPoint, SampledBezierCurve,
 
     join_vertex_buffers, get_fill_vertices, get_stroke_vertices,
     scale_vertex_buffer, transform_vertex_buffer, rotate_vertex_buffer,
