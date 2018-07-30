@@ -548,7 +548,7 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
     let style = SvgStyle::stroked(stroke_color, stroke_options);
 
     let polygons = lines.iter()
-        .filter(|line| line.len() < 2)
+        .filter(|line| line.len() > 2)
         .map(|line| {
 
             let first_point = &line[0];
