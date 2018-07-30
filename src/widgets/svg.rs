@@ -28,7 +28,7 @@ use lyon::{
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
 };
 use resvg::usvg::{Error as SvgError, ViewBox, Transform};
-use webrender::api::{ColorU, ColorF, LayoutPixel};
+use webrender::api::{ColorU, ColorF, LayoutPixel, GlyphInstance};
 use rusttype::{Font, Glyph};
 use {
     FastHashMap,
@@ -602,16 +602,18 @@ type ArcLength = f32;
 /// This process is called "arc length parametrization". More info:
 #[derive(Debug, Copy, Clone)]
 pub struct SampledBezierCurve {
+    /// Copy of the original curve which the SampledBezierCurve was created from
+    original_curve: [BezierControlPoint;4],
     /// Total length of the arc of the curve (from 0.0 to 1.0)
-    pub arc_length: f32,
+    arc_length: f32,
     /// Stores the x and y position of the sampled bezier points
-    pub sampled_bezier_points: [BezierControlPoint;BEZIER_SAMPLE_RATE + 1],
+    sampled_bezier_points: [BezierControlPoint;BEZIER_SAMPLE_RATE + 1],
     /// Each index is the bezier value * 0.1, i.e. index 1 = 0.1,
     /// index 2 = 0.2 and so on.
     ///
     /// Stores the length of the BezierControlPoint at i from the
     /// start of the curve
-    pub arc_length_parametrization: [ArcLength; BEZIER_SAMPLE_RATE + 1],
+    arc_length_parametrization: [ArcLength; BEZIER_SAMPLE_RATE + 1],
 }
 
 impl SampledBezierCurve {
@@ -641,6 +643,7 @@ impl SampledBezierCurve {
         arc_length_parametrization[BEZIER_SAMPLE_RATE] = arc_length;
 
         SampledBezierCurve {
+            original_curve: *curve,
             arc_length,
             sampled_bezier_points,
             arc_length_parametrization,
@@ -679,7 +682,40 @@ impl SampledBezierCurve {
         lower_bound_percent + ((upper_bound_percent - lower_bound_percent) * interpolate_percent)
     }
 
-    /// Returns the geometry necessary for drawing `self.sampled_bezier_points`
+    /// Place some glyphs on a curve and calculate the respective offsets and rotations
+    /// for the glyphs
+    ///
+    /// ## Inputs
+    ///
+    /// - `glyphs`: The glyph positions of the text you want to place on the curve
+    /// - `start_offset` The offset of the first character from the start of the curve:
+    ///    **Note**: `start_offset` is measured in pixels, not percent!
+    ///
+    /// ## Returns
+    ///
+    /// - `Vec<(f32, f32)>`: the x and y offsets of the glyph characters
+    /// - `Vec<f32>`: The rotations in degrees of the glyph characters
+    pub fn get_text_offsets_and_rotations(&self, glyphs: &[GlyphInstance], start_offset: f32)
+    -> (Vec<(f32, f32)>, Vec<f32>)
+    {
+        let mut glyph_offsets = vec![];
+        let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
+
+        for glyph_idx in 0..glyphs.len() {
+            let char_bezier_percentage = self.get_bezier_percentage_from_offset(current_offset);
+            let char_bezier_pt = cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
+            glyph_offsets.push((char_bezier_pt.x, char_bezier_pt.y));
+            current_offset += glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
+        }
+
+        // TODO !!!
+        let glyph_rotations = vec![30.0; glyphs.len()];
+
+        (glyph_offsets, glyph_rotations)
+    }
+
+    /// Returns the geometry necessary for drawing the points from `self.sampled_bezier_points`.
+    /// Usually only good for debugging
     pub fn draw_circles(&self) -> SvgLayerResource {
         quick_circles(
             &self.sampled_bezier_points
@@ -689,6 +725,17 @@ impl SampledBezierCurve {
             ColorU { r: 0, b: 0, g: 0, a: 255 })
     }
 
+    /// Returns the geometry necessary to draw the control handles of this curve
+    pub fn draw_control_handles(&self) -> SvgLayerResource {
+        quick_circles(
+            &self.original_curve
+            .iter()
+            .map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 3.0 })
+            .collect::<Vec<_>>(),
+            ColorU { r: 255, b: 0, g: 0, a: 255 })
+    }
+
+    /// Returns the geometry necessary to draw the bezier curve (the actual line)
     pub fn draw_lines(&self) -> SvgLayerResource {
         let line = [self.sampled_bezier_points.iter().map(|b| (b.x, b.y)).collect()];
         quick_lines(&line, ColorU { r: 0, b: 0, g: 0, a: 255 }, None)

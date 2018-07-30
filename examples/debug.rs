@@ -50,47 +50,52 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
 {
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
-
-    let cur_string = "Hello World";
+    let text_style = SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 });
     let font = resources.get_font(&FONT_ID).unwrap();
     let vectorized_font = vector_font_cache.get_font(&FONT_ID).unwrap();
-
     let font_size = FontSize::px(10.0);
-    let font_metrics = FontMetrics::new(&font.0, &font_size, None);
-    let layout = layout_text(&cur_string, &font.0, &font_metrics);
-
-    let style = SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 });
-
-    let test_curve = [
+    let test_curve = SampledBezierCurve::from_curve(&[
         BezierControlPoint { x: 0.0, y: 0.0 },
         BezierControlPoint { x: 40.0, y: 120.0 },
         BezierControlPoint { x: 80.0, y: 120.0 },
         BezierControlPoint { x: 120.0, y: 0.0 },
-    ];
+    ]);
 
-    let interpolated_curve = SampledBezierCurve::from_curve(&test_curve);
-    let char_offsets = get_text_on_curve_offsets(&test_curve, &interpolated_curve, &layout.layouted_glyphs, 0.0);
-    let char_rotations = get_text_on_curve_rotations(&test_curve, &interpolated_curve, &layout.layouted_glyphs, 0.0);
+    layers.push(text_on_curve("Hello World", &test_curve, text_style, &font.0, vectorized_font, font_size));
+    layers.push(test_curve.draw_circles());
+    layers.push(test_curve.draw_lines());
+    layers.push(test_curve.draw_control_handles());
 
-    let fill_vertices = style.fill.and_then(|_| {
-        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, &char_offsets, &char_rotations, get_fill_vertices))
+    layers
+}
+
+fn text_on_curve(
+    text: &str,
+    curve: &SampledBezierCurve,
+    text_style: SvgStyle,
+    font: &Font,
+    vector_font: &VectorizedFont,
+    font_size: FontSize)
+-> SvgLayerResource
+{
+    let font_metrics = FontMetrics::new(font, &font_size, None);
+    let layout = layout_text(text, font, &font_metrics);
+
+    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0);
+
+    let fill_vertices = text_style.fill.and_then(|_| {
+        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, &char_offsets, &char_rotations, get_fill_vertices))
     });
 
-    let stroke_vertices = style.stroke.and_then(|_| {
-        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, &char_offsets, &char_rotations, get_stroke_vertices))
+    let stroke_vertices = text_style.stroke.and_then(|_| {
+        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, &char_offsets, &char_rotations, get_stroke_vertices))
     });
 
-    layers.push(SvgLayerResource::Direct {
-        style,
+    SvgLayerResource::Direct {
+        style: text_style,
         fill: fill_vertices,
         stroke: stroke_vertices,
-    });
-
-    layers.push(interpolated_curve.draw_circles());
-    layers.push(interpolated_curve.draw_lines());
-
-    // layers.append(&mut test_bezier_points());
-    layers
+    }
 }
 
 // Calculates the layout for one word block
@@ -133,41 +138,6 @@ fn vector_text_to_vertices(
         .collect::<Vec<_>>();
 
     join_vertex_buffers(&fill_buf)
-}
-
-/// `start_offset` is in pixels - the offset of the text froma the start of the curve
-///
-/// Returns the x and y offsets of the glyph characters
-fn get_text_on_curve_offsets(
-    curve: &[BezierControlPoint;4],
-    sampled_bezier_curve: &SampledBezierCurve,
-    glyphs: &[GlyphInstance],
-    start_offset: f32)
--> Vec<(f32, f32)>
-{
-    let mut offsets = vec![];
-    let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
-
-    for glyph_idx in 0..glyphs.len() {
-        let char_bezier_percentage = sampled_bezier_curve.get_bezier_percentage_from_offset(current_offset);
-        let char_bezier_pt = cubic_interpolate_bezier(curve, char_bezier_percentage);
-        offsets.push((char_bezier_pt.x, char_bezier_pt.y));
-        current_offset += glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
-    }
-
-    offsets
-}
-
-/// Calculate the rotations
-fn get_text_on_curve_rotations(
-    curve: &[BezierControlPoint;4],
-    sampled_bezier_curve: &SampledBezierCurve,
-    glyphs: &[GlyphInstance],
-    start_offset: f32)
--> Vec<f32>
-{
-    // TODO !!!
-    vec![30.0; glyphs.len()]
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
