@@ -50,7 +50,8 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
 {
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
-    let cur_string = "Helloldakjfalfkjadlkfjdsalfkjdsalfkjdsf World";
+
+    let cur_string = "Hello World";
     let font = resources.get_font(&FONT_ID).unwrap();
     let vectorized_font = vector_font_cache.get_font(&FONT_ID).unwrap();
 
@@ -60,14 +61,23 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
 
     let style = SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 });
 
-    let (circle_layer, char_offsets) = test_bezier_points_offsets(&layout.layouted_glyphs, 0.0);
+    let test_curve = [
+        BezierControlPoint { x: 0.0, y: 0.0 },
+        BezierControlPoint { x: 40.0, y: 120.0 },
+        BezierControlPoint { x: 80.0, y: 120.0 },
+        BezierControlPoint { x: 120.0, y: 0.0 },
+    ];
+
+    let interpolated_curve = SampledBezierCurve::from_curve(&test_curve);
+    let char_offsets = get_text_on_curve_offsets(&test_curve, &interpolated_curve, &layout.layouted_glyphs, 0.0);
+    let char_rotations = get_text_on_curve_rotations(&test_curve, &interpolated_curve, &layout.layouted_glyphs, 0.0);
 
     let fill_vertices = style.fill.and_then(|_| {
-        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, &char_offsets, get_fill_vertices))
+        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, &char_offsets, &char_rotations, get_fill_vertices))
     });
 
     let stroke_vertices = style.stroke.and_then(|_| {
-        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, &char_offsets, get_stroke_vertices))
+        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vectorized_font, &font.0, &char_offsets, &char_rotations, get_stroke_vertices))
     });
 
     layers.push(SvgLayerResource::Direct {
@@ -76,7 +86,8 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         stroke: stroke_vertices,
     });
 
-    layers.push(circle_layer);
+    layers.push(interpolated_curve.draw_circles());
+    layers.push(interpolated_curve.draw_lines());
 
     // layers.append(&mut test_bezier_points());
     layers
@@ -89,18 +100,17 @@ fn vector_text_to_vertices(
     vectorized_font: &VectorizedFont,
     original_font: &Font,
     char_offsets: &[(f32, f32)],
+    char_rotations: &[f32],
     transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
-    let character_rotations = vec![30.0_f32; glyph_ids.len()];
-
     let fill_buf = glyph_ids.iter()
         .filter_map(|gid| {
             // 1. Transform glyph to vertex buffer && filter out all glyphs
             //    that don't have a vertex buffer
             transform_func(vectorized_font, original_font, &GlyphId(gid.index))
         })
-        .zip(character_rotations.into_iter())
+        .zip(char_rotations.into_iter())
         .zip(char_offsets.iter())
         .map(|((mut vertex_buf, char_rot), char_offset)| {
 
@@ -157,13 +167,13 @@ struct SampledBezierCurve {
     /// Total length of the arc of the curve (from 0.0 to 1.0)
     arc_length: f32,
     /// Stores the x and y position of the sampled bezier points
-    sampled_bezier_points: [BezierControlPoint;BEZIER_SAMPLE_RATE],
+    sampled_bezier_points: [BezierControlPoint;BEZIER_SAMPLE_RATE + 1],
     /// Each index is the bezier value * 0.1, i.e. index 1 = 0.1,
     /// index 2 = 0.2 and so on.
     ///
     /// Stores the length of the BezierControlPoint at i from the
     /// start of the curve
-    arc_length_parametrization: [ArcLength; BEZIER_SAMPLE_RATE],
+    arc_length_parametrization: [ArcLength; BEZIER_SAMPLE_RATE + 1],
 }
 
 impl SampledBezierCurve {
@@ -171,14 +181,14 @@ impl SampledBezierCurve {
     /// Roughly estimate the length of a bezier curve arc using 10 samples
     pub fn from_curve(curve: &[BezierControlPoint;4]) -> Self {
 
-        let mut sampled_bezier_points = [curve[0]; BEZIER_SAMPLE_RATE];
-        let mut arc_length_parametrization = [0.0; BEZIER_SAMPLE_RATE];
+        let mut sampled_bezier_points = [curve[0]; BEZIER_SAMPLE_RATE + 1];
+        let mut arc_length_parametrization = [0.0; BEZIER_SAMPLE_RATE + 1];
 
-        for i in 1..BEZIER_SAMPLE_RATE {
+        for i in 1..(BEZIER_SAMPLE_RATE + 1) {
             sampled_bezier_points[i] = cubic_interpolate_bezier(curve, i as f32 / BEZIER_SAMPLE_RATE as f32);
         }
 
-        sampled_bezier_points[BEZIER_SAMPLE_RATE - 1] = curve[3];
+        sampled_bezier_points[BEZIER_SAMPLE_RATE] = curve[3];
 
         // arc_length represents the sum of all sampled arcs up until the
         // current sampled iteration point
@@ -190,7 +200,7 @@ impl SampledBezierCurve {
             arc_length += dist_current;
         }
 
-        arc_length_parametrization[BEZIER_SAMPLE_RATE - 1] = arc_length;
+        arc_length_parametrization[BEZIER_SAMPLE_RATE] = arc_length;
 
         SampledBezierCurve {
             arc_length,
@@ -206,11 +216,11 @@ impl SampledBezierCurve {
     pub fn get_bezier_percentage_from_offset(&self, offset: f32) -> f32 {
 
         let mut lower_bound = 0;
-        let mut upper_bound = BEZIER_SAMPLE_RATE - 1;
+        let mut upper_bound = BEZIER_SAMPLE_RATE;
 
         // If the offset is too high (past 1.0) we simply interpolate between the 0.9
         // and 1.0 point. Because of this we don't want to include the last point when iterating
-        for (i, param) in self.arc_length_parametrization.iter().take(BEZIER_SAMPLE_RATE - 1).enumerate() {
+        for (i, param) in self.arc_length_parametrization.iter().take(BEZIER_SAMPLE_RATE).enumerate() {
             if *param < offset {
                 lower_bound = i;
             } else if *param > offset {
@@ -230,36 +240,56 @@ impl SampledBezierCurve {
 
         lower_bound_percent + ((upper_bound_percent - lower_bound_percent) * interpolate_percent)
     }
+
+    /// Returns the geometry necessary for drawing `self.sampled_bezier_points`
+    pub fn draw_circles(&self) -> SvgLayerResource {
+        quick_circles(
+            &self.sampled_bezier_points
+            .iter()
+            .map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 1.0 })
+            .collect::<Vec<_>>(),
+            ColorU { r: 0, b: 0, g: 0, a: 255 })
+    }
+
+    pub fn draw_lines(&self) -> SvgLayerResource {
+        let line = [self.sampled_bezier_points.iter().map(|b| (b.x, b.y)).collect()];
+        quick_lines(&line, ColorU { r: 0, b: 0, g: 0, a: 255 }, None)
+    }
 }
 
 /// `start_offset` is in pixels - the offset of the text froma the start of the curve
-fn test_bezier_points_offsets(glyphs: &[GlyphInstance], start_offset: f32) -> (SvgLayerResource, Vec<(f32, f32)>) {
-    let test_curve = [
-        BezierControlPoint { x: 0.0, y: 0.0 },
-        BezierControlPoint { x: 40.0, y: 120.0 },
-        BezierControlPoint { x: 80.0, y: 120.0 },
-        BezierControlPoint { x: 120.0, y: 0.0 },
-    ];
-
-    let sampled_bezier_curve = SampledBezierCurve::from_curve(&test_curve);
-
+///
+/// Returns the x and y offsets of the glyph characters
+fn get_text_on_curve_offsets(
+    curve: &[BezierControlPoint;4],
+    sampled_bezier_curve: &SampledBezierCurve,
+    glyphs: &[GlyphInstance],
+    start_offset: f32)
+-> Vec<(f32, f32)>
+{
     let mut offsets = vec![];
-    let mut current_offset = start_offset;
+    let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
 
-    for glyph in glyphs {
+    for glyph_idx in 0..glyphs.len() {
         let char_bezier_percentage = sampled_bezier_curve.get_bezier_percentage_from_offset(current_offset);
-        println!("current offset is: {}", current_offset);
-        let char_bezier_pt = cubic_interpolate_bezier(&test_curve, char_bezier_percentage);
+        let char_bezier_pt = cubic_interpolate_bezier(curve, char_bezier_percentage);
         offsets.push((char_bezier_pt.x, char_bezier_pt.y));
-        current_offset += glyph.point.x * 2.0;
+        current_offset += glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
     }
 
-    let circles = sampled_bezier_curve.sampled_bezier_points
-        .into_iter()
-        .map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 1.0 })
-        .collect::<Vec<_>>();
+    offsets
+}
 
-    (quick_circles(&circles, ColorU { r: 0, b: 0, g: 0, a: 255 }), offsets)
+/// Calculate the rotations
+fn get_text_on_curve_rotations(
+    curve: &[BezierControlPoint;4],
+    sampled_bezier_curve: &SampledBezierCurve,
+    glyphs: &[GlyphInstance],
+    start_offset: f32)
+-> Vec<f32>
+{
+    // TODO !!!
+    vec![30.0; glyphs.len()]
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
