@@ -674,12 +674,14 @@ impl SampledBezierCurve {
         // find out how much we should (linearly) interpolate
         let lower_bound_value = self.arc_length_parametrization[lower_bound];
         let upper_bound_value = self.arc_length_parametrization[upper_bound];
-        let interpolate_percent = (offset - lower_bound_value) / (upper_bound_value - lower_bound_value);
+        let lower_upper_diff = upper_bound_value - lower_bound_value;
+        let interpolate_percent = (offset - lower_bound_value) / lower_upper_diff;
 
         let lower_bound_percent = lower_bound as f32 / BEZIER_SAMPLE_RATE as f32;
         let upper_bound_percent = upper_bound as f32 / BEZIER_SAMPLE_RATE as f32;
 
-        lower_bound_percent + ((upper_bound_percent - lower_bound_percent) * interpolate_percent)
+        let lower_upper_diff_percent = upper_bound_percent - lower_bound_percent;
+        lower_bound_percent + (lower_upper_diff_percent * interpolate_percent)
     }
 
     /// Place some glyphs on a curve and calculate the respective offsets and rotations
@@ -699,13 +701,14 @@ impl SampledBezierCurve {
     -> (Vec<(f32, f32)>, Vec<f32>)
     {
         let mut glyph_offsets = vec![];
-        let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
+        // note: g.point.x is the offset from the start, not the advance!
+        let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
 
         for glyph_idx in 0..glyphs.len() {
             let char_bezier_percentage = self.get_bezier_percentage_from_offset(current_offset);
             let char_bezier_pt = cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
             glyph_offsets.push((char_bezier_pt.x, char_bezier_pt.y));
-            current_offset += glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
+            current_offset = start_offset + glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
         }
 
         // TODO !!!
