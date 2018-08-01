@@ -9,7 +9,8 @@ use azul::text_layout::*;
 
 use std::fs;
 
-const FONT_ID: FontId = FontId::BuiltinFont("sans-serif");
+const FONT_ID: FontId = FontId::BuiltinFont("serif");
+const FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
 
 #[derive(Debug)]
 pub struct MyAppData {
@@ -39,7 +40,7 @@ impl Layout for MyAppData {
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
-            Button::with_label("Hello Worldaslfkdlfkasdjfldkjf").dom()
+            Button::with_label("Azul App").dom()
                .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }
@@ -50,9 +51,10 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
 {
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
+    let font_id = FontId::ExternalFont(String::from("Webly Sleeky UI"));
     let text_style = SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 });
-    let font = resources.get_font(&FONT_ID).unwrap();
-    let vectorized_font = vector_font_cache.get_font(&FONT_ID).unwrap();
+    let font = resources.get_font(&font_id).unwrap();
+    let vectorized_font = vector_font_cache.get_font(&font_id).unwrap();
     let font_size = FontSize::px(10.0);
     let test_curve = SampledBezierCurve::from_curve(&[
         BezierControlPoint { x: 0.0, y: 0.0 },
@@ -171,10 +173,12 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
             let mut svg_cache = SvgCache::empty();
             let svg_layers = svg_cache.add_svg(&contents).ok()?;
 
+            let font_id = FontId::ExternalFont(String::from("Webly Sleeky UI"));
+
             // Pre-vectorize the glyphs of the font into vertex buffers
-            let (font, _) = app_state.get_font(&FONT_ID)?;
+            let (font, _) = app_state.get_font(&font_id)?;
             let mut vectorized_font_cache = VectorizedFontCache::new();
-            vectorized_font_cache.insert_if_not_exist(FONT_ID, font);
+            vectorized_font_cache.insert_if_not_exist(font_id, font);
 
             app_state.data.modify(|data| data.map = Some(Map {
                 cache: svg_cache,
@@ -193,7 +197,10 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 }
 
 fn main() {
+    use std::io::Cursor;
+
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
+    app.add_font("Webly Sleeky UI", &mut Cursor::new(FONT_BYTES)).unwrap();
     app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
     app.run().unwrap();
 }

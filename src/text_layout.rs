@@ -17,7 +17,7 @@ pub use webrender::api::GlyphInstance;
 
 /// Rusttype has a certain sizing hack, I have no idea where this number comes from
 /// Without this adjustment, we won't have the correct horizontal spacing
-pub(crate) const RUSTTYPE_SIZE_HACK: f32 = 72.0 / 41.0;
+pub(crate) const RUSTTYPE_SIZE_HACK: f32 = /* 72.0 / 41.0 */ 1.0;
 
 pub(crate) const PX_TO_PT: f32 = 72.0 / 96.0;
 
@@ -387,6 +387,11 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
         *cur_word_length = 0.0;
     }
 
+    let v_metrics_font = font.v_metrics_unscaled();
+    // Warning: rusttype has a bit of a weird layout system - you have to
+    // subtract the descent from the ascent to get the proper vertical height
+    let v_metrics_height_unscaled = Scale::uniform(v_metrics_font.ascent - v_metrics_font.descent);
+
     for cur_char in text.nfc() {
         match cur_char {
             '\t' => {
@@ -428,14 +433,16 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                 use rusttype::Point;
 
                 let g = font.glyph(cur_char);
+                let id = g.id();
 
                 // calculate the real width
                 let glyph_metrics = g.standalone().get_data().unwrap();
-                let extents = glyph_metrics.extents.unwrap();
-                let horz_rect_width = extents.max.x - extents.min.x;
-                let horiz_advance = horz_rect_width as f32 * glyph_metrics.scale_for_1_pixel * font_size.x;
+                let h_metrics = g.scaled(v_metrics_height_unscaled).h_metrics();
+                let mut horiz_advance = h_metrics.advance_width
+                                    * glyph_metrics.scale_for_1_pixel
+                                    * (font_size.x * (96.0 / 72.0));
 
-                let id = g.id();
+                // horiz_advance *= 96.0 / 72.0;
 
                 if let Some(last) = last_glyph {
                     word_caret += font.pair_kerning(font_size, last, id);
