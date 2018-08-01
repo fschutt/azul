@@ -599,7 +599,8 @@ type ArcLength = f32;
 /// at 300 pixels from the start, we interpolate linearly between 0.1
 /// (which we know is at 20 pixels) and 0.5 (which we know is at 500 pixels).
 ///
-/// This process is called "arc length parametrization". More info:
+/// This process is called "arc length parametrization". For more info + diagrams, see:
+/// http://www.planetclegg.com/projects/WarpingTextToSplines.html
 #[derive(Debug, Copy, Clone)]
 pub struct SampledBezierCurve {
     /// Copy of the original curve which the SampledBezierCurve was created from
@@ -615,6 +616,10 @@ pub struct SampledBezierCurve {
     /// start of the curve
     arc_length_parametrization: [ArcLength; BEZIER_SAMPLE_RATE + 1],
 }
+
+/// NOTE: The inner value is in **radians**, not degrees!
+#[derive(Debug, Copy, Clone)]
+pub struct BezierCharacterRotation(pub f32);
 
 impl SampledBezierCurve {
 
@@ -698,21 +703,22 @@ impl SampledBezierCurve {
     /// - `Vec<(f32, f32)>`: the x and y offsets of the glyph characters
     /// - `Vec<f32>`: The rotations in degrees of the glyph characters
     pub fn get_text_offsets_and_rotations(&self, glyphs: &[GlyphInstance], start_offset: f32)
-    -> (Vec<(f32, f32)>, Vec<f32>)
+    -> (Vec<(f32, f32)>, Vec<BezierCharacterRotation>)
     {
         let mut glyph_offsets = vec![];
-        // note: g.point.x is the offset from the start, not the advance!
+        let mut glyph_rotations = vec![];
+
+        // NOTE: g.point.x is the offset from the start, not the advance!
         let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
 
         for glyph_idx in 0..glyphs.len() {
             let char_bezier_percentage = self.get_bezier_percentage_from_offset(current_offset);
             let char_bezier_pt = cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
+            let rotation = cubic_bezier_normal(&self.original_curve, char_bezier_percentage).to_rotation();
             glyph_offsets.push((char_bezier_pt.x, char_bezier_pt.y));
+            glyph_rotations.push(rotation);
             current_offset = start_offset + glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
         }
-
-        // TODO !!!
-        let glyph_rotations = vec![30.0; glyphs.len()];
 
         (glyph_offsets, glyph_rotations)
     }
@@ -1576,17 +1582,98 @@ pub fn cubic_interpolate_bezier(curve: &[BezierControlPoint;4], t: f32) -> Bezie
     let one_minus_square = one_minus.powi(2);
     let one_minus_cubic = one_minus.powi(3);
 
+    let t_pow2 = t.powi(2);
+    let t_pow3 = t.powi(3);
+
     let x =         one_minus_cubic  *             curve[0].x
             + 3.0 * one_minus_square * t         * curve[1].x
-            + 3.0 * one_minus        * t.powi(2) * curve[2].x
-            +                          t.powi(3) * curve[3].x;
+            + 3.0 * one_minus        * t_pow2    * curve[2].x
+            +                          t_pow3    * curve[3].x;
 
     let y =         one_minus_cubic  *             curve[0].y
             + 3.0 * one_minus_square * t         * curve[1].y
-            + 3.0 * one_minus        * t.powi(2) * curve[2].y
-            +                          t.powi(3) * curve[3].y;
+            + 3.0 * one_minus        * t_pow2    * curve[2].y
+            +                          t_pow3    * curve[3].y;
 
     BezierControlPoint { x, y }
+}
+
+pub fn quadratic_interpolate_bezier(curve: &[BezierControlPoint;3], t: f32) -> BezierControlPoint {
+    let one_minus = 1.0 - t;
+    let one_minus_square = one_minus.powi(2);
+
+    let t_pow2 = t.powi(2);
+
+    // TODO: Why 3.0 and not 2.0?
+
+    let x =         one_minus_square *             curve[0].x
+            + 2.0 * one_minus        * t         * curve[1].x
+            + 3.0                    * t_pow2    * curve[2].x;
+
+    let y =         one_minus_square *             curve[0].y
+            + 2.0 * one_minus        * t         * curve[1].y
+            + 3.0                    * t_pow2    * curve[2].y;
+
+    BezierControlPoint { x, y }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct BezierNormalVector {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl BezierNormalVector {
+    pub fn to_rotation(&self) -> BezierCharacterRotation {
+        BezierCharacterRotation((self.y / self.x).atan())
+    }
+}
+
+/// Calculates the normal vector at a certain point (perpendicular to the curve)
+pub fn cubic_bezier_normal(curve: &[BezierControlPoint;4], t: f32) -> BezierNormalVector {
+
+    // 1. Calculate the derivative of the bezier curve
+    //
+    // This means, we go from 4 control points to 3 control points and redistribute
+    // the weights of the control points according to the formula:
+    //
+    // w'0 = 3(w1-w0)
+    // w'1 = 3(w2-w1)
+    // w'2 = 3(w3-w2)
+
+    let weight_1_x = 3.0 * (curve[1].x - curve[0].x);
+    let weight_1_y = 3.0 * (curve[1].y - curve[0].y);
+
+    let weight_2_x = 3.0 * (curve[2].x - curve[1].x);
+    let weight_2_y = 3.0 * (curve[2].y - curve[1].y);
+
+    let weight_3_x = 3.0 * (curve[3].x - curve[2].x);
+    let weight_3_y = 3.0 * (curve[3].y - curve[2].y);
+
+    // The first derivative of a cubic bezier curve is a quadratic bezier curve
+    // Luckily, the first derivative is also the tangent vector. So all we need to do
+    // is to get the quadratic bezier
+    let mut tangent = quadratic_interpolate_bezier(&[
+        BezierControlPoint { x: weight_1_x, y: weight_1_y },
+        BezierControlPoint { x: weight_2_x, y: weight_2_y },
+        BezierControlPoint { x: weight_3_x, y: weight_3_y },
+    ], t);
+
+    // We normalize the tangent to have a lenght of 1
+    let tangent_length = (tangent.x.powi(2) + tangent.y.powi(2)).sqrt();
+    tangent.x /= tangent_length;
+    tangent.y /= tangent_length;
+
+    // The tangent is the vector that runs "along" the curve at a specific point.
+    // To get the normal (to calcuate the rotation of the characters), we need to
+    // rotate the tangent vector by 90 degrees.
+    //
+    // Rotating by 90 degrees is very simple, as we only need to flip the x and y axis
+
+    BezierNormalVector {
+        x: -tangent.y,
+        y: tangent.x,
+    }
 }
 
 impl Svg {
