@@ -573,7 +573,7 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
     }
 }
 
-const BEZIER_SAMPLE_RATE: usize = 10;
+const BEZIER_SAMPLE_RATE: usize = 20;
 
 type ArcLength = f32;
 
@@ -710,13 +710,18 @@ impl SampledBezierCurve {
 
         // NOTE: g.point.x is the offset from the start, not the advance!
         let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
+        let mut last_offset = start_offset;
 
         for glyph_idx in 0..glyphs.len() {
             let char_bezier_percentage = self.get_bezier_percentage_from_offset(current_offset);
             let char_bezier_pt = cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
-            let rotation = cubic_bezier_normal(&self.original_curve, char_bezier_percentage).to_rotation();
             glyph_offsets.push((char_bezier_pt.x, char_bezier_pt.y));
+
+            let char_rotation_percentage = self.get_bezier_percentage_from_offset(last_offset);
+            let rotation = cubic_bezier_normal(&self.original_curve, char_rotation_percentage).to_rotation();
             glyph_rotations.push(rotation);
+
+            last_offset = current_offset;
             current_offset = start_offset + glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
         }
 
@@ -1625,7 +1630,7 @@ pub struct BezierNormalVector {
 
 impl BezierNormalVector {
     pub fn to_rotation(&self) -> BezierCharacterRotation {
-        BezierCharacterRotation((self.y / self.x).atan())
+        BezierCharacterRotation((-self.x).atan2(self.y))
     }
 }
 
