@@ -105,7 +105,7 @@ fn vector_text_to_vertices(
     vectorized_font: &VectorizedFont,
     original_font: &Font,
     char_offsets: &[(f32, f32)],
-    char_rotations: &[f32],
+    char_rotations: &[BezierCharacterRotation],
     transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
@@ -125,8 +125,7 @@ fn vector_text_to_vertices(
             scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
 
             // 3. Rotate individual characters inside of the word
-            let char_angle = char_rot.to_radians();
-            let (char_sin, char_cos) = (char_angle.sin(), char_angle.cos());
+            let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
 
             rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
 
