@@ -39,7 +39,7 @@ impl Layout for MyAppData {
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
-            Button::with_label("Open SVG file...").dom()
+            Button::with_label("Hello Worldaslfkdlfkasdjfldkjf").dom()
                .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }
@@ -61,7 +61,7 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         BezierControlPoint { x: 120.0, y: 0.0 },
     ]);
 
-    layers.push(text_on_curve("Hello World", &test_curve, text_style, &font.0, vectorized_font, font_size));
+    layers.push(text_on_curve("Hello Worldaslfkdlfkasdjfldkjf", &test_curve, text_style, &font.0, vectorized_font, font_size));
     layers.push(test_curve.draw_circles());
     layers.push(test_curve.draw_lines());
     layers.push(test_curve.draw_control_handles());
