@@ -28,6 +28,7 @@ use {
     text_layout::{TextOverflowPass2, ScrollbarInfo},
     images::ImageId,
     text_cache::TextId,
+    compositor::new_opengl_texture_id,
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -67,7 +68,7 @@ pub(crate) struct SolvedLayout<T: Layout> {
 /// In the cached version, you can lookup the text as well as the dimensions of
 /// the words in the `AppResources`. For the `Uncached` version, you'll have to re-
 /// calculate it on every frame.
-/// 
+///
 /// TODO: It should be possible to switch this over to a `&'a str`, but currently
 /// this leads to unsolvable borrowing issues.
 pub(crate) enum TextInfo {
@@ -250,6 +251,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     pub fn into_display_list_builder(
         &self,
         pipeline_id: PipelineId,
+        current_epoch: Epoch,
         ui_solver: &mut UiSolver<T>,
         css: &mut Css,
         app_resources: &mut AppResources,
@@ -323,6 +325,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             // temporary: fill the whole window with each rectangle
             displaylist_handle_rect(
                 &mut builder,
+                current_epoch,
                 rect_idx,
                 &self.rectangles,
                 node_type,
@@ -341,6 +344,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
 fn displaylist_handle_rect<'a>(
     builder: &mut DisplayListBuilder,
+    current_epoch: Epoch,
     rect_idx: NodeId,
     arena: &Arena<DisplayRectangle<'a>>,
     html_node: &NodeType,
@@ -448,7 +452,8 @@ fn displaylist_handle_rect<'a>(
             let allow_mipmaps = true;
             let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
             let key = render_api.generate_image_key();
-            let external_image_id = ExternalImageId(texture.inner.get_id() as u64);
+            let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
+            println!("pusing external texture with id: {:?}", external_image_id);
 
             let data = ImageData::External(ExternalImageData {
                 id: external_image_id,
@@ -456,7 +461,9 @@ fn displaylist_handle_rect<'a>(
                 image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             });
 
-            ACTIVE_GL_TEXTURES.lock().unwrap().insert(external_image_id, ActiveTexture { texture: texture.clone() });
+            ACTIVE_GL_TEXTURES.lock().unwrap()
+                .entry(current_epoch).or_insert_with(|| FastHashMap::default())
+                .insert(external_image_id, ActiveTexture { texture: texture.clone() });
 
             resource_updates.push(ResourceUpdate::AddImage(
                 AddImage { key, descriptor, data, tiling: None }
