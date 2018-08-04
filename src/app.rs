@@ -5,7 +5,8 @@ use std::{
 };
 use glium::{SwapBuffersError, glutin::Event};
 use glium::glutin::dpi::{LogicalPosition, LogicalSize};
-use webrender::api::{RenderApi, HitTestFlags, DevicePixel};
+use webrender::api::{RenderApi, HitTestFlags, DevicePixel, PipelineId, Epoch};
+use webrender::PipelineInfo;
 use image::ImageError;
 use euclid::{TypedScale, TypedSize2D};
 #[cfg(feature = "logging")]
@@ -234,10 +235,7 @@ impl<'a, T: Layout> App<'a, T> {
                     if let Some(i) = force_redraw_cache.get_mut(idx) {
                         if *i > 0 { *i -= 1 };
                         if *i == 0 {
-                            use compositor::{TO_DELETE_TEXTURES, ACTIVE_GL_TEXTURES};
-                            let mut to_delete_lock = TO_DELETE_TEXTURES.lock().unwrap();
-                            let mut active_textures_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
-                            to_delete_lock.drain().for_each(|tex| { active_textures_lock.remove(&tex); });
+                            clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
                         }
                     }
                 }
@@ -647,10 +645,12 @@ fn render<T: Layout>(
     use webrender::api::*;
     use display_list::DisplayList;
     use euclid::TypedSize2D;
+    use std::u32;
 
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(
         window.internal.pipeline_id,
+        window.internal.epoch,
         &mut window.solver,
         &mut window.css,
         app_resources,
@@ -678,13 +678,34 @@ fn render<T: Layout>(
         true,
     );
 
+    // We don't want the epoch to increase to u32::MAX, since u32::MAX represents
+    // an invalid epoch, which could confuse webrender
+    window.internal.epoch = Epoch(if window.internal.epoch.0 == (u32::MAX - 1) {
+        0
+    } else {
+        window.internal.epoch.0 + 1
+    });
+
     txn.set_root_pipeline(window.internal.pipeline_id);
     txn.generate_frame();
 
     window.internal.api.send_transaction(window.internal.document_id, txn);
     window.renderer.as_mut().unwrap().update();
-
     render_inner(window, framebuffer_size);
+}
+
+fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
+
+    use compositor::ACTIVE_GL_TEXTURES;
+    use std::collections::HashSet;
+
+    let currently_active_epochs: HashSet<&Epoch> = pipeline_info.epochs.values().collect();
+    println!("currently active epochs: {:?}", currently_active_epochs);
+
+    let mut active_textures_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
+
+    // Remove all unused OpenGL textures and keep only those currently in use
+    active_textures_lock.retain(|key, _| currently_active_epochs.get(key).is_some());
 }
 
 // See: https://github.com/servo/webrender/pull/2880

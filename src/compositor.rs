@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}};
 use webrender::{
     ExternalImageHandler, ExternalImage, ExternalImageSource,
-    api::{ExternalImageId, TexelRect, DevicePixel},
+    api::{ExternalImageId, TexelRect, DevicePixel, Epoch},
 };
 use glium::{
     Program, VertexBuffer, Display,
@@ -19,6 +19,12 @@ use {
     dom::Texture,
 };
 
+static LAST_OPENGL_ID: AtomicUsize = AtomicUsize::new(0);
+
+pub fn new_opengl_texture_id() -> usize {
+    LAST_OPENGL_ID.fetch_add(1, Ordering::SeqCst)
+}
+
 lazy_static! {
     /// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
     /// as webrender needs it for drawing. To transparently do this, we store the epoch that the
@@ -27,8 +33,13 @@ lazy_static! {
     ///
     /// Because the Texture2d is wrapped in an Rc, the destructor (which cleans up the OpenGL
     /// texture) does not run until we remove the textures
-    pub(crate) static ref ACTIVE_GL_TEXTURES: Mutex<FastHashMap<ExternalImageId, ActiveTexture>> = Mutex::new(FastHashMap::default());
-    pub(crate) static ref TO_DELETE_TEXTURES: Mutex<FastHashSet<ExternalImageId>> = Mutex::new(FastHashSet::default());
+    ///
+    /// Note: Because textures could be used after the current draw call (ex. for scrolling),
+    /// the ACTIVE_GL_TEXTURES are indexed by their epoch. Use `renderer.flush_pipeline_info()`
+    /// to see which textures are still active and which ones can be safely removed.
+    ///
+    /// See: https://github.com/servo/webrender/issues/2940
+    pub(crate) static ref ACTIVE_GL_TEXTURES: Mutex<FastHashMap<Epoch, FastHashMap<ExternalImageId, ActiveTexture>>> = Mutex::new(FastHashMap::default());
 }
 
 /// The Texture struct is public to the user
@@ -59,7 +70,17 @@ impl ExternalImageHandler for Compositor {
         use glium::GlObject;
 
         let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
-        let tex = &gl_tex_lock[&key];
+
+        println!("gl textures currently active: {:#?}", *gl_tex_lock);
+        println!("search for key: {:?}", key);
+
+        // Search all epoch hash maps for the given key
+        // There does not seemt to be a way to get the epoch for the key, so we simply have to search all active epochs
+        let tex = gl_tex_lock
+            .values()
+            .filter_map(|epoch_map| epoch_map.get(&key))
+            .next()
+            .expect("Missing OpenGL texture");
 
         ExternalImage {
             uv: TexelRect {
@@ -70,8 +91,8 @@ impl ExternalImageHandler for Compositor {
         }
     }
 
-    fn unlock(&mut self, key: ExternalImageId, _channel_index: u8) {
-        TO_DELETE_TEXTURES.lock().unwrap().insert(key);
+    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {
+        // Since the renderer is currently single-threaded, there is nothing to do here
     }
 }
 
