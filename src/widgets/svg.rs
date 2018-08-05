@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
     io::{Error as IoError, Read},
     sync::{Mutex, atomic::{Ordering, AtomicUsize}},
-    cell::{UnsafeCell, RefCell},
+    cell::{UnsafeCell, RefCell, RefMut},
     hash::{Hash, Hasher},
     collections::hash_map::Entry::*,
 };
@@ -290,8 +290,8 @@ pub struct SvgCache<T: Layout> {
     // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
     gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
     stroke_gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    vertex_index_buffer_cache: UnsafeCell<FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>>,
-    stroke_vertex_index_buffer_cache: UnsafeCell<FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>>,
+    vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
+    stroke_vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
     shader: Mutex<Option<SvgShader>>,
     // Stores the 2D transforms of the shapes on the screen. The vertices are
     // offset by the X, Y value in the transforms struct. This should be expanded
@@ -307,8 +307,8 @@ impl<T: Layout> Default for SvgCache<T> {
             layers: FastHashMap::default(),
             gpu_ready_to_upload_cache: FastHashMap::default(),
             stroke_gpu_ready_to_upload_cache: FastHashMap::default(),
-            vertex_index_buffer_cache: UnsafeCell::new(FastHashMap::default()),
-            stroke_vertex_index_buffer_cache: UnsafeCell::new(FastHashMap::default()),
+            vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
+            stroke_vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
             shader: Mutex::new(None),
             transforms: FastHashMap::default(),
             view_boxes: FastHashMap::default(),
@@ -318,10 +318,9 @@ impl<T: Layout> Default for SvgCache<T> {
 
 fn fill_vertex_buffer_cache<'a, F: Facade>(
     id: &SvgLayerId,
-    rmut: &'a mut FastHashMap<SvgLayerId, (VertexBuffer<SvgVert>, IndexBuffer<u32>)>,
+    mut rmut: RefMut<'a, FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
     rnotmut: &FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
     window: &F)
-    -> Option<&'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)>
 {
     use std::collections::hash_map::Entry::*;
 
@@ -330,16 +329,13 @@ fn fill_vertex_buffer_cache<'a, F: Facade>(
         Vacant(v) => {
             let (vbuf, ibuf) = match rnotmut.get(id).as_ref() {
                 Some(s) => s,
-                None => return None,
+                None => return,
             };
             let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
             let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
-            ;
-            v.insert((vertex_buffer, index_buffer));
+            v.insert(Rc::new((vertex_buffer, index_buffer)));
         }
     }
-
-    rmut.get(id)
 }
 
 impl<T: Layout> SvgCache<T> {
@@ -359,15 +355,18 @@ impl<T: Layout> SvgCache<T> {
     }
 
     fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> Option<&'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)>
+    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
     {
         use std::collections::hash_map::Entry::*;
         use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
 
-        let rmut = unsafe { &mut *self.stroke_vertex_index_buffer_cache.get() };
-        let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
+        {
+            let rmut = self.stroke_vertex_index_buffer_cache.borrow_mut();
+            let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
+            fill_vertex_buffer_cache(id, rmut, rnotmut, window);
+        }
 
-        Some(fill_vertex_buffer_cache(id, rmut, rnotmut, window)?)
+        self.stroke_vertex_index_buffer_cache.borrow().get(id).and_then(|x| Some(x.clone()))
     }
 
     /// Note: panics if the ID isn't found.
@@ -375,25 +374,21 @@ impl<T: Layout> SvgCache<T> {
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
     /// in sync, a panic should never happen
     fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> Option<&'a (VertexBuffer<SvgVert>, IndexBuffer<u32>)>
+    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
     {
         use std::collections::hash_map::Entry::*;
         use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
 
-        // First, we need the SvgCache to call this function immutably, otherwise we can't
+        // We need the SvgCache to call this function immutably, otherwise we can't
         // use it from the Layout::layout() function
-        //
-        // Rust does also not "understand" that we want to return a reference into
-        // self.vertex_index_buffer_cache, so the reference that we are returning lives as
-        // long as the self.gpu_ready_to_upload_cache (at least until it's removed)
+        {
+            let rmut = self.vertex_index_buffer_cache.borrow_mut();
+            let rnotmut = &self.gpu_ready_to_upload_cache;
 
-        // We need to use UnsafeCell here - when using a regular RefCell, Rust thinks we
-        // are destroying the reference after the borrow, but that isn't true.
+            fill_vertex_buffer_cache(id, rmut, rnotmut, window);
+        }
 
-        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
-        let rnotmut = &self.gpu_ready_to_upload_cache;
-
-        Some(fill_vertex_buffer_cache(id, rmut, rnotmut, window)?)
+        self.vertex_index_buffer_cache.borrow().get(id).and_then(|x| Some(x.clone()))
     }
 
     fn get_style(&self, id: &SvgLayerId)
@@ -424,8 +419,8 @@ impl<T: Layout> SvgCache<T> {
         self.layers.remove(&svg_id);
         self.gpu_ready_to_upload_cache.remove(&svg_id);
         self.stroke_gpu_ready_to_upload_cache.remove(&svg_id);
-        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
-        let stroke_rmut = unsafe { &mut *self.stroke_vertex_index_buffer_cache.get() };
+        let rmut = self.vertex_index_buffer_cache.get_mut();
+        let stroke_rmut = self.stroke_vertex_index_buffer_cache.get_mut();
         rmut.remove(&svg_id);
         stroke_rmut.remove(&svg_id);
     }
@@ -436,10 +431,10 @@ impl<T: Layout> SvgCache<T> {
         self.gpu_ready_to_upload_cache.clear();
         self.stroke_gpu_ready_to_upload_cache.clear();
 
-        let rmut = unsafe { &mut *self.vertex_index_buffer_cache.get() };
+        let rmut = self.vertex_index_buffer_cache.get_mut();
         rmut.clear();
 
-        let stroke_rmut = unsafe { &mut *self.stroke_vertex_index_buffer_cache.get() };
+        let stroke_rmut = self.stroke_vertex_index_buffer_cache.get_mut();
         stroke_rmut.clear();
     }
 
@@ -1746,15 +1741,14 @@ impl Svg {
                 };
 
                 if let Some(color) = style.fill {
-                    let mut direct_fill = None;
-                    if let Some((fill_vertices, fill_indices)) = match &layer {
+                    if let Some(fill_vi) = match &layer {
                         SvgLayerResource::Reference(layer_id) => svg_cache.get_vertices_and_indices(window, layer_id),
                         SvgLayerResource::Direct { fill, .. } => fill.as_ref().and_then(|f| {
                             let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
                             let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                            direct_fill = Some((vertex_buffer, index_buffer));
-                            Some(direct_fill.as_ref().unwrap())
+                            Some(Rc::new((vertex_buffer, index_buffer)))
                     })} {
+                        let (ref fill_vertices, ref fill_indices) = *fill_vi;
                         draw_vertex_buffer_to_surface(
                             &mut surface,
                             &shader.program,
@@ -1770,17 +1764,14 @@ impl Svg {
                 }
 
                 if let Some((stroke_color, _)) = style.stroke {
-
-                    let mut direct_stroke = None;
-                    if let Some((stroke_vertices, stroke_indices)) = match &layer {
+                    if let Some(stroke_vi) = match &layer {
                         SvgLayerResource::Reference(layer_id) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
                         SvgLayerResource::Direct { stroke, .. } => stroke.as_ref().and_then(|f| {
                             let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
                             let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                            direct_stroke = Some((vertex_buffer, index_buffer));
-                            Some(direct_stroke.as_ref().unwrap())
-                        })}
-                    {
+                            Some(Rc::new((vertex_buffer, index_buffer)))
+                        })} {
+                        let (ref stroke_vertices, ref stroke_indices) = *stroke_vi;
                         draw_vertex_buffer_to_surface(
                             &mut surface,
                             &shader.program,
