@@ -699,13 +699,30 @@ fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
     use compositor::ACTIVE_GL_TEXTURES;
     use std::collections::HashSet;
 
-    let currently_active_epochs: HashSet<&Epoch> = pipeline_info.epochs.values().collect();
-    println!("currently active epochs: {:?}", currently_active_epochs);
+    // TODO: currently active epochs can be empty, why?
+    //
+    // I mean, while the renderer is rendering, there can never be "no epochs" active,
+    // at least one epoch must always be active.
+    if pipeline_info.epochs.is_empty() {
+        return;
+    }
+
+    // TODO: pipeline_info.epochs does not contain all active epochs,
+    // at best it contains the lowest in-use epoch. I.e. if `Epoch(43)`
+    // is listed, you can remove all textures from Epochs **lower than 43**
+    // BUT NOT EPOCHS HIGHER THAN 43.
+    //
+    // This means that "all active epochs" (in the documentation) is misleading
+    // since it doesn't actually list all active epochs, otherwise it'd list Epoch(43),
+    // Epoch(44), Epoch(45), which are currently active.
+    let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
 
     let mut active_textures_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
 
-    // Remove all unused OpenGL textures and keep only those currently in use
-    active_textures_lock.retain(|key, _| currently_active_epochs.get(key).is_some());
+    // Retain all OpenGL textures from epochs higher than the lowest epoch
+    //
+    // TODO: Handle overflow of Epochs correctly (low priority)
+    active_textures_lock.retain(|key, _| key > oldest_to_remove_epoch);
 }
 
 // See: https://github.com/servo/webrender/pull/2880

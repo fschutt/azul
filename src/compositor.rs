@@ -71,9 +71,6 @@ impl ExternalImageHandler for Compositor {
 
         let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
 
-        println!("gl textures currently active: {:#?}", *gl_tex_lock);
-        println!("search for key: {:?}", key);
-
         // Search all epoch hash maps for the given key
         // There does not seemt to be a way to get the epoch for the key, so we simply have to search all active epochs
         let tex = gl_tex_lock
