@@ -14,7 +14,7 @@ use glium::{
     IncompatibleOpenGl, Display,
     debug::DebugCallbackBehavior,
     glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
-             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, dpi::LogicalSize},
+             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder},
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
@@ -33,7 +33,6 @@ use {
     cache::{EditVariableCache, DomTreeCache},
     id_tree::NodeId,
     compositor::Compositor,
-    text_cache::TextCache,
     app::FrameEventInfo,
     resources::AppResources,
 };
@@ -104,10 +103,6 @@ impl Facade for ReadOnlyWindow {
         self.inner.get_context()
     }
 }
-
-use glium::{Vertex, VertexBuffer, IndexBuffer, index::PrimitiveType};
-use glium::vertex::BufferCreationError as VertexBufferCreationError;
-use glium::index::BufferCreationError as IndexBufferCreationError;
 
 impl ReadOnlyWindow {
 
@@ -547,8 +542,6 @@ impl<T: Layout> Window<T> {
     /// Creates a new window
     pub fn new(mut options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
 
-        use glium::glutin::dpi::{LogicalPosition, LogicalSize};
-
         let events_loop = EventsLoop::new();
 
         let monitor = match options.monitor {
@@ -800,7 +793,6 @@ impl<T: Layout> Window<T> {
     }
 
     pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
-        use webrender::api::{DeviceUintSize, WorldPoint, LayoutSize};
 
         if let Some(new_size) = frame_event_info.new_window_size {
             self.state.size.dimensions = new_size;

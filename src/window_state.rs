@@ -3,7 +3,7 @@
 
 use glium::glutin::{
     Window, Event, WindowEvent, KeyboardInput, ElementState,
-    MouseCursor, VirtualKeyCode, MouseButton, MouseScrollDelta, TouchPhase,
+    MouseCursor, VirtualKeyCode, MouseScrollDelta,
     ModifiersState, dpi::{LogicalPosition, LogicalSize},
 };
 use std::collections::HashSet;
@@ -173,11 +173,12 @@ impl WindowState
     // so that we are ready for the next frame
     pub(crate) fn determine_callbacks(&mut self, event: &Event) -> Vec<On> {
 
-        use glium::glutin::Event::WindowEvent;
-        use glium::glutin::WindowEvent::*;
-        use glium::glutin::{ElementState, MouseButton };
-        use glium::glutin::MouseButton::*;
-        use glium::glutin::dpi::LogicalPosition;
+        use glium::glutin::{
+            Event::WindowEvent,
+            WindowEvent::*,
+            MouseButton::*,
+            dpi::LogicalPosition,
+        };
 
         let event = if let WindowEvent { event, .. } = event { event } else { return Vec::new(); };
 

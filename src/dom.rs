@@ -6,7 +6,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
 };
-use webrender::api::ColorU;
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use {
     window::WindowEvent,
@@ -660,8 +659,6 @@ impl<T: Layout> Dom<T> {
 
 #[test]
 fn test_dom_sibling_1() {
-
-    use window::WindowInfo;
 
     struct TestLayout { }
 

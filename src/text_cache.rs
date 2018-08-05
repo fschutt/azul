@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::atomic::{Ordering, AtomicUsize},
-};
+use std::sync::atomic::{Ordering, AtomicUsize};
 use {
     FastHashMap,
     css_parser::{FontId, FontSize},

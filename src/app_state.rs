@@ -9,7 +9,6 @@ use {
     FastHashMap,
     text_cache::TextId,
     window::FakeWindow,
-    window_state::WindowState,
     task::Task,
     dom::UpdateScreen,
     traits::Layout,

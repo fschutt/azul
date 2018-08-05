@@ -1,16 +1,16 @@
 use std::{
     fmt,
     rc::Rc,
-    io::{Error as IoError, Read},
+    io::{Error as IoError},
     sync::{Mutex, atomic::{Ordering, AtomicUsize}},
-    cell::{UnsafeCell, RefCell, RefMut},
+    cell::{RefCell, RefMut},
     hash::{Hash, Hasher},
     collections::hash_map::Entry::*,
 };
 use glium::{
     backend::Facade, index::PrimitiveType,
-    DrawParameters, IndexBuffer, VertexBuffer, Display,
-    Texture2d, Program, Api, Surface,
+    DrawParameters, IndexBuffer, VertexBuffer,
+    Program, Api, Surface,
 };
 use lyon::{
     tessellation::{
@@ -22,13 +22,13 @@ use lyon::{
         },
     },
     path::{
-        default::{Builder, Path},
+        default::{Builder},
         builder::{PathBuilder, FlatPathBuilder}, PathEvent,
     },
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D},
 };
 use resvg::usvg::{Error as SvgError, ViewBox, Transform};
-use webrender::api::{ColorU, ColorF, LayoutPixel, GlyphInstance};
+use webrender::api::{ColorU, ColorF, GlyphInstance};
 use rusttype::{Font, Glyph};
 use {
     FastHashMap,
@@ -357,8 +357,6 @@ impl<T: Layout> SvgCache<T> {
     fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
     -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
     {
-        use std::collections::hash_map::Entry::*;
-        use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
 
         {
             let rmut = self.stroke_vertex_index_buffer_cache.borrow_mut();
@@ -376,9 +374,6 @@ impl<T: Layout> SvgCache<T> {
     fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
     -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
     {
-        use std::collections::hash_map::Entry::*;
-        use glium::{VertexBuffer, IndexBuffer, index::PrimitiveType};
-
         // We need the SvgCache to call this function immutably, otherwise we can't
         // use it from the Layout::layout() function
         {
@@ -1362,13 +1357,11 @@ pub struct SvgRect {
 
 mod svg_to_lyon {
 
-    use std::{slice, iter, io::Read};
     use lyon::{
         math::Point,
-        path::{PathEvent, iterator::PathIter},
-        tessellation::{self, StrokeOptions},
+        path::PathEvent,
     };
-    use resvg::usvg::{self, ViewBox, Transform, Tree, Path, PathSegment,
+    use resvg::usvg::{ViewBox, Transform, Tree, PathSegment,
         Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
     use widgets::svg::{SvgLayer, SvgStrokeOptions, SvgLineCap, SvgLineJoin,
         SvgLayerType, SvgStyle, SvgCallbacks, SvgParseError, SvgTransformId,

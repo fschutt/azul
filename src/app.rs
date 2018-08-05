@@ -5,17 +5,17 @@ use std::{
 };
 use glium::{SwapBuffersError, glutin::Event};
 use glium::glutin::dpi::{LogicalPosition, LogicalSize};
-use webrender::api::{RenderApi, HitTestFlags, DevicePixel, PipelineId, Epoch};
+use webrender::api::{HitTestFlags, DevicePixel};
 use webrender::PipelineInfo;
 use image::ImageError;
-use euclid::{TypedScale, TypedSize2D};
+use euclid::TypedSize2D;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
 use {
     images::ImageType,
     errors::{FontError, ClipboardError},
     window::{Window, WindowCreateOptions, WindowCreateError, WindowId},
-    css_parser::{FontId, PixelValue, FontSize},
+    css_parser::{FontId, PixelValue},
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
@@ -184,7 +184,7 @@ impl<'a, T: Layout> App<'a, T> {
 
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
         use std::{thread, time::{Duration, Instant}};
-        use window::{ReadOnlyWindow, WindowInfo};
+        use window::ReadOnlyWindow;
 
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
@@ -316,7 +316,7 @@ impl<'a, T: Layout> App<'a, T> {
     fn initialize_ui_state(windows: &[Window<T>], app_state: &AppState<'a, T>)
     -> Vec<UiState<T>>
     {
-        use window::{ReadOnlyWindow, WindowInfo};
+        use window::ReadOnlyWindow;
 
         windows.iter().enumerate().map(|(idx, w)| {
             let window_id = WindowId { id: idx };
@@ -520,7 +520,6 @@ enum WindowCloseEvent {
 
 fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> WindowCloseEvent {
     use glium::glutin::WindowEvent;
-    use glium::glutin::dpi::LogicalSize;
 
     match event {
         Event::WindowEvent { event, .. } => {
@@ -729,7 +728,6 @@ fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
 fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D<u32, DevicePixel>) {
 
-    use glium::backend::Facade;
     use gleam::gl;
     use window::get_gl_context;
 

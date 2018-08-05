@@ -5,7 +5,6 @@ use std::{
     thread::{spawn, JoinHandle},
 };
 use {
-    app_state::AppState,
     traits::Layout,
 };
 
