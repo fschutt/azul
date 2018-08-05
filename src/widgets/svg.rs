@@ -34,7 +34,6 @@ use {
     FastHashMap,
     dom::{Dom, NodeType, Callback},
     traits::Layout,
-    id_tree::NonZeroUsizeHack,
     window::ReadOnlyWindow,
     css_parser::{FontId, FontSize},
 };
@@ -47,10 +46,10 @@ static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct SvgTransformId(NonZeroUsizeHack);
+pub struct SvgTransformId(usize);
 
 pub fn new_svg_transform_id() -> SvgTransformId {
-    SvgTransformId(NonZeroUsizeHack::new(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst)))
+    SvgTransformId(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
