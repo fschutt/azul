@@ -3,10 +3,9 @@
 use std::{
     mem,
     fmt,
-    ops::{Index, Add, AddAssign, IndexMut, Deref},
+    ops::{Index, IndexMut},
     hash::{Hasher, Hash},
     collections::BTreeMap,
-    cmp::Ordering,
 };
 
 pub use self::node_id::NodeId;

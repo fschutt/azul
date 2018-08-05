@@ -1,5 +1,4 @@
 //! CSS parsing and styling
-use std::ops::Add;
 use {
     FastHashMap,
     traits::IntoParsedCssProperty,
@@ -373,7 +372,7 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
-    use css_parser::{TextAlignmentHorz, PixelParseError, InvalidValueErr};
+    use css_parser::{TextAlignmentHorz, InvalidValueErr};
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
         Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(TextAlignmentHorz::Center)))

@@ -1,7 +1,7 @@
 #![allow(unused_variables, dead_code)]
 
 use webrender::api::LayoutPixel;
-use euclid::{Length, TypedRect, TypedSize2D, TypedPoint2D};
+use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
 use {
     resources::AppResources,
@@ -14,10 +14,6 @@ use {
 };
 
 pub use webrender::api::GlyphInstance;
-
-/// Rusttype has a certain sizing hack, I have no idea where this number comes from
-/// Without this adjustment, we won't have the correct horizontal spacing
-pub(crate) const RUSTTYPE_SIZE_HACK: f32 = /* 72.0 / 41.0 */ 1.0;
 
 pub(crate) const PX_TO_PT: f32 = 72.0 / 96.0;
 
@@ -143,7 +139,7 @@ pub struct FontMetrics {
     vertical_advance: f32,
     /// Offset of the font from the top of the bounding rectangle
     offset_top: f32,
-    /// Font size (for rusttype, includes the `RUSTTYPE_SIZE_HACK`) in **pt** (not px)
+    /// Font size (for rusttype) in **pt** (not px)
     /// Used for vertical layouting (since it includes the line height)
     font_size_with_line_height: Scale,
     /// Same as `font_size_with_line_height` but without the line height incorporated.
@@ -187,8 +183,6 @@ pub(crate) fn get_glyphs(
     scrollbar_info: &ScrollbarInfo)
 -> (Vec<GlyphInstance>, TextOverflowPass2)
 {
-    use css_parser::{TextOverflowBehaviour, TextOverflowBehaviourInner};
-
     let target_font = app_resources.font_data.get(target_font_id).expect("Drawing with invalid font!");
 
     let font_metrics = calculate_font_metrics(&target_font.0, target_font_size, line_height);
@@ -258,7 +252,7 @@ impl FontMetrics {
 
 fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, line_height: Option<LineHeight>) -> FontMetrics {
 
-    let font_size_f32 = font_size.0.to_pixels() * RUSTTYPE_SIZE_HACK * PX_TO_PT;
+    let font_size_f32 = font_size.0.to_pixels() * PX_TO_PT;
     let line_height = match line_height { Some(lh) => (lh.0).number, None => 1.0 };
     let font_size_with_line_height = Scale::uniform(font_size_f32 * line_height);
     let font_size_no_line_height = Scale::uniform(font_size_f32);
@@ -430,8 +424,6 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
             },
             cur_char =>  {
                 // Regular character
-                use rusttype::Point;
-
                 let g = font.glyph(cur_char);
                 let id = g.id();
 
@@ -639,9 +631,10 @@ fn estimate_overflow_pass_2(
 fn calculate_harfbuzz_adjustments<'a>(text: &str, font: &Font<'a>)
 -> Vec<HarfbuzzAdjustment>
 {
+    /*
     use harfbuzz_rs::*;
     use harfbuzz_rs::rusttype::SetRustTypeFuncs;
-    /*
+
     let path = "path/to/some/font_file.otf";
     let index = 0; //< face index in the font file
     let face = Face::from_file(path, index).unwrap();

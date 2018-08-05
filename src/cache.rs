@@ -90,8 +90,6 @@ impl DomTreeCache {
 
     pub(crate) fn update<T: Layout>(&mut self, new_root: NodeId, new_nodes_arena: &Arena<NodeData<T>>) -> DomChangeSet {
 
-        use std::hash::Hash;
-
         if let Some(previous_root) = self.previous_layout.root {
             // let mut changeset = DomChangeSet::empty();
             let new_tree = new_nodes_arena.transform(|data, _| data.calculate_node_data_hash());
@@ -101,7 +99,6 @@ impl DomTreeCache {
             changeset
         } else {
             // initialize arena
-            use std::iter::FromIterator;
             self.previous_layout.arena = new_nodes_arena.transform(|data, _| data.calculate_node_data_hash());
             self.previous_layout.root = Some(new_root);
             DomChangeSet {
@@ -126,33 +123,7 @@ impl DomTreeCache {
                 changeset.added_nodes.insert(NodeId::new(next_idx), next_hash.data);
             }
         }
-/*
-        loop {
-            match (previous_iter.next(), next_iter.next().enumerate()) {
-                (None, None) => {
-                    // println!("chrildren: old has no children, new has no children!");
-                    break;
-                },
-                (Some(_), None) => {
-                    prev = previous_iter.next();
-                },
-                (None, Some(next_hash)) => {
-                    // println!("chrildren: no old hash, but subtree has to be added: {:?}!", new_next_id);
-                    // TODO: add subtree
-                    changeset.added_nodes.insert(NodeId { index: next_idx }, next_hash.data);
-                    next = next_iter.next();
-                    next_idx += 1;
-                },
-                (Some(old_hash), Some(next_hash)) => {
-                    if old_hash.data != next_hash.data {
-                        changeset.added_nodes.insert(NodeId { index: next_idx }, next_hash.data);
-                    }
-                    next = next_iter.next();
-                    next_idx += 1;
-                }
-            }
-        }
-*/
+
         changeset
     }
 

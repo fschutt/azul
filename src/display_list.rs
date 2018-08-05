@@ -1,15 +1,10 @@
 #![allow(unused_variables)]
 #![allow(unused_macros)]
 
-use std::{
-    collections::BTreeMap,
-    sync::atomic::{Ordering, AtomicUsize},
-    fmt::Debug,
-};
 use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
-use cassowary::{Constraint, Solver, Variable};
+use cassowary::Constraint;
 
 use {
     FastHashMap,
@@ -20,11 +15,9 @@ use {
     window::UiSolver,
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
-    css_parser::{self, *},
+    css_parser::*,
     dom::{NodeData, NodeType::{self, *}},
     css::Css,
-    cache::DomChangeSet,
-    ui_description::CssConstraintList,
     text_layout::{TextOverflowPass2, ScrollbarInfo},
     images::ImageId,
     text_cache::TextId,
@@ -260,8 +253,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         window_size: &WindowSize)
     -> Option<DisplayListBuilder>
     {
-        use euclid::TypedScale;
-
         let mut changeset = None;
 
         if let Some(root) = self.ui_descr.ui_descr_root {
@@ -445,7 +436,6 @@ fn displaylist_handle_rect<'a>(
         },
         GlTexture(texture) => {
 
-            use glium::GlObject;
             use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
             let opaque = true;
@@ -545,10 +535,7 @@ fn push_text(
     horz_alignment: TextAlignmentHorz,
     vert_alignment: TextAlignmentVert)
 {
-    use dom::NodeType::*;
-    use euclid::{TypedPoint2D, Length};
     use text_layout;
-    use css_parser::{TextAlignmentHorz, TextOverflowBehaviour};
 
     if text.is_empty_text(&*app_resources) {
         return;
@@ -715,7 +702,6 @@ fn push_triangle(
     background_color: &BackgroundColor,
     direction: TriangleDirection)
 {
-    use euclid::TypedPoint2D;
     use self::TriangleDirection::*;
 
     // see: https://css-tricks.com/snippets/css/css-triangle/
@@ -1011,7 +997,6 @@ fn create_layout_constraints<'a>(
     window_size: &WindowSize)
 -> Vec<CssConstraint>
 {
-    use css_parser;
     use cassowary::strength::*;
     use constraints::{SizeConstraint, Strength};
 

@@ -1,27 +1,19 @@
-use images::ImageId;
-use css_parser::FontSize;
-use text_layout::RUSTTYPE_SIZE_HACK;
-use text_layout::PX_TO_PT;
-use text_layout::split_text_into_words;
-use webrender::api::Epoch;
-use dom::Texture;
-use text_cache::TextCache;
-use traits::Layout;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use webrender::api::{ImageKey, FontKey, FontInstanceKey};
-use FastHashMap;
 use std::io::Read;
-use images::{ImageState, ImageType};
-use font::{FontState, FontError};
-use image::{self, ImageError, DynamicImage, GenericImage};
-use webrender::api::{ImageData, ImageDescriptor, ImageFormat};
 use std::collections::hash_map::Entry::*;
+use text_layout::{PX_TO_PT, split_text_into_words};
+use text_cache::{TextId, TextCache};
+use webrender::api::{FontKey, FontInstanceKey};
+use FastHashMap;
+use font::{FontState, FontError};
+use image::{self, ImageError};
+use images::{ImageId, ImageState, ImageType};
 use app_units::Au;
-use css_parser;
-use css_parser::FontId::{self, ExternalFont};
-use text_cache::TextId;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use rusttype::Font;
+use css_parser::{
+    FontSize,
+    FontId::{self, ExternalFont}
+};
 
 /// Font and image keys
 ///
@@ -221,9 +213,6 @@ impl<'a> AppResources<'a> {
     pub(crate) fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize)
     -> TextId
     {
-        use rusttype::Scale;
-        use std::rc::Rc;
-
         // First, insert the text into the text cache
         let id = self.add_text_uncached(text);
         self.cache_text(id, font_id.clone(), font_size);
@@ -238,7 +227,7 @@ impl<'a> AppResources<'a> {
         // We need to assume that the actual string contents have already been stored in self.text_cache
         // Otherwise, how would the TextId be valid?
         let text = self.text_cache.string_cache.get(&id).expect("Invalid text Id");
-        let font_size_no_line_height = Scale::uniform(size.0.to_pixels() * RUSTTYPE_SIZE_HACK * PX_TO_PT);
+        let font_size_no_line_height = Scale::uniform(size.0.to_pixels() * PX_TO_PT);
         let rusttype_font = self.font_data.get(&font).expect("Invalid font ID");
         let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height);
 

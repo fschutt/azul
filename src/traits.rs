@@ -2,17 +2,17 @@ use std::{
     collections::BTreeMap,
     rc::Rc,
     cell::RefCell,
-    hash::Hash,
     sync::{Arc, Mutex},
 };
 use {
     dom::{NodeData, Dom},
     ui_description::{StyledNode, CssConstraintList, UiDescription},
     css::{Css, CssRule},
-    window::WindowInfo,
     id_tree::{NodeId, Arena},
     css_parser::{ParsedCssProperty, CssParsingError},
 };
+#[cfg(not(test))]
+use window::WindowInfo;
 
 /// The core trait that has to be implemented for the app model to provide a
 /// Model -> View serialization.
@@ -45,23 +45,23 @@ pub(crate) struct ParsedCss<'a> {
 }
 
 /// Convenience trait for the `css.set_dynamic_property()` function.
-/// 
+///
 /// This trait exists because `TryFrom` / `TryInto` are not yet stabilized.
 /// This is the same as `Into<ParsedCssProperty>`, but with an additional error
 /// case (since the parsing of the CSS value could potentially fail)
 ///
 /// Using this trait you can write: `css.set_dynamic_property("var", ("width", "500px"))`
-/// because `IntoParsedCssProperty` is implemented for `(&str, &str)`. 
+/// because `IntoParsedCssProperty` is implemented for `(&str, &str)`.
 ///
-/// Note that the properties have to be re-parsed on every frame (which incurs a 
-/// small per-frame performance hit), however `("width", "500px")` is easier to 
+/// Note that the properties have to be re-parsed on every frame (which incurs a
+/// small per-frame performance hit), however `("width", "500px")` is easier to
 /// read than `ParsedCssProperty::Width(PixelValue::Pixels(500))`
 pub trait IntoParsedCssProperty<'a> {
     fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>>;
 }
 
 /// Convenience trait that allows the `app_state.modify()` - only implemented for
-/// `Arc<Mutex<T: Layout>` - shortly locks the app state mutex, modifies it and unlocks 
+/// `Arc<Mutex<T: Layout>` - shortly locks the app state mutex, modifies it and unlocks
 /// it again.
 ///
 /// Note: Usually when doing asynchronous programming you don't want to block the main

@@ -2,20 +2,14 @@
 //! This makes it possible to use OpenGL images in the background and compose SVG elements
 //! into the UI.
 
-use std::sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}};
+use std::sync::{Mutex, atomic::{Ordering, AtomicUsize}};
 use webrender::{
     ExternalImageHandler, ExternalImage, ExternalImageSource,
     api::{ExternalImageId, TexelRect, DevicePixel, Epoch},
 };
-use glium::{
-    Program, VertexBuffer, Display,
-    index::{NoIndices, PrimitiveType::TriangleStrip},
-    texture::texture2d::Texture2d,
-    backend::Facade,
-};
 use euclid::TypedPoint2D;
 use {
-    FastHashMap, FastHashSet,
+    FastHashMap,
     dom::Texture,
 };
 

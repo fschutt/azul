@@ -13,7 +13,6 @@ pub(crate) fn set_up_logging(log_file_path: Option<String>, log_level: LevelFilt
     {
 
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-        use log::LevelFilter;
         use fern::{Dispatch, log_file};
 
         let log_location = {

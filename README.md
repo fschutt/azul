@@ -7,7 +7,7 @@
 [![Build Status Linux / macOS](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul)
 [![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
 [![codecov](https://codecov.io/gh/maps4print/azul/branch/master/graph/badge.svg)](https://codecov.io/gh/maps4print/azul)
-[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.26%20stable-blue.svg)]()
+[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.28%20stable-blue.svg)]()
 
 azul is a cross-platform, stylable GUI framework using Mozillas `webrender`
 engine for rendering and a CSS / DOM model for layout and rendering
@@ -22,10 +22,10 @@ On Linux, you currently need to install `cmake` before you can use azul.
 CMake is used during the build process to compile servo-freetype.
 
 For interfacing with the system clipboard, you also need `libxcb-xkb-dev`.
-Since azul uses the system-native fonts by default, you'll also need 
-`libfontconfig1-dev` (which includes expat and freetype2). 
+Since azul uses the system-native fonts by default, you'll also need
+`libfontconfig1-dev` (which includes expat and freetype2).
 
-Your users will need to install `libfontconfig` and 
+Your users will need to install `libfontconfig` and
 `libxcb-xkb1` installed (remember this for packaging rpm or deb packages).
 
 ```

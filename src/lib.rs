@@ -27,7 +27,7 @@
 #![deny(unused_must_use)]
 #![deny(missing_copy_implementations)]
 #![allow(dead_code)]
-#![allow(unused_imports)]
+#![deny(unused_imports)]
 
 #![windows_subsystem = "windows"]
 
@@ -53,7 +53,7 @@ extern crate harfbuzz_rs;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
 extern crate font_loader;
-#[macro_use(error, debug, info, log)]
+#[macro_use(error, log)]
 extern crate log;
 #[cfg(feature = "logging")]
 extern crate fern;
