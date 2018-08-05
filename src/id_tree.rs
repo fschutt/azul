@@ -50,7 +50,7 @@ mod node_id {
             }
 
             #[cfg(not(debug_assertions))] {
-                unsafe { NonZeroUsizeHack(NonZeroUsize::new_unchecked(value + 1)) }
+                NodeId { index: unsafe { NonZeroUsize::new_unchecked(value + 1) } }
             }
         }
 
