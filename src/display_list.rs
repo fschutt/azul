@@ -453,7 +453,6 @@ fn displaylist_handle_rect<'a>(
             let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
             let key = render_api.generate_image_key();
             let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
-            println!("pusing external texture with id: {:?}", external_image_id);
 
             let data = ImageData::External(ExternalImageData {
                 id: external_image_id,
