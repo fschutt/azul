@@ -22,10 +22,10 @@ simplecss = "0.1.0"
 twox-hash = "1.1.0"
 glium = "0.22.0"
 gleam = "0.6"
-euclid = "0.18"
+euclid = "0.19"
 image = "0.19.0"
 rusttype = { git = "https://github.com/fschutt/rusttype" }
-app_units = "0.6"
+app_units = "0.7"
 unicode-normalization = "0.1.5"
 harfbuzz_rs = "0.1.0"
 lyon = { version = "0.10.0", features = ["extra"] }
@@ -47,7 +47,7 @@ rev = "0eaf6bdc6811e469ee655246cc39ed0b37329fd3"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "691063334823467a71af27d39cc3b6dcb68763fa"
+rev = "c939a61b83bcc9dc10742977704793e9a85b3858"
 
 [features]
 default = ["logging"]

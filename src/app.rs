@@ -697,7 +697,6 @@ fn render<T: Layout>(
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
 
     use compositor::ACTIVE_GL_TEXTURES;
-    use std::collections::HashSet;
 
     // TODO: currently active epochs can be empty, why?
     //
