@@ -9,136 +9,74 @@ use std::{
     cmp::Ordering,
 };
 
-/// See: https://github.com/rust-lang/rust/issues/27730#issuecomment-311919692
-///
-/// This hack allows us to save some memory. Credit to @nox for inventing this.
-/// Currently, rust optimizes an `Option<&T>` to be 8 bytes large instead of 16,
-/// because Rust knows that pointers in Rust can never be 0 / NULL.
-///
-/// The `NonZeroUsizeHack` adds 1 to a usize, then casts it to a pointer.
-/// On retrieval, it casts it back to a usize and subtracts 1, to get the original value.
-/// So in the end, `Option<NodeId>` is only 8 bytes large instead of 16, which gives
-/// possibly better cache access and less memory usage at the cost of 1 or 2 extra
-/// assembly instructions.
-///
-/// Note that the Rust spec says that the pointer may never be null, even though it is
-/// never dereferenced.
-///
-/// NEVER MAKE THE INTERNAL FIELD PUBLIC, ALWAYS USE `::new()` and `.get()`!
-#[derive(Copy, Clone)]
-pub struct NonZeroUsizeHack(&'static ());
+pub use self::node_id::NodeId;
 
-impl NonZeroUsizeHack {
-    /// **NOTE**: In debug mode, it panics on overflow, since having a
-    /// pointer that is zero is undefined behaviour (it would bascially be
-    /// casted to a `None`), which is incorrect, so we rather panic on overflow
-    /// to prevent that.
-    ///
-    /// To trigger an overflow however, you'd need more that 4 billion DOM nodes -
-    /// it is more likely that you run out of RAM before you do that. The only thing
-    /// that could lead to an overflow would be a bug. Therefore, overflow-checking is
-    /// disabled in release mode.
-    #[cfg_attr(not(debug_assertions), inline(always))]
-    pub fn new(value: usize) -> Self {
-        // Add 1 on insertion
-        #[cfg(debug_assertions)] {
-            let (new_value, has_overflown) = value.overflowing_add(1);
-            if has_overflown {
-                panic!("Overflow when creating DOM Node with ID {}", value);
-            } else {
-                unsafe { NonZeroUsizeHack(&*(new_value as *const ())) }
+// Since private fields are module-based, this prevents any module from accessing
+// `NodeId.index` directly. To get the correct node index is by using `NodeId::index()`,
+// which subtracts 1 from the ID (because of Option<NodeId> optimizations)
+mod node_id {
+
+    use std::{
+        fmt,
+        num::NonZeroUsize,
+        ops::{Add, AddAssign},
+    };
+
+    /// A node identifier within a particular `Arena`.
+    #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+    pub struct NodeId {
+        index: NonZeroUsize,
+    }
+
+    impl NodeId {
+        /// **NOTE**: In debug mode, it panics on overflow, since having a
+        /// pointer that is zero is undefined behaviour (it would bascially be
+        /// casted to a `None`), which is incorrect, so we rather panic on overflow
+        /// to prevent that.
+        ///
+        /// To trigger an overflow however, you'd need more that 4 billion DOM nodes -
+        /// it is more likely that you run out of RAM before you do that. The only thing
+        /// that could lead to an overflow would be a bug. Therefore, overflow-checking is
+        /// disabled in release mode.
+        #[cfg_attr(not(debug_assertions), inline(always))]
+        pub(crate) fn new(value: usize) -> Self {
+
+            #[cfg(debug_assertions)] {
+                let (new_value, has_overflown) = value.overflowing_add(1);
+                if has_overflown {
+                    panic!("Overflow when creating DOM Node with ID {}", value);
+                } else {
+                    NodeId { index: NonZeroUsize::new(new_value).unwrap() }
+                }
+            }
+
+            #[cfg(not(debug_assertions))] {
+                unsafe { NonZeroUsizeHack(NonZeroUsize::new_unchecked(value + 1)) }
             }
         }
 
-        #[cfg(not(debug_assertions))] {
-            unsafe { NonZeroUsizeHack(&*((value + 1) as *const ())) }
+        pub fn index(&self) -> usize {
+            self.index.get() - 1
         }
     }
 
-    #[inline(always)]
-    pub fn get(self) -> usize {
-        // Remove 1 on retrieval
-        let value = self.0 as *const () as usize;
-        value - 1
-    }
-}
-
-impl Add<usize> for NonZeroUsizeHack {
-    type Output = NonZeroUsizeHack;
-    fn add(self, other: usize) -> NonZeroUsizeHack {
-        NonZeroUsizeHack::new(self.get() + other)
-    }
-}
-
-impl PartialOrd for NonZeroUsizeHack {
-    fn partial_cmp(&self, other: &NonZeroUsizeHack) -> Option<Ordering> {
-        Some(self.get().cmp(&other.get()))
-    }
-}
-
-impl Ord for NonZeroUsizeHack {
-    fn cmp(&self, other: &NonZeroUsizeHack) -> Ordering {
-        self.get().cmp(&other.get())
-    }
-}
-
-impl PartialEq for NonZeroUsizeHack {
-    fn eq(&self, other: &NonZeroUsizeHack) -> bool {
-        self.get() == other.get()
-    }
-}
-
-impl Eq for NonZeroUsizeHack { }
-
-impl fmt::Debug for NonZeroUsizeHack {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.get())
-    }
-}
-
-impl Hash for NonZeroUsizeHack {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.get().hash(state);
-    }
-}
-
-/// A node identifier within a particular `Arena`.
-#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct NodeId {
-    // FIXME: Change this to NonZero<usize> once NonZero is stabilized
-    pub(crate) index: NonZeroUsizeHack,
-}
-
-impl NodeId {
-    pub(crate) fn new(value: usize) -> Self {
-        Self {
-            index: NonZeroUsizeHack::new(value),
+    impl Add<usize> for NodeId {
+        type Output = NodeId;
+        fn add(self, other: usize) -> NodeId {
+            NodeId::new(self.index() + other)
         }
     }
-}
 
-impl AddAssign<usize> for NodeId {
-    fn add_assign(&mut self, other: usize) {
-        *self = NodeId {
-            index: self.index + other
-        };
-    }
-}
-
-impl Add<usize> for NodeId {
-
-    type Output = NodeId;
-
-    fn add(self, other: usize) -> NodeId {
-        NodeId {
-            index: self.index + other
+    impl AddAssign<usize> for NodeId {
+        fn add_assign(&mut self, other: usize) {
+            *self = *self + other;
         }
     }
-}
 
-impl fmt::Display for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.index.get())
+    impl fmt::Display for NodeId {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.index())
+        }
     }
 }
 
@@ -245,9 +183,7 @@ impl<T> Arena<T> {
             next_sibling: None,
             data: data,
         });
-        NodeId {
-            index: NonZeroUsizeHack::new(next_index),
-        }
+        NodeId::new(next_index)
     }
 
     // Returns how many nodes there are in the arena
@@ -271,7 +207,7 @@ impl<T: Copy> Arena<T> {
     pub fn get_all_node_ids(&self) -> BTreeMap<NodeId, T> {
         use std::iter::FromIterator;
         BTreeMap::from_iter(self.nodes.iter().enumerate().map(|(i, node)|
-            (NodeId { index: NonZeroUsizeHack::new(i) }, node.data)
+            (NodeId::new(i), node.data)
         ))
     }
 }
@@ -303,13 +239,13 @@ impl<T> Index<NodeId> for Arena<T> {
     type Output = Node<T>;
 
     fn index(&self, node: NodeId) -> &Node<T> {
-        &self.nodes[node.index.get()]
+        &self.nodes[node.index()]
     }
 }
 
 impl<T> IndexMut<NodeId> for Arena<T> {
     fn index_mut(&mut self, node: NodeId) -> &mut Node<T> {
-        &mut self.nodes[node.index.get()]
+        &mut self.nodes[node.index()]
     }
 }
 
@@ -451,7 +387,7 @@ impl NodeId {
         let last_child_opt;
         {
             let (self_borrow, new_child_borrow) = arena.nodes.get_pair_mut(
-                self.index.get(), new_child.index.get(), "Can not append a node to itself");
+                self.index(), new_child.index(), "Can not append a node to itself");
             new_child_borrow.parent = Some(self);
             last_child_opt = mem::replace(&mut self_borrow.last_child, Some(new_child));
             if let Some(last_child) = last_child_opt {
@@ -473,7 +409,7 @@ impl NodeId {
         let first_child_opt;
         {
             let (self_borrow, new_child_borrow) = arena.nodes.get_pair_mut(
-                self.index.get(), new_child.index.get(), "Can not prepend a node to itself");
+                self.index(), new_child.index(), "Can not prepend a node to itself");
             new_child_borrow.parent = Some(self);
             first_child_opt = mem::replace(&mut self_borrow.first_child, Some(new_child));
             if let Some(first_child) = first_child_opt {
@@ -496,7 +432,7 @@ impl NodeId {
         let parent_opt;
         {
             let (self_borrow, new_sibling_borrow) = arena.nodes.get_pair_mut(
-                self.index.get(), new_sibling.index.get(), "Can not insert a node after itself");
+                self.index(), new_sibling.index(), "Can not insert a node after itself");
             parent_opt = self_borrow.parent;
             new_sibling_borrow.parent = parent_opt;
             new_sibling_borrow.previous_sibling = Some(self);
@@ -521,7 +457,7 @@ impl NodeId {
         let parent_opt;
         {
             let (self_borrow, new_sibling_borrow) = arena.nodes.get_pair_mut(
-                self.index.get(), new_sibling.index.get(), "Can not insert a node before itself");
+                self.index(), new_sibling.index(), "Can not insert a node before itself");
             parent_opt = self_borrow.parent;
             new_sibling_borrow.parent = parent_opt;
             new_sibling_borrow.next_sibling = Some(self);
