@@ -9,7 +9,7 @@ use azul::text_layout::*;
 
 use std::fs;
 
-const FONT_ID: FontId = FontId::BuiltinFont("serif");
+const FONT_ID: FontId = FontId::BuiltinFont("sans-serif");
 const FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
 
 #[derive(Debug)]
@@ -40,8 +40,8 @@ impl Layout for MyAppData {
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
-            Button::with_label("Azul App").dom()
-               .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
+            Button::with_label("Load SVG file...").dom()
+                .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }
 }

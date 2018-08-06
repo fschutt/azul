@@ -980,7 +980,8 @@ impl_from!(CssImageParseError, CssBackgroundParseError::ImageParseError);
 pub enum Background {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
-    Image(CssImageId)
+    Image(CssImageId),
+    NoBackground,
 }
 
 impl<'a> From<CssImageId> for Background {
@@ -1108,6 +1109,7 @@ fn parse_css_background<'a>(input: &'a str)
     let first_item = input_iter.next();
 
     let background_type = match first_item {
+        Some("none") => { return Ok(Background::NoBackground); },
         Some("linear-gradient") => LinearGradient,
         Some("repeating-linear-gradient") => RepeatingLinearGradient,
         Some("radial-gradient") => RadialGradient,
