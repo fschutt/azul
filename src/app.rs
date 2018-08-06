@@ -196,12 +196,7 @@ impl<'a, T: Layout> App<'a, T> {
             let mut closed_windows = Vec::<usize>::new();
 
             'window_loop: for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
-/*
-                unsafe {
-                    use glium::glutin::GlContext;
-                    window.display.gl_window().make_current().unwrap();
-                }
-*/
+
                 let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
 
@@ -730,6 +725,9 @@ fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D
 
     use gleam::gl;
     use window::get_gl_context;
+
+    // use glium::glutin::GlContext;
+    // unsafe { window.display.gl_window().make_current().unwrap(); }
 
     let mut current_program = [0_i32];
     unsafe { get_gl_context(&window.display).unwrap().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };

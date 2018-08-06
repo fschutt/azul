@@ -89,7 +89,6 @@ impl FakeWindow {
     pub fn get_mouse_state(&self) -> MouseState {
         self.state.mouse_state
     }
-
 }
 
 /// Read-only window which can be used to create / draw
@@ -123,10 +122,9 @@ impl ReadOnlyWindow {
     /// Make the window active (OpenGL) - necessary before
     /// starting to draw on any window-owned texture
     pub fn make_current(&self) {
-        unsafe {
-            use glium::glutin::GlContext;
-            self.inner.gl_window().make_current().unwrap();
-        }
+        use glium::glutin::GlContext;
+        let gl_window = self.inner.gl_window();
+        unsafe { gl_window.make_current().unwrap() };
     }
 
     /// Unbind the current framebuffer manually. Is also executed on `Drop`.
@@ -134,17 +132,7 @@ impl ReadOnlyWindow {
     /// TODO: Is it necessary to expose this or is it enough to just
     /// unbind the framebuffer on drop?
     pub fn unbind_framebuffer(&self) {
-        let gl = match self.inner.gl_window().get_api() {
-            glutin::Api::OpenGl => unsafe {
-                gl::GlFns::load_with(|symbol|
-                    self.inner.gl_window().get_proc_address(symbol) as *const _)
-            },
-            glutin::Api::OpenGlEs => unsafe {
-                gl::GlesFns::load_with(|symbol|
-                    self.inner.gl_window().get_proc_address(symbol) as *const _)
-            },
-            glutin::Api::WebGl => unreachable!(),
-        };
+        let gl = get_gl_context(&*self.inner).unwrap();
 
         gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
     }
