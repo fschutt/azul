@@ -830,7 +830,8 @@ fn push_background(
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&css_image_id.0) {
                 push_image(info, builder, bounds, app_resources, image_id);
             }
-        }
+        },
+        Background::NoBackground => { },
     }
 }
 
