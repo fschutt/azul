@@ -27,7 +27,6 @@
 #![deny(unused_must_use)]
 #![deny(missing_copy_implementations)]
 #![allow(dead_code)]
-#![deny(unused_imports)]
 
 #![windows_subsystem = "windows"]
 

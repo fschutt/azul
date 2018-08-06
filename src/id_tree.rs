@@ -54,6 +54,7 @@ mod node_id {
             }
         }
 
+        #[inline]
         pub fn index(&self) -> usize {
             self.index.get() - 1
         }
@@ -194,8 +195,10 @@ impl<T> Arena<T> {
         self.nodes_len() == 0
     }
 
-    /// Appends another arena to the end of the current arena.
-    /// Highly unsafe if you don't know what you're doing
+    /// Appends another arena to the end of the current arena
+    /// (by simply appending the two Vec of nodes)
+    /// Can potentially mess up internal IDs, only use this if you
+    /// know what you're doing
     pub(crate) fn append(&mut self, other: &mut Arena<T>) {
         self.nodes.append(&mut other.nodes);
     }
@@ -223,13 +226,30 @@ trait GetPairMut<T> {
 
 impl<T> GetPairMut<T> for Vec<T> {
     fn get_pair_mut(&mut self, a: usize, b: usize, same_index_error_message: &'static str)
-                    -> (&mut T, &mut T) {
-        if a == b {
-            panic!(same_index_error_message)
+    -> (&mut T, &mut T)
+    {
+        #[cfg(debug_assertions)] {
+            if a == b {
+                panic!(same_index_error_message)
+            }
         }
-        unsafe {
-            let self2 = mem::transmute_copy::<&mut Vec<T>, &mut Vec<T>>(&self);
-            (&mut self[a], &mut self2[b])
+
+        let a_is_lower;
+
+        let min = if a < b {
+            a_is_lower = true;
+            a
+        } else {
+            a_is_lower = false;
+            b
+        };
+
+        let (low, high) = self.split_at_mut(min + 1);
+
+        if a_is_lower {
+            (&mut low[a], &mut high[b - (min + 1)])
+        } else {
+            (&mut high[a - (min + 1)], &mut low[b])
         }
     }
 }
@@ -554,7 +574,6 @@ pub struct ReverseChildren<'a, T: 'a> {
 }
 
 impl_node_iterator!(ReverseChildren, |node: &Node<T>| node.previous_sibling);
-
 
 /// An iterator of references to a given node and its descendants, in tree order.
 pub struct Descendants<'a, T: 'a>(Traverse<'a, T>);
