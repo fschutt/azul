@@ -5,7 +5,6 @@ extern crate azul;
 use azul::prelude::*;
 use azul::widgets::*;
 use azul::dialogs::*;
-use azul::text_layout::*;
 
 use std::fs;
 
@@ -52,93 +51,41 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
     let font_id = FontId::ExternalFont(String::from("Webly Sleeky UI"));
-    let text_style = SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 });
-    let font = resources.get_font(&font_id).unwrap();
-    let vectorized_font = vector_font_cache.get_font(&font_id).unwrap();
-    let font_size = FontSize::px(10.0);
-    let test_curve = SampledBezierCurve::from_curve(&[
+    let curve = SampledBezierCurve::from_curve(&[
         BezierControlPoint { x: 0.0, y: 0.0 },
         BezierControlPoint { x: 40.0, y: 120.0 },
         BezierControlPoint { x: 80.0, y: 120.0 },
         BezierControlPoint { x: 120.0, y: 0.0 },
     ]);
 
-    layers.push(text_on_curve("Hello Worldaslfkdlfkasdjfldkjf", &test_curve, text_style, &font.0, vectorized_font, font_size));
-    layers.push(test_curve.draw_circles());
-    layers.push(test_curve.draw_lines());
-    layers.push(test_curve.draw_control_handles());
+    layers.push(SvgText {
+        font_size: FontSize::px(10.0),
+        font_id: &font_id,
+        text: "On Curve!!!!",
+        style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+        placement: SvgTextPlacement::OnCubicBezierCurve(curve),
+    }.to_svg_layer(vector_font_cache, resources));
+
+    layers.push(SvgText {
+        font_size: FontSize::px(10.0),
+        font_id: &font_id,
+        text: "Rotated",
+        style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+        placement: SvgTextPlacement::Rotated(-30.0),
+    }.to_svg_layer(vector_font_cache, resources));
+
+    layers.push(SvgText {
+        font_size: FontSize::px(10.0),
+        font_id: &font_id,
+        text: "Unmodified",
+        style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+        placement: SvgTextPlacement::Unmodified,
+    }.to_svg_layer(vector_font_cache, resources));
+
+    layers.push(curve.draw_lines());
+    layers.push(curve.draw_control_handles());
 
     layers
-}
-
-fn text_on_curve(
-    text: &str,
-    curve: &SampledBezierCurve,
-    text_style: SvgStyle,
-    font: &Font,
-    vector_font: &VectorizedFont,
-    font_size: FontSize)
--> SvgLayerResource
-{
-    let font_metrics = FontMetrics::new(font, &font_size, None);
-    let layout = layout_text(text, font, &font_metrics);
-
-    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0);
-
-    let fill_vertices = text_style.fill.and_then(|_| {
-        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, &char_offsets, &char_rotations, get_fill_vertices))
-    });
-
-    let stroke_vertices = text_style.stroke.and_then(|_| {
-        Some(vector_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, &char_offsets, &char_rotations, get_stroke_vertices))
-    });
-
-    SvgLayerResource::Direct {
-        style: text_style,
-        fill: fill_vertices,
-        stroke: stroke_vertices,
-    }
-}
-
-// Calculates the layout for one word block
-fn vector_text_to_vertices(
-    font_size: &FontSize,
-    glyph_ids: &[GlyphInstance],
-    vectorized_font: &VectorizedFont,
-    original_font: &Font,
-    char_offsets: &[(f32, f32)],
-    char_rotations: &[BezierCharacterRotation],
-    transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
-) -> VerticesIndicesBuffer
-{
-    let fill_buf = glyph_ids.iter()
-        .filter_map(|gid| {
-            // 1. Transform glyph to vertex buffer && filter out all glyphs
-            //    that don't have a vertex buffer
-            transform_func(vectorized_font, original_font, &GlyphId(gid.index))
-        })
-        .zip(char_rotations.into_iter())
-        .zip(char_offsets.iter())
-        .map(|((mut vertex_buf, char_rot), char_offset)| {
-
-            let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
-
-            // 2. Scale characters to the final size
-            scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
-
-            // 3. Rotate individual characters inside of the word
-            let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
-
-            rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
-
-            // 4. Transform characters to their respective positions
-            transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x, *char_offset_y);
-
-            vertex_buf
-        })
-        .collect::<Vec<_>>();
-
-    join_vertex_buffers(&fill_buf)
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
@@ -197,10 +144,8 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 }
 
 fn main() {
-    use std::io::Cursor;
-
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
-    app.add_font("Webly Sleeky UI", &mut Cursor::new(FONT_BYTES)).unwrap();
+    app.add_font("Webly Sleeky UI", &mut FONT_BYTES.clone()).unwrap();
     app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
     app.run().unwrap();
 }
