@@ -598,6 +598,8 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
         .get(&item.tag.0)
         .and_then(|callback_list| Some((item, callback_list)))
     ) {
+        use dom::On;
+
         // TODO: currently we don't have information about what DOM node was hit
         let window_event = WindowEvent {
             window: window_id.id,
@@ -606,12 +608,21 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
             cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
         };
 
-        // Invoke callback if necessary
-        for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_list.get(on)) {
+        let mut invoke_callback = |callback_id| {
             let Callback(callback_func) = ui_state_cache[window_id.id].callback_list[callback_id];
             if (callback_func)(app_state, window_event) == UpdateScreen::Redraw {
                 should_update_screen = UpdateScreen::Redraw;
             }
+        };
+
+        // Invoke On::MouseOver callback
+        if let Some(callback_id) = callback_list.get(&On::MouseOver) {
+            invoke_callback(callback_id);
+        }
+
+        // Invoke callback if necessary
+        for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_list.get(on)) {
+            invoke_callback(callback_id);
         }
     }
 

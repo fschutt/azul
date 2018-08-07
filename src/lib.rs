@@ -33,7 +33,6 @@
 #[macro_use]
 pub extern crate glium;
 pub extern crate gleam;
-pub extern crate image;
 
 #[macro_use]
 extern crate lazy_static;
@@ -58,6 +57,7 @@ extern crate log;
 extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
+extern crate image;
 
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;

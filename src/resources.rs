@@ -90,6 +90,11 @@ fn load_system_fonts<'a>(fonts: &mut FastHashMap<FontId, (::rusttype::Font<'a>, 
 
 impl<'a> AppResources<'a> {
 
+    /// Returns the IDs of all currently loaded fonts in `self.font_data`
+    pub fn get_loaded_fonts(&self) -> Vec<FontId> {
+        self.font_data.keys().cloned().collect()
+    }
+
     /// See `AppState::add_image()`
     pub(crate) fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>

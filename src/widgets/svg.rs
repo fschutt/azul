@@ -37,7 +37,7 @@ use {
     window::ReadOnlyWindow,
     css_parser::{FontId, FontSize},
     resources::AppResources,
-    text_layout::{FontMetrics, LayoutTextResult, layout_text},
+    text_layout::{FontMetrics, LayoutTextResult, layout_text, PX_TO_PT},
 };
 
 pub use lyon::tessellation::VertexBuffers;
@@ -555,6 +555,24 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
     let (_, stroke) = tesselate_layer_data(&LayerType::from_polygons(polygons), 0.01, Some(stroke_options));
 
     // Safe unwrap, since we passed Some(stroke_options) into tesselate_layer_data
+    let stroke = stroke.unwrap();
+
+    SvgLayerResource::Direct {
+        style: style,
+        fill: None,
+        stroke: Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 }),
+    }
+}
+
+pub fn quick_rects(rects: &[SvgRect], stroke_color: ColorU, stroke_options: Option<SvgStrokeOptions>)
+-> SvgLayerResource
+{
+    let stroke_options = stroke_options.unwrap_or_default();
+    let style = SvgStyle::stroked(stroke_color, stroke_options);
+
+    let rects = rects.iter().map(|r| SvgLayerType::Rect(*r)).collect();
+    let (_, stroke) = tesselate_layer_data(&LayerType::from_polygons(rects), 0.01, Some(stroke_options));
+
     let stroke = stroke.unwrap();
 
     SvgLayerResource::Direct {
@@ -1117,9 +1135,8 @@ impl VectorizedFont {
         let stroke_options = SvgStrokeOptions::default();
 
         // TODO: In a regular font (4000 characters), this is pretty slow!
-        // font.glyph_count() as u32
-        // Pre-load the first 128 characters
-        for g in (0..128).filter_map(|i| {
+        // Pre-load the "A..Z | a..z" characters
+        for g in (65..122).filter_map(|i| {
             let g = font.glyph(GlyphId(i));
             if g.id() == GlyphId(0) {
                 None
@@ -1148,8 +1165,8 @@ impl VectorizedFont {
         }
 
         Self {
-            glyph_polygon_map: Rc::new(RefCell::new(glyph_polygon_map)),
-            glyph_stroke_map: Rc::new(RefCell::new(glyph_stroke_map)),
+            glyph_polygon_map: Rc::new(RefCell::new(FastHashMap::default())),
+            glyph_stroke_map: Rc::new(RefCell::new(FastHashMap::default())),
         }
     }
 }
@@ -1202,7 +1219,7 @@ fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> Option<SvgLayerType> {
         .collect()))
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct VectorizedFontCache {
     /// Font -> Vectorized glyph map
     vectorized_fonts: FastHashMap<FontId, VectorizedFont>,
@@ -1210,8 +1227,16 @@ pub struct VectorizedFontCache {
 
 impl VectorizedFontCache {
 
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(app_resources: &AppResources) -> Self {
+        let mut fonts = FastHashMap::default();
+        let loaded_font_keys = app_resources.get_loaded_fonts();
+        println!("loaded fonts: {:?}", loaded_font_keys);
+        for font_id in loaded_font_keys {
+            fonts.entry(font_id.clone()).or_insert_with(|| VectorizedFont::from_font(app_resources.get_font(&font_id).unwrap().0));
+        }
+        Self {
+            vectorized_fonts: fonts,
+        }
     }
 
     pub fn insert_if_not_exist(&mut self, id: FontId, font: &Font) {
@@ -1232,7 +1257,6 @@ impl VectorizedFontCache {
 }
 
 impl SvgLayerType {
-
     pub fn tesselate(&self, tolerance: f32, stroke: Option<SvgStrokeOptions>)
     -> (VertexBuffers<SvgVert>, Option<VertexBuffers<SvgVert>>)
     {
@@ -1347,6 +1371,14 @@ pub struct SvgCircle {
     pub radius: f32,
 }
 
+impl SvgCircle {
+    pub fn contains_point(&self, x: f32, y: f32) -> bool {
+        let x_diff = (x - self.center_x).abs();
+        let y_diff = (y - self.center_y).abs();
+        (x_diff * x_diff) + (y_diff * y_diff) < (self.radius * self.radius)
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct SvgRect {
     pub width: f32,
@@ -1355,6 +1387,17 @@ pub struct SvgRect {
     pub y: f32,
     pub rx: f32,
     pub ry: f32,
+}
+
+impl SvgRect {
+    /// Note: does not incorporate rounded edges!
+    /// Origin of x and y is assumed to be the top left corner
+    pub fn contains_point(&self, x: f32, y: f32) -> bool {
+        x > self.x &&
+        x < self.x + self.width &&
+        y > self.y &&
+        y < self.y + self.height
+    }
 }
 
 mod svg_to_lyon {
@@ -1692,10 +1735,90 @@ pub struct SvgText<'a> {
 #[derive(Debug, Clone)]
 pub struct SvgTextLayout(LayoutTextResult);
 
+/// An axis-aligned bounding box (not rotated / skewed)
+#[derive(Debug, Copy, Clone)]
+pub struct SvgBbox(TypedRect<f32, SvgWorldPixel>);
+
+impl SvgBbox {
+    /// Simple function for drawing a single bounding box (in black).
+    pub fn draw_lines(&self) -> SvgLayerResource {
+        quick_rects(&[SvgRect {
+            width: self.0.size.width,
+            height: self.0.size.height,
+            x: self.0.origin.x,
+            y: self.0.origin.y,
+            rx: 0.0,
+            ry: 0.0,
+        }], ColorU { r: 0, b: 0, g: 0, a: 255 }, None)
+    }
+
+    /// Checks if the bounding box contains a point
+    pub fn contains_point(&self, x: f32, y: f32) -> bool {
+        self.0.contains(&TypedPoint2D::new(x, y))
+    }
+}
+
+#[inline]
+fn is_point_in_shape(point: (f32, f32), shape: &[(f32, f32)]) -> bool {
+    if shape.len() < 3 {
+        // Shape must at least have 3 points, i.e. be a triangle
+        return false;
+    }
+
+    // We iterate over the shape in 2 points.
+    //
+    // If the mouse cursor (target point) is on the left side for all points,
+    // then cursor is inside of the shape. If it appears on the right side for
+    // only one point, we know that it isn't inside the target shape.
+    // all() is lazy and will quit on the first result where the target is not
+    // inside the shape.
+    shape.iter().zip(shape.iter().skip(1)).all(|(start, end)| {
+        !(side_of_point(point, *start, *end).is_sign_positive())
+    })
+}
+
+/// Determine which side of a vector the point is on.
+///
+/// Depending on if the result of this function is positive or negative,
+/// the target point lies either right or left to the imaginary line from (start -> end)
+#[inline]
+fn side_of_point(target: (f32, f32), start: (f32, f32), end: (f32, f32)) -> f32 {
+    ((target.0 - start.0) * (end.1 - start.1)) -
+    ((target.1 - start.1) * (end.0 - start.0))
+}
+
 impl SvgTextLayout {
+    /// Calculate the text layout from a font and a font size.
+    ///
+    /// Warning: may be slow on large texts.
     pub fn from_str(text: &str, font: &Font, font_size: &FontSize) -> Self {
         let font_metrics = FontMetrics::new(font, font_size, None);
-        SvgTextLayout(layout_text(text, font, &font_metrics))
+        SvgTextLayout(layout_text(text, font, font_metrics))
+    }
+
+    /// Get the bounding box of a layouted text
+    pub fn get_bbox(&self, placement: &SvgTextPlacement) -> SvgBbox {
+        use self::SvgTextPlacement::*;
+        SvgBbox(match placement {
+            Unmodified => {
+                TypedRect::new(
+                    TypedPoint2D::new(0.0, -self.0.font_metrics.vertical_advance / PX_TO_PT),
+                    TypedSize2D::new(self.0.min_width * 2.0, self.0.min_height)
+                )
+            },
+            Rotated(_r) => {
+                TypedRect::new(
+                    TypedPoint2D::new(0.0, 0.0),
+                    TypedSize2D::new(self.0.min_width * 2.0, self.0.min_height)
+                )
+            },
+            OnCubicBezierCurve(_curve) => {
+                TypedRect::new(
+                    TypedPoint2D::new(0.0, 0.0),
+                    TypedSize2D::new(self.0.min_width * 2.0, self.0.min_height)
+                )
+            }
+        })
     }
 }
 
@@ -1717,6 +1840,10 @@ impl<'a> SvgText<'a> {
                 text_on_curve(&self.text_layout.0, self.style, &font, vectorized_font, &self.font_size, &curve)
             }
         }
+    }
+
+    pub fn get_bbox(&self) -> SvgBbox {
+        self.text_layout.get_bbox(&self.placement)
     }
 }
 
