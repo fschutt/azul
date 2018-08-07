@@ -7,9 +7,18 @@ use azul::widgets::*;
 use azul::dialogs::*;
 
 use std::fs;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const FONT_ID: FontId = FontId::BuiltinFont("sans-serif");
-const FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
+static TEXT_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct TextId(usize);
+
+fn new_text_id() -> TextId {
+    TextId(TEXT_ID.fetch_add(1, Ordering::SeqCst))
+}
 
 #[derive(Debug)]
 pub struct MyAppData {
@@ -21,6 +30,8 @@ pub struct Map {
     pub cache: SvgCache<MyAppData>,
     pub layers: Vec<SvgLayerId>,
     pub font_cache: VectorizedFontCache,
+    pub texts: HashMap<TextId, SvgText>,
+    pub hovered_text: Option<TextId>,
     pub zoom: f64,
     pub pan_horz: f64,
     pub pan_vert: f64,
@@ -31,7 +42,7 @@ impl Layout for MyAppData {
     -> Dom<MyAppData>
     {
         if let Some(map) = &self.map {
-            Svg::with_layers(build_layers(&map.layers, &map.font_cache, &info.resources))
+            Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
                 .with_pan(map.pan_horz as f32, map.pan_vert as f32)
                 .with_zoom(map.zoom as f32)
                 .dom(&info.window, &map.cache)
@@ -46,57 +57,48 @@ impl Layout for MyAppData {
     }
 }
 
-fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFontCache, resources: &AppResources)
+fn build_layers(
+    existing_layers: &[SvgLayerId],
+    texts: &HashMap<TextId, SvgText>,
+    hovered_text: &Option<TextId>,
+    vector_font_cache: &VectorizedFontCache,
+    resources: &AppResources)
 -> Vec<SvgLayerResource>
 {
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
-    let font_id = FONT_ID;
-    let curve = SampledBezierCurve::from_curve(&[
-        BezierControlPoint { x: 0.0, y: 0.0 },
-        BezierControlPoint { x: 40.0, y: 120.0 },
-        BezierControlPoint { x: 80.0, y: 120.0 },
-        BezierControlPoint { x: 120.0, y: 0.0 },
-    ]);
-    let font_size = FontSize::px(10.0);
-    let font = resources.get_font(&font_id).unwrap().0;
+    layers.extend(texts.values().map(|text| text.to_svg_layer(vector_font_cache, resources)));
 
-    let texts = [
-        SvgText {
-            font_size: font_size,
-            font_id: &font_id,
-            text_layout: &SvgTextLayout::from_str("On Curve!!!!", &font, &font_size),
-            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
-            placement: SvgTextPlacement::OnCubicBezierCurve(curve),
-        },
-        SvgText {
-            font_size: font_size,
-            font_id: &font_id,
-            text_layout: &SvgTextLayout::from_str("Rotated", &font, &font_size),
-            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
-            placement: SvgTextPlacement::Rotated(-30.0),
-        },
-        SvgText {
-            font_size: font_size,
-            font_id: &font_id,
-            text_layout: &SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size),
-            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
-            placement: SvgTextPlacement::Unmodified,
-        },
-    ];
+    if let Some(active) = hovered_text {
+        layers.push(texts[active].get_bbox().draw_lines());
+    }
 
-    layers.extend(texts.iter().map(|t| t.to_svg_layer(vector_font_cache, resources)));
-    layers.extend(texts.iter().map(|t| t.get_bbox().draw_lines()));
-
-    layers.push(curve.draw_lines());
-    layers.push(curve.draw_control_handles());
+    // layers.push(curve.draw_lines());
+    // layers.push(curve.draw_control_handles());
 
     layers
 }
 
+// Check what text was hovered over
 fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
+    let (cursor_x, cursor_y) = event.cursor_relative_to_item;
 
-    UpdateScreen::DontRedraw
+    let mut should_redraw = UpdateScreen::DontRedraw;
+
+    app_state.data.modify(|data| {
+        if let Some(map) = data.map.as_mut() {
+            for (k, v) in map.texts.iter() {
+                if v.get_bbox().contains_point(cursor_x, cursor_y) {
+                    map.hovered_text = Some(*k);
+                    should_redraw = UpdateScreen::Redraw;
+                    break;
+
+                }
+            }
+        }
+    });
+
+    should_redraw
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
@@ -124,6 +126,47 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) 
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
+
+    let font_id = FONT_ID;
+    let font_size = FontSize::px(10.0);
+    let font = app_state.resources.get_font(&font_id).unwrap().0;
+
+    // Texts only for testing
+    let texts = [
+        SvgText {
+            font_size: font_size,
+            font_id: font_id.clone(),
+            text_layout: SvgTextLayout::from_str("On Curve!!!!", &font, &font_size),
+            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            placement: SvgTextPlacement::OnCubicBezierCurve(SampledBezierCurve::from_curve(&[
+                BezierControlPoint { x: 0.0, y: 0.0 },
+                BezierControlPoint { x: 40.0, y: 120.0 },
+                BezierControlPoint { x: 80.0, y: 120.0 },
+                BezierControlPoint { x: 120.0, y: 0.0 },
+            ])),
+        },
+        SvgText {
+            font_size: font_size,
+            font_id: font_id.clone(),
+            text_layout: SvgTextLayout::from_str("Rotated", &font, &font_size),
+            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            placement: SvgTextPlacement::Rotated(-30.0),
+        },
+        SvgText {
+            font_size: font_size,
+            font_id: font_id.clone(),
+            text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size),
+            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            placement: SvgTextPlacement::Unmodified,
+        },
+    ];
+
+    let mut cached_texts = HashMap::<TextId, SvgText>::new();
+    for t in texts.into_iter() {
+        let id = new_text_id();
+        cached_texts.insert(id, t.clone());
+    }
+
     open_file_dialog(None, None)
         .and_then(|path| fs::read_to_string(path.clone()).ok())
         .and_then(|contents| {
@@ -131,16 +174,11 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
             let mut svg_cache = SvgCache::empty();
             let svg_layers = svg_cache.add_svg(&contents).ok()?;
 
-            let font_id = FontId::ExternalFont(String::from("Webly Sleeky UI"));
-
-            // Pre-vectorize the glyphs of the font into vertex buffers
-            let (font, _) = app_state.get_font(&font_id)?;
-            let mut vectorized_font_cache = VectorizedFontCache::new(&app_state.resources);
-            vectorized_font_cache.insert_if_not_exist(font_id, font);
-
             app_state.data.modify(|data| data.map = Some(Map {
                 cache: svg_cache,
-                font_cache: vectorized_font_cache,
+                font_cache: VectorizedFontCache::new(&app_state.resources),
+                hovered_text: None,
+                texts: cached_texts,
                 layers: svg_layers,
                 zoom: 1.0,
                 pan_horz: 0.0,
@@ -156,7 +194,6 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 
 fn main() {
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
-    app.add_font("Webly Sleeky UI", &mut FONT_BYTES.clone()).unwrap();
     app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
     app.run().unwrap();
 }
