@@ -57,27 +57,32 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
         BezierControlPoint { x: 80.0, y: 120.0 },
         BezierControlPoint { x: 120.0, y: 0.0 },
     ]);
+    let font_size = FontSize::px(10.0);
+    let font = resources.get_font(&font_id).unwrap().0;
+    let text_layout_1 = SvgTextLayout::from_str("On Curve!!!!", &font, &font_size);
+    let text_layout_2 = SvgTextLayout::from_str("Rotated", &font, &font_size);
+    let text_layout_3 = SvgTextLayout::from_str("Unmodified", &font, &font_size);
 
     layers.push(SvgText {
-        font_size: FontSize::px(10.0),
+        font_size: font_size,
         font_id: &font_id,
-        text: "On Curve!!!!",
+        text_layout: &text_layout_1,
         style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
         placement: SvgTextPlacement::OnCubicBezierCurve(curve),
     }.to_svg_layer(vector_font_cache, resources));
 
     layers.push(SvgText {
-        font_size: FontSize::px(10.0),
+        font_size: font_size,
         font_id: &font_id,
-        text: "Rotated",
+        text_layout: &text_layout_2,
         style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
         placement: SvgTextPlacement::Rotated(-30.0),
     }.to_svg_layer(vector_font_cache, resources));
 
     layers.push(SvgText {
-        font_size: FontSize::px(10.0),
+        font_size: font_size,
         font_id: &font_id,
-        text: "Unmodified",
+        text_layout: &text_layout_3,
         style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
         placement: SvgTextPlacement::Unmodified,
     }.to_svg_layer(vector_font_cache, resources));
