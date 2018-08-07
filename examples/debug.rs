@@ -36,6 +36,7 @@ impl Layout for MyAppData {
                 .with_zoom(map.zoom as f32)
                 .dom(&info.window, &map.cache)
                 .with_callback(On::Scroll, Callback(scroll_map_contents))
+                .with_callback(On::MouseOver, Callback(check_hovered_font))
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
@@ -50,7 +51,7 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
 {
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
-    let font_id = FontId::ExternalFont(String::from("Webly Sleeky UI"));
+    let font_id = FONT_ID;
     let curve = SampledBezierCurve::from_curve(&[
         BezierControlPoint { x: 0.0, y: 0.0 },
         BezierControlPoint { x: 40.0, y: 120.0 },
@@ -59,38 +60,43 @@ fn build_layers(existing_layers: &[SvgLayerId], vector_font_cache: &VectorizedFo
     ]);
     let font_size = FontSize::px(10.0);
     let font = resources.get_font(&font_id).unwrap().0;
-    let text_layout_1 = SvgTextLayout::from_str("On Curve!!!!", &font, &font_size);
-    let text_layout_2 = SvgTextLayout::from_str("Rotated", &font, &font_size);
-    let text_layout_3 = SvgTextLayout::from_str("Unmodified", &font, &font_size);
 
-    layers.push(SvgText {
-        font_size: font_size,
-        font_id: &font_id,
-        text_layout: &text_layout_1,
-        style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
-        placement: SvgTextPlacement::OnCubicBezierCurve(curve),
-    }.to_svg_layer(vector_font_cache, resources));
+    let texts = [
+        SvgText {
+            font_size: font_size,
+            font_id: &font_id,
+            text_layout: &SvgTextLayout::from_str("On Curve!!!!", &font, &font_size),
+            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            placement: SvgTextPlacement::OnCubicBezierCurve(curve),
+        },
+        SvgText {
+            font_size: font_size,
+            font_id: &font_id,
+            text_layout: &SvgTextLayout::from_str("Rotated", &font, &font_size),
+            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            placement: SvgTextPlacement::Rotated(-30.0),
+        },
+        SvgText {
+            font_size: font_size,
+            font_id: &font_id,
+            text_layout: &SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size),
+            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            placement: SvgTextPlacement::Unmodified,
+        },
+    ];
 
-    layers.push(SvgText {
-        font_size: font_size,
-        font_id: &font_id,
-        text_layout: &text_layout_2,
-        style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
-        placement: SvgTextPlacement::Rotated(-30.0),
-    }.to_svg_layer(vector_font_cache, resources));
-
-    layers.push(SvgText {
-        font_size: font_size,
-        font_id: &font_id,
-        text_layout: &text_layout_3,
-        style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
-        placement: SvgTextPlacement::Unmodified,
-    }.to_svg_layer(vector_font_cache, resources));
+    layers.extend(texts.iter().map(|t| t.to_svg_layer(vector_font_cache, resources)));
+    layers.extend(texts.iter().map(|t| t.get_bbox().draw_lines()));
 
     layers.push(curve.draw_lines());
     layers.push(curve.draw_control_handles());
 
     layers
+}
+
+fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
+
+    UpdateScreen::DontRedraw
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
@@ -129,7 +135,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 
             // Pre-vectorize the glyphs of the font into vertex buffers
             let (font, _) = app_state.get_font(&font_id)?;
-            let mut vectorized_font_cache = VectorizedFontCache::new();
+            let mut vectorized_font_cache = VectorizedFontCache::new(&app_state.resources);
             vectorized_font_cache.insert_if_not_exist(font_id, font);
 
             app_state.data.modify(|data| data.map = Some(Map {

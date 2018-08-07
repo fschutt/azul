@@ -35,7 +35,7 @@ pub struct AppState<'a, T: Layout> {
     /// ```
     pub windows: Vec<FakeWindow>,
     /// Fonts and images that are currently loaded into the app
-    pub(crate) resources: AppResources<'a>,
+    pub resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
     pub(crate) deamons: FastHashMap<String, fn(&mut T) -> UpdateScreen>,
     /// Currently running tasks (asynchronous functions running on a different thread)

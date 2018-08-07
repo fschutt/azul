@@ -15,7 +15,7 @@ use {
 
 pub use webrender::api::GlyphInstance;
 
-pub(crate) const PX_TO_PT: f32 = 72.0 / 96.0;
+pub const PX_TO_PT: f32 = 72.0 / 96.0;
 
 /// Words are a collection of glyph information, i.e. how much
 /// horizontal space each of the words in a text block and how much
@@ -132,19 +132,19 @@ pub(crate) struct ScrollbarInfo {
 #[derive(Debug, Copy, Clone)]
 pub struct FontMetrics {
     /// Width of the space character
-    space_width: f32,
+    pub space_width: f32,
     /// Usually 4 * space_width
-    tab_width: f32,
+    pub tab_width: f32,
     /// font_size * line_height
-    vertical_advance: f32,
+    pub vertical_advance: f32,
     /// Offset of the font from the top of the bounding rectangle
-    offset_top: f32,
+    pub offset_top: f32,
     /// Font size (for rusttype) in **pt** (not px)
     /// Used for vertical layouting (since it includes the line height)
-    font_size_with_line_height: Scale,
+    pub font_size_with_line_height: Scale,
     /// Same as `font_size_with_line_height` but without the line height incorporated.
     /// Used for horizontal layouting
-    font_size_no_line_height: Scale,
+    pub font_size_no_line_height: Scale,
 }
 
 /// ## Inputs
@@ -253,7 +253,7 @@ impl FontMetrics {
 fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, line_height: Option<LineHeight>) -> FontMetrics {
 
     let font_size_f32 = font_size.0.to_pixels() * PX_TO_PT;
-    let line_height = match line_height { Some(lh) => (lh.0).number, None => 1.0 };
+    let line_height = line_height.and_then(|lh| Some(lh.0.number)).unwrap_or(1.0);
     let font_size_with_line_height = Scale::uniform(font_size_f32 * line_height);
     let font_size_no_line_height = Scale::uniform(font_size_f32);
 
@@ -656,7 +656,6 @@ fn calculate_harfbuzz_adjustments<'a>(text: &str, font: &Font<'a>)
 
 /// If `max_horizontal_width` is `None`, it means that the text is allowed to overflow
 /// the rectangle horizontally
-#[inline(always)]
 fn words_to_left_aligned_glyphs<'a>(
     words: &Words,
     font: &Font<'a>,
@@ -666,7 +665,7 @@ fn words_to_left_aligned_glyphs<'a>(
 {
     let words = &words.0;
 
-    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, font_size_no_line_height, .. } = *font_metrics;
 
     // left_aligned_glyphs stores the X and Y coordinates of the positioned glyphs,
     // left-aligned
@@ -756,7 +755,7 @@ fn words_to_left_aligned_glyphs<'a>(
     }
 
     let min_enclosing_width = max_word_caret;
-    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + offset_top;
+    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + (font_size_no_line_height.y / PX_TO_PT) + (offset_top / PX_TO_PT);
 
     let line_break_offsets = line_break_offsets.into_iter().map(|(line, space_r)| {
         let space_r = match space_r {
@@ -898,13 +897,14 @@ pub struct LayoutTextResult {
     pub min_width: f32,
     /// Minimal height of the layouted text
     pub min_height: f32,
+    pub font_metrics: FontMetrics,
 }
 
 /// Layout a string of text horizontally, given a font with its metrics.
 pub fn layout_text<'a>(
     text: &str,
     font: &Font<'a>,
-    font_metrics: &FontMetrics)
+    font_metrics: FontMetrics)
 -> LayoutTextResult
 {
     // NOTE: This function is different from the get_glyphs function that is
@@ -914,10 +914,10 @@ pub fn layout_text<'a>(
     // This function does not calculate any overflow.
     let words = split_text_into_words(text, font, font_metrics.font_size_no_line_height);
     let (layouted_glyphs, line_breaks, min_width, min_height) =
-        words_to_left_aligned_glyphs(&words, font, None, font_metrics);
+        words_to_left_aligned_glyphs(&words, font, None, &font_metrics);
 
     LayoutTextResult {
-        words, layouted_glyphs, line_breaks, min_width, min_height
+        words, layouted_glyphs, line_breaks, min_width, min_height, font_metrics,
     }
 }
 
