@@ -36,6 +36,8 @@ use {
     traits::Layout,
     window::ReadOnlyWindow,
     css_parser::{FontId, FontSize},
+    resources::AppResources,
+    text_layout::{FontMetrics, LayoutTextResult, layout_text},
 };
 
 pub use lyon::tessellation::VertexBuffers;
@@ -1682,13 +1684,20 @@ pub enum SvgTextPlacement {
 pub struct SvgText<'a> {
     pub font_size: FontSize,
     pub font_id: &'a FontId,
-    pub text: &'a str,
+    pub text_layout: &'a SvgTextLayout,
     pub style: SvgStyle,
     pub placement: SvgTextPlacement,
 }
 
-use resources::AppResources;
-use text_layout::{FontMetrics, LayoutTextResult, layout_text};
+#[derive(Debug, Clone)]
+pub struct SvgTextLayout(LayoutTextResult);
+
+impl SvgTextLayout {
+    pub fn from_str(text: &str, font: &Font, font_size: &FontSize) -> Self {
+        let font_metrics = FontMetrics::new(font, font_size, None);
+        SvgTextLayout(layout_text(text, font, &font_metrics))
+    }
+}
 
 impl<'a> SvgText<'a> {
     pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache, resources: &AppResources)
@@ -1696,20 +1705,16 @@ impl<'a> SvgText<'a> {
     {
         let font = resources.get_font(&self.font_id).unwrap().0;
         let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id).unwrap();
-        let font_metrics = FontMetrics::new(&font, &self.font_size, None);
-
-        // TODO: cache the layout somehow?
-        let layout = layout_text(&self.text, &font, &font_metrics);
 
         match self.placement {
             SvgTextPlacement::Unmodified => {
-                normal_text(&layout, self.style, &font, vectorized_font, &self.font_size)
+                normal_text(&self.text_layout.0, self.style, &font, vectorized_font, &self.font_size)
             },
             SvgTextPlacement::Rotated(degrees) => {
-                rotated_text(&layout, self.style, &font, vectorized_font, &self.font_size, degrees)
+                rotated_text(&self.text_layout.0, self.style, &font, vectorized_font, &self.font_size, degrees)
             },
             SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                text_on_curve(&layout, self.style, &font, vectorized_font, &self.font_size, &curve)
+                text_on_curve(&self.text_layout.0, self.style, &font, vectorized_font, &self.font_size, &curve)
             }
         }
     }
