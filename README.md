@@ -18,8 +18,9 @@ engine for rendering and a CSS / DOM model for layout and rendering
 
 ## Installation notes
 
-On Linux, you currently need to install `cmake` before you can use azul.
-CMake is used during the build process to compile servo-freetype.
+You currently need to install [cmake](https://cmake.org/download/) before you can use azul.
+CMake is used during the build process to compile servo-freetype and
+harfbuzz-sys.
 
 For interfacing with the system clipboard, you also need `libxcb-xkb-dev`.
 Since azul uses the system-native fonts by default, you'll also need
