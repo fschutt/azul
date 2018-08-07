@@ -1668,6 +1668,211 @@ pub fn cubic_bezier_normal(curve: &[BezierControlPoint;4], t: f32) -> BezierNorm
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum SvgTextPlacement {
+    /// Text is simply layouted from left-to-right
+    Unmodified,
+    /// Text is rotated by X degrees
+    Rotated(f32),
+    /// Text is placed on a cubic bezier curve
+    OnCubicBezierCurve(SampledBezierCurve),
+}
+
+#[derive(Debug, Clone)]
+pub struct SvgText<'a> {
+    pub font_size: FontSize,
+    pub font_id: &'a FontId,
+    pub text: &'a str,
+    pub style: SvgStyle,
+    pub placement: SvgTextPlacement,
+}
+
+use resources::AppResources;
+use text_layout::{FontMetrics, LayoutTextResult, layout_text};
+
+impl<'a> SvgText<'a> {
+    pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache, resources: &AppResources)
+    -> SvgLayerResource
+    {
+        let font = resources.get_font(&self.font_id).unwrap().0;
+        let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id).unwrap();
+        let font_metrics = FontMetrics::new(&font, &self.font_size, None);
+
+        // TODO: cache the layout somehow?
+        let layout = layout_text(&self.text, &font, &font_metrics);
+
+        match self.placement {
+            SvgTextPlacement::Unmodified => {
+                normal_text(&layout, self.style, &font, vectorized_font, &self.font_size)
+            },
+            SvgTextPlacement::Rotated(degrees) => {
+                rotated_text(&layout, self.style, &font, vectorized_font, &self.font_size, degrees)
+            },
+            SvgTextPlacement::OnCubicBezierCurve(curve) => {
+                text_on_curve(&layout, self.style, &font, vectorized_font, &self.font_size, &curve)
+            }
+        }
+    }
+}
+
+fn normal_text(
+    layout: &LayoutTextResult,
+    text_style: SvgStyle,
+    font: &Font,
+    vector_font: &VectorizedFont,
+    font_size: &FontSize)
+-> SvgLayerResource
+{
+    let fill_vertices = text_style.fill.and_then(|_| {
+        Some(normal_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, get_fill_vertices))
+    });
+
+    let stroke_vertices = text_style.stroke.and_then(|_| {
+        Some(normal_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, get_stroke_vertices))
+    });
+
+    SvgLayerResource::Direct {
+        style: text_style,
+        fill: fill_vertices,
+        stroke: stroke_vertices,
+    }
+}
+
+fn normal_text_to_vertices(
+    font_size: &FontSize,
+    glyph_ids: &[GlyphInstance],
+    vectorized_font: &VectorizedFont,
+    original_font: &Font,
+    transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
+) -> VerticesIndicesBuffer
+{
+    let fill_buf = glyph_ids.iter()
+        .filter_map(|gid| transform_func(vectorized_font, original_font, &GlyphId(gid.index)).and_then(|vbuf| Some((vbuf, gid))))
+        .map(|(mut vertex_buf, gid)| {
+            scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+            transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0, gid.point.y);
+            vertex_buf
+        })
+        .collect::<Vec<_>>();
+
+    join_vertex_buffers(&fill_buf)
+}
+
+fn rotated_text(
+    layout: &LayoutTextResult,
+    text_style: SvgStyle,
+    font: &Font,
+    vector_font: &VectorizedFont,
+    font_size: &FontSize,
+    rotation_degrees: f32)
+-> SvgLayerResource
+{
+    let fill_vertices = text_style.fill.and_then(|_| {
+        Some(rotated_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, rotation_degrees, get_fill_vertices))
+    });
+
+    let stroke_vertices = text_style.stroke.and_then(|_| {
+        Some(rotated_text_to_vertices(&font_size, &layout.layouted_glyphs, vector_font, font, rotation_degrees, get_stroke_vertices))
+    });
+
+    SvgLayerResource::Direct {
+        style: text_style,
+        fill: fill_vertices,
+        stroke: stroke_vertices,
+    }
+}
+
+fn rotated_text_to_vertices(
+    font_size: &FontSize,
+    glyph_ids: &[GlyphInstance],
+    vectorized_font: &VectorizedFont,
+    original_font: &Font,
+    rotation_degrees: f32,
+    transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
+) -> VerticesIndicesBuffer
+{
+    let rotation_rad = rotation_degrees.to_radians();
+    let (char_sin, char_cos) = (rotation_rad.sin(), rotation_rad.cos());
+    let fill_buf = glyph_ids.iter()
+        .filter_map(|gid| transform_func(vectorized_font, original_font, &GlyphId(gid.index)).and_then(|vbuf| Some((vbuf, gid))))
+        .map(|(mut vertex_buf, gid)| {
+            scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+            transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0, gid.point.y);
+            rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
+            vertex_buf
+        })
+        .collect::<Vec<_>>();
+
+    join_vertex_buffers(&fill_buf)
+}
+
+fn text_on_curve(
+    layout: &LayoutTextResult,
+    text_style: SvgStyle,
+    font: &Font,
+    vector_font: &VectorizedFont,
+    font_size: &FontSize,
+    curve: &SampledBezierCurve)
+-> SvgLayerResource
+{
+    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0);
+
+    let fill_vertices = text_style.fill.and_then(|_| {
+        Some(curved_vector_text_to_vertices(font_size, &layout.layouted_glyphs, vector_font, font, &char_offsets, &char_rotations, get_fill_vertices))
+    });
+
+    let stroke_vertices = text_style.stroke.and_then(|_| {
+        Some(curved_vector_text_to_vertices(font_size, &layout.layouted_glyphs, vector_font, font, &char_offsets, &char_rotations, get_stroke_vertices))
+    });
+
+    SvgLayerResource::Direct {
+        style: text_style,
+        fill: fill_vertices,
+        stroke: stroke_vertices,
+    }
+}
+
+// Calculates the layout for one word block
+fn curved_vector_text_to_vertices(
+    font_size: &FontSize,
+    glyph_ids: &[GlyphInstance],
+    vectorized_font: &VectorizedFont,
+    original_font: &Font,
+    char_offsets: &[(f32, f32)],
+    char_rotations: &[BezierCharacterRotation],
+    transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
+) -> VerticesIndicesBuffer
+{
+    let fill_buf = glyph_ids.iter()
+        .filter_map(|gid| {
+            // 1. Transform glyph to vertex buffer && filter out all glyphs
+            //    that don't have a vertex buffer
+            transform_func(vectorized_font, original_font, &GlyphId(gid.index))
+        })
+        .zip(char_rotations.into_iter())
+        .zip(char_offsets.iter())
+        .map(|((mut vertex_buf, char_rot), char_offset)| {
+
+            let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
+
+            // 2. Scale characters to the final size
+            scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+
+            // 3. Rotate individual characters inside of the word
+            let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
+
+            rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
+
+            // 4. Transform characters to their respective positions
+            transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x, *char_offset_y);
+
+            vertex_buf
+        })
+        .collect::<Vec<_>>();
+
+    join_vertex_buffers(&fill_buf)
+}
+
 impl Svg {
 
     #[inline]

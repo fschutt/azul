@@ -9,6 +9,7 @@ pub use self::svg::{
 	SvgCache, VectorizedFont, VectorizedFontCache, VerticesIndicesBuffer,
     SvgStrokeOptions, VertexBuffers, SvgVert, GlyphId,
     SvgCircle, SvgRect, BezierControlPoint, SampledBezierCurve,
+    SvgText, SvgTextPlacement,
     BezierNormalVector, BezierCharacterRotation,
 
     join_vertex_buffers, get_fill_vertices, get_stroke_vertices,
