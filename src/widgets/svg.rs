@@ -1229,9 +1229,7 @@ impl VectorizedFontCache {
 
     pub fn new(app_resources: &AppResources) -> Self {
         let mut fonts = FastHashMap::default();
-        let loaded_font_keys = app_resources.get_loaded_fonts();
-        println!("loaded fonts: {:?}", loaded_font_keys);
-        for font_id in loaded_font_keys {
+        for font_id in app_resources.get_loaded_fonts() {
             fonts.entry(font_id.clone()).or_insert_with(|| VectorizedFont::from_font(app_resources.get_font(&font_id).unwrap().0));
         }
         Self {
@@ -1724,10 +1722,10 @@ pub enum SvgTextPlacement {
 }
 
 #[derive(Debug, Clone)]
-pub struct SvgText<'a> {
+pub struct SvgText {
     pub font_size: FontSize,
-    pub font_id: &'a FontId,
-    pub text_layout: &'a SvgTextLayout,
+    pub font_id: FontId,
+    pub text_layout: SvgTextLayout,
     pub style: SvgStyle,
     pub placement: SvgTextPlacement,
 }
@@ -1822,7 +1820,7 @@ impl SvgTextLayout {
     }
 }
 
-impl<'a> SvgText<'a> {
+impl SvgText {
     pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache, resources: &AppResources)
     -> SvgLayerResource
     {
