@@ -17,6 +17,7 @@ use {
     font::FontError,
     css_parser::{FontId, FontSize, PixelValue},
     errors::ClipboardError,
+    task::TerminateDeamon,
 };
 
 /// Wrapper for your application data. In order to be layout-able,
@@ -37,7 +38,7 @@ pub struct AppState<'a, T: Layout> {
     /// Fonts and images that are currently loaded into the app
     pub resources: AppResources<'a>,
     /// Currently running deamons (polling functions)
-    pub(crate) deamons: FastHashMap<String, fn(&mut T) -> UpdateScreen>,
+    pub(crate) deamons: FastHashMap<usize, fn(&mut T) -> (UpdateScreen, TerminateDeamon)>,
     /// Currently running tasks (asynchronous functions running on a different thread)
     pub(crate) tasks: Vec<Task>,
 }
@@ -182,37 +183,42 @@ impl<'a, T: Layout> AppState<'a, T> {
         self.resources.delete_font(id)
     }
 
-    /// Create a deamon. Does nothing if a deamon with the same ID already exists.
+    /// Create a deamon. Does nothing if a deamon already exists.
     ///
     /// If the deamon was inserted, returns true, otherwise false
-    pub fn add_deamon<S: Into<String>>(&mut self, id: S, deamon: fn(&mut T) -> UpdateScreen) -> bool {
-        let id_string = id.into();
-        match self.deamons.entry(id_string) {
+    pub fn add_deamon(&mut self, deamon: fn(&mut T) -> (UpdateScreen, TerminateDeamon)) -> bool {
+        match self.deamons.entry(deamon as usize) {
             Occupied(_) => false,
             Vacant(v) => { v.insert(deamon); true },
         }
     }
 
-    /// Remove a currently running deamon from running. Does nothing if there is
-    /// already a deamon with the same ID
-    pub fn delete_deamon<S: AsRef<str>>(&mut self, id: S) -> bool {
-        self.deamons.remove(id.as_ref()).is_some()
-    }
-
     /// Run all currently registered deamons
     #[must_use]
-    pub(crate) fn run_all_deamons(&self) 
+    pub(crate) fn run_all_deamons(&mut self) 
     -> UpdateScreen 
     {
         let mut should_update_screen = UpdateScreen::DontRedraw;
         let mut lock = self.data.lock().unwrap();
-        for deamon in self.deamons.values().cloned() {
-            let should_update = (deamon)(&mut lock);
+        let mut deamons_to_terminate = vec![];
+
+        for (key, deamon) in self.deamons.iter() {
+            let (should_update, should_terminate) = (deamon.clone())(&mut lock);
+            
             if should_update == UpdateScreen::Redraw &&
                should_update_screen == UpdateScreen::DontRedraw {
                 should_update_screen = UpdateScreen::Redraw;
             }
+
+            if should_terminate == TerminateDeamon::Terminate {
+                deamons_to_terminate.push(key.clone());
+            }
         }
+
+        for key in deamons_to_terminate {
+            self.deamons.remove(&key);
+        }
+        
         should_update_screen
     }
 
