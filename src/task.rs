@@ -1,4 +1,4 @@
-//! Preliminary async IO / Task system
+//! Simplistic async IO / Task system
 
 use std::{
     sync::{Arc, Mutex, Weak},
@@ -35,6 +35,7 @@ impl Task {
         }
     }
 
+    /// Returns true if the task has been finished, false otherwise
     pub fn is_finished(&self) -> bool {
         self.dropcheck.upgrade().is_none()
     }

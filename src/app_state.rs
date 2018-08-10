@@ -200,7 +200,10 @@ impl<'a, T: Layout> AppState<'a, T> {
     }
 
     /// Run all currently registered deamons
-    pub(crate) fn run_all_deamons(&self) -> UpdateScreen {
+    #[must_use]
+    pub(crate) fn run_all_deamons(&self) 
+    -> UpdateScreen 
+    {
         let mut should_update_screen = UpdateScreen::DontRedraw;
         let mut lock = self.data.lock().unwrap();
         for deamon in self.deamons.values().cloned() {
@@ -214,9 +217,18 @@ impl<'a, T: Layout> AppState<'a, T> {
     }
 
     /// Remove all tasks that have finished executing
+    #[must_use]
     pub(crate) fn clean_up_finished_tasks(&mut self)
+    -> UpdateScreen
     {
-        self.tasks.retain(|x| x.is_finished());
+        let old_count = self.tasks.len();
+        self.tasks.retain(|x| !x.is_finished());
+        let new_count = self.tasks.len();
+        if old_count != new_count {
+            UpdateScreen::Redraw
+        } else {
+            UpdateScreen::DontRedraw
+        }
     }
 
     pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)

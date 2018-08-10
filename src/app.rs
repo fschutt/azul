@@ -189,6 +189,7 @@ impl<'a, T: Layout> App<'a, T> {
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut force_redraw_cache = vec![1_usize; self.windows.len()];
+        let mut awakened_task = false;
 
         while !self.windows.is_empty() {
 
@@ -204,7 +205,7 @@ impl<'a, T: Layout> App<'a, T> {
                 window.events_loop.poll_events(|e| events.push(e));
 
                 for event in &events {
-                    if preprocess_event(event, &mut frame_event_info) == WindowCloseEvent::AboutToClose {
+                    if preprocess_event(event, &mut frame_event_info, awakened_task) == WindowCloseEvent::AboutToClose {
                         closed_windows.push(idx);
                         continue 'window_loop;
                     }
@@ -266,6 +267,7 @@ impl<'a, T: Layout> App<'a, T> {
                     Self::update_display(&window);
                     // render the window (webrender will send an Awakened event when the frame is done)
                     render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
+                    awakened_task = false;
                 }
             }
 
@@ -278,17 +280,23 @@ impl<'a, T: Layout> App<'a, T> {
             });
 
             // Run deamons and remove them from the even queue if they are finished
-            self.app_state.run_all_deamons();
+            let should_redraw_deamons = self.app_state.run_all_deamons();
 
             // Clean up finished tasks, remove them if possible
-            self.app_state.clean_up_finished_tasks();
+            let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
 
-            // Wait until 16ms have passed
-            let diff = time_start.elapsed();
-            const FRAME_TIME: Duration = Duration::from_millis(16);
-            if diff < FRAME_TIME {
-                thread::sleep(FRAME_TIME - diff);
+            if [should_redraw_deamons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
+                self.windows.iter().for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
+                awakened_task = true;
+            } else {
+                // Wait until 16ms have passed
+                let diff = time_start.elapsed();
+                const FRAME_TIME: Duration = Duration::from_millis(16);
+                if diff < FRAME_TIME {
+                    thread::sleep(FRAME_TIME - diff);
+                }
             }
+
         }
 
         Ok(())
@@ -513,7 +521,7 @@ enum WindowCloseEvent {
     NoCloseEvent,
 }
 
-fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> WindowCloseEvent {
+fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awakened_task: bool) -> WindowCloseEvent {
     use glium::glutin::WindowEvent;
 
     match event {
@@ -549,6 +557,9 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo) -> Win
         },
         Event::Awakened => {
             frame_event_info.should_swap_window = true;
+            if awakened_task {
+                frame_event_info.should_redraw_window = true;
+            }
         },
         _ => { },
     }
