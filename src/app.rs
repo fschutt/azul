@@ -25,6 +25,7 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
+    task::TerminateDeamon,
 };
 
 /// Graphical application that maintains some kind of application state
@@ -183,13 +184,14 @@ impl<'a, T: Layout> App<'a, T> {
     }
 
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
+
         use std::{thread, time::{Duration, Instant}};
         use window::ReadOnlyWindow;
 
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut force_redraw_cache = vec![1_usize; self.windows.len()];
-        let mut awakened_task = false;
+        let mut awakened_task = vec![false; self.windows.len()];
 
         while !self.windows.is_empty() {
 
@@ -205,7 +207,7 @@ impl<'a, T: Layout> App<'a, T> {
                 window.events_loop.poll_events(|e| events.push(e));
 
                 for event in &events {
-                    if preprocess_event(event, &mut frame_event_info, awakened_task) == WindowCloseEvent::AboutToClose {
+                    if preprocess_event(event, &mut frame_event_info, awakened_task[idx]) == WindowCloseEvent::AboutToClose {
                         closed_windows.push(idx);
                         continue 'window_loop;
                     }
@@ -267,7 +269,7 @@ impl<'a, T: Layout> App<'a, T> {
                     Self::update_display(&window);
                     // render the window (webrender will send an Awakened event when the frame is done)
                     render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
-                    awakened_task = false;
+                    awakened_task[idx] = false;
                 }
             }
 
@@ -287,7 +289,7 @@ impl<'a, T: Layout> App<'a, T> {
 
             if [should_redraw_deamons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
                 self.windows.iter().for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
-                awakened_task = true;
+                awakened_task = vec![true; self.windows.len()];
             } else {
                 // Wait until 16ms have passed
                 let diff = time_start.elapsed();
@@ -426,21 +428,13 @@ impl<'a, T: Layout> App<'a, T> {
         self.app_state.delete_font(id)
     }
 
-    /// Create a deamon. Does nothing if a deamon with the same ID already exists.
+    /// Create a deamon. Does nothing if a deamon with the function pointer location already exists.
     ///
     /// If the deamon was inserted, returns true, otherwise false
-    pub fn add_deamon<S: Into<String>>(&mut self, id: S, deamon: fn(&mut T) -> UpdateScreen)
+    pub fn add_deamon(&mut self, deamon: fn(&mut T) -> (UpdateScreen, TerminateDeamon))
         -> bool
     {
-        self.app_state.add_deamon(id, deamon)
-    }
-
-    /// Remove a currently running deamon from running. Does nothing if there is
-    /// already a deamon with the same ID
-    pub fn delete_deamon<S: AsRef<str>>(&mut self, id: S)
-        -> bool
-    {
-        self.app_state.delete_deamon(id)
+        self.app_state.add_deamon(deamon)
     }
 
     pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)

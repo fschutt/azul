@@ -8,6 +8,13 @@ use {
     traits::Layout,
 };
 
+/// Should a deamon terminate or not - used to remove active deamons
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TerminateDeamon {
+    Terminate,
+    Continue,
+}
+
 pub struct Task {
     // Task is in progress
     join_handle: Option<JoinHandle<()>>,
