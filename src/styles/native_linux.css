@@ -11,6 +11,12 @@
     justify-content: center;
 }
 
+.__azul-native-label {
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+}
+
 * {
     font-size: 10px;
     font-family: sans-serif;

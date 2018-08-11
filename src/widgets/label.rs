@@ -18,7 +18,9 @@ impl Label {
     pub fn dom<T>(self)
     -> Dom<T> where T: Layout
     {
-        Dom::new(NodeType::Label(self.text))
+        Dom::new(NodeType::Div)
+            .with_child(Dom::new(NodeType::Label(self.text)))
+        .with_class("__azul-native-label")
     }
 }
 
