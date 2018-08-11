@@ -1,4 +1,4 @@
-//! Preliminary async IO / Task system
+//! Simplistic async IO / Task system
 
 use std::{
     sync::{Arc, Mutex, Weak},
@@ -7,6 +7,13 @@ use std::{
 use {
     traits::Layout,
 };
+
+/// Should a deamon terminate or not - used to remove active deamons
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TerminateDeamon {
+    Terminate,
+    Continue,
+}
 
 pub struct Task {
     // Task is in progress
@@ -35,6 +42,7 @@ impl Task {
         }
     }
 
+    /// Returns true if the task has been finished, false otherwise
     pub fn is_finished(&self) -> bool {
         self.dropcheck.upgrade().is_none()
     }
