@@ -737,6 +737,43 @@ impl SampledBezierCurve {
         (glyph_offsets, glyph_rotations)
     }
 
+    pub fn get_bbox(&self) -> (SvgBbox, [(usize, usize);2]) {
+
+        let mut lowest_x = self.sampled_bezier_points[0].x;
+        let mut highest_x = self.sampled_bezier_points[0].x;
+        let mut lowest_y = self.sampled_bezier_points[0].y;
+        let mut highest_y = self.sampled_bezier_points[0].y;
+
+        let mut lowest_x_idx = 0;
+        let mut highest_x_idx = 0;
+        let mut lowest_y_idx = 0;
+        let mut highest_y_idx = 0;
+
+        for (idx, BezierControlPoint { x, y }) in self.sampled_bezier_points.iter().enumerate().skip(1) {
+            if *x < lowest_x {
+                lowest_x = *x;
+                lowest_x_idx = idx;
+            }
+            if *x > highest_x {
+                highest_x = *x;
+                highest_x_idx = idx;
+            }
+            if *y < lowest_y {
+                lowest_y = *y;
+                lowest_y_idx = idx;
+            }
+            if *y > highest_y {
+                highest_y = *y;
+                highest_y_idx = idx;
+            }
+        }
+
+        (
+            SvgBbox(TypedRect::new(TypedPoint2D::new(lowest_x, lowest_y), TypedSize2D::new(highest_x - lowest_x, highest_y - lowest_y))),
+            [(lowest_x_idx, lowest_y_idx), (highest_x_idx, highest_y_idx)]
+        )
+    }
+
     /// Returns the geometry necessary for drawing the points from `self.sampled_bezier_points`.
     /// Usually only good for debugging
     pub fn draw_circles(&self) -> SvgLayerResource {
@@ -1797,20 +1834,55 @@ impl SvgTextLayout {
     /// Get the bounding box of a layouted text
     pub fn get_bbox(&self, placement: &SvgTextPlacement) -> SvgBbox {
         use self::SvgTextPlacement::*;
+
+        let normal_x = 0.0;
+        let normal_y = -self.0.font_metrics.vertical_advance / PX_TO_PT;
+        let normal_width = self.0.min_width * 2.0;
+        let normal_height = self.0.min_height;
+
         SvgBbox(match placement {
             Unmodified => {
                 TypedRect::new(
-                    TypedPoint2D::new(0.0, -self.0.font_metrics.vertical_advance / PX_TO_PT),
-                    TypedSize2D::new(self.0.min_width * 2.0, self.0.min_height)
+                    TypedPoint2D::new(normal_x, normal_y),
+                    TypedSize2D::new(normal_width, normal_height)
                 )
             },
-            Rotated(_r) => {
+            Rotated(r) => {
+
+                fn rotate_point((x, y): (f32, f32), sin: f32, cos: f32) -> (f32, f32) {
+                    ((x * cos) - (y * sin), (x * sin) + (y * cos))
+                }
+
+                let rot_radians = r.to_radians();
+                let sin = rot_radians.sin();
+                let cos = rot_radians.cos();
+
+                let top_left = (normal_x, normal_y);
+                let top_right = (normal_x + normal_width, normal_y);
+                let bottom_right = (normal_x + normal_width, normal_y + normal_height);
+                let bottom_left = (normal_x, normal_y + normal_height);
+
+                let (top_left_x, top_left_y) = rotate_point(top_left, sin, cos);
+                let (top_right_x, top_right_y) = rotate_point(top_right, sin, cos);
+                let (bottom_right_x, bottom_right_y) = rotate_point(bottom_right, sin, cos);
+                let (bottom_left_x, bottom_left_y) = rotate_point(bottom_left, sin, cos);
+
+                let min_x = top_left_x.min(top_right_x).min(bottom_right_x).min(bottom_left_x);
+                let max_x = top_left_x.max(top_right_x).max(bottom_right_x).max(bottom_left_x);
+                let min_y = top_left_y.min(top_right_y).min(bottom_right_y).min(bottom_left_y);
+                let max_y = top_left_y.max(top_right_y).max(bottom_right_y).max(bottom_left_y);
+
                 TypedRect::new(
-                    TypedPoint2D::new(0.0, 0.0),
-                    TypedSize2D::new(self.0.min_width * 2.0, self.0.min_height)
+                    TypedPoint2D::new(min_x, min_y),
+                    TypedSize2D::new(max_x - min_x, max_y - min_y)
                 )
             },
-            OnCubicBezierCurve(_curve) => {
+            OnCubicBezierCurve(curve) => {
+                let (bbox, bbox_indices) = curve.get_bbox();
+                println!("bbox: {:?}, indices: {:?}", bbox, bbox_indices);
+
+                // TODO: tomorrow! <----------------------------------------------------------------------------
+
                 TypedRect::new(
                     TypedPoint2D::new(0.0, 0.0),
                     TypedSize2D::new(self.0.min_width * 2.0, self.0.min_height)

@@ -68,11 +68,12 @@ fn build_layers(
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
     layers.extend(texts.values().map(|text| text.to_svg_layer(vector_font_cache, resources)));
-
+    layers.extend(texts.values().map(|text| text.get_bbox().draw_lines()));
+/*
     if let Some(active) = hovered_text {
         layers.push(texts[active].get_bbox().draw_lines());
     }
-
+*/
     // layers.push(curve.draw_lines());
     // layers.push(curve.draw_control_handles());
 
