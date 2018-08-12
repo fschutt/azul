@@ -30,7 +30,7 @@ impl Layout for MyDataModel {
         let status = match &self.connection_status {
             ConnectionStatus::NotConnected       => format!("Not connected!"),
             ConnectionStatus::Connected          => format!("You are connected!"),
-            ConnectionStatus::InProgress(_, d)   => format!("Loading... {}{:03}s", d.as_secs(), d.subsec_millis()),
+            ConnectionStatus::InProgress(_, d)   => format!("Loading... {}.{:02}s", d.as_secs(), d.subsec_millis()),
             ConnectionStatus::Error(e)           => format!("There was an error: {}", e),
         };
 
@@ -65,17 +65,16 @@ fn start_connection(app_state: &mut AppState<MyDataModel>, _event: WindowEvent) 
     let status = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
     app_state.data.modify(|state| state.connection_status = status);
     app_state.add_task(connect_to_db_async);
-    app_state.add_deamon(timer_deamon);
+    app_state.add_daemon(timer_daemon);
     UpdateScreen::Redraw
 }
 
-fn timer_deamon(state: &mut MyDataModel) -> (UpdateScreen, TerminateDeamon) {
-    println!("deamon running!");
+fn timer_daemon(state: &mut MyDataModel) -> (UpdateScreen, TerminateDaemon) {
     if let ConnectionStatus::InProgress(start, duration) = &mut state.connection_status {
         *duration = Instant::now() - *start;
-        (UpdateScreen::Redraw, TerminateDeamon::Continue)
+        (UpdateScreen::Redraw, TerminateDaemon::Continue)
     } else {
-        (UpdateScreen::DontRedraw, TerminateDeamon::Terminate)
+        (UpdateScreen::DontRedraw, TerminateDaemon::Terminate)
     }
 }
 

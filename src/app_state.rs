@@ -17,7 +17,7 @@ use {
     font::FontError,
     css_parser::{FontId, FontSize, PixelValue},
     errors::ClipboardError,
-    task::TerminateDeamon,
+    task::TerminateDaemon,
 };
 
 /// Wrapper for your application data. In order to be layout-able,
@@ -37,8 +37,8 @@ pub struct AppState<'a, T: Layout> {
     pub windows: Vec<FakeWindow>,
     /// Fonts and images that are currently loaded into the app
     pub resources: AppResources<'a>,
-    /// Currently running deamons (polling functions)
-    pub(crate) deamons: FastHashMap<usize, fn(&mut T) -> (UpdateScreen, TerminateDeamon)>,
+    /// Currently running daemons (polling functions)
+    pub(crate) daemons: FastHashMap<usize, fn(&mut T) -> (UpdateScreen, TerminateDaemon)>,
     /// Currently running tasks (asynchronous functions running on a different thread)
     pub(crate) tasks: Vec<Task>,
 }
@@ -51,7 +51,7 @@ impl<'a, T: Layout> AppState<'a, T> {
             data: Arc::new(Mutex::new(initial_data)),
             windows: Vec::new(),
             resources: AppResources::default(),
-            deamons: FastHashMap::default(),
+            daemons: FastHashMap::default(),
             tasks: Vec::new(),
         }
     }
@@ -183,40 +183,40 @@ impl<'a, T: Layout> AppState<'a, T> {
         self.resources.delete_font(id)
     }
 
-    /// Create a deamon. Does nothing if a deamon already exists.
+    /// Create a daemon. Does nothing if a daemon already exists.
     ///
-    /// If the deamon was inserted, returns true, otherwise false
-    pub fn add_deamon(&mut self, deamon: fn(&mut T) -> (UpdateScreen, TerminateDeamon)) -> bool {
-        match self.deamons.entry(deamon as usize) {
+    /// If the daemon was inserted, returns true, otherwise false
+    pub fn add_daemon(&mut self, daemon: fn(&mut T) -> (UpdateScreen, TerminateDaemon)) -> bool {
+        match self.daemons.entry(daemon as usize) {
             Occupied(_) => false,
-            Vacant(v) => { v.insert(deamon); true },
+            Vacant(v) => { v.insert(daemon); true },
         }
     }
 
-    /// Run all currently registered deamons
+    /// Run all currently registered daemons
     #[must_use]
-    pub(crate) fn run_all_deamons(&mut self) 
+    pub(crate) fn run_all_daemons(&mut self) 
     -> UpdateScreen 
     {
         let mut should_update_screen = UpdateScreen::DontRedraw;
         let mut lock = self.data.lock().unwrap();
-        let mut deamons_to_terminate = vec![];
+        let mut daemons_to_terminate = vec![];
 
-        for (key, deamon) in self.deamons.iter() {
-            let (should_update, should_terminate) = (deamon.clone())(&mut lock);
+        for (key, daemon) in self.daemons.iter() {
+            let (should_update, should_terminate) = (daemon.clone())(&mut lock);
             
             if should_update == UpdateScreen::Redraw &&
                should_update_screen == UpdateScreen::DontRedraw {
                 should_update_screen = UpdateScreen::Redraw;
             }
 
-            if should_terminate == TerminateDeamon::Terminate {
-                deamons_to_terminate.push(key.clone());
+            if should_terminate == TerminateDaemon::Terminate {
+                daemons_to_terminate.push(key.clone());
             }
         }
 
-        for key in deamons_to_terminate {
-            self.deamons.remove(&key);
+        for key in daemons_to_terminate {
+            self.daemons.remove(&key);
         }
         
         should_update_screen
