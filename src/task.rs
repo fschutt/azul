@@ -8,9 +8,9 @@ use {
     traits::Layout,
 };
 
-/// Should a deamon terminate or not - used to remove active deamons
+/// Should a daemon terminate or not - used to remove active daemons
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TerminateDeamon {
+pub enum TerminateDaemon {
     Terminate,
     Continue,
 }

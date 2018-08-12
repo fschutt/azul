@@ -25,7 +25,7 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
-    task::TerminateDeamon,
+    task::TerminateDaemon,
 };
 
 /// Graphical application that maintains some kind of application state
@@ -281,13 +281,13 @@ impl<'a, T: Layout> App<'a, T> {
                 self.windows.remove(closed_window_id);
             });
 
-            // Run deamons and remove them from the even queue if they are finished
-            let should_redraw_deamons = self.app_state.run_all_deamons();
+            // Run daemons and remove them from the even queue if they are finished
+            let should_redraw_daemons = self.app_state.run_all_daemons();
 
             // Clean up finished tasks, remove them if possible
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
 
-            if [should_redraw_deamons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
+            if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
                 self.windows.iter().for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
                 awakened_task = vec![true; self.windows.len()];
             } else {
@@ -428,13 +428,13 @@ impl<'a, T: Layout> App<'a, T> {
         self.app_state.delete_font(id)
     }
 
-    /// Create a deamon. Does nothing if a deamon with the function pointer location already exists.
+    /// Create a daemon. Does nothing if a daemon with the function pointer location already exists.
     ///
-    /// If the deamon was inserted, returns true, otherwise false
-    pub fn add_deamon(&mut self, deamon: fn(&mut T) -> (UpdateScreen, TerminateDeamon))
+    /// If the daemon was inserted, returns true, otherwise false
+    pub fn add_daemon(&mut self, daemon: fn(&mut T) -> (UpdateScreen, TerminateDaemon))
         -> bool
     {
-        self.app_state.add_deamon(deamon)
+        self.app_state.add_daemon(daemon)
     }
 
     pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
