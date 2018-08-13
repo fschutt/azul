@@ -737,19 +737,23 @@ impl SampledBezierCurve {
         (glyph_offsets, glyph_rotations)
     }
 
+    /// Returns the bounding box of the 4 points making up the curve.
+    /// 
+    /// Since a bezier curve is always contained within the 4 control points,
+    /// the returned Bbox can be used for hit-testing.
     pub fn get_bbox(&self) -> (SvgBbox, [(usize, usize);2]) {
 
-        let mut lowest_x = self.sampled_bezier_points[0].x;
-        let mut highest_x = self.sampled_bezier_points[0].x;
-        let mut lowest_y = self.sampled_bezier_points[0].y;
-        let mut highest_y = self.sampled_bezier_points[0].y;
+        let mut lowest_x = self.original_curve[0].x;
+        let mut highest_x = self.original_curve[0].x;
+        let mut lowest_y = self.original_curve[0].y;
+        let mut highest_y = self.original_curve[0].y;
 
         let mut lowest_x_idx = 0;
         let mut highest_x_idx = 0;
         let mut lowest_y_idx = 0;
         let mut highest_y_idx = 0;
 
-        for (idx, BezierControlPoint { x, y }) in self.sampled_bezier_points.iter().enumerate().skip(1) {
+        for (idx, BezierControlPoint { x, y }) in self.original_curve.iter().enumerate().skip(1) {
             if *x < lowest_x {
                 lowest_x = *x;
                 lowest_x_idx = idx;
@@ -1878,15 +1882,20 @@ impl SvgTextLayout {
                 )
             },
             OnCubicBezierCurve(curve) => {
-                let (bbox, bbox_indices) = curve.get_bbox();
-                println!("bbox: {:?}, indices: {:?}", bbox, bbox_indices);
+                let (mut bbox, _bbox_indices) = curve.get_bbox();
+                
+                // TODO: There should be a more sophisticated Bbox calculation here
+                // that takes the rotation of the text into account. Right now we simply
+                // add the font size to the BBox height, so that we can still select text
+                // even when the control points are aligned in a horizontal line.
+                // 
+                // This is not so much about correctness as it is about simply making 
+                // it work for now.
 
-                // TODO: tomorrow! <----------------------------------------------------------------------------
-
-                TypedRect::new(
-                    TypedPoint2D::new(0.0, 0.0),
-                    TypedSize2D::new(self.0.min_width * 2.0, self.0.min_height)
-                )
+                let font_size = self.0.font_metrics.font_size_no_line_height.y;
+                bbox.0.origin.y -= font_size;
+                bbox.0.size.height += font_size;
+                bbox.0
             }
         })
     }

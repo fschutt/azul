@@ -668,10 +668,8 @@ fn render<T: Layout>(
         has_window_size_changed,
         &window.state.size);
 
-    if let Some(new_builder) = builder {
-        // only finalize the list if we actually need to. Otherwise just redraw the last display list
-        window.internal.last_display_list_builder = new_builder.finalize().2;
-    }
+    // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
+    window.internal.last_display_list_builder = builder.finalize().2;
 
     let mut txn = Transaction::new();
 
