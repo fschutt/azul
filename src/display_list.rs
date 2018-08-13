@@ -251,7 +251,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         render_api: &RenderApi,
         mut has_window_size_changed: bool,
         window_size: &WindowSize)
-    -> Option<DisplayListBuilder>
+    -> DisplayListBuilder
     {
         let mut changeset = None;
 
@@ -329,7 +329,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         render_api.update_resources(resource_updates);
 
-        Some(builder)
+        builder
     }
 }
 
