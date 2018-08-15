@@ -539,7 +539,7 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
     let style = SvgStyle::stroked(stroke_color, stroke_options);
 
     let polygons = lines.iter()
-        .filter(|line| line.len() > 2)
+        .filter(|line| line.len() >= 2)
         .map(|line| {
 
             let first_point = &line[0];
@@ -738,7 +738,7 @@ impl SampledBezierCurve {
     }
 
     /// Returns the bounding box of the 4 points making up the curve.
-    /// 
+    ///
     /// Since a bezier curve is always contained within the 4 control points,
     /// the returned Bbox can be used for hit-testing.
     pub fn get_bbox(&self) -> (SvgBbox, [(usize, usize);2]) {
@@ -1883,13 +1883,13 @@ impl SvgTextLayout {
             },
             OnCubicBezierCurve(curve) => {
                 let (mut bbox, _bbox_indices) = curve.get_bbox();
-                
+
                 // TODO: There should be a more sophisticated Bbox calculation here
                 // that takes the rotation of the text into account. Right now we simply
                 // add the font size to the BBox height, so that we can still select text
                 // even when the control points are aligned in a horizontal line.
-                // 
-                // This is not so much about correctness as it is about simply making 
+                //
+                // This is not so much about correctness as it is about simply making
                 // it work for now.
 
                 let font_size = self.0.font_metrics.font_size_no_line_height.y;
