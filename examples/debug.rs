@@ -145,6 +145,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
                 BezierControlPoint { x: 80.0, y: 120.0 },
                 BezierControlPoint { x: 120.0, y: 0.0 },
             ])),
+            position: SvgPosition { x: 50.0, y: 50.0 },
         },
         SvgText {
             font_size: font_size,
@@ -152,6 +153,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
             text_layout: SvgTextLayout::from_str("Rotated", &font, &font_size),
             style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
             placement: SvgTextPlacement::Rotated(-30.0),
+            position: SvgPosition { x: 50.0, y: 50.0 },
         },
         SvgText {
             font_size: font_size,
@@ -159,6 +161,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
             text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size),
             style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
             placement: SvgTextPlacement::Unmodified,
+            position: SvgPosition { x: 50.0, y: 50.0 },
         },
     ];
 
