@@ -10,7 +10,7 @@ pub use self::svg::{
     SvgStrokeOptions, VertexBuffers, SvgVert, GlyphId,
     SvgCircle, SvgRect, BezierControlPoint, SampledBezierCurve,
     SvgText, SvgTextPlacement, SvgTextLayout, SvgBbox,
-    BezierNormalVector, BezierCharacterRotation,
+    BezierNormalVector, BezierCharacterRotation, SvgPosition,
 
     join_vertex_buffers, get_fill_vertices, get_stroke_vertices,
     scale_vertex_buffer, transform_vertex_buffer, rotate_vertex_buffer,
