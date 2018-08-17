@@ -1599,6 +1599,8 @@ pub struct Svg {
     pub zoom: f32,
     /// Whether an FXAA shader should be applied to the resulting OpenGL texture
     pub enable_fxaa: bool,
+    /// Background color (default: transparent)
+    pub background_color: ColorU,
 }
 
 impl Default for Svg {
@@ -1608,6 +1610,7 @@ impl Default for Svg {
             pan: (0.0, 0.0),
             zoom: 1.0,
             enable_fxaa: false,
+            background_color: ColorU { r: 0, b: 0, g: 0, a: 0 },
         }
     }
 }
@@ -2143,6 +2146,14 @@ impl Svg {
     }
 
     #[inline]
+    pub fn with_background_color(mut self, color: ColorU)
+    -> Self
+    {
+        self.background_color = color;
+        self
+    }
+
+    #[inline]
     pub fn with_fxaa(mut self, enable_fxaa: bool)
     -> Self
     {
@@ -2154,11 +2165,18 @@ impl Svg {
     pub fn dom<T>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>)
     -> Dom<T> where T: Layout
     {
-        const DEFAULT_COLOR: ColorU = ColorU { r: 0, b: 0, g: 0, a: 255 };
-
         let (window_width, window_height) = window.get_physical_size();
         let tex = window.create_texture(window_width as u32, window_height as u32);
-        tex.as_surface().clear_color(1.0, 1.0, 1.0, 1.0);
+
+        // TODO: This currently doesn't work - only the first draw call is drawn
+        // This is probably because either webrender or glium messes with the texture
+        // in some way. Need to investigate.
+        let background_color: ColorF = self.background_color.into();
+        tex.as_surface().clear_color(
+            background_color.r,
+            background_color.g,
+            background_color.b,
+            background_color.a);
 
         let z_index: f32 = 0.5;
         let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
