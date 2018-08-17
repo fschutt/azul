@@ -1,6 +1,6 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-use std::num::{ParseIntError, ParseFloatError};
+use std::{fmt, num::{ParseIntError, ParseFloatError}};
 pub use {
     euclid::{TypedSize2D, SideOffsets2D},
     webrender::api::{
@@ -328,6 +328,17 @@ pub enum CssColorParseError<'a> {
     InvalidColor(&'a str),
     InvalidColorComponent(u8),
     ValueParseErr(ParseIntError),
+}
+
+impl<'a> fmt::Display for CssColorParseError<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::CssColorParseError::*;
+        match self {
+            InvalidColor(i) => write!(f, "Invalid CSS color: \"{}\"", i),
+            InvalidColorComponent(i) => write!(f, "Invalid color component when parsing CSS color: \"{}\"", i),
+            ValueParseErr(e) => write!(f, "Css color component: Value not in range between 00 - FF: \"{}\"", e),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
