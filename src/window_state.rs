@@ -2,7 +2,7 @@
 //! click was a mouseover, mouseout, and so on and calling the correct callbacks)
 
 use glium::glutin::{
-    Window, Event, WindowEvent, KeyboardInput, ElementState,
+    Window, Event, WindowEvent, KeyboardInput, ScanCode, ElementState,
     MouseCursor, VirtualKeyCode, MouseScrollDelta,
     ModifiersState, dpi::{LogicalPosition, LogicalSize},
 };
@@ -33,8 +33,21 @@ pub struct KeyboardState
     pub alt_down: bool,
     /// `Super / Windows / Command` key
     pub super_down: bool,
-    /// Currently pressed keys
+    /// Currently pressed keys, already converted to characters
     pub current_keys: HashSet<char>,
+    /// Currently pressed virtual keycodes - this is essentially an "extension"
+    /// of `current_keys` - `current_keys` stores the characters, but what if the
+    /// pressed key is not a character (such as `ArrowRight` or `PgUp`)?
+    ///
+    /// Note that this can have an overlap, so pressing "a" on the keyboard will insert
+    /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and an `"a"` as a char into `current_keys`.
+    pub current_virtual_keycodes: HashSet<VirtualKeyCode>,
+    /// Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed.
+    ///
+    /// This should not change if the user adjusts the host's keyboard map.
+    /// Use when the physical location of the key is more important than the key's host GUI semantics,
+    /// such as for movement controls in a first-person game (German keyboard: Z key, UK keyboard: Y key, etc.)
+    pub current_scancodes: HashSet<ScanCode>,
 }
 
 impl KeyboardState {
@@ -44,10 +57,6 @@ impl KeyboardState {
         self.ctrl_down = state.ctrl;
         self.alt_down = state.alt;
         self.super_down = state.logo;
-    }
-
-    pub(crate) fn clear_keys(&mut self) {
-        self.current_keys.clear();
     }
 }
 
@@ -173,88 +182,95 @@ impl WindowState
     // so that we are ready for the next frame
     pub(crate) fn determine_callbacks(&mut self, event: &Event) -> Vec<On> {
 
+        use std::collections::HashSet;
         use glium::glutin::{
-            Event::WindowEvent,
-            WindowEvent::*,
+            Event, WindowEvent, KeyboardInput,
             MouseButton::*,
             dpi::LogicalPosition,
         };
 
-        let event = if let WindowEvent { event, .. } = event { event } else { return Vec::new(); };
+        let event = if let Event::WindowEvent { event, .. } = event { event } else { return Vec::new(); };
 
         // store the current window state so we can set it in this.previous_window_state later on
         let mut previous_state = Box::new(self.clone());
         previous_state.previous_window_state = None;
 
-        let mut events_vec = Vec::<On>::new();
+        let mut events_vec = HashSet::<On>::new();
 
         match event {
-            MouseInput { state: ElementState::Pressed, button, .. } => {
+            WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
                 match button {
                     Left => {
                         if !self.mouse_state.left_down {
-                            events_vec.push(On::MouseDown);
-                            events_vec.push(On::LeftMouseDown);
+                            events_vec.insert(On::MouseDown);
+                            events_vec.insert(On::LeftMouseDown);
                         }
                         self.mouse_state.left_down = true;
                     },
                     Right => {
                         if !self.mouse_state.right_down {
-                            events_vec.push(On::MouseDown);
-                            events_vec.push(On::RightMouseDown);
+                            events_vec.insert(On::MouseDown);
+                            events_vec.insert(On::RightMouseDown);
                         }
                         self.mouse_state.right_down = true;
                     },
                     Middle => {
                         if !self.mouse_state.middle_down {
-                            events_vec.push(On::MouseDown);
-                            events_vec.push(On::MiddleMouseDown);
+                            events_vec.insert(On::MouseDown);
+                            events_vec.insert(On::MiddleMouseDown);
                         }
                         self.mouse_state.middle_down = true;
                     },
                     _ => { }
                 }
             },
-            MouseInput { state: ElementState::Released, button, .. } => {
+            WindowEvent::MouseInput { state: ElementState::Released, button, .. } => {
                 match button {
                     Left => {
                         if self.mouse_state.left_down {
-                            events_vec.push(On::MouseUp);
-                            events_vec.push(On::LeftMouseUp);
+                            events_vec.insert(On::MouseUp);
+                            events_vec.insert(On::LeftMouseUp);
                         }
                         self.mouse_state.left_down = false;
                     },
                     Right => {
                         if self.mouse_state.right_down {
-                            events_vec.push(On::MouseUp);
-                            events_vec.push(On::RightMouseUp);
+                            events_vec.insert(On::MouseUp);
+                            events_vec.insert(On::RightMouseUp);
                         }
                         self.mouse_state.right_down = false;
                     },
                     Middle => {
                         if self.mouse_state.middle_down {
-                            events_vec.push(On::MouseUp);
-                            events_vec.push(On::MiddleMouseUp);
+                            events_vec.insert(On::MouseUp);
+                            events_vec.insert(On::MiddleMouseUp);
                         }
                         self.mouse_state.middle_down = false;
                     },
                     _ => { }
                 }
             },
-            MouseWheel { delta, .. } => {
+            WindowEvent::MouseWheel { delta, .. } => {
                 let (scroll_x_px, scroll_y_px) = match delta {
                     MouseScrollDelta::PixelDelta(LogicalPosition { x, y }) => (*x, *y),
                     MouseScrollDelta::LineDelta(x, y) => (*x as f64 * 100.0, *y as f64 * 100.0),
                 };
                 self.mouse_state.scroll_x = -scroll_x_px;
                 self.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
-                events_vec.push(On::Scroll);
+                events_vec.insert(On::Scroll);
+            },
+            WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
+                events_vec.insert(On::KeyDown);
+            },
+            WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
+                events_vec.insert(On::KeyUp);
             },
             _ => { }
         }
 
         self.previous_window_state = Some(previous_state);
-        events_vec
+
+        events_vec.into_iter().collect()
     }
 
     pub(crate) fn update_keyboard_modifiers(&mut self, event: &Event) {
@@ -308,18 +324,28 @@ impl WindowState
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
-                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(vk), .. }, .. } => {
-                        if let Some(ch) = virtual_key_code_to_char(*vk) {
-                            self.keyboard_state.current_keys.insert(ch);
+                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, .. } => {
+                        if let Some(vk) = virtual_keycode {
+                            if let Some(ch) = virtual_key_code_to_char(*vk) {
+                                self.keyboard_state.current_keys.insert(ch);
+                            }
+                            self.keyboard_state.current_virtual_keycodes.insert(*vk);
                         }
+                        self.keyboard_state.current_scancodes.insert(*scancode);
                     },
-                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(vk), .. }, .. } => {
-                        if let Some(ch) = virtual_key_code_to_char(*vk) {
-                            self.keyboard_state.current_keys.remove(&ch);
+                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, .. } => {
+                        if let Some(vk) = virtual_keycode {
+                            if let Some(ch) = virtual_key_code_to_char(*vk) {
+                                self.keyboard_state.current_keys.remove(&ch);
+                            }
+                            self.keyboard_state.current_virtual_keycodes.remove(vk);
                         }
+                        self.keyboard_state.current_scancodes.remove(scancode);
                     },
                     WindowEvent::Focused(false) => {
-                        self.keyboard_state.clear_keys();
+                        self.keyboard_state.current_keys.clear();
+                        self.keyboard_state.current_virtual_keycodes.clear();
+                        self.keyboard_state.current_scancodes.clear();
                     },
                     _ => { },
                 }

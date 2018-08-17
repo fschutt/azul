@@ -515,6 +515,11 @@ enum WindowCloseEvent {
     NoCloseEvent,
 }
 
+/// Pre-filters any events that are not handled by the framework yet, since it would be wasteful
+/// to process them. Modifies the `frame_event_info`
+///
+/// `awakened_task` is a special field that should be set to true if the `Task`
+/// system fired a `WindowEvent::Awakened`.
 fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awakened_task: bool) -> WindowCloseEvent {
     use glium::glutin::WindowEvent;
 
@@ -546,6 +551,9 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
                 WindowEvent::CloseRequested => {
                     return WindowCloseEvent::AboutToClose;
                 },
+                WindowEvent::KeyboardInput { .. } => {
+                    frame_event_info.should_hittest = true;
+                }
                 _ => { },
             }
         },

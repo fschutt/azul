@@ -188,6 +188,18 @@ pub enum On {
     MouseLeave,
     /// Mousewheel / touchpad scrolling
     Scroll,
+    /// A key was pressed. Check `window.get_keyboard_state().current_chars` for
+    /// getting the actual key / virtual key / scancode.
+    ///
+    /// Warning: key repeat is on. When a key is held down, this event fires
+    /// multiple times, the delay between events depends on the operating system.
+    KeyDown,
+    /// A key was released. Check `window.get_keyboard_state().current_chars` for
+    /// getting the actual key / virtual key / scancode
+    ///
+    /// Warning: key repeat is on. When a key is held down, this event fires
+    /// multiple times, the delay between events depends on the operating system.
+    KeyUp,
 }
 
 pub struct NodeData<T: Layout> {

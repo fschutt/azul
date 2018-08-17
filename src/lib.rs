@@ -149,11 +149,14 @@ pub mod prelude {
         Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
         ExtendMode, PixelValue, PercentageValue,
     };
-    pub use glium::glutin::dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
+    pub use glium::glutin::{
+        dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
+        VirtualKeyCode, ScanCode,
+    };
     pub use rusttype::Font;
     pub use resources::AppResources;
     pub use task::TerminateDaemon;
-    
+
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
 }
