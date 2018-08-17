@@ -1796,12 +1796,78 @@ multi_type_parser!(parse_layout_text_align, TextAlignmentHorz,
                     ["left", Left],
                     ["right", Right]);
 
+/// CssColor is simply a wrapper around the internal CSS color parsing methods.
+///
+/// Sometimes you'd want to load and parse a CSS color, but you don't want to
+/// write your own parser for that. Since azul already has a parser for CSS colors,
+/// this API exposes
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct CssColor {
+    internal: ColorU,
+}
+
+impl CssColor {
+    /// Can parse a CSS color with or without prefixed hash or capitalization, i.e. `#aabbcc`
+    pub fn from_str<'a>(input: &'a str) -> Result<Self, CssColorParseError<'a>> {
+        let color = parse_css_color(input)?;
+        Ok(Self {
+            internal: color,
+        })
+    }
+
+    /// Returns the internal parsed color, but in a `0.0 - 1.0` range instead of `0 - 255`
+    pub fn to_color_f(&self) -> ColorF {
+        self.internal.into()
+    }
+
+    /// Returns the internal parsed color
+    pub fn to_color_u(&self) -> ColorU {
+        self.internal
+    }
+
+    /// If `prefix_hash` is set to false, you only get the string, without a hash, in lowercase
+    ///
+    /// If `self.alpha` is `FF`, it wil be omitted from the final result (since `FF` is the default for CSS colors)
+    pub fn to_string(&self, prefix_hash: bool) -> String {
+        let prefix = if prefix_hash { "#" } else { "" };
+        let alpha = if self.internal.a == 255 { String::new() } else { format!("{:02x}", self.internal.a) };
+        format!("{}{:02x}{:02x}{:02x}{}", prefix, self.internal.r, self.internal.g, self.internal.b, alpha)
+    }
+}
+
+impl Into<ColorF> for CssColor {
+    fn into(self) -> ColorF {
+        self.to_color_f()
+    }
+}
+
+impl Into<ColorU> for CssColor {
+    fn into(self) -> ColorU {
+        self.to_color_u()
+    }
+}
+
+impl Into<String> for CssColor {
+    fn into(self) -> String {
+        self.to_string(false)
+    }
+}
+
 #[cfg(test)]
 mod css_tests {
     use super::*;
+
     #[test]
     fn test_parse_box_shadow_1() {
         assert_eq!(parse_css_box_shadow("none"), Ok(None));
+    }
+
+    #[test]
+    fn test_css_color_convert() {
+        let color = "#FFD700";
+        let parsed = CssColor::from_str(color).unwrap();
+        assert_eq!(parsed.to_string(true).to_uppercase(), color.to_string());
+        assert_eq!(parsed.to_color_u(), ColorU { r: 255, g: 215, b: 0, a: 255 });
     }
 
     #[test]

@@ -143,7 +143,7 @@ pub mod prelude {
         LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
         LayoutMaxHeight, LayoutWrap, LayoutDirection,
         LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
-        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId,
+        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
 
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
         Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
