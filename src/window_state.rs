@@ -389,7 +389,7 @@ fn virtual_key_code_to_char(code: VirtualKeyCode) -> Option<char> {
         L => Some('l'),
         M => Some('m'),
         N => Some('n'),
-        O => Some('a'),
+        O => Some('o'),
         P => Some('p'),
         Q => Some('q'),
         R => Some('r'),
