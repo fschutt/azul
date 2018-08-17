@@ -564,21 +564,21 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
     }
 }
 
-pub fn quick_rects(rects: &[SvgRect], stroke_color: ColorU, stroke_options: Option<SvgStrokeOptions>)
+pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: Option<ColorU>, stroke_options: Option<SvgStrokeOptions>)
 -> SvgLayerResource
 {
-    let stroke_options = stroke_options.unwrap_or_default();
-    let style = SvgStyle::stroked(stroke_color, stroke_options);
+    let style = SvgStyle {
+        stroke: stroke_color.and_then(|col| Some((col, stroke_options.unwrap_or_default()))),
+        fill: fill_color,
+    };
 
     let rects = rects.iter().map(|r| SvgLayerType::Rect(*r)).collect();
-    let (_, stroke) = tesselate_layer_data(&LayerType::from_polygons(rects), 0.01, Some(stroke_options));
-
-    let stroke = stroke.unwrap();
+    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(rects), 0.01, style.stroke.and_then(|(_, options)| Some(options)));
 
     SvgLayerResource::Direct {
         style: style,
-        fill: None,
-        stroke: Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 }),
+        fill: fill_color.and_then(|_| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
+        stroke: stroke.and_then(|stroke_vertices| Some(VerticesIndicesBuffer { vertices: stroke_vertices.0, indices: stroke_vertices.1 })),
     }
 }
 
@@ -780,29 +780,29 @@ impl SampledBezierCurve {
 
     /// Returns the geometry necessary for drawing the points from `self.sampled_bezier_points`.
     /// Usually only good for debugging
-    pub fn draw_circles(&self) -> SvgLayerResource {
+    pub fn draw_circles(&self, color: ColorU) -> SvgLayerResource {
         quick_circles(
             &self.sampled_bezier_points
             .iter()
             .map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 1.0 })
             .collect::<Vec<_>>(),
-            ColorU { r: 0, b: 0, g: 0, a: 255 })
+            color)
     }
 
     /// Returns the geometry necessary to draw the control handles of this curve
-    pub fn draw_control_handles(&self) -> SvgLayerResource {
+    pub fn draw_control_handles(&self, color: ColorU) -> SvgLayerResource {
         quick_circles(
             &self.original_curve
             .iter()
             .map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 3.0 })
             .collect::<Vec<_>>(),
-            ColorU { r: 255, b: 0, g: 0, a: 255 })
+            color)
     }
 
     /// Returns the geometry necessary to draw the bezier curve (the actual line)
-    pub fn draw_lines(&self) -> SvgLayerResource {
+    pub fn draw_lines(&self, stroke_color: ColorU) -> SvgLayerResource {
         let line = [self.sampled_bezier_points.iter().map(|b| (b.x, b.y)).collect()];
-        quick_lines(&line, ColorU { r: 0, b: 0, g: 0, a: 255 }, None)
+        quick_lines(&line, stroke_color, None)
     }
 }
 
@@ -1789,8 +1789,8 @@ pub struct SvgTextLayout(pub LayoutTextResult);
 pub struct SvgBbox(pub TypedRect<f32, SvgWorldPixel>);
 
 impl SvgBbox {
-    /// Simple function for drawing a single bounding box (in black).
-    pub fn draw_lines(&self) -> SvgLayerResource {
+    /// Simple function for drawing a single bounding box
+    pub fn draw_lines(&self, color: ColorU) -> SvgLayerResource {
         quick_rects(&[SvgRect {
             width: self.0.size.width,
             height: self.0.size.height,
@@ -1798,7 +1798,7 @@ impl SvgBbox {
             y: self.0.origin.y,
             rx: 0.0,
             ry: 0.0,
-        }], ColorU { r: 0, b: 0, g: 0, a: 255 }, None)
+        }], Some(color), None, None)
     }
 
     /// Checks if the bounding box contains a point
