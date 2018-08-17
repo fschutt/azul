@@ -51,7 +51,7 @@ extern crate harfbuzz_rs;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
 extern crate font_loader;
-#[macro_use(error, log)]
+#[macro_use]
 extern crate log;
 #[cfg(feature = "logging")]
 extern crate fern;
