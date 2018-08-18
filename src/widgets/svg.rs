@@ -1453,7 +1453,7 @@ mod svg_to_lyon {
     use traits::Layout;
     use webrender::api::ColorU;
     use FastHashMap;
-    use rusttype::Vertex;
+    use stb_truetype::Vertex;
 
     pub fn parse_from<S: AsRef<str>, T: Layout>(svg_source: S, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
     -> Result<(Vec<SvgLayer<T>>, FastHashMap<SvgTransformId, Transform>), SvgParseError> {
@@ -1575,7 +1575,7 @@ mod svg_to_lyon {
     // in order to turn a glyph into a polygon
     pub fn rusttype_glyph_to_path_events(vertex: &Vertex)
     -> PathEvent
-    {   use rusttype::VertexType;
+    {   use stb_truetype::VertexType;
         // Rusttypes vertex type needs to be inverted in the Y axis
         // in order to work with lyon correctly
         match vertex.vertex_type() {

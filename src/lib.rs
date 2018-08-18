@@ -49,6 +49,7 @@ extern crate app_units;
 extern crate unicode_normalization;
 extern crate harfbuzz_rs;
 extern crate tinyfiledialogs;
+extern crate stb_truetype;
 extern crate clipboard2;
 extern crate font_loader;
 #[macro_use]
