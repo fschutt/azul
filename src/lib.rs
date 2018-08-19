@@ -37,7 +37,9 @@ pub extern crate gleam;
 #[macro_use]
 extern crate lazy_static;
 extern crate euclid;
+#[cfg(feature = "svg")]
 extern crate lyon;
+#[cfg(feature = "svg")]
 extern crate usvg;
 extern crate webrender;
 extern crate cassowary;
@@ -46,7 +48,6 @@ extern crate simplecss;
 extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
-extern crate harfbuzz_rs;
 extern crate tinyfiledialogs;
 extern crate stb_truetype;
 extern crate clipboard2;
@@ -179,5 +180,5 @@ pub mod errors {
     pub use clipboard2::ClipboardError;
 
     pub use window::WindowCreateError;
-    pub use widgets::svg::SvgParseError;
+    pub use widgets::errors::*;
 }

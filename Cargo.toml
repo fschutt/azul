@@ -28,8 +28,6 @@ rusttype = "0.6.4"
 stb_truetype = "0.2.2"
 app_units = "0.7"
 unicode-normalization = "0.1.5"
-harfbuzz_rs = "0.1.0"
-lyon = { version = "0.10.0", features = ["extra"] }
 lazy_static = "1.0.1"
 tinyfiledialogs = "3.3.5"
 clipboard2 = "0.1.0"
@@ -37,6 +35,8 @@ font-loader = "0.7.0"
 log = "0.4.1"
 fern = { version = "0.5.5", optional = true }
 backtrace = { version = "0.3.9", optional = true }
+lyon = { version = "0.10.0", features = ["extra"], optional = true }
+# harfbuzz_rs = "0.1.0"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = "0.0.4"
@@ -44,13 +44,14 @@ nfd = "0.0.4"
 [dependencies.usvg]
 git = "https://github.com/RazrFalcon/usvg"
 rev = "803c4f7bfa1775e7f3824173ac05793a8a4adc5c"
+optional = true
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
 rev = "c939a61b83bcc9dc10742977704793e9a85b3858"
 
 [features]
-default = ["logging"]
+default = ["logging", "svg"]
 
 # The reason we do this is because doctests don't get cfg(test)
 # See: https://github.com/rust-lang/cargo/issues/4669
@@ -62,4 +63,12 @@ doc-test = []
 # To actually test the library, run cargo --test --features=doc-test
 no-opengl-tests = []
 
+# Enable this feature to enable crash logging & reporting.
+# Azul will insert custom panic handlers to pop up a message and log
+# crashes to an "error.log" file, see AppConfig for more details
 logging = ["fern", "backtrace"]
+
+# The SVG parsing & rendering module is pretty huge - if you don't use
+# SVG rendering in your app, you can turn this off to increase compilation
+# speed and decrease your binary size
+svg = ["lyon", "usvg"]

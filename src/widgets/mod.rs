@@ -1,8 +1,10 @@
+#[cfg(feature = "svg")]
 pub mod svg;
 pub mod button;
 pub mod label;
 
 // Re-export widgets
+#[cfg(feature = "svg")]
 pub use self::svg::{
 	Svg, SvgLayerId, SvgLayer, LayerType,
 	SvgStyle, SvgLayerType, SvgWorldPixel, SvgLayerResource,
@@ -19,3 +21,8 @@ pub use self::svg::{
 };
 pub use self::button::{Button, ButtonContent};
 pub use self::label::Label;
+
+pub mod errors {
+    #[cfg(feature = "svg")]
+    pub use self::svg::SvgParseError;
+}
