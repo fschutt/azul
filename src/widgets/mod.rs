@@ -24,5 +24,5 @@ pub use self::label::Label;
 
 pub mod errors {
     #[cfg(feature = "svg")]
-    pub use self::svg::SvgParseError;
+    pub use super::svg::SvgParseError;
 }
