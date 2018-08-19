@@ -143,7 +143,7 @@ impl<T: Layout> App<T> {
 
     /// Spawn a new window on the screen. If an application has no windows,
     /// the [`run`](#method.run) function will exit immediately.
-    pub fn create_window(&mut self, options: WindowCreateOptions, css: Css) -> Result<(), WindowCreateError> {
+    pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css) -> Result<(), WindowCreateError> {
         let window = Window::new(options, css)?;
         self.app_state.windows.push(FakeWindow {
             state: window.state.clone(),

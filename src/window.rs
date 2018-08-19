@@ -3,7 +3,8 @@
 use std::{
     time::Duration,
     fmt,
-    rc::Rc
+    rc::Rc,
+    collections::HashMap,
 };
 use webrender::{
     api::*,
@@ -23,9 +24,8 @@ use cassowary::{
     Variable, Solver,
     strength::*,
 };
-
 use {
-    dom::Texture,
+    dom::{Texture, Callback},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState},
     display_list::SolvedLayout,
@@ -193,7 +193,7 @@ impl WindowEvent {
 
 /// Options on how to initially create the window
 #[derive(Debug, Clone)]
-pub struct WindowCreateOptions {
+pub struct WindowCreateOptions<T: Layout> {
     /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
     /// OpenGL clear color
@@ -224,7 +224,7 @@ pub struct WindowCreateOptions {
     pub no_redirection_bitmap: bool,
 }
 
-impl Default for WindowCreateOptions {
+impl<T: Layout> Default for WindowCreateOptions<T> {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
@@ -529,7 +529,7 @@ pub(crate) struct WindowInternal {
 impl<T: Layout> Window<T> {
 
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions, css: Css) -> Result<Self, WindowCreateError>  {
+    pub fn new(mut options: WindowCreateOptions<T>, css: Css) -> Result<Self, WindowCreateError>  {
 
         let events_loop = EventsLoop::new();
 
