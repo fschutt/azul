@@ -72,3 +72,9 @@ logging = ["fern", "backtrace"]
 # SVG rendering in your app, you can turn this off to increase compilation
 # speed and decrease your binary size
 svg = ["lyon", "usvg"]
+
+# If you want an application icon, you can either load it via the raw
+# RGBA bytes or use the icon_loading feature to decode it from a PNG / JPG /
+# whatever image format on startup. Note that this will import the image
+# dependency and use a bit of extra runtime.
+icon_loading = ["glium/icon_loading"]

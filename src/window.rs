@@ -14,7 +14,7 @@ use glium::{
     IncompatibleOpenGl, Display,
     debug::DebugCallbackBehavior,
     glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
-             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder},
+             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon},
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
@@ -214,6 +214,14 @@ pub struct WindowCreateOptions {
     pub update_behaviour: UpdateBehaviour,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
+    /// Win32 menu callbacks
+    pub menu_callbacks: HashMap<u16, Callback<T>>,
+    /// Sets the window icon (Windows and Linux only). Usually 16x16 px or 32x32px
+    pub window_icon: Option<Icon>,
+    /// Windows only: Sets the 256x256 taskbar icon during startup
+    pub taskbar_icon: Option<Icon>,
+    /// Windows only: Sets `WS_EX_NOREDIRECTIONBITMAP` on the window
+    pub no_redirection_bitmap: bool,
 }
 
 impl Default for WindowCreateOptions {
@@ -228,6 +236,10 @@ impl Default for WindowCreateOptions {
             mouse_mode: MouseMode::default(),
             update_behaviour: UpdateBehaviour::default(),
             renderer_type: RendererType::default(),
+            menu_callbacks: HashMap::new(),
+            window_icon: None,
+            taskbar_icon: None,
+            no_redirection_bitmap: false,
         }
     }
 }
@@ -530,12 +542,11 @@ impl<T: Layout> Window<T> {
         options.state.size.hidpi_factor = hidpi_factor;
 
         let mut window = WindowBuilder::new()
-            .with_dimensions(options.state.size.dimensions)
             .with_title(options.state.title.clone())
+            .with_maximized(options.state.is_maximized)
             .with_decorations(options.state.has_decorations)
             .with_visibility(options.state.is_visible)
             .with_transparency(options.state.is_transparent)
-            .with_maximized(options.state.is_maximized)
             .with_multitouch();
 
         // TODO: Update winit to have:
@@ -545,6 +556,24 @@ impl<T: Layout> Window<T> {
 
         // TODO: Add all the extensions for X11 / Mac / Windows,
         // like setting the taskbar icon, setting the titlebar icon, etc.
+
+        if let Some(icon) = options.window_icon {
+            window = window.with_window_icon(Some(icon));
+        }
+
+        #[cfg(target_os = "windows")] {
+            if let Some(icon) = options.taskbar_icon {
+                use glium::glutin::os::windows::WindowBuilderExt;
+                window = window.with_taskbar_icon(Some(icon));
+            }
+        }
+
+        #[cfg(target_os = "windows")] {
+            if options.no_redirection_bitmap {
+                use glium::glutin::os::windows::WindowBuilderExt;
+                window = window.with_no_redirection_bitmap(true);
+            }
+        }
 
         if options.state.is_fullscreen {
             window = window.with_fullscreen(Some(monitor));
@@ -592,6 +621,12 @@ impl<T: Layout> Window<T> {
 
         if let Some(pos) = options.state.position {
             gl_window.window().set_position(pos);
+        }
+
+        if options.state.is_maximized && !options.state.is_fullscreen {
+            gl_window.window().set_maximized(true);
+        } else if !options.state.is_fullscreen {
+            gl_window.window().set_inner_size(options.state.size.dimensions);
         }
 
         /*#[cfg(debug_assertions)]

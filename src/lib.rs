@@ -152,7 +152,7 @@ pub mod prelude {
     };
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
-        VirtualKeyCode, ScanCode,
+        VirtualKeyCode, ScanCode, Icon,
     };
     pub use rusttype::Font;
     pub use resources::AppResources;
