@@ -1271,7 +1271,7 @@ impl VectorizedFontCache {
     pub fn new(app_resources: &AppResources) -> Self {
         let mut fonts = FastHashMap::default();
         for font_id in app_resources.get_loaded_fonts() {
-            fonts.entry(font_id.clone()).or_insert_with(|| VectorizedFont::from_font(app_resources.get_font(&font_id).unwrap().0));
+            fonts.entry(font_id.clone()).or_insert_with(|| VectorizedFont::from_font(&*app_resources.get_font(&font_id).unwrap().0));
         }
         Self {
             vectorized_fonts: fonts,

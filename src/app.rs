@@ -29,11 +29,11 @@ use {
 };
 
 /// Graphical application that maintains some kind of application state
-pub struct App<'a, T: Layout> {
+pub struct App<T: Layout> {
     /// The graphical windows, indexed by ID
     windows: Vec<Window<T>>,
     /// The global application state
-    pub app_state: AppState<'a, T>,
+    pub app_state: AppState<T>,
 }
 
 /// Error returned by the `.run()` function
@@ -120,7 +120,7 @@ impl Default for AppConfig {
     }
 }
 
-impl<'a, T: Layout> App<'a, T> {
+impl<T: Layout> App<T> {
 
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
@@ -318,7 +318,7 @@ impl<'a, T: Layout> App<'a, T> {
         window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
-    fn initialize_ui_state(windows: &[Window<T>], app_state: &AppState<'a, T>)
+    fn initialize_ui_state(windows: &[Window<T>], app_state: &AppState<T>)
     -> Vec<UiState<T>>
     {
         use window::ReadOnlyWindow;
@@ -501,7 +501,7 @@ impl<'a, T: Layout> App<'a, T> {
     }
 }
 
-impl<'a, T: Layout + Send + 'static> App<'a, T> {
+impl<T: Layout + Send + 'static> App<T> {
     /// Tasks, once started, cannot be stopped, which is why there is no `.delete()` function
     pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
     {

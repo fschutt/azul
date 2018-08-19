@@ -25,7 +25,6 @@ use {
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
-const DEFAULT_BUILTIN_FONT_SANS_SERIF: FontId = FontId::BuiltinFont("sans-serif");
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -64,6 +63,7 @@ pub(crate) struct SolvedLayout<T: Layout> {
 ///
 /// TODO: It should be possible to switch this over to a `&'a str`, but currently
 /// this leads to unsolvable borrowing issues.
+#[derive(Debug)]
 pub(crate) enum TextInfo {
     Cached(TextId),
     Uncached(String),
@@ -204,8 +204,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
         let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
 
-        for (key, value) in app_resources.font_data.iter() {
-            match value.2 {
+        for (key, value) in app_resources.font_data.borrow().iter() {
+            match &*value.2 {
                 FontState::ReadyForUpload(ref bytes) => {
                     updated_fonts.push((key.clone(), bytes.clone()));
                 },
@@ -230,14 +230,16 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 resource_updates.push(ResourceUpdate::DeleteFont(font_key));
                 app_resources.fonts.remove(&font_key);
             }
-            app_resources.font_data.remove(&resource_key);
+            app_resources.font_data.borrow_mut().remove(&resource_key);
         }
+
+        use std::rc::Rc;
 
         // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
         for (resource_key, data) in updated_fonts.into_iter() {
             let key = api.generate_font_key();
             resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
-            app_resources.font_data.get_mut(&resource_key).unwrap().2 = FontState::Uploaded(key);
+            app_resources.font_data.borrow_mut().get_mut(&resource_key).unwrap().2 = Rc::new(FontState::Uploaded(key));
         }
     }
 
@@ -548,8 +550,11 @@ fn push_text(
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    let font_id = font_family.fonts.get(0).unwrap_or(&DEFAULT_BUILTIN_FONT_SANS_SERIF);
+    println!("text: {:?}, font_family.fonts: {:?}", text, font_family.fonts);
+    let font_id = match font_family.fonts.get(0) { Some(s) => s, None => { error!("div @ {:?} has no font assigned!", bounds); return; }};
+    println!("font_id: {:?}", font_id);
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
+    println!("font result: {:?}", font_result);
 
     let font_instance_key = match font_result {
         Some(f) => f,
@@ -886,15 +891,21 @@ fn push_font(
 {
     use font::FontState;
 
+    println!("in function push_font!, font_size_app_units: {:?}, MIN_AU: {:?}", font_size_app_units, MIN_AU);
+
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
         error!("warning: too big or too small font size");
         return None;
     }
 
-    let &(ref font, _, ref font_state) = match app_resources.font_data.get(font_id) {
-        Some(f) => f,
-        None => return None,
+    let font_state = match app_resources.font_data.borrow().get(font_id) {
+        Some(f) => f.2.clone(),
+        None => {
+            println!("returning none!"); return None; },
     };
+
+    // let font_state = app_resources.get_font_state(font_id)?;
+    println!("font_id: {:?}, font_state: {:?}", font_id, font_state);
 
     match *font_state {
         FontState::Uploaded(font_key) => {

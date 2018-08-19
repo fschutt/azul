@@ -14,6 +14,8 @@ use css_parser::{
     FontSize,
     FontId::{self, ExternalFont}
 };
+use std::rc::Rc;
+use std::cell::RefCell;
 
 /// Font and image keys
 ///
@@ -25,7 +27,7 @@ use css_parser::{
 ///
 /// Images and fonts can be references across window contexts
 /// (not yet tested, but should work).
-pub struct AppResources<'a> {
+pub struct AppResources {
     /// When looking up images, there are two sources: Either the indirect way via using a
     /// CssId (which is a String) or a direct ImageId. The indirect way requires one extra
     /// lookup (to map from the stringified ID to the actual image ID). This is what this
@@ -39,7 +41,7 @@ pub struct AppResources<'a> {
     // but we also need access to the font metrics. So we first parse the font
     // to make sure that nothing is going wrong. In the next draw call, we
     // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: FastHashMap<FontId, (::rusttype::Font<'a>, Vec<u8>, FontState)>,
+    pub(crate) font_data: RefCell<FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<FontState>)>>,
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
@@ -50,15 +52,12 @@ pub struct AppResources<'a> {
     clipboard: SystemClipboard,
 }
 
-impl<'a> Default for AppResources<'a> {
+impl Default for AppResources {
     fn default() -> Self {
-        let mut default_font_data = FastHashMap::default();
-        load_system_fonts(&mut default_font_data);
-
         Self {
             css_ids_to_image_ids: FastHashMap::default(),
             fonts: FastHashMap::default(),
-            font_data: default_font_data,
+            font_data: RefCell::new(FastHashMap::default()),
             images: FastHashMap::default(),
             text_cache: TextCache::default(),
             clipboard: SystemClipboard::new().unwrap(),
@@ -66,33 +65,11 @@ impl<'a> Default for AppResources<'a> {
     }
 }
 
-fn load_system_fonts<'a>(fonts: &mut FastHashMap<FontId, (::rusttype::Font<'a>, Vec<u8>, FontState)>) {
-
-    use font_loader::system_fonts::{self, FontPropertyBuilder};
-    use css_parser::FontId::BuiltinFont;
-    use font::rusttype_load_font;
-
-    fn insert_font<'b>(fonts: &mut FastHashMap<FontId, (::rusttype::Font<'b>, Vec<u8>, FontState)>, target: &'static str) {
-        if let Some((font_bytes, idx)) = system_fonts::get(&FontPropertyBuilder::new().family(target).build()) {
-            match rusttype_load_font(font_bytes.clone(), Some(idx)) {
-                Ok((f, b)) =>  { fonts.insert(BuiltinFont(target), (f, b, FontState::ReadyForUpload(font_bytes))); },
-                Err(e) => error!("Error loading {} font: {:?}", target, e),
-            }
-        }
-    }
-
-    insert_font(fonts, "serif");
-    insert_font(fonts, "sans-serif");
-    insert_font(fonts, "monospace");
-    insert_font(fonts, "cursive");
-    insert_font(fonts, "fantasy");
-}
-
-impl<'a> AppResources<'a> {
+impl AppResources {
 
     /// Returns the IDs of all currently loaded fonts in `self.font_data`
     pub fn get_loaded_fonts(&self) -> Vec<FontId> {
-        self.font_data.keys().cloned().collect()
+        self.font_data.borrow().keys().cloned().collect()
     }
 
     /// See `AppState::add_image()`
@@ -163,47 +140,76 @@ impl<'a> AppResources<'a> {
     {
         use font;
 
-        match self.font_data.entry(ExternalFont(id.into())) {
+        match self.font_data.borrow_mut().entry(ExternalFont(id.into())) {
             Occupied(_) => Ok(None),
             Vacant(v) => {
                 let mut font_data = Vec::<u8>::new();
                 data.read_to_end(&mut font_data).map_err(|e| FontError::IoError(e))?;
                 let (parsed_font, fd) = font::rusttype_load_font(font_data.clone(), None)?;
-                v.insert((parsed_font, fd, FontState::ReadyForUpload(font_data)));
+                v.insert((Rc::new(parsed_font), Rc::new(fd), Rc::new(FontState::ReadyForUpload(font_data))));
                 Ok(Some(()))
             },
         }
     }
 
-    pub fn get_font<'b>(&'b self, id: &FontId) -> Option<(&'b Font<'a>, &'b Vec<u8>)> {
-        self.font_data.get(id).and_then(|(font, bytes, _)| Some((font, bytes)))
+    pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
+        match id {
+            FontId::BuiltinFont(b) => {
+                if self.font_data.borrow().get(id).is_none() {
+                    let (font, font_bytes, font_state) = Self::get_builtin_font(b.clone())?;
+                    self.font_data.borrow_mut().insert(id.clone(), (Rc::new(font), Rc::new(font_bytes), Rc::new(font_state)));
+                }
+                self.font_data.borrow().get(id).and_then(|(font, bytes, _)| Some((font.clone(), bytes.clone())))
+            },
+            FontId::ExternalFont(_) => {
+                // For external fonts, we assume that the application programmer has
+                // already loaded them, so we don't try to fallback to system fonts.
+                self.font_data.borrow().get(id).and_then(|(font, bytes, _)| Some((font.clone(), bytes.clone())))
+            },
+        }
+    }
+
+    /// Search for a builtin font on the computer and and insert it
+    fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
+    {
+        use font_loader::system_fonts::{self, FontPropertyBuilder};
+        use font::rusttype_load_font;
+
+        let (font_bytes, idx) = system_fonts::get(&FontPropertyBuilder::new().family(&id).build())?;
+        let (f, b) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok()?;
+        Some((f, b, FontState::ReadyForUpload(font_bytes)))
+    }
+
+    pub(crate) fn get_font_state(&self, id: &FontId) -> Option<Rc<FontState>> {
+        self.font_data.borrow().get(id).and_then(|(_, _, font_state)| Some(font_state.clone()))
     }
 
     /// Checks if a font is currently registered and ready-to-use
     pub(crate) fn has_font<S: Into<String>>(&mut self, id: S)
         -> bool
     {
-        self.font_data.get(&ExternalFont(id.into())).is_some()
+        self.font_data.borrow().get(&ExternalFont(id.into())).is_some()
     }
 
     /// See `AppState::delete_font()`
     pub(crate) fn delete_font<S: Into<String>>(&mut self, id: S)
         -> Option<()>
     {
+        let id = ExternalFont(id.into());
+
         // TODO: can fonts that haven't been uploaded yet be deleted?
-        match self.font_data.get_mut(&ExternalFont(id.into())) {
-            None => None,
-            Some(v) => {
-                let to_delete_font_key = match v.2 {
-                    FontState::Uploaded(ref font_key) => {
-                        Some(font_key.clone())
-                    },
-                    _ => None,
-                };
-                v.2 = FontState::AboutToBeDeleted(to_delete_font_key);
-                Some(())
+        let mut to_delete_font_key = None;
+
+        match self.font_data.borrow().get(&id) {
+            None => return None,
+            Some(v) => match &*v.2 {
+                FontState::Uploaded(font_key) => { to_delete_font_key = Some(font_key.clone()); },
+                _ => { },
             }
         }
+
+        self.font_data.borrow_mut().get_mut(&id).unwrap().2 = Rc::new(FontState::AboutToBeDeleted(to_delete_font_key));
+        Some(())
     }
 
     pub(crate) fn add_text_uncached<S: Into<String>>(&mut self, text: S)
@@ -233,7 +239,7 @@ impl<'a> AppResources<'a> {
         // Otherwise, how would the TextId be valid?
         let text = self.text_cache.string_cache.get(&id).expect("Invalid text Id");
         let font_size_no_line_height = Scale::uniform(size.0.to_pixels() * PX_TO_PT);
-        let rusttype_font = self.font_data.get(&font).expect("Invalid font ID");
+        let rusttype_font = self.get_font(&font).expect("Invalid font ID");
         let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height);
 
         self.text_cache.cached_strings

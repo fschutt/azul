@@ -147,7 +147,7 @@ impl Drop for ReadOnlyWindow {
 pub struct WindowInfo<'a> {
     pub window_id: WindowId,
     pub window: ReadOnlyWindow,
-    pub resources: &'a AppResources<'a>,
+    pub resources: &'a AppResources,
 }
 
 impl fmt::Debug for FakeWindow {
