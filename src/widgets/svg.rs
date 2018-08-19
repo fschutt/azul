@@ -27,7 +27,7 @@ use lyon::{
     },
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D},
 };
-use resvg::usvg::{Error as SvgError, ViewBox, Transform};
+use usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF, GlyphInstance};
 use rusttype::{Font, Glyph};
 use {
@@ -1445,7 +1445,7 @@ mod svg_to_lyon {
         math::Point,
         path::PathEvent,
     };
-    use resvg::usvg::{ViewBox, Transform, Tree, PathSegment,
+    use usvg::{ViewBox, Transform, Tree, PathSegment,
         Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
     use widgets::svg::{SvgLayer, SvgStrokeOptions, SvgLineCap, SvgLineJoin,
         SvgLayerType, SvgStyle, SvgCallbacks, SvgParseError, SvgTransformId,

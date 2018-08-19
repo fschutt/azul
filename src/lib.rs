@@ -39,7 +39,7 @@ extern crate lazy_static;
 extern crate palette;
 extern crate euclid;
 extern crate lyon;
-extern crate resvg;
+extern crate usvg;
 extern crate webrender;
 extern crate cassowary;
 extern crate twox_hash;

@@ -42,9 +42,9 @@ backtrace = { version = "0.3.9", optional = true }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = "0.0.4"
 
-[dependencies.resvg]
-git = "https://github.com/RazrFalcon/resvg.git"
-rev = "0eaf6bdc6811e469ee655246cc39ed0b37329fd3"
+[dependencies.usvg]
+git = "https://github.com/RazrFalcon/usvg"
+rev = "803c4f7bfa1775e7f3824173ac05793a8a4adc5c"
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
