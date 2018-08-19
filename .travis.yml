@@ -19,12 +19,11 @@ notifications:
 # because glium does a check first if it has a OGL 3.2 context
 script:
   - cargo clean
-  - cargo build --verbose --examples
-  - cargo build --no-default-features
+  - cargo check --verbose --examples
+  - cargo check --no-default-features
+  - cargo check --no-default-features --features="svg"
+  - cargo check --no-default-features --features="logging"
   - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
-
-# before_install:
-#   - sudo apt-get update
 
 install:
   - PATH=$PATH:/home/travis/.cargo/bin
