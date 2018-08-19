@@ -2,6 +2,7 @@ use std::{
     io::Read,
     collections::hash_map::Entry::*,
     sync::{Arc, Mutex},
+    rc::Rc,
 };
 use image::ImageError;
 use rusttype::Font;
@@ -23,7 +24,7 @@ use {
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `Layout` trait (how the application
 /// should be laid out)
-pub struct AppState<'a, T: Layout> {
+pub struct AppState<T: Layout> {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: Arc<Mutex<T>>,
     /// Note: this isn't the real window state. This is a "mock" window state which
@@ -36,14 +37,14 @@ pub struct AppState<'a, T: Layout> {
     /// ```
     pub windows: Vec<FakeWindow>,
     /// Fonts and images that are currently loaded into the app
-    pub resources: AppResources<'a>,
+    pub resources: AppResources,
     /// Currently running daemons (polling functions)
     pub(crate) daemons: FastHashMap<usize, fn(&mut T) -> (UpdateScreen, TerminateDaemon)>,
     /// Currently running tasks (asynchronous functions running on a different thread)
     pub(crate) tasks: Vec<Task>,
 }
 
-impl<'a, T: Layout> AppState<'a, T> {
+impl<T: Layout> AppState<T> {
 
     /// Creates a new `AppState`
     pub fn new(initial_data: T) -> Self {
@@ -153,7 +154,7 @@ impl<'a, T: Layout> AppState<'a, T> {
         self.resources.has_font(id)
     }
 
-    pub fn get_font<'b>(&'b self, id: &FontId) -> Option<(&'b Font<'a>, &'b Vec<u8>)> {
+    pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
         self.resources.get_font(id)
     }
 
@@ -195,8 +196,8 @@ impl<'a, T: Layout> AppState<'a, T> {
 
     /// Run all currently registered daemons
     #[must_use]
-    pub(crate) fn run_all_daemons(&mut self) 
-    -> UpdateScreen 
+    pub(crate) fn run_all_daemons(&mut self)
+    -> UpdateScreen
     {
         let mut should_update_screen = UpdateScreen::DontRedraw;
         let mut lock = self.data.lock().unwrap();
@@ -204,7 +205,7 @@ impl<'a, T: Layout> AppState<'a, T> {
 
         for (key, daemon) in self.daemons.iter() {
             let (should_update, should_terminate) = (daemon.clone())(&mut lock);
-            
+
             if should_update == UpdateScreen::Redraw &&
                should_update_screen == UpdateScreen::DontRedraw {
                 should_update_screen = UpdateScreen::Redraw;
@@ -218,7 +219,7 @@ impl<'a, T: Layout> AppState<'a, T> {
         for key in daemons_to_terminate {
             self.daemons.remove(&key);
         }
-        
+
         should_update_screen
     }
 
@@ -273,7 +274,7 @@ impl<'a, T: Layout> AppState<'a, T> {
     }
 }
 
-impl<'a, T: Layout + Send + 'static> AppState<'a, T> {
+impl<T: Layout + Send + 'static> AppState<T> {
     /// Tasks, once started, cannot be stopped
     pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
     {

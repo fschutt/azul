@@ -10,7 +10,6 @@ use std::fs;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-const FONT_ID: FontId = FontId::BuiltinFont("sans-serif");
 static TEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -128,7 +127,7 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) 
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
 
-    let font_id = FONT_ID;
+    let font_id = FontId::BuiltinFont(String::from("sans-serif"));
     let font_size = FontSize::px(10.0);
     let font = app_state.resources.get_font(&font_id).unwrap().0;
 
