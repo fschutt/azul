@@ -2268,25 +2268,65 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
         pan: (f32, f32),
         zoom: f32)
 {
-    use palette::Srgba;
-
-    let color = Srgba::new(color.r, color.g, color.b, color.a).into_linear();
+    let color = srgba_to_linear(color);
 
     let uniforms = uniform! {
         bbox_origin: (bbox.origin.x, bbox.origin.y),
         bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
         z_index: z_index,
         color: (
-            color.color.red as f32,
-            color.color.green as f32,
-            color.color.blue as f32,
-            color.alpha as f32
+            color.r as f32,
+            color.g as f32,
+            color.b as f32,
+            color.a as f32
         ),
         offset: (pan.0, pan.1),
         zoom: zoom,
     };
 
     surface.draw(vertices, indices, shader, &uniforms, draw_options).unwrap();
+}
+
+/// Taken from the `palette` crate - I wouldn't want to
+/// import the entire crate just for one function (due to added compile time)
+///
+/// The MIT License (MIT)
+/// 
+/// Copyright (c) 2015 Erik Hedvall
+/// 
+/// Permission is hereby granted, free of charge, to any person obtaining a copy
+/// of this software and associated documentation files (the "Software"), to deal
+/// in the Software without restriction, including without limitation the rights
+/// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+/// copies of the Software, and to permit persons to whom the Software is
+/// furnished to do so, subject to the following conditions:
+/// 
+/// The above copyright notice and this permission notice shall be included in all
+/// copies or substantial portions of the Software.
+/// 
+/// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+/// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+/// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+/// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+/// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+/// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+/// SOFTWARE.
+fn srgba_to_linear(color: ColorF) -> ColorF {
+
+    fn into_linear(x: f32) -> f32 {
+        if x <= 0.04045 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    ColorF {
+        r: into_linear(color.r),
+        g: into_linear(color.g),
+        b: into_linear(color.b),
+        a: color.a,
+    }
 }
 
 #[test]
