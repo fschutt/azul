@@ -41,7 +41,7 @@ pub struct AppResources {
     // but we also need access to the font metrics. So we first parse the font
     // to make sure that nothing is going wrong. In the next draw call, we
     // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: RefCell<FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<FontState>)>>,
+    pub(crate) font_data: RefCell<FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontState>>)>>,
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
@@ -146,30 +146,13 @@ impl AppResources {
                 let mut font_data = Vec::<u8>::new();
                 data.read_to_end(&mut font_data).map_err(|e| FontError::IoError(e))?;
                 let (parsed_font, fd) = font::rusttype_load_font(font_data.clone(), None)?;
-                v.insert((Rc::new(parsed_font), Rc::new(fd), Rc::new(FontState::ReadyForUpload(font_data))));
+                v.insert((Rc::new(parsed_font), Rc::new(fd), Rc::new(RefCell::new(FontState::ReadyForUpload(font_data)))));
                 Ok(Some(()))
             },
         }
     }
 
-    pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
-        match id {
-            FontId::BuiltinFont(b) => {
-                if self.font_data.borrow().get(id).is_none() {
-                    let (font, font_bytes, font_state) = Self::get_builtin_font(b.clone())?;
-                    self.font_data.borrow_mut().insert(id.clone(), (Rc::new(font), Rc::new(font_bytes), Rc::new(font_state)));
-                }
-                self.font_data.borrow().get(id).and_then(|(font, bytes, _)| Some((font.clone(), bytes.clone())))
-            },
-            FontId::ExternalFont(_) => {
-                // For external fonts, we assume that the application programmer has
-                // already loaded them, so we don't try to fallback to system fonts.
-                self.font_data.borrow().get(id).and_then(|(font, bytes, _)| Some((font.clone(), bytes.clone())))
-            },
-        }
-    }
-
-    /// Search for a builtin font on the computer and and insert it
+    /// Search for a builtin font on the users computer, validate and return it
     fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
     {
         use font_loader::system_fonts::{self, FontPropertyBuilder};
@@ -180,8 +163,31 @@ impl AppResources {
         Some((f, b, FontState::ReadyForUpload(font_bytes)))
     }
 
-    pub(crate) fn get_font_state(&self, id: &FontId) -> Option<Rc<FontState>> {
-        self.font_data.borrow().get(id).and_then(|(_, _, font_state)| Some(font_state.clone()))
+    /// Internal API - we want the user to get the first two fields of the
+    fn get_font_internal(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontState>>)> {
+        match id {
+            FontId::BuiltinFont(b) => {
+                if self.font_data.borrow().get(id).is_none() {
+                    let (font, font_bytes, font_state) = Self::get_builtin_font(b.clone())?;
+                    self.font_data.borrow_mut().insert(id.clone(), (Rc::new(font), Rc::new(font_bytes), Rc::new(RefCell::new(font_state))));
+                }
+                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
+            },
+            FontId::ExternalFont(_) => {
+                // For external fonts, we assume that the application programmer has
+                // already loaded them, so we don't try to fallback to system fonts.
+                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
+            },
+        }
+    }
+
+    pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
+        self.get_font_internal(id).and_then(|(font, bytes, _)| Some((font, bytes)))
+    }
+
+    /// Note the pub(crate) here: We don't want to expose the FontState in the public API
+    pub(crate) fn get_font_state(&self, id: &FontId) -> Option<Rc<RefCell<FontState>>> {
+        self.get_font_internal(id).and_then(|(_, _, state)| Some(state))
     }
 
     /// Checks if a font is currently registered and ready-to-use
@@ -202,13 +208,14 @@ impl AppResources {
 
         match self.font_data.borrow().get(&id) {
             None => return None,
-            Some(v) => match &*v.2 {
+            Some(v) => match *(*v.2).borrow() {
                 FontState::Uploaded(font_key) => { to_delete_font_key = Some(font_key.clone()); },
                 _ => { },
             }
         }
 
-        self.font_data.borrow_mut().get_mut(&id).unwrap().2 = Rc::new(FontState::AboutToBeDeleted(to_delete_font_key));
+        let mut borrow_mut = self.font_data.borrow_mut();
+        *borrow_mut.get_mut(&id).unwrap().2.borrow_mut() = FontState::AboutToBeDeleted(to_delete_font_key);
         Some(())
     }
 

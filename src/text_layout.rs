@@ -183,15 +183,10 @@ pub(crate) fn get_glyphs(
     scrollbar_info: &ScrollbarInfo)
 -> (Vec<GlyphInstance>, TextOverflowPass2)
 {
-    println!("target_font_id: {:?}", target_font_id);
-    println!("loaded fonts (before .get_font() call): {:?}", app_resources.get_loaded_fonts());
-
     let target_font = match app_resources.get_font(target_font_id) {
         Some(s) => s,
         None => panic!("Drawing with invalid font!: {:?}", target_font_id),
     };
-
-    println!("loaded fonts (after .get_font() call): {:?}", app_resources.get_loaded_fonts());
 
     let font_metrics = calculate_font_metrics(&target_font.0, target_font_size, line_height);
 
