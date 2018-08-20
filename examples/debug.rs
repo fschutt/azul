@@ -179,7 +179,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 
             app_state.data.modify(|data| data.map = Some(Map {
                 cache: svg_cache,
-                font_cache: VectorizedFontCache::new(&app_state.resources),
+                font_cache: VectorizedFontCache::new(),
                 hovered_text: None,
                 texts: cached_texts,
                 layers: svg_layers,
