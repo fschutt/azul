@@ -1263,35 +1263,36 @@ fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> Option<SvgLayerType> {
 #[derive(Debug)]
 pub struct VectorizedFontCache {
     /// Font -> Vectorized glyph map
-    vectorized_fonts: FastHashMap<FontId, VectorizedFont>,
+    ///
+    /// Needs to be wrapped in a RefCell / Rc since we want to lazy-load the
+    /// fonts to keep the memory usage down
+    vectorized_fonts: RefCell<FastHashMap<FontId, Rc<VectorizedFont>>>,
 }
 
 impl VectorizedFontCache {
 
-    pub fn new(app_resources: &AppResources) -> Self {
-        let mut fonts = FastHashMap::default();
-        for font_id in app_resources.get_loaded_fonts() {
-            fonts.entry(font_id.clone()).or_insert_with(|| VectorizedFont::from_font(&*app_resources.get_font(&font_id).unwrap().0));
-        }
+    pub fn new() -> Self {
         Self {
-            vectorized_fonts: fonts,
+            vectorized_fonts: RefCell::new(FastHashMap::default()),
         }
     }
 
     pub fn insert_if_not_exist(&mut self, id: FontId, font: &Font) {
-        self.vectorized_fonts.entry(id).or_insert_with(|| VectorizedFont::from_font(font));
+        self.vectorized_fonts.borrow_mut().entry(id).or_insert_with(|| Rc::new(VectorizedFont::from_font(font)));
     }
 
     pub fn insert(&mut self, id: FontId, font: VectorizedFont) {
-        self.vectorized_fonts.insert(id, font);
+        self.vectorized_fonts.borrow_mut().insert(id, Rc::new(font));
     }
 
-    pub fn get_font(&self, id: &FontId) -> Option<&VectorizedFont> {
-        self.vectorized_fonts.get(id)
+    pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Rc<VectorizedFont>> {
+        self.vectorized_fonts.borrow_mut().entry(id.clone())
+            .or_insert_with(|| Rc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0)));
+        self.vectorized_fonts.borrow().get(&id).and_then(|font| Some(font.clone()))
     }
 
     pub fn remove_font(&mut self, id: &FontId) {
-        self.vectorized_fonts.remove(id);
+        self.vectorized_fonts.borrow_mut().remove(id);
     }
 }
 
@@ -1921,17 +1922,17 @@ impl SvgText {
     -> SvgLayerResource
     {
         let font = resources.get_font(&self.font_id).unwrap().0;
-        let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id).unwrap();
+        let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
 
         match self.placement {
             SvgTextPlacement::Unmodified => {
-                normal_text(&self.text_layout.0, &self.position, self.style, &font, vectorized_font, &self.font_size)
+                normal_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size)
             },
             SvgTextPlacement::Rotated(degrees) => {
-                rotated_text(&self.text_layout.0, &self.position, self.style, &font, vectorized_font, &self.font_size, degrees)
+                rotated_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, degrees)
             },
             SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                text_on_curve(&self.text_layout.0, &self.position, self.style, &font, vectorized_font, &self.font_size, &curve)
+                text_on_curve(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &curve)
             }
         }
     }
@@ -2291,19 +2292,19 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
 /// import the entire crate just for one function (due to added compile time)
 ///
 /// The MIT License (MIT)
-/// 
+///
 /// Copyright (c) 2015 Erik Hedvall
-/// 
+///
 /// Permission is hereby granted, free of charge, to any person obtaining a copy
 /// of this software and associated documentation files (the "Software"), to deal
 /// in the Software without restriction, including without limitation the rights
 /// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 /// copies of the Software, and to permit persons to whom the Software is
 /// furnished to do so, subject to the following conditions:
-/// 
+///
 /// The above copyright notice and this permission notice shall be included in all
 /// copies or substantial portions of the Software.
-/// 
+///
 /// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 /// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 /// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
