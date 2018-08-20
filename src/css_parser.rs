@@ -1856,6 +1856,30 @@ impl Into<String> for CssColor {
     }
 }
 
+#[cfg(feature = "serde_serialization")]
+use serde::{de, Serialize, Deserialize, Serializer, Deserializer};
+
+#[cfg(feature = "serde_serialization")]
+impl Serialize for CssColor {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer,
+    {
+        let prefix_css_color_with_hash = true;
+        serializer.serialize_str(&self.to_string(prefix_css_color_with_hash))
+    }
+}
+
+#[cfg(feature = "serde_serialization")]
+impl<'de> Deserialize<'de> for CssColor {
+    fn deserialize<D>(deserializer: D) -> Result<CssColor, D::Error>
+    where D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        CssColor::from_str(&s).map_err(de::Error::custom)
+    }
+}
+
+
 #[cfg(test)]
 mod css_tests {
     use super::*;
