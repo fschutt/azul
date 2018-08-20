@@ -59,6 +59,8 @@ extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
 extern crate image;
+#[cfg(feature = "serde_serialization")]
+extern crate serde;
 
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;

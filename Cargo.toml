@@ -37,6 +37,7 @@ fern = { version = "0.5.5", optional = true }
 backtrace = { version = "0.3.9", optional = true }
 lyon = { version = "0.10.0", features = ["extra"], optional = true }
 # harfbuzz_rs = "0.1.0"
+serde = { version = "1.0.*", optional = true }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = "0.0.4"
@@ -78,3 +79,6 @@ svg = ["lyon", "usvg"]
 # whatever image format on startup. Note that this will import the image
 # dependency and use a bit of extra runtime.
 icon_loading = ["glium/icon_loading"]
+
+# For serializing / deserializing CSS colors using serde
+serde_serialization = ["serde"]
