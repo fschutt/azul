@@ -205,7 +205,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
 
         for (key, value) in app_resources.font_data.borrow().iter() {
-            match &*value.2 {
+            match &*(*value.2).borrow() {
                 FontState::ReadyForUpload(ref bytes) => {
                     updated_fonts.push((key.clone(), bytes.clone()));
                 },
@@ -233,13 +233,12 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             app_resources.font_data.borrow_mut().remove(&resource_key);
         }
 
-        use std::rc::Rc;
-
         // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
         for (resource_key, data) in updated_fonts.into_iter() {
             let key = api.generate_font_key();
             resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
-            app_resources.font_data.borrow_mut().get_mut(&resource_key).unwrap().2 = Rc::new(FontState::Uploaded(key));
+            let mut borrow_mut = app_resources.font_data.borrow_mut();
+            *borrow_mut.get_mut(&resource_key).unwrap().2.borrow_mut() = FontState::Uploaded(key);
         }
     }
 
@@ -550,11 +549,8 @@ fn push_text(
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    println!("text: {:?}, font_family.fonts: {:?}", text, font_family.fonts);
     let font_id = match font_family.fonts.get(0) { Some(s) => s, None => { error!("div @ {:?} has no font assigned!", bounds); return; }};
-    println!("font_id: {:?}", font_id);
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
-    println!("font result: {:?}", font_result);
 
     let font_instance_key = match font_result {
         Some(f) => f,
@@ -891,25 +887,18 @@ fn push_font(
 {
     use font::FontState;
 
-    println!("in function push_font!, font_size_app_units: {:?}, MIN_AU: {:?}", font_size_app_units, MIN_AU);
-
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
         error!("warning: too big or too small font size");
         return None;
     }
 
-    let font_state = match app_resources.font_data.borrow().get(font_id) {
-        Some(f) => f.2.clone(),
-        None => {
-            println!("returning none!"); return None; },
-    };
+    let font_state = app_resources.get_font_state(font_id)?;
 
-    // let font_state = app_resources.get_font_state(font_id)?;
-    println!("font_id: {:?}, font_state: {:?}", font_id, font_state);
+    let borrow = font_state.borrow();
 
-    match *font_state {
+    match &*borrow {
         FontState::Uploaded(font_key) => {
-            let font_sizes_hashmap = app_resources.fonts.entry(font_key)
+            let font_sizes_hashmap = app_resources.fonts.entry(*font_key)
                                      .or_insert(FastHashMap::default());
             let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
                 .or_insert_with(|| {
@@ -917,7 +906,7 @@ fn push_font(
                     resource_updates.push(ResourceUpdate::AddFontInstance(
                         AddFontInstance {
                             key: f_instance_key,
-                            font_key: font_key,
+                            font_key: *font_key,
                             glyph_size: font_size_app_units,
                             options: None,
                             platform_options: None,
@@ -931,7 +920,9 @@ fn push_font(
             Some(*font_instance_key)
         },
         _ => {
-            error!("warning: trying to use font {:?} that isn't available", font_id);
+            // This can happen when the font is loaded for the first time in `.get_font_state`
+            // TODO: Make a pre-pass that queries and uploads all non-available fonts
+            // error!("warning: trying to use font {:?} that isn't yet available", font_id);
             None
         },
     }
