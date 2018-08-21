@@ -1,21 +1,25 @@
-use std::io::Read;
-use std::collections::hash_map::Entry::*;
-use text_layout::{PX_TO_PT, split_text_into_words};
-use text_cache::{TextId, TextCache};
+use std::{
+    io::Read,
+    rc::Rc,
+    cell::RefCell,
+    collections::hash_map::Entry::*,
+};
 use webrender::api::{FontKey, FontInstanceKey};
-use FastHashMap;
-use font::{FontState, FontError};
 use image::{self, ImageError};
-use images::{ImageId, ImageState, ImageType};
+use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use rusttype::Font;
-use css_parser::{
-    FontSize,
-    FontId::{self, ExternalFont}
+use {
+    text_layout::{PX_TO_PT, split_text_into_words},
+    text_cache::{TextId, TextCache},
+    font::{FontState, FontError},
+    images::{ImageId, ImageState, ImageType},
+    css_parser::{
+        FontSize,
+        FontId::{self, ExternalFont}
+    },
 };
-use std::rc::Rc;
-use std::cell::RefCell;
 
 /// Font and image keys
 ///

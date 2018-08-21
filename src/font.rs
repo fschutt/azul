@@ -1,7 +1,6 @@
 //! Module for loading and handling fonts
 use webrender::api::FontKey;
-use rusttype::{Font, FontCollection};
-use rusttype::Error as RusttypeError;
+use rusttype::{Error as RusttypeError, Font, FontCollection};
 
 #[derive(Debug, Clone)]
 pub(crate) enum FontState {

@@ -3,10 +3,14 @@ use std::{
     io::Read,
     sync::{Arc, Mutex, PoisonError},
 };
-use glium::{SwapBuffersError, glutin::Event};
-use glium::glutin::dpi::{LogicalPosition, LogicalSize};
-use webrender::api::{HitTestFlags, DevicePixel};
-use webrender::PipelineInfo;
+use glium::{
+    SwapBuffersError,
+    glutin::{
+        Event,
+        dpi::{LogicalPosition, LogicalSize}
+    },
+};
+use webrender::{PipelineInfo, api::{HitTestFlags, DevicePixel}};
 use image::ImageError;
 use euclid::TypedSize2D;
 #[cfg(feature = "logging")]
