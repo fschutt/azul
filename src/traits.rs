@@ -76,7 +76,7 @@ pub trait Modify<T> {
     fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T);
 }
 
-impl<T: Layout> Modify<T> for Arc<Mutex<T>> {
+impl<T> Modify<T> for Arc<Mutex<T>> {
     fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T) {
         match self.lock().as_mut() {
             Ok(lock) => { closure(&mut *lock); true },
