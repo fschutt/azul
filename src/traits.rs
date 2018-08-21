@@ -61,7 +61,7 @@ pub trait IntoParsedCssProperty<'a> {
 }
 
 /// Convenience trait that allows the `app_state.modify()` - only implemented for
-/// `Arc<Mutex<T: Layout>` - shortly locks the app state mutex, modifies it and unlocks
+/// `Arc<Mutex<T>` - shortly locks the app state mutex, modifies it and unlocks
 /// it again.
 ///
 /// Note: Usually when doing asynchronous programming you don't want to block the main
@@ -70,13 +70,13 @@ pub trait IntoParsedCssProperty<'a> {
 /// to the apps data. In order to make your app performant, don't do heavy computations
 /// inside the closure, only use it to write or copy data in and out of the application
 /// state.
-pub trait ModifyAppState<T: Layout> {
+pub trait Modify<T> {
     /// Modifies the app state and then returns if the modification was successful
     /// Takes a FnMut that modifies the state
     fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T);
 }
 
-impl<T: Layout> ModifyAppState<T> for Arc<Mutex<T>> {
+impl<T: Layout> Modify<T> for Arc<Mutex<T>> {
     fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T) {
         match self.lock().as_mut() {
             Ok(lock) => { closure(&mut *lock); true },
