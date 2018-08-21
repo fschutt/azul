@@ -21,6 +21,8 @@ use {
     task::TerminateDaemon,
 };
 
+pub type Daemon<T> = fn(&mut T) -> (UpdateScreen, TerminateDaemon);
+
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `Layout` trait (how the application
 /// should be laid out)
@@ -41,7 +43,7 @@ pub struct AppState<T: Layout> {
     /// Currently running daemons (polling functions)
     pub(crate) daemons: FastHashMap<usize, fn(&mut T) -> (UpdateScreen, TerminateDaemon)>,
     /// Currently running tasks (asynchronous functions running on a different thread)
-    pub(crate) tasks: Vec<Task>,
+    pub(crate) tasks: Vec<Task<T>>,
 }
 
 impl<T: Layout> AppState<T> {
@@ -187,7 +189,7 @@ impl<T: Layout> AppState<T> {
     /// Create a daemon. Does nothing if a daemon already exists.
     ///
     /// If the daemon was inserted, returns true, otherwise false
-    pub fn add_daemon(&mut self, daemon: fn(&mut T) -> (UpdateScreen, TerminateDaemon)) -> bool {
+    pub fn add_daemon(&mut self, daemon: Daemon<T>) -> bool {
         match self.daemons.entry(daemon as usize) {
             Occupied(_) => false,
             Vacant(v) => { v.insert(daemon); true },
@@ -229,12 +231,28 @@ impl<T: Layout> AppState<T> {
     -> UpdateScreen
     {
         let old_count = self.tasks.len();
-        self.tasks.retain(|x| !x.is_finished());
+        let mut daemons_to_add = Vec::new();
+        self.tasks.retain(|task| {
+            if !task.is_finished() {
+                true
+            } else {
+                daemons_to_add.extend(task.after_completion_daemons.iter().cloned());
+                false
+            }
+        });
+
+        let daemons_is_empty = daemons_to_add.is_empty();
         let new_count = self.tasks.len();
-        if old_count != new_count {
-            UpdateScreen::Redraw
-        } else {
+
+        // Start all the daemons that should run after the completion of the task
+        for daemon in daemons_to_add {
+            self.add_daemon(daemon);
+        }
+
+        if old_count == new_count && daemons_is_empty {
             UpdateScreen::DontRedraw
+        } else {
+            UpdateScreen::Redraw
         }
     }
 
@@ -272,13 +290,37 @@ impl<T: Layout> AppState<T> {
     {
         self.resources.set_clipboard_string(contents)
     }
+
+    /// Custom tasks can be used when the `AppState` isn't `Send`. For example
+    /// `SvgCache` isn't thread-safe, since it has to interact with OpenGL, so
+    /// it can't be sent to other threads safely.
+    ///
+    /// What you can do instead, is take a part of your application data, wrap
+    /// that in an `Arc<Mutex<>>` and push a task that takes it onto the queue.
+    /// This way you can modify a part of the application state on a different
+    /// thread, while not requiring that everything is thread-safe.
+    ///
+    /// While you can't modify the `SvgCache` from a different thread, you can
+    /// modify other things in the `AppState` and leave the SVG cache alone.
+    pub fn add_custom_task<U: Send + 'static>(
+        &mut self,
+        data: &Arc<Mutex<U>>,
+        callback: fn(Arc<Mutex<U>>, Arc<()>),
+        after_completion_deamons: &[Daemon<T>])
+    {
+        let task = Task::new(data, callback).then(after_completion_deamons);
+        self.tasks.push(task);
+    }
 }
 
 impl<T: Layout + Send + 'static> AppState<T> {
-    /// Tasks, once started, cannot be stopped
-    pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
+    /// Add a task that has access to the entire `AppState`.
+    pub fn add_task(
+        &mut self,
+        callback: fn(Arc<Mutex<T>>, Arc<()>),
+        after_completion_deamons: &[Daemon<T>])
     {
-        let task = Task::new(&self.data, callback);
+        let task = Task::new(&self.data, callback).then(after_completion_deamons);
         self.tasks.push(task);
     }
 }
