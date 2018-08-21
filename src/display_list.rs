@@ -5,7 +5,6 @@ use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
 use cassowary::Constraint;
-
 use {
     FastHashMap,
     resources::AppResources,

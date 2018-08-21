@@ -40,7 +40,6 @@ use std::{
     collections::BTreeMap,
 };
 use cassowary::Solver;
-
 use {
     constraints::DisplayRect,
     id_tree::{NodeId, Arena},

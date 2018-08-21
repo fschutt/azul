@@ -1,10 +1,14 @@
 //! Module for loading and handling images
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use webrender::api::ImageFormat as WebrenderImageFormat;
-use image::{ImageResult, ImageFormat, guess_format};
-use image::{self, ImageError, DynamicImage, GenericImage};
-use webrender::api::{ImageData, ImageDescriptor, ImageKey};
+use webrender::api::{
+    ImageFormat as WebrenderImageFormat,
+    ImageData, ImageDescriptor, ImageKey
+};
+use image::{
+    self, ImageResult, ImageFormat,
+    ImageError, DynamicImage, GenericImage,
+};
 
 static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -68,7 +72,7 @@ impl ImageType {
             Tiff => Ok(ImageFormat::TIFF),
             WebP => Ok(ImageFormat::WEBP),
             GuessImageFormat => {
-                guess_format(data)
+                image::guess_format(data)
             }
         }
     }

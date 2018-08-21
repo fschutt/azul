@@ -4,9 +4,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
     thread::{spawn, JoinHandle},
 };
-use {
-    traits::Layout,
-};
+use traits::Layout;
 
 /// Should a daemon terminate or not - used to remove active daemons
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

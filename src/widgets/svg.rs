@@ -2,7 +2,7 @@ use std::{
     fmt,
     rc::Rc,
     io::{Error as IoError},
-    sync::{Mutex, atomic::{Ordering, AtomicUsize}},
+    sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}},
     cell::{RefCell, RefMut},
     hash::{Hash, Hasher},
     collections::hash_map::Entry::*,
@@ -1162,9 +1162,9 @@ pub struct SvgWorldPixel;
 #[derive(Debug, Clone)]
 pub struct VectorizedFont {
     /// Glyph -> Polygon map
-    glyph_polygon_map: Rc<RefCell<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
+    glyph_polygon_map: Arc<Mutex<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
     /// Glyph -> Stroke map
-    glyph_stroke_map: Rc<RefCell<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
+    glyph_stroke_map: Arc<Mutex<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
 }
 
 impl VectorizedFont {
@@ -1206,47 +1206,63 @@ impl VectorizedFont {
         }
 
         Self {
-            glyph_polygon_map: Rc::new(RefCell::new(FastHashMap::default())),
-            glyph_stroke_map: Rc::new(RefCell::new(FastHashMap::default())),
+            glyph_polygon_map: Arc::new(Mutex::new(FastHashMap::default())),
+            glyph_stroke_map: Arc::new(Mutex::new(FastHashMap::default())),
         }
     }
 }
 
-pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font, id: &GlyphId)
--> Option<VertexBuffers<SvgVert>>
+/// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
+/// fill vertices for all the characters at once
+pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance])
+-> Vec<VertexBuffers<SvgVert>>
 {
     let svg_stroke_opts = Some(SvgStrokeOptions::default());
 
-    match vectorized_font.glyph_polygon_map.borrow_mut().entry(*id) {
-        Occupied(o) => Some(o.get().clone()),
-        Vacant(v) => {
-            let g = original_font.glyph(*id);
-            let poly = glyph_to_svg_layer_type(g)?;
-            let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
-            v.insert(polygon_verts.clone());
-            vectorized_font.glyph_stroke_map.borrow_mut().insert(*id, stroke_verts.unwrap());
-            Some(polygon_verts)
+    let mut glyph_stroke_lock = vectorized_font.glyph_stroke_map.lock().unwrap();
+    let mut glyph_polygon_lock = vectorized_font.glyph_polygon_map.lock().unwrap();
+
+    ids.iter().filter_map(|id| {
+        let id = GlyphId(id.index);
+        match glyph_polygon_lock.entry(id) {
+            Occupied(o) => Some(o.get().clone()),
+            Vacant(v) => {
+                let g = original_font.glyph(id);
+                let poly = glyph_to_svg_layer_type(g)?;
+                let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
+                v.insert(polygon_verts.clone());
+                glyph_stroke_lock.insert(id, stroke_verts.unwrap());
+                Some(polygon_verts)
+            }
         }
-    }
+    }).collect()
 }
 
-pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Font, id: &GlyphId)
--> Option<VertexBuffers<SvgVert>>
+/// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
+/// stroke vertices for all the characters at once
+pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance])
+-> Vec<VertexBuffers<SvgVert>>
 {
     let svg_stroke_opts = Some(SvgStrokeOptions::default());
 
-    match vectorized_font.glyph_stroke_map.borrow_mut().entry(*id) {
-        Occupied(o) => Some(o.get().clone()),
-        Vacant(v) => {
-            let g = original_font.glyph(*id);
-            let poly = glyph_to_svg_layer_type(g)?;
-            let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
-            let stroke_verts = stroke_verts.unwrap();
-            v.insert(stroke_verts.clone());
-            vectorized_font.glyph_polygon_map.borrow_mut().insert(*id, polygon_verts);
-            Some(stroke_verts)
+    let mut glyph_stroke_lock = vectorized_font.glyph_stroke_map.lock().unwrap();
+    let mut glyph_polygon_lock = vectorized_font.glyph_polygon_map.lock().unwrap();
+
+    ids.iter().filter_map(|id| {
+        let id = GlyphId(id.index);
+        match glyph_stroke_lock.entry(id) {
+            Occupied(o) => Some(o.get().clone()),
+            Vacant(v) => {
+                let g = original_font.glyph(id);
+                let poly = glyph_to_svg_layer_type(g)?;
+                let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
+                let stroke_verts = stroke_verts.unwrap();
+                v.insert(stroke_verts.clone());
+                glyph_polygon_lock.insert(id, polygon_verts);
+                Some(stroke_verts)
+            }
         }
-    }
+    }).collect()
 }
 
 /// Converts a glyph to a `SvgLayerType::Polygon`
@@ -1266,33 +1282,39 @@ pub struct VectorizedFontCache {
     ///
     /// Needs to be wrapped in a RefCell / Rc since we want to lazy-load the
     /// fonts to keep the memory usage down
-    vectorized_fonts: RefCell<FastHashMap<FontId, Rc<VectorizedFont>>>,
+    vectorized_fonts: Mutex<FastHashMap<FontId, Arc<VectorizedFont>>>,
+}
+
+#[test]
+fn test_vectorized_font_cache_is_send() {
+    fn is_send<T: Send>() {}
+    is_send::<VectorizedFontCache>();
 }
 
 impl VectorizedFontCache {
 
     pub fn new() -> Self {
         Self {
-            vectorized_fonts: RefCell::new(FastHashMap::default()),
+            vectorized_fonts: Mutex::new(FastHashMap::default()),
         }
     }
 
     pub fn insert_if_not_exist(&mut self, id: FontId, font: &Font) {
-        self.vectorized_fonts.borrow_mut().entry(id).or_insert_with(|| Rc::new(VectorizedFont::from_font(font)));
+        self.vectorized_fonts.lock().unwrap().entry(id).or_insert_with(|| Arc::new(VectorizedFont::from_font(font)));
     }
 
     pub fn insert(&mut self, id: FontId, font: VectorizedFont) {
-        self.vectorized_fonts.borrow_mut().insert(id, Rc::new(font));
+        self.vectorized_fonts.lock().unwrap().insert(id, Arc::new(font));
     }
 
-    pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Rc<VectorizedFont>> {
-        self.vectorized_fonts.borrow_mut().entry(id.clone())
-            .or_insert_with(|| Rc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0)));
-        self.vectorized_fonts.borrow().get(&id).and_then(|font| Some(font.clone()))
+    pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Arc<VectorizedFont>> {
+        self.vectorized_fonts.lock().unwrap().entry(id.clone())
+            .or_insert_with(|| Arc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0)));
+        self.vectorized_fonts.lock().unwrap().get(&id).and_then(|font| Some(font.clone()))
     }
 
     pub fn remove_font(&mut self, id: &FontId) {
-        self.vectorized_fonts.borrow_mut().remove(id);
+        self.vectorized_fonts.lock().unwrap().remove(id);
     }
 }
 
@@ -1986,19 +2008,17 @@ fn normal_text_to_vertices(
     glyph_ids: &[GlyphInstance],
     vectorized_font: &VectorizedFont,
     original_font: &Font,
-    transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
+    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
-    let fill_buf = glyph_ids.iter()
-        .filter_map(|gid| transform_func(vectorized_font, original_font, &GlyphId(gid.index)).and_then(|vbuf| Some((vbuf, gid))))
-        .map(|(mut vertex_buf, gid)| {
-            scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
-            transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0 + position.x, gid.point.y + position.y);
-            vertex_buf
-        })
-        .collect::<Vec<_>>();
+    let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
 
-    join_vertex_buffers(&fill_buf)
+    vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
+        scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0 + position.x, gid.point.y + position.y);
+    });
+
+    join_vertex_buffers(&vertex_buffers)
 }
 
 fn rotated_text(
@@ -2033,23 +2053,22 @@ fn rotated_text_to_vertices(
     vectorized_font: &VectorizedFont,
     original_font: &Font,
     rotation_degrees: f32,
-    transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
+    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
     let rotation_rad = rotation_degrees.to_radians();
     let (char_sin, char_cos) = (rotation_rad.sin(), rotation_rad.cos());
-    let fill_buf = glyph_ids.iter()
-        .filter_map(|gid| transform_func(vectorized_font, original_font, &GlyphId(gid.index)).and_then(|vbuf| Some((vbuf, gid))))
-        .map(|(mut vertex_buf, gid)| {
-            scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
-            transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0, gid.point.y);
-            rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
-            transform_vertex_buffer(&mut vertex_buf.vertices, position.x, position.y);
-            vertex_buf
-        })
-        .collect::<Vec<_>>();
 
-    join_vertex_buffers(&fill_buf)
+    let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
+
+    vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
+        scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0, gid.point.y);
+        rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
+        transform_vertex_buffer(&mut vertex_buf.vertices, position.x, position.y);
+    });
+
+    join_vertex_buffers(&vertex_buffers)
 }
 
 fn text_on_curve(
@@ -2088,37 +2107,26 @@ fn curved_vector_text_to_vertices(
     original_font: &Font,
     char_offsets: &[(f32, f32)],
     char_rotations: &[BezierCharacterRotation],
-    transform_func: fn(&VectorizedFont, &Font, &GlyphId) -> Option<VertexBuffers<SvgVert>>
+    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
-    let fill_buf = glyph_ids.iter()
-        .filter_map(|gid| {
-            // 1. Transform glyph to vertex buffer && filter out all glyphs
-            //    that don't have a vertex buffer
-            transform_func(vectorized_font, original_font, &GlyphId(gid.index))
-        })
-        .zip(char_rotations.into_iter())
-        .zip(char_offsets.iter())
-        .map(|((mut vertex_buf, char_rot), char_offset)| {
+    let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
 
-            let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
+    vertex_buffers.iter_mut()
+    .zip(char_rotations.into_iter())
+    .zip(char_offsets.iter())
+    .for_each(|((vertex_buf, char_rot), char_offset)| {
+        let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
+        // 2. Scale characters to the final size
+        scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+        // 3. Rotate individual characters inside of the word
+        let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
+        rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
+        // 4. Transform characters to their respective positions
+        transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x + position.x, *char_offset_y + position.y);
+    });
 
-            // 2. Scale characters to the final size
-            scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
-
-            // 3. Rotate individual characters inside of the word
-            let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
-
-            rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
-
-            // 4. Transform characters to their respective positions
-            transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x + position.x, *char_offset_y + position.y);
-
-            vertex_buf
-        })
-        .collect::<Vec<_>>();
-
-    join_vertex_buffers(&fill_buf)
+    join_vertex_buffers(&vertex_buffers)
 }
 
 impl Svg {

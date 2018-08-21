@@ -1,5 +1,6 @@
-pub use tinyfiledialogs::MessageBoxIcon;
-pub use tinyfiledialogs::DefaultColorValue;
+//! Dialogs (open folder, open file), message boxes and native color pickers
+
+pub use tinyfiledialogs::{MessageBoxIcon, DefaultColorValue};
 
 /// Ok or cancel result, returned from the `msg_box_ok_cancel` function
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -136,9 +137,9 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorValue>)
 
 // The difference between tinyfiledialogs and nfd is that nfd links
 // to a specific dialog at compile time, while tinyfiledialogs selects
-// the dialog at runtime from a set of specific dialogs (i.e. Mate, KDE, 
+// the dialog at runtime from a set of specific dialogs (i.e. Mate, KDE,
 // dolphin, whatever). This (a) doesn't force the library user to choose
-// a specific dialog, (b) won't look non-native (GTK3 on a KDE env can 
+// a specific dialog, (b) won't look non-native (GTK3 on a KDE env can
 // look jarring) and (c) doesn't require the user to install extra libraries
 //
 // The only reason why we don't use tinyfiledialogs everywhere is because
@@ -173,7 +174,7 @@ pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>
 /// "doc" and "docx" files
 #[cfg(target_os = "linux")]
 pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
--> Option<String> 
+-> Option<String>
 {
     let filter_list = filter_list.map(|f| (f, ""));
     let path = default_path.unwrap_or("");
@@ -196,7 +197,7 @@ pub fn open_directory_dialog(default_path: Option<&str>)
 /// Open a directory, returns `None` if the user canceled the dialog
 #[cfg(target_os = "linux")]
 pub fn open_directory_dialog(default_path: Option<&str>)
--> Option<String> 
+-> Option<String>
 {
     ::tinyfiledialogs::select_folder_dialog("Open Filder", default_path.unwrap_or(""))
 }
@@ -229,7 +230,7 @@ pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Optio
 /// "doc" and "docx" files
 #[cfg(target_os = "linux")]
 pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
--> Option<Vec<String>> 
+-> Option<Vec<String>>
 {
     let filter_list = filter_list.map(|f| (f, ""));
     let path = default_path.unwrap_or("");
