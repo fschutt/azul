@@ -1,12 +1,12 @@
 extern crate azul;
 
 use azul::{
-    prelude::*, 
+    prelude::*,
     widgets::*,
 };
 use std::{
-    thread, 
-    time::{Duration, Instant}, 
+    thread,
+    time::{Duration, Instant},
     sync::{Arc, Mutex},
 };
 
@@ -64,7 +64,7 @@ fn reset_connection(app_state: &mut AppState<MyDataModel>, _event: WindowEvent) 
 fn start_connection(app_state: &mut AppState<MyDataModel>, _event: WindowEvent) -> UpdateScreen {
     let status = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
     app_state.data.modify(|state| state.connection_status = status);
-    app_state.add_task(connect_to_db_async);
+    app_state.add_task(connect_to_db_async, &[]);
     app_state.add_daemon(timer_daemon);
     UpdateScreen::Redraw
 }

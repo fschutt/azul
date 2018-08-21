@@ -29,7 +29,7 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
-    task::TerminateDaemon,
+    app_state::Daemon,
 };
 
 /// Graphical application that maintains some kind of application state
@@ -435,7 +435,7 @@ impl<T: Layout> App<T> {
     /// Create a daemon. Does nothing if a daemon with the function pointer location already exists.
     ///
     /// If the daemon was inserted, returns true, otherwise false
-    pub fn add_daemon(&mut self, daemon: fn(&mut T) -> (UpdateScreen, TerminateDaemon))
+    pub fn add_daemon(&mut self, daemon: Daemon<T>)
         -> bool
     {
         self.app_state.add_daemon(daemon)
@@ -503,13 +503,26 @@ impl<T: Layout> App<T> {
         // let ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
         // Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
     }
+
+    /// See `AppState::add_custom_task`.
+    pub fn add_custom_task<U: Send + 'static>(
+        &mut self,
+        data: &Arc<Mutex<U>>,
+        callback: fn(Arc<Mutex<U>>, Arc<()>),
+        after_completion_deamons: &[Daemon<T>])
+    {
+        self.app_state.add_custom_task(data, callback, after_completion_deamons);
+    }
 }
 
 impl<T: Layout + Send + 'static> App<T> {
-    /// Tasks, once started, cannot be stopped, which is why there is no `.delete()` function
-    pub fn add_task(&mut self, callback: fn(Arc<Mutex<T>>, Arc<()>))
+    /// See `AppState::add_ask`.
+    pub fn add_task(
+        &mut self,
+        callback: fn(Arc<Mutex<T>>, Arc<()>),
+        after_completion_callbacks: &[Daemon<T>])
     {
-        self.app_state.add_task(callback);
+        self.app_state.add_task(callback, after_completion_callbacks);
     }
 }
 
