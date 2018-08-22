@@ -23,7 +23,7 @@ use lyon::{
     },
     path::{
         default::{Builder},
-        builder::{PathBuilder, FlatPathBuilder}, PathEvent,
+        builder::{PathBuilder, FlatPathBuilder},
     },
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D},
 };
@@ -42,6 +42,8 @@ use {
 
 pub use lyon::tessellation::VertexBuffers;
 pub use rusttype::GlyphId;
+pub use lyon::path::PathEvent;
+pub use lyon::geom::math::Point;
 
 static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
