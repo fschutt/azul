@@ -894,6 +894,17 @@ impl<T: Layout> SvgLayer<T> {
     }
 }
 
+impl<T: Layout> fmt::Debug for SvgLayer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SvgLayer {{ data: {:?}, callbacks: {:?}, style: {:?}, transform_id: {:?}, view_box_id: {:?} }}",
+           self.data,
+           self.callbacks,
+           self.style,
+           self.transform_id,
+           self.view_box_id)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum LayerType {
     KnownSize([SvgLayerType; 1]),
@@ -938,6 +949,23 @@ pub enum SvgCallbacks<T: Layout> {
     /// Call the callback when the SvgLayer item at index [x] is
     ///  hovered over / interacted with
     Some(Vec<(usize, Callback<T>)>),
+}
+
+impl<T: Layout> fmt::Debug for SvgCallbacks<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::SvgCallbacks::*;
+        match self {
+            None => write!(f, "SvgCallbacks::None"),
+            Any(a) => write!(f, "SvgCallbacks::Any({:?})", a),
+            Some(v) => {
+                let mut s = String::new();
+                for i in v.iter() {
+                    s += &format!("{:?}", i);
+                }
+                write!(f, "SvgCallbacks::Some({})", s)
+            },
+        }
+    }
 }
 
 impl<T: Layout> Clone for SvgCallbacks<T> {
