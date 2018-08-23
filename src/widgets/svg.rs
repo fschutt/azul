@@ -1684,6 +1684,7 @@ pub struct VerticesIndicesBuffer {
     pub indices: Vec<u32>,
 }
 
+#[cfg_attr(feature = "serde_serialization", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct BezierControlPoint {
     pub x: f32,
