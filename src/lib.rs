@@ -60,6 +60,7 @@ extern crate fern;
 extern crate backtrace;
 extern crate image;
 #[cfg(feature = "serde_serialization")]
+#[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde;
 
 #[cfg(not(target_os = "linux"))]
