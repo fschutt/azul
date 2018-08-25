@@ -210,7 +210,9 @@ fn main() {
 
         #red {
             background-color: red;
+            min-width: 100px;
             width: 200px;
+            max-width: 300px;
             height: 200px;
         }
 

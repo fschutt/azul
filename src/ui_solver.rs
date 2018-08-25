@@ -79,12 +79,8 @@ impl UiSolver {
         let dom_hash = &self.dom_tree_cache.previous_layout.arena[rect_idx];
         let display_rect = &self.edit_variable_cache.map[&dom_hash.data].1;
 
-        println!("display_rect {} - variables: {:?}", rect_idx, display_rect);
-
-        self.solver.add_constraints(&css_constraints_to_cassowary_constraints(display_rect, &[
-            CssConstraint::Size(SizeConstraint::TopLeft(Point::new(0.0, 0.0)), Strength(STRONG))
-        ])).unwrap();
-
+        println!("display_rect {} - variables: {:#?}", rect_idx, display_rect);
+        
         self.solver.add_constraints(&css_constraints_to_cassowary_constraints(display_rect, constraints)).unwrap();
     }
 
@@ -107,22 +103,10 @@ impl UiSolver {
 
         let top = self.solved_values.get(&display_rect.top).and_then(|x| Some(*x)).unwrap_or(0.0);
         let left = self.solved_values.get(&display_rect.left).and_then(|x| Some(*x)).unwrap_or(0.0);
+        let width = self.solved_values.get(&display_rect.width).and_then(|x| Some(*x)).unwrap_or(0.0);
+        let height = self.solved_values.get(&display_rect.height).and_then(|x| Some(*x)).unwrap_or(0.0);
 
-        let right = match self.solved_values.get(&display_rect.right) {
-            Some(w) => *w,
-            None => self.solved_values[&self.window_constraints.width_var],
-        };
-
-        let bottom = match self.solved_values.get(&display_rect.bottom) {
-            Some(h) => *h,
-            None => self.solved_values[&self.window_constraints.height_var],
-        };
-/*
-        println!("rect id: {} - top: {}, left: {}, right: {}, bottom: {}",
-                 rect_id, top, left, right, bottom
-        );
-*/
-        TypedRect::new(TypedPoint2D::new(top as f32, left as f32), TypedSize2D::new((right - left) as f32, (bottom - top) as f32))
+        TypedRect::new(TypedPoint2D::new(top as f32, left as f32), TypedSize2D::new(width as f32, height as f32))
     }
 
     pub(crate) fn get_rect_constraints(&self, rect_id: NodeId) -> Option<RectConstraintVariables> {
