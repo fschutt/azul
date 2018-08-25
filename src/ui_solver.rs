@@ -73,10 +73,19 @@ impl UiSolver {
     }
 
     pub(crate) fn insert_css_constraints_for_rect(&mut self, rect_idx: NodeId, constraints: &[CssConstraint]) {
+        use cassowary::strength::*;
+        use constraints::{SizeConstraint, Strength, Point};
+
         let dom_hash = &self.dom_tree_cache.previous_layout.arena[rect_idx];
-        let display_rect = self.edit_variable_cache.map[&dom_hash.data];
-        let cassowary_constraints = css_constraints_to_cassowary_constraints(&display_rect.1, constraints);
-        self.solver.add_constraints(&cassowary_constraints).unwrap();
+        let display_rect = &self.edit_variable_cache.map[&dom_hash.data].1;
+
+        println!("display_rect {} - variables: {:?}", rect_idx, display_rect);
+
+        self.solver.add_constraints(&css_constraints_to_cassowary_constraints(display_rect, &[
+            CssConstraint::Size(SizeConstraint::TopLeft(Point::new(0.0, 0.0)), Strength(STRONG))
+        ])).unwrap();
+
+        self.solver.add_constraints(&css_constraints_to_cassowary_constraints(display_rect, constraints)).unwrap();
     }
 
     /// Notifies the solver that the window size has changed
@@ -87,6 +96,7 @@ impl UiSolver {
 
     pub(crate) fn update_layout_cache(&mut self) {
         for (variable, solved_value) in self.solver.fetch_changes() {
+            println!("variable {:?} - solved value: {}", variable, solved_value);
             self.solved_values.insert(*variable, *solved_value);
         }
     }
@@ -95,25 +105,33 @@ impl UiSolver {
 
         let display_rect = self.get_rect_constraints(rect_id).unwrap();
 
-        let width = match self.solved_values.get(&display_rect.width) {
+        let top = self.solved_values.get(&display_rect.top).and_then(|x| Some(*x)).unwrap_or(0.0);
+        let left = self.solved_values.get(&display_rect.left).and_then(|x| Some(*x)).unwrap_or(0.0);
+
+        let right = match self.solved_values.get(&display_rect.right) {
             Some(w) => *w,
             None => self.solved_values[&self.window_constraints.width_var],
         };
 
-        let height = match self.solved_values.get(&display_rect.height) {
+        let bottom = match self.solved_values.get(&display_rect.bottom) {
             Some(h) => *h,
             None => self.solved_values[&self.window_constraints.height_var],
         };
-
-        let top = self.solved_values.get(&display_rect.top).and_then(|x| Some(*x)).unwrap_or(0.0);
-        let left = self.solved_values.get(&display_rect.left).and_then(|x| Some(*x)).unwrap_or(0.0);
-
-        TypedRect::new(TypedPoint2D::new(top as f32, left as f32), TypedSize2D::new(width as f32, height as f32))
+/*
+        println!("rect id: {} - top: {}, left: {}, right: {}, bottom: {}",
+                 rect_id, top, left, right, bottom
+        );
+*/
+        TypedRect::new(TypedPoint2D::new(top as f32, left as f32), TypedSize2D::new((right - left) as f32, (bottom - top) as f32))
     }
 
     pub(crate) fn get_rect_constraints(&self, rect_id: NodeId) -> Option<RectConstraintVariables> {
         let dom_hash = &self.dom_tree_cache.previous_layout.arena.get(&rect_id)?;
         self.edit_variable_cache.map.get(&dom_hash.data).and_then(|rect| Some(rect.1))
+    }
+
+    pub(crate) fn get_window_constraints(&self) -> WindowSizeConstraints {
+        self.window_constraints
     }
 }
 

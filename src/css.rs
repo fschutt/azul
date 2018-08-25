@@ -96,7 +96,7 @@ impl<'a> From<DynamicCssParseError<'a>> for CssParseError<'a> {
 /// Rule that applies to some "path" in the CSS, i.e.
 /// `div#myid.myclass -> ("justify-content", "center")`
 ///
-/// The CSS rule is currently not cascaded, use `Css::new_from_string()`
+/// The CSS rule is currently not cascaded, use `Css::new_from_str()`
 /// to do the cascading.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CssRule {
@@ -158,7 +158,7 @@ impl Css {
     }
 
     /// Parses a CSS string (single-threaded) and returns the parsed rules
-    pub fn new_from_string<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
+    pub fn new_from_str<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
         use simplecss::{Tokenizer, Token};
         use std::collections::HashSet;
 
@@ -258,19 +258,19 @@ impl Css {
     /// Returns the native style for the OS
     #[cfg(target_os="windows")]
     pub fn native() -> Self {
-        Self::new_from_string(NATIVE_CSS_WINDOWS).unwrap()
+        Self::new_from_str(NATIVE_CSS_WINDOWS).unwrap()
     }
 
     /// Returns the native style for the OS
     #[cfg(target_os="linux")]
     pub fn native() -> Self {
-        Self::new_from_string(NATIVE_CSS_LINUX).unwrap()
+        Self::new_from_str(NATIVE_CSS_LINUX).unwrap()
     }
 
     /// Returns the native style for the OS
     #[cfg(target_os="macos")]
     pub fn native() -> Self {
-        Self::new_from_string(NATIVE_CSS_MACOS).unwrap()
+        Self::new_from_str(NATIVE_CSS_MACOS).unwrap()
     }
 }
 
