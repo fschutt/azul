@@ -8,7 +8,6 @@ use {
     FastHashMap,
     resources::AppResources,
     traits::Layout,
-    constraints::CssConstraint,
     ui_description::{UiDescription, StyledNode},
     ui_solver::UiSolver,
     window_state::WindowSize,
@@ -253,7 +252,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     &ui_solver,
                 );
 
-                ui_solver.insert_css_constraints_for_rect(rect_idx, &layout_contraints);
+                ui_solver.insert_css_constraints_for_rect(&layout_contraints);
             }
 
             // If we push or pop constraints that means we also need to re-layout the window
@@ -968,22 +967,24 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
     }
 }
 
+use cassowary::Constraint;
+
 // Returns the constraints for one rectangle
 fn create_layout_constraints<'a, T: Layout>(
     node_id: NodeId,
     display_rectangles: &Arena<DisplayRectangle<'a>>,
     dom: &Arena<NodeData<T>>,
     ui_solver: &UiSolver)
--> Vec<CssConstraint>
+-> Vec<Constraint>
 {
-    use cassowary::strength::*;
-    use constraints::{SizeConstraint, PaddingConstraint, Strength, Padding, Point};
-
-    const AZ_WEAK: f64 = 3.0;
-    const AZ_MEDIUM: f64 = 30.0;
-    const AZ_STRONG: f64 = 300.0;
+    use cassowary::{
+        WeightedRelation::{EQ, GE, LE},
+        strength::{MEDIUM, STRONG, REQUIRED},
+    };
 
     let rect = &display_rectangles[node_id].data;
+    let self_rect = ui_solver.get_rect_constraints(node_id).unwrap();
+
     let dom_node = &dom[node_id];
 
     let mut layout_constraints = Vec::new();
@@ -992,37 +993,46 @@ fn create_layout_constraints<'a, T: Layout>(
     //
     // min-width and max-width are stronger than width because the width has to be between min and max width
     if let Some(min_width) = rect.layout.min_width {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::MinWidth(min_width.0.to_pixels()), Strength(REQUIRED)));
+        layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
     }
     if let Some(width) = rect.layout.width {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Width(width.0.to_pixels()), Strength(STRONG)));
+        layout_constraints.push(self_rect.width | EQ(STRONG) | width.0.to_pixels());
     }
     if let Some(max_width) = rect.layout.max_width {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::MaxWidth(max_width.0.to_pixels()), Strength(REQUIRED)));
+        layout_constraints.push(self_rect.width | LE(REQUIRED) | max_width.0.to_pixels());
     }
 
     if let Some(min_height) = rect.layout.min_height {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::MinHeight(min_height.0.to_pixels()), Strength(REQUIRED)));
+        layout_constraints.push(self_rect.height | GE(REQUIRED) | min_height.0.to_pixels());
     }
     if let Some(height) = rect.layout.height {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Height(height.0.to_pixels()), Strength(STRONG)));
+        layout_constraints.push(self_rect.height | EQ(STRONG) | height.0.to_pixels());
     }
     if let Some(max_height) = rect.layout.max_height {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::MaxWidth(max_height.0.to_pixels()), Strength(REQUIRED)));
+        layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
     }
 
-
-    if let Some(previous_sibling) = dom_node.previous_sibling {
-        let previous_sibling = ui_solver.get_rect_constraints(previous_sibling).unwrap();
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::AlignTop(previous_sibling.bottom), Strength(REQUIRED), Padding(0.0)));
+    if let Some(parent) = dom_node.parent {
+        let parent = ui_solver.get_rect_constraints(parent).unwrap();
+        layout_constraints.push(self_rect.top | GE(STRONG) | parent.top);
+        layout_constraints.push(self_rect.left | GE(STRONG) | parent.left);
+        layout_constraints.push(self_rect.height | EQ(MEDIUM) | parent.height);
+        layout_constraints.push(self_rect.width | EQ(MEDIUM) | parent.width);
     } else {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::TopLeft(Point::new(100.0, 100.0)), Strength(STRONG)));
+        let window_constraints = ui_solver.get_window_constraints();
+        layout_constraints.push(self_rect.width | EQ(STRONG / 2.0) | window_constraints.width_var);
+        layout_constraints.push(self_rect.height | EQ(STRONG / 2.0) | window_constraints.height_var);
+    }
+
+    if let Some(child) = dom_node.first_child {
+        let child = ui_solver.get_rect_constraints(child).unwrap();
+        layout_constraints.push(child.top | EQ(STRONG) | 100.0);
+        layout_constraints.push(child.left | EQ(STRONG) | 100.0);
     }
 
     if let Some(next_sibling) = dom_node.next_sibling {
         let next_sibling = ui_solver.get_rect_constraints(next_sibling).unwrap();
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::AlignBelow(next_sibling.top), Strength(REQUIRED), Padding(0.0)));
-
+        layout_constraints.push((self_rect.top + self_rect.height) | GE(REQUIRED) | next_sibling.top);
     }
 
     layout_constraints
