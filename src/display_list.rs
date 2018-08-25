@@ -4,14 +4,13 @@
 use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
-use cassowary::Constraint;
 use {
     FastHashMap,
     resources::AppResources,
     traits::Layout,
-    constraints::{DisplayRect, CssConstraint},
+    constraints::CssConstraint,
     ui_description::{UiDescription, StyledNode},
-    window::UiSolver,
+    ui_solver::UiSolver,
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css_parser::*,
@@ -45,16 +44,6 @@ pub(crate) struct DisplayRectangle<'a> {
     pub(crate) layout: RectLayout,
 }
 
-/// It is not very efficient to re-create constraints on every call, the difference
-/// in performance can be huge. Without re-creating constraints, solving can take 0.3 ms,
-/// with re-creation it can take up to 9 ms. So the goal is to not re-create constraints
-/// if their contents haven't changed.
-#[derive(Default)]
-pub(crate) struct SolvedLayout<T: Layout> {
-    // List of previously solved constraints
-    pub(crate) solved_constraints: FastHashMap<NodeId, NodeData<T>>,
-}
-
 /// This is used for caching large strings (in the `push_text` function)
 /// In the cached version, you can lookup the text as well as the dimensions of
 /// the words in the `AppResources`. For the `Uncached` version, you'll have to re-
@@ -86,14 +75,6 @@ impl TextInfo {
                 }
             }
             Uncached(s) => s.is_empty(),
-        }
-    }
-}
-
-impl<T: Layout> SolvedLayout<T> {
-    pub fn empty() -> Self {
-        Self {
-            solved_constraints: FastHashMap::default(),
         }
     }
 }
@@ -245,7 +226,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         &self,
         pipeline_id: PipelineId,
         current_epoch: Epoch,
-        ui_solver: &mut UiSolver<T>,
+        ui_solver: &mut UiSolver,
         css: &mut Css,
         app_resources: &mut AppResources,
         render_api: &RenderApi,
@@ -253,49 +234,41 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         window_size: &WindowSize)
     -> DisplayListBuilder
     {
-        let mut changeset = None;
+        use glium::glutin::dpi::LogicalSize;
 
-        if let Some(root) = self.ui_descr.ui_descr_root {
-            let local_changeset = ui_solver.dom_tree_cache.update(root, &*(self.ui_descr.ui_descr_arena.borrow()));
-            ui_solver.edit_variable_cache.initialize_new_rectangles(&mut ui_solver.solver, &local_changeset);
-            ui_solver.edit_variable_cache.remove_unused_variables(&mut ui_solver.solver);
-            changeset = Some(local_changeset);
-        }
+        let changeset = self.ui_descr.ui_descr_root.as_ref().and_then(|root| {
+            let changeset = ui_solver.update_dom(root, &*(self.ui_descr.ui_descr_arena.borrow()));
+            if changeset.is_empty() { None } else { Some(changeset) }
+        });
 
         if css.needs_relayout {
 
-            // constraints were added or removed during the last frame
+            // Constraints were added or removed during the last frame
             for rect_idx in self.rectangles.linear_iter() {
-                let rect = &self.rectangles[rect_idx].data;
-                let arena = &*self.ui_descr.ui_descr_arena.borrow();
-                let dom_hash = &ui_solver.dom_tree_cache.previous_layout.arena[rect_idx];
-                let display_rect = ui_solver.edit_variable_cache.map[&dom_hash.data];
-                let layout_contraints = create_layout_constraints(rect, rect_idx, &self.rectangles, window_size);
-                let cassowary_constraints = css_constraints_to_cassowary_constraints(&display_rect.1, &layout_contraints);
-                ui_solver.solver.add_constraints(&cassowary_constraints).unwrap();
+
+                let layout_contraints = create_layout_constraints(
+                    rect_idx,
+                    &self.rectangles,
+                    &*self.ui_descr.ui_descr_arena.borrow(),
+                    &ui_solver,
+                );
+
+                ui_solver.insert_css_constraints_for_rect(rect_idx, &layout_contraints);
             }
 
-            // if we push or pop constraints that means we also need to re-layout the window
+            // If we push or pop constraints that means we also need to re-layout the window
             has_window_size_changed = true;
         }
 
-        let changeset_is_useless = match changeset {
-            None => true,
-            Some(c) => c.is_empty()
-        };
+        // TODO: early return based on changeset?
 
-        // recalculate the actual layout
+        // Recalculate the actual layout
         if css.needs_relayout || has_window_size_changed {
-            /*
-            for change in solver.fetch_changes() {
-                println!("change: - {:?}", change);
-            }
-            */
+            ui_solver.update_window_size(&window_size.dimensions);
+            ui_solver.update_layout_cache();
         }
 
         css.needs_relayout = false;
-
-        use glium::glutin::dpi::LogicalSize;
 
         let LogicalSize { width, height } = window_size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
@@ -310,8 +283,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             let arena = self.ui_descr.ui_descr_arena.borrow();
             let node_type = &arena[rect_idx].data.node_type;
 
-            // ask the solver what the bounds of the current rectangle is
-            // let bounds = ui_solver.query_bounds_of_rect(*rect_idx);
+            // Ask the solver what the bounds of the current rectangle is
+            let bounds = ui_solver.query_bounds_of_rect(rect_idx);
 
             // temporary: fill the whole window with each rectangle
             displaylist_handle_rect(
@@ -320,7 +293,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 rect_idx,
                 &self.rectangles,
                 node_type,
-                full_screen_rect, /* replace this with the real bounds */
+                bounds,
                 full_screen_rect,
                 app_resources,
                 render_api,
@@ -835,6 +808,7 @@ fn push_background(
     }
 }
 
+#[inline]
 fn push_image(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
@@ -992,42 +966,40 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
 }
 
 // Returns the constraints for one rectangle
-fn create_layout_constraints<'a>(
-    rect: &DisplayRectangle,
-    rect_id: NodeId,
-    arena: &Arena<DisplayRectangle<'a>>,
-    window_size: &WindowSize)
+fn create_layout_constraints<'a, T: Layout>(
+    node_id: NodeId,
+    display_rectangles: &Arena<DisplayRectangle<'a>>,
+    dom: &Arena<NodeData<T>>,
+    ui_solver: &UiSolver)
 -> Vec<CssConstraint>
 {
     use cassowary::strength::*;
-    use constraints::{SizeConstraint, Strength};
+    use constraints::{SizeConstraint, PaddingConstraint, Strength, Padding};
 
-    let mut layout_constraints = Vec::<CssConstraint>::new();
-    /*
-    let max_width = arena.get_wh_for_rectangle(rect_id, WidthOrHeight::Width)
-                         .unwrap_or(window_size.width as f32);
-    */
-    layout_constraints.push(CssConstraint::Size((SizeConstraint::Width(200.0), Strength(STRONG))));
-    layout_constraints.push(CssConstraint::Size((SizeConstraint::Height(200.0), Strength(STRONG))));
+    let rect = &display_rectangles[node_id].data;
+    let dom_node = &dom[node_id];
+
+    let mut layout_constraints = Vec::new();
+
+    // Insert the max height and width constraints
+    if let Some(max_width) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Width) {
+        layout_constraints.push(CssConstraint::Size(SizeConstraint::Width(max_width), Strength(MEDIUM)));
+    }
+
+    if let Some(max_height) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Height) {
+        layout_constraints.push(CssConstraint::Size(SizeConstraint::Height(max_height), Strength(MEDIUM)));
+    }
+
+    // Testing only - each rectangle should be below its previous sibling DOM element
+    if let Some(previous_sibling) = dom_node.previous_sibling {
+        // The variable must have been initialized before `create_layout_constraints`
+        // was called, so this `unwrap()` should never panic
+        let previous_rect_var = ui_solver.get_rect_constraints(previous_sibling).unwrap();
+        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.bottom), Strength(STRONG), Padding(0.0)));
+        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.top), Strength(STRONG), Padding(0.0)));
+    }
 
     layout_constraints
-}
-
-fn css_constraints_to_cassowary_constraints(rect: &DisplayRect, css: &Vec<CssConstraint>)
--> Vec<Constraint>
-{
-    use self::CssConstraint::*;
-
-    css.iter().flat_map(|constraint|
-        match *constraint {
-            Size((constraint, strength)) => {
-                constraint.build(&rect, strength.0)
-            }
-            Padding((constraint, strength, padding)) => {
-                constraint.build(&rect, strength.0, padding.0)
-            }
-        }
-    ).collect()
 }
 
 // Layout / tracing-related functions

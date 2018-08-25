@@ -13,7 +13,7 @@ pub type Point = Point2D<f32>;
 /// A set of cassowary `Variable`s representing the
 /// bounding rectangle of a layout.
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct DisplayRect {
+pub(crate) struct RectConstraintVariables {
     pub left: Variable,
     pub top: Variable,
     pub right: Variable,
@@ -22,7 +22,7 @@ pub(crate) struct DisplayRect {
     pub height: Variable,
 }
 
-impl Default for DisplayRect {
+impl Default for RectConstraintVariables {
     fn default() -> Self {
         Self {
             left: Variable::new(),
@@ -35,7 +35,7 @@ impl Default for DisplayRect {
     }
 }
 
-impl DisplayRect {
+impl RectConstraintVariables {
 
     pub fn add_to_solver(&self, solver: &mut Solver) {
         solver.add_edit_variable(self.left, WEAK).unwrap_or_else(|_e| { });
@@ -65,8 +65,8 @@ pub struct Padding(pub f32);
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum CssConstraint {
-    Size((SizeConstraint, Strength)),
-    Padding((PaddingConstraint, Strength, Padding))
+    Size(SizeConstraint, Strength),
+    Padding(PaddingConstraint, Strength, Padding)
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -82,7 +82,7 @@ pub(crate) enum SizeConstraint {
     ShrinkHorizontal,
     ShrinkVertical,
     TopLeft(Point),
-    Center(DisplayRect),
+    Center(RectConstraintVariables),
     CenterHorizontal(Variable, Variable),
     CenterVertical(Variable, Variable),
 }
@@ -105,14 +105,14 @@ pub(crate) enum PaddingConstraint {
     BoundTop(Variable),
     BoundRight(Variable),
     BoundBottom(Variable),
-    BoundBy(DisplayRect),
-    MatchLayout(DisplayRect),
+    BoundBy(RectConstraintVariables),
+    MatchLayout(RectConstraintVariables),
     MatchWidth(Variable),
     MatchHeight(Variable),
 }
 
 impl SizeConstraint {
-    pub(crate) fn build(&self, rect: &DisplayRect, strength: f64) -> Vec<Constraint> {
+    pub(crate) fn build(&self, rect: &RectConstraintVariables, strength: f64) -> Vec<Constraint> {
         use self::SizeConstraint::*;
 
         match *self {
@@ -178,7 +178,7 @@ impl SizeConstraint {
 }
 
 impl PaddingConstraint {
-    pub(crate) fn build(&self, rect: &DisplayRect, strength: f64, padding: f32) -> Vec<Constraint> {
+    pub(crate) fn build(&self, rect: &RectConstraintVariables, strength: f64, padding: f32) -> Vec<Constraint> {
         use self::PaddingConstraint::*;
         match *self {
             AlignTop(top) => {
