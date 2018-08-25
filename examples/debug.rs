@@ -204,14 +204,11 @@ fn main() {
     // should show a large red rectangle at the top
     // and a small green rectangle at the bottom
     let css = Css::new_from_str("
-        #wrapper_1 {
-            flex-direction: column;
-        }
 
         #red {
             background-color: red;
             min-width: 100px;
-            width: 200px;
+            width: 400px;
             max-width: 300px;
             height: 200px;
         }

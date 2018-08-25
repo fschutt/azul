@@ -1011,11 +1011,18 @@ fn create_layout_constraints<'a, T: Layout>(
         layout_constraints.push(CssConstraint::Size(SizeConstraint::MaxWidth(max_height.0.to_pixels()), Strength(REQUIRED)));
     }
 
+
     if let Some(previous_sibling) = dom_node.previous_sibling {
         let previous_sibling = ui_solver.get_rect_constraints(previous_sibling).unwrap();
         layout_constraints.push(CssConstraint::Padding(PaddingConstraint::AlignTop(previous_sibling.bottom), Strength(REQUIRED), Padding(0.0)));
     } else {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::TopLeft(Point::new(0.0, 0.0)), Strength(STRONG)));
+        layout_constraints.push(CssConstraint::Size(SizeConstraint::TopLeft(Point::new(100.0, 100.0)), Strength(STRONG)));
+    }
+
+    if let Some(next_sibling) = dom_node.next_sibling {
+        let next_sibling = ui_solver.get_rect_constraints(next_sibling).unwrap();
+        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::AlignBelow(next_sibling.top), Strength(REQUIRED), Padding(0.0)));
+
     }
 
     layout_constraints
