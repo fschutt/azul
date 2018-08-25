@@ -264,9 +264,11 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         // Recalculate the actual layout
         if css.needs_relayout || has_window_size_changed {
-            ui_solver.update_window_size(&window_size.dimensions);
-            ui_solver.update_layout_cache();
+
         }
+
+        ui_solver.update_window_size(&window_size.dimensions);
+        ui_solver.update_layout_cache();
 
         css.needs_relayout = false;
 
@@ -285,6 +287,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
             // Ask the solver what the bounds of the current rectangle is
             let bounds = ui_solver.query_bounds_of_rect(rect_idx);
+            println!("id: {} - bounds: {}", rect_idx, bounds);
 
             // temporary: fill the whole window with each rectangle
             displaylist_handle_rect(
@@ -976,6 +979,10 @@ fn create_layout_constraints<'a, T: Layout>(
     use cassowary::strength::*;
     use constraints::{SizeConstraint, PaddingConstraint, Strength, Padding};
 
+    const AZ_WEAK: f64 = 3.0;
+    const AZ_MEDIUM: f64 = 30.0;
+    const AZ_STRONG: f64 = 300.0;
+
     let rect = &display_rectangles[node_id].data;
     let dom_node = &dom[node_id];
 
@@ -983,22 +990,32 @@ fn create_layout_constraints<'a, T: Layout>(
 
     // Insert the max height and width constraints
     if let Some(max_width) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Width) {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Width(max_width), Strength(MEDIUM)));
+        layout_constraints.push(CssConstraint::Size(SizeConstraint::Width(max_width), Strength(AZ_WEAK)));
     }
 
     if let Some(max_height) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Height) {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Height(max_height), Strength(MEDIUM)));
+        layout_constraints.push(CssConstraint::Size(SizeConstraint::Height(max_height), Strength(AZ_WEAK)));
     }
 
     // Testing only - each rectangle should be below its previous sibling DOM element
+    if let Some(parent) = dom_node.parent {
+        let parent = ui_solver.get_rect_constraints(parent).unwrap();
+        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::BoundBy(parent), Strength(REQUIRED), Padding(20.0)));
+    } else {
+        let window = ui_solver.get_window_constraints();
+        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::MatchWidth(window.width_var), Strength(REQUIRED), Padding(0.0)));
+        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::MatchHeight(window.height_var), Strength(REQUIRED), Padding(0.0)));
+    }
+/*
     if let Some(previous_sibling) = dom_node.previous_sibling {
+        println!("inserting bottom constraint for ID: {}", node_id);
         // The variable must have been initialized before `create_layout_constraints`
         // was called, so this `unwrap()` should never panic
         let previous_rect_var = ui_solver.get_rect_constraints(previous_sibling).unwrap();
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.bottom), Strength(STRONG), Padding(0.0)));
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.top), Strength(STRONG), Padding(0.0)));
+        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::AlignTop(previous_rect_var.bottom), Strength(REQUIRED), Padding(20.0)));
+        // layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.top), Strength(STRONG), Padding(0.0)));
     }
-
+*/
     layout_constraints
 }
 
