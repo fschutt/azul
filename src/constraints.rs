@@ -2,7 +2,7 @@
 
 use cassowary::{
     Solver, Variable, Constraint,
-    WeightedRelation::{EQ, GE},
+    WeightedRelation::{EQ, GE, LE},
     strength::{WEAK, REQUIRED},
 };
 use euclid::{Point2D, Size2D};
@@ -75,6 +75,8 @@ pub(crate) enum SizeConstraint {
     Height(f32),
     MinWidth(f32),
     MinHeight(f32),
+    MaxWidth(f32),
+    MaxHeight(f32),
     Size(Size),
     MinSize(Size),
     AspectRatio(f32),
@@ -127,6 +129,12 @@ impl SizeConstraint {
             },
             MinHeight(height) => {
                 vec![ rect.height | GE(strength) | height ]
+            },
+            MaxWidth(width) => {
+                vec![ rect.width | LE(strength) | width ]
+            },
+            MaxHeight(height) => {
+                vec![ rect.height | LE(strength) | height ]
             },
             Size(size) => {
                 vec![
