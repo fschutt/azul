@@ -202,6 +202,10 @@ impl<T> Arena<T> {
     pub(crate) fn append(&mut self, other: &mut Arena<T>) {
         self.nodes.append(&mut other.nodes);
     }
+
+    pub fn get(&self, node: &NodeId) -> Option<&Node<T>> {
+        self.nodes.get(node.index())
+    }
 }
 
 impl<T: Copy> Arena<T> {

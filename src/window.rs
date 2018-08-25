@@ -19,22 +19,15 @@ use glium::{
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
-use euclid::TypedScale;
-use cassowary::{
-    Variable, Solver,
-    strength::*,
-};
 use {
     dom::{Texture, Callback},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState},
-    display_list::SolvedLayout,
     traits::Layout,
-    cache::{EditVariableCache, DomTreeCache},
-    id_tree::NodeId,
     compositor::Compositor,
     app::FrameEventInfo,
     resources::AppResources,
+    ui_solver::UiSolver,
 };
 
 /// azul-internal ID for a window
@@ -447,7 +440,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window<T: Layout> {
+pub struct Window {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     /// Current state of the window, stores the keyboard / mouse state,
@@ -466,56 +459,11 @@ pub struct Window<T: Layout> {
     /// The `WindowInternal` allows us to solve some borrowing issues
     pub(crate) internal: WindowInternal,
     /// The solver for the UI, for caching the results of the computations
-    pub(crate) solver: UiSolver<T>,
+    pub(crate) ui_solver: UiSolver,
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The css (how the current window is styled)
     pub css: Css,
-}
-
-/// Used in the solver, for the root constraint
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) struct WindowDimensions {
-    pub(crate) layout_size: LayoutSize,
-    pub(crate) width_var: Variable,
-    pub(crate) height_var: Variable,
-}
-
-impl WindowDimensions {
-    pub fn new_from_layout_size(layout_size: LayoutSize) -> Self {
-        Self {
-            layout_size: layout_size,
-            width_var: Variable::new(),
-            height_var: Variable::new(),
-        }
-    }
-
-    pub fn width(&self) -> f32 {
-        self.layout_size.width_typed().get()
-    }
-    pub fn height(&self) -> f32 {
-        self.layout_size.height_typed().get()
-    }
-}
-
-/// Solver for solving the UI of the current window
-pub(crate) struct UiSolver<T: Layout> {
-    /// The actual solver
-    pub(crate) solver: Solver,
-    /// Solved layout from the previous frame (empty by default)
-    /// This is necessary for caching the constraints of the given layout
-    pub(crate) solved_layout: SolvedLayout<T>,
-    /// The list of variables that has been added to the solver
-    pub(crate) edit_variable_cache: EditVariableCache,
-    /// The cache of the previous frames DOM tree
-    pub(crate) dom_tree_cache: DomTreeCache,
-}
-
-impl<T: Layout> UiSolver<T> {
-    pub(crate) fn query_bounds_of_rect(&self, rect_id: NodeId) {
-        // TODO: After solving the UI, use this function to get the actual coordinates of an item in the UI.
-        // This function should cache values accordingly
-    }
 }
 
 pub(crate) struct WindowInternal {
@@ -526,10 +474,10 @@ pub(crate) struct WindowInternal {
     pub(crate) document_id: DocumentId,
 }
 
-impl<T: Layout> Window<T> {
+impl Window {
 
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, css: Css) -> Result<Self, WindowCreateError>  {
+    pub fn new<T: Layout>(mut options: WindowCreateOptions<T>, css: Css) -> Result<Self, WindowCreateError>  {
 
         let events_loop = EventsLoop::new();
 
@@ -693,20 +641,13 @@ impl<T: Layout> Window<T> {
         let document_id = api.add_document(framebuffer_size, 0);
         let epoch = Epoch(0);
         let pipeline_id = PipelineId(0, 0);
-        let layout_size = framebuffer_size.to_f32() / TypedScale::new(device_pixel_ratio as f32);
 
-/*
+        /*
         let (sender, receiver) = channel();
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
-*/
-        let mut solver = Solver::new();
+        */
 
-        let window_dim = WindowDimensions::new_from_layout_size(layout_size);
-
-        solver.add_edit_variable(window_dim.width_var, STRONG).unwrap();
-        solver.add_edit_variable(window_dim.height_var, STRONG).unwrap();
-        solver.suggest_value(window_dim.width_var, window_dim.width() as f64).unwrap();
-        solver.suggest_value(window_dim.height_var, window_dim.height() as f64).unwrap();
+        let ui_solver = UiSolver::new(&options.state.size.dimensions);
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
@@ -723,12 +664,7 @@ impl<T: Layout> Window<T> {
                 document_id: document_id,
                 last_display_list_builder: BuiltDisplayList::default(),
             },
-            solver: UiSolver {
-                solver: solver,
-                solved_layout: SolvedLayout::empty(),
-                edit_variable_cache: EditVariableCache::empty(),
-                dom_tree_cache: DomTreeCache::empty(),
-            }
+            ui_solver,
         };
 
         Ok(window)
@@ -836,7 +772,7 @@ pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateEr
     }
 }
 
-impl<T: Layout> Drop for Window<T> {
+impl Drop for Window {
     fn drop(&mut self) {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();

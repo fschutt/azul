@@ -41,7 +41,7 @@ use std::{
 };
 use cassowary::Solver;
 use {
-    constraints::DisplayRect,
+    constraints::RectConstraintVariables,
     id_tree::{NodeId, Arena},
     traits::Layout,
     dom::NodeData,
@@ -233,7 +233,7 @@ pub(crate) struct DomNodeHash {
 
 #[derive(Debug)]
 pub(crate) struct EditVariableCache {
-    pub(crate) map: BTreeMap<DomHash, (bool, DisplayRect)>
+    pub(crate) map: BTreeMap<DomHash, (bool, RectConstraintVariables)>
 }
 
 impl EditVariableCache {
@@ -254,7 +254,7 @@ impl EditVariableCache {
                     e.into_mut().0 = true;
                 },
                 Vacant(e) => {
-                    let rect = DisplayRect::default();
+                    let rect = RectConstraintVariables::default();
                     rect.add_to_solver(solver);
                     e.insert((true, rect));
                 }

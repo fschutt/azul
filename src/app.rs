@@ -35,7 +35,7 @@ use {
 /// Graphical application that maintains some kind of application state
 pub struct App<T: Layout> {
     /// The graphical windows, indexed by ID
-    windows: Vec<Window<T>>,
+    windows: Vec<Window>,
     /// The global application state
     pub app_state: AppState<T>,
 }
@@ -308,7 +308,7 @@ impl<T: Layout> App<T> {
         Ok(())
     }
 
-    fn update_display(window: &Window<T>)
+    fn update_display(window: &Window)
     {
         use webrender::api::{Transaction, DeviceUintRect, DeviceUintPoint};
         use euclid::TypedSize2D;
@@ -322,7 +322,7 @@ impl<T: Layout> App<T> {
         window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
-    fn initialize_ui_state(windows: &[Window<T>], app_state: &AppState<T>)
+    fn initialize_ui_state(windows: &[Window], app_state: &AppState<T>)
     -> Vec<UiState<T>>
     {
         use window::ReadOnlyWindow;
@@ -588,7 +588,7 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
 
 fn do_hit_test_and_call_callbacks<T: Layout>(
     event: &Event,
-    window: &mut Window<T>,
+    window: &mut Window,
     window_id: WindowId,
     info: &mut FrameEventInfo,
     ui_state_cache: &[UiState<T>],
@@ -671,7 +671,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
 }
 
 fn render<T: Layout>(
-    window: &mut Window<T>,
+    window: &mut Window,
     _window_id: &WindowId,
     ui_description: &UiDescription<T>,
     app_resources: &mut AppResources,
@@ -686,7 +686,7 @@ fn render<T: Layout>(
     let builder = display_list.into_display_list_builder(
         window.internal.pipeline_id,
         window.internal.epoch,
-        &mut window.solver,
+        &mut window.ui_solver,
         &mut window.css,
         app_resources,
         &window.internal.api,
@@ -760,7 +760,7 @@ fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
 // See: https://github.com/servo/webrender/pull/2880
 // webrender doesn't reset the active shader back to what it was, but rather sets it
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
-fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D<u32, DevicePixel>) {
+fn render_inner(window: &mut Window, framebuffer_size: TypedSize2D<u32, DevicePixel>) {
 
     use gleam::gl;
     use window::get_gl_context;
