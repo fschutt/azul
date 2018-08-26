@@ -19,17 +19,20 @@ fn main() {
     let css = Css::new_from_str("
             #wrapper {
                 background-color: blue;
+                flex-direction: column;
+            }
+            #green {
+                background-color: green;
+                width: 200px;
+                height: 200px;
             }
             #red {
                 background-color: red;
                 color: white;
                 font-size: 10px;
                 font-family: sans-serif;
-                width: 200px;
-                height: 200px;
-            }
-            #green {
-                background-color: green;
+                width: 50px;
+                height: 50px;
             }
     ").unwrap();
 
