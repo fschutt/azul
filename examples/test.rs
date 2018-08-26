@@ -19,7 +19,7 @@ fn main() {
     let css = Css::new_from_str("
             #wrapper {
                 background-color: blue;
-                flex-direction: column;
+                flex-direction: row;
             }
             #green {
                 background-color: green;

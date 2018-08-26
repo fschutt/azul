@@ -997,7 +997,7 @@ fn create_layout_constraints<'a, T: Layout>(
     use cassowary::{
         WeightedRelation::{EQ, GE, LE},
     };
-
+    use ui_solver::RectConstraintVariables;
     use std::f64;
 
     const WEAK: f64 = 3.0;
@@ -1047,13 +1047,18 @@ fn create_layout_constraints<'a, T: Layout>(
     let direction = rect.layout.direction.unwrap_or_default();
 
     let mut next_child_id = dom_node.first_child;
+    let mut previous_child: Option<RectConstraintVariables> = None;
+
     while let Some(child_id) = next_child_id {
         let child = ui_solver.get_rect_constraints(child_id).unwrap();
 
         match direction {
             LayoutDirection::Row => {
                 layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
-                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
+                match previous_child {
+                    None => layout_constraints.push(child.left | EQ(STRONG) | self_rect.left),
+                    Some(prev) => layout_constraints.push(child.left | EQ(STRONG) | (prev.left + prev.width)),
+                }
             },
             LayoutDirection::RowReverse => {
                 layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
@@ -1069,6 +1074,7 @@ fn create_layout_constraints<'a, T: Layout>(
             },
         }
 
+        previous_child = Some(child);
         next_child_id = dom[child_id].next_sibling;
     }
 
