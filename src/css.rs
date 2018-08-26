@@ -1,4 +1,7 @@
 //! CSS parsing and styling
+
+#[cfg(debug_assertions)]
+use std::io::Error as IoError;
 use {
     FastHashMap,
     traits::IntoParsedCssProperty,
@@ -24,6 +27,10 @@ const RELAYOUT_RULES: [&str; 13] = [
 /// created once. Animations / conditional styling is implemented using dynamic fields
 #[derive(Debug, Clone, PartialEq)]
 pub struct Css {
+    /// Path to hot-reload the CSS file from
+    #[cfg(debug_assertions)]
+    pub(crate) hot_reload_path: Option<String>,
+    /// The CSS rules making up the document
     pub(crate) rules: Vec<CssRule>,
     /// The dynamic properties that have to be overridden for this frame
     ///
@@ -164,15 +171,72 @@ impl CssRule {
     }
 }
 
+#[cfg(debug_assertions)]
+#[derive(Debug)]
+pub enum HotReloadError {
+    Io(IoError, String),
+    // TODO: get the CSS
+    FailedToReload,
+}
+
 impl Css {
 
     /// Creates an empty set of CSS rules
     pub fn empty() -> Self {
         Self {
+            #[cfg(debug_assertions)]
+            hot_reload_path: None,
             rules: Vec::new(),
             needs_relayout: false,
             dynamic_css_overrides: FastHashMap::default(),
         }
+    }
+
+    /// **NOTE**: Only available in debug mode, can crash if the file isn't found
+    #[cfg(debug_assertions)]
+    pub fn hot_reload(file_path: &str) -> Result<Self, HotReloadError>  {
+        use std::fs;
+        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
+        let mut css = match Self::new_from_str(&initial_css) {
+            Ok(o) => o,
+            Err(e) => panic!("Hot reload parsing error in file {}: {:?}", file_path, e),
+        };
+        css.hot_reload_path = Some(file_path.into());
+        Ok(css)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn reload_css(&mut self) {
+
+        use std::fs;
+
+        let file_path = if let Some(f) = &self.hot_reload_path {
+            f.clone()
+        } else {
+            error!("No file to hot-reload the CSS from!");
+            return;
+        };
+
+        let reloaded_css = match fs::read_to_string(&file_path) {
+            Ok(o) => o,
+            Err(e) => {
+                error!("Failed to hot-reload \"{}\":\r\n{:?}", file_path, e);
+                return;
+            },
+        };
+
+        let mut parsed_css = match Self::new_from_str(&reloaded_css) {
+            Ok(o) => o,
+            Err(e) => {
+                error!("Failed to reload - parse error\"{}\":\r\n{:?}", file_path, e);
+                return;
+            },
+        };
+
+        parsed_css.hot_reload_path = self.hot_reload_path.clone();
+        parsed_css.dynamic_css_overrides = self.dynamic_css_overrides.clone();
+
+        *self = parsed_css;
     }
 
     /// Parses a CSS string (single-threaded) and returns the parsed rules
@@ -266,6 +330,8 @@ impl Css {
         }
 
         Ok(Self {
+            #[cfg(debug_assertions)]
+            hot_reload_path: None,
             rules: css_rules,
             // force re-layout for the first frame
             needs_relayout: true,

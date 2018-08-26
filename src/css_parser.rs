@@ -1632,7 +1632,7 @@ pub enum TextAlignmentHorz {
 
 impl Default for TextAlignmentHorz {
     fn default() -> Self {
-        TextAlignmentHorz::Left
+        TextAlignmentHorz::Center
     }
 }
 
@@ -1645,7 +1645,7 @@ pub enum TextAlignmentVert {
 
 impl Default for TextAlignmentVert {
     fn default() -> Self {
-        TextAlignmentVert::Top
+        TextAlignmentVert::Center
     }
 }
 
