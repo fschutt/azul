@@ -10,8 +10,10 @@ impl Layout for MyDataModel {
     fn layout(&self, _info: WindowInfo) -> Dom<Self> {
         Dom::new(NodeType::Div).with_id("wrapper")
             .with_child(Dom::new(NodeType::Label(format!("{}", self.counter))).with_id("red"))
-            .with_child(Dom::new(NodeType::Div).with_id("green"))
-            .with_child(Dom::new(NodeType::Div).with_id("yellow"))
+            .with_child(Dom::new(NodeType::Div).with_id("green")
+                .with_child(Dom::new(NodeType::Div).with_id("yellow"))
+                .with_child(Dom::new(NodeType::Div).with_id("grey"))
+            )
     }
 }
 
@@ -22,10 +24,6 @@ fn main() {
                 background-color: blue;
                 flex-direction: row-reverse;
             }
-            #green {
-                background-color: green;
-                width: 200px;
-            }
             #red {
                 background-color: red;
                 color: white;
@@ -33,8 +31,17 @@ fn main() {
                 font-family: sans-serif;
                 width: 50px;
             }
+            #green {
+                background-color: green;
+                flex-direction: column;
+                width: 500px;
+            }
             #yellow {
                 background-color: yellow;
+                height: 200px;
+            }
+            #grey {
+                background-color: grey;
             }
     ").unwrap();
 
