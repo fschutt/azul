@@ -1,0 +1,35 @@
+#wrapper {
+    background: linear-gradient(blue 0%, green 25%);
+    flex-direction: row-reverse;
+}
+
+#red {
+    background-color: red;
+    color: white;
+    font-size: 30px;
+    font-family: sans-serif;
+    width: 200px;
+    flex-direction: column;
+}
+
+#sub-wrapper {
+    flex-direction: column-reverse;
+    width: 900px;
+}
+
+#yellow {
+    background-color: yellow;
+    height: 700px;
+    border: 10px dashed black;
+    flex-direction: row-reverse;
+    border-radius: 40px;
+}
+
+#grey {
+    background-color: grey;
+}
+
+#below-yellow {
+    background-color: dark-grey;
+    width: 50px;
+}

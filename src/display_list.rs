@@ -246,6 +246,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         };
 
         if css.needs_relayout || changeset.is_some() {
+            // inefficient for now, but prevents memory leak
+            ui_solver.clear_all_constraints();
             for rect_idx in self.rectangles.linear_iter() {
                 let constraints = create_layout_constraints(
                     rect_idx,
@@ -254,6 +256,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     &ui_solver,
                 );
                 ui_solver.insert_css_constraints_for_rect(&constraints);
+                ui_solver.push_added_constraints(rect_idx, constraints);
             }
 
             // If we push or pop constraints that means we also need to re-layout the window
@@ -449,31 +452,29 @@ fn determine_text_alignment<'a>(rect_idx: NodeId, arena: &Arena<DisplayRectangle
 
     let rect = &arena[rect_idx];
 
-    if let Some((Some(flex_direction), Some(justify_content))) = rect.parent.and_then(|parent| {
-        let parent = &arena[parent];
-        Some((parent.data.layout.direction, parent.data.layout.justify_content))
-    }) {
-        use css_parser::{LayoutDirection::*, LayoutJustifyContent::*};
+    if let Some(align_items) = rect.data.layout.align_items {
+        // Vertical text alignment
+        use css_parser::LayoutAlignItems;
+        match align_items {
+            LayoutAlignItems::Start => vert_alignment = TextAlignmentVert::Top,
+            LayoutAlignItems::End => vert_alignment = TextAlignmentVert::Bottom,
+            // technically stretch = blocktext, but we don't have that yet
+            _ => vert_alignment = TextAlignmentVert::Center,
+        }
+    }
 
-        match flex_direction {
-            Row | RowReverse => {
-                horz_alignment = match justify_content {
-                    Start => TextAlignmentHorz::Left,
-                    End => TextAlignmentHorz::Right,
-                    Center | SpaceBetween | SpaceAround => TextAlignmentHorz::Center,
-                };
-            },
-            Column | ColumnReverse => {
-                vert_alignment = match justify_content {
-                    Start => TextAlignmentVert::Top,
-                    End => TextAlignmentVert::Bottom,
-                    Center | SpaceBetween | SpaceAround => TextAlignmentVert::Center,
-                };
-            },
+    if let Some(justify_content) = rect.data.layout.justify_content {
+        use css_parser::LayoutJustifyContent;
+        // Horizontal text alignment
+        match justify_content {
+            LayoutJustifyContent::Start => horz_alignment = TextAlignmentHorz::Left,
+            LayoutJustifyContent::End => horz_alignment = TextAlignmentHorz::Right,
+            _ => horz_alignment = TextAlignmentHorz::Center,
         }
     }
 
     if let Some(text_align) = rect.data.style.text_align {
+        // Horizontal text alignment with higher priority
         horz_alignment = text_align;
     }
 

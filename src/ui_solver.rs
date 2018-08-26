@@ -62,6 +62,11 @@ impl WindowSizeConstraints {
 pub struct UiSolver {
     /// The actual cassowary solver
     solver: Solver,
+    /// In order to remove constraints, we need to store them somewhere
+    /// and then remove them from the cassowary solver when they aren't necessary
+    /// anymore. This is a pretty hard problem, which is why we need `DomChangeSet`
+    /// to get a list of removed NodeIds
+    added_constraints: BTreeMap<NodeId, Vec<Constraint>>,
     /// The size constraints of the root window
     window_constraints: WindowSizeConstraints,
     /// The list of variables that has been added to the solver
@@ -86,6 +91,7 @@ impl UiSolver {
 
         Self {
             solver: solver,
+            added_constraints: BTreeMap::new(),
             solved_values: BTreeMap::new(),
             window_constraints: window_constraints,
             edit_variable_cache: EditVariableCache::empty(),
@@ -131,6 +137,19 @@ impl UiSolver {
     pub(crate) fn get_rect_constraints(&self, rect_id: NodeId) -> Option<RectConstraintVariables> {
         let dom_hash = &self.dom_tree_cache.previous_layout.arena.get(&rect_id)?;
         self.edit_variable_cache.map.get(&dom_hash.data).and_then(|rect| Some(rect.1))
+    }
+
+    pub(crate) fn push_added_constraints(&mut self, rect_id: NodeId, constraints: Vec<Constraint>) {
+        self.added_constraints.entry(rect_id).or_insert_with(|| Vec::new()).extend(constraints);
+    }
+
+    pub(crate) fn clear_all_constraints(&mut self) {
+        for entry in self.added_constraints.values() {
+            for constraint in entry {
+                self.solver.remove_constraint(constraint).unwrap();
+            }
+        }
+        self.added_constraints = BTreeMap::new();
     }
 
     pub(crate) fn get_window_constraints(&self) -> WindowSizeConstraints {
