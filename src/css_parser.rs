@@ -1512,14 +1512,28 @@ pub struct LineHeight(pub PercentageValue);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutDirection {
-    Horizontal,
-    Vertical,
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+}
+
+impl Default for LayoutDirection {
+    fn default() -> Self {
+        LayoutDirection::Column
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutWrap {
     Wrap,
     NoWrap,
+}
+
+impl Default for LayoutWrap {
+    fn default() -> Self {
+        LayoutWrap::Wrap
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1756,8 +1770,10 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Cs
 }
 
 multi_type_parser!(parse_layout_direction, LayoutDirection,
-                    ["row", Horizontal],
-                    ["column", Vertical]);
+                    ["row", Row],
+                    ["row-reverse", RowReverse],
+                    ["column", Column],
+                    ["column-reverse", ColumnReverse]);
 
 multi_type_parser!(parse_layout_wrap, LayoutWrap,
                     ["wrap", Wrap],

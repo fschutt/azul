@@ -240,19 +240,31 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             if changeset.is_empty() { None } else { Some(changeset) }
         });
 
+        let root = match self.ui_descr.ui_descr_root {
+            Some(r) => r,
+            None => panic!("Dom has no root element!"),
+        };
+
         if css.needs_relayout {
 
             // Constraints were added or removed during the last frame
-            for rect_idx in self.rectangles.linear_iter() {
-
-                let layout_contraints = create_layout_constraints(
+            for rect_idx in root.following_siblings(&self.rectangles) {
+                let constraints = create_layout_constraints(
                     rect_idx,
                     &self.rectangles,
                     &*self.ui_descr.ui_descr_arena.borrow(),
                     &ui_solver,
                 );
-
-                ui_solver.insert_css_constraints_for_rect(&layout_contraints);
+                ui_solver.insert_css_constraints_for_rect(&constraints);
+                for child_idx in rect_idx.children(&self.rectangles) {
+                    let constraints = create_layout_constraints(
+                        child_idx,
+                        &self.rectangles,
+                        &*self.ui_descr.ui_descr_arena.borrow(),
+                        &ui_solver,
+                    );
+                    ui_solver.insert_css_constraints_for_rect(&constraints);
+                }
             }
 
             // If we push or pop constraints that means we also need to re-layout the window
@@ -277,27 +289,34 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
-        for rect_idx in self.rectangles.linear_iter() {
+        let arena = self.ui_descr.ui_descr_arena.borrow();
 
-            let arena = self.ui_descr.ui_descr_arena.borrow();
-            let node_type = &arena[rect_idx].data.node_type;
-
-            // Ask the solver what the bounds of the current rectangle is
-            let bounds = ui_solver.query_bounds_of_rect(rect_idx);
-            println!("id: {} - bounds: {}", rect_idx, bounds);
-
-            // temporary: fill the whole window with each rectangle
+        for rect_idx in root.following_siblings(&self.rectangles) {
             displaylist_handle_rect(
                 &mut builder,
                 current_epoch,
                 rect_idx,
                 &self.rectangles,
-                node_type,
-                bounds,
+                &arena[rect_idx].data.node_type,
+                ui_solver.query_bounds_of_rect(rect_idx),
                 full_screen_rect,
                 app_resources,
                 render_api,
                 &mut resource_updates);
+
+            for child_idx in rect_idx.reverse_children(&self.rectangles) {
+                displaylist_handle_rect(
+                    &mut builder,
+                    current_epoch,
+                    child_idx,
+                    &self.rectangles,
+                    &arena[child_idx].data.node_type,
+                    ui_solver.query_bounds_of_rect(child_idx),
+                    full_screen_rect,
+                    app_resources,
+                    render_api,
+                    &mut resource_updates);
+            }
         }
 
         render_api.update_resources(resource_updates);
@@ -462,14 +481,14 @@ fn determine_text_alignment<'a>(rect_idx: NodeId, arena: &Arena<DisplayRectangle
         use css_parser::{LayoutDirection::*, LayoutJustifyContent::*};
 
         match flex_direction {
-            Horizontal => {
+            Row | RowReverse => {
                 horz_alignment = match justify_content {
                     Start => TextAlignmentHorz::Left,
                     End => TextAlignmentHorz::Right,
                     Center | SpaceBetween | SpaceAround => TextAlignmentHorz::Center,
                 };
             },
-            Vertical => {
+            Column | ColumnReverse => {
                 vert_alignment = match justify_content {
                     Start => TextAlignmentVert::Top,
                     End => TextAlignmentVert::Bottom,
@@ -977,8 +996,14 @@ fn create_layout_constraints<'a, T: Layout>(
 {
     use cassowary::{
         WeightedRelation::{EQ, GE, LE},
-        strength::*,
     };
+
+    use std::f64;
+
+    const WEAK: f64 = 3.0;
+    const MEDIUM: f64 = 30.0;
+    const STRONG: f64 = 300.0;
+    const REQUIRED: f64 = f64::MAX;
 
     let rect = &display_rectangles[node_id].data;
     let self_rect = ui_solver.get_rect_constraints(node_id).unwrap();
@@ -1009,25 +1034,45 @@ fn create_layout_constraints<'a, T: Layout>(
     if let Some(max_height) = rect.layout.max_height {
         layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
     }
-
-    if let Some(parent) = dom_node.parent {
-        // child element: try to fit the parent width / height
-        let parent = ui_solver.get_rect_constraints(parent).unwrap();
-        layout_constraints.push(self_rect.top | GE(STRONG / 2.0) | parent.top);
-        layout_constraints.push(self_rect.left | GE(STRONG / 2.0) | parent.left);
-        layout_constraints.push(self_rect.height | EQ(WEAK) | parent.height);
-        layout_constraints.push(self_rect.width | EQ(WEAK) | parent.width);
-    } else {
-        // root element: fill window width / height
+ 
+    if dom_node.parent.is_none() {
+        // Root node: fill window width / height
         let window_constraints = ui_solver.get_window_constraints();
-        layout_constraints.push(self_rect.width | EQ(STRONG / 2.0) | window_constraints.width_var);
-        layout_constraints.push(self_rect.height | EQ(STRONG / 2.0) | window_constraints.height_var);
+        layout_constraints.push(self_rect.top | EQ(REQUIRED) | 0.0);
+        layout_constraints.push(self_rect.left | EQ(REQUIRED) | 0.0);
+        layout_constraints.push(self_rect.width | EQ(REQUIRED) | window_constraints.width_var);
+        layout_constraints.push(self_rect.height | EQ(REQUIRED) | window_constraints.height_var);
     }
 
-    if let Some(next_sibling) = dom_node.next_sibling {
-        let next_sibling = ui_solver.get_rect_constraints(next_sibling).unwrap();
-        layout_constraints.push((self_rect.top + self_rect.height) | GE(REQUIRED) | next_sibling.top);
+    let direction = rect.layout.direction.unwrap_or_default();
+
+    let mut next_child_id = dom_node.first_child;
+    while let Some(child_id) = next_child_id {
+        let child = ui_solver.get_rect_constraints(child_id).unwrap();
+
+        match direction {
+            LayoutDirection::Row => {
+                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
+                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
+            },
+            LayoutDirection::RowReverse => {
+                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
+                layout_constraints.push(child.left | EQ(STRONG) | (self_rect.left + (self_rect.width - child.width)));
+            },
+            LayoutDirection::Column => {
+                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
+                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
+            },
+            LayoutDirection::ColumnReverse => {
+                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
+                layout_constraints.push(child.top | EQ(STRONG) | (self_rect.top + (self_rect.height - child.height)));
+            },
+        }
+
+        next_child_id = dom[child_id].next_sibling;
     }
+
+    println!("direction: {:?}", direction);
 
     layout_constraints
 }
