@@ -48,15 +48,10 @@ impl Layout for MyAppData {
                 .with_callback(On::Scroll, Callback(scroll_map_contents))
                 .with_callback(On::MouseOver, Callback(check_hovered_font))
         } else {
-            /*
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
             Button::with_label("Load SVG file...").dom()
                 .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
-            */
-            Dom::new(NodeType::Div).with_id("wrapper_1")
-                .with_child(Dom::new(NodeType::Div).with_id("red"))
-                .with_child(Dom::new(NodeType::Div).with_id("green"))
         }
     }
 }
@@ -201,27 +196,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 }
 
 fn main() {
-    // should show a large red rectangle at the top
-    // and a small green rectangle at the bottom
-    let css = Css::new_from_str("
-        #wrapper_1 {
-            flex-direction: column;
-        }
-
-        #red {
-            background-color: red;
-            width: 200px;
-            height: 200px;
-        }
-
-        #green {
-            background-color: green;
-            width: 50px;
-            height: 50px;
-        }
-    ").unwrap();
-
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
-    app.create_window(WindowCreateOptions::default(), css).unwrap();
+    app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
     app.run().unwrap();
 }

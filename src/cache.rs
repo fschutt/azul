@@ -39,9 +39,8 @@ use std::{
     ops::Deref,
     collections::BTreeMap,
 };
-use cassowary::Solver;
 use {
-    constraints::RectConstraintVariables,
+    ui_solver::RectConstraintVariables,
     id_tree::{NodeId, Arena},
     traits::Layout,
     dom::NodeData,
@@ -243,7 +242,7 @@ impl EditVariableCache {
         }
     }
 
-    pub(crate) fn initialize_new_rectangles(&mut self, solver: &mut Solver, rects: &DomChangeSet) {
+    pub(crate) fn initialize_new_rectangles(&mut self, rects: &DomChangeSet) {
         use std::collections::btree_map::Entry::*;
 
         for dom_hash in rects.added_nodes.values() {
@@ -255,7 +254,6 @@ impl EditVariableCache {
                 },
                 Vacant(e) => {
                     let rect = RectConstraintVariables::default();
-                    rect.add_to_solver(solver);
                     e.insert((true, rect));
                 }
             }
@@ -264,13 +262,12 @@ impl EditVariableCache {
 
     /// Last step of the caching algorithm:
     /// Remove all edit variables where the `bool` is set to false
-    pub(crate) fn remove_unused_variables(&mut self, solver: &mut Solver) {
+    pub(crate) fn remove_unused_variables(&mut self) {
 
         let mut to_be_removed = Vec::<DomHash>::new();
 
-        for (key, &(active, variable_rect)) in &self.map {
+        for (key, &(active, _)) in &self.map {
             if !active {
-                variable_rect.remove_from_solver(solver);
                 to_be_removed.push(*key);
             }
         }
