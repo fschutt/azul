@@ -246,9 +246,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         };
 
         if css.needs_relayout {
-
-            // Constraints were added or removed during the last frame
-            for rect_idx in root.following_siblings(&self.rectangles) {
+            for rect_idx in self.rectangles.linear_iter() {
                 let constraints = create_layout_constraints(
                     rect_idx,
                     &self.rectangles,
@@ -256,15 +254,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     &ui_solver,
                 );
                 ui_solver.insert_css_constraints_for_rect(&constraints);
-                for child_idx in rect_idx.children(&self.rectangles) {
-                    let constraints = create_layout_constraints(
-                        child_idx,
-                        &self.rectangles,
-                        &*self.ui_descr.ui_descr_arena.borrow(),
-                        &ui_solver,
-                    );
-                    ui_solver.insert_css_constraints_for_rect(&constraints);
-                }
             }
 
             // If we push or pop constraints that means we also need to re-layout the window
@@ -291,7 +280,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         let arena = self.ui_descr.ui_descr_arena.borrow();
 
-        for rect_idx in root.following_siblings(&self.rectangles) {
+        for rect_idx in root.descendants(&self.rectangles) {
             displaylist_handle_rect(
                 &mut builder,
                 current_epoch,
@@ -303,20 +292,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 app_resources,
                 render_api,
                 &mut resource_updates);
-
-            for child_idx in rect_idx.reverse_children(&self.rectangles) {
-                displaylist_handle_rect(
-                    &mut builder,
-                    current_epoch,
-                    child_idx,
-                    &self.rectangles,
-                    &arena[child_idx].data.node_type,
-                    ui_solver.query_bounds_of_rect(child_idx),
-                    full_screen_rect,
-                    app_resources,
-                    render_api,
-                    &mut resource_updates);
-            }
         }
 
         render_api.update_resources(resource_updates);

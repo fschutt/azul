@@ -112,7 +112,6 @@ impl UiSolver {
 
     pub(crate) fn update_layout_cache(&mut self) {
         for (variable, solved_value) in self.solver.fetch_changes() {
-            println!("variable {:?} - solved value: {}", variable, solved_value);
             self.solved_values.insert(*variable, *solved_value);
         }
     }
