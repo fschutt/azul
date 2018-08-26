@@ -687,7 +687,7 @@ fn push_triangle(
         tag: None,
     };
 
-    const TRANSPARENT: ColorU = ColorU { r: 0,    b: 0,   g: 0,   a: 0  };
+    const TRANSPARENT: ColorU = ColorU { r: 0, b: 0, g: 0, a: 0 };
 
     // make all borders but one transparent
     let [b_left, b_right, b_top, b_bottom] = match direction {
@@ -977,7 +977,7 @@ fn create_layout_constraints<'a, T: Layout>(
 {
     use cassowary::{
         WeightedRelation::{EQ, GE, LE},
-        strength::{MEDIUM, STRONG, REQUIRED},
+        strength::*,
     };
 
     let rect = &display_rectangles[node_id].data;
@@ -1011,21 +1011,17 @@ fn create_layout_constraints<'a, T: Layout>(
     }
 
     if let Some(parent) = dom_node.parent {
+        // child element: try to fit the parent width / height
         let parent = ui_solver.get_rect_constraints(parent).unwrap();
-        layout_constraints.push(self_rect.top | GE(STRONG) | parent.top);
-        layout_constraints.push(self_rect.left | GE(STRONG) | parent.left);
-        layout_constraints.push(self_rect.height | EQ(MEDIUM) | parent.height);
-        layout_constraints.push(self_rect.width | EQ(MEDIUM) | parent.width);
+        layout_constraints.push(self_rect.top | GE(STRONG / 2.0) | parent.top);
+        layout_constraints.push(self_rect.left | GE(STRONG / 2.0) | parent.left);
+        layout_constraints.push(self_rect.height | EQ(WEAK) | parent.height);
+        layout_constraints.push(self_rect.width | EQ(WEAK) | parent.width);
     } else {
+        // root element: fill window width / height
         let window_constraints = ui_solver.get_window_constraints();
         layout_constraints.push(self_rect.width | EQ(STRONG / 2.0) | window_constraints.width_var);
         layout_constraints.push(self_rect.height | EQ(STRONG / 2.0) | window_constraints.height_var);
-    }
-
-    if let Some(child) = dom_node.first_child {
-        let child = ui_solver.get_rect_constraints(child).unwrap();
-        layout_constraints.push(child.top | EQ(STRONG) | 100.0);
-        layout_constraints.push(child.left | EQ(STRONG) | 100.0);
     }
 
     if let Some(next_sibling) = dom_node.next_sibling {
