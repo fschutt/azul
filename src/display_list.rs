@@ -263,11 +263,9 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         // TODO: early return based on changeset?
 
         // Recalculate the actual layout
-        if css.needs_relayout || has_window_size_changed {
-
+        if has_window_size_changed {
+            ui_solver.update_window_size(&window_size.dimensions);
         }
-
-        ui_solver.update_window_size(&window_size.dimensions);
         ui_solver.update_layout_cache();
 
         css.needs_relayout = false;

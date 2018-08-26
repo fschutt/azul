@@ -28,7 +28,10 @@ pub const PX_TO_PT: f32 = 72.0 / 96.0;
 /// Be careful when caching this - the `Words` are independent of the
 /// original font, so be sure to note the font ID if you cache this struct.
 #[derive(Debug, Clone)]
-pub struct Words(Vec<SemanticWordItem>);
+pub struct Words {
+    pub items: Vec<SemanticWordItem>,
+    pub longest_word_width: f32,
+}
 
 /// A `Word` contains information about the layout of a single word
 #[derive(Debug, Clone)]
@@ -183,6 +186,8 @@ pub(crate) fn get_glyphs(
     scrollbar_info: &ScrollbarInfo)
 -> (Vec<GlyphInstance>, TextOverflowPass2)
 {
+    let mut bounds = *bounds;
+
     let target_font = match app_resources.get_font(target_font_id) {
         Some(s) => s,
         None => panic!("Drawing with invalid font!: {:?}", target_font_id),
@@ -206,6 +211,11 @@ pub(crate) fn get_glyphs(
             &words_owned
         },
     };
+
+    // Prevent negative width / rect height or a too small rectangle -
+    // the rect must be at least wide enough for the longest word
+    bounds.size.width = bounds.size.width.max(words.longest_word_width);
+    bounds.size.height = bounds.size.height.abs();
 
     // (2) Calculate the additions / subtractions that have to be take into account
     // let harfbuzz_adjustments = calculate_harfbuzz_adjustments(&text, &target_font.0);
@@ -342,7 +352,7 @@ fn scale_words(words: &mut Words, scale_factor: f32) {
     // we simply scale each glyph position by 13 / 12. This is faster than
     // re-calculating the font metrics (from Rusttype) each time we scale a
     // large amount of text.
-    for word in words.0.iter_mut() {
+    for word in words.items.iter_mut() {
         if let SemanticWordItem::Word(ref mut w) = word {
             w.glyphs.iter_mut().for_each(|g| g.point.x *= scale_factor);
             w.total_width *= scale_factor;
@@ -366,10 +376,15 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
     let mut glyphs_in_this_word = Vec::new();
     let mut last_glyph = None;
 
+    // In case the rectangle is smaller than the longest word,
+    // we need to expand the rectangle to be that size
+    let mut longest_word_width = 0.0;
+
     fn end_word(words: &mut Vec<SemanticWordItem>,
                 glyphs_in_this_word: &mut Vec<GlyphInstance>,
                 cur_word_length: &mut f32,
                 word_caret: &mut f32,
+                longest_word_width: &mut f32,
                 last_glyph: &mut Option<GlyphId>)
     {
         // End of word
@@ -377,6 +392,10 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
             glyphs: glyphs_in_this_word.drain(..).collect(),
             total_width: *cur_word_length,
         }));
+
+        if cur_word_length > longest_word_width {
+            *longest_word_width = *cur_word_length;
+        }
 
         // Reset everything
         *last_glyph = None;
@@ -399,6 +418,7 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                         &mut glyphs_in_this_word,
                         &mut cur_word_length,
                         &mut word_caret,
+                        &mut longest_word_width,
                         &mut last_glyph);
                 }
                 words.push(SemanticWordItem::Tab);
@@ -411,6 +431,7 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                         &mut glyphs_in_this_word,
                         &mut cur_word_length,
                         &mut word_caret,
+                        &mut longest_word_width,
                         &mut last_glyph);
                 }
                 words.push(SemanticWordItem::Return);
@@ -422,6 +443,7 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                         &mut glyphs_in_this_word,
                         &mut cur_word_length,
                         &mut word_caret,
+                        &mut longest_word_width,
                         &mut last_glyph);
                 }
             },
@@ -466,10 +488,14 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
             &mut glyphs_in_this_word,
             &mut cur_word_length,
             &mut word_caret,
+            &mut longest_word_width,
             &mut last_glyph);
     }
 
-    Words(words)
+    Words {
+        items: words,
+        longest_word_width: longest_word_width,
+    }
 }
 
 // First pass: calculate if the words will overflow (using the tabs)
@@ -483,7 +509,7 @@ fn estimate_overflow_pass_1(
 {
     use self::SemanticWordItem::*;
 
-    let words = &words.0;
+    let words = &words.items;
 
     let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
 
@@ -666,7 +692,7 @@ fn words_to_left_aligned_glyphs<'a>(
     font_metrics: &FontMetrics)
 -> (Vec<GlyphInstance>, Vec<(usize, f32)>, f32, f32)
 {
-    let words = &words.0;
+    let words = &words.items;
 
     let FontMetrics { space_width, tab_width, vertical_advance, offset_top, font_size_no_line_height, .. } = *font_metrics;
 
