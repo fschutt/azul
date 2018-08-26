@@ -773,13 +773,24 @@ fn push_background(
 {
     match background {
         Background::RadialGradient(gradient) => {
+            use css_parser::Shape;
+
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
                     color: gradient_pre.color,
                 }).collect();
-            let center = bounds.bottom_left(); // TODO - expose in CSS
-            let radius = TypedSize2D::new(40.0, 40.0); // TODO - expose in CSS
+
+            let center = bounds.center();
+
+            // Note: division by 2.0 because it's the radius, not the diameter
+            let radius = match gradient.shape {
+                Shape::Ellipse => TypedSize2D::new(bounds.size.width / 2.0, bounds.size.height / 2.0),
+                Shape::Circle => {
+                    let largest_bound_size = bounds.size.width.max(bounds.size.height);
+                    TypedSize2D::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
+                },
+            };
             let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
