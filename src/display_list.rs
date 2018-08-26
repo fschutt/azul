@@ -784,12 +784,22 @@ fn push_background(
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         Background::LinearGradient(gradient) => {
+
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
                     color: gradient_pre.color,
                 }).collect();
-            let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
+
+            let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&bounds);
+
+            end_pt.x = -end_pt.x;
+
+            // webrender "normalizes" gradient stops, TODO: file a bug about this?
+
+            begin_pt.x /= 100.0; begin_pt.y /= 100.0;
+            end_pt.x /= 100.0; end_pt.y /= 100.0;
+
             let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
@@ -998,7 +1008,7 @@ fn create_layout_constraints<'a, T: Layout>(
     } else {
         if let Some(parent) = dom_node.parent {
             let parent = ui_solver.get_rect_constraints(parent).unwrap();
-            layout_constraints.push(self_rect.width | EQ(STRONG) | parent.width);            
+            layout_constraints.push(self_rect.width | EQ(STRONG) | parent.width);
         }
     }
     if let Some(max_width) = rect.layout.max_width {
@@ -1013,13 +1023,13 @@ fn create_layout_constraints<'a, T: Layout>(
     } else {
         if let Some(parent) = dom_node.parent {
             let parent = ui_solver.get_rect_constraints(parent).unwrap();
-            layout_constraints.push(self_rect.height | EQ(STRONG) | parent.height);            
+            layout_constraints.push(self_rect.height | EQ(STRONG) | parent.height);
         }
     }
     if let Some(max_height) = rect.layout.max_height {
         layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
     }
- 
+
 
     if dom_node.parent.is_none() {
         // Root node: fill window width / height

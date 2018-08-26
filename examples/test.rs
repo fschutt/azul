@@ -21,8 +21,8 @@ fn main() {
 
     let css = Css::new_from_str("
             #wrapper {
-                background-color: blue;
-                flex-direction: row-reverse;
+                background: linear-gradient(135deg, #004e92 0%,#000428 100%);
+                flex-direction: row;
             }
             #red {
                 background-color: red;
@@ -32,7 +32,6 @@ fn main() {
                 width: 50px;
             }
             #green {
-                background-color: green;
                 flex-direction: column;
                 width: 500px;
             }
