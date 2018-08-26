@@ -11,6 +11,7 @@ impl Layout for MyDataModel {
         Dom::new(NodeType::Div).with_id("wrapper")
             .with_child(Dom::new(NodeType::Label(format!("{}", self.counter))).with_id("red"))
             .with_child(Dom::new(NodeType::Div).with_id("green"))
+            .with_child(Dom::new(NodeType::Div).with_id("yellow"))
     }
 }
 
@@ -19,7 +20,7 @@ fn main() {
     let css = Css::new_from_str("
             #wrapper {
                 background-color: blue;
-                flex-direction: row;
+                flex-direction: column-reverse;
             }
             #green {
                 background-color: green;
@@ -33,6 +34,11 @@ fn main() {
                 font-family: sans-serif;
                 width: 50px;
                 height: 50px;
+            }
+            #yellow {
+                background-color: yellow;
+                width: 100px;
+                height: 100px;
             }
     ").unwrap();
 

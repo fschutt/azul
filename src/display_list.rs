@@ -1062,15 +1062,24 @@ fn create_layout_constraints<'a, T: Layout>(
             },
             LayoutDirection::RowReverse => {
                 layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
-                layout_constraints.push(child.left | EQ(STRONG) | (self_rect.left + (self_rect.width - child.width)));
+                match previous_child {
+                    None => layout_constraints.push(child.left | EQ(STRONG) | (self_rect.left + (self_rect.width - child.width))),
+                    Some(prev) => layout_constraints.push((child.left + child.width) | EQ(STRONG) | prev.left),
+                }
             },
             LayoutDirection::Column => {
-                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
+                match previous_child {
+                    None => layout_constraints.push(child.top | EQ(STRONG) | self_rect.top),
+                    Some(prev) => layout_constraints.push(child.top | EQ(STRONG) | (prev.top + prev.height)),
+                }
                 layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
             },
             LayoutDirection::ColumnReverse => {
                 layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
-                layout_constraints.push(child.top | EQ(STRONG) | (self_rect.top + (self_rect.height - child.height)));
+                match previous_child {
+                    None => layout_constraints.push(child.top | EQ(STRONG) | (self_rect.top + (self_rect.height - child.height))),
+                    Some(prev) => layout_constraints.push((child.top + child.height) | EQ(STRONG) | prev.top),
+                }
             },
         }
 
