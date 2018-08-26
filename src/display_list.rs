@@ -245,7 +245,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             None => panic!("Dom has no root element!"),
         };
 
-        if css.needs_relayout {
+        if css.needs_relayout || changeset.is_some() {
             for rect_idx in self.rectangles.linear_iter() {
                 let constraints = create_layout_constraints(
                     rect_idx,
@@ -1072,8 +1072,6 @@ fn create_layout_constraints<'a, T: Layout>(
         previous_child = Some(child);
         next_child_id = dom[child_id].next_sibling;
     }
-
-    println!("direction: {:?}", direction);
 
     layout_constraints
 }
