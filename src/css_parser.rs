@@ -101,6 +101,21 @@ pub enum ParsedCssProperty {
     Overflow(LayoutOverflow),
 }
 
+impl ParsedCssProperty {
+    /// Returns whether this property will be inherited during cascading
+    pub fn is_inheritable(&self) -> bool {
+        use self::ParsedCssProperty::*;
+        match self {
+            | TextColor(_)
+            | FontFamily(_)
+            | FontSize(_)
+            | LineHeight(_)
+            | TextAlign(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
 impl_from_no_lifetimes!(Background, ParsedCssProperty::Background);
 impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
@@ -1028,8 +1043,8 @@ impl Direction {
     {
         match *self {
             Direction::Angle(ref deg) => {
-                // todo!!
-                let mut point: LayoutPoint = TypedPoint2D::new(rect.size.width, rect.size.height);
+                let max = rect.size.width.max(rect.size.height);
+                let mut point: LayoutPoint = TypedPoint2D::new(max, 0.0);
                 let rot = TypedRotation2D::new(Angle::radians(deg.to_radians()));
                 (LayoutPoint::zero(), rot.transform_point(&point))
             },

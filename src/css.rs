@@ -116,6 +116,16 @@ pub(crate) enum CssDeclaration {
     Dynamic(DynamicCssProperty),
 }
 
+impl CssDeclaration {
+    pub fn is_inheritable(&self) -> bool {
+        use self::CssDeclaration::*;
+        match self {
+            Static(s) => s.is_inheritable(),
+            Dynamic(d) => d.is_inheritable(),
+        }
+    }
+}
+
 /// A `CssProperty` is a type of CSS Rule,
 /// but the contents of the rule is dynamic.
 ///
@@ -136,6 +146,14 @@ pub(crate) enum CssDeclaration {
 pub(crate) struct DynamicCssProperty {
     pub(crate) dynamic_id: String,
     pub(crate) default: ParsedCssProperty,
+}
+
+impl DynamicCssProperty {
+    pub fn is_inheritable(&self) -> bool {
+        // Since the overridden value has to have the same enum type
+        // we can just check if the default value is inheritable
+        self.default.is_inheritable()
+    }
 }
 
 impl CssRule {
