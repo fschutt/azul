@@ -20,12 +20,11 @@ fn main() {
     let css = Css::new_from_str("
             #wrapper {
                 background-color: blue;
-                flex-direction: column-reverse;
+                flex-direction: row-reverse;
             }
             #green {
                 background-color: green;
                 width: 200px;
-                height: 200px;
             }
             #red {
                 background-color: red;
@@ -33,12 +32,9 @@ fn main() {
                 font-size: 10px;
                 font-family: sans-serif;
                 width: 50px;
-                height: 50px;
             }
             #yellow {
                 background-color: yellow;
-                width: 100px;
-                height: 100px;
             }
     ").unwrap();
 
