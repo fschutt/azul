@@ -8,7 +8,6 @@ use {
     FastHashMap,
     resources::AppResources,
     traits::Layout,
-    constraints::CssConstraint,
     ui_description::{UiDescription, StyledNode},
     ui_solver::UiSolver,
     window_state::WindowSize,
@@ -253,7 +252,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     &ui_solver,
                 );
 
-                ui_solver.insert_css_constraints_for_rect(rect_idx, &layout_contraints);
+                ui_solver.insert_css_constraints_for_rect(&layout_contraints);
             }
 
             // If we push or pop constraints that means we also need to re-layout the window
@@ -966,142 +965,75 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
     }
 }
 
+use cassowary::Constraint;
+
 // Returns the constraints for one rectangle
 fn create_layout_constraints<'a, T: Layout>(
     node_id: NodeId,
     display_rectangles: &Arena<DisplayRectangle<'a>>,
     dom: &Arena<NodeData<T>>,
     ui_solver: &UiSolver)
--> Vec<CssConstraint>
+-> Vec<Constraint>
 {
-    use cassowary::strength::*;
-    use constraints::{SizeConstraint, PaddingConstraint, Strength, Padding};
-
-    const AZ_WEAK: f64 = 3.0;
-    const AZ_MEDIUM: f64 = 30.0;
-    const AZ_STRONG: f64 = 300.0;
+    use cassowary::{
+        WeightedRelation::{EQ, GE, LE},
+        strength::{MEDIUM, STRONG, REQUIRED},
+    };
 
     let rect = &display_rectangles[node_id].data;
+    let self_rect = ui_solver.get_rect_constraints(node_id).unwrap();
+
     let dom_node = &dom[node_id];
 
     let mut layout_constraints = Vec::new();
 
     // Insert the max height and width constraints
-    if let Some(max_width) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Width) {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Width(max_width), Strength(AZ_WEAK)));
+    //
+    // min-width and max-width are stronger than width because the width has to be between min and max width
+    if let Some(min_width) = rect.layout.min_width {
+        layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
+    }
+    if let Some(width) = rect.layout.width {
+        layout_constraints.push(self_rect.width | EQ(STRONG) | width.0.to_pixels());
+    }
+    if let Some(max_width) = rect.layout.max_width {
+        layout_constraints.push(self_rect.width | LE(REQUIRED) | max_width.0.to_pixels());
     }
 
-    if let Some(max_height) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Height) {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Height(max_height), Strength(AZ_WEAK)));
+    if let Some(min_height) = rect.layout.min_height {
+        layout_constraints.push(self_rect.height | GE(REQUIRED) | min_height.0.to_pixels());
+    }
+    if let Some(height) = rect.layout.height {
+        layout_constraints.push(self_rect.height | EQ(STRONG) | height.0.to_pixels());
+    }
+    if let Some(max_height) = rect.layout.max_height {
+        layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
     }
 
-    // Testing only - each rectangle should be below its previous sibling DOM element
     if let Some(parent) = dom_node.parent {
         let parent = ui_solver.get_rect_constraints(parent).unwrap();
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::BoundBy(parent), Strength(REQUIRED), Padding(20.0)));
+        layout_constraints.push(self_rect.top | GE(STRONG) | parent.top);
+        layout_constraints.push(self_rect.left | GE(STRONG) | parent.left);
+        layout_constraints.push(self_rect.height | EQ(MEDIUM) | parent.height);
+        layout_constraints.push(self_rect.width | EQ(MEDIUM) | parent.width);
     } else {
-        let window = ui_solver.get_window_constraints();
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::MatchWidth(window.width_var), Strength(REQUIRED), Padding(0.0)));
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::MatchHeight(window.height_var), Strength(REQUIRED), Padding(0.0)));
+        let window_constraints = ui_solver.get_window_constraints();
+        layout_constraints.push(self_rect.width | EQ(STRONG / 2.0) | window_constraints.width_var);
+        layout_constraints.push(self_rect.height | EQ(STRONG / 2.0) | window_constraints.height_var);
     }
-/*
-    if let Some(previous_sibling) = dom_node.previous_sibling {
-        println!("inserting bottom constraint for ID: {}", node_id);
-        // The variable must have been initialized before `create_layout_constraints`
-        // was called, so this `unwrap()` should never panic
-        let previous_rect_var = ui_solver.get_rect_constraints(previous_sibling).unwrap();
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::AlignTop(previous_rect_var.bottom), Strength(REQUIRED), Padding(20.0)));
-        // layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.top), Strength(STRONG), Padding(0.0)));
+
+    if let Some(child) = dom_node.first_child {
+        let child = ui_solver.get_rect_constraints(child).unwrap();
+        layout_constraints.push(child.top | EQ(STRONG) | 100.0);
+        layout_constraints.push(child.left | EQ(STRONG) | 100.0);
     }
-*/
+
+    if let Some(next_sibling) = dom_node.next_sibling {
+        let next_sibling = ui_solver.get_rect_constraints(next_sibling).unwrap();
+        layout_constraints.push((self_rect.top + self_rect.height) | GE(REQUIRED) | next_sibling.top);
+    }
+
     layout_constraints
-}
-
-// Layout / tracing-related functions
-
-// What constraint (width or height) to search for when looking for a fitting width / height constraint
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum WidthOrHeight {
-    Width,
-    Height,
-}
-
-impl<'a> Arena<DisplayRectangle<'a>> {
-
-    /// Recursive algorithm for getting the dimensions of a rectangle
-    ///
-    /// This function can be used on any rectangle to get the maximum allowed width
-    /// (for inserting the width / height constraint into the layout solver).
-    /// It simply traverses upwards through the nodes, until it finds a matching min-width / width
-    /// constraint, returns None, if the root node is reached (with no constraints)
-    ///
-    /// Usually, you'd use it like:
-    ///
-    /// ```no_run,ignore
-    /// let max_width = arena.get_wh_for_rectangle(id, WidthOrHeight::Width)
-    ///                      .unwrap_or(window_dimensions.width);
-    /// ```
-    fn get_wh_for_rectangle(&self, id: NodeId, field: WidthOrHeight) -> Option<f32> {
-
-        use self::WidthOrHeight::*;
-
-        let node = &self[id];
-
-        macro_rules! get_wh {
-            ($field_name:ident, $min_field:ident) => ({
-                let mut $field_name: Option<f32> = None;
-
-                match node.data.layout.$min_field {
-                    Some(m_w) => {
-                        let m_w_px = m_w.0.to_pixels();
-                        match node.data.layout.$field_name {
-                            Some(w) => {
-                                // width + min_width
-                                let w_px = w.0.to_pixels();
-                                $field_name = Some(m_w_px.max(w_px));
-                            },
-                            None => {
-                                // min_width
-                                $field_name = Some(m_w_px);
-                            }
-                        }
-                    },
-                    None => {
-                        match node.data.layout.$field_name {
-                            Some(w) => {
-                                // width
-                                let w_px = w.0.to_pixels();
-                                $field_name = Some(w_px);
-                            },
-                            None => {
-                                // neither width nor min_width
-                            }
-                        }
-                    }
-                };
-
-                if $field_name.is_none() {
-                    match node.parent() {
-                        Some(p) => $field_name = self.get_wh_for_rectangle(p, field),
-                        None => { },
-                    }
-                }
-
-                $field_name
-            })
-        }
-
-        match field {
-            Width => {
-                let w = get_wh!(width, min_width);
-                w
-            },
-            Height => {
-                let h = get_wh!(height, min_height);
-                h
-            }
-        }
-    }
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore

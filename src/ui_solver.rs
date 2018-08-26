@@ -10,9 +10,37 @@ use {
     id_tree::{NodeId, Arena},
     dom::NodeData,
     cache::{EditVariableCache, DomTreeCache, DomChangeSet},
-    constraints::{CssConstraint, RectConstraintVariables},
     traits::Layout,
 };
+
+/// A set of cassowary `Variable`s representing the
+/// bounding rectangle of a layout.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct RectConstraintVariables {
+    pub left: Variable,
+    pub top: Variable,
+    pub width: Variable,
+    pub height: Variable,
+}
+
+impl Default for RectConstraintVariables {
+    fn default() -> Self {
+        Self {
+            left: Variable::new(),
+            top: Variable::new(),
+            width: Variable::new(),
+            height: Variable::new(),
+        }
+    }
+}
+
+// Empty test, for some reason codecov doesn't detect any files (and therefore
+// doesn't report codecov % correctly) except if they have at least one test in
+// the file. This is an empty test, which should be updated later on
+#[test]
+fn __codecov_test_constraints_file() {
+
+}
 
 /// Stores the variables of the root width and height (but not the values themselves)
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -67,25 +95,13 @@ impl UiSolver {
 
     pub(crate) fn update_dom<T: Layout>(&mut self, root: &NodeId, arena: &Arena<NodeData<T>>) -> DomChangeSet {
         let changeset = self.dom_tree_cache.update(*root, arena);
-        self.edit_variable_cache.initialize_new_rectangles(&mut self.solver, &changeset);
-        self.edit_variable_cache.remove_unused_variables(&mut self.solver);
+        self.edit_variable_cache.initialize_new_rectangles(&changeset);
+        self.edit_variable_cache.remove_unused_variables();
         changeset
     }
 
-    pub(crate) fn insert_css_constraints_for_rect(&mut self, rect_idx: NodeId, constraints: &[CssConstraint]) {
-        use cassowary::strength::*;
-        use constraints::{SizeConstraint, Strength, Point};
-
-        let dom_hash = &self.dom_tree_cache.previous_layout.arena[rect_idx];
-        let display_rect = &self.edit_variable_cache.map[&dom_hash.data].1;
-
-        println!("display_rect {} - variables: {:?}", rect_idx, display_rect);
-
-        self.solver.add_constraints(&css_constraints_to_cassowary_constraints(display_rect, &[
-            CssConstraint::Size(SizeConstraint::TopLeft(Point::new(0.0, 0.0)), Strength(STRONG))
-        ])).unwrap();
-
-        self.solver.add_constraints(&css_constraints_to_cassowary_constraints(display_rect, constraints)).unwrap();
+    pub(crate) fn insert_css_constraints_for_rect(&mut self, constraints: &[Constraint]) {
+        self.solver.add_constraints(constraints).unwrap();
     }
 
     /// Notifies the solver that the window size has changed
@@ -107,22 +123,10 @@ impl UiSolver {
 
         let top = self.solved_values.get(&display_rect.top).and_then(|x| Some(*x)).unwrap_or(0.0);
         let left = self.solved_values.get(&display_rect.left).and_then(|x| Some(*x)).unwrap_or(0.0);
+        let width = self.solved_values.get(&display_rect.width).and_then(|x| Some(*x)).unwrap_or(0.0);
+        let height = self.solved_values.get(&display_rect.height).and_then(|x| Some(*x)).unwrap_or(0.0);
 
-        let right = match self.solved_values.get(&display_rect.right) {
-            Some(w) => *w,
-            None => self.solved_values[&self.window_constraints.width_var],
-        };
-
-        let bottom = match self.solved_values.get(&display_rect.bottom) {
-            Some(h) => *h,
-            None => self.solved_values[&self.window_constraints.height_var],
-        };
-/*
-        println!("rect id: {} - top: {}, left: {}, right: {}, bottom: {}",
-                 rect_id, top, left, right, bottom
-        );
-*/
-        TypedRect::new(TypedPoint2D::new(top as f32, left as f32), TypedSize2D::new((right - left) as f32, (bottom - top) as f32))
+        TypedRect::new(TypedPoint2D::new(left as f32, top as f32), TypedSize2D::new(width as f32, height as f32))
     }
 
     pub(crate) fn get_rect_constraints(&self, rect_id: NodeId) -> Option<RectConstraintVariables> {
@@ -133,19 +137,4 @@ impl UiSolver {
     pub(crate) fn get_window_constraints(&self) -> WindowSizeConstraints {
         self.window_constraints
     }
-}
-
-fn css_constraints_to_cassowary_constraints(rect: &RectConstraintVariables, css: &[CssConstraint])
--> Vec<Constraint>
-{
-    css.iter().flat_map(|constraint|
-        match *constraint {
-            CssConstraint::Size(constraint, strength) => {
-                constraint.build(&rect, strength.0)
-            }
-            CssConstraint::Padding(constraint, strength, padding) => {
-                constraint.build(&rect, strength.0, padding.0)
-            }
-        }
-    ).collect()
 }

@@ -496,8 +496,7 @@ Several projects have helped azul severely and should be noted here:
 
 - Chris Tollidays [limn](https://github.com/christolliday/limn) framework has helped
   severely with discovering undocumented parts of webrender as well as working with
-  constraints (the `constraints.rs` file was copied from limn with the [permission of
-  the author](https://github.com/christolliday/limn/issues/22#issuecomment-362545167))
+  constraints.
 - Nicolas Silva for his work on [lyon](https://github.com/nical/lyon) - without this,
   the SVG renderer wouldn't have been possible
 - All webrender contributors who have been patient enough to answer my questions on IRC
