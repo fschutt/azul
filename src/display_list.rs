@@ -459,7 +459,8 @@ fn displaylist_handle_rect<'a>(
                 LayoutSize::zero(),
                 ImageRendering::Auto,
                 AlphaType::Alpha,
-                key);
+                key,
+                ColorF::WHITE);
         },
     }
 
@@ -512,7 +513,7 @@ fn push_rect(
     builder: &mut DisplayListBuilder,
     color: &BackgroundColor)
 {
-    builder.push_rect(&info, srgba_to_linear(color.0.into()));
+    builder.push_rect(&info, color.0.into());
 }
 
 #[inline]
@@ -574,7 +575,7 @@ fn push_text(
         &scrollbar_style
     );
 
-    let font_color = srgba_to_linear(style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into());
+    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
     flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
@@ -781,8 +782,24 @@ fn push_box_shadow(
         clip_rect.intersection(full_screen_rect).unwrap_or(clip_rect)
     };
 
+    // Apply a gamma of 2.2 to the original value
+    //
+    // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
+    fn apply_gamma(color: ColorF) -> ColorF {
+
+        const GAMMA: f32 = 2.2;
+        const GAMMA_F: f32 = 1.0 / GAMMA;
+
+        ColorF {
+            r: color.r.powf(GAMMA_F),
+            g: color.g.powf(GAMMA_F),
+            b: color.b.powf(GAMMA_F),
+            a: color.a,
+        }
+    }
+
     let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, srgba_to_linear(pre_shadow.color),
+    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, apply_gamma(pre_shadow.color),
                              pre_shadow.blur_radius, pre_shadow.spread_radius,
                              border_radius, pre_shadow.clip_mode);
 }
@@ -802,7 +819,7 @@ fn push_background(
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
-                    color: srgba_to_linear(gradient_pre.color),
+                    color: gradient_pre.color,
                 }).collect();
 
             let center = bounds.center();
@@ -822,19 +839,11 @@ fn push_background(
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
-                    offset: gradient_pre.offset.unwrap(),
-                    color: srgba_to_linear(gradient_pre.color),
+                    offset: gradient_pre.offset.unwrap() / 100.0,
+                    color: gradient_pre.color,
                 }).collect();
 
             let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&bounds);
-
-            end_pt.x = -end_pt.x;
-
-            // webrender "normalizes" gradient stops, TODO: file a bug about this?
-
-            begin_pt.x /= 100.0; begin_pt.y /= 100.0;
-            end_pt.x /= 100.0; end_pt.y /= 100.0;
-
             let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
@@ -864,8 +873,9 @@ fn push_image(
                         bounds.size,
                         LayoutSize::zero(),
                         ImageRendering::Auto,
-                        AlphaType::Alpha,
-                        image_info.key);
+                        AlphaType::PremultipliedAlpha,
+                        image_info.key,
+                        ColorF::WHITE);
             },
             _ => { },
         }
@@ -1127,47 +1137,4 @@ fn create_layout_constraints<'a, T: Layout>(
 #[test]
 fn __codecov_test_display_list_file() {
 
-}
-
-
-/// Taken from the `palette` crate - I wouldn't want to
-/// import the entire crate just for one function (due to added compile time)
-///
-/// The MIT License (MIT)
-///
-/// Copyright (c) 2015 Erik Hedvall
-///
-/// Permission is hereby granted, free of charge, to any person obtaining a copy
-/// of this software and associated documentation files (the "Software"), to deal
-/// in the Software without restriction, including without limitation the rights
-/// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-/// copies of the Software, and to permit persons to whom the Software is
-/// furnished to do so, subject to the following conditions:
-///
-/// The above copyright notice and this permission notice shall be included in all
-/// copies or substantial portions of the Software.
-///
-/// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-/// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-/// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-/// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-/// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-/// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-/// SOFTWARE.
-fn srgba_to_linear(color: ColorF) -> ColorF {
-
-    fn into_linear(x: f32) -> f32 {
-        if x <= 0.04045 {
-            x / 12.92
-        } else {
-            ((x + 0.055) / 1.055).powf(2.4)
-        }
-    }
-
-    ColorF {
-        r: into_linear(color.r),
-        g: into_linear(color.g),
-        b: into_linear(color.b),
-        a: color.a,
-    }
 }
