@@ -1,11 +1,10 @@
 #wrapper {
-    background-color: salmon;
-    background: linear-gradient(135deg, blue 0%, salmon 100%);
+    background: linear-gradient(300deg, red 0%, blue 100%);
     flex-direction: row;
 }
 
 #red {
-    background-color: red;
+    background-color: #BF0C2B;
     color: white;
     font-size: 12px;
     font-family: sans-serif;
@@ -19,9 +18,8 @@
 }
 
 #yellow {
-    background-color: yellow;
+    background-color: #F5900E;
     height: 70px;
-    border: 2px dashed black;
     flex-direction: row-reverse;
     box-shadow: 0px 0px 50px black;
 }
@@ -31,7 +29,7 @@
 }
 
 #below-yellow {
-    background-color: dark-grey;
-    box-shadow: 0px 0px 50px black;
+    background-color: #F14C13;
+    box-shadow: 2px 2px 10px black;
     width: 50px;
 }

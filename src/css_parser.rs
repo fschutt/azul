@@ -1041,14 +1041,69 @@ impl Direction {
     pub fn to_points(&self, rect: &LayoutRect)
     -> (LayoutPoint, LayoutPoint)
     {
-        match *self {
-            Direction::Angle(ref deg) => {
-                let max = rect.size.width.max(rect.size.height);
-                let mut point: LayoutPoint = TypedPoint2D::new(max, 0.0);
+        match self {
+            Direction::Angle(deg) => {
+                // note: assumes that the LayoutRect has positive sides
+
+                // see: https://hugogiraudel.com/2013/02/04/css-gradients/
+
+                let width_half = rect.size.width / 2.0;
+                let height_half = rect.size.height / 2.0;
+
+                // hypothenuse_len is the length of the center of the rect to the corners
+                let hypothenuse_len = (width_half.powi(2) + height_half.powi(2)).sqrt();
+
+                // clamp the degree to 360 (so 410deg = 50deg)
+                let mut deg = deg % 360.0;
+                if deg < 0.0 {
+                    deg = 360.0 + deg;
+                }
+
+                // now deg is in the range of +0..+360
+                debug_assert!(deg >= 0.0 && deg <= 360.0);
+
+                // The corner also serves to determine what quadrant we're in
+                // Get the quadrant (corner) the angle is in and get the degree associated 
+                // with that corner.
+
+                let angle_to_top_left = (height_half / width_half).atan().to_degrees();
+
+                // We need to calculate the angle from the center to the corner!
+                let ending_point_degrees = if deg <= 90.0 {
+                    // top left corner
+                    90.0 - angle_to_top_left
+                } else if deg <= 180.0 {
+                    // bottom left corner
+                    90.0 + angle_to_top_left
+                } else if deg <= 270.0 {
+                    // bottom right corner
+                    270.0 - angle_to_top_left
+                } else /* deg > 270.0 && deg < 360.0 */ {
+                    // top right corner
+                    270.0 + angle_to_top_left
+                };
+
+                // assuming deg = 36deg, then degree_diff_to_corner = 9deg
+                let degree_diff_to_corner = ending_point_degrees - deg;
+
+                // Searched_len is the distance between the center of the rect and the 
+                // ending point of the gradient
+                let searched_len = (hypothenuse_len * degree_diff_to_corner.cos()).abs();
+
+                // TODO: This searched_len is incorrect...
+
+                // Once we have the length, we can simply rotate the length by the angle,
+                // then translate it to the center of the rect
+                let point_location = LayoutPoint::new(0.0, searched_len);
                 let rot = TypedRotation2D::new(Angle::radians(deg.to_radians()));
-                (LayoutPoint::zero(), rot.transform_point(&point))
+                let point_location: LayoutPoint = rot.transform_point(&point_location);
+
+                let start_point_location = LayoutPoint::new(width_half + point_location.x, height_half + point_location.y);
+                let end_point_location = LayoutPoint::new(width_half - point_location.x, height_half - point_location.y);
+
+                (start_point_location, end_point_location)
             },
-            Direction::FromTo(ref from, ref to) => {
+            Direction::FromTo(from, to) => {
                 (from.to_point(rect), to.to_point(rect))
             }
         }
