@@ -1,35 +1,37 @@
 #wrapper {
-    background: linear-gradient(blue 0%, green 25%);
-    flex-direction: row-reverse;
+    background-color: salmon;
+    background: linear-gradient(135deg, blue 0%, salmon 100%);
+    flex-direction: row;
 }
 
 #red {
     background-color: red;
     color: white;
-    font-size: 30px;
+    font-size: 12px;
     font-family: sans-serif;
     width: 200px;
-    flex-direction: column;
 }
 
 #sub-wrapper {
     flex-direction: column-reverse;
-    width: 900px;
+    width: 400px;
+    box-shadow: 0px 0px 50px black;
 }
 
 #yellow {
     background-color: yellow;
-    height: 700px;
-    border: 10px dashed black;
+    height: 70px;
+    border: 2px dashed black;
     flex-direction: row-reverse;
-    border-radius: 40px;
+    box-shadow: 0px 0px 50px black;
 }
 
 #grey {
-    background-color: grey;
+    background-color: transparent;
 }
 
 #below-yellow {
     background-color: dark-grey;
+    box-shadow: 0px 0px 50px black;
     width: 50px;
 }

@@ -711,7 +711,7 @@ fn parse_color_builtin<'a>(input: &'a str)
         "WhiteSmoke"             | "white-smoke"                =>  "F5F5F5",
         "Yellow"                 | "yellow"                     =>  "FFFF00",
         "YellowGreen"            | "yellow-green"               =>  "9ACD32",
-        "Transparent"            | "transparent"                =>  "FFFFFFFF",
+        "Transparent"            | "transparent"                =>  "FFFFFF00",
         _ => { return Err(CssColorParseError::InvalidColor(input)); }
     };
     parse_color_no_hash(color)
