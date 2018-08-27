@@ -234,7 +234,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     -> DisplayListBuilder
     {
         use glium::glutin::dpi::LogicalSize;
-
+        use std::collections::BTreeMap;
+        
         let changeset = self.ui_descr.ui_descr_root.as_ref().and_then(|root| {
             let changeset = ui_solver.update_dom(root, &*(self.ui_descr.ui_descr_arena.borrow()));
             if changeset.is_empty() { None } else { Some(changeset) }
@@ -283,18 +284,42 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         let arena = self.ui_descr.ui_descr_arena.borrow();
 
-        for rect_idx in root.descendants(&self.rectangles) {
-            displaylist_handle_rect(
-                &mut builder,
-                current_epoch,
-                rect_idx,
-                &self.rectangles,
-                &arena[rect_idx].data.node_type,
-                ui_solver.query_bounds_of_rect(rect_idx),
-                full_screen_rect,
-                app_resources,
-                render_api,
-                &mut resource_updates);
+        // Determine the correct implicit z-index rendering order of every rectangle
+        let mut rects_in_rendering_order = BTreeMap::<usize, Vec<NodeId>>::new();
+
+        for rect_id in self.rectangles.linear_iter() {
+
+            // how many z-levels does this rectangle have until we get to the root?
+            let z_index = {
+                let mut index = 0;
+                let mut cur_rect_idx = rect_id;
+                while let Some(parent) = self.rectangles[cur_rect_idx].parent() {
+                    index += 1;
+                    cur_rect_idx = parent;
+                }
+                index
+            };
+
+            rects_in_rendering_order
+                .entry(z_index)
+                .or_insert_with(|| Vec::new())
+                .push(rect_id);
+        }
+
+        for (z_index, rects) in rects_in_rendering_order.into_iter() {
+            for rect_idx in rects {            
+                displaylist_handle_rect(
+                    &mut builder,
+                    current_epoch,
+                    rect_idx,
+                    &self.rectangles,
+                    &arena[rect_idx].data.node_type,
+                    ui_solver.query_bounds_of_rect(rect_idx),
+                    full_screen_rect,
+                    app_resources,
+                    render_api,
+                    &mut resource_updates);
+            }
         }
 
         render_api.update_resources(resource_updates);
@@ -487,7 +512,7 @@ fn push_rect(
     builder: &mut DisplayListBuilder,
     color: &BackgroundColor)
 {
-    builder.push_rect(&info, color.0.into());
+    builder.push_rect(&info, srgba_to_linear(color.0.into()));
 }
 
 #[inline]
@@ -549,7 +574,7 @@ fn push_text(
         &scrollbar_style
     );
 
-    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
+    let font_color = srgba_to_linear(style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into());
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
     flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
@@ -732,7 +757,6 @@ fn push_box_shadow(
 
     // The pre_shadow is missing the BorderRadius & LayoutRect
     let border_radius = style.border_radius.unwrap_or(BorderRadius::zero());
-
     if pre_shadow.clip_mode != shadow_type {
         return;
     }
@@ -746,20 +770,19 @@ fn push_box_shadow(
         // calculate the maximum extent of the outset shadow
         let mut clip_rect = *bounds;
 
-        let origin_displace = pre_shadow.spread_radius - pre_shadow.blur_radius;
-        clip_rect.origin.x = clip_rect.origin.x + pre_shadow.offset.x - origin_displace;
-        clip_rect.origin.y = clip_rect.origin.y + pre_shadow.offset.y - origin_displace;
+        let origin_displace = (pre_shadow.spread_radius + pre_shadow.blur_radius) * 2.0;
+        clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset.x - origin_displace;
+        clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset.y - origin_displace;
 
-        let spread = (pre_shadow.spread_radius * 2.0) + (pre_shadow.blur_radius * 2.0);
-        clip_rect.size.height = clip_rect.size.height + spread;
-        clip_rect.size.width = clip_rect.size.width + spread;
+        clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
+        clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
 
         // prevent shadows that are larger than the full screen
         clip_rect.intersection(full_screen_rect).unwrap_or(clip_rect)
     };
 
     let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, pre_shadow.color,
+    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, srgba_to_linear(pre_shadow.color),
                              pre_shadow.blur_radius, pre_shadow.spread_radius,
                              border_radius, pre_shadow.clip_mode);
 }
@@ -779,7 +802,7 @@ fn push_background(
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
-                    color: gradient_pre.color,
+                    color: srgba_to_linear(gradient_pre.color),
                 }).collect();
 
             let center = bounds.center();
@@ -800,7 +823,7 @@ fn push_background(
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
-                    color: gradient_pre.color,
+                    color: srgba_to_linear(gradient_pre.color),
                 }).collect();
 
             let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&bounds);
@@ -1104,4 +1127,47 @@ fn create_layout_constraints<'a, T: Layout>(
 #[test]
 fn __codecov_test_display_list_file() {
 
+}
+
+
+/// Taken from the `palette` crate - I wouldn't want to
+/// import the entire crate just for one function (due to added compile time)
+///
+/// The MIT License (MIT)
+///
+/// Copyright (c) 2015 Erik Hedvall
+///
+/// Permission is hereby granted, free of charge, to any person obtaining a copy
+/// of this software and associated documentation files (the "Software"), to deal
+/// in the Software without restriction, including without limitation the rights
+/// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+/// copies of the Software, and to permit persons to whom the Software is
+/// furnished to do so, subject to the following conditions:
+///
+/// The above copyright notice and this permission notice shall be included in all
+/// copies or substantial portions of the Software.
+///
+/// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+/// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+/// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+/// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+/// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+/// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+/// SOFTWARE.
+fn srgba_to_linear(color: ColorF) -> ColorF {
+
+    fn into_linear(x: f32) -> f32 {
+        if x <= 0.04045 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    ColorF {
+        r: into_linear(color.r),
+        g: into_linear(color.g),
+        b: into_linear(color.b),
+        a: color.a,
+    }
 }

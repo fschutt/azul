@@ -19,7 +19,7 @@ impl Layout for MyDataModel {
 }
 
 fn main() {
-    let css = Css::hot_reload("C:/please/use/an/absolute/pathname/../test.css").unwrap();
+    let css = Css::hot_reload("/home/felix/Development/azul/examples/test.css").unwrap();
     let mut app = App::new(MyDataModel { counter: 0 }, AppConfig::default());
     app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run().unwrap();
