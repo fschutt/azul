@@ -168,7 +168,7 @@ fn match_dom_css_selectors<'a, T: Layout>(
 {
     let mut root_constraints = CssConstraintList::default();
     for global_rule in &parsed_css.pure_global_rules {
-        push_rule(&mut root_constraints, global_rule);
+        root_constraints.push_rule(global_rule);
     }
 
     let arena_borrow = &*(*arena).borrow();
@@ -203,7 +203,10 @@ fn match_dom_css_selectors_inner<'a, T: Layout>(
 {
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
-    let mut current_constraints = parent_constraints.clone();
+    let mut current_constraints = CssConstraintList {
+        list: parent_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
+    };
+
     cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css, css);
 
     let current_node = StyledNode {
@@ -230,7 +233,7 @@ fn cascade_constraints<'a, T: Layout>(
 {
     for div_rule in &parsed_css.pure_div_rules {
         if *node.node_type.get_css_id() == div_rule.html_type {
-            push_rule(list, div_rule);
+            list.push_rule(div_rule);
         }
     }
 
@@ -256,7 +259,7 @@ fn cascade_constraints<'a, T: Layout>(
         }
 
         if should_insert_rule {
-            push_rule(list, class_rule);
+            list.push_rule(class_rule);
         }
     }
 
@@ -267,17 +270,12 @@ fn cascade_constraints<'a, T: Layout>(
         // if the node has an ID
         for id_rule in &parsed_css.pure_id_rules {
             if *id_rule.id.as_ref().unwrap() == *node_id {
-                push_rule(list, id_rule);
+                list.push_rule(id_rule);
             }
         }
     }
 
     // TODO: all the mixed rules
-}
-
-#[inline]
-fn push_rule(list: &mut CssConstraintList, rule: &CssRule) {
-    list.list.push(rule.declaration.1.clone());
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore

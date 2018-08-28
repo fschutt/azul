@@ -1,13 +1,7 @@
-# azul
+# azul [![Build Status Linux / macOS](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul) [![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul) [![codecov](https://codecov.io/gh/maps4print/azul/branch/master/graph/badge.svg)](https://codecov.io/gh/maps4print/azul) [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.28%20stable-blue.svg)]()
 
 # WARNING: The features advertised don't work yet.
 # See the /examples folder for an example of what's currently possible.
-
-[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status Linux / macOS](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul)
-[![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
-[![codecov](https://codecov.io/gh/maps4print/azul/branch/master/graph/badge.svg)](https://codecov.io/gh/maps4print/azul)
-[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.28%20stable-blue.svg)]()
 
 azul is a cross-platform, stylable GUI framework using Mozillas `webrender`
 engine for rendering and a CSS / DOM model for layout and rendering
@@ -498,8 +492,7 @@ Several projects have helped azul severely and should be noted here:
 
 - Chris Tollidays [limn](https://github.com/christolliday/limn) framework has helped
   severely with discovering undocumented parts of webrender as well as working with
-  constraints (the `constraints.rs` file was copied from limn with the [permission of
-  the author](https://github.com/christolliday/limn/issues/22#issuecomment-362545167))
+  constraints.
 - Nicolas Silva for his work on [lyon](https://github.com/nical/lyon) - without this,
   the SVG renderer wouldn't have been possible
 - All webrender contributors who have been patient enough to answer my questions on IRC

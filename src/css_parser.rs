@@ -101,6 +101,21 @@ pub enum ParsedCssProperty {
     Overflow(LayoutOverflow),
 }
 
+impl ParsedCssProperty {
+    /// Returns whether this property will be inherited during cascading
+    pub fn is_inheritable(&self) -> bool {
+        use self::ParsedCssProperty::*;
+        match self {
+            | TextColor(_)
+            | FontFamily(_)
+            | FontSize(_)
+            | LineHeight(_)
+            | TextAlign(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
 impl_from_no_lifetimes!(Background, ParsedCssProperty::Background);
 impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
@@ -696,7 +711,7 @@ fn parse_color_builtin<'a>(input: &'a str)
         "WhiteSmoke"             | "white-smoke"                =>  "F5F5F5",
         "Yellow"                 | "yellow"                     =>  "FFFF00",
         "YellowGreen"            | "yellow-green"               =>  "9ACD32",
-        "Transparent"            | "transparent"                =>  "FFFFFFFF",
+        "Transparent"            | "transparent"                =>  "FFFFFF00",
         _ => { return Err(CssColorParseError::InvalidColor(input)); }
     };
     parse_color_no_hash(color)
@@ -1026,14 +1041,69 @@ impl Direction {
     pub fn to_points(&self, rect: &LayoutRect)
     -> (LayoutPoint, LayoutPoint)
     {
-        match *self {
-            Direction::Angle(ref deg) => {
-                // todo!!
-                let mut point: LayoutPoint = TypedPoint2D::new(rect.size.width, rect.size.height);
+        match self {
+            Direction::Angle(deg) => {
+                // note: assumes that the LayoutRect has positive sides
+
+                // see: https://hugogiraudel.com/2013/02/04/css-gradients/
+
+                let width_half = rect.size.width / 2.0;
+                let height_half = rect.size.height / 2.0;
+
+                // hypothenuse_len is the length of the center of the rect to the corners
+                let hypothenuse_len = (width_half.powi(2) + height_half.powi(2)).sqrt();
+
+                // clamp the degree to 360 (so 410deg = 50deg)
+                let mut deg = deg % 360.0;
+                if deg < 0.0 {
+                    deg = 360.0 + deg;
+                }
+
+                // now deg is in the range of +0..+360
+                debug_assert!(deg >= 0.0 && deg <= 360.0);
+
+                // The corner also serves to determine what quadrant we're in
+                // Get the quadrant (corner) the angle is in and get the degree associated 
+                // with that corner.
+
+                let angle_to_top_left = (height_half / width_half).atan().to_degrees();
+
+                // We need to calculate the angle from the center to the corner!
+                let ending_point_degrees = if deg <= 90.0 {
+                    // top left corner
+                    90.0 - angle_to_top_left
+                } else if deg <= 180.0 {
+                    // bottom left corner
+                    90.0 + angle_to_top_left
+                } else if deg <= 270.0 {
+                    // bottom right corner
+                    270.0 - angle_to_top_left
+                } else /* deg > 270.0 && deg < 360.0 */ {
+                    // top right corner
+                    270.0 + angle_to_top_left
+                };
+
+                // assuming deg = 36deg, then degree_diff_to_corner = 9deg
+                let degree_diff_to_corner = ending_point_degrees - deg;
+
+                // Searched_len is the distance between the center of the rect and the 
+                // ending point of the gradient
+                let searched_len = (hypothenuse_len * degree_diff_to_corner.cos()).abs();
+
+                // TODO: This searched_len is incorrect...
+
+                // Once we have the length, we can simply rotate the length by the angle,
+                // then translate it to the center of the rect
+                let point_location = LayoutPoint::new(0.0, searched_len);
                 let rot = TypedRotation2D::new(Angle::radians(deg.to_radians()));
-                (LayoutPoint::zero(), rot.transform_point(&point))
+                let point_location: LayoutPoint = rot.transform_point(&point_location);
+
+                let start_point_location = LayoutPoint::new(width_half + point_location.x, height_half + point_location.y);
+                let end_point_location = LayoutPoint::new(width_half - point_location.x, height_half - point_location.y);
+
+                (start_point_location, end_point_location)
             },
-            Direction::FromTo(ref from, ref to) => {
+            Direction::FromTo(from, to) => {
                 (from.to_point(rect), to.to_point(rect))
             }
         }
@@ -1512,14 +1582,28 @@ pub struct LineHeight(pub PercentageValue);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutDirection {
-    Horizontal,
-    Vertical,
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+}
+
+impl Default for LayoutDirection {
+    fn default() -> Self {
+        LayoutDirection::Column
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutWrap {
     Wrap,
     NoWrap,
+}
+
+impl Default for LayoutWrap {
+    fn default() -> Self {
+        LayoutWrap::Wrap
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1603,7 +1687,7 @@ pub enum TextAlignmentHorz {
 
 impl Default for TextAlignmentHorz {
     fn default() -> Self {
-        TextAlignmentHorz::Left
+        TextAlignmentHorz::Center
     }
 }
 
@@ -1616,7 +1700,7 @@ pub enum TextAlignmentVert {
 
 impl Default for TextAlignmentVert {
     fn default() -> Self {
-        TextAlignmentVert::Top
+        TextAlignmentVert::Center
     }
 }
 
@@ -1756,8 +1840,10 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Cs
 }
 
 multi_type_parser!(parse_layout_direction, LayoutDirection,
-                    ["row", Horizontal],
-                    ["column", Vertical]);
+                    ["row", Row],
+                    ["row-reverse", RowReverse],
+                    ["column", Column],
+                    ["column-reverse", ColumnReverse]);
 
 multi_type_parser!(parse_layout_wrap, LayoutWrap,
                     ["wrap", Wrap],

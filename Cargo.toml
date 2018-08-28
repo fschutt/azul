@@ -49,7 +49,7 @@ optional = true
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "c939a61b83bcc9dc10742977704793e9a85b3858"
+rev = "816ff14c1805c145ccd60d0227d82b1541fc24eb"
 
 [features]
 default = ["logging", "svg"]

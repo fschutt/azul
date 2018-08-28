@@ -8,7 +8,6 @@ use {
     FastHashMap,
     resources::AppResources,
     traits::Layout,
-    constraints::CssConstraint,
     ui_description::{UiDescription, StyledNode},
     ui_solver::UiSolver,
     window_state::WindowSize,
@@ -235,25 +234,30 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     -> DisplayListBuilder
     {
         use glium::glutin::dpi::LogicalSize;
-
+        use std::collections::BTreeMap;
+        
         let changeset = self.ui_descr.ui_descr_root.as_ref().and_then(|root| {
             let changeset = ui_solver.update_dom(root, &*(self.ui_descr.ui_descr_arena.borrow()));
             if changeset.is_empty() { None } else { Some(changeset) }
         });
 
-        if css.needs_relayout {
+        let root = match self.ui_descr.ui_descr_root {
+            Some(r) => r,
+            None => panic!("Dom has no root element!"),
+        };
 
-            // Constraints were added or removed during the last frame
+        if css.needs_relayout || changeset.is_some() {
+            // inefficient for now, but prevents memory leak
+            ui_solver.clear_all_constraints();
             for rect_idx in self.rectangles.linear_iter() {
-
-                let layout_contraints = create_layout_constraints(
+                let constraints = create_layout_constraints(
                     rect_idx,
                     &self.rectangles,
                     &*self.ui_descr.ui_descr_arena.borrow(),
                     &ui_solver,
                 );
-
-                ui_solver.insert_css_constraints_for_rect(rect_idx, &layout_contraints);
+                ui_solver.insert_css_constraints_for_rect(&constraints);
+                ui_solver.push_added_constraints(rect_idx, constraints);
             }
 
             // If we push or pop constraints that means we also need to re-layout the window
@@ -263,10 +267,10 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         // TODO: early return based on changeset?
 
         // Recalculate the actual layout
-        if css.needs_relayout || has_window_size_changed {
+        if has_window_size_changed {
             ui_solver.update_window_size(&window_size.dimensions);
-            ui_solver.update_layout_cache();
         }
+        ui_solver.update_layout_cache();
 
         css.needs_relayout = false;
 
@@ -278,26 +282,44 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
-        for rect_idx in self.rectangles.linear_iter() {
+        let arena = self.ui_descr.ui_descr_arena.borrow();
 
-            let arena = self.ui_descr.ui_descr_arena.borrow();
-            let node_type = &arena[rect_idx].data.node_type;
+        // Determine the correct implicit z-index rendering order of every rectangle
+        let mut rects_in_rendering_order = BTreeMap::<usize, Vec<NodeId>>::new();
 
-            // Ask the solver what the bounds of the current rectangle is
-            let bounds = ui_solver.query_bounds_of_rect(rect_idx);
+        for rect_id in self.rectangles.linear_iter() {
 
-            // temporary: fill the whole window with each rectangle
-            displaylist_handle_rect(
-                &mut builder,
-                current_epoch,
-                rect_idx,
-                &self.rectangles,
-                node_type,
-                bounds,
-                full_screen_rect,
-                app_resources,
-                render_api,
-                &mut resource_updates);
+            // how many z-levels does this rectangle have until we get to the root?
+            let z_index = {
+                let mut index = 0;
+                let mut cur_rect_idx = rect_id;
+                while let Some(parent) = self.rectangles[cur_rect_idx].parent() {
+                    index += 1;
+                    cur_rect_idx = parent;
+                }
+                index
+            };
+
+            rects_in_rendering_order
+                .entry(z_index)
+                .or_insert_with(|| Vec::new())
+                .push(rect_id);
+        }
+
+        for (z_index, rects) in rects_in_rendering_order.into_iter() {
+            for rect_idx in rects {            
+                displaylist_handle_rect(
+                    &mut builder,
+                    current_epoch,
+                    rect_idx,
+                    &self.rectangles,
+                    &arena[rect_idx].data.node_type,
+                    ui_solver.query_bounds_of_rect(rect_idx),
+                    full_screen_rect,
+                    app_resources,
+                    render_api,
+                    &mut resource_updates);
+            }
         }
 
         render_api.update_resources(resource_updates);
@@ -437,7 +459,8 @@ fn displaylist_handle_rect<'a>(
                 LayoutSize::zero(),
                 ImageRendering::Auto,
                 AlphaType::Alpha,
-                key);
+                key,
+                ColorF::WHITE);
         },
     }
 
@@ -455,31 +478,29 @@ fn determine_text_alignment<'a>(rect_idx: NodeId, arena: &Arena<DisplayRectangle
 
     let rect = &arena[rect_idx];
 
-    if let Some((Some(flex_direction), Some(justify_content))) = rect.parent.and_then(|parent| {
-        let parent = &arena[parent];
-        Some((parent.data.layout.direction, parent.data.layout.justify_content))
-    }) {
-        use css_parser::{LayoutDirection::*, LayoutJustifyContent::*};
+    if let Some(align_items) = rect.data.layout.align_items {
+        // Vertical text alignment
+        use css_parser::LayoutAlignItems;
+        match align_items {
+            LayoutAlignItems::Start => vert_alignment = TextAlignmentVert::Top,
+            LayoutAlignItems::End => vert_alignment = TextAlignmentVert::Bottom,
+            // technically stretch = blocktext, but we don't have that yet
+            _ => vert_alignment = TextAlignmentVert::Center,
+        }
+    }
 
-        match flex_direction {
-            Horizontal => {
-                horz_alignment = match justify_content {
-                    Start => TextAlignmentHorz::Left,
-                    End => TextAlignmentHorz::Right,
-                    Center | SpaceBetween | SpaceAround => TextAlignmentHorz::Center,
-                };
-            },
-            Vertical => {
-                vert_alignment = match justify_content {
-                    Start => TextAlignmentVert::Top,
-                    End => TextAlignmentVert::Bottom,
-                    Center | SpaceBetween | SpaceAround => TextAlignmentVert::Center,
-                };
-            },
+    if let Some(justify_content) = rect.data.layout.justify_content {
+        use css_parser::LayoutJustifyContent;
+        // Horizontal text alignment
+        match justify_content {
+            LayoutJustifyContent::Start => horz_alignment = TextAlignmentHorz::Left,
+            LayoutJustifyContent::End => horz_alignment = TextAlignmentHorz::Right,
+            _ => horz_alignment = TextAlignmentHorz::Center,
         }
     }
 
     if let Some(text_align) = rect.data.style.text_align {
+        // Horizontal text alignment with higher priority
         horz_alignment = text_align;
     }
 
@@ -687,7 +708,7 @@ fn push_triangle(
         tag: None,
     };
 
-    const TRANSPARENT: ColorU = ColorU { r: 0,    b: 0,   g: 0,   a: 0  };
+    const TRANSPARENT: ColorU = ColorU { r: 0, b: 0, g: 0, a: 0 };
 
     // make all borders but one transparent
     let [b_left, b_right, b_top, b_bottom] = match direction {
@@ -737,7 +758,6 @@ fn push_box_shadow(
 
     // The pre_shadow is missing the BorderRadius & LayoutRect
     let border_radius = style.border_radius.unwrap_or(BorderRadius::zero());
-
     if pre_shadow.clip_mode != shadow_type {
         return;
     }
@@ -751,20 +771,35 @@ fn push_box_shadow(
         // calculate the maximum extent of the outset shadow
         let mut clip_rect = *bounds;
 
-        let origin_displace = pre_shadow.spread_radius - pre_shadow.blur_radius;
-        clip_rect.origin.x = clip_rect.origin.x + pre_shadow.offset.x - origin_displace;
-        clip_rect.origin.y = clip_rect.origin.y + pre_shadow.offset.y - origin_displace;
+        let origin_displace = (pre_shadow.spread_radius + pre_shadow.blur_radius) * 2.0;
+        clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset.x - origin_displace;
+        clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset.y - origin_displace;
 
-        let spread = (pre_shadow.spread_radius * 2.0) + (pre_shadow.blur_radius * 2.0);
-        clip_rect.size.height = clip_rect.size.height + spread;
-        clip_rect.size.width = clip_rect.size.width + spread;
+        clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
+        clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
 
         // prevent shadows that are larger than the full screen
         clip_rect.intersection(full_screen_rect).unwrap_or(clip_rect)
     };
 
+    // Apply a gamma of 2.2 to the original value
+    //
+    // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
+    fn apply_gamma(color: ColorF) -> ColorF {
+
+        const GAMMA: f32 = 2.2;
+        const GAMMA_F: f32 = 1.0 / GAMMA;
+
+        ColorF {
+            r: color.r.powf(GAMMA_F),
+            g: color.g.powf(GAMMA_F),
+            b: color.b.powf(GAMMA_F),
+            a: color.a,
+        }
+    }
+
     let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, pre_shadow.color,
+    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, apply_gamma(pre_shadow.color),
                              pre_shadow.blur_radius, pre_shadow.spread_radius,
                              border_radius, pre_shadow.clip_mode);
 }
@@ -779,23 +814,36 @@ fn push_background(
 {
     match background {
         Background::RadialGradient(gradient) => {
+            use css_parser::Shape;
+
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap(),
                     color: gradient_pre.color,
                 }).collect();
-            let center = bounds.bottom_left(); // TODO - expose in CSS
-            let radius = TypedSize2D::new(40.0, 40.0); // TODO - expose in CSS
+
+            let center = bounds.center();
+
+            // Note: division by 2.0 because it's the radius, not the diameter
+            let radius = match gradient.shape {
+                Shape::Ellipse => TypedSize2D::new(bounds.size.width / 2.0, bounds.size.height / 2.0),
+                Shape::Circle => {
+                    let largest_bound_size = bounds.size.width.max(bounds.size.height);
+                    TypedSize2D::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
+                },
+            };
             let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         Background::LinearGradient(gradient) => {
+
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
-                    offset: gradient_pre.offset.unwrap(),
+                    offset: gradient_pre.offset.unwrap() / 100.0,
                     color: gradient_pre.color,
                 }).collect();
-            let (begin_pt, end_pt) = gradient.direction.to_points(&bounds);
+
+            let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&bounds);
             let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
@@ -825,8 +873,9 @@ fn push_image(
                         bounds.size,
                         LayoutSize::zero(),
                         ImageRendering::Auto,
-                        AlphaType::Alpha,
-                        image_info.key);
+                        AlphaType::PremultipliedAlpha,
+                        image_info.key,
+                        ColorF::WHITE);
             },
             _ => { },
         }
@@ -965,128 +1014,121 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
     }
 }
 
+use cassowary::Constraint;
+
 // Returns the constraints for one rectangle
 fn create_layout_constraints<'a, T: Layout>(
     node_id: NodeId,
     display_rectangles: &Arena<DisplayRectangle<'a>>,
     dom: &Arena<NodeData<T>>,
     ui_solver: &UiSolver)
--> Vec<CssConstraint>
+-> Vec<Constraint>
 {
-    use cassowary::strength::*;
-    use constraints::{SizeConstraint, PaddingConstraint, Strength, Padding};
+    use cassowary::{
+        WeightedRelation::{EQ, GE, LE},
+    };
+    use ui_solver::RectConstraintVariables;
+    use std::f64;
+
+    const WEAK: f64 = 3.0;
+    const MEDIUM: f64 = 30.0;
+    const STRONG: f64 = 300.0;
+    const REQUIRED: f64 = f64::MAX;
 
     let rect = &display_rectangles[node_id].data;
+    let self_rect = ui_solver.get_rect_constraints(node_id).unwrap();
+
     let dom_node = &dom[node_id];
 
     let mut layout_constraints = Vec::new();
 
     // Insert the max height and width constraints
-    if let Some(max_width) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Width) {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Width(max_width), Strength(MEDIUM)));
+    //
+    // min-width and max-width are stronger than width because the width has to be between min and max width
+    if let Some(min_width) = rect.layout.min_width {
+        layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
+    }
+    if let Some(width) = rect.layout.width {
+        layout_constraints.push(self_rect.width | EQ(STRONG) | width.0.to_pixels());
+    } else {
+        if let Some(parent) = dom_node.parent {
+            let parent = ui_solver.get_rect_constraints(parent).unwrap();
+            layout_constraints.push(self_rect.width | EQ(STRONG) | parent.width);
+        }
+    }
+    if let Some(max_width) = rect.layout.max_width {
+        layout_constraints.push(self_rect.width | LE(REQUIRED) | max_width.0.to_pixels());
     }
 
-    if let Some(max_height) = display_rectangles.get_wh_for_rectangle(node_id, WidthOrHeight::Height) {
-        layout_constraints.push(CssConstraint::Size(SizeConstraint::Height(max_height), Strength(MEDIUM)));
+    if let Some(min_height) = rect.layout.min_height {
+        layout_constraints.push(self_rect.height | GE(REQUIRED) | min_height.0.to_pixels());
+    }
+    if let Some(height) = rect.layout.height {
+        layout_constraints.push(self_rect.height | EQ(STRONG) | height.0.to_pixels());
+    } else {
+        if let Some(parent) = dom_node.parent {
+            let parent = ui_solver.get_rect_constraints(parent).unwrap();
+            layout_constraints.push(self_rect.height | EQ(STRONG) | parent.height);
+        }
+    }
+    if let Some(max_height) = rect.layout.max_height {
+        layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
     }
 
-    // Testing only - each rectangle should be below its previous sibling DOM element
-    if let Some(previous_sibling) = dom_node.previous_sibling {
-        // The variable must have been initialized before `create_layout_constraints`
-        // was called, so this `unwrap()` should never panic
-        let previous_rect_var = ui_solver.get_rect_constraints(previous_sibling).unwrap();
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.bottom), Strength(STRONG), Padding(0.0)));
-        layout_constraints.push(CssConstraint::Padding(PaddingConstraint::Below(previous_rect_var.top), Strength(STRONG), Padding(0.0)));
+
+    if dom_node.parent.is_none() {
+        // Root node: fill window width / height
+        let window_constraints = ui_solver.get_window_constraints();
+        layout_constraints.push(self_rect.top | EQ(REQUIRED) | 0.0);
+        layout_constraints.push(self_rect.left | EQ(REQUIRED) | 0.0);
+        layout_constraints.push(self_rect.width | EQ(REQUIRED) | window_constraints.width_var);
+        layout_constraints.push(self_rect.height | EQ(REQUIRED) | window_constraints.height_var);
+    }
+
+    let direction = rect.layout.direction.unwrap_or_default();
+
+    let mut next_child_id = dom_node.first_child;
+    let mut previous_child: Option<RectConstraintVariables> = None;
+
+    while let Some(child_id) = next_child_id {
+        let child = ui_solver.get_rect_constraints(child_id).unwrap();
+
+        match direction {
+            LayoutDirection::Row => {
+                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
+                match previous_child {
+                    None => layout_constraints.push(child.left | EQ(STRONG) | self_rect.left),
+                    Some(prev) => layout_constraints.push(child.left | EQ(STRONG) | (prev.left + prev.width)),
+                }
+            },
+            LayoutDirection::RowReverse => {
+                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
+                match previous_child {
+                    None => layout_constraints.push(child.left | EQ(STRONG) | (self_rect.left + (self_rect.width - child.width))),
+                    Some(prev) => layout_constraints.push((child.left + child.width) | EQ(STRONG) | prev.left),
+                }
+            },
+            LayoutDirection::Column => {
+                match previous_child {
+                    None => layout_constraints.push(child.top | EQ(STRONG) | self_rect.top),
+                    Some(prev) => layout_constraints.push(child.top | EQ(STRONG) | (prev.top + prev.height)),
+                }
+                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
+            },
+            LayoutDirection::ColumnReverse => {
+                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
+                match previous_child {
+                    None => layout_constraints.push(child.top | EQ(STRONG) | (self_rect.top + (self_rect.height - child.height))),
+                    Some(prev) => layout_constraints.push((child.top + child.height) | EQ(STRONG) | prev.top),
+                }
+            },
+        }
+
+        previous_child = Some(child);
+        next_child_id = dom[child_id].next_sibling;
     }
 
     layout_constraints
-}
-
-// Layout / tracing-related functions
-
-// What constraint (width or height) to search for when looking for a fitting width / height constraint
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-enum WidthOrHeight {
-    Width,
-    Height,
-}
-
-impl<'a> Arena<DisplayRectangle<'a>> {
-
-    /// Recursive algorithm for getting the dimensions of a rectangle
-    ///
-    /// This function can be used on any rectangle to get the maximum allowed width
-    /// (for inserting the width / height constraint into the layout solver).
-    /// It simply traverses upwards through the nodes, until it finds a matching min-width / width
-    /// constraint, returns None, if the root node is reached (with no constraints)
-    ///
-    /// Usually, you'd use it like:
-    ///
-    /// ```no_run,ignore
-    /// let max_width = arena.get_wh_for_rectangle(id, WidthOrHeight::Width)
-    ///                      .unwrap_or(window_dimensions.width);
-    /// ```
-    fn get_wh_for_rectangle(&self, id: NodeId, field: WidthOrHeight) -> Option<f32> {
-
-        use self::WidthOrHeight::*;
-
-        let node = &self[id];
-
-        macro_rules! get_wh {
-            ($field_name:ident, $min_field:ident) => ({
-                let mut $field_name: Option<f32> = None;
-
-                match node.data.layout.$min_field {
-                    Some(m_w) => {
-                        let m_w_px = m_w.0.to_pixels();
-                        match node.data.layout.$field_name {
-                            Some(w) => {
-                                // width + min_width
-                                let w_px = w.0.to_pixels();
-                                $field_name = Some(m_w_px.max(w_px));
-                            },
-                            None => {
-                                // min_width
-                                $field_name = Some(m_w_px);
-                            }
-                        }
-                    },
-                    None => {
-                        match node.data.layout.$field_name {
-                            Some(w) => {
-                                // width
-                                let w_px = w.0.to_pixels();
-                                $field_name = Some(w_px);
-                            },
-                            None => {
-                                // neither width nor min_width
-                            }
-                        }
-                    }
-                };
-
-                if $field_name.is_none() {
-                    match node.parent() {
-                        Some(p) => $field_name = self.get_wh_for_rectangle(p, field),
-                        None => { },
-                    }
-                }
-
-                $field_name
-            })
-        }
-
-        match field {
-            Width => {
-                let w = get_wh!(width, min_width);
-                w
-            },
-            Height => {
-                let h = get_wh!(height, min_height);
-                h
-            }
-        }
-    }
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore

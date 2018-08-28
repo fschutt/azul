@@ -197,6 +197,9 @@ impl<T: Layout> App<T> {
         let mut force_redraw_cache = vec![1_usize; self.windows.len()];
         let mut awakened_task = vec![false; self.windows.len()];
 
+        #[cfg(debug_assertions)]
+        let mut last_css_reload = Instant::now();
+
         while !self.windows.is_empty() {
 
             let time_start = Instant::now();
@@ -274,6 +277,19 @@ impl<T: Layout> App<T> {
                     // render the window (webrender will send an Awakened event when the frame is done)
                     render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
                     awakened_task[idx] = false;
+                }
+            }
+
+            #[cfg(debug_assertions)] {
+                for (window_idx, window) in self.windows.iter_mut().enumerate() {
+                    // Hot-reload CSS if necessary
+                    if window.css.hot_reload_path.is_some() && Instant::now() - last_css_reload > Duration::from_millis(500) {
+                        window.css.reload_css();
+                        window.css.needs_relayout = true;
+                        last_css_reload = Instant::now();
+                        window.events_loop.create_proxy().wakeup().unwrap_or(());
+                        awakened_task[window_idx] = true;
+                    }
                 }
             }
 

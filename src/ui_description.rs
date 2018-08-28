@@ -9,7 +9,7 @@ use {
     id_tree::{Arena, NodeId},
     traits::Layout,
     ui_state::UiState,
-    css::{Css, CssDeclaration},
+    css::{Css, CssRule, CssDeclaration},
     dom::NodeData,
 };
 
@@ -71,6 +71,13 @@ pub(crate) struct StyledNode {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct CssConstraintList {
     pub(crate) list: Vec<CssDeclaration>
+}
+
+impl CssConstraintList {
+    #[inline]
+    pub(crate) fn push_rule(&mut self, rule: &CssRule) {
+        self.list.push(rule.declaration.1.clone());
+    }
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore
