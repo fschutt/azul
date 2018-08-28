@@ -92,8 +92,6 @@ mod css;
 mod resources;
 /// UI Description & display list handling (webrender)
 mod ui_description;
-/// Constraint handling
-mod constraints;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;
