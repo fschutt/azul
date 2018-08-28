@@ -17,12 +17,14 @@ impl Layout for MyDataModel {
 }
 
 fn main() {
-    const CSS_PATH: &str = "/please/use/an/absolute/file/path/../test.css";
+
+    // workaround for: https://github.com/rust-lang/rust/issues/53749
+    macro_rules! css_path { () => ("/please/use/an/absolute/file/path/../hot_reload.css") }
 
     #[cfg(debug_assertions)]
-    let css = Css::hot_reload(CSS_PATH).unwrap();
+    let css = Css::hot_reload(css_path!()).unwrap();
     #[cfg(not(debug_assertions))]
-    let css = Css::new_from_str(include_str!(CSS_PATH)).unwrap();
+    let css = Css::new_from_str(include_str!(css_path!())).unwrap();
 
     let mut app = App::new(MyDataModel, AppConfig::default());
     app.create_window(WindowCreateOptions::default(), css).unwrap();
