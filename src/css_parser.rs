@@ -482,7 +482,7 @@ fn parse_pixel_value<'a>(input: &'a str)
     let unit = match unit {
         "px" => CssMetric::Px,
         "em" => CssMetric::Em,
-        "ept" => CssMetric::Pt,
+        "pt" => CssMetric::Pt,
         _ => { return Err(PixelParseError::InvalidComponent(&input[(split_pos - 1)..])); }
     };
 
@@ -1063,7 +1063,7 @@ impl Direction {
                 debug_assert!(deg >= 0.0 && deg <= 360.0);
 
                 // The corner also serves to determine what quadrant we're in
-                // Get the quadrant (corner) the angle is in and get the degree associated 
+                // Get the quadrant (corner) the angle is in and get the degree associated
                 // with that corner.
 
                 let angle_to_top_left = (height_half / width_half).atan().to_degrees();
@@ -1086,7 +1086,7 @@ impl Direction {
                 // assuming deg = 36deg, then degree_diff_to_corner = 9deg
                 let degree_diff_to_corner = ending_point_degrees - deg;
 
-                // Searched_len is the distance between the center of the rect and the 
+                // Searched_len is the distance between the center of the rect and the
                 // ending point of the gradient
                 let searched_len = (hypothenuse_len * degree_diff_to_corner.cos()).abs();
 
@@ -2297,6 +2297,11 @@ mod css_tests {
 
     #[test]
     fn test_parse_pixel_value_3() {
+        assert_eq!(parse_pixel_value("11pt"), Ok(PixelValue { metric: CssMetric::Pt, number: 11000 }));
+    }
+
+    #[test]
+    fn test_parse_pixel_value_4() {
         assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::InvalidComponent("aslkfdjasdflk")));
     }
 
