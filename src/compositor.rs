@@ -66,19 +66,36 @@ impl ExternalImageHandler for Compositor {
         let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
 
         // Search all epoch hash maps for the given key
-        // There does not seemt to be a way to get the epoch for the key, so we simply have to search all active epochs
-        let tex = gl_tex_lock
+        // There does not seemt to be a way to get the epoch for the key,
+        // so we simply have to search all active epochs
+        //
+        // NOTE: Invalid textures can be generated on minimize / maximize
+        // Luckily, webrender simply ignores an invalid texture, so we don't
+        // need to check whether a window is maximized or minimized - if
+        // we encounter an invalid ID, webrender simply won't draw anything,
+        // but at least it won't crash. Usually invalid textures are also 0x0
+        // pixels large - so it's not like we had anything to draw anyway.
+        let (tex, wh) = gl_tex_lock
             .values()
             .filter_map(|epoch_map| epoch_map.get(&key))
             .next()
-            .expect("Missing OpenGL texture");
+            .and_then(|tex| {
+                Some((
+                    ExternalImageSource::NativeTexture(tex.texture.inner.get_id()),
+                    TypedPoint2D::<f32, DevicePixel>::new(
+                        tex.texture.inner.width() as f32,
+                        tex.texture.inner.height() as f32
+                    )
+                ))
+            })
+            .unwrap_or((ExternalImageSource::Invalid, TypedPoint2D::zero()));
 
         ExternalImage {
             uv: TexelRect {
                 uv0: TypedPoint2D::zero(),
-                uv1: TypedPoint2D::<f32, DevicePixel>::new(tex.texture.inner.width() as f32, tex.texture.inner.height() as f32),
+                uv1: wh,
             },
-            source: ExternalImageSource::NativeTexture(tex.texture.inner.get_id()),
+            source: tex,
         }
     }
 
