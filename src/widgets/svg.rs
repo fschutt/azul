@@ -1347,6 +1347,11 @@ impl VectorizedFontCache {
         self.vectorized_fonts.lock().unwrap().insert(id, Arc::new(font));
     }
 
+    /// Returns true if the font cache has the respective font
+    pub fn has_font(&self, id: &FontId) -> bool {
+        self.vectorized_fonts.lock().unwrap().get(id).is_some()
+    }
+
     pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Arc<VectorizedFont>> {
         self.vectorized_fonts.lock().unwrap().entry(id.clone())
             .or_insert_with(|| Arc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0)));
