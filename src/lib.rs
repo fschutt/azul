@@ -82,6 +82,8 @@ pub mod traits;
 pub mod widgets;
 /// Window handling
 pub mod window;
+/// Font handling
+pub mod font;
 /// Global application (Initialization starts here)
 mod app;
 /// Wrapper for the application data & application state
@@ -105,8 +107,6 @@ mod ui_state;
 mod cache;
 /// Image handling
 mod images;
-/// Font handling
-mod font;
 /// Window state handling, event filtering
 mod window_state;
 /// Application / context menu handling. Currently Win32 only. Also has parsing functions

@@ -1240,6 +1240,16 @@ impl VectorizedFont {
             glyph_stroke_map: Arc::new(Mutex::new(FastHashMap::default())),
         }
     }
+
+    /// Loads a vectorized font from a path
+    pub fn from_path(path: &str) -> Option<Self> {
+        use std::fs;
+        use font::rusttype_load_font;
+
+        let file_contents = fs::read(path).ok()?;
+        let font = rusttype_load_font(file_contents, None).ok()?.0;
+        Some(Self::from_font(&font))
+    }
 }
 
 /// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
