@@ -863,13 +863,38 @@ fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], l
         Right => 1.0, // move the line by the full width
     };
 
-    let mut current_line_num = 0;
-    for (glyph_idx, glyph) in glyphs.iter_mut().enumerate() {
-        if glyph_idx > line_breaks[current_line_num].0 {
-            current_line_num += 1;
+    // If we have the characters "ABC\n\nDEF", this will result in:
+    //
+    //     [ Glyph(A), Glyph(B), Glyph(C), Glyph(D), Glyph(E), Glyph(F)]
+    //
+    //     [LineBreak(2), LineBreak(2), LineBreak(5)]
+    //
+    // If we'd just shift every character after the line break, we'd get into
+    // the problem of shifting the 3rd character twice, because of the \n\n.
+    //
+    // To avoid the double-line-break problem, we can use ranges:
+    //
+    // - from 0..2, shift the characters at i by X amount
+    // - from 2..2 (e.g. 0 characters) shift the characters at i by X amount
+    // - from 2..5 shift the characters by X amount
+    //
+    // Because the middle range selects 0 characters, the shift is effectively
+    // ignored, which is what we want - because there are no characters to shift.
+
+    let mut start_range_char = 0;
+
+    // last line break is special, here we have to use an upper-bound-inclusive range, i.e. 2..=5
+    for (line_break_char, line_break_amount) in line_breaks.iter().take(line_breaks.len() - 1) {
+        for glyph in &mut glyphs[start_range_char..*line_break_char] {
+            glyph.point.x += line_break_amount * multiply_factor;
         }
-        let space_added_full = line_breaks[current_line_num].1;
-        glyph.point.x += space_added_full * multiply_factor;
+        start_range_char = *line_break_char;
+    }
+
+    // last line: use an inclusive range: 2..=5
+    let (last_line_break_char, last_line_break_amount) = line_breaks[line_breaks.len() - 1];
+    for glyph in &mut glyphs[start_range_char..=last_line_break_char] {
+        glyph.point.x += last_line_break_amount * multiply_factor;
     }
 }
 
