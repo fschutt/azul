@@ -1,0 +1,37 @@
+.__azul-native-button {
+    border: 1px solid #3399ff; /* inactive: #acacac */
+    background: linear-gradient(#f0f0f0, #e5e5e5);
+    width: 85px;
+    height: 21px;
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.__azul-native-label {
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+}
+
+#parent-wrapper {
+    background-color: red;
+    flex-direction: row;
+}
+
+#child-1 {
+    background-color: green;
+    max-width: 200px;
+}
+
+#child-2 {
+    background-color: yellow;
+    max-height: 600px;
+}
+
+* {
+    font-size: 14.66px;
+    font-family: sans-serif;
+    color: #000;
+    background-color: #f0f0f0; /* Windows Background color, rgb(240, 240, 240) */
+}

@@ -86,6 +86,7 @@ impl FakeWindow {
 
 /// Read-only window which can be used to create / draw
 /// custom OpenGL texture during the `.layout()` phase
+#[derive(Clone)]
 pub struct ReadOnlyWindow {
     pub(crate) inner: Rc<Display>,
 }

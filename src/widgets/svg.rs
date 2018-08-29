@@ -32,7 +32,7 @@ use webrender::api::{ColorU, ColorF, GlyphInstance};
 use rusttype::{Font, Glyph};
 use {
     FastHashMap,
-    dom::{Dom, NodeType, Callback},
+    dom::{Callback, Texture},
     traits::Layout,
     window::ReadOnlyWindow,
     css_parser::{FontId, FontSize},
@@ -2201,12 +2201,18 @@ impl Svg {
         self
     }
 
+/*
     /// Renders the SVG to an OpenGL texture and creates the DOM
     pub fn dom<T>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>)
     -> Dom<T> where T: Layout
     {
-        let (window_width, window_height) = window.get_physical_size();
-        let tex = window.create_texture(window_width as u32, window_height as u32);
+        Dom::new(NodeType::GlTexture(tex))
+    }
+*/
+
+    pub fn render_svg<T: Layout>(&self, svg_cache: &SvgCache<T>, window: &ReadOnlyWindow, width: usize, height: usize) -> Option<Texture> {
+
+        let tex = window.create_texture(width as u32, height as u32);
 
         // TODO: This currently doesn't work - only the first draw call is drawn
         // This is probably because either webrender or glium messes with the texture
@@ -2216,12 +2222,12 @@ impl Svg {
             background_color.r,
             background_color.g,
             background_color.b,
-            background_color.a);
+            0.0);
 
         let z_index: f32 = 0.5;
         let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
                 origin: TypedPoint2D::new(0.0, 0.0),
-                size: TypedSize2D::new(window_width as f32, window_height as f32),
+                size: TypedSize2D::new(width as f32, height as f32),
         };
         let shader = svg_cache.init_shader(window);
 
@@ -2292,7 +2298,7 @@ impl Svg {
             // TODO: apply FXAA shader
         }
 
-        Dom::new(NodeType::GlTexture(tex))
+        Some(tex)
     }
 }
 
