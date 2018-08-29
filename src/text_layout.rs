@@ -4,7 +4,7 @@ use webrender::api::LayoutPixel;
 use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
 use {
-    resources::AppResources,
+    app_resources::AppResources,
     display_list::TextInfo,
     css_parser::{
         TextAlignmentHorz, FontSize, BackgroundColor,

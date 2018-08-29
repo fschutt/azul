@@ -91,7 +91,7 @@ mod app_state;
 /// Styling & CSS parsing
 mod css;
 /// Font & image resource handling, lookup and caching
-mod resources;
+mod app_resources;
 /// UI Description & display list handling (webrender)
 mod ui_description;
 /// Converts the UI description (the styled HTML nodes)
@@ -158,7 +158,7 @@ pub mod prelude {
         VirtualKeyCode, ScanCode, Icon,
     };
     pub use rusttype::Font;
-    pub use resources::AppResources;
+    pub use app_resources::AppResources;
     pub use task::TerminateDaemon;
 
     #[cfg(feature = "logging")]

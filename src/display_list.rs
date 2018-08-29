@@ -7,7 +7,7 @@ use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
 use {
     FastHashMap,
-    resources::AppResources,
+    app_resources::AppResources,
     traits::Layout,
     ui_description::{UiDescription, StyledNode},
     ui_solver::UiSolver,

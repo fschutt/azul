@@ -26,7 +26,7 @@ use {
     traits::Layout,
     compositor::Compositor,
     app::FrameEventInfo,
-    resources::AppResources,
+    app_resources::AppResources,
     ui_solver::UiSolver,
 };
 

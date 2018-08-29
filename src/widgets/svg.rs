@@ -36,7 +36,7 @@ use {
     traits::Layout,
     window::ReadOnlyWindow,
     css_parser::{FontId, FontSize},
-    resources::AppResources,
+    app_resources::AppResources,
     text_layout::{FontMetrics, LayoutTextResult, layout_text, PX_TO_PT},
 };
 
