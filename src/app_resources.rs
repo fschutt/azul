@@ -77,7 +77,7 @@ impl AppResources {
     }
 
     /// See `AppState::add_image()`
-    pub(crate) fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
+    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
         use images; // the module, not the crate!
@@ -106,7 +106,7 @@ impl AppResources {
     }
 
     /// See `AppState::delete_image()`
-    pub(crate) fn delete_image<S: AsRef<str>>(&mut self, id: S)
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
         -> Option<()>
     {
         let image_id = self.css_ids_to_image_ids.remove(id.as_ref())?;
@@ -127,7 +127,7 @@ impl AppResources {
     }
 
     /// See `AppState::has_image()`
-    pub(crate) fn has_image<S: AsRef<str>>(&mut self, id: S)
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S)
         -> bool
     {
         let image_id = match self.css_ids_to_image_ids.get(id.as_ref()) {
@@ -139,7 +139,7 @@ impl AppResources {
     }
 
     /// See `AppState::add_font()`
-    pub(crate) fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
+    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
         -> Result<Option<()>, FontError>
     {
         use font;
@@ -195,14 +195,14 @@ impl AppResources {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub(crate) fn has_font<S: Into<String>>(&mut self, id: S)
+    pub fn has_font(&self, id: &FontId)
         -> bool
     {
-        self.font_data.borrow().get(&ExternalFont(id.into())).is_some()
+        self.font_data.borrow().get(id).is_some()
     }
 
     /// See `AppState::delete_font()`
-    pub(crate) fn delete_font<S: Into<String>>(&mut self, id: S)
+    pub fn delete_font<S: Into<String>>(&mut self, id: S)
         -> Option<()>
     {
         let id = ExternalFont(id.into());
@@ -223,7 +223,7 @@ impl AppResources {
         Some(())
     }
 
-    pub(crate) fn add_text_uncached<S: Into<String>>(&mut self, text: S)
+    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
     -> TextId
     {
         self.text_cache.add_text(text)
@@ -232,7 +232,7 @@ impl AppResources {
     /// Calculates the widths for the words, then stores the widths of the words + the actual words
     ///
     /// This leads to a faster layout cycle, but has an upfront performance cost
-    pub(crate) fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize)
     -> TextId
     {
         // First, insert the text into the text cache
@@ -241,8 +241,9 @@ impl AppResources {
         id
     }
 
-    /// Promotes (and calculates all the metrics) for a given text ID.
-    pub(crate) fn cache_text(&mut self, id: TextId, font: FontId, size: FontSize) {
+    /// Promotes an uncached text to a cached text and calculates all the metrics
+    /// for a given text ID.
+    pub fn cache_text(&mut self, id: TextId, font: FontId, size: FontSize) {
 
         use rusttype::Scale;
 
@@ -259,21 +260,21 @@ impl AppResources {
             .insert(size, words);
     }
 
-    pub(crate) fn delete_text(&mut self, id: TextId) {
+    pub fn delete_text(&mut self, id: TextId) {
         self.text_cache.delete_text(id);
     }
 
-    pub(crate) fn clear_all_texts(&mut self) {
+    pub fn clear_all_texts(&mut self) {
         self.text_cache.clear_all_texts();
     }
 
-    pub(crate) fn get_clipboard_string(&mut self)
+    pub fn get_clipboard_string(&mut self)
     -> Result<String, ClipboardError>
     {
         self.clipboard.get_string_contents()
     }
 
-    pub(crate) fn set_clipboard_string(&mut self, contents: String)
+    pub fn set_clipboard_string(&mut self, contents: String)
     -> Result<(), ClipboardError>
     {
         self.clipboard.set_string_contents(contents)

@@ -24,7 +24,7 @@ use {
     dom::UpdateScreen,
     window::FakeWindow,
     css::{Css, FakeCss},
-    resources::AppResources,
+    app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
     ui_state::UiState,
@@ -397,7 +397,7 @@ impl<T: Layout> App<T> {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font<S: Into<String>>(&mut self, id: S)
+    pub fn has_font(&mut self, id: &FontId)
         -> bool
     {
         self.app_state.has_font(id)

@@ -13,7 +13,7 @@ use {
     task::Task,
     dom::UpdateScreen,
     traits::Layout,
-    resources::AppResources,
+    app_resources::AppResources,
     images::ImageType,
     font::FontError,
     css_parser::{FontId, FontSize, PixelValue},
@@ -150,7 +150,7 @@ impl<T: Layout> AppState<T> {
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font<S: Into<String>>(&mut self, id: S)
+    pub fn has_font(&self, id: &FontId)
         -> bool
     {
         self.resources.has_font(id)
