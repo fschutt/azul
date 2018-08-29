@@ -208,7 +208,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 
 fn main() {
 
-    macro_rules! css_path { () => ("/please/use/an/absolute/filepath/../debug.css") }
+    macro_rules! css_path { () => ("/please/use/an/absolute/file/path/../debug.css") }
 
     #[cfg(debug_assertions)]
     let css = Css::hot_reload(css_path!()).unwrap();
