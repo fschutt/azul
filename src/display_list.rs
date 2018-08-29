@@ -442,7 +442,12 @@ fn displaylist_handle_rect<'a, T: Layout>(
             push_image(&info, builder, &bounds, app_resources, image_id);
         },
         GlTexture(texture_callback) => {
+
             use window::WindowInfo;
+
+            let hidpi_factor = read_only_window.get_hidpi_factor();
+            let width = (bounds.size.width * hidpi_factor as f32) as usize;
+            let height = (bounds.size.height * hidpi_factor as f32) as usize;
 
             let t_locked = app_data.lock().unwrap();
             let window_info = WindowInfo {
@@ -450,7 +455,9 @@ fn displaylist_handle_rect<'a, T: Layout>(
                 window: read_only_window,
                 resources: &app_resources,
             };
-            if let Some(texture) = (texture_callback.0)(&t_locked, window_info, bounds.size.width as usize, bounds.size.height as usize) {
+
+            if let Some(texture) = (texture_callback.0)(&t_locked, window_info, width, height) {
+
                 use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
                 let opaque = false;

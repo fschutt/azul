@@ -1667,6 +1667,8 @@ pub struct Svg {
     pub zoom: f32,
     /// Whether an FXAA shader should be applied to the resulting OpenGL texture
     pub enable_fxaa: bool,
+    /// Should the SVG add the current HiDPI factor to the zoom?
+    pub enable_hidpi: bool,
     /// Background color (default: transparent)
     pub background_color: ColorU,
 }
@@ -1678,6 +1680,7 @@ impl Default for Svg {
             pan: (0.0, 0.0),
             zoom: 1.0,
             enable_fxaa: false,
+            enable_hidpi: true,
             background_color: ColorU { r: 0, b: 0, g: 0, a: 0 },
         }
     }
@@ -2178,55 +2181,54 @@ fn curved_vector_text_to_vertices(
 impl Svg {
 
     #[inline]
-    pub fn with_layers(layers: Vec<SvgLayerResource>)
-    -> Self
-    {
+    pub fn with_layers(layers: Vec<SvgLayerResource>) -> Self {
         Self { layers: layers, .. Default::default() }
     }
 
     #[inline]
-    pub fn with_pan(mut self, horz: f32, vert: f32)
-    -> Self
-    {
+    pub fn with_pan(mut self, horz: f32, vert: f32) -> Self {
         self.pan = (horz, vert);
         self
     }
 
     #[inline]
-    pub fn with_zoom(mut self, zoom: f32)
-    -> Self
-    {
+    pub fn with_zoom(mut self, zoom: f32) -> Self {
         self.zoom = zoom;
         self
     }
 
     #[inline]
-    pub fn with_background_color(mut self, color: ColorU)
-    -> Self
-    {
+    pub fn with_hidpi_enabled(mut self, hidpi_enabled: bool) -> Self {
+        self.enable_hidpi = hidpi_enabled;
+        self
+    }
+
+    #[inline]
+    pub fn with_background_color(mut self, color: ColorU) -> Self {
         self.background_color = color;
         self
     }
 
     #[inline]
-    pub fn with_fxaa(mut self, enable_fxaa: bool)
-    -> Self
-    {
+    pub fn with_fxaa(mut self, enable_fxaa: bool) -> Self {
         self.enable_fxaa = enable_fxaa;
         self
     }
 
-/*
-    /// Renders the SVG to an OpenGL texture and creates the DOM
-    pub fn dom<T>(&self, window: &ReadOnlyWindow, svg_cache: &SvgCache<T>)
-    -> Dom<T> where T: Layout
+    /// Renders the SVG to a texture. This should be called in a callback, since
+    /// during DOM construction, the items don't know how large they will be.
+    ///
+    /// The final texture will be width * height large. Note that width and height
+    /// need to be multiplied with the current `HiDPI` factor, otherwise the texture
+    /// will be blurry on HiDPI screens. This isn't done automatically.
+    pub fn render_svg<T: Layout>(
+        &self,
+        svg_cache: &SvgCache<T>,
+        window: &ReadOnlyWindow,
+        width: usize,
+        height: usize)
+    -> Option<Texture>
     {
-        Dom::new(NodeType::GlTexture(tex))
-    }
-*/
-
-    pub fn render_svg<T: Layout>(&self, svg_cache: &SvgCache<T>, window: &ReadOnlyWindow, width: usize, height: usize) -> Option<Texture> {
-
         let tex = window.create_texture(width as u32, height as u32);
 
         // TODO: This currently doesn't work - only the first draw call is drawn
@@ -2245,6 +2247,10 @@ impl Svg {
                 size: TypedSize2D::new(width as f32, height as f32),
         };
         let shader = svg_cache.init_shader(window);
+
+        let hidpi = window.get_hidpi_factor() as f32;
+        let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom };
+        let pan = if self.enable_hidpi { (self.pan.0 * hidpi, self.pan.1 * hidpi) } else { self.pan };
 
         let draw_options = DrawParameters {
             primitive_restart_index: true,
@@ -2279,8 +2285,8 @@ impl Svg {
                             &bbox,
                             color.into(),
                             z_index,
-                            self.pan,
-                            self.zoom);
+                            pan,
+                            zoom);
                     }
                 }
 
@@ -2302,8 +2308,8 @@ impl Svg {
                             &bbox,
                             stroke_color.into(),
                             z_index,
-                            self.pan,
-                            self.zoom);
+                            pan,
+                            zoom);
                     }
                 }
             }

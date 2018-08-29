@@ -100,8 +100,13 @@ impl Facade for ReadOnlyWindow {
 impl ReadOnlyWindow {
 
     pub fn get_physical_size(&self) -> (u32, u32) {
-        let hidpi = self.inner.gl_window().get_hidpi_factor();
+        let hidpi = self.get_hidpi_factor();
         self.inner.gl_window().get_inner_size().unwrap().to_physical(hidpi).into()
+    }
+
+    /// Returns the current HiDPI factor.
+    pub fn get_hidpi_factor(&self) -> f64 {
+        self.inner.gl_window().get_hidpi_factor()
     }
 
     // Since webrender is asynchronous, we can't let the user draw
