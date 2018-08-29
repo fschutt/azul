@@ -37,16 +37,13 @@ pub struct Map {
 }
 
 impl Layout for MyAppData {
-    fn layout(&self, info: WindowInfo)
+    fn layout(&self, _info: WindowInfo)
     -> Dom<MyAppData>
     {
-        if let Some(map) = &self.map {
-            Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
-                .with_pan(map.pan_horz as f32, map.pan_vert as f32)
-                .with_zoom(map.zoom as f32)
-                .dom(&info.window, &map.cache)
-                .with_callback(On::Scroll, Callback(scroll_map_contents))
-                .with_callback(On::MouseOver, Callback(check_hovered_font))
+        if let Some(_map) = &self.map {
+            Dom::new(NodeType::Div).with_id("parent-wrapper")
+                .with_child(Dom::new(NodeType::Div).with_id("child-1"))
+                .with_child(gl_texture_dom().with_id("child-2"))
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
@@ -54,6 +51,20 @@ impl Layout for MyAppData {
                 .with_callback(On::LeftMouseUp, Callback(my_button_click_handler))
         }
     }
+}
+
+fn gl_texture_dom() -> Dom<MyAppData> {
+    Dom::new(NodeType::GlTexture(GlTextureCallback(render_map)))
+        .with_callback(On::Scroll, Callback(scroll_map_contents))
+        .with_callback(On::MouseOver, Callback(check_hovered_font))
+}
+
+fn render_map(data: &MyAppData, info: WindowInfo, width: usize, height: usize) -> Option<Texture> {
+    let map = data.map.as_ref()?;
+    Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
+        .with_pan(map.pan_horz as f32, map.pan_vert as f32)
+        .with_zoom(map.zoom as f32)
+        .render_svg(&map.cache, &info.window, width, height)
 }
 
 fn build_layers(
@@ -196,7 +207,15 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 }
 
 fn main() {
+
+    macro_rules! css_path { () => ("/please/use/an/absolute/filepath/../debug.css") }
+
+    #[cfg(debug_assertions)]
+    let css = Css::hot_reload(css_path!()).unwrap();
+    #[cfg(not(debug_assertions))]
+    let css = Css::new_from_str(include_str!(css_path!())).unwrap();
+
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
-    app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
+    app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run().unwrap();
 }

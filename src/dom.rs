@@ -8,7 +8,7 @@ use std::{
 };
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use {
-    window::WindowEvent,
+    window::{WindowEvent, WindowInfo},
     images::ImageId,
     cache::DomHash,
     text_cache::TextId,
@@ -75,8 +75,7 @@ impl<T: Layout> Eq for Callback<T> { }
 impl<T: Layout> Copy for Callback<T> { }
 
 /// List of core DOM node types built-into by `azul`.
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
-pub enum NodeType {
+pub enum NodeType<T: Layout> {
     /// Regular div with no particular type of data attached
     Div,
     /// A small label that can be (optionally) be selectable with the mouse
@@ -89,10 +88,100 @@ pub enum NodeType {
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// azul does not check that the contents of two textures are the same
-    GlTexture(Texture),
+    GlTexture(GlTextureCallback<T>),
 }
 
-impl NodeType {
+pub struct GlTextureCallback<T: Layout>(pub fn(&T, WindowInfo, usize, usize) -> Option<Texture>);
+
+// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for GlTextureCallback<T>
+
+impl<T: Layout> fmt::Debug for GlTextureCallback<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "GlTextureCallback @ 0x{:x}", self.0 as usize)
+    }
+}
+
+impl<T: Layout> Clone for GlTextureCallback<T> {
+    fn clone(&self) -> Self {
+        GlTextureCallback(self.0.clone())
+    }
+}
+
+impl<T: Layout> Hash for GlTextureCallback<T> {
+  fn hash<H>(&self, state: &mut H) where H: Hasher {
+    state.write_usize(self.0 as usize);
+  }
+}
+
+impl<T: Layout> PartialEq for GlTextureCallback<T> {
+  fn eq(&self, rhs: &Self) -> bool {
+    self.0 as usize == rhs.0 as usize
+  }
+}
+
+impl<T: Layout> Eq for GlTextureCallback<T> { }
+impl<T: Layout> Copy for GlTextureCallback<T> { }
+
+// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType<T>
+
+impl<T: Layout> fmt::Debug for NodeType<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::NodeType::*;
+        match self {
+            Div => write!(f, "NodeType::Div"),
+            Label(a) => write!(f, "NodeType::Label {{ {:?} }}", a),
+            Text(a) => write!(f, "NodeType::Text {{ {:?} }}", a),
+            Image(a) => write!(f, "NodeType::Image {{ {:?} }}", a),
+            GlTexture(a) => write!(f, "NodeType::GlTexture {{ {:?} }}", a),
+        }
+    }
+}
+
+impl<T: Layout> Clone for NodeType<T> {
+    fn clone(&self) -> Self {
+        use self::NodeType::*;
+        match self {
+            Div => Div,
+            Label(a) => Label(a.clone()),
+            Text(a) => Text(a.clone()),
+            Image(a) => Image(a.clone()),
+            GlTexture(a) => GlTexture(a.clone()),
+        }
+    }
+}
+
+impl<T: Layout> Hash for NodeType<T> {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        use self::NodeType::*;
+        use std::mem;
+        mem::discriminant(&self).hash(state);
+        match self {
+            Div => { },
+            Label(a) => a.hash(state),
+            Text(a) => a.hash(state),
+            Image(a) => a.hash(state),
+            GlTexture(a) => a.hash(state),
+        }
+    }
+}
+
+impl<T: Layout> PartialEq for NodeType<T> {
+    fn eq(&self, rhs: &Self) -> bool {
+        use self::NodeType::*;
+        match (self, rhs) {
+            (Div, Div) => true,
+            (Label(a), Label(b)) => a == b,
+            (Text(a), Text(b)) => a == b,
+            (Image(a), Image(b)) => a == b,
+            (GlTexture(a), GlTexture(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl<T: Layout> Eq for NodeType<T> { }
+
+impl<T: Layout> NodeType<T> {
     pub(crate) fn get_css_id(&self) -> &'static str {
         use self::NodeType::*;
         match self {
@@ -204,7 +293,7 @@ pub enum On {
 
 pub struct NodeData<T: Layout> {
     /// `div`
-    pub node_type: NodeType,
+    pub node_type: NodeType<T>,
     /// `#main`
     pub id: Option<String>,
     /// `.myclass .otherclass`
@@ -311,7 +400,7 @@ impl<T: Layout> CallbackList<T> {
 
 impl<T: Layout> NodeData<T> {
     /// Creates a new NodeData
-    pub fn new(node_type: NodeType) -> Self {
+    pub fn new(node_type: NodeType<T>) -> Self {
         Self {
             node_type: node_type,
             id: None,
@@ -437,8 +526,8 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
     }
 }
 
-impl<T: Layout> FromIterator<NodeType> for Dom<T> {
-    fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
+impl<T: Layout> FromIterator<NodeType<T>> for Dom<T> {
+    fn from_iter<I: IntoIterator<Item=NodeType<T>>>(iter: I) -> Self {
         iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
     }
 }
@@ -447,7 +536,7 @@ impl<T: Layout> Dom<T> {
 
     /// Creates an empty DOM
     #[inline]
-    pub fn new(node_type: NodeType) -> Self {
+    pub fn new(node_type: NodeType<T>) -> Self {
         let mut arena = Arena::new();
         let root = arena.new_node(NodeData::new(node_type));
         Self {

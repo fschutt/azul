@@ -18,7 +18,7 @@ use log::LevelFilter;
 use {
     images::ImageType,
     errors::{FontError, ClipboardError},
-    window::{Window, WindowCreateOptions, WindowCreateError, WindowId},
+    window::{Window, WindowCreateOptions, ReadOnlyWindow, WindowCreateError, WindowId},
     css_parser::{FontId, PixelValue},
     text_cache::TextId,
     dom::UpdateScreen,
@@ -267,7 +267,7 @@ impl<T: Layout> App<T> {
                     let window_id = WindowId { id: idx };
                     let read_only_window = ReadOnlyWindow { inner: window.display.clone() };
                     ui_state_cache[idx] = UiState::from_app_state(
-                        &self.app_state, window_id, read_only_window
+                        &self.app_state, window_id, read_only_window.clone()
                     );
 
                     // Style the DOM
@@ -275,7 +275,11 @@ impl<T: Layout> App<T> {
                     // send webrender the size and buffer of the display
                     Self::update_display(&window);
                     // render the window (webrender will send an Awakened event when the frame is done)
-                    render(window, &WindowId { id: idx }, &ui_description_cache[idx], &mut self.app_state.resources, true);
+
+                    let arc_mutext_t_clone = self.app_state.data.clone();
+                    let window_id = WindowId { id: idx };
+
+                    render(arc_mutext_t_clone, window, window_id, read_only_window, &ui_description_cache[idx], &mut self.app_state.resources, true);
                     awakened_task[idx] = false;
                 }
             }
@@ -687,8 +691,10 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
 }
 
 fn render<T: Layout>(
+    app_data: Arc<Mutex<T>>,
     window: &mut Window,
-    _window_id: &WindowId,
+    window_id: WindowId,
+    read_only_window: ReadOnlyWindow,
     ui_description: &UiDescription<T>,
     app_resources: &mut AppResources,
     has_window_size_changed: bool)
@@ -700,6 +706,7 @@ fn render<T: Layout>(
 
     let display_list = DisplayList::new_from_ui_description(ui_description);
     let builder = display_list.into_display_list_builder(
+        app_data,
         window.internal.pipeline_id,
         window.internal.epoch,
         &mut window.ui_solver,
@@ -707,7 +714,9 @@ fn render<T: Layout>(
         app_resources,
         &window.internal.api,
         has_window_size_changed,
-        &window.state.size);
+        &window.state.size,
+        window_id,
+        read_only_window);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     window.internal.last_display_list_builder = builder.finalize().2;

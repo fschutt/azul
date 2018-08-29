@@ -1,6 +1,7 @@
 #![allow(unused_variables)]
 #![allow(unused_macros)]
 
+use std::sync::{Arc, Mutex};
 use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
@@ -19,6 +20,7 @@ use {
     images::ImageId,
     text_cache::TextId,
     compositor::new_opengl_texture_id,
+    window::{WindowId, ReadOnlyWindow},
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -223,6 +225,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
     pub fn into_display_list_builder(
         &self,
+        app_data: Arc<Mutex<T>>,
         pipeline_id: PipelineId,
         current_epoch: Epoch,
         ui_solver: &mut UiSolver,
@@ -230,12 +233,14 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         app_resources: &mut AppResources,
         render_api: &RenderApi,
         mut has_window_size_changed: bool,
-        window_size: &WindowSize)
+        window_size: &WindowSize,
+        window_id: WindowId,
+        read_only_window: ReadOnlyWindow)
     -> DisplayListBuilder
     {
         use glium::glutin::dpi::LogicalSize;
         use std::collections::BTreeMap;
-        
+
         let changeset = self.ui_descr.ui_descr_root.as_ref().and_then(|root| {
             let changeset = ui_solver.update_dom(root, &*(self.ui_descr.ui_descr_arena.borrow()));
             if changeset.is_empty() { None } else { Some(changeset) }
@@ -307,18 +312,22 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         }
 
         for (z_index, rects) in rects_in_rendering_order.into_iter() {
-            for rect_idx in rects {            
+            for rect_idx in rects {
+                let bounds = ui_solver.query_bounds_of_rect(rect_idx);
                 displaylist_handle_rect(
                     &mut builder,
                     current_epoch,
                     rect_idx,
                     &self.rectangles,
                     &arena[rect_idx].data.node_type,
-                    ui_solver.query_bounds_of_rect(rect_idx),
+                    bounds,
                     full_screen_rect,
                     app_resources,
                     render_api,
-                    &mut resource_updates);
+                    &mut resource_updates,
+                    &app_data,
+                    window_id,
+                    read_only_window.clone());
             }
         }
 
@@ -328,17 +337,20 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-fn displaylist_handle_rect<'a>(
+fn displaylist_handle_rect<'a, T: Layout>(
     builder: &mut DisplayListBuilder,
     current_epoch: Epoch,
     rect_idx: NodeId,
     arena: &Arena<DisplayRectangle<'a>>,
-    html_node: &NodeType,
+    html_node: &NodeType<T>,
     bounds: TypedRect<f32, LayoutPixel>,
     full_screen_rect: TypedRect<f32, LayoutPixel>,
     app_resources: &mut AppResources,
     render_api: &RenderApi,
-    resource_updates: &mut Vec<ResourceUpdate>)
+    resource_updates: &mut Vec<ResourceUpdate>,
+    app_data: &Arc<Mutex<T>>,
+    window_id: WindowId,
+    read_only_window: ReadOnlyWindow)
 {
     let rect = &arena[rect_idx].data;
 
@@ -429,38 +441,48 @@ fn displaylist_handle_rect<'a>(
         Image(image_id) => {
             push_image(&info, builder, &bounds, app_resources, image_id);
         },
-        GlTexture(texture) => {
+        GlTexture(texture_callback) => {
+            use window::WindowInfo;
 
-            use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
+            let t_locked = app_data.lock().unwrap();
+            let window_info = WindowInfo {
+                window_id: window_id,
+                window: read_only_window,
+                resources: &app_resources,
+            };
+            if let Some(texture) = (texture_callback.0)(&t_locked, window_info, bounds.size.width as usize, bounds.size.height as usize) {
+                use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
-            let opaque = true;
-            let allow_mipmaps = true;
-            let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
-            let key = render_api.generate_image_key();
-            let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
+                let opaque = false;
+                let allow_mipmaps = true;
+                let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
+                let key = render_api.generate_image_key();
+                let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
-            let data = ImageData::External(ExternalImageData {
-                id: external_image_id,
-                channel_index: 0,
-                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
-            });
+                let data = ImageData::External(ExternalImageData {
+                    id: external_image_id,
+                    channel_index: 0,
+                    image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+                });
 
-            ACTIVE_GL_TEXTURES.lock().unwrap()
-                .entry(current_epoch).or_insert_with(|| FastHashMap::default())
-                .insert(external_image_id, ActiveTexture { texture: texture.clone() });
+                ACTIVE_GL_TEXTURES.lock().unwrap()
+                    .entry(current_epoch).or_insert_with(|| FastHashMap::default())
+                    .insert(external_image_id, ActiveTexture { texture: texture.clone() });
 
-            resource_updates.push(ResourceUpdate::AddImage(
-                AddImage { key, descriptor, data, tiling: None }
-            ));
+                resource_updates.push(ResourceUpdate::AddImage(
+                    AddImage { key, descriptor, data, tiling: None }
+                ));
 
-            builder.push_image(
-                &info,
-                bounds.size,
-                LayoutSize::zero(),
-                ImageRendering::Auto,
-                AlphaType::Alpha,
-                key,
-                ColorF::WHITE);
+                builder.push_image(
+                    &info,
+                    bounds.size,
+                    LayoutSize::zero(),
+                    ImageRendering::Auto,
+                    AlphaType::Alpha,
+                    key,
+                    ColorF::WHITE);
+            }
+
         },
     }
 

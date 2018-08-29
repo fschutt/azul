@@ -131,7 +131,7 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use css::{Css, FakeCss};
-    pub use dom::{Dom, NodeType, NodeData, Callback, On, UpdateScreen};
+    pub use dom::{Dom, NodeType, NodeData, Callback, On, UpdateScreen, Texture, GlTextureCallback};
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode,
