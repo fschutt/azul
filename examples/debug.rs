@@ -208,12 +208,12 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
 
 fn main() {
 
-    macro_rules! css_path { () => ("/please/use/an/absolute/file/path/../debug.css") }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/debug.css")) }
 
     #[cfg(debug_assertions)]
-    let css = Css::hot_reload(css_path!()).unwrap();
+    let css = Css::hot_reload(CSS_PATH!()).unwrap();
     #[cfg(not(debug_assertions))]
-    let css = Css::new_from_str(include_str!(css_path!())).unwrap();
+    let css = Css::new_from_str(include_str!(CSS_PATH!())).unwrap();
 
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
     app.create_window(WindowCreateOptions::default(), css).unwrap();
