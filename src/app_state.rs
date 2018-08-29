@@ -139,11 +139,11 @@ impl<T: Layout> AppState<T> {
     ///
     /// fn my_callback(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
     ///     /// Here you can add your font at runtime to the app_state
-    ///     app_state.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
+    ///     app_state.add_font(FontId::ExternalFont("Webly Sleeky UI".into()), &mut TEST_FONT).unwrap();
     ///     UpdateScreen::DontRedraw
     /// }
     /// ```
-    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
+    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
         -> Result<Option<()>, FontError>
     {
         self.resources.add_font(id, data)
@@ -180,7 +180,7 @@ impl<T: Layout> AppState<T> {
     /// You can also call this function on an `App` struct, see [`App::add_font`].
     ///
     /// [`App::add_font`]: ../app/struct.App.html#method.add_font
-    pub fn delete_font<S: Into<String>>(&mut self, id: S)
+    pub fn delete_font(&mut self, id: &FontId)
         -> Option<()>
     {
         self.resources.delete_font(id)

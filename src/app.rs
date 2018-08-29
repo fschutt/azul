@@ -390,7 +390,7 @@ impl<T: Layout> App<T> {
     /// - `Ok(Some(()))` if an font with the same ID already exists.
     /// - `Ok(None)` if the font was added, but didn't exist previously.
     /// - `Err(e)` if the font couldn't be decoded
-    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
+    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
         -> Result<Option<()>, FontError>
     {
         self.app_state.add_font(id, data)
@@ -437,16 +437,16 @@ impl<T: Layout> App<T> {
     /// #
     /// # fn main() {
     /// let mut app = App::new(MyAppData { }, AppConfig::default());
-    /// app.add_font("Webly Sleeky UI", &mut TEST_FONT).unwrap();
-    /// app.delete_font("Webly Sleeky UI");
+    /// app.add_font(FontId::ExternalFont("Webly Sleeky UI".into()), &mut TEST_FONT).unwrap();
+    /// app.delete_font(&FontId::ExternalFont("Webly Sleeky UI".into()));
     /// // NOTE: The font isn't immediately removed, only in the next draw call
     /// app.mock_render_frame();
-    /// assert!(!app.has_font("Webly Sleeky UI"));
+    /// assert!(!app.has_font(&FontId::ExternalFont("Webly Sleeky UI".into())));
     /// # }
     /// ```
     ///
     /// [`AppState::delete_font`]: ../app_state/struct.AppState.html#method.delete_font
-    pub fn delete_font<S: Into<String>>(&mut self, id: S)
+    pub fn delete_font(&mut self, id: &FontId)
         -> Option<()>
     {
         self.app_state.delete_font(id)

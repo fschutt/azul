@@ -15,10 +15,7 @@ use {
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
     images::{ImageId, ImageState, ImageType},
-    css_parser::{
-        FontSize,
-        FontId::{self, ExternalFont}
-    },
+    css_parser::{FontSize, FontId},
 };
 
 /// Font and image keys
@@ -139,12 +136,12 @@ impl AppResources {
     }
 
     /// See `AppState::add_font()`
-    pub fn add_font<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R)
+    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
         -> Result<Option<()>, FontError>
     {
         use font;
 
-        match self.font_data.borrow_mut().entry(ExternalFont(id.into())) {
+        match self.font_data.borrow_mut().entry(id) {
             Occupied(_) => Ok(None),
             Vacant(v) => {
                 let mut font_data = Vec::<u8>::new();
@@ -202,11 +199,9 @@ impl AppResources {
     }
 
     /// See `AppState::delete_font()`
-    pub fn delete_font<S: Into<String>>(&mut self, id: S)
+    pub fn delete_font(&mut self, id: &FontId)
         -> Option<()>
     {
-        let id = ExternalFont(id.into());
-
         // TODO: can fonts that haven't been uploaded yet be deleted?
         let mut to_delete_font_key = None;
 
