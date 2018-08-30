@@ -413,6 +413,27 @@ fn displaylist_handle_rect<'a, T: Layout>(
     match html_node {
         Div => { /* nothing special to do */ },
         Label(text) => {
+
+            // Adjust the bounds by the padding
+            let mut text_bounds = rect.layout.padding.as_ref().and_then(|padding| {
+                Some(subtract_padding(&bounds, padding))
+            }).unwrap_or(bounds);
+
+            text_bounds.size.width = text_bounds.size.width.max(0.0);
+            text_bounds.size.height = text_bounds.size.height.max(0.0);
+
+            let text_clip_region_id = rect.layout.padding.and_then(|_|
+                Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
+                    rect: text_bounds,
+                    radii: BorderRadius::zero(),
+                    mode: ClipMode::Clip,
+                }], None))
+            );
+
+            if let Some(text_clip_id) = text_clip_region_id {
+                builder.push_clip_id(text_clip_id);
+            }
+
             push_text(
                 &info,
                 &TextInfo::Uncached(text.clone()),
@@ -420,10 +441,14 @@ fn displaylist_handle_rect<'a, T: Layout>(
                 &rect.style,
                 app_resources,
                 &render_api,
-                &bounds,
+                &text_bounds,
                 resource_updates,
                 horz_alignment,
                 vert_alignment);
+
+            if text_clip_region_id.is_some() {
+                builder.pop_clip_id();
+            }
         },
         Text(text_id) => {
             push_text(
@@ -1086,6 +1111,10 @@ fn create_layout_constraints<'a, T: Layout>(
 
     let mut layout_constraints = Vec::new();
 
+    if let Some(LayoutPosition::Relative) = rect.layout.position {
+        println!("nearest common absolute ancestor for node {:?} is: {:?}", node_id, get_nearest_relative_ancestor(node_id, display_rectangles));
+    }
+
     // Insert the max height and width constraints
     //
     // min-width and max-width are stronger than width because the width has to be between min and max width
@@ -1173,6 +1202,39 @@ fn create_layout_constraints<'a, T: Layout>(
     }
 
     layout_constraints
+}
+
+/// Subtracts the padding from the bounds, returning the new bounds
+///
+/// Warning: The resulting rectangle may have negative width or height
+fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPadding)
+-> TypedRect<f32, LayoutPixel>
+{
+    let top     = padding.top.and_then(|top| Some(top.to_pixels())).unwrap_or(0.0);
+    let bottom  = padding.bottom.and_then(|bottom| Some(bottom.to_pixels())).unwrap_or(0.0);
+    let left    = padding.left.and_then(|left| Some(left.to_pixels())).unwrap_or(0.0);
+    let right   = padding.right.and_then(|right| Some(right.to_pixels())).unwrap_or(0.0);
+
+    let mut new_bounds = *bounds;
+
+    new_bounds.origin.x += left;
+    new_bounds.size.width -= right + left;
+    new_bounds.origin.y += top;
+    new_bounds.size.height -= top + bottom;
+
+    new_bounds
+}
+
+/// Returns the nearest common ancestor
+fn get_nearest_relative_ancestor<'a>(start_node_id: NodeId, arena: &Arena<DisplayRectangle<'a>>) -> Option<NodeId> {
+    let mut current_node = start_node_id;
+    while let Some(parent) = arena[current_node].parent() {
+        if let Some(LayoutPosition::Absolute) = arena[parent].data.layout.position {
+            return Some(parent);
+        }
+        current_node = parent;
+    }
+    None
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore

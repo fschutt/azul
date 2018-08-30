@@ -822,10 +822,10 @@ fn parse_color_no_hash<'a>(input: &'a str)
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LayoutPadding {
-    top: Option<PixelValue>,
-    bottom: Option<PixelValue>,
-    left: Option<PixelValue>,
-    right: Option<PixelValue>,
+    pub top: Option<PixelValue>,
+    pub bottom: Option<PixelValue>,
+    pub left: Option<PixelValue>,
+    pub right: Option<PixelValue>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
