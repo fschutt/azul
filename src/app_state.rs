@@ -201,7 +201,7 @@ impl<T: Layout> AppState<T> {
     {
         let mut should_update_screen = UpdateScreen::DontRedraw;
         let mut lock = self.data.lock().unwrap();
-        let mut daemons_to_terminate = vec![];
+        let mut daemons_to_terminate = Vec::new();
 
         for (key, daemon) in self.daemons.iter_mut() {
             let (should_update, should_terminate) = daemon.invoke_callback_with_data(&mut lock);
