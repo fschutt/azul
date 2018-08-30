@@ -738,7 +738,11 @@ fn words_to_left_aligned_glyphs<'a>(
                         Some(s) => WordCaretMax::SomeMaxWidth(s - word_caret),
                         None => WordCaretMax::NoMaxWidth(word_caret),
                     };
-                    line_break_offsets.push((left_aligned_glyphs.len() - 1, space_until_horz_return));
+                    // TODO: This is monkey-patching. The following line crashed with an
+                    // overflow, but I don't know the reason yet.
+                    if left_aligned_glyphs.len() > 0 {
+                        line_break_offsets.push((left_aligned_glyphs.len() - 1, space_until_horz_return));
+                    }
                     if word_caret > max_word_caret {
                         max_word_caret = word_caret;
                     }
@@ -767,7 +771,9 @@ fn words_to_left_aligned_glyphs<'a>(
                     Some(s) => WordCaretMax::SomeMaxWidth(s - word_caret),
                     None => WordCaretMax::NoMaxWidth(word_caret),
                 };
-                line_break_offsets.push((left_aligned_glyphs.len() - 1, space_until_horz_return));
+                if left_aligned_glyphs.len() > 0 {
+                    line_break_offsets.push((left_aligned_glyphs.len() - 1, space_until_horz_return));
+                }
                 if word_caret > max_word_caret {
                     max_word_caret = word_caret;
                 }

@@ -255,6 +255,9 @@ impl<T: Layout> App<T> {
                     force_redraw_cache[idx] = 2;
                 }
 
+                // TODO: use this!
+                let should_redraw_animations = window.run_all_animations();
+
                 // Update the window state that we got from the frame event (updates window dimensions and DPI)
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
@@ -305,10 +308,7 @@ impl<T: Layout> App<T> {
                 self.windows.remove(closed_window_id);
             });
 
-            // Run daemons and remove them from the even queue if they are finished
             let should_redraw_daemons = self.app_state.run_all_daemons();
-
-            // Clean up finished tasks, remove them if possible
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
 
             if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
@@ -322,7 +322,6 @@ impl<T: Layout> App<T> {
                     thread::sleep(FRAME_TIME - diff);
                 }
             }
-
         }
 
         Ok(())

@@ -20,7 +20,10 @@ use glium::{
 };
 use gleam::gl::{self, Gl};
 use {
-    dom::{Texture, Callback},
+    cache::DomHash,
+    FastHashMap,
+    dom::{Texture, Callback, UpdateScreen},
+    daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState},
     traits::Layout,
@@ -466,10 +469,34 @@ pub struct Window {
     pub(crate) internal: WindowInternal,
     /// The solver for the UI, for caching the results of the computations
     pub(crate) ui_solver: UiSolver,
+    /// Currently running animations / transitions
+    pub(crate) animations: FastHashMap<DaemonId, Daemon<AnimationState>>,
+    /// States of scrolling animations, updated every frame
+    pub(crate) scroll_states: FastHashMap<DomHash, ScrollState>,
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The css (how the current window is styled)
     pub css: Css,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct AnimationState { }
+
+#[derive(Debug, Copy, Clone)]
+pub struct ScrollState {
+    /// Amount in pixel that the current node is scrolled
+    scroll_amount: f32,
+    /// Was the scroll amount used in this frame?
+    used_this_frame: bool,
+}
+
+impl Default for ScrollState {
+    fn default() -> Self {
+        ScrollState {
+            scroll_amount: 0.0,
+            used_this_frame: true,
+        }
+    }
 }
 
 pub(crate) struct WindowInternal {
@@ -663,6 +690,8 @@ impl Window {
             renderer: Some(renderer),
             display: Rc::new(display),
             css: css,
+            animations: FastHashMap::default(),
+            scroll_states: FastHashMap::default(),
             internal: WindowInternal {
                 api: api,
                 epoch: epoch,
@@ -763,6 +792,40 @@ impl Window {
     pub(crate) fn clear_scroll_state(&mut self) {
         self.state.mouse_state.scroll_x = 0.0;
         self.state.mouse_state.scroll_y = 0.0;
+    }
+
+    /// NOTE: This has to be a getter, because we need to update
+    #[must_use]
+    pub(crate) fn get_scroll_amount(&mut self, dom_hash: &DomHash) -> Option<f32> {
+        let entry = self.scroll_states.get_mut(&dom_hash)?;
+        entry.used_this_frame = true;
+        Some(entry.scroll_amount)
+    }
+
+    /// Note: currently scrolling is only done in the vertical direction
+    ///
+    /// Updating the scroll amound does not update the `entry.used_this_frame`,
+    /// since that is only relevant when we are actually querying the renderer.
+    pub(crate) fn scroll_node(&mut self, dom_hash: &DomHash, scroll_by: f32) {
+        if let Some(entry) = self.scroll_states.get_mut(dom_hash) {
+            entry.scroll_amount += scroll_by;
+        }
+    }
+
+    pub(crate) fn create_new_scroll(&mut self, dom_hash: DomHash) {
+        self.scroll_states.insert(dom_hash, ScrollState::default());
+    }
+
+    /// Removes all scroll states that weren't used in the last frame
+    pub(crate) fn remove_unused_scroll_states(&mut self) {
+        self.scroll_states.retain(|_, state| state.used_this_frame);
+    }
+
+    /// Runs all animations currently registered in this DOM
+    #[must_use]
+    pub(crate) fn run_all_animations(&mut self) -> UpdateScreen {
+        // TODO
+        UpdateScreen::DontRedraw
     }
 }
 

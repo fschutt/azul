@@ -1154,6 +1154,7 @@ fn create_layout_constraints<'a, T: Layout>(
     if let Some(min_width) = rect.layout.min_width {
         layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
     }
+
     if let Some(width) = rect.layout.width {
         layout_constraints.push(self_rect.width | EQ(STRONG) | width.0.to_pixels());
     } else {
@@ -1162,6 +1163,7 @@ fn create_layout_constraints<'a, T: Layout>(
             layout_constraints.push(self_rect.width | EQ(STRONG) | parent.width);
         }
     }
+
     if let Some(max_width) = rect.layout.max_width {
         layout_constraints.push(self_rect.width | LE(REQUIRED) | max_width.0.to_pixels());
     }
@@ -1169,6 +1171,7 @@ fn create_layout_constraints<'a, T: Layout>(
     if let Some(min_height) = rect.layout.min_height {
         layout_constraints.push(self_rect.height | GE(REQUIRED) | min_height.0.to_pixels());
     }
+
     if let Some(height) = rect.layout.height {
         layout_constraints.push(self_rect.height | EQ(STRONG) | height.0.to_pixels());
     } else {
@@ -1177,6 +1180,7 @@ fn create_layout_constraints<'a, T: Layout>(
             layout_constraints.push(self_rect.height | EQ(STRONG) | parent.height);
         }
     }
+
     if let Some(max_height) = rect.layout.max_height {
         layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
     }
