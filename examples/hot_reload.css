@@ -1,5 +1,5 @@
 #wrapper {
-    background: linear-gradient(300deg, red 0%, blue 100%);
+    background: linear-gradient(15deg, red 0%, blue 100%);
     flex-direction: row;
 }
 
