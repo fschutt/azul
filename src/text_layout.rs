@@ -17,6 +17,11 @@ pub use webrender::api::GlyphInstance;
 
 pub const PX_TO_PT: f32 = 72.0 / 96.0;
 
+/// When the text is regularly layouted, the text needs to be
+/// spaced out a bit vertically
+pub const DEFAULT_LINE_HEIGHT_MULTIPLIER: f32 = 1.5;
+pub const DEFAULT_CHARACTER_WIDTH_MULTIPLIER: f32 = 1.1;
+
 /// Words are a collection of glyph information, i.e. how much
 /// horizontal space each of the words in a text block and how much
 /// space each individual glyph take up.
@@ -457,7 +462,8 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                 let h_metrics = g.scaled(v_metrics_height_unscaled).h_metrics();
                 let mut horiz_advance = h_metrics.advance_width
                                     * glyph_metrics.scale_for_1_pixel
-                                    * (font_size.x * (96.0 / 72.0));
+                                    * (font_size.x * (96.0 / 72.0)
+                                    * DEFAULT_CHARACTER_WIDTH_MULTIPLIER);
 
                 // horiz_advance *= 96.0 / 72.0;
 
@@ -743,7 +749,7 @@ fn words_to_left_aligned_glyphs<'a>(
                 for glyph in &word.glyphs {
                     let mut new_glyph = *glyph;
                     let push_x = word_caret;
-                    let push_y = (current_line_num as f32 * vertical_advance) + offset_top;
+                    let push_y = (current_line_num as f32 * vertical_advance * DEFAULT_LINE_HEIGHT_MULTIPLIER) + offset_top;
                     new_glyph.point.x += push_x;
                     new_glyph.point.y += push_y;
                     left_aligned_glyphs.push(new_glyph);

@@ -407,7 +407,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
         builder,
         &rect.style);
 
-    let (horz_alignment, vert_alignment) = determine_text_alignment(rect_idx, arena);
+    let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
 
     let scrollbar_style = ScrollbarInfo {
         width: 17,
@@ -432,7 +432,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
 
         text_bounds.size.width = text_bounds.size.width.max(0.0);
         text_bounds.size.height = text_bounds.size.height.max(0.0);
-
+/*
         let text_clip_region_id = rect.layout.padding.and_then(|_|
             Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
                 rect: text_bounds,
@@ -444,7 +444,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
         if let Some(text_clip_id) = text_clip_region_id {
             builder.push_clip_id(text_clip_id);
         }
-
+*/
         let overflow = push_text(
             &info,
             text_info,
@@ -453,16 +453,15 @@ fn displaylist_handle_rect<'a, T: Layout>(
             app_resources,
             &render_api,
             &text_bounds,
-            &bounds,
             resource_updates,
             horz_alignment,
             vert_alignment,
             &scrollbar_style);
-
+/*
         if text_clip_region_id.is_some() {
             builder.pop_clip_id();
         }
-
+*/
         overflow
     };
 
@@ -547,44 +546,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
     if clip_region_id.is_some() {
         builder.pop_clip_id();
     }
-}
 
-/// For a given rectangle, determines what text alignment should be used
-fn determine_text_alignment<'a>(rect_idx: NodeId, arena: &Arena<DisplayRectangle<'a>>)
--> (TextAlignmentHorz, TextAlignmentVert)
-{
-    let mut horz_alignment = TextAlignmentHorz::default();
-    let mut vert_alignment = TextAlignmentVert::default();
-
-    let rect = &arena[rect_idx];
-
-    if let Some(align_items) = rect.data.layout.align_items {
-        // Vertical text alignment
-        use css_parser::LayoutAlignItems;
-        match align_items {
-            LayoutAlignItems::Start => vert_alignment = TextAlignmentVert::Top,
-            LayoutAlignItems::End => vert_alignment = TextAlignmentVert::Bottom,
-            // technically stretch = blocktext, but we don't have that yet
-            _ => vert_alignment = TextAlignmentVert::Center,
-        }
-    }
-
-    if let Some(justify_content) = rect.data.layout.justify_content {
-        use css_parser::LayoutJustifyContent;
-        // Horizontal text alignment
-        match justify_content {
-            LayoutJustifyContent::Start => horz_alignment = TextAlignmentHorz::Left,
-            LayoutJustifyContent::End => horz_alignment = TextAlignmentHorz::Right,
-            _ => horz_alignment = TextAlignmentHorz::Center,
-        }
-    }
-
-    if let Some(text_align) = rect.data.style.text_align {
-        // Horizontal text alignment with higher priority
-        horz_alignment = text_align;
-    }
-
-    (horz_alignment, vert_alignment)
 }
 
 #[inline]
@@ -611,7 +573,6 @@ fn push_text(
     app_resources: &mut AppResources,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
-    parent_bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>,
     horz_alignment: TextAlignmentHorz,
     vert_alignment: TextAlignmentVert,
@@ -692,66 +653,60 @@ fn push_scrollbar(
         bounds.size.height -= border_widths.bottom;
     }
 
-    {
-        // Background of scrollbar (vertical)
-        let scrollbar_vertical_background = TypedRect::<f32, LayoutPixel> {
-            origin: TypedPoint2D::new(bounds.origin.x + bounds.size.width - scrollbar_style.width as f32, bounds.origin.y),
-            size: TypedSize2D::new(scrollbar_style.width as f32, bounds.size.height),
-        };
+    // Background of scrollbar (vertical)
+    let scrollbar_vertical_background = TypedRect::<f32, LayoutPixel> {
+        origin: TypedPoint2D::new(bounds.origin.x + bounds.size.width - scrollbar_style.width as f32, bounds.origin.y),
+        size: TypedSize2D::new(scrollbar_style.width as f32, bounds.size.height),
+    };
 
-        let scrollbar_vertical_background_info = PrimitiveInfo {
-            rect: scrollbar_vertical_background,
-            clip_rect: bounds,
-            is_backface_visible: false,
-            tag: None, // TODO: for hit testing
-        };
+    let scrollbar_vertical_background_info = PrimitiveInfo {
+        rect: scrollbar_vertical_background,
+        clip_rect: bounds,
+        is_backface_visible: false,
+        tag: None, // TODO: for hit testing
+    };
 
-        push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_color);
-    }
+    push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_color);
 
-    {
-        // Actual scroll bar
-        let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
-            origin: TypedPoint2D::new(
-                bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
-                bounds.origin.y + scrollbar_style.width as f32),
-            size: TypedSize2D::new(
-                (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
-                 bounds.size.height - (scrollbar_style.width * 2) as f32),
-        };
+    // Actual scroll bar
+    let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
+        origin: TypedPoint2D::new(
+            bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
+            bounds.origin.y + scrollbar_style.width as f32),
+        size: TypedSize2D::new(
+            (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
+             bounds.size.height - (scrollbar_style.width * 2) as f32),
+    };
 
-        let scrollbar_vertical_bar_info = PrimitiveInfo {
-            rect: scrollbar_vertical_bar,
-            clip_rect: bounds,
-            is_backface_visible: false,
-            tag: None, // TODO: for hit testing
-        };
+    let scrollbar_vertical_bar_info = PrimitiveInfo {
+        rect: scrollbar_vertical_bar,
+        clip_rect: bounds,
+        is_backface_visible: false,
+        tag: None, // TODO: for hit testing
+    };
 
-        push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_color);
-    }
+    push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_color);
 
-    {
-        // Triangle top
-        let mut scrollbar_triangle_rect = TypedRect::<f32, LayoutPixel> {
-            origin: TypedPoint2D::new(
-                bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
-                bounds.origin.y + scrollbar_style.padding as f32),
-            size: TypedSize2D::new(
-                (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
-                (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32),
-        };
+    // Triangle top
+    let mut scrollbar_triangle_rect = TypedRect::<f32, LayoutPixel> {
+        origin: TypedPoint2D::new(
+            bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
+            bounds.origin.y + scrollbar_style.padding as f32),
+        size: TypedSize2D::new(
+            (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
+            (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32),
+    };
 
-        scrollbar_triangle_rect.origin.x += scrollbar_triangle_rect.size.width / 4.0;
-        scrollbar_triangle_rect.origin.y += scrollbar_triangle_rect.size.height / 4.0;
-        scrollbar_triangle_rect.size.width /= 2.0;
-        scrollbar_triangle_rect.size.height /= 2.0;
+    scrollbar_triangle_rect.origin.x += scrollbar_triangle_rect.size.width / 4.0;
+    scrollbar_triangle_rect.origin.y += scrollbar_triangle_rect.size.height / 4.0;
+    scrollbar_triangle_rect.size.width /= 2.0;
+    scrollbar_triangle_rect.size.height /= 2.0;
 
-        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointUp);
+    push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointUp);
 
-        // Triangle bottom
-        scrollbar_triangle_rect.origin.y += bounds.size.height - scrollbar_style.width as f32 + scrollbar_style.padding as f32;
-        push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointDown);
-    }
+    // Triangle bottom
+    scrollbar_triangle_rect.origin.y += bounds.size.height - scrollbar_style.width as f32 + scrollbar_style.padding as f32;
+    push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointDown);
 }
 
 enum TriangleDirection {
@@ -783,10 +738,30 @@ fn push_triangle(
 
     // make all borders but one transparent
     let [b_left, b_right, b_top, b_bottom] = match direction {
-        PointUp         => [(TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (background_color.0, BorderStyle::Solid) ],
-        PointDown       => [(TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (background_color.0, BorderStyle::Solid),  (TRANSPARENT, BorderStyle::Hidden)],
-        PointLeft       => [(TRANSPARENT, BorderStyle::Hidden), (background_color.0, BorderStyle::Solid),  (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden)],
-        PointRight      => [(background_color.0, BorderStyle::Solid),  (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden), (TRANSPARENT, BorderStyle::Hidden)],
+        PointUp         => [
+            (TRANSPARENT, BorderStyle::Hidden),
+            (TRANSPARENT, BorderStyle::Hidden),
+            (TRANSPARENT, BorderStyle::Hidden),
+            (background_color.0, BorderStyle::Solid)
+        ],
+        PointDown       => [
+            (TRANSPARENT, BorderStyle::Hidden),
+            (TRANSPARENT, BorderStyle::Hidden),
+            (background_color.0, BorderStyle::Solid),
+            (TRANSPARENT, BorderStyle::Hidden)
+        ],
+        PointLeft       => [
+            (TRANSPARENT, BorderStyle::Hidden),
+            (background_color.0, BorderStyle::Solid),
+            (TRANSPARENT, BorderStyle::Hidden),
+            (TRANSPARENT, BorderStyle::Hidden)
+        ],
+        PointRight      => [
+            (background_color.0, BorderStyle::Solid),
+            (TRANSPARENT, BorderStyle::Hidden),
+            (TRANSPARENT, BorderStyle::Hidden),
+            (TRANSPARENT, BorderStyle::Hidden)
+        ],
     };
 
     let border_details = BorderDetails::Normal(NormalBorder {
@@ -1024,6 +999,42 @@ fn push_font(
             None
         },
     }
+}
+
+/// For a given rectangle, determines what text alignment should be used
+fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
+-> (TextAlignmentHorz, TextAlignmentVert)
+{
+    let mut horz_alignment = TextAlignmentHorz::default();
+    let mut vert_alignment = TextAlignmentVert::default();
+
+    if let Some(align_items) = rect.layout.align_items {
+        // Vertical text alignment
+        use css_parser::LayoutAlignItems;
+        match align_items {
+            LayoutAlignItems::Start => vert_alignment = TextAlignmentVert::Top,
+            LayoutAlignItems::End => vert_alignment = TextAlignmentVert::Bottom,
+            // technically stretch = blocktext, but we don't have that yet
+            _ => vert_alignment = TextAlignmentVert::Center,
+        }
+    }
+
+    if let Some(justify_content) = rect.layout.justify_content {
+        use css_parser::LayoutJustifyContent;
+        // Horizontal text alignment
+        match justify_content {
+            LayoutJustifyContent::Start => horz_alignment = TextAlignmentHorz::Left,
+            LayoutJustifyContent::End => horz_alignment = TextAlignmentHorz::Right,
+            _ => horz_alignment = TextAlignmentHorz::Center,
+        }
+    }
+
+    if let Some(text_align) = rect.style.text_align {
+        // Horizontal text alignment with higher priority
+        horz_alignment = text_align;
+    }
+
+    (horz_alignment, vert_alignment)
 }
 
 /// Populate the CSS style properties of the `DisplayRectangle`
