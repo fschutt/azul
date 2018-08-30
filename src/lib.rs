@@ -72,6 +72,8 @@ pub mod dom;
 pub mod dialogs;
 /// Async IO / task system
 pub mod task;
+/// Daemon / animation system
+pub mod daemon;
 /// Module for caching long texts (including their layout / character positions) across multiple frames
 pub mod text_cache;
 /// Text layout helper functions - useful for text layout outside of standard containers
@@ -160,7 +162,7 @@ pub mod prelude {
     };
     pub use rusttype::Font;
     pub use app_resources::AppResources;
-    pub use task::TerminateDaemon;
+    pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;

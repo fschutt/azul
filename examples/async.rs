@@ -65,7 +65,7 @@ fn start_connection(app_state: &mut AppState<MyDataModel>, _event: WindowEvent) 
     let status = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
     app_state.data.modify(|state| state.connection_status = status);
     app_state.add_task(connect_to_db_async, &[]);
-    app_state.add_daemon(timer_daemon);
+    app_state.add_daemon(Daemon::unique(timer_daemon));
     UpdateScreen::Redraw
 }
 

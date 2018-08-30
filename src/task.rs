@@ -4,19 +4,9 @@ use std::{
     sync::{Arc, Mutex, Weak},
     thread::{spawn, JoinHandle},
 };
-use {
-    app_state::Daemon,
-    traits::Layout,
-};
+use daemon::Daemon;
 
-/// Should a daemon terminate or not - used to remove active daemons
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TerminateDaemon {
-    Terminate,
-    Continue,
-}
-
-pub struct Task<T: Layout> {
+pub struct Task<T> {
     // Task is in progress
     join_handle: Option<JoinHandle<()>>,
     dropcheck: Weak<()>,
@@ -24,7 +14,7 @@ pub struct Task<T: Layout> {
     pub(crate) after_completion_daemons: Vec<Daemon<T>>
 }
 
-impl<T: Layout> Task<T> {
+impl<T> Task<T> {
     pub fn new<U>(
         app_state: &Arc<Mutex<U>>,
         callback: fn(Arc<Mutex<U>>, Arc<()>))
@@ -58,7 +48,7 @@ impl<T: Layout> Task<T> {
     }
 }
 
-impl<T: Layout> Drop for Task<T> {
+impl<T> Drop for Task<T> {
     fn drop(&mut self) {
         if let Some(thread_handle) = self.join_handle.take() {
             let _ = thread_handle.join().unwrap();

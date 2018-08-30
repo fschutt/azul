@@ -18,10 +18,8 @@ use {
     font::FontError,
     css_parser::{FontId, FontSize, PixelValue},
     errors::ClipboardError,
-    task::TerminateDaemon,
+    daemon::{Daemon, DaemonId, TerminateDaemon},
 };
-
-pub type Daemon<T> = fn(&mut T) -> (UpdateScreen, TerminateDaemon);
 
 /// Wrapper for your application data. In order to be layout-able,
 /// you need to satisfy the `Layout` trait (how the application
@@ -41,7 +39,7 @@ pub struct AppState<T: Layout> {
     /// Fonts and images that are currently loaded into the app
     pub resources: AppResources,
     /// Currently running daemons (polling functions)
-    pub(crate) daemons: FastHashMap<usize, fn(&mut T) -> (UpdateScreen, TerminateDaemon)>,
+    pub(crate) daemons: FastHashMap<DaemonId, Daemon<T>>,
     /// Currently running tasks (asynchronous functions running on a different thread)
     pub(crate) tasks: Vec<Task<T>>,
 }
@@ -190,7 +188,7 @@ impl<T: Layout> AppState<T> {
     ///
     /// If the daemon was inserted, returns true, otherwise false
     pub fn add_daemon(&mut self, daemon: Daemon<T>) -> bool {
-        match self.daemons.entry(daemon as usize) {
+        match self.daemons.entry(daemon.id) {
             Occupied(_) => false,
             Vacant(v) => { v.insert(daemon); true },
         }
@@ -205,8 +203,8 @@ impl<T: Layout> AppState<T> {
         let mut lock = self.data.lock().unwrap();
         let mut daemons_to_terminate = vec![];
 
-        for (key, daemon) in self.daemons.iter() {
-            let (should_update, should_terminate) = (daemon.clone())(&mut lock);
+        for (key, daemon) in self.daemons.iter_mut() {
+            let (should_update, should_terminate) = daemon.invoke_callback_with_data(&mut lock);
 
             if should_update == UpdateScreen::Redraw &&
                should_update_screen == UpdateScreen::DontRedraw {
