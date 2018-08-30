@@ -124,15 +124,22 @@ impl AppResources {
     }
 
     /// See `AppState::has_image()`
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S)
+    pub fn has_image<S: AsRef<str>>(&self, id: S)
         -> bool
     {
-        let image_id = match self.css_ids_to_image_ids.get(id.as_ref()) {
+        let image_id = match self.get_image(id) {
             None => return false,
             Some(s) => s,
         };
 
-        self.images.get(image_id).is_some()
+        self.images.get(&image_id).is_some()
+    }
+
+    /// Returns the image ID looked up from a string
+    pub fn get_image<S: AsRef<str>>(&self, id: S)
+        -> Option<ImageId>
+    {
+        self.css_ids_to_image_ids.get(id.as_ref()).and_then(|id| Some(*id))
     }
 
     /// See `AppState::add_font()`
@@ -263,7 +270,7 @@ impl AppResources {
         self.text_cache.clear_all_texts();
     }
 
-    pub fn get_clipboard_string(&mut self)
+    pub fn get_clipboard_string(&self)
     -> Result<String, ClipboardError>
     {
         self.clipboard.get_string_contents()

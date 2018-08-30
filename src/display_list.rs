@@ -409,62 +409,74 @@ fn displaylist_handle_rect<'a, T: Layout>(
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect_idx, arena);
 
+    let scrollbar_style = ScrollbarInfo {
+        width: 17,
+        padding: 2,
+        background_color: BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
+        triangle_color: BackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
+        bar_color: BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
+    };
+
+    // The only thing changed between TextId and String is
+    //`TextInfo::Cached` vs `TextInfo::Uncached` - reduce code duplication
+    let push_text_wrapper = |
+        text_info: &TextInfo,
+        builder: &mut DisplayListBuilder,
+        app_resources: &mut AppResources,
+        resource_updates: &mut Vec<ResourceUpdate>|
+    {
+        // Adjust the bounds by the padding
+        let mut text_bounds = rect.layout.padding.as_ref().and_then(|padding| {
+            Some(subtract_padding(&bounds, padding))
+        }).unwrap_or(bounds);
+
+        text_bounds.size.width = text_bounds.size.width.max(0.0);
+        text_bounds.size.height = text_bounds.size.height.max(0.0);
+
+        let text_clip_region_id = rect.layout.padding.and_then(|_|
+            Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
+                rect: text_bounds,
+                radii: BorderRadius::zero(),
+                mode: ClipMode::Clip,
+            }], None))
+        );
+
+        if let Some(text_clip_id) = text_clip_region_id {
+            builder.push_clip_id(text_clip_id);
+        }
+
+        let overflow = push_text(
+            &info,
+            text_info,
+            builder,
+            &rect.style,
+            app_resources,
+            &render_api,
+            &text_bounds,
+            &bounds,
+            resource_updates,
+            horz_alignment,
+            vert_alignment,
+            &scrollbar_style);
+
+        if text_clip_region_id.is_some() {
+            builder.pop_clip_id();
+        }
+
+        overflow
+    };
+
     // handle the special content of the node
-    match html_node {
-        Div => { /* nothing special to do */ },
+    let overflow_result = match html_node {
+        Div => { None },
         Label(text) => {
-
-            // Adjust the bounds by the padding
-            let mut text_bounds = rect.layout.padding.as_ref().and_then(|padding| {
-                Some(subtract_padding(&bounds, padding))
-            }).unwrap_or(bounds);
-
-            text_bounds.size.width = text_bounds.size.width.max(0.0);
-            text_bounds.size.height = text_bounds.size.height.max(0.0);
-
-            let text_clip_region_id = rect.layout.padding.and_then(|_|
-                Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
-                    rect: text_bounds,
-                    radii: BorderRadius::zero(),
-                    mode: ClipMode::Clip,
-                }], None))
-            );
-
-            if let Some(text_clip_id) = text_clip_region_id {
-                builder.push_clip_id(text_clip_id);
-            }
-
-            push_text(
-                &info,
-                &TextInfo::Uncached(text.clone()),
-                builder,
-                &rect.style,
-                app_resources,
-                &render_api,
-                &text_bounds,
-                resource_updates,
-                horz_alignment,
-                vert_alignment);
-
-            if text_clip_region_id.is_some() {
-                builder.pop_clip_id();
-            }
+            push_text_wrapper(&TextInfo::Uncached(text.clone()), builder, app_resources, resource_updates)
         },
         Text(text_id) => {
-            push_text(
-                &info,
-                &TextInfo::Cached(*text_id),
-                builder,
-                &rect.style,
-                app_resources,
-                &render_api,
-                &bounds,
-                resource_updates,
-                horz_alignment,
-                vert_alignment);
+            push_text_wrapper(&TextInfo::Cached(*text_id), builder, app_resources, resource_updates)
         },
         Image(image_id) => {
-            push_image(&info, builder, &bounds, app_resources, image_id);
+            push_image(&info, builder, &bounds, app_resources, image_id)
         },
         GlTexture(texture_callback) => {
 
@@ -515,7 +527,21 @@ fn displaylist_handle_rect<'a, T: Layout>(
                     ColorF::WHITE);
             }
 
-        },
+            None
+        }
+    };
+
+    if let Some(overflow) = &overflow_result {
+        // push scrollbars if necessary
+        use text_layout::TextOverflow;
+
+        // If the rectangle should have a scrollbar, push a scrollbar onto the display list
+        if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
+            push_scrollbar(builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+        }
+        if let TextOverflow::IsOverflowing(amount_horz) = overflow.text_overflow.horizontal {
+            push_scrollbar(builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+        }
     }
 
     if clip_region_id.is_some() {
@@ -570,6 +596,12 @@ fn push_rect(
     builder.push_rect(&info, color.0.into());
 }
 
+struct OverflowInfo {
+    pub text_overflow: TextOverflowPass2,
+}
+
+/// Note: automatically pushes the scrollbars on the parent,
+/// this should be refined later
 #[inline]
 fn push_text(
     info: &PrimitiveInfo<LayoutPixel>,
@@ -579,44 +611,39 @@ fn push_text(
     app_resources: &mut AppResources,
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
+    parent_bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>,
     horz_alignment: TextAlignmentHorz,
-    vert_alignment: TextAlignmentVert)
+    vert_alignment: TextAlignmentVert,
+    scrollbar_info: &ScrollbarInfo)
+-> Option<OverflowInfo>
 {
     use text_layout;
 
     if text.is_empty_text(&*app_resources) {
-        return;
+        return None;
     }
 
     let font_family = match style.font_family {
         Some(ref ff) => ff,
-        None => return,
+        None => return None,
     };
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    let font_id = match font_family.fonts.get(0) { Some(s) => s, None => { error!("div @ {:?} has no font assigned!", bounds); return; }};
+    let font_id = match font_family.fonts.get(0) { Some(s) => s, None => { error!("div @ {:?} has no font assigned!", bounds); return None; }};
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
 
     let font_instance_key = match font_result {
         Some(f) => f,
-        None => return,
+        None => return None,
     };
 
     let line_height = style.line_height;
 
     let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
-    let scrollbar_style = ScrollbarInfo {
-        width: 17,
-        padding: 2,
-        background_color: BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
-        triangle_color: BackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
-        bar_color: BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
-    };
-
-    let (positioned_glyphs, scrollbar_info) = text_layout::get_glyphs(
+    let (positioned_glyphs, text_overflow) = text_layout::get_glyphs(
         app_resources,
         bounds,
         horz_alignment,
@@ -626,7 +653,7 @@ fn push_text(
         line_height,
         text,
         &overflow_behaviour,
-        &scrollbar_style
+        scrollbar_info
     );
 
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
@@ -643,23 +670,13 @@ fn push_text(
 
     builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
 
-    use text_layout::TextOverflow;
-
-    // If the rectangle should have a scrollbar, push a scrollbar onto the display list
-    // TODO !!!
-    if let TextOverflow::IsOverflowing(amount_vert) = scrollbar_info.vertical {
-        push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds, &style.border)
-    }
-    if let TextOverflow::IsOverflowing(amount_horz) = scrollbar_info.horizontal {
-        push_scrollbar(builder, &overflow_behaviour, &scrollbar_info, &scrollbar_style, bounds, &style.border)
-    }
+    Some(OverflowInfo { text_overflow })
 }
 
 /// Adds a scrollbar to the left or bottom side of a rectangle.
 /// TODO: make styling configurable (like the width / style of the scrollbar)
 fn push_scrollbar(
     builder: &mut DisplayListBuilder,
-    display_behaviour: &LayoutOverflow,
     scrollbar_info: &TextOverflowPass2,
     scrollbar_style: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>,
@@ -917,23 +934,28 @@ fn push_image(
     bounds: &TypedRect<f32, LayoutPixel>,
     app_resources: &AppResources,
     image_id: &ImageId)
+-> Option<OverflowInfo>
 {
-    if let Some(image_info) = app_resources.images.get(image_id) {
-        use images::ImageState::*;
-        match image_info {
-            Uploaded(image_info) => {
-                builder.push_image(
-                        &info,
-                        bounds.size,
-                        LayoutSize::zero(),
-                        ImageRendering::Auto,
-                        AlphaType::PremultipliedAlpha,
-                        image_info.key,
-                        ColorF::WHITE);
-            },
-            _ => { },
-        }
+    use images::ImageState::*;
+
+    let image_info = app_resources.images.get(image_id)?;
+
+    match image_info {
+        Uploaded(image_info) => {
+            builder.push_image(
+                    &info,
+                    bounds.size,
+                    LayoutSize::zero(),
+                    ImageRendering::Auto,
+                    AlphaType::PremultipliedAlpha,
+                    image_info.key,
+                    ColorF::WHITE);
+        },
+        _ => { },
     }
+
+    // TODO: determine if image has overflown its container
+    None
 }
 
 #[inline]
@@ -1225,8 +1247,12 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
     new_bounds
 }
 
-/// Returns the nearest common ancestor
-fn get_nearest_relative_ancestor<'a>(start_node_id: NodeId, arena: &Arena<DisplayRectangle<'a>>) -> Option<NodeId> {
+/// Returns the nearest common ancestor with a `position: relative` attribute
+/// or `None` if there is no ancestor that has `position: relative`. Usually
+/// used in conjunction with `position: absolute`
+fn get_nearest_relative_ancestor<'a>(start_node_id: NodeId, arena: &Arena<DisplayRectangle<'a>>)
+-> Option<NodeId>
+{
     let mut current_node = start_node_id;
     while let Some(parent) = arena[current_node].parent() {
         if let Some(LayoutPosition::Absolute) = arena[parent].data.layout.position {
