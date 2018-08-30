@@ -99,6 +99,8 @@ pub enum ParsedCssProperty {
     Left(LayoutLeft),
     Bottom(LayoutBottom),
 
+    Padding(LayoutPadding),
+
     FlexWrap(LayoutWrap),
     FlexDirection(LayoutDirection),
     JustifyContent(LayoutJustifyContent),
@@ -142,6 +144,8 @@ impl_from_no_lifetimes!(LayoutTop, ParsedCssProperty::Top);
 impl_from_no_lifetimes!(LayoutBottom, ParsedCssProperty::Bottom);
 impl_from_no_lifetimes!(LayoutRight, ParsedCssProperty::Right);
 impl_from_no_lifetimes!(LayoutLeft, ParsedCssProperty::Left);
+
+impl_from_no_lifetimes!(LayoutPadding, ParsedCssProperty::Padding);
 
 impl_from_no_lifetimes!(LayoutWrap, ParsedCssProperty::FlexWrap);
 impl_from_no_lifetimes!(LayoutDirection, ParsedCssProperty::FlexDirection);
@@ -193,6 +197,8 @@ impl ParsedCssProperty {
             "right"             => Ok(parse_layout_right(value)?.into()),
             "left"              => Ok(parse_layout_left(value)?.into()),
             "bottom"            => Ok(parse_layout_bottom(value)?.into()),
+
+            "padding"           => Ok(parse_layout_padding(value)?.into()),
 
             "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
             "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
@@ -277,6 +283,7 @@ pub enum CssParsingError<'a> {
     CssBackgroundParseError(CssBackgroundParseError<'a>),
     CssColorParseError(CssColorParseError<'a>),
     CssBorderRadiusParseError(CssBorderRadiusParseError<'a>),
+    PaddingParseError(LayoutPaddingParseError<'a>),
     /// Key is not supported, i.e. `#div { aldfjasdflk: 400px }` results in an
     /// `UnsupportedCssKey("aldfjasdflk", "400px")` error
     UnsupportedCssKey(&'a str, &'a str),
@@ -291,6 +298,7 @@ impl_from!(CssImageParseError, CssParsingError::CssImageParseError);
 impl_from!(CssFontFamilyParseError, CssParsingError::CssFontFamilyParseError);
 impl_from!(CssBackgroundParseError, CssParsingError::CssBackgroundParseError);
 impl_from!(CssBorderRadiusParseError, CssParsingError::CssBorderRadiusParseError);
+impl_from!(LayoutPaddingParseError, CssParsingError::PaddingParseError);
 
 impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
     fn from((a, b): (&'a str, &'a str)) -> Self {
@@ -812,6 +820,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LayoutPadding {
     top: Option<PixelValue>,
     bottom: Option<PixelValue>,
@@ -819,6 +828,7 @@ pub struct LayoutPadding {
     right: Option<PixelValue>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum LayoutPaddingParseError<'a> {
     PixelParseError(PixelParseError<'a>),
     TooManyValues,
@@ -1852,6 +1862,8 @@ pub struct RectLayout {
     pub bottom: Option<LayoutBottom>,
     pub right: Option<LayoutRight>,
     pub left: Option<LayoutLeft>,
+
+    pub padding: Option<LayoutPadding>,
 }
 
 typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
@@ -2482,5 +2494,45 @@ mod css_tests {
         assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(Background::Image(
             CssImageId(String::from("Cat 01"))
         )));
+    }
+
+    #[test]
+    fn test_parse_padding_1() {
+        assert_eq!(parse_layout_padding("10px"), Ok(LayoutPadding {
+            top: Some(PixelValue::from_metric(CssMetric::Px, 10.0)),
+            right: Some(PixelValue::from_metric(CssMetric::Px, 10.0)),
+            bottom: Some(PixelValue::from_metric(CssMetric::Px, 10.0)),
+            left: Some(PixelValue::from_metric(CssMetric::Px, 10.0)),
+        }));
+    }
+
+    #[test]
+    fn test_parse_padding_2() {
+        assert_eq!(parse_layout_padding("25px 50px"), Ok(LayoutPadding {
+            top: Some(PixelValue::from_metric(CssMetric::Px, 25.0)),
+            right: Some(PixelValue::from_metric(CssMetric::Px, 50.0)),
+            bottom: Some(PixelValue::from_metric(CssMetric::Px, 25.0)),
+            left: Some(PixelValue::from_metric(CssMetric::Px, 50.0)),
+        }));
+    }
+
+    #[test]
+    fn test_parse_padding_3() {
+        assert_eq!(parse_layout_padding("25px 50px 75px"), Ok(LayoutPadding {
+            top: Some(PixelValue::from_metric(CssMetric::Px, 25.0)),
+            right: Some(PixelValue::from_metric(CssMetric::Px, 50.0)),
+            left: Some(PixelValue::from_metric(CssMetric::Px, 50.0)),
+            bottom: Some(PixelValue::from_metric(CssMetric::Px, 75.0)),
+        }));
+    }
+
+    #[test]
+    fn test_parse_padding_4() {
+        assert_eq!(parse_layout_padding("25px 50px 75px 100px"), Ok(LayoutPadding {
+            top: Some(PixelValue::from_metric(CssMetric::Px, 25.0)),
+            right: Some(PixelValue::from_metric(CssMetric::Px, 50.0)),
+            bottom: Some(PixelValue::from_metric(CssMetric::Px, 75.0)),
+            left: Some(PixelValue::from_metric(CssMetric::Px, 100.0)),
+        }));
     }
 }

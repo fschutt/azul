@@ -979,7 +979,7 @@ fn push_font(
     }
 }
 
-/// Populate and parse the CSS style properties
+/// Populate the CSS style properties of the `DisplayRectangle`
 fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHashMap<String, ParsedCssProperty>)
 {
     use css_parser::ParsedCssProperty::{self, *};
@@ -1011,11 +1011,14 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             MaxWidth(mw)                => { rect.layout.max_width = Some(*mw);                     },
             MaxHeight(mh)               => { rect.layout.max_height = Some(*mh);                    },
 
+            Position(p)                 => { rect.layout.position = Some(*p);                       },
             Top(t)                      => { rect.layout.top = Some(*t);                            },
             Bottom(b)                   => { rect.layout.bottom = Some(*b);                         },
             Right(r)                    => { rect.layout.right = Some(*r);                          },
             Left(l)                     => { rect.layout.left = Some(*l);                           },
-            Position(p)                 => { rect.layout.position = Some(*p);                       },
+
+            // TODO: merge new padding with existing padding
+            Padding(p)                  => { rect.layout.padding = Some(*p);                        },
 
             FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
             FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
@@ -1038,9 +1041,15 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             Dynamic(dynamic_property) => {
                 let calculated_property = css_overrides.get(&dynamic_property.dynamic_id);
                 if let Some(overridden_property) = calculated_property {
-                    assert!(property_type_matches(overridden_property, &dynamic_property.default),
-                            "css values don't have the same discriminant type");
-                    apply_parsed_css_property(rect, overridden_property);
+                    if property_type_matches(overridden_property, &dynamic_property.default) {
+                        apply_parsed_css_property(rect, overridden_property);
+                    } else {
+                        error!(
+                            "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
+                            cannot override {:?} with {:?} - enum discriminant mismatch",
+                            rect, dynamic_property.default, overridden_property
+                        )
+                    }
                 } else {
                     apply_parsed_css_property(rect, &dynamic_property.default);
                 }
