@@ -93,6 +93,12 @@ pub enum ParsedCssProperty {
     MaxWidth(LayoutMaxWidth),
     MaxHeight(LayoutMaxHeight),
 
+    Position(LayoutPosition),
+    Top(LayoutTop),
+    Right(LayoutRight),
+    Left(LayoutLeft),
+    Bottom(LayoutBottom),
+
     FlexWrap(LayoutWrap),
     FlexDirection(LayoutDirection),
     JustifyContent(LayoutJustifyContent),
@@ -130,6 +136,12 @@ impl_from_no_lifetimes!(LayoutMinWidth, ParsedCssProperty::MinWidth);
 impl_from_no_lifetimes!(LayoutMinHeight, ParsedCssProperty::MinHeight);
 impl_from_no_lifetimes!(LayoutMaxWidth, ParsedCssProperty::MaxWidth);
 impl_from_no_lifetimes!(LayoutMaxHeight, ParsedCssProperty::MaxHeight);
+
+impl_from_no_lifetimes!(LayoutPosition, ParsedCssProperty::Position);
+impl_from_no_lifetimes!(LayoutTop, ParsedCssProperty::Top);
+impl_from_no_lifetimes!(LayoutBottom, ParsedCssProperty::Bottom);
+impl_from_no_lifetimes!(LayoutRight, ParsedCssProperty::Right);
+impl_from_no_lifetimes!(LayoutLeft, ParsedCssProperty::Left);
 
 impl_from_no_lifetimes!(LayoutWrap, ParsedCssProperty::FlexWrap);
 impl_from_no_lifetimes!(LayoutDirection, ParsedCssProperty::FlexDirection);
@@ -175,6 +187,12 @@ impl ParsedCssProperty {
             "min-height"        => Ok(parse_layout_min_height(value)?.into()),
             "max-width"         => Ok(parse_layout_max_width(value)?.into()),
             "max-height"        => Ok(parse_layout_max_height(value)?.into()),
+
+            "position"          => Ok(parse_layout_position(value)?.into()),
+            "top"               => Ok(parse_layout_top(value)?.into()),
+            "right"             => Ok(parse_layout_right(value)?.into()),
+            "left"              => Ok(parse_layout_left(value)?.into()),
+            "bottom"            => Ok(parse_layout_bottom(value)?.into()),
 
             "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
             "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
@@ -792,6 +810,69 @@ fn parse_color_no_hash<'a>(input: &'a str)
         },
         _ => { Err(CssColorParseError::InvalidColor(input)) }
     }
+}
+
+pub struct LayoutPadding {
+    top: Option<PixelValue>,
+    bottom: Option<PixelValue>,
+    left: Option<PixelValue>,
+    right: Option<PixelValue>,
+}
+
+pub enum LayoutPaddingParseError<'a> {
+    PixelParseError(PixelParseError<'a>),
+    TooManyValues,
+    TooFewValues,
+}
+
+impl_from!(PixelParseError, LayoutPaddingParseError::PixelParseError);
+
+/// Parse a padding value such as
+///
+/// "10px 10px"
+fn parse_layout_padding<'a>(input: &'a str)
+-> Result<LayoutPadding, LayoutPaddingParseError>
+{
+    let mut input_iter = input.split_whitespace();
+    let first = parse_pixel_value(input_iter.next().ok_or(LayoutPaddingParseError::TooFewValues)?)?;
+    let second = parse_pixel_value(match input_iter.next() {
+        Some(s) => s,
+        None => return Ok(LayoutPadding {
+            top: Some(first),
+            bottom: Some(first),
+            left: Some(first),
+            right: Some(first),
+        }),
+    })?;
+    let third = parse_pixel_value(match input_iter.next() {
+        Some(s) => s,
+        None => return Ok(LayoutPadding {
+            top: Some(first),
+            bottom: Some(first),
+            left: Some(second),
+            right: Some(second),
+        }),
+    })?;
+    let fourth = parse_pixel_value(match input_iter.next() {
+        Some(s) => s,
+        None => return Ok(LayoutPadding {
+            top: Some(first),
+            left: Some(second),
+            right: Some(second),
+            bottom: Some(third),
+        }),
+    })?;
+
+    if input_iter.next().is_some() {
+        return Err(LayoutPaddingParseError::TooManyValues);
+    }
+
+    Ok(LayoutPadding {
+        top: Some(first),
+        right: Some(second),
+        bottom: Some(third),
+        left: Some(fourth),
+    })
 }
 
 /// Parse a CSS border such as
@@ -1579,6 +1660,15 @@ pub struct LayoutMinHeight(pub PixelValue);
 pub struct LayoutMaxHeight(pub PixelValue);
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutTop(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutLeft(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutRight(pub PixelValue);
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LayoutBottom(pub PixelValue);
+
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LineHeight(pub PercentageValue);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1587,6 +1677,13 @@ pub enum LayoutDirection {
     RowReverse,
     Column,
     ColumnReverse,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LayoutPosition {
+    Static,
+    Relative,
+    Absolute,
 }
 
 impl Default for LayoutDirection {
@@ -1705,6 +1802,8 @@ impl Default for TextAlignmentVert {
     }
 }
 
+/// Stylistic options of the rectangle that don't influence the layout
+/// (todo: border-box?)
 #[derive(Default, Debug, Clone, PartialEq)]
 pub(crate) struct RectStyle {
     /// Background color of this rectangle
@@ -1731,20 +1830,28 @@ pub(crate) struct RectStyle {
     pub(crate) line_height: Option<LineHeight>,
 }
 
-// Layout constraints for a given rectangle, such as ""
+// Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct RectLayout {
+
     pub width: Option<LayoutWidth>,
     pub height: Option<LayoutHeight>,
     pub min_width: Option<LayoutMinWidth>,
     pub min_height: Option<LayoutMinHeight>,
     pub max_width: Option<LayoutMaxWidth>,
     pub max_height: Option<LayoutMaxHeight>,
+
     pub direction: Option<LayoutDirection>,
     pub wrap: Option<LayoutWrap>,
     pub justify_content: Option<LayoutJustifyContent>,
     pub align_items: Option<LayoutAlignItems>,
     pub align_content: Option<LayoutAlignContent>,
+
+    pub position: Option<LayoutPosition>,
+    pub top: Option<LayoutTop>,
+    pub bottom: Option<LayoutBottom>,
+    pub right: Option<LayoutRight>,
+    pub left: Option<LayoutLeft>,
 }
 
 typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
@@ -1753,6 +1860,11 @@ typed_pixel_value_parser!(parse_layout_min_height, LayoutMinHeight);
 typed_pixel_value_parser!(parse_layout_min_width, LayoutMinWidth);
 typed_pixel_value_parser!(parse_layout_max_width, LayoutMaxWidth);
 typed_pixel_value_parser!(parse_layout_max_height, LayoutMaxHeight);
+
+typed_pixel_value_parser!(parse_layout_top, LayoutTop);
+typed_pixel_value_parser!(parse_layout_bottom, LayoutBottom);
+typed_pixel_value_parser!(parse_layout_right, LayoutRight);
+typed_pixel_value_parser!(parse_layout_left, LayoutLeft);
 
 fn parse_line_height(input: &str)
 -> Result<LineHeight, PercentageParseError>
@@ -1874,6 +1986,11 @@ multi_type_parser!(parse_layout_align_content, LayoutAlignContent,
 multi_type_parser!(parse_shape, Shape,
                     ["circle", Circle],
                     ["ellipse", Ellipse]);
+
+multi_type_parser!(parse_layout_position, LayoutPosition,
+                    ["static", Static],
+                    ["absolute", Absolute],
+                    ["relative", Relative]);
 
 multi_type_parser!(parse_layout_text_overflow, TextOverflowBehaviourInner,
                     ["auto", Auto],

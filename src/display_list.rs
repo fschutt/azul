@@ -1011,6 +1011,12 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             MaxWidth(mw)                => { rect.layout.max_width = Some(*mw);                     },
             MaxHeight(mh)               => { rect.layout.max_height = Some(*mh);                    },
 
+            Top(t)                      => { rect.layout.top = Some(*t);                            },
+            Bottom(b)                   => { rect.layout.bottom = Some(*b);                         },
+            Right(r)                    => { rect.layout.right = Some(*r);                          },
+            Left(l)                     => { rect.layout.left = Some(*l);                           },
+            Position(p)                 => { rect.layout.position = Some(*p);                       },
+
             FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
             FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
             JustifyContent(j)           => { rect.layout.justify_content = Some(*j);                },
