@@ -11,7 +11,7 @@ pub use {
     },
 };
 use webrender::api::{BorderStyle, BorderSide, LayoutRect};
-use euclid::{TypedRotation2D, Angle, TypedPoint2D};
+use euclid::TypedPoint2D;
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;
 /// Webrender measures in points, not in pixels!
@@ -1047,11 +1047,13 @@ impl Direction {
 
                 // see: https://hugogiraudel.com/2013/02/04/css-gradients/
 
-                let width_half = rect.size.width / 2.0;
-                let height_half = rect.size.height / 2.0;
+                let deg = -deg; // negate winding direction
+
+                let width_half = rect.size.width as usize / 2;
+                let height_half = rect.size.height as usize / 2;
 
                 // hypothenuse_len is the length of the center of the rect to the corners
-                let hypothenuse_len = (width_half.powi(2) + height_half.powi(2)).sqrt();
+                let hypothenuse_len = (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
 
                 // clamp the degree to 360 (so 410deg = 50deg)
                 let mut deg = deg % 360.0;
@@ -1066,16 +1068,16 @@ impl Direction {
                 // Get the quadrant (corner) the angle is in and get the degree associated
                 // with that corner.
 
-                let angle_to_top_left = (height_half / width_half).atan().to_degrees();
+                let angle_to_top_left = (height_half as f64 / width_half as f64).atan().to_degrees();
 
                 // We need to calculate the angle from the center to the corner!
-                let ending_point_degrees = if deg <= 90.0 {
+                let ending_point_degrees = if deg < 90.0 {
                     // top left corner
                     90.0 - angle_to_top_left
-                } else if deg <= 180.0 {
+                } else if deg < 180.0 {
                     // bottom left corner
                     90.0 + angle_to_top_left
-                } else if deg <= 270.0 {
+                } else if deg < 270.0 {
                     // bottom right corner
                     270.0 - angle_to_top_left
                 } else /* deg > 270.0 && deg < 360.0 */ {
@@ -1084,22 +1086,21 @@ impl Direction {
                 };
 
                 // assuming deg = 36deg, then degree_diff_to_corner = 9deg
-                let degree_diff_to_corner = ending_point_degrees - deg;
+                let degree_diff_to_corner = ending_point_degrees - deg as f64;
 
                 // Searched_len is the distance between the center of the rect and the
                 // ending point of the gradient
-                let searched_len = (hypothenuse_len * degree_diff_to_corner.cos()).abs();
+                let searched_len = (hypothenuse_len * degree_diff_to_corner.to_radians().cos()).abs();
 
                 // TODO: This searched_len is incorrect...
 
                 // Once we have the length, we can simply rotate the length by the angle,
                 // then translate it to the center of the rect
-                let point_location = LayoutPoint::new(0.0, searched_len);
-                let rot = TypedRotation2D::new(Angle::radians(deg.to_radians()));
-                let point_location: LayoutPoint = rot.transform_point(&point_location);
+                let dx = deg.to_radians().sin() * searched_len as f32;
+                let dy = deg.to_radians().cos() * searched_len as f32;
 
-                let start_point_location = LayoutPoint::new(width_half + point_location.x, height_half + point_location.y);
-                let end_point_location = LayoutPoint::new(width_half - point_location.x, height_half - point_location.y);
+                let start_point_location = LayoutPoint::new(width_half as f32 + dx, height_half as f32 + dy);
+                let end_point_location = LayoutPoint::new(width_half as f32 - dx, height_half as f32 - dy);
 
                 (start_point_location, end_point_location)
             },
