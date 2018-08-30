@@ -29,7 +29,7 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
-    app_state::Daemon,
+    daemon::Daemon,
 };
 
 /// Graphical application that maintains some kind of application state
