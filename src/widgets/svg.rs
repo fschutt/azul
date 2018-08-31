@@ -720,7 +720,7 @@ impl SampledBezierCurve {
         let mut glyph_rotations = vec![];
 
         // NOTE: g.point.x is the offset from the start, not the advance!
-        let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
+        let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
         let mut last_offset = start_offset;
 
         for glyph_idx in 0..glyphs.len() {
@@ -733,7 +733,7 @@ impl SampledBezierCurve {
             glyph_rotations.push(rotation);
 
             last_offset = current_offset;
-            current_offset = start_offset + glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x * 2.0)).unwrap_or(0.0);
+            current_offset = start_offset + glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
         }
 
         (glyph_offsets, glyph_rotations)
@@ -828,9 +828,9 @@ pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert>]) -> VerticesIndicesB
     VerticesIndicesBuffer { vertices: vertex_buf, indices: index_buf }
 }
 
-pub fn scale_vertex_buffer(input: &mut [SvgVert], scale: &FontSize) {
+pub fn scale_vertex_buffer(input: &mut [SvgVert], scale: &FontSize, height_for_1px: f32) {
     let real_size = scale.to_pixels();
-    let scale_factor = real_size / 1024.0;
+    let scale_factor = real_size * height_for_1px;
     for vert in input {
         vert.xy.0 *= scale_factor;
         vert.xy.1 *= scale_factor;
@@ -1925,16 +1925,15 @@ impl SvgTextLayout {
     /// Get the bounding box of a layouted text
     pub fn get_bbox(&self, placement: &SvgTextPlacement) -> SvgBbox {
         use self::SvgTextPlacement::*;
+        use text_layout::{DEFAULT_CHARACTER_WIDTH_MULTIPLIER, DEFAULT_LINE_HEIGHT_MULTIPLIER};
 
-        let normal_x = 0.0;
-        let normal_y = -self.0.font_metrics.vertical_advance / PX_TO_PT;
-        let normal_width = self.0.min_width * 2.0;
-        let normal_height = self.0.min_height;
+        let normal_width = self.0.min_width / DEFAULT_CHARACTER_WIDTH_MULTIPLIER;
+        let normal_height = self.0.min_height / DEFAULT_LINE_HEIGHT_MULTIPLIER;
 
         SvgBbox(match placement {
             Unmodified => {
                 TypedRect::new(
-                    TypedPoint2D::new(normal_x, normal_y),
+                    TypedPoint2D::new(0.0, 0.0),
                     TypedSize2D::new(normal_width, normal_height)
                 )
             },
@@ -1948,10 +1947,10 @@ impl SvgTextLayout {
                 let sin = rot_radians.sin();
                 let cos = rot_radians.cos();
 
-                let top_left = (normal_x, normal_y);
-                let top_right = (normal_x + normal_width, normal_y);
-                let bottom_right = (normal_x + normal_width, normal_y + normal_height);
-                let bottom_left = (normal_x, normal_y + normal_height);
+                let top_left = (0.0, 0.0);
+                let top_right = (0.0 + normal_width, 0.0);
+                let bottom_right = (0.0 + normal_width, normal_height);
+                let bottom_left = (0.0, normal_height);
 
                 let (top_left_x, top_left_y) = rotate_point(top_left, sin, cos);
                 let (top_right_x, top_right_y) = rotate_point(top_right, sin, cos);
@@ -1994,16 +1993,16 @@ impl SvgText {
     {
         let font = resources.get_font(&self.font_id).unwrap().0;
         let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
-
+        let font_metrics = FontMetrics::new(&font, &self.font_size, None);
         match self.placement {
             SvgTextPlacement::Unmodified => {
-                normal_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size)
+                normal_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics)
             },
             SvgTextPlacement::Rotated(degrees) => {
-                rotated_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, degrees)
+                rotated_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics, degrees)
             },
             SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                text_on_curve(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &curve)
+                text_on_curve(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics, &curve)
             }
         }
     }
@@ -2021,15 +2020,16 @@ fn normal_text(
     text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
-    font_size: &FontSize)
+    font_size: &FontSize,
+    font_metrics: &FontMetrics)
 -> SvgLayerResource
 {
     let fill_vertices = text_style.fill.and_then(|_| {
-        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, get_fill_vertices))
+        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, font_metrics, get_fill_vertices))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|_| {
-        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, get_stroke_vertices))
+        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, font_metrics, get_stroke_vertices))
     });
 
     SvgLayerResource::Direct {
@@ -2057,14 +2057,17 @@ fn normal_text_to_vertices(
     glyph_ids: &[GlyphInstance],
     vectorized_font: &VectorizedFont,
     original_font: &Font,
+    font_metrics: &FontMetrics,
     transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
+    use text_layout::{DEFAULT_LINE_HEIGHT_MULTIPLIER, DEFAULT_CHARACTER_WIDTH_MULTIPLIER};
+
     let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
 
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
-        scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
-        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0 + position.x, gid.point.y + position.y);
+        scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
+        transform_vertex_buffer(&mut vertex_buf.vertices, (gid.point.x / DEFAULT_CHARACTER_WIDTH_MULTIPLIER) + position.x, (gid.point.y / DEFAULT_LINE_HEIGHT_MULTIPLIER) + position.y);
     });
 
     join_vertex_buffers(&vertex_buffers)
@@ -2077,15 +2080,16 @@ fn rotated_text(
     font: &Font,
     vectorized_font: &VectorizedFont,
     font_size: &FontSize,
+    font_metrics: &FontMetrics,
     rotation_degrees: f32)
 -> SvgLayerResource
 {
     let fill_vertices = text_style.fill.and_then(|_| {
-        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, rotation_degrees, get_fill_vertices))
+        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, rotation_degrees, font_metrics, get_fill_vertices))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|_| {
-        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, rotation_degrees, get_stroke_vertices))
+        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, rotation_degrees, font_metrics, get_stroke_vertices))
     });
 
     SvgLayerResource::Direct {
@@ -2102,17 +2106,20 @@ fn rotated_text_to_vertices(
     vectorized_font: &VectorizedFont,
     original_font: &Font,
     rotation_degrees: f32,
+    font_metrics: &FontMetrics,
     transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
+    use text_layout::{DEFAULT_CHARACTER_WIDTH_MULTIPLIER, DEFAULT_LINE_HEIGHT_MULTIPLIER};
+
     let rotation_rad = rotation_degrees.to_radians();
     let (char_sin, char_cos) = (rotation_rad.sin(), rotation_rad.cos());
 
     let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
 
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
-        scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
-        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x * 2.0, gid.point.y);
+        scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
+        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x / DEFAULT_CHARACTER_WIDTH_MULTIPLIER, gid.point.y / DEFAULT_LINE_HEIGHT_MULTIPLIER);
         rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
         transform_vertex_buffer(&mut vertex_buf.vertices, position.x, position.y);
     });
@@ -2127,17 +2134,18 @@ fn text_on_curve(
     font: &Font,
     vectorized_font: &VectorizedFont,
     font_size: &FontSize,
+    font_metrics: &FontMetrics,
     curve: &SampledBezierCurve)
 -> SvgLayerResource
 {
     let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0);
 
     let fill_vertices = text_style.fill.and_then(|_| {
-        Some(curved_vector_text_to_vertices(font_size, position, &layout.layouted_glyphs, vectorized_font, font, &char_offsets, &char_rotations, get_fill_vertices))
+        Some(curved_vector_text_to_vertices(font_size, position, &layout.layouted_glyphs, vectorized_font, font, &char_offsets, &char_rotations, font_metrics, get_fill_vertices))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|_| {
-        Some(curved_vector_text_to_vertices(font_size, position, &layout.layouted_glyphs, vectorized_font, font, &char_offsets, &char_rotations, get_stroke_vertices))
+        Some(curved_vector_text_to_vertices(font_size, position, &layout.layouted_glyphs, vectorized_font, font, &char_offsets, &char_rotations, font_metrics, get_stroke_vertices))
     });
 
     SvgLayerResource::Direct {
@@ -2156,6 +2164,7 @@ fn curved_vector_text_to_vertices(
     original_font: &Font,
     char_offsets: &[(f32, f32)],
     char_rotations: &[BezierCharacterRotation],
+    font_metrics: &FontMetrics,
     transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
 ) -> VerticesIndicesBuffer
 {
@@ -2167,7 +2176,7 @@ fn curved_vector_text_to_vertices(
     .for_each(|((vertex_buf, char_rot), char_offset)| {
         let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
         // 2. Scale characters to the final size
-        scale_vertex_buffer(&mut vertex_buf.vertices, font_size);
+        scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
         // 3. Rotate individual characters inside of the word
         let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
         rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
