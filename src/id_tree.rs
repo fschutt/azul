@@ -164,6 +164,12 @@ impl<T> Arena<T> {
         }
     }
 
+    pub fn with_capacity(cap: usize) -> Arena<T> {
+        Arena {
+            nodes: Vec::with_capacity(cap),
+        }
+    }
+
     /// Return an iterator over the indices in the internal arenas Vec<T>
     pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {

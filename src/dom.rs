@@ -537,7 +537,19 @@ impl<T: Layout> Dom<T> {
     /// Creates an empty DOM
     #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
-        let mut arena = Arena::new();
+        Self::with_capacity(node_type, 0)
+    }
+
+    /// Returns the number of nodes in this DOM
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.arena.borrow().nodes_len()
+    }
+
+    /// Creates an empty DOM with space reserved for `cap` nodes
+    #[inline]
+    pub fn with_capacity(node_type: NodeType<T>, cap: usize) -> Self {
+        let mut arena = Arena::with_capacity(cap.saturating_add(1));
         let root = arena.new_node(NodeData::new(node_type));
         Self {
             arena: Rc::new(RefCell::new(arena)),

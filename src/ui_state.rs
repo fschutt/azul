@@ -54,15 +54,19 @@ impl<T: Layout> UiState<T> {
             }
         };
 
+        // Tree should have a single root element
+        let mut parent_dom = Dom::with_capacity(NodeType::Div, dom.len());
+        parent_dom.add_child(dom);
+
         NODE_ID.swap(0, Ordering::SeqCst);
         CALLBACK_ID.swap(0, Ordering::SeqCst);
 
         let mut callback_list = BTreeMap::<u64, Callback<T>>::new();
         let mut node_ids_to_callbacks_list = BTreeMap::<u64, BTreeMap<On, u64>>::new();
-        dom.collect_callbacks(&mut callback_list, &mut node_ids_to_callbacks_list);
+        parent_dom.collect_callbacks(&mut callback_list, &mut node_ids_to_callbacks_list);
 
         UiState {
-            dom: dom,
+            dom: parent_dom,
             callback_list: callback_list,
             node_ids_to_callbacks_list: node_ids_to_callbacks_list,
         }
