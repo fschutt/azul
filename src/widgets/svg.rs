@@ -37,7 +37,7 @@ use {
     window::ReadOnlyWindow,
     css_parser::{FontId, FontSize},
     app_resources::AppResources,
-    text_layout::{FontMetrics, LayoutTextResult, layout_text, PX_TO_PT},
+    text_layout::{FontMetrics, LayoutTextResult, layout_text},
 };
 
 pub use lyon::tessellation::VertexBuffers;
