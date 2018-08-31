@@ -8,9 +8,9 @@
     color: white;
     font-size: 30px;
     font-family: sans-serif;
-    padding: 150px;
     width: 400px;
-    text-align: left;
+    text-align: center;
+    align-items: start;
 }
 
 #sub-wrapper {

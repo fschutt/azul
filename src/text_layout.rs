@@ -145,14 +145,14 @@ pub struct FontMetrics {
     pub tab_width: f32,
     /// font_size * line_height
     pub vertical_advance: f32,
-    /// Offset of the font from the top of the bounding rectangle
-    pub offset_top: f32,
     /// Font size (for rusttype) in **pt** (not px)
     /// Used for vertical layouting (since it includes the line height)
     pub font_size_with_line_height: Scale,
     /// Same as `font_size_with_line_height` but without the line height incorporated.
     /// Used for horizontal layouting
     pub font_size_no_line_height: Scale,
+    /// Some fonts have a base height of 2048 or something weird like that
+    pub height_for_1px: f32,
 }
 
 /// ## Inputs
@@ -275,18 +275,19 @@ fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, line_height
     let font_size_with_line_height = Scale::uniform(font_size_f32 * line_height);
     let font_size_no_line_height = Scale::uniform(font_size_f32);
 
-    let space_width = font.glyph(' ').scaled(font_size_no_line_height).h_metrics().advance_width;
+    let space_glyph = font.glyph(' ').scaled(font_size_no_line_height);
+    let height_for_1px = font.glyph(' ').standalone().get_data().unwrap().scale_for_1_pixel;
+    let space_width = space_glyph.h_metrics().advance_width;
     let tab_width = 4.0 * space_width; // TODO: make this configurable
 
     let v_metrics_scaled = font.v_metrics(font_size_with_line_height);
     let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
-    let offset_top = v_advance_scaled / 2.0;
 
     FontMetrics {
         vertical_advance: v_advance_scaled,
         space_width,
         tab_width,
-        offset_top,
+        height_for_1px,
         font_size_with_line_height,
         font_size_no_line_height,
     }
@@ -517,7 +518,7 @@ fn estimate_overflow_pass_1(
 
     let words = &words.items;
 
-    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, .. } = *font_metrics;
 
     let max_text_line_len_horizontal = 0.0;
 
@@ -571,9 +572,7 @@ fn estimate_overflow_pass_1(
 
             max_hor_len = Some(cur_line_cursor);
 
-            let cur_vertical = (cur_line as f32 * vertical_advance) + offset_top;
-
-            cur_vertical
+            cur_line as f32 * vertical_advance
         }
     };
 
@@ -629,7 +628,7 @@ fn estimate_overflow_pass_2(
     pass1: TextOverflowPass1)
 -> (TypedSize2D<f32, LayoutPixel>, TextOverflowPass2)
 {
-    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, .. } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, .. } = *font_metrics;
 
     let mut new_size = *rect_dimensions;
 
@@ -700,10 +699,9 @@ fn words_to_left_aligned_glyphs<'a>(
 {
     let words = &words.items;
 
-    let FontMetrics { space_width, tab_width, vertical_advance, offset_top, font_size_no_line_height, .. } = *font_metrics;
+    let FontMetrics { space_width, tab_width, vertical_advance, font_size_no_line_height, .. } = *font_metrics;
 
-    // left_aligned_glyphs stores the X and Y coordinates of the positioned glyphs,
-    // left-aligned
+    // left_aligned_glyphs stores the X and Y coordinates of the positioned glyphs
     let mut left_aligned_glyphs = Vec::<GlyphInstance>::new();
 
     enum WordCaretMax {
@@ -753,7 +751,7 @@ fn words_to_left_aligned_glyphs<'a>(
                 for glyph in &word.glyphs {
                     let mut new_glyph = *glyph;
                     let push_x = word_caret;
-                    let push_y = (current_line_num as f32 * vertical_advance * DEFAULT_LINE_HEIGHT_MULTIPLIER) + offset_top;
+                    let push_y = (current_line_num + 1) as f32 * vertical_advance * DEFAULT_LINE_HEIGHT_MULTIPLIER;
                     new_glyph.point.x += push_x;
                     new_glyph.point.y += push_y;
                     left_aligned_glyphs.push(new_glyph);
@@ -796,7 +794,7 @@ fn words_to_left_aligned_glyphs<'a>(
     }
 
     let min_enclosing_width = max_word_caret;
-    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + (font_size_no_line_height.y / PX_TO_PT) + (offset_top / PX_TO_PT);
+    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + (font_size_no_line_height.y / PX_TO_PT);
 
     let line_break_offsets = line_break_offsets.into_iter().map(|(line, space_r)| {
         let space_r = match space_r {
@@ -926,7 +924,7 @@ fn align_text_vert(alignment: TextAlignmentVert, glyphs: &mut [GlyphInstance], l
 
     let space_to_add = match overflow.vertical {
         IsOverflowing(_) => return,
-        InBounds(s) => s * multiply_factor,
+        InBounds(s) => (s - (30.0 * DEFAULT_LINE_HEIGHT_MULTIPLIER)) * multiply_factor,
     };
 
     glyphs.iter_mut().for_each(|g| g.point.y += space_to_add);
