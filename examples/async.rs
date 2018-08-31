@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 extern crate azul;
 
 use azul::{

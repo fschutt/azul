@@ -1180,98 +1180,138 @@ fn create_layout_constraints<'a, T: Layout>(
 
     let mut layout_constraints = Vec::new();
 
-    if let Some(LayoutPosition::Relative) = rect.layout.position {
-        println!("nearest common absolute ancestor for node {:?} is: {:?}", node_id, get_nearest_relative_ancestor(node_id, display_rectangles));
-    }
+    let window_constraints = ui_solver.get_window_constraints();
 
     // Insert the max height and width constraints
     //
-    // min-width and max-width are stronger than width because the width has to be between min and max width
+    // min-width and max-width are stronger than width because
+    // the width has to be between min and max width
+
+    // min-width, width, max-width
     if let Some(min_width) = rect.layout.min_width {
         layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
     }
-
     if let Some(width) = rect.layout.width {
         layout_constraints.push(self_rect.width | EQ(STRONG) | width.0.to_pixels());
     } else {
         if let Some(parent) = dom_node.parent {
-            let parent = ui_solver.get_rect_constraints(parent).unwrap();
-            layout_constraints.push(self_rect.width | EQ(STRONG) | parent.width);
+            let parent_rect = ui_solver.get_rect_constraints(parent).unwrap();
+            layout_constraints.push(self_rect.width | EQ(STRONG) | parent_rect.width);
+        } else {
+            layout_constraints.push(self_rect.width | EQ(REQUIRED) | window_constraints.width_var);
         }
     }
-
     if let Some(max_width) = rect.layout.max_width {
         layout_constraints.push(self_rect.width | LE(REQUIRED) | max_width.0.to_pixels());
     }
 
+    // min-height, height, max-height
     if let Some(min_height) = rect.layout.min_height {
         layout_constraints.push(self_rect.height | GE(REQUIRED) | min_height.0.to_pixels());
     }
-
     if let Some(height) = rect.layout.height {
         layout_constraints.push(self_rect.height | EQ(STRONG) | height.0.to_pixels());
     } else {
         if let Some(parent) = dom_node.parent {
-            let parent = ui_solver.get_rect_constraints(parent).unwrap();
-            layout_constraints.push(self_rect.height | EQ(STRONG) | parent.height);
+            let parent_rect = ui_solver.get_rect_constraints(parent).unwrap();
+            layout_constraints.push(self_rect.height | EQ(STRONG) | parent_rect.height);
+        } else {
+            layout_constraints.push(self_rect.height | EQ(REQUIRED) | window_constraints.height_var);
         }
     }
-
     if let Some(max_height) = rect.layout.max_height {
         layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
     }
 
-
+    // root node: start at (0, 0)
     if dom_node.parent.is_none() {
-        // Root node: fill window width / height
-        let window_constraints = ui_solver.get_window_constraints();
         layout_constraints.push(self_rect.top | EQ(REQUIRED) | 0.0);
         layout_constraints.push(self_rect.left | EQ(REQUIRED) | 0.0);
-        layout_constraints.push(self_rect.width | EQ(REQUIRED) | window_constraints.width_var);
-        layout_constraints.push(self_rect.height | EQ(REQUIRED) | window_constraints.height_var);
     }
 
-    let direction = rect.layout.direction.unwrap_or_default();
+    // Node has children: Push the constraints for `flex-direction`
+    if dom_node.first_child.is_some() {
 
-    let mut next_child_id = dom_node.first_child;
-    let mut previous_child: Option<RectConstraintVariables> = None;
+        let direction = rect.layout.direction.unwrap_or_default();
 
-    while let Some(child_id) = next_child_id {
-        let child = ui_solver.get_rect_constraints(child_id).unwrap();
+        let mut next_child_id = dom_node.first_child;
+        let mut previous_child: Option<RectConstraintVariables> = None;
 
-        match direction {
-            LayoutDirection::Row => {
-                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
-                match previous_child {
-                    None => layout_constraints.push(child.left | EQ(STRONG) | self_rect.left),
-                    Some(prev) => layout_constraints.push(child.left | EQ(STRONG) | (prev.left + prev.width)),
-                }
-            },
-            LayoutDirection::RowReverse => {
-                layout_constraints.push(child.top | EQ(STRONG) | self_rect.top);
-                match previous_child {
-                    None => layout_constraints.push(child.left | EQ(STRONG) | (self_rect.left + (self_rect.width - child.width))),
-                    Some(prev) => layout_constraints.push((child.left + child.width) | EQ(STRONG) | prev.left),
-                }
-            },
-            LayoutDirection::Column => {
-                match previous_child {
-                    None => layout_constraints.push(child.top | EQ(STRONG) | self_rect.top),
-                    Some(prev) => layout_constraints.push(child.top | EQ(STRONG) | (prev.top + prev.height)),
-                }
-                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
-            },
-            LayoutDirection::ColumnReverse => {
-                layout_constraints.push(child.left | EQ(STRONG) | self_rect.left);
-                match previous_child {
-                    None => layout_constraints.push(child.top | EQ(STRONG) | (self_rect.top + (self_rect.height - child.height))),
-                    Some(prev) => layout_constraints.push((child.top + child.height) | EQ(STRONG) | prev.top),
-                }
-            },
+        // Iterate through children
+        while let Some(child_id) = next_child_id {
+
+            let child = &display_rectangles[child_id].data;
+            let child_rect = ui_solver.get_rect_constraints(child_id).unwrap();
+
+            let should_respect_relative_positioning = child.layout.position == Some(LayoutPosition::Relative);
+
+            let (relative_top, relative_left, relative_right, relative_bottom) = if should_respect_relative_positioning {(
+                child.layout.top.and_then(|top| Some(top.0.to_pixels())).unwrap_or(0.0),
+                child.layout.left.and_then(|left| Some(left.0.to_pixels())).unwrap_or(0.0),
+                child.layout.right.and_then(|right| Some(right.0.to_pixels())).unwrap_or(0.0),
+                child.layout.right.and_then(|bottom| Some(bottom.0.to_pixels())).unwrap_or(0.0),
+            )} else {
+                (0.0, 0.0, 0.0, 0.0)
+            };
+
+            match direction {
+                LayoutDirection::Row => {
+                    match previous_child {
+                        None => layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left),
+                        Some(prev) => layout_constraints.push(child_rect.left | EQ(MEDIUM) | (prev.left + prev.width) + relative_left),
+                    }
+                    layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top);
+                },
+                LayoutDirection::RowReverse => {
+                    match previous_child {
+                        None => layout_constraints.push(child_rect.left | EQ(MEDIUM) | (self_rect.left  + relative_left + (self_rect.width - child_rect.width))),
+                        Some(prev) => layout_constraints.push((child_rect.left + child_rect.width) | EQ(MEDIUM) | prev.left + relative_left),
+                    }
+                    layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top);
+                },
+                LayoutDirection::Column => {
+                    match previous_child {
+                        None => layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top),
+                        Some(prev) => layout_constraints.push(child_rect.top | EQ(MEDIUM) | (prev.top + prev.height)),
+                    }
+                    layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left);
+                },
+                LayoutDirection::ColumnReverse => {
+                    match previous_child {
+                        None => layout_constraints.push(child_rect.top | EQ(MEDIUM) | (self_rect.top + (self_rect.height - child_rect.height))),
+                        Some(prev) => layout_constraints.push((child_rect.top + child_rect.height) | EQ(MEDIUM) | prev.top),
+                    }
+                    layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left);
+                },
+            }
+
+            previous_child = Some(child_rect);
+            next_child_id = dom[child_id].next_sibling;
         }
+    }
 
-        previous_child = Some(child);
-        next_child_id = dom[child_id].next_sibling;
+    // Handle position: absolute
+    if let Some(LayoutPosition::Absolute) = rect.layout.position {
+
+        let top = rect.layout.top.and_then(|top| Some(top.0.to_pixels())).unwrap_or(0.0);
+        let left = rect.layout.left.and_then(|left| Some(left.0.to_pixels())).unwrap_or(0.0);
+        let right = rect.layout.right.and_then(|right| Some(right.0.to_pixels())).unwrap_or(0.0);
+        let bottom = rect.layout.right.and_then(|bottom| Some(bottom.0.to_pixels())).unwrap_or(0.0);
+
+        match get_nearest_positioned_ancestor(node_id, display_rectangles) {
+            None => {
+                // window is the nearest positioned ancestor
+                // TODO: hacky magic that relies on having one root element
+                let window_id = ui_solver.get_rect_constraints(NodeId::new(0)).unwrap();
+                layout_constraints.push(self_rect.top | EQ(REQUIRED) | window_id.top + top);
+                layout_constraints.push(self_rect.left | EQ(REQUIRED) | window_id.left + left);
+            },
+            Some(nearest_positioned) => {
+                let nearest_positioned = ui_solver.get_rect_constraints(nearest_positioned).unwrap();
+                layout_constraints.push(self_rect.top | GE(STRONG) | nearest_positioned.top + top);
+                layout_constraints.push(self_rect.left | GE(STRONG) | nearest_positioned.left + left);
+            }
+        }
     }
 
     layout_constraints
@@ -1301,15 +1341,20 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
 /// Returns the nearest common ancestor with a `position: relative` attribute
 /// or `None` if there is no ancestor that has `position: relative`. Usually
 /// used in conjunction with `position: absolute`
-fn get_nearest_relative_ancestor<'a>(start_node_id: NodeId, arena: &Arena<DisplayRectangle<'a>>)
+fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<DisplayRectangle<'a>>)
 -> Option<NodeId>
 {
     let mut current_node = start_node_id;
     while let Some(parent) = arena[current_node].parent() {
-        if let Some(LayoutPosition::Absolute) = arena[parent].data.layout.position {
+        // An element with position: absolute; is positioned relative to the nearest
+        // positioned ancestor (instead of positioned relative to the viewport, like fixed).
+        //
+        // A "positioned" element is one whose position is anything except static.
+        if let Some(LayoutPosition::Static) = arena[parent].data.layout.position {
+            current_node = parent;
+        } else {
             return Some(parent);
         }
-        current_node = parent;
     }
     None
 }

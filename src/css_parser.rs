@@ -1696,6 +1696,12 @@ pub enum LayoutPosition {
     Absolute,
 }
 
+impl Default for LayoutPosition {
+    fn default() -> Self {
+        LayoutPosition::Static
+    }
+}
+
 impl Default for LayoutDirection {
     fn default() -> Self {
         LayoutDirection::Column
