@@ -3,12 +3,15 @@
 # WARNING: The features advertised don't work yet.
 # See the /examples folder for an example of what's currently possible.
 
-azul is a cross-platform, stylable GUI framework using Mozillas `webrender`
+azul is a cross-platform, styleable GUI framework using Mozillas `webrender`
 engine for rendering and a CSS / DOM model for layout and rendering
 
 [Crates.io](https://crates.io/crates/azul) |
 [Library documentation](https://docs.rs/azul) |
-[User guide](http://azul.rs/)
+[Tutorial / user guide](https://github.com/maps4print/azul/wiki) |
+[Website](https://azul.rs/) |
+[Presentation slides](https://docs.google.com/presentation/d/12adMyK81Siv9auXEOBOGzcXXYh8BHWC71mfwunhCwLQ/edit?usp=sharing) |
+[Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI)
 
 ## Installation notes
 
@@ -41,7 +44,7 @@ following regards:
   and debugging very easy, since if you give the `get_dom()` function a
   specific data model, you always get the same DOM back (`get_dom()` is a pure
   function). This comes at a slight performance cost, however in practice the
-  cost isn't too high and it makes the seperation of application data and GUI
+  cost isn't too high and it makes the separation of application data and GUI
   data very clean.
 - The layout model closely follows the CSS flexbox model. The default for CSS is
   `display:flex` instead of `display:static` (keep that in mind). Some semantics
@@ -226,12 +229,12 @@ When you have to perform a larger task, such as waiting for network content or
 waiting for a large file to be loaded, you don't want to block the user
 interface, which would give a bad experience.
 
-Instead, azul provides two mechanisms: a `Task` and a `Deamon`. Both are
+Instead, azul provides two mechanisms: a `Task` and a `Daemon`. Both are
 essentially function callbacks, but the `Task` gets run on a seperate thread
-(one thread per task) while a `Deamon` gets run on the same thread as the main
+(one thread per task) while a `Daemon` gets run on the same thread as the main
 UI.
 
-azul takes care of querying if the `Task` or `Deamon` has finished. Both have
+azul takes care of querying if the `Task` or `Daemon` has finished. Both have
 access to the applications data model and can modify it (without race conditions):
 
 ```rust
@@ -267,7 +270,7 @@ fn download_website(app_state: Arc<Mutex<AppState<DataModel>>>, _drop: Arc<()>) 
 }
 ```
 
-The `app_state.modify` is a only conveniece function that locks and unlocks your
+The `app_state.modify` is a only convenience function that locks and unlocks your
 data model. The `_drop` variable is necessary so that azul can see when the thread
 has finished and join it afterwards.
 
@@ -278,7 +281,7 @@ For this, OS-level threads are usually sufficient and performant enough.
 
 ## Styling
 
-Azul has default visual styles that mimick the sperating-systems native style.
+Azul has default visual styles that mimic the OS-native style.
 However, you can overwrite parts (or everything) with your custom CSS styles:
 
 ```rust
@@ -351,9 +354,9 @@ way, the SVG drawing component could even be implemented in an external crate, i
 you really wanted to. This mechanism also allows for completely custom drawing
 (let's say: a game, a 3D viewer, etc.) to be drawn.
 
-The SVG component currently uses  the `resvg` parser, `usvg` minifaction and the
+The SVG component currently uses  the `resvg` parser, `usvg` simplification and the
 `lyon` triangulation libraries). Of course you can also add custom shapes
-(bezier curves, circles, lines, whatever) programatically, without going through
+(bezier curves, circles, lines, whatever) programmatically, without going through
 the SVG parser:
 
 ```rust
@@ -414,6 +417,7 @@ the same way as on a regular web page, except if noted otherwise:
 - `align-items`                             [see #2]
 - `overflow`, `overflow-x`, `overflow-y`
 - `text-align`                              [see #3]
+- `flex-direction`                          [see #4]
 
 Notes:
 
@@ -427,13 +431,13 @@ Notes:
     - In release mode, the app doesn't display the image and logs the error
 2.  Currently `align-items` is only implemented to center text vertically
 3.  Justified text is not (yet) supported
+4.  Currently a bit buggy, `flex-direction: column` does not yet work on the root
 
 ### Planned
 
 These properties are planned for the next (currently 0.1) release:
 
 - `flex-wrap`
-- `flex-direction`
 - `justify-content`
 - `align-content`
 
@@ -460,7 +464,7 @@ These properties are planned for the next (currently 0.1) release:
    .general #specific .very-specific { color: black; }
    ```
 
-The CSS parser currently only supports CSS 2.1, not CSS 3 attributes. Animations
+The CSS parser currently only supports CSS 2.1, not CSS3 attributes. Animations
 are not done in CSS, but rather by using dynamic CSS properties (see above)
 
 ### Planned
