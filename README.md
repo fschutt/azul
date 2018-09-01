@@ -59,7 +59,7 @@ following regards:
 To understand how to efficiently program with azul, you have to understand its
 programming / memory model. One image says more than 1000 words:
 
-![Azul callback model](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_callback_model.png)
+![Azul callback model](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_event_model.png)
 
 This creates a very simple programming flow:
 
