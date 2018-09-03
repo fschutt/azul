@@ -78,7 +78,7 @@ fn build_layers(
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
     layers.extend(texts.values().map(|text| text.to_svg_layer(vector_font_cache, resources)));
-    layers.extend(texts.values().map(|text| text.get_bbox().draw_lines(ColorU { r: 0, g: 0, b: 0, a: 255 })));
+    layers.extend(texts.values().map(|text| text.get_bbox().draw_lines(ColorU { r: 0, g: 0, b: 0, a: 255 }, 1.0)));
 /*
     if let Some(active) = hovered_text {
         layers.push(texts[active].get_bbox().draw_lines());
