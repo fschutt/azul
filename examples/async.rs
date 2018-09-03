@@ -71,7 +71,7 @@ fn start_connection(app_state: &mut AppState<MyDataModel>, _event: WindowEvent) 
     UpdateScreen::Redraw
 }
 
-fn timer_daemon(state: &mut MyDataModel) -> (UpdateScreen, TerminateDaemon) {
+fn timer_daemon(state: &mut MyDataModel, _resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon) {
     if let ConnectionStatus::InProgress(start, duration) = &mut state.connection_status {
         *duration = Instant::now() - *start;
         (UpdateScreen::Redraw, TerminateDaemon::Continue)

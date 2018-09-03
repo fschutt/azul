@@ -204,7 +204,7 @@ impl<T: Layout> AppState<T> {
         let mut daemons_to_terminate = Vec::new();
 
         for (key, daemon) in self.daemons.iter_mut() {
-            let (should_update, should_terminate) = daemon.invoke_callback_with_data(&mut lock);
+            let (should_update, should_terminate) = daemon.invoke_callback_with_data(&mut lock, &mut self.resources);
 
             if should_update == UpdateScreen::Redraw &&
                should_update_screen == UpdateScreen::DontRedraw {

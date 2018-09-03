@@ -4,7 +4,10 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
 };
-use dom::UpdateScreen;
+use {
+    dom::UpdateScreen,
+    app_resources::AppResources,
+};
 
 /// Should a daemon terminate or not - used to remove active daemons
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -31,7 +34,7 @@ pub struct Daemon<T> {
     pub(crate) id: DaemonId,
 }
 
-pub struct DaemonCallback<T>(pub fn(&mut T) -> (UpdateScreen, TerminateDaemon));
+pub struct DaemonCallback<T>(pub fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon));
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for DaemonCallback<T>
 
@@ -94,7 +97,7 @@ impl<T> Daemon<T> {
         }
     }
 
-    pub(crate) fn invoke_callback_with_data(&mut self, data: &mut T) -> (UpdateScreen, TerminateDaemon) {
+    pub(crate) fn invoke_callback_with_data(&mut self, data: &mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon) {
 
         // Check if the deamons timeout is reached
         if let Some(max_timeout) = self.max_timeout {
@@ -109,8 +112,8 @@ impl<T> Daemon<T> {
             }
         }
 
-        let res = (self.callback.0)(data);
-        
+        let res = (self.callback.0)(data, app_resources);
+
         self.last_run = Instant::now();
 
         res
@@ -128,7 +131,7 @@ impl<T> fmt::Debug for Daemon<T> {
             max_timeout: {:?}, \
             callback: {:?}, \
             id: {:?}, \
-        }}", 
+        }}",
         self.created,
         self.run_every,
         self.last_run,
