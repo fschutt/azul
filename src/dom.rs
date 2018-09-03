@@ -15,6 +15,7 @@ use {
     traits::Layout,
     app_state::AppState,
     id_tree::{NodeId, Node, Arena},
+    default_callbacks::DefaultCallbackSystem,
 };
 
 /// This is only accessed from the main thread, so it's safe to use
@@ -767,6 +768,13 @@ impl<T: Layout> Dom<T> {
                 nodes_to_callback_id_list.insert(tag, cb_id_list);
             }
         }
+    }
+
+    pub(crate) fn collect_default_callbacks(&self)
+    -> DefaultCallbackSystem<T>
+    {
+        // TODO!
+        DefaultCallbackSystem::new()
     }
 }
 

@@ -7,11 +7,13 @@ use {
     traits::Layout,
     dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On},
     app_state::AppState,
+    default_callbacks::DefaultCallbackSystem,
 };
 
 pub struct UiState<T: Layout> {
     pub dom: Dom<T>,
     pub callback_list: BTreeMap<u64, Callback<T>>,
+    pub default_callback_list: DefaultCallbackSystem<T>,
     pub node_ids_to_callbacks_list: BTreeMap<u64, BTreeMap<On, u64>>,
 }
 
@@ -64,12 +66,19 @@ impl<T: Layout> UiState<T> {
         let mut callback_list = BTreeMap::<u64, Callback<T>>::new();
         let mut node_ids_to_callbacks_list = BTreeMap::<u64, BTreeMap<On, u64>>::new();
         parent_dom.collect_callbacks(&mut callback_list, &mut node_ids_to_callbacks_list);
+        
+        let default_callback_list = parent_dom.collect_default_callbacks();
 
         UiState {
             dom: parent_dom,
-            callback_list: callback_list,
+            callback_list,
+            default_callback_list,
             node_ids_to_callbacks_list: node_ids_to_callbacks_list,
         }
+    }
+
+    pub(crate) fn call_default_callbacks(&self, app_state: &mut T) {
+        self.default_callback_list.run_all_callbacks(app_state);
     }
 }
 

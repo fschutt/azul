@@ -106,16 +106,18 @@ use self::stack_checked_pointer::StackCheckedPointer;
 use std::collections::{BTreeMap, HashMap};
 use {
     dom::On,
-    cache::DomHash,
+    id_tree::NodeId,
     traits::Layout,
 };
 
 pub struct DefaultCallbackSystem<T: Layout> {
-    callbacks: BTreeMap<DomHash, HashMap<On, (StackCheckedPointer<T>, fn(&StackCheckedPointer<T>))>>,
+    callbacks: BTreeMap<NodeId, HashMap<On, (StackCheckedPointer<T>, fn(&StackCheckedPointer<T>))>>,
 }
 
 impl<T: Layout> DefaultCallbackSystem<T> {
-    pub fn new() -> Self {
+    
+    /// Creates a new, empty list of callbacks
+    pub(crate) fn new() -> Self {
         Self {
             callbacks: BTreeMap::new(),
         }
@@ -123,13 +125,35 @@ impl<T: Layout> DefaultCallbackSystem<T> {
 
     pub fn push_callback<U>(
         &mut self, 
-        dom_hash: DomHash, 
-        on: On, 
         app_data: &T, 
-        ptr: &U, 
-        func: fn(&StackCheckedPointer<T>)) 
+        node_id: NodeId, 
+        on: On, 
+        ptr: &U,
+        func: fn(&StackCheckedPointer<T>))
     {
-        
+        use std::collections::hash_map::Entry::*;
+
+        let stack_checked_pointer = match StackCheckedPointer::new(app_data, ptr) {
+            Some(s) => s,
+            None => panic!(
+                "Default callback for function 0x{:?} ({:?} - {:?}) constructed with \
+                non-stack pointer at 0x{:x}. This is a potential security risk \
+                and it is unsafe to continue execution. \n\
+                \n\
+                If you create a App<T> and want to register a default function, \
+                you can only create function that take pointers to the data of T, you \
+                can't use reference to heap-allocated data, since the lifetimes \
+                of these references can't be controlled by the framework.", 
+                func as usize, node_id, on, ptr as *const _ as usize),
+        };
+
+        match self.callbacks.entry(node_id).or_insert_with(|| HashMap::new()).entry(on) {
+            Occupied(mut o) => {
+                warn!("Overwriting {:?} for DOM node {:?}", on, node_id);
+                o.insert((stack_checked_pointer, func));
+            },
+            Vacant(v) => { v.insert((stack_checked_pointer, func)); },
+        }
     }
 
     pub fn run_all_callbacks(&self, app_data: &mut T) {

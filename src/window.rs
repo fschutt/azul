@@ -476,7 +476,7 @@ pub struct Window {
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The css (how the current window is styled)
-    pub css: Css,
+    pub(crate) css: Css,
 }
 
 #[derive(Debug, Copy, Clone)]

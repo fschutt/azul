@@ -35,6 +35,7 @@ impl Layout for TestCrudApp {
 }
 
 fn update_text_field(app_state: &mut AppState<TestCrudApp>, event: WindowEvent) -> UpdateScreen {
+    println!("update text field!");
     app_state.data.modify(|state| state.text_input.update(&app_state.windows, &event));
     UpdateScreen::Redraw
 }
