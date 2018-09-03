@@ -1862,7 +1862,7 @@ pub struct SvgBbox(pub TypedRect<f32, SvgWorldPixel>);
 
 impl SvgBbox {
     /// Simple function for drawing a single bounding box
-    pub fn draw_lines(&self, color: ColorU) -> SvgLayerResource {
+    pub fn draw_lines(&self, color: ColorU, line_width: f32) -> SvgLayerResource {
         quick_rects(&[SvgRect {
             width: self.0.size.width,
             height: self.0.size.height,
@@ -1870,7 +1870,13 @@ impl SvgBbox {
             y: self.0.origin.y,
             rx: 0.0,
             ry: 0.0,
-        }], Some(color), None, None)
+        }],
+        Some(color),
+        None,
+        Some(SvgStrokeOptions {
+            line_width: (line_width * 1000.0) as usize,
+            .. Default::default()
+        }))
     }
 
     /// Checks if the bounding box contains a point
