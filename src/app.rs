@@ -619,11 +619,13 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     use dom::Callback;
     use window_state::{KeyboardState, MouseState};
 
-    let (cursor_x, cursor_y) = window.state.mouse_state.cursor_pos
-        .and_then(|pos| {
+    let (cursor_x, cursor_y) = match window.state.mouse_state.cursor_pos {
+        Some(pos) => {
             let physical_position = pos.to_physical(window.state.size.hidpi_factor);
-            Some((physical_position.x as f32, physical_position.y as f32))
-        }).unwrap_or((0.0, 0.0));
+            (physical_position.x as f32, physical_position.y as f32)
+        },
+        None => return,
+    };
 
     let point = WorldPoint::new(cursor_x, cursor_y);
 
@@ -639,6 +641,8 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     // TODO: this should be refactored - currently very stateful and error-prone!
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
     app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
+
+    ui_state_cache[window_id.id].call_default_callbacks(&mut app_state.data.lock().unwrap());
 
     // NOTE: for some reason hit_test_results is empty...
     // ... but only when the mouse is relased - possible timing issue?

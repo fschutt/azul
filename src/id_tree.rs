@@ -526,6 +526,7 @@ macro_rules! impl_node_iterator {
 
 /// An linear iterator, does not respec the DOM in any way,
 /// it just iterates over the nodes like a Vec
+#[derive(Debug, Copy, Clone)]
 pub struct LinearIterator {
     arena_len: usize,
     position: usize,
