@@ -94,6 +94,8 @@ mod app_state;
 mod css;
 /// Font & image resource handling, lookup and caching
 mod app_resources;
+/// Handles default callbacks (such as an automatic text field update) via unsafe code
+mod default_callbacks;
 /// UI Description & display list handling (webrender)
 mod ui_description;
 /// Converts the UI description (the styled HTML nodes)
@@ -132,6 +134,7 @@ type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDef
 pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
+    pub use cache::DomHash;
     pub use css::{Css, FakeCss};
     pub use dom::{Dom, NodeType, NodeData, Callback, On, UpdateScreen, Texture, GlTextureCallback};
     pub use traits::{Layout, Modify};
