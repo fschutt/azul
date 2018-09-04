@@ -91,7 +91,7 @@ pub enum NodeType<T: Layout> {
     GlTexture(GlTextureCallback<T>),
 }
 
-pub struct GlTextureCallback<T: Layout>(pub fn(&T, WindowInfo, usize, usize) -> Option<Texture>);
+pub struct GlTextureCallback<T: Layout>(pub fn(&T, WindowInfo<T>, usize, usize) -> Option<Texture>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for GlTextureCallback<T>
 

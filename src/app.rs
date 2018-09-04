@@ -198,7 +198,7 @@ impl<T: Layout> App<T> {
         use std::{thread, time::{Duration, Instant}};
         use window::ReadOnlyWindow;
 
-        let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
+        let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &mut self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut force_redraw_cache = vec![1_usize; self.windows.len()];
         let mut awakened_task = vec![false; self.windows.len()];
@@ -274,10 +274,7 @@ impl<T: Layout> App<T> {
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
                     // Call the Layout::layout() fn, get the DOM
                     let window_id = WindowId { id: idx };
-                    let read_only_window = ReadOnlyWindow { inner: window.display.clone() };
-                    ui_state_cache[idx] = UiState::from_app_state(
-                        &self.app_state, window_id, read_only_window.clone()
-                    );
+                    ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
 
                     // Style the DOM
                     ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
@@ -288,7 +285,15 @@ impl<T: Layout> App<T> {
                     let arc_mutext_t_clone = self.app_state.data.clone();
                     let window_id = WindowId { id: idx };
 
-                    render(arc_mutext_t_clone, window, window_id, read_only_window, &ui_description_cache[idx], &mut self.app_state.resources, true);
+                    render(
+                        arc_mutext_t_clone, 
+                        window, 
+                        window_id, 
+                        &mut self.app_state.windows[idx], 
+                        &ui_description_cache[idx], 
+                        &mut self.app_state.resources, 
+                        true);
+                    
                     awakened_task[idx] = false;
                 }
             }
@@ -347,15 +352,14 @@ impl<T: Layout> App<T> {
         window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
-    fn initialize_ui_state(windows: &[Window], app_state: &AppState<T>)
+    fn initialize_ui_state(windows: &[Window], app_state: &mut AppState<T>)
     -> Vec<UiState<T>>
     {
         use window::ReadOnlyWindow;
 
         windows.iter().enumerate().map(|(idx, w)| {
             let window_id = WindowId { id: idx };
-            let read_only_window = ReadOnlyWindow { inner: w.display.clone() };
-            UiState::from_app_state(app_state, window_id, read_only_window)
+            UiState::from_app_state(app_state, window_id)
         }).collect()
     }
 
@@ -435,7 +439,7 @@ impl<T: Layout> App<T> {
     /// # struct MyAppData { }
     /// #
     /// # impl Layout for MyAppData {
-    /// #     fn layout(&self, _window_id: WindowInfo) -> Dom<MyAppData> {
+    /// #     fn layout(&self, _window_id: WindowInfo<MyAppData>) -> Dom<MyAppData> {
     /// #         Dom::new(NodeType::Div)
     /// #    }
     /// # }
@@ -696,6 +700,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
         window.css.dynamic_css_overrides = app_state.windows[window_id.id].css.dynamic_css_overrides.clone();
         // clear the dynamic CSS overrides
         app_state.windows[window_id.id].css.clear();
+        app_state.windows[window_id.id].default_callbacks.clear();
     }
 }
 
@@ -703,7 +708,7 @@ fn render<T: Layout>(
     app_data: Arc<Mutex<T>>,
     window: &mut Window,
     window_id: WindowId,
-    read_only_window: ReadOnlyWindow,
+    fake_window: &mut FakeWindow<T>,
     ui_description: &UiDescription<T>,
     app_resources: &mut AppResources,
     has_window_size_changed: bool)
@@ -725,7 +730,7 @@ fn render<T: Layout>(
         has_window_size_changed,
         &window.state.size,
         window_id,
-        read_only_window);
+        fake_window);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     window.internal.last_display_list_builder = builder.finalize().2;

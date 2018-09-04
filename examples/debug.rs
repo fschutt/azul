@@ -37,7 +37,7 @@ pub struct Map {
 }
 
 impl Layout for MyAppData {
-    fn layout(&self, _info: WindowInfo)
+    fn layout(&self, _info: WindowInfo<Self>)
     -> Dom<MyAppData>
     {
         if let Some(_map) = &self.map {
@@ -59,12 +59,12 @@ fn gl_texture_dom() -> Dom<MyAppData> {
         .with_callback(On::MouseOver, Callback(check_hovered_font))
 }
 
-fn render_map(data: &MyAppData, info: WindowInfo, width: usize, height: usize) -> Option<Texture> {
+fn render_map(data: &MyAppData, info: WindowInfo<MyAppData>, width: usize, height: usize) -> Option<Texture> {
     let map = data.map.as_ref()?;
     Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
         .with_pan(map.pan_horz as f32, map.pan_vert as f32)
         .with_zoom(map.zoom as f32)
-        .render_svg(&map.cache, &info.window, width, height)
+        .render_svg(&map.cache, &info.window.read_only_window(), width, height)
 }
 
 fn build_layers(

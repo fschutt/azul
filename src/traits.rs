@@ -10,6 +10,7 @@ use {
     css::{Css, CssRule},
     id_tree::{NodeId, Arena},
     css_parser::{ParsedCssProperty, CssParsingError},
+    default_callbacks::StackCheckedPointer,
 };
 #[cfg(not(test))]
 use window::WindowInfo;
@@ -26,7 +27,7 @@ pub trait Layout {
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
     #[cfg(not(test))]
-    fn layout(&self, window_id: WindowInfo) -> Dom<Self> where Self: Sized;
+    fn layout(&self, window_id: WindowInfo<Self>) -> Dom<Self> where Self: Sized;
     #[cfg(test)]
     fn layout(&self) -> Dom<Self> where Self: Sized;
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
@@ -42,7 +43,10 @@ pub trait Layout {
 pub trait DefaultCallbackFn {
     type Outcome;
     fn get_callback_ptr(&self) -> &Self::Outcome;
-    fn get_callback_fn(&self) -> fn(&mut Self::Outcome);
+    // TODO: In the ideal case, this should be:
+    // because it isn't guaranteed that the callback fn acts on the same type
+    // fn get_callback_fn(&self) -> fn(&mut Self::Outcome);
+    fn get_callback_fn<T: Layout>(&self) -> fn(&StackCheckedPointer<T>);
 }
 
 pub(crate) struct ParsedCss<'a> {
