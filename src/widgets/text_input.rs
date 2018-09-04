@@ -1,4 +1,4 @@
-//! Test text input to test two-way data binding. Do not use!
+//! Text input (demonstrates two-way data binding)
 
 use {
     traits::{Layout, DefaultCallbackFn},
@@ -6,6 +6,7 @@ use {
     window::{FakeWindow, WindowEvent},
     prelude::{VirtualKeyCode},
     default_callbacks::{StackCheckedPointer, DefaultCallback, DefaultCallbackId},
+    app_state::AppStateNoData,
 };
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -69,32 +70,25 @@ impl TextInput {
     }
 }
 
-impl TextInputOutcome {
-
-    /// Updates the text input, given an event
-    pub fn update<T: Layout>(&mut self, windows: &[FakeWindow<T>], event: &WindowEvent) {
-
-        let keyboard_state = windows[event.window].get_keyboard_state();
-
-        if keyboard_state.current_virtual_keycodes.contains(&VirtualKeyCode::Back) {
-            self.text.pop();
-        } else {
-            let mut keys = keyboard_state.current_keys.iter().cloned().collect::<String>();
-            if keyboard_state.shift_down {
-                keys = keys.to_uppercase();
-            }
-            self.text += &keys;
-        }
-    }
+fn update_text_field<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent)
+-> UpdateScreen
+{
+    unsafe { data.invoke_mut(update_text_field_inner, app_state_no_data, window_event) }
 }
 
-fn update_text_field<T: Layout>(data: &StackCheckedPointer<T>) -> UpdateScreen {
+fn update_text_field_inner<T: Layout>(data: &mut TextInputOutcome, app_state_no_data: AppStateNoData<T>, event: WindowEvent)
+-> UpdateScreen
+{
+    let keyboard_state = app_state_no_data.windows[event.window].get_keyboard_state();
 
-    fn update_text_field_inner(data: &mut TextInputOutcome) -> UpdateScreen {
-        println!("updating text field: {:?}", data);
+    if keyboard_state.current_virtual_keycodes.contains(&VirtualKeyCode::Back) {
         data.text.pop();
-        UpdateScreen::Redraw
+    } else {
+        let mut keys = keyboard_state.current_keys.iter().cloned().collect::<String>();
+        if keyboard_state.shift_down {
+            keys = keys.to_uppercase();
+        }
+        data.text += &keys;
     }
-
-    unsafe { data.invoke_mut(update_text_field_inner) }
+    UpdateScreen::Redraw
 }

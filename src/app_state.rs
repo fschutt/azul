@@ -44,6 +44,13 @@ pub struct AppState<T: Layout> {
     pub(crate) tasks: Vec<Task<T>>,
 }
 
+/// Same as the app state, but without the `self.data` field -
+/// used for default callbacks
+pub struct AppStateNoData<'a, T: 'a + Layout> {
+    pub windows: &'a Vec<FakeWindow<T>>,
+    pub resources : &'a mut AppResources,
+}
+
 impl<T: Layout> AppState<T> {
 
     /// Creates a new `AppState`
