@@ -39,7 +39,7 @@ impl TextInput {
 
 impl TextInputOutcome {
     /// Updates the text input, given an event
-    pub fn update(&mut self, windows: &[FakeWindow], event: &WindowEvent) {
+    pub fn update<T: Layout>(&mut self, windows: &[FakeWindow<T>], event: &WindowEvent) {
 
         let keyboard_state = windows[event.window].get_keyboard_state();
 

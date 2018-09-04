@@ -22,15 +22,18 @@ use gleam::gl::{self, Gl};
 use {
     cache::DomHash,
     FastHashMap,
-    dom::{Texture, Callback, UpdateScreen},
+    dom::{Texture, Callback, UpdateScreen, On},
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState},
-    traits::Layout,
+    traits::{Layout, DefaultCallbackFn},
     compositor::Compositor,
     app::FrameEventInfo,
     app_resources::AppResources,
     ui_solver::UiSolver,
+    default_callbacks::{DefaultCallbackSystem, DefaultCallback},
+    id_tree::NodeId,
+    app_state::AppState,
 };
 
 /// azul-internal ID for a window
@@ -45,11 +48,12 @@ impl WindowId {
 
 /// User-modifiable fake window
 #[derive(Clone)]
-pub struct FakeWindow {
+pub struct FakeWindow<T: Layout> {
     /// The CSS (use this field to override dynamic CSS ids).
     pub css: FakeCss,
     /// The window state for the next frame
     pub state: WindowState,
+    pub(crate) default_callbacks: DefaultCallbackSystem<T>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
     /// but not change any window properties from underneath - this would
@@ -57,7 +61,7 @@ pub struct FakeWindow {
     pub(crate) read_only_window: Rc<Display>,
 }
 
-impl FakeWindow {
+impl<T: Layout> FakeWindow<T> {
     /// Returns a read-only window which can be used to create / draw
     /// custom OpenGL texture during the `.layout()` phase
     pub fn get_window(&self) -> ReadOnlyWindow {
@@ -84,6 +88,27 @@ impl FakeWindow {
     /// user to be able to modify this state, only to read it
     pub fn get_mouse_state(&self) -> MouseState {
         self.state.mouse_state
+    }
+
+    pub fn push_callback<U: DefaultCallbackFn>(&mut self, callback: U, data: &T, node_id: NodeId, on: On) {
+        use std::mem;
+
+        let ptr = callback.get_callback_ptr();
+
+        // Since we had to cast away the type information for the StackCheckedPointer,
+        // we need to (unsafely) cast the function pointer back and forth between
+        //
+        // Because it's only a function pointer, they will have the same type
+        // The actual type is a fn(&mut U)
+
+        let func = DefaultCallback(unsafe { mem::transmute(callback.get_callback_fn()) });
+        self.default_callbacks.push_callback(data, node_id, on, ptr, func);
+    }
+
+    /// Invokes all callbacks for now
+    pub fn invoke_callbacks(&self, state: &mut T) {
+        println!("invoking all callbacks!");
+        self.default_callbacks.run_all_callbacks(state);
     }
 }
 
@@ -152,7 +177,7 @@ pub struct WindowInfo<'a> {
     pub resources: &'a AppResources,
 }
 
-impl fmt::Debug for FakeWindow {
+impl<T: Layout> fmt::Debug for FakeWindow<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "FakeWindow {{\

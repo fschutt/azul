@@ -148,13 +148,19 @@ impl<T: Layout> App<T> {
     /// Spawn a new window on the screen. If an application has no windows,
     /// the [`run`](#method.run) function will exit immediately.
     pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css) -> Result<(), WindowCreateError> {
+        use default_callbacks::DefaultCallbackSystem;
+
         let window = Window::new(options, css)?;
+
         self.app_state.windows.push(FakeWindow {
             state: window.state.clone(),
             css: FakeCss::default(),
+            default_callbacks: DefaultCallbackSystem::new(),
             read_only_window: window.display.clone(),
         });
+
         self.windows.push(window);
+
         Ok(())
     }
 
@@ -642,8 +648,6 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
     app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
 
-    ui_state_cache[window_id.id].call_default_callbacks(&mut app_state.data.lock().unwrap());
-
     // NOTE: for some reason hit_test_results is empty...
     // ... but only when the mouse is relased - possible timing issue?
     for (item, callback_list) in hit_test_results.items.iter().filter_map(|item|
@@ -667,6 +671,8 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
                 should_update_screen = UpdateScreen::Redraw;
             }
         };
+
+        // app_state.windows[window_id.id].call_default_callbacks(window_event);
 
         // Invoke On::MouseOver callback
         if let Some(callback_id) = callback_list.get(&On::MouseOver) {
