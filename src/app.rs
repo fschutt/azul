@@ -648,9 +648,15 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     let mut should_update_screen = UpdateScreen::DontRedraw;
 
     let callbacks_filter_list = window.state.determine_callbacks(event);
+
     // TODO: this should be refactored - currently very stateful and error-prone!
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
     app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
+
+    {
+        let mut lock = app_state.data.lock().unwrap();
+        app_state.windows[window_id.id].default_callbacks.run_all_default_callbacks(&mut *lock);
+    }
 
     // NOTE: for some reason hit_test_results is empty...
     // ... but only when the mouse is relased - possible timing issue?
@@ -675,8 +681,6 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
                 should_update_screen = UpdateScreen::Redraw;
             }
         };
-
-        // app_state.windows[window_id.id].call_default_callbacks(window_event);
 
         // Invoke On::MouseOver callback
         if let Some(callback_id) = callback_list.get(&On::MouseOver) {

@@ -105,11 +105,6 @@ impl<T: Layout> FakeWindow<T> {
         let func = DefaultCallback(callback.get_callback_fn());
         self.default_callbacks.push_callback(data, node_id, on, ptr, func);
     }
-
-    /// Invokes all callbacks for now
-    pub fn invoke_callbacks(&self, state: &mut T) {
-        self.default_callbacks.run_all_callbacks(state);
-    }
 }
 
 /// Read-only window which can be used to create / draw

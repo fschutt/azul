@@ -203,12 +203,10 @@ impl<T: Layout> DefaultCallbackSystem<T> {
 
     /// NOTE: `app_data` is required so we know that we don't
     /// accidentally alias the data in `T` (which could lead to UB).
-    pub(crate) fn run_all_callbacks(&self, _app_data: &mut T) {
+    pub(crate) fn run_all_default_callbacks(&self, _app_data: &mut T) {
         for callback_list in self.callbacks.values() {
             for (on, (callback_ptr, callback_fn)) in callback_list.iter() {
-                // The actual pointer isn't a fn(&StackCheckedPtr), but a fn(&mut U)
-                println!("calling default callback!");
-                // callback_ptr.invoke_mut()
+                (callback_fn.0)(callback_ptr);
             }
         }
     }
