@@ -35,7 +35,7 @@ pub struct AppState<T: Layout> {
     /// // Update the title
     /// app_state.windows[event.window].state.title = "Hello";
     /// ```
-    pub windows: Vec<FakeWindow>,
+    pub windows: Vec<FakeWindow<T>>,
     /// Fonts and images that are currently loaded into the app
     pub resources: AppResources,
     /// Currently running daemons (polling functions)

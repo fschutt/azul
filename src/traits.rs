@@ -37,6 +37,14 @@ pub trait Layout {
     }
 }
 
+/// Trait that can add a default callback to a type, used to "lock" the pointer
+/// type to the outcome type
+pub trait DefaultCallbackFn {
+    type Outcome;
+    fn get_callback_ptr(&self) -> &Self::Outcome;
+    fn get_callback_fn(&self) -> fn(&mut Self::Outcome);
+}
+
 pub(crate) struct ParsedCss<'a> {
     pub(crate) pure_global_rules: Vec<&'a CssRule>,
     pub(crate) pure_div_rules: Vec<&'a CssRule>,
