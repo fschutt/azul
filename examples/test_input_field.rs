@@ -10,26 +10,18 @@ struct TestCrudApp {
 impl Default for TestCrudApp {
     fn default() -> Self {
         Self {
-            text_input: TextInputOutcome {
-               text: "Hover mouse over rectangle and press keys".into(),
-            }
+            text_input: TextInputOutcome::new("Hover mouse over rectangle and press keys")
         }
     }
 }
 
 impl Layout for TestCrudApp {
     fn layout(&self, info: WindowInfo<Self>) -> Dom<Self> {
-        Dom::new(NodeType::Div)
-        .with_id("parent")
-        .with_child(
-            Dom::new(NodeType::Div)
-            .with_id("wrapper_1")
-            .with_child(
+        Dom::new(NodeType::Div).with_id("parent").with_child(
+            Dom::new(NodeType::Div).with_id("wrapper_1").with_child(
                 TextInput::new()
                 .bind(info.window, &self.text_input, &self)
-                .dom(&self.text_input)
-            )
-        )
+                .dom(&self.text_input)))
     }
 }
 

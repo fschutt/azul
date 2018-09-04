@@ -20,6 +20,14 @@ pub struct TextInputOutcome {
     pub text: String,
 }
 
+impl TextInputOutcome {
+    pub fn new<S: Into<String>>(input: S) -> Self {
+        Self {
+            text: input.into(),
+        }
+    }
+}
+
 struct TextInputCallback<'a> {
     ptr: &'a TextInputOutcome,
 }
