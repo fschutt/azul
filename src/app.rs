@@ -355,7 +355,7 @@ impl<T: Layout> App<T> {
     fn initialize_ui_state(windows: &[Window], app_state: &mut AppState<T>)
     -> Vec<UiState<T>>
     {
-        windows.iter().enumerate().map(|(idx, w)| {
+        windows.iter().enumerate().map(|(idx, _window)| {
             let window_id = WindowId { id: idx };
             UiState::from_app_state(app_state, window_id)
         }).collect()
@@ -655,36 +655,53 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     // Run all default callbacks - **before** the user-defined callbacks are run!
     // TODO: duplicated code!
     {
+        use app_state::AppStateNoData;
+
         let mut lock = app_state.data.lock().unwrap();
+
         for (item, callback_id_list) in hit_test_results.items.iter().filter_map(|item|
             ui_state_cache[window_id.id].tag_ids_to_default_callbacks // <- NOTE: tag_ids_to_default_callbacks
             .get(&item.tag.0)
             .and_then(|callback_id_list| Some((item, callback_id_list)))
         ) {
             use dom::On;
-            use default_callbacks::DefaultCallbackId;
-/*
+
             let window_event = WindowEvent {
                 window: window_id.id,
                 hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
                 cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
                 cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
             };
-*/
-            let mut invoke_callback = |callback_id: &DefaultCallbackId| {
+
+            // Invoke On::MouseOver callback - TODO: duplicated code (due to borrowing issues)!
+            if let Some(callback_id) = callback_id_list.get(&On::MouseOver) {
+
+                let app_state_no_data = AppStateNoData {
+                    windows: &app_state.windows,
+                    resources: &mut app_state.resources,
+                };
+
                 // safe unwrap, we have added the callback previously
-                if app_state.windows[window_id.id].default_callbacks.run_callback(&mut *lock, callback_id) == UpdateScreen::Redraw {
+                if app_state.windows[window_id.id].default_callbacks.run_callback(
+                    &mut *lock, callback_id, app_state_no_data, window_event
+                    ) == UpdateScreen::Redraw {
                     should_update_screen = UpdateScreen::Redraw;
                 }
-            };
-
-            // Invoke On::MouseOver callback
-            if let Some(callback_id) = callback_id_list.get(&On::MouseOver) {
-                invoke_callback(callback_id);
             }
 
             for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_id_list.get(on)) {
-                invoke_callback(callback_id);
+
+                let app_state_no_data = AppStateNoData {
+                    windows: &app_state.windows,
+                    resources: &mut app_state.resources,
+                };
+
+                // safe unwrap, we have added the callback previously
+                if app_state.windows[window_id.id].default_callbacks.run_callback(
+                    &mut *lock, callback_id, app_state_no_data, window_event
+                    ) == UpdateScreen::Redraw {
+                    should_update_screen = UpdateScreen::Redraw;
+                }
             }
         }
     } // unlock AppState mutex

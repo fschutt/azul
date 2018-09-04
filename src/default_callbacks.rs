@@ -1,5 +1,11 @@
 //! WARNING: Unsafe code ahead - calls the default methods
 
+use app_state::AppStateNoData;
+use window::WindowEvent;
+
+pub type DefaultCallbackType<T, U> = fn(&mut U, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent) -> UpdateScreen;
+pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent) -> UpdateScreen;
+
 mod stack_checked_pointer {
 
     use std::{
@@ -9,6 +15,9 @@ mod stack_checked_pointer {
     use {
         traits::Layout,
         dom::UpdateScreen,
+        default_callbacks::DefaultCallbackType,
+        app_state::AppStateNoData,
+        window::WindowEvent,
     };
 
     /// A `StackCheckedPointer` is a type-erased, non-boxed pointer to a
@@ -54,9 +63,9 @@ mod stack_checked_pointer {
         /// **NOTE**: To avoid undefined behaviour, you **must** check that
         /// the `StackCheckedPointer` isn't mutably aliased at the time of
         /// calling the callback.
-        pub unsafe fn invoke_mut<U: Sized>(&self, callback: fn(&mut U) -> UpdateScreen) -> UpdateScreen {
+        pub unsafe fn invoke_mut<U: Sized>(&self, callback: DefaultCallbackType<T, U>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent) -> UpdateScreen {
             // VERY UNSAFE, TRIPLE-CHECK FOR UNDEFINED BEHAVIOUR
-            callback(&mut *(self.internal as *mut U))
+            callback(&mut *(self.internal as *mut U), app_state_no_data, window_event)
         }
     }
 
@@ -148,7 +157,7 @@ pub(crate) fn get_new_unique_default_callback_id() -> DefaultCallbackId {
     DefaultCallbackId(LAST_DEFAULT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst))
 }
 
-pub struct DefaultCallback<T: Layout>(pub fn(&StackCheckedPointer<T>) -> UpdateScreen);
+pub struct DefaultCallback<T: Layout>(pub DefaultCallbackTypeUnchecked<T>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for DefaultCallback<T>
 
@@ -221,10 +230,17 @@ impl<T: Layout> DefaultCallbackSystem<T> {
     /// accidentally alias the data in `self.internal` (which could lead to UB).
     ///
     /// What we know is that the pointer (`self.internal`) points to somewhere
-    /// in `T`, so
-    pub(crate) fn run_callback(&self, _app_data: &mut T, callback_id: &DefaultCallbackId) -> UpdateScreen {
+    /// in `T`, so we know that `self.internal` isn't aliased
+    pub(crate) fn run_callback(
+        &self,
+        _app_data: &mut T,
+        callback_id: &DefaultCallbackId,
+        app_state_no_data: AppStateNoData<T>,
+        window_event: WindowEvent)
+    -> UpdateScreen
+    {
         if let Some((callback_ptr, callback_fn)) = self.callbacks.get(callback_id) {
-            (callback_fn.0)(callback_ptr)
+            (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
         } else {
             warn!("Calling default callback with invalid ID {:?}", callback_id);
             UpdateScreen::DontRedraw
