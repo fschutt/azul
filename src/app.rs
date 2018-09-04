@@ -18,7 +18,7 @@ use log::LevelFilter;
 use {
     images::ImageType,
     errors::{FontError, ClipboardError},
-    window::{Window, WindowCreateOptions, ReadOnlyWindow, WindowCreateError, WindowId},
+    window::{Window, WindowCreateOptions, WindowCreateError, WindowId},
     css_parser::{FontId, PixelValue},
     text_cache::TextId,
     dom::UpdateScreen,
@@ -196,7 +196,6 @@ impl<T: Layout> App<T> {
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
 
         use std::{thread, time::{Duration, Instant}};
-        use window::ReadOnlyWindow;
 
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &mut self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
@@ -286,14 +285,15 @@ impl<T: Layout> App<T> {
                     let window_id = WindowId { id: idx };
 
                     render(
-                        arc_mutext_t_clone, 
-                        window, 
-                        window_id, 
-                        &mut self.app_state.windows[idx], 
-                        &ui_description_cache[idx], 
-                        &mut self.app_state.resources, 
+                        arc_mutext_t_clone,
+                        window,
+                        window_id,
+                        &mut self.app_state.windows[idx],
+                        &ui_description_cache[idx],
+                        &ui_state_cache[idx],
+                        &mut self.app_state.resources,
                         true);
-                    
+
                     awakened_task[idx] = false;
                 }
             }
@@ -355,8 +355,6 @@ impl<T: Layout> App<T> {
     fn initialize_ui_state(windows: &[Window], app_state: &mut AppState<T>)
     -> Vec<UiState<T>>
     {
-        use window::ReadOnlyWindow;
-
         windows.iter().enumerate().map(|(idx, w)| {
             let window_id = WindowId { id: idx };
             UiState::from_app_state(app_state, window_id)
@@ -653,30 +651,60 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
     app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
 
+
+    // Run all default callbacks - **before** the user-defined callbacks are run!
+    // TODO: duplicated code!
     {
         let mut lock = app_state.data.lock().unwrap();
-        app_state.windows[window_id.id].default_callbacks.run_all_default_callbacks(&mut *lock);
-    }
+        for (item, callback_id_list) in hit_test_results.items.iter().filter_map(|item|
+            ui_state_cache[window_id.id].tag_ids_to_default_callbacks // <- NOTE: tag_ids_to_default_callbacks
+            .get(&item.tag.0)
+            .and_then(|callback_id_list| Some((item, callback_id_list)))
+        ) {
+            use dom::On;
+            use default_callbacks::DefaultCallbackId;
+/*
+            let window_event = WindowEvent {
+                window: window_id.id,
+                hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
+                cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
+                cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
+            };
+*/
+            let mut invoke_callback = |callback_id: &DefaultCallbackId| {
+                // safe unwrap, we have added the callback previously
+                if app_state.windows[window_id.id].default_callbacks.run_callback(&mut *lock, callback_id) == UpdateScreen::Redraw {
+                    should_update_screen = UpdateScreen::Redraw;
+                }
+            };
 
-    // NOTE: for some reason hit_test_results is empty...
-    // ... but only when the mouse is relased - possible timing issue?
+            // Invoke On::MouseOver callback
+            if let Some(callback_id) = callback_id_list.get(&On::MouseOver) {
+                invoke_callback(callback_id);
+            }
+
+            for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_id_list.get(on)) {
+                invoke_callback(callback_id);
+            }
+        }
+    } // unlock AppState mutex
+
+    // For all hit items, lookup the callback and call it
     for (item, callback_list) in hit_test_results.items.iter().filter_map(|item|
-        ui_state_cache[window_id.id].node_ids_to_callbacks_list
+        ui_state_cache[window_id.id].tag_ids_to_callbacks
         .get(&item.tag.0)
         .and_then(|callback_list| Some((item, callback_list)))
     ) {
         use dom::On;
 
-        // TODO: currently we don't have information about what DOM node was hit
         let window_event = WindowEvent {
             window: window_id.id,
-            number_of_previous_siblings: None,
+            hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
             cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
             cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
         };
 
-        let mut invoke_callback = |callback_id| {
-            let Callback(callback_func) = ui_state_cache[window_id.id].callback_list[callback_id];
+        let mut invoke_callback = |&Callback(callback_func)| {
             if (callback_func)(app_state, window_event) == UpdateScreen::Redraw {
                 should_update_screen = UpdateScreen::Redraw;
             }
@@ -687,7 +715,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
             invoke_callback(callback_id);
         }
 
-        // Invoke callback if necessary
+        // Invoke user-defined callback if necessary
         for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_list.get(on)) {
             invoke_callback(callback_id);
         }
@@ -714,6 +742,7 @@ fn render<T: Layout>(
     window_id: WindowId,
     fake_window: &mut FakeWindow<T>,
     ui_description: &UiDescription<T>,
+    ui_state: &UiState<T>,
     app_resources: &mut AppResources,
     has_window_size_changed: bool)
 {
@@ -722,7 +751,7 @@ fn render<T: Layout>(
     use euclid::TypedSize2D;
     use std::u32;
 
-    let display_list = DisplayList::new_from_ui_description(ui_description);
+    let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
     let builder = display_list.into_display_list_builder(
         app_data,
         window.internal.pipeline_id,

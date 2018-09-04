@@ -22,7 +22,7 @@ use gleam::gl::{self, Gl};
 use {
     cache::DomHash,
     FastHashMap,
-    dom::{Texture, Callback, UpdateScreen, On},
+    dom::{Texture, Callback, UpdateScreen},
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState},
@@ -31,9 +31,8 @@ use {
     app::FrameEventInfo,
     app_resources::AppResources,
     ui_solver::UiSolver,
-    default_callbacks::{DefaultCallbackSystem, DefaultCallback},
     id_tree::NodeId,
-    app_state::AppState,
+    default_callbacks::{DefaultCallbackSystem, DefaultCallbackId},
 };
 
 /// azul-internal ID for a window
@@ -91,19 +90,17 @@ impl<T: Layout> FakeWindow<T> {
         self.state.mouse_state
     }
 
-    pub fn push_callback<U: DefaultCallbackFn>(&mut self, callback: U, data: &T, node_id: NodeId, on: On) {
-        use std::mem;
-
-        let ptr = callback.get_callback_ptr();
-
-        // Since we had to cast away the type information for the StackCheckedPointer,
-        // we need to (unsafely) cast the function pointer back and forth between
-        //
-        // Because it's only a function pointer, they will have the same type
-        // The actual type is a fn(&mut U)
-
-        let func = DefaultCallback(callback.get_callback_fn());
-        self.default_callbacks.push_callback(data, node_id, on, ptr, func);
+    /// Adds a default callback to the window. The default callbacks are
+    /// cleared after every frame, so two-way data binding widgets have to call this
+    /// on every frame they want to insert a default callback.
+    ///
+    /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
+    #[must_use]
+    pub fn push_callback<U: DefaultCallbackFn>(&mut self, callback: U, data: &T) -> DefaultCallbackId {
+        use default_callbacks::get_new_unique_default_callback_id;
+        let default_callback_id = get_new_unique_default_callback_id();
+        self.default_callbacks.push_callback(data, default_callback_id, callback.get_callback_ptr(), callback.get_callback_fn());
+        default_callback_id
     }
 }
 
@@ -189,12 +186,9 @@ pub struct WindowEvent {
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window: usize,
-    /// The nth child of the parent DOM node will generate a value of `Some(n)`
-    /// when it is hit - i.e. if an element is hit, this number is set to
-    ///
-    /// Is set to `None` if the hit element is the root of the window
-    /// (since the root node obviously has no parent).
-    pub number_of_previous_siblings: Option<usize>,
+    /// The ID of the node that was hit. You can use this to query information about
+    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
+    pub hit_dom_node: NodeId,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: (f32, f32),
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -206,7 +200,7 @@ impl WindowEvent {
     pub fn mock() -> Self {
         Self {
             window: 0,
-            number_of_previous_siblings: None,
+            hit_dom_node: NodeId::new(0),
             cursor_relative_to_item: (0.0, 0.0),
             cursor_in_viewport: (0.0, 0.0),
         }

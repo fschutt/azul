@@ -2,17 +2,15 @@
 
 use {
     traits::{Layout, DefaultCallbackFn},
-    dom::{Dom, On, NodeType},
-    window::{FakeWindow, WindowInfo, WindowEvent},
+    dom::{Dom, On, NodeType, UpdateScreen},
+    window::{FakeWindow, WindowEvent},
     prelude::{VirtualKeyCode},
-    default_callbacks::StackCheckedPointer,
-    /*TODO: Replace this with the node hash*/
-    id_tree::NodeId,
+    default_callbacks::{StackCheckedPointer, DefaultCallback, DefaultCallbackId},
 };
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct TextInput {
-
+    default_callback_id: Option<DefaultCallbackId>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -34,39 +32,40 @@ struct TextInputCallback<'a> {
 
 impl<'a> DefaultCallbackFn for TextInputCallback<'a> {
     type Outcome = TextInputOutcome;
-    
-    fn get_callback_ptr(&self) -> &Self::Outcome { 
-        self.ptr 
+
+    fn get_callback_ptr(&self) -> &Self::Outcome {
+        self.ptr
     }
 
-    fn get_callback_fn<U: Layout>(&self) -> fn(&StackCheckedPointer<U>) {
-        update_text_field
+    fn get_callback_fn<U: Layout>(&self) -> DefaultCallback<U> {
+        DefaultCallback(update_text_field)
     }
 }
 
 impl TextInput {
 
     pub fn new() -> Self {
-        TextInput { }
+        TextInput { default_callback_id: None }
     }
 
     pub fn bind<T: Layout>(self, window: &mut FakeWindow<T>, field: &TextInputOutcome, data: &T) -> Self {
+        let default_callback_id = window.push_callback(TextInputCallback { ptr: field }, data);
 
-        window.push_callback(
-            TextInputCallback { ptr: field }, 
-            data,
-            NodeId::new(0), /* TODO: replace with node hash */
-            On::MouseOver);
-
-        self
+        Self {
+            default_callback_id: Some(default_callback_id),
+            .. self
+        }
     }
 
     pub fn dom<T: Layout>(&self, field: &TextInputOutcome) -> Dom<T> {
-        Dom::new(NodeType::Div)
-        .with_id("input_field")
-        .with_child(
-            Dom::new(NodeType::Label(field.text.clone()))
-            .with_id("label"))
+
+        let mut parent_div = Dom::new(NodeType::Div).with_id("input_field");
+
+        if let Some(default_callback_id) = self.default_callback_id {
+            parent_div.push_default_callback_id(On::MouseOver, default_callback_id);
+        }
+
+        parent_div.with_child(Dom::new(NodeType::Label(field.text.clone())).with_id("label"))
     }
 }
 
@@ -89,22 +88,13 @@ impl TextInputOutcome {
     }
 }
 
-fn update_text_field<T: Layout>(data: &StackCheckedPointer<T>) {
-    
-    fn update_text_field_inner(data: &mut TextInputOutcome) {
+fn update_text_field<T: Layout>(data: &StackCheckedPointer<T>) -> UpdateScreen {
+
+    fn update_text_field_inner(data: &mut TextInputOutcome) -> UpdateScreen {
         println!("updating text field: {:?}", data);
         data.text.pop();
+        UpdateScreen::Redraw
     }
 
-    unsafe { data.invoke_mut(update_text_field_inner) };
+    unsafe { data.invoke_mut(update_text_field_inner) }
 }
-
-/*
-
-.with_callback(On::KeyDown, Callback(update_text_field))
-
-fn update_text_field(app_state: &mut AppState<TestCrudApp>, event: WindowEvent) -> UpdateScreen {
-    app_state.data.modify(|state| state.text_input.update(&app_state.windows, &event));
-    UpdateScreen::Redraw
-}
-*/

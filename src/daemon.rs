@@ -16,7 +16,7 @@ pub enum TerminateDaemon {
     Continue,
 }
 
-const MAX_DAEMON_ID: AtomicUsize = AtomicUsize::new(0);
+static MAX_DAEMON_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub fn new_daemon_id() -> DaemonId {
     DaemonId(MAX_DAEMON_ID.fetch_add(1, Ordering::SeqCst))
