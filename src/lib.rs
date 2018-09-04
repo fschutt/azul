@@ -86,6 +86,8 @@ pub mod widgets;
 pub mod window;
 /// Font handling
 pub mod font;
+/// Handles default callbacks (such as an automatic text field update) via unsafe code
+pub mod default_callbacks;
 /// Global application (Initialization starts here)
 mod app;
 /// Wrapper for the application data & application state
@@ -94,8 +96,6 @@ mod app_state;
 mod css;
 /// Font & image resource handling, lookup and caching
 mod app_resources;
-/// Handles default callbacks (such as an automatic text field update) via unsafe code
-mod default_callbacks;
 /// UI Description & display list handling (webrender)
 mod ui_description;
 /// Converts the UI description (the styled HTML nodes)

@@ -2,9 +2,14 @@
 
 mod stack_checked_pointer {
 
-    use std::marker::PhantomData;
-    use traits::Layout;
-    use std::fmt;
+    use std::{
+        fmt,
+        marker::PhantomData,
+    };
+    use {
+        traits::Layout,
+        dom::UpdateScreen,
+    };
 
     /// A `StackCheckedPointer` is a type-erased, non-boxed pointer to a
     /// value **inside** of `T`, i.e. contained within `&T as usize` and
@@ -49,7 +54,7 @@ mod stack_checked_pointer {
         /// **NOTE**: To avoid undefined behaviour, you **must** check that
         /// the `StackCheckedPointer` isn't mutably aliased at the time of
         /// calling the callback.
-        pub unsafe fn invoke_mut<U: Sized>(&self, callback: fn(&mut U)) {
+        pub unsafe fn invoke_mut<U: Sized>(&self, callback: fn(&mut U) -> UpdateScreen) -> UpdateScreen {
             // VERY UNSAFE, TRIPLE-CHECK FOR UNDEFINED BEHAVIOUR
             callback(&mut *(self.internal as *mut U))
         }
@@ -108,22 +113,42 @@ mod stack_checked_pointer {
             st <= t && st - size_of::<U>() >= t - size_of::<T>()
         }
     }
+
+    #[test]
+    fn test_reflection_subtyping() {
+
+        struct Data { i: usize, p: Vec<usize> }
+        let data = Data { i: 5, p: vec![5] };
+
+        assert_eq!(is_subtype_of(&data, &data.i), true);
+        assert_eq!(is_subtype_of(&data, &data.p), true);
+        assert_eq!(is_subtype_of(&data, &data.p[0]), false);
+    }
 }
 
 
 pub use self::stack_checked_pointer::StackCheckedPointer;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fmt,
     hash::{Hash, Hasher},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use {
-    dom::On,
-    id_tree::NodeId,
+    dom::{UpdateScreen},
     traits::Layout,
 };
 
-pub struct DefaultCallback<T: Layout>(pub fn(&StackCheckedPointer<T>));
+static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct DefaultCallbackId(usize);
+
+pub(crate) fn get_new_unique_default_callback_id() -> DefaultCallbackId {
+    DefaultCallbackId(LAST_DEFAULT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst))
+}
+
+pub struct DefaultCallback<T: Layout>(pub fn(&StackCheckedPointer<T>) -> UpdateScreen);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for DefaultCallback<T>
 
@@ -156,7 +181,7 @@ impl<T: Layout> Eq for DefaultCallback<T> { }
 impl<T: Layout> Copy for DefaultCallback<T> { }
 
 pub(crate) struct DefaultCallbackSystem<T: Layout> {
-    callbacks: BTreeMap<NodeId, HashMap<On, (StackCheckedPointer<T>, DefaultCallback<T>)>>,
+    callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
 }
 
 impl<T: Layout> DefaultCallbackSystem<T> {
@@ -171,17 +196,14 @@ impl<T: Layout> DefaultCallbackSystem<T> {
     pub fn push_callback<U>(
         &mut self,
         app_data: &T,
-        node_id: NodeId,
-        on: On,
+        callback_id: DefaultCallbackId,
         ptr: &U,
         func: DefaultCallback<T>)
     {
-        use std::collections::hash_map::Entry::*;
-
         let stack_checked_pointer = match StackCheckedPointer::new(app_data, ptr) {
             Some(s) => s,
             None => panic!(
-                "Default callback for function {:?} ({:?} - {:?}) constructed with \
+                "Default callback for function {:?} constructed with \
                 non-stack pointer at 0x{:x}. This is a potential security risk \
                 and it is unsafe to continue execution. \n\
                 \n\
@@ -189,25 +211,23 @@ impl<T: Layout> DefaultCallbackSystem<T> {
                 you can only create function that take pointers to the data of T, you \
                 can't use reference to heap-allocated data, since the lifetimes \
                 of these references can't be controlled by the framework.",
-                func, node_id, on, ptr as *const _ as usize),
+                func, ptr as *const _ as usize),
         };
 
-        match self.callbacks.entry(node_id).or_insert_with(|| HashMap::new()).entry(on) {
-            Occupied(mut o) => {
-                warn!("Overwriting {:?} for DOM node {:?}", on, node_id);
-                o.insert((stack_checked_pointer, func));
-            },
-            Vacant(v) => { v.insert((stack_checked_pointer, func)); },
-        }
+        self.callbacks.insert(callback_id, (stack_checked_pointer, func));
     }
 
     /// NOTE: `app_data` is required so we know that we don't
-    /// accidentally alias the data in `T` (which could lead to UB).
-    pub(crate) fn run_all_default_callbacks(&self, _app_data: &mut T) {
-        for callback_list in self.callbacks.values() {
-            for (on, (callback_ptr, callback_fn)) in callback_list.iter() {
-                (callback_fn.0)(callback_ptr);
-            }
+    /// accidentally alias the data in `self.internal` (which could lead to UB).
+    ///
+    /// What we know is that the pointer (`self.internal`) points to somewhere
+    /// in `T`, so
+    pub(crate) fn run_callback(&self, _app_data: &mut T, callback_id: &DefaultCallbackId) -> UpdateScreen {
+        if let Some((callback_ptr, callback_fn)) = self.callbacks.get(callback_id) {
+            (callback_fn.0)(callback_ptr)
+        } else {
+            warn!("Calling default callback with invalid ID {:?}", callback_id);
+            UpdateScreen::DontRedraw
         }
     }
 

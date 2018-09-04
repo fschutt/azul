@@ -10,7 +10,7 @@ use {
     css::{Css, CssRule},
     id_tree::{NodeId, Arena},
     css_parser::{ParsedCssProperty, CssParsingError},
-    default_callbacks::StackCheckedPointer,
+    default_callbacks::DefaultCallback,
 };
 #[cfg(not(test))]
 use window::WindowInfo;
@@ -46,7 +46,7 @@ pub trait DefaultCallbackFn {
     // TODO: In the ideal case, this should be:
     // because it isn't guaranteed that the callback fn acts on the same type
     // fn get_callback_fn(&self) -> fn(&mut Self::Outcome);
-    fn get_callback_fn<T: Layout>(&self) -> fn(&StackCheckedPointer<T>);
+    fn get_callback_fn<T: Layout>(&self) -> DefaultCallback<T>;
 }
 
 pub(crate) struct ParsedCss<'a> {

@@ -15,11 +15,10 @@ use {
     traits::Layout,
     app_state::AppState,
     id_tree::{NodeId, Node, Arena},
+    default_callbacks::DefaultCallbackId,
 };
 
-/// This is only accessed from the main thread, so it's safe to use
-pub(crate) static NODE_ID: AtomicUsize = AtomicUsize::new(0);
-pub(crate) static CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
+static TAG_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// A callback function has to return if the screen should
 /// be updated after the function has run.PartialEq
@@ -300,8 +299,12 @@ pub struct NodeData<T: Layout> {
     pub classes: Vec<String>,
     /// `onclick` -> `my_button_click_handler`
     pub events: CallbackList<T>,
-    /// Tag for hit-testing
-    pub tag: Option<u64>,
+    /// Usually not set by the user directly - `FakeWindow::push_default_callback`
+    /// returns a callback ID, so that we know which default callback(s) are attached
+    /// to this node.
+    ///
+    /// This is only important if this node has any default callbacks.
+    pub default_callback_ids: BTreeMap<On, DefaultCallbackId>,
 }
 
 impl<T: Layout> PartialEq for NodeData<T> {
@@ -310,7 +313,7 @@ impl<T: Layout> PartialEq for NodeData<T> {
         self.id == other.id &&
         self.classes == other.classes &&
         self.events == other.events &&
-        self.tag == other.tag
+        self.default_callback_ids == other.default_callback_ids
     }
 }
 
@@ -323,7 +326,7 @@ impl<T: Layout> Default for NodeData<T> {
             id: None,
             classes: Vec::new(),
             events: CallbackList::default(),
-            tag: None,
+            default_callback_ids: BTreeMap::new(),
         }
     }
 }
@@ -334,6 +337,9 @@ impl<T: Layout> Hash for NodeData<T> {
         self.id.hash(state);
         for class in &self.classes {
             class.hash(state);
+        }
+        for default_callback_id in &self.default_callback_ids {
+            default_callback_id.hash(state);
         }
         self.events.hash(state);
     }
@@ -356,7 +362,7 @@ impl<T: Layout> Clone for NodeData<T> {
             id: self.id.clone(),
             classes: self.classes.clone(),
             events: self.events.special_clone(),
-            tag: self.tag.clone(),
+            default_callback_ids: self.default_callback_ids.clone(),
         }
     }
 }
@@ -369,13 +375,13 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tid: {:?}, \
                 \tclasses: {:?}, \
                 \tevents: {:?}, \
-                \ttag: {:?} \
+                \tdefault_callback_ids: {:?}, \
             }}",
         self.node_type,
         self.id,
         self.classes,
         self.events,
-        self.tag)
+        self.default_callback_ids)
     }
 }
 
@@ -406,7 +412,7 @@ impl<T: Layout> NodeData<T> {
             id: None,
             classes: Vec::new(),
             events: CallbackList::<T>::new(),
-            tag: None,
+            default_callback_ids: BTreeMap::new(),
         }
     }
 
@@ -418,7 +424,7 @@ impl<T: Layout> NodeData<T> {
             id: self.id.clone(),
             classes: self.classes.clone(),
             events: self.events.special_clone(),
-            tag: self.tag.clone(),
+            default_callback_ids: self.default_callback_ids.clone(),
         }
     }
 }
@@ -708,14 +714,14 @@ impl<T: Layout> Dom<T> {
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_class<S: Into<String>>(mut self, class: S) -> Self {
-        self.set_class(class);
+        self.push_class(class);
         self
     }
 
     /// Same as `event`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_callback(mut self, on: On, callback: Callback<T>) -> Self {
-        self.set_callback(on, callback);
+        self.push_callback(on, callback);
         self
     }
 
@@ -737,36 +743,61 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn set_class<S: Into<String>>(&mut self, class: S) {
+    pub fn push_class<S: Into<String>>(&mut self, class: S) {
         self.arena.borrow_mut()[self.head].data.classes.push(class.into());
     }
 
     #[inline]
-    pub fn set_callback(&mut self, on: On, callback: Callback<T>) {
+    pub fn push_callback(&mut self, on: On, callback: Callback<T>) {
         self.arena.borrow_mut()[self.head].data.events.callbacks.insert(on, callback);
-        self.arena.borrow_mut()[self.head].data.tag = Some(NODE_ID.fetch_add(1, Ordering::SeqCst) as u64);
     }
+
+    #[inline]
+    pub fn push_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
+        self.arena.borrow_mut()[self.head].data.default_callback_ids.insert(on, id);
+    }
+}
+
+pub type TagId = u64;
+
+fn new_tag_id() -> TagId {
+    TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
 }
 
 impl<T: Layout> Dom<T> {
 
     pub(crate) fn collect_callbacks(
         &self,
-        callback_list: &mut BTreeMap<u64, Callback<T>>,
-        nodes_to_callback_id_list: &mut  BTreeMap<u64, BTreeMap<On, u64>>)
+        tag_ids_to_callback_list: &mut BTreeMap<TagId, BTreeMap<On, Callback<T>>>,
+        tag_ids_to_default_callback_list: &mut BTreeMap<TagId, BTreeMap<On, DefaultCallbackId>>,
+        node_ids_to_tag_ids: &mut BTreeMap<NodeId, TagId>,
+        tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>)
     {
         for item in self.root.traverse(&*self.arena.borrow()) {
-            let mut cb_id_list = BTreeMap::<On, u64>::new();
-            let item = &self.arena.borrow()[item.inner_value()];
-            for (on, callback) in item.data.events.callbacks.iter() {
-                let callback_id = CALLBACK_ID.fetch_add(1, Ordering::SeqCst) as u64;
-                callback_list.insert(callback_id, *callback);
-                cb_id_list.insert(*on, callback_id);
+            let node_id = item.inner_value();
+            let item = &self.arena.borrow()[node_id];
+
+            let mut node_tag_id = None;
+
+            if !item.data.events.callbacks.is_empty() {
+                let tag_id = new_tag_id();
+                tag_ids_to_callback_list.insert(tag_id, item.data.events.callbacks.clone());
+                node_tag_id = Some(tag_id);
             }
-            if let Some(tag) = item.data.tag {
-                nodes_to_callback_id_list.insert(tag, cb_id_list);
+
+            if !item.data.default_callback_ids.is_empty() {
+                let tag_id = node_tag_id.unwrap_or(new_tag_id());
+                tag_ids_to_default_callback_list.insert(tag_id, item.data.default_callback_ids.clone());
+                node_tag_id = Some(tag_id);
+            }
+
+            if let Some(tag_id) = node_tag_id {
+                tag_ids_to_node_ids.insert(tag_id, node_id);
+                node_ids_to_tag_ids.insert(node_id, tag_id);
             }
         }
+
+        TAG_ID.swap(0, Ordering::SeqCst);
     }
 }
 
@@ -854,7 +885,7 @@ fn test_dom_from_iter_1() {
             node_type: NodeType::Label(String::from("5")),
             id: None,
             classes: Vec::new(),
-            tag: None,
+            default_callback_ids: Vec::new(),
             events: CallbackList::default(),
         }
     }));

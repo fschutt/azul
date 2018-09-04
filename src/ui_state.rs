@@ -3,16 +3,21 @@ use std::{
     collections::BTreeMap,
 };
 use {
-    window::{WindowInfo, ReadOnlyWindow, WindowId},
+    window::{WindowInfo, WindowId},
     traits::Layout,
-    dom::{NODE_ID, CALLBACK_ID, Callback, Dom, On},
+    dom::{Callback, Dom, On},
     app_state::AppState,
+    id_tree::NodeId,
+    dom::TagId,
+    default_callbacks::DefaultCallbackId,
 };
 
 pub struct UiState<T: Layout> {
     pub dom: Dom<T>,
-    pub callback_list: BTreeMap<u64, Callback<T>>,
-    pub node_ids_to_callbacks_list: BTreeMap<u64, BTreeMap<On, u64>>,
+    pub tag_ids_to_callbacks: BTreeMap<TagId, BTreeMap<On, Callback<T>>>,
+    pub tag_ids_to_default_callbacks: BTreeMap<TagId, BTreeMap<On, DefaultCallbackId>>,
+    pub node_ids_to_tag_ids: BTreeMap<NodeId, TagId>,
+    pub tag_ids_to_node_ids: BTreeMap<TagId, NodeId>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {
@@ -20,12 +25,16 @@ impl<T: Layout> fmt::Debug for UiState<T> {
         write!(f,
             "UiState {{ \
                 \tdom: {:?}, \
-                \tcallback_list: {:?}, \
-                \tnode_ids_to_callbacks_list: {:?} \
+                \ttag_ids_to_callbacks: {:?}, \
+                \ttag_ids_to_default_callbacks: {:?}, \
+                \tnode_ids_to_tag_ids: {:?} \
+                \ttag_ids_to_node_ids: {:?} \
             }}",
         self.dom,
-        self.callback_list,
-        self.node_ids_to_callbacks_list)
+        self.tag_ids_to_callbacks,
+        self.tag_ids_to_default_callbacks,
+        self.node_ids_to_tag_ids,
+        self.tag_ids_to_node_ids)
     }
 }
 
@@ -55,20 +64,29 @@ impl<T: Layout> UiState<T> {
         };
 
         // Tree should have a single root element
-        let mut parent_dom = Dom::with_capacity(NodeType::Div, dom.len());
-        parent_dom.add_child(dom);
+        let dom = {
+            let mut parent_dom = Dom::with_capacity(NodeType::Div, dom.len());
+            parent_dom.add_child(dom);
+            parent_dom
+        };
 
-        NODE_ID.swap(0, Ordering::SeqCst);
-        CALLBACK_ID.swap(0, Ordering::SeqCst);
+        let mut tag_ids_to_callbacks = BTreeMap::new();
+        let mut tag_ids_to_default_callbacks = BTreeMap::new();
+        let mut node_ids_to_tag_ids = BTreeMap::new();
+        let mut tag_ids_to_node_ids = BTreeMap::new();
 
-        let mut callback_list = BTreeMap::<u64, Callback<T>>::new();
-        let mut node_ids_to_callbacks_list = BTreeMap::<u64, BTreeMap<On, u64>>::new();
-        parent_dom.collect_callbacks(&mut callback_list, &mut node_ids_to_callbacks_list);
+        dom.collect_callbacks(
+            &mut tag_ids_to_callbacks,
+            &mut tag_ids_to_default_callbacks,
+            &mut node_ids_to_tag_ids,
+            &mut tag_ids_to_node_ids);
 
         UiState {
-            dom: parent_dom,
-            callback_list,
-            node_ids_to_callbacks_list: node_ids_to_callbacks_list,
+            dom,
+            tag_ids_to_callbacks,
+            tag_ids_to_default_callbacks,
+            node_ids_to_tag_ids,
+            tag_ids_to_node_ids,
         }
     }
 }

@@ -9,6 +9,7 @@ use {
     FastHashMap,
     app_resources::AppResources,
     traits::Layout,
+    ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     ui_solver::UiSolver,
     window_state::WindowSize,
@@ -98,12 +99,13 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     ///
     /// This only looks at the user-facing styles of the `UiDescription`, not the actual
     /// layout. The layout is done only in the `into_display_list_builder` step.
-    pub fn new_from_ui_description(ui_description: &'a UiDescription<T>) -> Self {
+    pub fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
 
         let arena = ui_description.ui_descr_arena.borrow();
         let display_rect_arena = arena.transform(|node, node_id| {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
-            let mut rect = DisplayRectangle::new(node.tag, style);
+            let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
+            let mut rect = DisplayRectangle::new(tag, style);
             populate_css_properties(&mut rect, &ui_description.dynamic_css_overrides);
             rect
         });
