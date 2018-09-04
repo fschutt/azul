@@ -62,9 +62,10 @@ pub struct FakeWindow<T: Layout> {
 }
 
 impl<T: Layout> FakeWindow<T> {
+
     /// Returns a read-only window which can be used to create / draw
     /// custom OpenGL texture during the `.layout()` phase
-    pub fn get_window(&self) -> ReadOnlyWindow {
+    pub fn read_only_window(&self) -> ReadOnlyWindow {
         ReadOnlyWindow {
             inner: self.read_only_window.clone()
         }
@@ -101,13 +102,12 @@ impl<T: Layout> FakeWindow<T> {
         // Because it's only a function pointer, they will have the same type
         // The actual type is a fn(&mut U)
 
-        let func = DefaultCallback(unsafe { mem::transmute(callback.get_callback_fn()) });
+        let func = DefaultCallback(callback.get_callback_fn());
         self.default_callbacks.push_callback(data, node_id, on, ptr, func);
     }
 
     /// Invokes all callbacks for now
     pub fn invoke_callbacks(&self, state: &mut T) {
-        println!("invoking all callbacks!");
         self.default_callbacks.run_all_callbacks(state);
     }
 }
@@ -171,9 +171,9 @@ impl Drop for ReadOnlyWindow {
     }
 }
 
-pub struct WindowInfo<'a> {
+pub struct WindowInfo<'a, 'b, T: 'b + Layout> {
     pub window_id: WindowId,
-    pub window: ReadOnlyWindow,
+    pub window: &'b mut FakeWindow<T>,
     pub resources: &'a AppResources,
 }
 

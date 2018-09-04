@@ -9,7 +9,7 @@ const TEST_IMAGE: &[u8] = include_bytes!("../assets/images/cat_image.jpg");
 struct MyDataModel;
 
 impl Layout for MyDataModel {
-    fn layout(&self, info: WindowInfo) -> Dom<Self> {
+    fn layout(&self, info: WindowInfo<Self>) -> Dom<Self> {
         Dom::new(NodeType::Div).with_id("wrapper")
             .with_child(Dom::new(NodeType::Label(format!("Hello123"))).with_id("red"))
             .with_child(Dom::new(NodeType::Div).with_id("sub-wrapper")

@@ -18,7 +18,7 @@ impl Default for TestCrudApp {
 }
 
 impl Layout for TestCrudApp {
-    fn layout(&self, _: WindowInfo) -> Dom<Self> {
+    fn layout(&self, info: WindowInfo<Self>) -> Dom<Self> {
         Dom::new(NodeType::Div)
         .with_id("parent")
         .with_child(
@@ -26,18 +26,11 @@ impl Layout for TestCrudApp {
             .with_id("wrapper_1")
             .with_child(
                 TextInput::new()
-                .bind(&self.text_input)
+                .bind(info.window, &self.text_input, &self)
                 .dom(&self.text_input)
-                .with_callback(On::KeyDown, Callback(update_text_field))
             )
         )
     }
-}
-
-fn update_text_field(app_state: &mut AppState<TestCrudApp>, event: WindowEvent) -> UpdateScreen {
-    println!("update text field!");
-    app_state.data.modify(|state| state.text_input.update(&app_state.windows, &event));
-    UpdateScreen::Redraw
 }
 
 fn main() {

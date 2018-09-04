@@ -49,9 +49,9 @@ mod stack_checked_pointer {
         /// **NOTE**: To avoid undefined behaviour, you **must** check that
         /// the `StackCheckedPointer` isn't mutably aliased at the time of
         /// calling the callback.
-        pub fn invoke_mut<U: Sized>(&self, callback: fn(&mut U)) {
+        pub unsafe fn invoke_mut<U: Sized>(&self, callback: fn(&mut U)) {
             // VERY UNSAFE, TRIPLE-CHECK FOR UNDEFINED BEHAVIOUR
-            callback(unsafe { &mut *(self.internal as *mut U) })
+            callback(&mut *(self.internal as *mut U))
         }
     }
 
@@ -73,7 +73,8 @@ mod stack_checked_pointer {
     ///
     /// i.e:
     ///
-    /// ```
+    /// ```ignore
+    /// # struct Data { i: usize, p: Vec<usize> }
     /// let data = Data { i: 5, p: vec![5] };
     ///
     /// // true because i is inside of data
@@ -110,7 +111,7 @@ mod stack_checked_pointer {
 }
 
 
-use self::stack_checked_pointer::StackCheckedPointer;
+pub use self::stack_checked_pointer::StackCheckedPointer;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
@@ -154,7 +155,7 @@ impl<T: Layout> Eq for DefaultCallback<T> { }
 
 impl<T: Layout> Copy for DefaultCallback<T> { }
 
-pub struct DefaultCallbackSystem<T: Layout> {
+pub(crate) struct DefaultCallbackSystem<T: Layout> {
     callbacks: BTreeMap<NodeId, HashMap<On, (StackCheckedPointer<T>, DefaultCallback<T>)>>,
 }
 
@@ -202,7 +203,7 @@ impl<T: Layout> DefaultCallbackSystem<T> {
 
     /// NOTE: `app_data` is required so we know that we don't
     /// accidentally alias the data in `T` (which could lead to UB).
-    pub fn run_all_callbacks(&self, _app_data: &mut T) {
+    pub(crate) fn run_all_callbacks(&self, _app_data: &mut T) {
         for callback_list in self.callbacks.values() {
             for (on, (callback_ptr, callback_fn)) in callback_list.iter() {
                 // The actual pointer isn't a fn(&StackCheckedPtr), but a fn(&mut U)
@@ -210,6 +211,11 @@ impl<T: Layout> DefaultCallbackSystem<T> {
                 // callback_ptr.invoke_mut()
             }
         }
+    }
+
+    /// Clears all callbacks
+    pub(crate) fn clear(&mut self) {
+        self.callbacks.clear();
     }
 }
 

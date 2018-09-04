@@ -31,14 +31,14 @@ impl<T: Layout> fmt::Debug for UiState<T> {
 
 impl<T: Layout> UiState<T> {
     #[allow(unused_imports, unused_variables)]
-    pub(crate) fn from_app_state(app_state: &AppState<T>, window_id: WindowId, read_only_window: ReadOnlyWindow) -> Self
+    pub(crate) fn from_app_state(app_state: &mut AppState<T>, window_id: WindowId) -> Self
     {
         use dom::{Dom, On, NodeType};
         use std::sync::atomic::Ordering;
 
         let window_info = WindowInfo {
             window_id,
-            window: read_only_window,
+            window: &mut app_state.windows[window_id.id],
             resources: &app_state.resources,
         };
 

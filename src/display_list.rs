@@ -20,7 +20,7 @@ use {
     images::ImageId,
     text_cache::TextId,
     compositor::new_opengl_texture_id,
-    window::{WindowId, ReadOnlyWindow},
+    window::{WindowId, FakeWindow},
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -235,7 +235,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         mut has_window_size_changed: bool,
         window_size: &WindowSize,
         window_id: WindowId,
-        read_only_window: ReadOnlyWindow)
+        fake_window: &mut FakeWindow<T>)
     -> DisplayListBuilder
     {
         use glium::glutin::dpi::LogicalSize;
@@ -327,7 +327,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     &mut resource_updates,
                     &app_data,
                     window_id,
-                    read_only_window.clone());
+                    fake_window);
             }
         }
 
@@ -350,7 +350,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
     resource_updates: &mut Vec<ResourceUpdate>,
     app_data: &Arc<Mutex<T>>,
     window_id: WindowId,
-    read_only_window: ReadOnlyWindow)
+    fake_window: &mut FakeWindow<T>)
 {
     let rect = &arena[rect_idx].data;
 
@@ -481,14 +481,14 @@ fn displaylist_handle_rect<'a, T: Layout>(
 
             use window::WindowInfo;
 
-            let hidpi_factor = read_only_window.get_hidpi_factor();
+            let hidpi_factor = fake_window.read_only_window().get_hidpi_factor();
             let width = (bounds.size.width * hidpi_factor as f32) as usize;
             let height = (bounds.size.height * hidpi_factor as f32) as usize;
 
             let t_locked = app_data.lock().unwrap();
             let window_info = WindowInfo {
                 window_id: window_id,
-                window: read_only_window,
+                window: fake_window,
                 resources: &app_resources,
             };
 
