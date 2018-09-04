@@ -885,7 +885,7 @@ fn test_dom_from_iter_1() {
             node_type: NodeType::Label(String::from("5")),
             id: None,
             classes: Vec::new(),
-            default_callback_ids: Vec::new(),
+            default_callback_ids: BTreeMap::new(),
             events: CallbackList::default(),
         }
     }));
