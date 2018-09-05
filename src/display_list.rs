@@ -887,7 +887,7 @@ fn push_background(
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
-                    offset: gradient_pre.offset.unwrap(),
+                    offset: gradient_pre.offset.unwrap() / 100.0,
                     color: gradient_pre.color,
                 }).collect();
 
