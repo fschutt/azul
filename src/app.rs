@@ -627,20 +627,15 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     use dom::Callback;
     use window_state::{KeyboardState, MouseState};
 
-    let (cursor_x, cursor_y) = match window.state.mouse_state.cursor_pos {
-        Some(pos) => {
-            let physical_position = pos.to_physical(window.state.size.hidpi_factor);
-            (physical_position.x as f32, physical_position.y as f32)
-        },
+    let cursor_location = match window.state.mouse_state.cursor_pos {
+        Some(pos) => WorldPoint::new(pos.x as f32, pos.y as f32),
         None => return,
     };
-
-    let point = WorldPoint::new(cursor_x, cursor_y);
 
     let hit_test_results =  window.internal.api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
-        point,
+        cursor_location,
         HitTestFlags::FIND_ALL);
 
     let mut should_update_screen = UpdateScreen::DontRedraw;
