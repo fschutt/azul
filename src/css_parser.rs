@@ -1403,7 +1403,7 @@ fn parse_css_background<'a>(input: &'a str)
                     }
                 }
 
-                let next_value = next_value.unwrap_or(1.0_f32);
+                let next_value = next_value.unwrap_or(100.0_f32);
                 let increase = (next_value - last_stop) / (next_count as f32);
                 increase_stop_cnt = Some(increase);
                 if next_count == 1 && (color_stop_len - i) == 1 {
@@ -2285,7 +2285,7 @@ mod css_tests {
                     color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(1.0),
+                    offset: Some(100.0),
                     color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
                 }],
             })));
@@ -2302,15 +2302,15 @@ mod css_tests {
                     color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(0.33333334),
+                    offset: Some(33.333332),
                     color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(0.66666667),
+                    offset: Some(66.666664),
                     color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(1.0),
+                    offset: Some(100.0),
                     color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
                 }],
         })));
@@ -2328,11 +2328,11 @@ mod css_tests {
                     color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(0.5),
+                    offset: Some(50.0),
                     color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(1.0),
+                    offset: Some(100.0),
                     color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
                 }],
         })));
@@ -2349,7 +2349,7 @@ mod css_tests {
                     color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(1.0),
+                    offset: Some(100.0),
                     color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
                 }],
             })));
@@ -2367,11 +2367,11 @@ mod css_tests {
                     color: ColorF { r: 0.0, g: 1.0, b: 0.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(0.5),
+                    offset: Some(50.0),
                     color: ColorF { r: 0.0, g: 0.0, b: 1.0, a: 1.0 },
                 },
                 GradientStopPre {
-                    offset: Some(1.0),
+                    offset: Some(100.0),
                     color: ColorF { r: 1.0, g: 1.0, b: 0.0, a: 1.0 },
                 }],
         })));
