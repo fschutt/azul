@@ -211,9 +211,13 @@ fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/debug.css")) }
 
     #[cfg(debug_assertions)]
-    let css = Css::hot_reload(CSS_PATH!()).unwrap();
+    let css = Css::hot_reload_override_native(CSS_PATH!()).unwrap();
+
     #[cfg(not(debug_assertions))]
-    let css = Css::new_from_str(include_str!(CSS_PATH!())).unwrap();
+    let css = {
+        let css_str = format!("{}\r\n{}", NATIVE_CSS, include_str!(CSS_PATH!()));
+        Css::new_from_str(&css_str).unwrap()
+    };
 
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
     app.create_window(WindowCreateOptions::default(), css).unwrap();
