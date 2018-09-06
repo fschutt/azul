@@ -1981,22 +1981,22 @@ multi_type_parser!(parse_layout_wrap, LayoutWrap,
                     ["nowrap", NoWrap]);
 
 multi_type_parser!(parse_layout_justify_content, LayoutJustifyContent,
-                    ["start", Start],
-                    ["end", End],
+                    ["flex-start", Start],
+                    ["flex-end", End],
                     ["center", Center],
                     ["space-between", SpaceBetween],
                     ["space-around", SpaceAround]);
 
 multi_type_parser!(parse_layout_align_items, LayoutAlignItems,
+                    ["flex-start", Start],
+                    ["flex-end", End],
                     ["stretch", Stretch],
-                    ["start", Start],
-                    ["end", End],
                     ["center", Center]);
 
 multi_type_parser!(parse_layout_align_content, LayoutAlignContent,
+                    ["flex-start", Start],
+                    ["flex-end", End],
                     ["stretch", Stretch],
-                    ["start", Start],
-                    ["end", End],
                     ["center", Center],
                     ["space-between", SpaceBetween],
                     ["space-around", SpaceAround]);

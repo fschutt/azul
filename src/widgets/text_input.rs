@@ -60,13 +60,13 @@ impl TextInput {
 
     pub fn dom<T: Layout>(&self, field: &TextInputOutcome) -> Dom<T> {
 
-        let mut parent_div = Dom::new(NodeType::Div).with_id("input_field");
+        let mut parent_div = Dom::new(NodeType::Div).with_class("__azul-native-input-text");
 
         if let Some(default_callback_id) = self.default_callback_id {
             parent_div.push_default_callback_id(On::MouseOver, default_callback_id);
         }
 
-        parent_div.with_child(Dom::new(NodeType::Label(field.text.clone())).with_id("label"))
+        parent_div.with_child(Dom::new(NodeType::Label(field.text.clone())).with_class("__azul-native-input-text-label"))
     }
 }
 

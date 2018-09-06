@@ -1,3 +1,10 @@
+* {
+    font-size: 12px;
+    font-family: sans-serif;
+    color: #4c4c4c;
+    background-color: #e7e7e7;
+}
+
 .__azul-native-button {
     border: 1px solid #b7b7b7;
     border-radius: 4px;
@@ -14,9 +21,22 @@
     justify-content: center;
 }
 
-* {
-    font-size: 40px;
-    font-family: sans-serif;
-    color: #4c4c4c;
-    background-color: #e7e7e7;
+.__azul-native-input-text {
+    background-color: white;
+    height: 14px;
+    border: 1px solid #9b9b9b;
+    padding: 1px;
+    overflow: hidden;
+    text-align: left;
+    flex-direction: row;
+    align-content: flex-end;
+    justify-content: flex-end;
+}
+
+.__azul-native-input-text:hover {
+    border: 1px solid #4286f4;
+}
+
+.__azul-native-input-text-label {
+
 }

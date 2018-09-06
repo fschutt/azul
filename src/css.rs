@@ -285,14 +285,15 @@ impl Css {
         let mut current_type = "*";
         let mut current_id = None;
         let mut current_classes = HashSet::<&str>::new();
+        let mut current_pseudo_selector = None;
 
-        'css_parse_loop: loop {
+        loop {
             let tokenize_result = tokenizer.parse_next();
             match tokenize_result {
                 Ok(token) => {
                     match token {
                         Token::EndOfStream => {
-                            break 'css_parse_loop;
+                            break;
                         },
                         Token::BlockStart => {
                             parser_in_block = true;
@@ -304,6 +305,7 @@ impl Css {
                             current_type = "*";
                             current_id = None;
                             current_classes = HashSet::<&str>::new();
+                            current_pseudo_selector = None;
                         },
                         Token::TypeSelector(div_type) => {
                             if parser_in_block {
@@ -327,6 +329,10 @@ impl Css {
                             if !parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
+                            // ignore any :hover, :focus, etc. for now
+                            if current_pseudo_selector.is_some() {
+                                continue;
+                            }
 
                             // see if the Declaration is static or dynamic
                             //
@@ -341,6 +347,12 @@ impl Css {
                             // IMPORTANT!
                             css_rule.classes.sort();
                             css_rules.push(css_rule);
+                        },
+                        Token::PseudoClass(pseudo_class) => {
+                            if parser_in_block {
+                                return Err(CssParseError::MalformedCss);
+                            }
+                            current_pseudo_selector = Some(pseudo_class);
                         },
                         _ => { }
                     }
