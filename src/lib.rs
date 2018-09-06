@@ -142,7 +142,7 @@ pub mod prelude {
                      MouseMode, UpdateBehaviour, UpdateMode,
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
     pub use window_state::WindowState;
-    pub use images::ImageType;
+    pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
     pub use css_parser::{
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
