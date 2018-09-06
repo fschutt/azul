@@ -3,9 +3,6 @@
     border-radius: 5.5px;
     box-shadow: 0px 0px 3px #c5c5c5ad;
     background: linear-gradient(#fcfcfc, #efefef);
-    width:  [[ my_id | 200px ]];
-    height: 200px;
-    min-height: 400px;
     text-align: center;
     flex-direction: column;
     justify-content: center;
