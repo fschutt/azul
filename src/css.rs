@@ -10,11 +10,11 @@ use {
 };
 
 #[cfg(target_os="windows")]
-const NATIVE_CSS_WINDOWS: &str = include_str!("styles/native_windows.css");
+pub const NATIVE_CSS: &str = include_str!("styles/native_windows.css");
 #[cfg(target_os="linux")]
-const NATIVE_CSS_LINUX: &str = include_str!("styles/native_linux.css");
+pub const NATIVE_CSS: &str = include_str!("styles/native_linux.css");
 #[cfg(target_os="macos")]
-const NATIVE_CSS_MACOS: &str = include_str!("styles/native_macos.css");
+pub const NATIVE_CSS: &str = include_str!("styles/native_macos.css");
 
 /// All the keys that, when changed, can trigger a re-layout
 const RELAYOUT_RULES: [&str; 13] = [
@@ -30,6 +30,10 @@ pub struct Css {
     /// Path to hot-reload the CSS file from
     #[cfg(debug_assertions)]
     pub(crate) hot_reload_path: Option<String>,
+    /// When hot-reloading, should the CSS file be appended to the built-in, native styles
+    /// (equivalent to `NATIVE_CSS + include_str!(hot_reload_path)`)? Default: false
+    #[cfg(debug_assertions)]
+    pub(crate) hot_reload_override_native: bool,
     /// The CSS rules making up the document
     pub(crate) rules: Vec<CssRule>,
     /// The dynamic properties that have to be overridden for this frame
@@ -186,6 +190,8 @@ impl Css {
         Self {
             #[cfg(debug_assertions)]
             hot_reload_path: None,
+            #[cfg(debug_assertions)]
+            hot_reload_override_native: false,
             rules: Vec::new(),
             needs_relayout: false,
             dynamic_css_overrides: FastHashMap::default(),
@@ -202,6 +208,20 @@ impl Css {
             Err(e) => panic!("Hot reload parsing error in file {}: {:?}", file_path, e),
         };
         css.hot_reload_path = Some(file_path.into());
+        Ok(css)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn hot_reload_override_native(file_path: &str) -> Result<Self, HotReloadError> {
+        use std::fs;
+        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
+        let target_css = format!("{}\r\n{}", NATIVE_CSS, initial_css);
+        let mut css = match Self::new_from_str(&initial_css) {
+            Ok(o) => o,
+            Err(e) => panic!("Hot reload parsing error in file {}: {:?}", file_path, e),
+        };
+        css.hot_reload_path = Some(file_path.into());
+        css.hot_reload_override_native = true;
         Ok(css)
     }
 
@@ -225,7 +245,13 @@ impl Css {
             },
         };
 
-        let mut parsed_css = match Self::new_from_str(&reloaded_css) {
+        let target_css = if self.hot_reload_override_native {
+            format!("{}\r\n{}", NATIVE_CSS, reloaded_css)
+        } else {
+            reloaded_css
+        };
+
+        let mut parsed_css = match Self::new_from_str(&target_css) {
             Ok(o) => o,
             Err(e) => {
                 error!("Failed to reload - parse error\"{}\":\r\n{:?}", file_path, e);
@@ -235,6 +261,7 @@ impl Css {
 
         parsed_css.hot_reload_path = self.hot_reload_path.clone();
         parsed_css.dynamic_css_overrides = self.dynamic_css_overrides.clone();
+        parsed_css.hot_reload_override_native = self.hot_reload_override_native;
 
         *self = parsed_css;
     }
@@ -332,6 +359,8 @@ impl Css {
         Ok(Self {
             #[cfg(debug_assertions)]
             hot_reload_path: None,
+            #[cfg(debug_assertions)]
+            hot_reload_override_native: false,
             rules: css_rules,
             // force re-layout for the first frame
             needs_relayout: true,
@@ -340,21 +369,8 @@ impl Css {
     }
 
     /// Returns the native style for the OS
-    #[cfg(target_os="windows")]
     pub fn native() -> Self {
-        Self::new_from_str(NATIVE_CSS_WINDOWS).unwrap()
-    }
-
-    /// Returns the native style for the OS
-    #[cfg(target_os="linux")]
-    pub fn native() -> Self {
-        Self::new_from_str(NATIVE_CSS_LINUX).unwrap()
-    }
-
-    /// Returns the native style for the OS
-    #[cfg(target_os="macos")]
-    pub fn native() -> Self {
-        Self::new_from_str(NATIVE_CSS_MACOS).unwrap()
+        Self::new_from_str(NATIVE_CSS).unwrap()
     }
 }
 
