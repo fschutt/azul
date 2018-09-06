@@ -5,7 +5,7 @@
 use std::sync::{Mutex, atomic::{Ordering, AtomicUsize}};
 use webrender::{
     ExternalImageHandler, ExternalImage, ExternalImageSource,
-    api::{ExternalImageId, TexelRect, DevicePixel, Epoch},
+    api::{ExternalImageId, TexelRect, DevicePixel, Epoch, ImageRendering},
 };
 use euclid::TypedPoint2D;
 use {
@@ -60,7 +60,7 @@ impl Default for Compositor {
 }
 
 impl ExternalImageHandler for Compositor {
-    fn lock(&mut self, key: ExternalImageId, _channel_index: u8) -> ExternalImage {
+    fn lock(&mut self, key: ExternalImageId, _channel_index: u8, _rendering: ImageRendering) -> ExternalImage {
         use glium::GlObject;
 
         let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();

@@ -42,14 +42,14 @@ serde = { version = "1.0.*", optional = true }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = "0.0.4"
 
-[dependencies.usvg]
-git = "https://github.com/RazrFalcon/usvg"
-rev = "803c4f7bfa1775e7f3824173ac05793a8a4adc5c"
-optional = true
-
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
-rev = "816ff14c1805c145ccd60d0227d82b1541fc24eb"
+rev = "58b4d2f3325726008812c0ee5ab8898e05133e60"
+
+[dependencies.usvg]
+git = "https://github.com/RazrFalcon/usvg"
+rev = "eb4b3bcb3598bdb4f09c71949868e4cb192525d1"
+optional = true
 
 [features]
 default = ["logging", "svg"]

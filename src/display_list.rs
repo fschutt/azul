@@ -1169,6 +1169,7 @@ fn create_layout_constraints<'a, T: Layout>(
     };
     use ui_solver::RectConstraintVariables;
     use std::f64;
+    use css_parser::LayoutDirection::*;
 
     const WEAK: f64 = 3.0;
     const MEDIUM: f64 = 30.0;
@@ -1197,8 +1198,20 @@ fn create_layout_constraints<'a, T: Layout>(
         layout_constraints.push(self_rect.width | EQ(STRONG) | width.0.to_pixels());
     } else {
         if let Some(parent) = dom_node.parent {
+            // If the parent has a flex-direction: row, divide the
+            // preferred width by the number of children
             let parent_rect = ui_solver.get_rect_constraints(parent).unwrap();
-            layout_constraints.push(self_rect.width | EQ(STRONG) | parent_rect.width);
+            let parent_direction = &display_rectangles[parent].data.layout.direction.unwrap_or_default();
+            match parent_direction {
+                Row | RowReverse => {
+                    let num_children = parent.children(dom).count();
+                    layout_constraints.push(self_rect.width | EQ(STRONG) | parent_rect.width / (num_children as f32));
+                    layout_constraints.push(self_rect.width | EQ(WEAK) | parent_rect.width);
+                },
+                Column | ColumnReverse => {
+                    layout_constraints.push(self_rect.width | EQ(STRONG) | parent_rect.width);
+                }
+            }
         } else {
             layout_constraints.push(self_rect.width | EQ(REQUIRED) | window_constraints.width_var);
         }
@@ -1215,8 +1228,20 @@ fn create_layout_constraints<'a, T: Layout>(
         layout_constraints.push(self_rect.height | EQ(STRONG) | height.0.to_pixels());
     } else {
         if let Some(parent) = dom_node.parent {
+            // If the parent has a flex-direction: column, divide the
+            // preferred height by the number of children
             let parent_rect = ui_solver.get_rect_constraints(parent).unwrap();
-            layout_constraints.push(self_rect.height | EQ(STRONG) | parent_rect.height);
+            let parent_direction = &display_rectangles[parent].data.layout.direction.unwrap_or_default();
+            match parent_direction {
+                Row | RowReverse => {
+                    layout_constraints.push(self_rect.height | EQ(STRONG) | parent_rect.height);
+                },
+                Column | ColumnReverse => {
+                    let num_children = parent.children(dom).count();
+                    layout_constraints.push(self_rect.height | EQ(STRONG) | parent_rect.height / (num_children as f32));
+                    layout_constraints.push(self_rect.height | EQ(WEAK) | parent_rect.height);
+                }
+            }
         } else {
             layout_constraints.push(self_rect.height | EQ(REQUIRED) | window_constraints.height_var);
         }
@@ -1257,28 +1282,28 @@ fn create_layout_constraints<'a, T: Layout>(
             };
 
             match direction {
-                LayoutDirection::Row => {
+                Row => {
                     match previous_child {
                         None => layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left),
                         Some(prev) => layout_constraints.push(child_rect.left | EQ(MEDIUM) | (prev.left + prev.width) + relative_left),
                     }
                     layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top);
                 },
-                LayoutDirection::RowReverse => {
+                RowReverse => {
                     match previous_child {
                         None => layout_constraints.push(child_rect.left | EQ(MEDIUM) | (self_rect.left  + relative_left + (self_rect.width - child_rect.width))),
                         Some(prev) => layout_constraints.push((child_rect.left + child_rect.width) | EQ(MEDIUM) | prev.left + relative_left),
                     }
                     layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top);
                 },
-                LayoutDirection::Column => {
+                Column => {
                     match previous_child {
                         None => layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top),
                         Some(prev) => layout_constraints.push(child_rect.top | EQ(MEDIUM) | (prev.top + prev.height)),
                     }
                     layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left);
                 },
-                LayoutDirection::ColumnReverse => {
+                ColumnReverse => {
                     match previous_child {
                         None => layout_constraints.push(child_rect.top | EQ(MEDIUM) | (self_rect.top + (self_rect.height - child_rect.height))),
                         Some(prev) => layout_constraints.push((child_rect.top + child_rect.height) | EQ(MEDIUM) | prev.top),
