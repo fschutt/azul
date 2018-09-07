@@ -467,6 +467,14 @@ fn displaylist_handle_rect<'a, T: Layout>(
         overflow
     };
 
+    // Only necessary for GlTextures and IFrames that need the
+    // width and height of their container to calculate their content
+    use window::WindowInfo;
+
+    let hidpi_factor = fake_window.read_only_window().get_hidpi_factor();
+    let bounds_width = (bounds.size.width * hidpi_factor as f32) as usize;
+    let bounds_height = (bounds.size.height * hidpi_factor as f32) as usize;
+
     // handle the special content of the node
     let overflow_result = match html_node {
         Div => { None },
@@ -481,12 +489,6 @@ fn displaylist_handle_rect<'a, T: Layout>(
         },
         GlTexture(texture_callback) => {
 
-            use window::WindowInfo;
-
-            let hidpi_factor = fake_window.read_only_window().get_hidpi_factor();
-            let width = (bounds.size.width * hidpi_factor as f32) as usize;
-            let height = (bounds.size.height * hidpi_factor as f32) as usize;
-
             let t_locked = app_data.lock().unwrap();
             let window_info = WindowInfo {
                 window_id: window_id,
@@ -494,7 +496,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
                 resources: &app_resources,
             };
 
-            if let Some(texture) = (texture_callback.0)(&t_locked, window_info, width, height) {
+            if let Some(texture) = (texture_callback.0)(&t_locked, window_info, bounds_width, bounds_height) {
 
                 use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
@@ -529,7 +531,20 @@ fn displaylist_handle_rect<'a, T: Layout>(
             }
 
             None
-        }
+        },
+        IFrame(iframe_callback) => {
+
+            let t_locked = app_data.lock().unwrap();
+            let window_info = WindowInfo {
+                window_id: window_id,
+                window: fake_window,
+                resources: &app_resources,
+            };
+
+            let new_dom = (iframe_callback.0)(&t_locked, window_info, bounds_width, bounds_height);
+            println!("new DOM: {:?}", new_dom);
+            None
+        },
     };
 
     if let Some(overflow) = &overflow_result {

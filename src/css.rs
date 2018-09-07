@@ -216,7 +216,7 @@ impl Css {
         use std::fs;
         let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
         let target_css = format!("{}\r\n{}", NATIVE_CSS, initial_css);
-        let mut css = match Self::new_from_str(&initial_css) {
+        let mut css = match Self::new_from_str(&target_css) {
             Ok(o) => o,
             Err(e) => panic!("Hot reload parsing error in file {}: {:?}", file_path, e),
         };
