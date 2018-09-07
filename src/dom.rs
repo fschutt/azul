@@ -13,9 +13,9 @@ use {
     cache::DomHash,
     text_cache::TextId,
     traits::Layout,
-    app_state::AppState,
+    app_state::{AppState, AppStateNoData},
     id_tree::{NodeId, Node, Arena},
-    default_callbacks::DefaultCallbackId,
+    default_callbacks::{DefaultCallbackId, StackCheckedPointer},
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(0);
@@ -87,12 +87,12 @@ pub enum NodeType<T: Layout> {
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// azul does not check that the contents of two textures are the same
-    GlTexture(GlTextureCallback<T>),
+    GlTexture((GlTextureCallback<T>, StackCheckedPointer<T>)),
     /// DOM that gets passed its width / height during the layout
-    IFrame(IFrameCallback<T>),
+    IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
 }
 
-pub struct GlTextureCallback<T: Layout>(pub fn(&T, WindowInfo<T>, usize, usize) -> Option<Texture>);
+pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, usize, usize) -> Option<Texture>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for GlTextureCallback<T>
 
@@ -123,7 +123,7 @@ impl<T: Layout> PartialEq for GlTextureCallback<T> {
 impl<T: Layout> Eq for GlTextureCallback<T> { }
 impl<T: Layout> Copy for GlTextureCallback<T> { }
 
-pub struct IFrameCallback<T: Layout>(pub fn(&T, WindowInfo<T>, usize, usize) -> Dom<T>);
+pub struct IFrameCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, usize, usize) -> Dom<T>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for IFrameCallback<T>
 
@@ -164,8 +164,8 @@ impl<T: Layout> fmt::Debug for NodeType<T> {
             Label(a) => write!(f, "NodeType::Label {{ {:?} }}", a),
             Text(a) => write!(f, "NodeType::Text {{ {:?} }}", a),
             Image(a) => write!(f, "NodeType::Image {{ {:?} }}", a),
-            GlTexture(a) => write!(f, "NodeType::GlTexture {{ {:?} }}", a),
-            IFrame(a) => write!(f, "NodeType::IFrame {{ {:?} }}", a),
+            GlTexture((ptr, cb)) => write!(f, "NodeType::GlTexture {{ ptr: {:?}, callback: {:?} }}", ptr, cb),
+            IFrame((ptr, cb)) => write!(f, "NodeType::IFrame {{ ptr: {:?}, callback: {:?} }}", ptr, cb),
         }
     }
 }
@@ -178,8 +178,8 @@ impl<T: Layout> Clone for NodeType<T> {
             Label(a) => Label(a.clone()),
             Text(a) => Text(a.clone()),
             Image(a) => Image(a.clone()),
-            GlTexture(a) => GlTexture(a.clone()),
-            IFrame(a) => IFrame(a.clone()),
+            GlTexture((ptr, a)) => GlTexture((ptr.clone(), a.clone())),
+            IFrame((ptr, a)) => IFrame((ptr.clone(), a.clone())),
         }
     }
 }
@@ -194,8 +194,14 @@ impl<T: Layout> Hash for NodeType<T> {
             Label(a) => a.hash(state),
             Text(a) => a.hash(state),
             Image(a) => a.hash(state),
-            GlTexture(a) => a.hash(state),
-            IFrame(a) => a.hash(state),
+            GlTexture((ptr, a)) => {
+                ptr.hash(state);
+                a.hash(state);
+            },
+            IFrame((ptr, a)) => {
+                ptr.hash(state);
+                a.hash(state);
+            },
         }
     }
 }
@@ -208,8 +214,12 @@ impl<T: Layout> PartialEq for NodeType<T> {
             (Label(a), Label(b)) => a == b,
             (Text(a), Text(b)) => a == b,
             (Image(a), Image(b)) => a == b,
-            (GlTexture(a), GlTexture(b)) => a == b,
-            (IFrame(a), IFrame(b)) => a == b,
+            (GlTexture((ptr_a, a)), GlTexture((ptr_b, b))) => {
+                a == b && ptr_a == ptr_b
+            },
+            (IFrame((ptr_a, a)), IFrame((ptr_b, b))) => {
+                a == b && ptr_a == ptr_b
+            },
             _ => false,
         }
     }

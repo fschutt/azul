@@ -10,14 +10,15 @@ mod stack_checked_pointer {
 
     use std::{
         fmt,
+        hash::{Hash, Hasher},
         marker::PhantomData,
     };
     use {
         traits::Layout,
-        dom::UpdateScreen,
+        dom::{UpdateScreen, Dom, IFrameCallback, Texture, GlTextureCallback},
         default_callbacks::DefaultCallbackType,
         app_state::AppStateNoData,
-        window::WindowEvent,
+        window::{WindowEvent, WindowInfo},
     };
 
     /// A `StackCheckedPointer` is a type-erased, non-boxed pointer to a
@@ -63,9 +64,37 @@ mod stack_checked_pointer {
         /// **NOTE**: To avoid undefined behaviour, you **must** check that
         /// the `StackCheckedPointer` isn't mutably aliased at the time of
         /// calling the callback.
-        pub unsafe fn invoke_mut<U: Sized>(&self, callback: DefaultCallbackType<T, U>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent) -> UpdateScreen {
+        pub unsafe fn invoke_mut<U: Sized>(
+            &self,
+            callback: DefaultCallbackType<T, U>,
+            app_state_no_data: AppStateNoData<T>,
+            window_event: WindowEvent)
+        -> UpdateScreen
+        {
             // VERY UNSAFE, TRIPLE-CHECK FOR UNDEFINED BEHAVIOUR
             callback(&mut *(self.internal as *mut U), app_state_no_data, window_event)
+        }
+
+        pub unsafe fn invoke_mut_iframe<U: Sized>(
+            &self,
+            callback: fn(&mut U, WindowInfo<T>, usize, usize) -> Dom<T>,
+            window_info: WindowInfo<T>,
+            width: usize,
+            height: usize)
+        -> Dom<T>
+        {
+            callback(&mut *(self.internal as *mut U), window_info, width, height)
+        }
+
+        pub unsafe fn invoke_mut_texture<U: Sized>(
+            &self,
+            callback: fn(&mut U, WindowInfo<T>, usize, usize) -> Option<Texture>,
+            window_info: WindowInfo<T>,
+            width: usize,
+            height: usize)
+        -> Option<Texture>
+        {
+            callback(&mut *(self.internal as *mut U), window_info, width, height)
         }
     }
 
@@ -82,6 +111,22 @@ mod stack_checked_pointer {
             StackCheckedPointer { internal: self.internal, marker: self.marker.clone() }
         }
     }
+
+    impl<T: Layout> Hash for StackCheckedPointer<T> {
+      fn hash<H>(&self, state: &mut H) where H: Hasher {
+        state.write_usize(self.internal as usize);
+      }
+    }
+
+    impl<T: Layout> PartialEq for StackCheckedPointer<T> {
+      fn eq(&self, rhs: &Self) -> bool {
+        self.internal as usize == rhs.internal as usize
+      }
+    }
+
+    impl<T: Layout> Eq for StackCheckedPointer<T> { }
+    impl<T: Layout> Copy for StackCheckedPointer<T> { }
+
 
     /// Returns true if U is a type inside of T
     ///

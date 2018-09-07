@@ -487,7 +487,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
         Image(image_id) => {
             push_image(&info, builder, &bounds, app_resources, image_id)
         },
-        GlTexture(texture_callback) => {
+        GlTexture((texture_callback, texture_stack_ptr)) => {
 
             let t_locked = app_data.lock().unwrap();
             let window_info = WindowInfo {
@@ -496,7 +496,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
                 resources: &app_resources,
             };
 
-            if let Some(texture) = (texture_callback.0)(&t_locked, window_info, bounds_width, bounds_height) {
+            if let Some(texture) = (texture_callback.0)(&texture_stack_ptr, window_info, bounds_width, bounds_height) {
 
                 use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
@@ -532,8 +532,9 @@ fn displaylist_handle_rect<'a, T: Layout>(
 
             None
         },
-        IFrame(iframe_callback) => {
+        IFrame((iframe_callback, iframe_pointer)) => {
 
+            // note: must be locked!
             let t_locked = app_data.lock().unwrap();
             let window_info = WindowInfo {
                 window_id: window_id,
@@ -541,7 +542,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
                 resources: &app_resources,
             };
 
-            let new_dom = (iframe_callback.0)(&t_locked, window_info, bounds_width, bounds_height);
+            let new_dom = (iframe_callback.0)(&iframe_pointer, window_info, bounds_width, bounds_height);
             println!("new DOM: {:?}", new_dom);
             None
         },
