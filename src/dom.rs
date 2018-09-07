@@ -88,6 +88,8 @@ pub enum NodeType<T: Layout> {
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// azul does not check that the contents of two textures are the same
     GlTexture(GlTextureCallback<T>),
+    /// DOM that gets passed its width / height during the layout
+    IFrame(IFrameCallback<T>),
 }
 
 pub struct GlTextureCallback<T: Layout>(pub fn(&T, WindowInfo<T>, usize, usize) -> Option<Texture>);
@@ -121,6 +123,37 @@ impl<T: Layout> PartialEq for GlTextureCallback<T> {
 impl<T: Layout> Eq for GlTextureCallback<T> { }
 impl<T: Layout> Copy for GlTextureCallback<T> { }
 
+pub struct IFrameCallback<T: Layout>(pub fn(&T, WindowInfo<T>, usize, usize) -> Dom<T>);
+
+// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for IFrameCallback<T>
+
+impl<T: Layout> fmt::Debug for IFrameCallback<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IFrameCallback @ 0x{:x}", self.0 as usize)
+    }
+}
+
+impl<T: Layout> Clone for IFrameCallback<T> {
+    fn clone(&self) -> Self {
+        IFrameCallback(self.0.clone())
+    }
+}
+
+impl<T: Layout> Hash for IFrameCallback<T> {
+  fn hash<H>(&self, state: &mut H) where H: Hasher {
+    state.write_usize(self.0 as usize);
+  }
+}
+
+impl<T: Layout> PartialEq for IFrameCallback<T> {
+  fn eq(&self, rhs: &Self) -> bool {
+    self.0 as usize == rhs.0 as usize
+  }
+}
+
+impl<T: Layout> Eq for IFrameCallback<T> { }
+impl<T: Layout> Copy for IFrameCallback<T> { }
+
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType<T>
 
 impl<T: Layout> fmt::Debug for NodeType<T> {
@@ -132,6 +165,7 @@ impl<T: Layout> fmt::Debug for NodeType<T> {
             Text(a) => write!(f, "NodeType::Text {{ {:?} }}", a),
             Image(a) => write!(f, "NodeType::Image {{ {:?} }}", a),
             GlTexture(a) => write!(f, "NodeType::GlTexture {{ {:?} }}", a),
+            IFrame(a) => write!(f, "NodeType::IFrame {{ {:?} }}", a),
         }
     }
 }
@@ -145,6 +179,7 @@ impl<T: Layout> Clone for NodeType<T> {
             Text(a) => Text(a.clone()),
             Image(a) => Image(a.clone()),
             GlTexture(a) => GlTexture(a.clone()),
+            IFrame(a) => IFrame(a.clone()),
         }
     }
 }
@@ -160,6 +195,7 @@ impl<T: Layout> Hash for NodeType<T> {
             Text(a) => a.hash(state),
             Image(a) => a.hash(state),
             GlTexture(a) => a.hash(state),
+            IFrame(a) => a.hash(state),
         }
     }
 }
@@ -173,6 +209,7 @@ impl<T: Layout> PartialEq for NodeType<T> {
             (Text(a), Text(b)) => a == b,
             (Image(a), Image(b)) => a == b,
             (GlTexture(a), GlTexture(b)) => a == b,
+            (IFrame(a), IFrame(b)) => a == b,
             _ => false,
         }
     }
@@ -188,6 +225,7 @@ impl<T: Layout> NodeType<T> {
             Label(_) | Text(_) => "p",
             Image(_) => "image",
             GlTexture(_) => "texture",
+            IFrame(_) => "iframe",
         }
     }
 }

@@ -3,6 +3,7 @@ pub mod svg;
 pub mod button;
 pub mod label;
 pub mod text_input;
+pub mod table_view;
 
 // Re-export widgets
 #[cfg(feature = "svg")]
@@ -23,6 +24,7 @@ pub use self::svg::{
 pub use self::button::{Button, ButtonContent};
 pub use self::label::Label;
 pub use self::text_input::{TextInput, TextInputOutcome};
+pub use self::table_view::{TableView, TableViewOutcome};
 
 pub mod errors {
     #[cfg(feature = "svg")]
