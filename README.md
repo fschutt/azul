@@ -70,7 +70,7 @@ the button:
 
 ![Hello World Application](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_hello_world_button.png)
 
-[Read more...](https://github.com/maps4print/azul/wiki/A-simple-counter)
+[Read more about the Hello-World application ...](https://github.com/maps4print/azul/wiki/A-simple-counter)
 
 ## Current WIP screenshot
 
@@ -115,6 +115,8 @@ impl Layout for DataModel {
 One defining feature is that Azul automatically determines when a UI repaint is
 necessary and therefore you don't need to worry about manually redrawing your UI.
 
+[Read more about the programming model ...](https://github.com/maps4print/azul/wiki/Getting-Started)
+
 ## Features
 
 ### Asynchronous UI programming
@@ -123,7 +125,7 @@ Azul features multiple ways of preventing your UI from being blocked, such as
 "Tasks" (threads that are managed by the Azul runtime) and "Daemons"
 (callback functions that can be optionally used as timers or timeouts).
 
-[Read more on asyncronous programming ...](https://github.com/maps4print/azul/wiki/Timers,-daemons,-tasks-and-async-IO)
+[Read more about async IO ...](https://github.com/maps4print/azul/wiki/Timers,-daemons,-tasks-and-async-IO)
 
 ### Easy two-way data binding
 
@@ -156,7 +158,7 @@ fn print_text_field(app_state: &mut AppState<DataModel>, _event: WindowEvent) ->
 }
 ```
 
-[Read more on two-way data binding ...](https://github.com/maps4print/azul/wiki/Two-way-data-binding)
+[Read more about two-way data binding ...](https://github.com/maps4print/azul/wiki/Two-way-data-binding)
 
 ### CSS styling & layout engine
 
@@ -164,22 +166,18 @@ Azul features a CSS-like layout and styling engine that is modeled after the
 flexbox model - i.e. by default, every element will try to stretch to the dimensions
 of its parent. The layout itself is handled by the `cassowary` layout solver.
 
-[Read more on CSS styling ...](https://github.com/maps4print/azul/wiki/Styling-your-application-with-CSS)
+[Read more about CSS styling ...](https://github.com/maps4print/azul/wiki/Styling-your-application-with-CSS)
 
 ### SVG / GPU-accelerated 2D Vector drawing
 
 For drawing non-rectangular shapes, such as triangles, circles, polygons or SVG files,
 Azul provides a GPU-accelerated 2D renderer, featuring lines drawing (incl. bezier curves),
-rects, circles, arbitrary polygons, text (incl. tranlation / rotation and text-on-curve
+rects, circles, arbitrary polygons, text (incl. translation / rotation and text-on-curve
 positioning), hit-testing texts, caching and an (optional) SVG parsing module.
 
 ![Azul SVG Tiger drawing](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_svg_tiger.png)
 
-[Read more on SVG drawing ...](https://github.com/maps4print/azul/wiki/SVG-drawing)
-
-### Window system abstraction
-
-https://github.com/maps4print/azul/wiki/Interfacing-with-the-windowing-system
+[Read more about SVG drawing ...](https://github.com/maps4print/azul/wiki/SVG-drawing)
 
 ### OpenGL API
 
@@ -188,11 +186,11 @@ into the OpenGL context of the running application - you can draw everything you
 want to an OpenGL texture, which will then be composited into the frame using
 webrender.
 
-[Read more on OpenGL drawing ...](https://github.com/maps4print/azul/wiki/OpenGL-drawing)
+[Read more about OpenGL drawing ...](https://github.com/maps4print/azul/wiki/OpenGL-drawing)
 
 ### UI Testing
 
-Due to the seperation of the UI, the data model and the callbacks, Azul applications
+Due to the separation of the UI, the data model and the callbacks, Azul applications
 are very easy to test:
 
 ```rust
@@ -205,7 +203,7 @@ fn test_it_should_increase_the_counter() {
 }
 ```
 
-[Read more on testing ...](https://github.com/maps4print/azul/wiki/Unit-testing)
+[Read more about testing ...](https://github.com/maps4print/azul/wiki/Unit-testing)
 
 ## Performance
 
