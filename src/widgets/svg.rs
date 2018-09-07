@@ -2242,7 +2242,7 @@ impl Svg {
         window: &ReadOnlyWindow,
         width: usize,
         height: usize)
-    -> Option<Texture>
+    -> Texture
     {
         let tex = window.create_texture(width as u32, height as u32);
 
@@ -2334,7 +2334,7 @@ impl Svg {
             // TODO: apply FXAA shader
         }
 
-        Some(tex)
+        tex
     }
 }
 

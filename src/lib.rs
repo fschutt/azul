@@ -137,7 +137,7 @@ pub mod prelude {
     pub use cache::DomHash;
     pub use css::{Css, FakeCss, NATIVE_CSS};
     pub use dom::{
-        Dom, NodeType, NodeData, Callback, On, 
+        Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,
         IFrameCallback
     };
@@ -170,6 +170,7 @@ pub mod prelude {
     pub use rusttype::Font;
     pub use app_resources::AppResources;
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
+    pub use default_callbacks::StackCheckedPointer;
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;

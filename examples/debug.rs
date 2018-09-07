@@ -40,10 +40,10 @@ impl Layout for MyAppData {
     fn layout(&self, _info: WindowInfo<Self>)
     -> Dom<MyAppData>
     {
-        if let Some(_map) = &self.map {
+        if let Some(map) = &self.map {
             Dom::new(NodeType::Div).with_id("parent-wrapper")
                 .with_child(Dom::new(NodeType::Div).with_id("child-1"))
-                .with_child(gl_texture_dom().with_id("child-2"))
+                .with_child(gl_texture_dom(&map, &self).with_id("child-2"))
         } else {
             // TODO: If this is changed to Label::new(), the text is cut off at the top
             // because of the (offset_top / 2.0) - see text_layout.rs file
@@ -53,18 +53,21 @@ impl Layout for MyAppData {
     }
 }
 
-fn gl_texture_dom() -> Dom<MyAppData> {
-    Dom::new(NodeType::GlTexture(GlTextureCallback(render_map)))
+fn gl_texture_dom(map: &Map, data: &MyAppData) -> Dom<MyAppData> {
+    Dom::new(NodeType::GlTexture((GlTextureCallback(render_map_callback), StackCheckedPointer::new(data, map).unwrap()) ))
         .with_callback(On::Scroll, Callback(scroll_map_contents))
         .with_callback(On::MouseOver, Callback(check_hovered_font))
 }
 
-fn render_map(data: &MyAppData, info: WindowInfo<MyAppData>, width: usize, height: usize) -> Option<Texture> {
-    let map = data.map.as_ref()?;
-    Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
+fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: WindowInfo<MyAppData>, width: usize, height: usize) -> Option<Texture> {
+    unsafe { ptr.invoke_mut_texture(render_map, window_info, width, height) }
+}
+
+fn render_map(map: &mut Map, info: WindowInfo<MyAppData>, width: usize, height: usize) -> Option<Texture> {
+    Some(Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
         .with_pan(map.pan_horz as f32, map.pan_vert as f32)
         .with_zoom(map.zoom as f32)
-        .render_svg(&map.cache, &info.window.read_only_window(), width, height)
+        .render_svg(&map.cache, &info.window.read_only_window(), width, height))
 }
 
 fn build_layers(
