@@ -59,9 +59,8 @@ fn update_counter(app_state: &mut AppState<DataModel>, _event: WindowEvent) -> U
 }
 
 fn main() {
-    let mut app = App::new(CounterApplication { counter: 0 }, AppConfig::default());
-    app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
-    app.run().unwrap();
+    let app = App::new(CounterApplication { counter: 0 }, AppConfig::default());
+    app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
 }
 ```
 
