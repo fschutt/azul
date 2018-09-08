@@ -222,6 +222,6 @@ fn main() {
         Css::new_from_str(&css_str).unwrap()
     };
 
-    let mut app = App::new(MyAppData { map: None }, AppConfig::default());
+    let app = App::new(MyAppData { map: None }, AppConfig::default());
     app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
 }

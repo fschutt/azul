@@ -521,7 +521,7 @@ impl<T: Layout> App<T> {
             renderer_type: RendererType::Software,
             .. Default::default()
         };
-        self.create_window(hidden_create_options, Css::native()).unwrap();
+        self.push_window(Window::new(hidden_create_options, Css::native()).unwrap());
         // TODO: do_first_redraw shouldn't exist, need to find a better way to update the resources
         // This will make App::delete_font doc-test fail if run without `no-opengl-tests`.
         //
