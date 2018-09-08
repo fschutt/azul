@@ -13,7 +13,7 @@ use {
     cache::DomHash,
     text_cache::TextId,
     traits::Layout,
-    app_state::{AppState, AppStateNoData},
+    app_state::AppState,
     id_tree::{NodeId, Node, Arena},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
 };

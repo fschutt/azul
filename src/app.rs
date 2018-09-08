@@ -18,12 +18,12 @@ use log::LevelFilter;
 use {
     images::ImageType,
     errors::{FontError, ClipboardError},
-    window::{Window, WindowCreateOptions, WindowCreateError, WindowId},
+    window::{Window, WindowId},
     css_parser::{FontId, PixelValue},
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
-    css::{Css, FakeCss},
+    css::FakeCss,
     app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
@@ -35,7 +35,7 @@ use {
 /// Graphical application that maintains some kind of application state
 pub struct App<T: Layout> {
     /// The graphical windows, indexed by ID
-    windows: Vec<Window>,
+    windows: Vec<Window<T>>,
     /// The global application state
     pub app_state: AppState<T>,
 }
@@ -145,12 +145,11 @@ impl<T: Layout> App<T> {
         }
     }
 
-    /// Spawn a new window on the screen. If an application has no windows,
-    /// the [`run`](#method.run) function will exit immediately.
-    pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css) -> Result<(), WindowCreateError> {
+    /// Spawn a new window on the screen. Note that this should only be used to
+    /// create extra windows, the default window will be the window submitted to
+    /// the `.run` method.
+    pub fn push_window(&mut self, window: Window<T>) {
         use default_callbacks::DefaultCallbackSystem;
-
-        let window = Window::new(options, css)?;
 
         self.app_state.windows.push(FakeWindow {
             state: window.state.clone(),
@@ -160,8 +159,6 @@ impl<T: Layout> App<T> {
         });
 
         self.windows.push(window);
-
-        Ok(())
     }
 
     /// Start the rendering loop for the currently open windows
@@ -186,8 +183,9 @@ impl<T: Layout> App<T> {
     /// // continue the rest of the program here...
     /// println!("username: {:?}, password: {:?}", username, password);
     /// ```
-    pub fn run(mut self) -> Result<T, RuntimeError<T>>
+    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>>
     {
+        self.push_window(window);
         self.run_inner()?;
         let unique_arc = Arc::try_unwrap(self.app_state.data).map_err(|_| RuntimeError::ArcUnlockError)?;
         unique_arc.into_inner().map_err(|e| e.into())
@@ -338,7 +336,7 @@ impl<T: Layout> App<T> {
         Ok(())
     }
 
-    fn update_display(window: &Window)
+    fn update_display(window: &Window<T>)
     {
         use webrender::api::{Transaction, DeviceUintRect, DeviceUintPoint};
         use euclid::TypedSize2D;
@@ -352,7 +350,7 @@ impl<T: Layout> App<T> {
         window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
-    fn initialize_ui_state(windows: &[Window], app_state: &mut AppState<T>)
+    fn initialize_ui_state(windows: &[Window<T>], app_state: &mut AppState<T>)
     -> Vec<UiState<T>>
     {
         windows.iter().enumerate().map(|(idx, _window)| {
@@ -615,7 +613,7 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
 
 fn do_hit_test_and_call_callbacks<T: Layout>(
     event: &Event,
-    window: &mut Window,
+    window: &mut Window<T>,
     window_id: WindowId,
     info: &mut FrameEventInfo,
     ui_state_cache: &[UiState<T>],
@@ -750,7 +748,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
 
 fn render<T: Layout>(
     app_data: Arc<Mutex<T>>,
-    window: &mut Window,
+    window: &mut Window<T>,
     window_id: WindowId,
     fake_window: &mut FakeWindow<T>,
     ui_description: &UiDescription<T>,
@@ -844,7 +842,7 @@ fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
 // See: https://github.com/servo/webrender/pull/2880
 // webrender doesn't reset the active shader back to what it was, but rather sets it
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
-fn render_inner(window: &mut Window, framebuffer_size: TypedSize2D<u32, DevicePixel>) {
+fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D<u32, DevicePixel>) {
 
     use gleam::gl;
     use window::get_gl_context;

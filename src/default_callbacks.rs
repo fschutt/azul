@@ -15,7 +15,7 @@ mod stack_checked_pointer {
     };
     use {
         traits::Layout,
-        dom::{UpdateScreen, Dom, IFrameCallback, Texture, GlTextureCallback},
+        dom::{UpdateScreen, Dom, Texture},
         default_callbacks::DefaultCallbackType,
         app_state::AppStateNoData,
         window::{WindowEvent, WindowInfo},
