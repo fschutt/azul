@@ -87,7 +87,6 @@ fn connect_to_db_async(app_data: Arc<Mutex<MyDataModel>>, _: Arc<()>) {
 
 fn main() {
     let model = MyDataModel { connection_status: ConnectionStatus::NotConnected };
-    let mut app = App::new(model, AppConfig::default());
-    app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
-    app.run().unwrap();
+    let app = App::new(model, AppConfig::default());
+    app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
 }

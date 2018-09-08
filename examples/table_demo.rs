@@ -15,7 +15,8 @@ impl Layout for TableDemo {
 }
 
 fn main() {
-    let mut app = App::new(TableDemo {
+
+    let app = App::new(TableDemo {
         table: TableViewOutcome::default(),
     }, AppConfig::default());
 
@@ -26,6 +27,5 @@ fn main() {
     #[cfg(not(debug_assertions))]
     let css = Css::new_from_str(include_str!(CSS_PATH!())).unwrap();
 
-    app.create_window(WindowCreateOptions::default(), css).unwrap();
-    app.run().unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
 }

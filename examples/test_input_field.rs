@@ -24,7 +24,6 @@ impl Layout for TestCrudApp {
 }
 
 fn main() {
-    let mut app = App::new(TestCrudApp::default(), AppConfig::default());
-    app.create_window(WindowCreateOptions::default(), Css::native()).unwrap();
-    app.run().unwrap();
+    let app = App::new(TestCrudApp::default(), AppConfig::default());
+    app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
 }

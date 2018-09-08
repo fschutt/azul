@@ -32,6 +32,5 @@ fn main() {
 
     let mut app = App::new(MyDataModel, AppConfig::default());
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
-    app.create_window(WindowCreateOptions::default(), css).unwrap();
-    app.run().unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
 }

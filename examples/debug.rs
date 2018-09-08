@@ -223,6 +223,5 @@ fn main() {
     };
 
     let mut app = App::new(MyAppData { map: None }, AppConfig::default());
-    app.create_window(WindowCreateOptions::default(), css).unwrap();
-    app.run().unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
 }

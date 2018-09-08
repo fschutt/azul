@@ -5,6 +5,7 @@ use std::{
     fmt,
     rc::Rc,
     collections::HashMap,
+    marker::PhantomData,
 };
 use webrender::{
     api::*,
@@ -463,7 +464,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window {
+pub struct Window<T: Layout> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     /// Current state of the window, stores the keyboard / mouse state,
@@ -491,6 +492,19 @@ pub struct Window {
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The css (how the current window is styled)
     pub(crate) css: Css,
+    /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`
+    /// of the `WindowCreateOptions`, so that we can write:
+    ///
+    /// ```rust,ignore
+    /// app.run(Window::new(WindowCreateOptions::new(), Css::native()).unwrap());
+    /// ```
+    ///
+    /// instead of having to annotate the type:
+    ///
+    /// ```rust,ignore
+    /// app.run(Window::new(WindowCreateOptions::<MyAppData>::new(), Css::native()).unwrap());
+    /// ```
+    marker: PhantomData<T>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -521,10 +535,10 @@ pub(crate) struct WindowInternal {
     pub(crate) document_id: DocumentId,
 }
 
-impl Window {
+impl<T: Layout> Window<T> {
 
     /// Creates a new window
-    pub fn new<T: Layout>(mut options: WindowCreateOptions<T>, css: Css) -> Result<Self, WindowCreateError>  {
+    pub fn new(mut options: WindowCreateOptions<T>, css: Css) -> Result<Self, WindowCreateError>  {
 
         let events_loop = EventsLoop::new();
 
@@ -714,6 +728,7 @@ impl Window {
                 last_display_list_builder: BuiltDisplayList::default(),
             },
             ui_solver,
+            marker: PhantomData,
         };
 
         Ok(window)
@@ -855,7 +870,7 @@ pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateEr
     }
 }
 
-impl Drop for Window {
+impl<T: Layout> Drop for Window<T> {
     fn drop(&mut self) {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();
