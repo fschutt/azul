@@ -66,14 +66,18 @@ extern crate serde;
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
-/// DOM / HTML node handling
-pub mod dom;
+/// Daemon / timer system
+pub mod daemon;
+/// Handles default callbacks (such as an automatic text field update) via unsafe code
+pub mod default_callbacks;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
+/// DOM / HTML node handling
+pub mod dom;
+/// Font handling
+pub mod font;
 /// Async IO / task system
 pub mod task;
-/// Daemon / animation system
-pub mod daemon;
 /// Module for caching long texts (including their layout / character positions) across multiple frames
 pub mod text_cache;
 /// Text layout helper functions - useful for text layout outside of standard containers
@@ -84,10 +88,10 @@ pub mod traits;
 pub mod widgets;
 /// Window handling
 pub mod window;
-/// Font handling
-pub mod font;
-/// Handles default callbacks (such as an automatic text field update) via unsafe code
-pub mod default_callbacks;
+/// Window state handling, event filtering
+pub mod window_state;
+
+
 /// Global application (Initialization starts here)
 mod app;
 /// Wrapper for the application data & application state
@@ -111,8 +115,6 @@ mod ui_state;
 mod cache;
 /// Image handling
 mod images;
-/// Window state handling, event filtering
-mod window_state;
 /// Application / context menu handling. Currently Win32 only. Also has parsing functions
 mod menu;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
@@ -145,7 +147,7 @@ pub mod prelude {
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode,
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
-    pub use window_state::WindowState;
+    pub use window_state::{WindowState, KeyboardState, MouseState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
     pub use css_parser::{
