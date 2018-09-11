@@ -811,7 +811,7 @@ impl SampledBezierCurve {
 /// Joins multiple SvgVert buffers to one and calculates the indices
 ///
 /// TODO: Wrap this in a nicer API
-pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert>]) -> VerticesIndicesBuffer {
+pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert, u32>]) -> VerticesIndicesBuffer {
 
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
@@ -1192,9 +1192,9 @@ pub struct SvgWorldPixel;
 #[derive(Debug, Clone)]
 pub struct VectorizedFont {
     /// Glyph -> Polygon map
-    glyph_polygon_map: Arc<Mutex<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
+    glyph_polygon_map: Arc<Mutex<FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>>>,
     /// Glyph -> Stroke map
-    glyph_stroke_map: Arc<Mutex<FastHashMap<GlyphId, VertexBuffers<SvgVert>>>>,
+    glyph_stroke_map: Arc<Mutex<FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>>>,
 }
 
 impl VectorizedFont {
@@ -1255,7 +1255,7 @@ impl VectorizedFont {
 /// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
 /// fill vertices for all the characters at once
 pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance])
--> Vec<VertexBuffers<SvgVert>>
+-> Vec<VertexBuffers<SvgVert, u32>>
 {
     let svg_stroke_opts = Some(SvgStrokeOptions::default());
 
@@ -1281,7 +1281,7 @@ pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font,
 /// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
 /// stroke vertices for all the characters at once
 pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance])
--> Vec<VertexBuffers<SvgVert>>
+-> Vec<VertexBuffers<SvgVert, u32>>
 {
     let svg_stroke_opts = Some(SvgStrokeOptions::default());
 
@@ -1365,7 +1365,7 @@ impl VectorizedFontCache {
 
 impl SvgLayerType {
     pub fn tesselate(&self, tolerance: f32, stroke: Option<SvgStrokeOptions>)
-    -> (VertexBuffers<SvgVert>, Option<VertexBuffers<SvgVert>>)
+    -> (VertexBuffers<SvgVert, u32>, Option<VertexBuffers<SvgVert, u32>>)
     {
         let mut geometry = VertexBuffers::new();
         let mut stroke_geometry = VertexBuffers::new();
@@ -2064,7 +2064,7 @@ fn normal_text_to_vertices(
     vectorized_font: &VectorizedFont,
     original_font: &Font,
     font_metrics: &FontMetrics,
-    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
+    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
 ) -> VerticesIndicesBuffer
 {
     use text_layout::{DEFAULT_LINE_HEIGHT_MULTIPLIER, DEFAULT_CHARACTER_WIDTH_MULTIPLIER};
@@ -2113,7 +2113,7 @@ fn rotated_text_to_vertices(
     original_font: &Font,
     rotation_degrees: f32,
     font_metrics: &FontMetrics,
-    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
+    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
 ) -> VerticesIndicesBuffer
 {
     use text_layout::{DEFAULT_CHARACTER_WIDTH_MULTIPLIER, DEFAULT_LINE_HEIGHT_MULTIPLIER};
@@ -2171,7 +2171,7 @@ fn curved_vector_text_to_vertices(
     char_offsets: &[(f32, f32)],
     char_rotations: &[BezierCharacterRotation],
     font_metrics: &FontMetrics,
-    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert>>
+    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
 ) -> VerticesIndicesBuffer
 {
     let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
