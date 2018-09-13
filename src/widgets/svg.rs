@@ -1,12 +1,13 @@
 use std::{
     fmt,
     rc::Rc,
-    io::{Error as IoError},
     sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}},
     cell::{RefCell, RefMut},
     hash::{Hash, Hasher},
     collections::hash_map::Entry::*,
 };
+#[cfg(feature = "svg_parsing")]
+use std::io::{Error as IoError};
 use glium::{
     backend::Facade, index::PrimitiveType,
     DrawParameters, IndexBuffer, VertexBuffer,
@@ -27,6 +28,7 @@ use lyon::{
     },
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D},
 };
+#[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF, GlyphInstance};
 use rusttype::{Font, Glyph};
@@ -301,7 +303,9 @@ pub struct SvgCache<T: Layout> {
     // offset by the X, Y value in the transforms struct. This should be expanded
     // to full matrices later on, so you can do full 3D transformations
     // on 2D shapes later on. For now, each transform is just an X, Y offset
+    #[cfg(feature = "svg_parsing")]
     transforms: FastHashMap<SvgTransformId, Transform>,
+    #[cfg(feature = "svg_parsing")]
     view_boxes: FastHashMap<SvgViewBoxId, ViewBox>,
 }
 
@@ -314,7 +318,9 @@ impl<T: Layout> Default for SvgCache<T> {
             vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
             stroke_vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
             shader: Mutex::new(None),
+            #[cfg(feature = "svg_parsing")]
             transforms: FastHashMap::default(),
+            #[cfg(feature = "svg_parsing")]
             view_boxes: FastHashMap::default(),
         }
     }
@@ -437,6 +443,7 @@ impl<T: Layout> SvgCache<T> {
         stroke_rmut.clear();
     }
 
+    #[cfg(feature = "svg_parsing")]
     pub fn add_transforms(&mut self, transforms: FastHashMap<SvgTransformId, Transform>) {
         transforms.into_iter().for_each(|(k, v)| {
             self.transforms.insert(k, v);
@@ -445,6 +452,7 @@ impl<T: Layout> SvgCache<T> {
 
     /// Parses an input source, parses the SVG, adds the shapes as layers into
     /// the registry, returns the IDs of the added shapes, in the order that they appeared in the Svg
+    #[cfg(feature = "svg_parsing")]
     pub fn add_svg<S: AsRef<str>>(&mut self, input: S) -> Result<Vec<SvgLayerId>, SvgParseError> {
         let (layers, transforms) = self::svg_to_lyon::parse_from(input, &mut self.view_boxes)?;
         self.add_transforms(transforms);
@@ -854,6 +862,7 @@ pub fn rotate_vertex_buffer(input: &mut [SvgVert], sin: f32, cos: f32) {
     }
 }
 
+#[cfg(feature = "svg_parsing")]
 #[derive(Debug)]
 pub enum SvgParseError {
     /// Syntax error in the Svg
@@ -862,12 +871,14 @@ pub enum SvgParseError {
     IoError(IoError),
 }
 
+#[cfg(feature = "svg_parsing")]
 impl From<SvgError> for SvgParseError {
     fn from(e: SvgError) -> Self {
         SvgParseError::FailedToParseSvg(e)
     }
 }
 
+#[cfg(feature = "svg_parsing")]
 impl From<IoError> for SvgParseError {
     fn from(e: IoError) -> Self {
         SvgParseError::IoError(e)
@@ -1312,8 +1323,27 @@ fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> Option<SvgLayerType> {
         .get_data()?.shape
         .as_ref()?
         .iter()
-        .map(svg_to_lyon::rusttype_glyph_to_path_events)
+        .map(rusttype_glyph_to_path_events)
         .collect()))
+}
+
+use stb_truetype::Vertex;
+
+// Convert a Rusttype glyph to a Vec of PathEvents,
+// in order to turn a glyph into a polygon
+fn rusttype_glyph_to_path_events(vertex: &Vertex)
+-> PathEvent
+{   use stb_truetype::VertexType;
+    // Rusttypes vertex type needs to be inverted in the Y axis
+    // in order to work with lyon correctly
+    match vertex.vertex_type() {
+        VertexType::CurveTo =>  PathEvent::QuadraticTo(
+                                    Point::new(vertex.cx as f32, -(vertex.cy as f32)),
+                                    Point::new(vertex.x as f32,  -(vertex.y as f32))
+                                ),
+        VertexType::MoveTo =>   PathEvent::MoveTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
+        VertexType::LineTo =>   PathEvent::LineTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
+    }
 }
 
 #[derive(Debug)]
@@ -1507,6 +1537,7 @@ impl SvgRect {
     }
 }
 
+#[cfg(feature = "svg_parsing")]
 mod svg_to_lyon {
 
     use lyon::{
@@ -1521,7 +1552,6 @@ mod svg_to_lyon {
     use traits::Layout;
     use webrender::api::ColorU;
     use FastHashMap;
-    use stb_truetype::Vertex;
 
     pub fn parse_from<S: AsRef<str>, T: Layout>(svg_source: S, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
     -> Result<(Vec<SvgLayer<T>>, FastHashMap<SvgTransformId, Transform>), SvgParseError> {
@@ -1637,23 +1667,6 @@ mod svg_to_lyon {
             b: color.blue,
             a: (s.opacity.value() * 255.0) as u8
         }, opts)
-    }
-
-    // Convert a Rusttype glyph to a Vec of PathEvents,
-    // in order to turn a glyph into a polygon
-    pub fn rusttype_glyph_to_path_events(vertex: &Vertex)
-    -> PathEvent
-    {   use stb_truetype::VertexType;
-        // Rusttypes vertex type needs to be inverted in the Y axis
-        // in order to work with lyon correctly
-        match vertex.vertex_type() {
-            VertexType::CurveTo =>  PathEvent::QuadraticTo(
-                                        Point::new(vertex.cx as f32, -(vertex.cy as f32)),
-                                        Point::new(vertex.x as f32,  -(vertex.y as f32))
-                                    ),
-            VertexType::MoveTo =>   PathEvent::MoveTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
-            VertexType::LineTo =>   PathEvent::LineTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
-        }
     }
 }
 
