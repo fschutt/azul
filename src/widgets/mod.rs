@@ -27,6 +27,6 @@ pub use self::text_input::{TextInput, TextInputOutcome};
 pub use self::table_view::{TableView, TableViewOutcome};
 
 pub mod errors {
-    #[cfg(feature = "svg")]
+    #[cfg(all(feature = "svg", feature = "svg_parsing"))]
     pub use super::svg::SvgParseError;
 }

@@ -39,7 +39,7 @@ extern crate lazy_static;
 extern crate euclid;
 #[cfg(feature = "svg")]
 extern crate lyon;
-#[cfg(feature = "svg")]
+#[cfg(all(feature = "svg", feature = "svg_parsing"))]
 extern crate usvg;
 extern crate webrender;
 extern crate cassowary;

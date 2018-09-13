@@ -15,6 +15,7 @@ license = "MIT"
 repository = "https://github.com/maps4print/azul"
 readme = "README.md"
 exclude = ["assets", "doc", "examples"]
+autoexamples = false
 
 [dependencies]
 cassowary = "0.3.0"
@@ -75,7 +76,9 @@ logging = ["fern", "backtrace"]
 # The SVG parsing & rendering module is pretty huge - if you don't use
 # SVG rendering in your app, you can turn this off to increase compilation
 # speed and decrease your binary size
-svg = ["lyon", "usvg"]
+svg = ["lyon"]
+
+svg_parsing = ["svg", "usvg"]
 
 # If you want an application icon, you can either load it via the raw
 # RGBA bytes or use the icon_loading feature to decode it from a PNG / JPG /
@@ -85,3 +88,19 @@ icon_loading = ["glium/icon_loading"]
 
 # For serializing / deserializing CSS colors using serde
 serde_serialization = ["serde"]
+
+[[example]]
+name = "debug"
+required-features = ["svg_parsing"]
+
+[[example]]
+name = "async"
+
+[[example]]
+name = "hot_reload"
+
+[[example]]
+name = "table_demo"
+
+[[example]]
+name = "test_input_field"
