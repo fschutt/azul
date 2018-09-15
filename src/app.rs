@@ -17,7 +17,7 @@ use euclid::TypedSize2D;
 use log::LevelFilter;
 use {
     images::ImageType,
-    errors::{FontError, ClipboardError},
+    error::{FontError, ClipboardError},
     window::{Window, WindowId},
     css_parser::{FontId, PixelValue},
     text_cache::TextId,

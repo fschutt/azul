@@ -104,3 +104,6 @@ name = "table_demo"
 
 [[example]]
 name = "test_input_field"
+
+[[example]]
+name = "errors"

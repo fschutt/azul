@@ -6,7 +6,7 @@ use {
     FastHashMap,
     traits::IntoParsedCssProperty,
     css_parser::{ParsedCssProperty, CssParsingError},
-    errors::CssSyntaxError,
+    error::CssSyntaxError,
 };
 
 #[cfg(target_os="windows")]
@@ -91,6 +91,17 @@ pub enum CssParseError<'a> {
     /// as soon as possible)
     UnexpectedValue(CssParsingError<'a>),
 }
+
+impl_display!(
+    CssParseError,
+    {
+        ParseError(e) => format!("Parse Error: {:?}", e),
+        UnclosedBlock => "Unclosed block",
+        MalformedCss => "Malformed Css",
+        DynamicCssParseError(e) => format!("Dynamic parsing error: {}", e),
+        UnexpectedValue(e) => format!("Unexpected value: {}", e)
+    }
+);
 
 impl<'a> From<CssParsingError<'a>> for CssParseError<'a> {
     fn from(e: CssParsingError<'a>) -> Self {
@@ -400,6 +411,15 @@ pub enum DynamicCssParseError<'a> {
     /// Unexpected value when parsing the string
     UnexpectedValue(CssParsingError<'a>),
 }
+
+impl_display!(DynamicCssParseError, {
+    UnclosedBraces => "Unclosed braces",
+    NoDefaultCase => "There is a valid dynamic css property, but no default case",
+    NoId => "The dynamic CSS property has no ID, i.e. [[ 400px ]]",
+    InvalidId => "The ID may not start with a number or be a CSS property itself",
+    EmptyBraces => "Dynamic css property braces are empty, i.e. `[[ ]]`",
+    UnexpectedValue(e) => format!("Unexpected value: {}", e)
+});
 
 impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
     fn from(e: CssParsingError<'a>) -> Self {
