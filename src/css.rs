@@ -194,6 +194,11 @@ pub enum HotReloadError {
     FailedToReload,
 }
 
+impl_display_without_lifetime!{ HotReloadError, {
+    Io(e, file) => format!("Io error: {} (file: \"{}\"", e, file),
+    FailedToReload => "Failed to reload."
+}}
+
 impl Css {
 
     /// Creates an empty set of CSS rules
