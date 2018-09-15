@@ -17,7 +17,7 @@ use {
     images::ImageType,
     font::FontError,
     css_parser::{FontId, FontSize, PixelValue},
-    errors::ClipboardError,
+    error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
 };
 

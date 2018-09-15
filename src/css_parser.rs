@@ -289,6 +289,22 @@ pub enum CssParsingError<'a> {
     UnsupportedCssKey(&'a str, &'a str),
 }
 
+impl_display!(CssParsingError,
+{
+    CssBorderRadiusParseError(e) => format!("Invalid border-radius: {}", e),
+    CssBorderParseError(e) => format!("{}", e),
+    CssShadowParseError(e) => format!("Invalid shadow: \"{}\"", e),
+    InvalidValueErr(e) => format!("\"{}\"", e.0),
+    PixelParseError(e) => format!("{}", e),
+    PercentageParseError(e) => format!("{}", e),
+    CssImageParseError(e) => format!("{}", e),
+    CssFontFamilyParseError(e) => format!("{}", e),
+    CssBackgroundParseError(e) => format!("{}", e),
+    CssColorParseError(e) => format!("{}", e),
+    PaddingParseError(e) => format!("{}", e),
+    UnsupportedCssKey(key, value) => format!("Unsupported Css-key: \"{}\" (value: \"{}\"", key, value)
+});
+
 impl_from!(CssBorderParseError, CssParsingError::CssBorderParseError);
 impl_from!(CssShadowParseError, CssParsingError::CssShadowParseError);
 impl_from!(CssColorParseError, CssParsingError::CssColorParseError);
@@ -362,6 +378,11 @@ pub enum CssBorderRadiusParseError<'a> {
     PixelParseError(PixelParseError<'a>),
 }
 
+impl_display!{CssBorderRadiusParseError, {
+    TooManyValues(val) => format!("Too many values: \"{}\"", val),
+    PixelParseError(e) => format!("{}", e)
+}}
+
 impl_from!(PixelParseError, CssBorderRadiusParseError::PixelParseError);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -387,6 +408,10 @@ pub enum CssImageParseError<'a> {
     UnclosedQuotes(&'a str),
 }
 
+impl_display!{CssImageParseError, {
+    UnclosedQuotes(e) => format!("Unclosed quotes: \"{}\"", e)
+}}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct UnclosedQuotesError<'a>(pub(crate) &'a str);
 
@@ -404,12 +429,32 @@ pub enum CssBorderParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
+impl_display!{
+    CssBorderParseError,
+    {
+        InvalidBorderStyle(e) => format!("Invalid border style: {}", e.0),
+        InvalidBorderDeclaration(e) => format!("Invalid border declaration: {}", e),
+        ThicknessParseError(e) => format!("Invalid border thickness: {}", e),
+        ColorParseError(e) => format!("Invalid border color: {}", e)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssShadowParseError<'a> {
     InvalidSingleStatement(&'a str),
     TooManyComponents(&'a str),
     ValueParseErr(PixelParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
+}
+
+impl_display!{
+    CssShadowParseError,
+    {
+        InvalidSingleStatement(e) => format!("Invalid single statement: {}", e),
+        TooManyComponents(e) => format!("Too many components: {}", e),
+        ValueParseErr(e) => format!("Invalid value: {}", e),
+        ColorParseError(e) => format!("Invalid color-value: {}", e)
+    }
 }
 
 impl_from!(PixelParseError, CssShadowParseError::ValueParseErr);
@@ -491,6 +536,11 @@ pub enum PixelParseError<'a> {
     ValueParseErr(ParseFloatError),
 }
 
+impl_display!{PixelParseError, {
+    InvalidComponent(component) => format!("Invalid component: \"{}\"", component),
+    ValueParseErr(e) => format!("Unexpected value: \"{}\"", e)
+}}
+
 /// parse a single value such as "15px"
 fn parse_pixel_value<'a>(input: &'a str)
 -> Result<PixelValue, PixelParseError<'a>>
@@ -524,6 +574,10 @@ fn parse_pixel_value<'a>(input: &'a str)
 pub enum PercentageParseError {
     ValueParseErr(ParseFloatError),
 }
+
+impl_display_without_lifetime!{ PercentageParseError, {
+    ValueParseErr(e) => format!("Invalid percentage-value: \"{}\"", e)
+}}
 
 // Parse "1.2" or "120%" (similar to parse_pixel_value)
 fn parse_percentage_value(input: &str)
@@ -835,6 +889,12 @@ pub enum LayoutPaddingParseError<'a> {
     TooFewValues,
 }
 
+impl_display!{LayoutPaddingParseError, {
+    PixelParseError(e) => format!("Invalid pixel value: {}", e),
+    TooManyValues => format!("Too many values."),
+    TooFewValues => format!("Too few values.")
+}}
+
 impl_from!(PixelParseError, LayoutPaddingParseError::PixelParseError);
 
 /// Parse a padding value such as
@@ -1087,6 +1147,18 @@ pub enum CssBackgroundParseError<'a> {
     ShapeParseError(CssShapeParseError<'a>),
     ImageParseError(CssImageParseError<'a>),
 }
+
+impl_display!{ CssBackgroundParseError, {
+    Error(e) => e,
+    InvalidBackground(val) => format!("Invalid value: \"{}\"", val),
+    UnclosedGradient(val) => format!("Unclosed gradient: \"{}\"", val),
+    NoDirection(val) => format!("No direction: \"{}\"", val),
+    TooFewGradientStops(val) => format!("Too few gradient-stops: \"{}\"", val),
+    DirectionParseError(e) => format!("Direction parse error: {}", e),
+    GradientParseError(e) => format!("Gradient parse error: {}", e),
+    ShapeParseError(e) => format!("Shape parse error: {}", e),
+    ImageParseError(e) => format!("Image parse error: {}", e)
+}}
 
 impl_from!(CssDirectionParseError, CssBackgroundParseError::DirectionParseError);
 impl_from!(CssGradientStopParseError, CssBackgroundParseError::GradientParseError);
@@ -1518,6 +1590,11 @@ pub enum CssGradientStopParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
+impl_display!{CssGradientStopParseError, {
+    Error(e) => e,
+    ColorParseError(e) => format!("{}", e)
+}}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GradientStopPre {
     pub offset: Option<f32>, // this is set to None if there was no offset that could be parsed
@@ -1559,6 +1636,13 @@ pub enum CssDirectionParseError<'a> {
     ParseFloat(ParseFloatError),
     CornerError(CssDirectionCornerParseError<'a>),
 }
+
+impl_display!{CssDirectionParseError, {
+    Error(e) => e,
+    InvalidArguments(val) => format!("Invalid arguments: \"{}\"", val),
+    ParseFloat(e) => format!("Invalid value: {}", e),
+    CornerError(e) => format!("Invalid corner value: {}", e)
+}}
 
 impl<'a> From<ParseFloatError> for CssDirectionParseError<'a> {
     fn from(e: ParseFloatError) -> Self {
@@ -1639,6 +1723,10 @@ pub enum CssDirectionCornerParseError<'a> {
     InvalidDirection(&'a str),
 }
 
+impl_display!{ CssDirectionCornerParseError, {
+    InvalidDirection(val) => format!("Invalid direction: \"{}\"", val)
+}}
+
 fn parse_direction_corner<'a>(input: &'a str)
 -> Result<DirectionCorner, CssDirectionCornerParseError<'a>>
 {
@@ -1655,6 +1743,10 @@ fn parse_direction_corner<'a>(input: &'a str)
 pub enum CssShapeParseError<'a> {
     ShapeErr(InvalidValueErr<'a>),
 }
+
+impl_display!{CssShapeParseError, {
+    ShapeErr(e) => format!("{}", e.0)
+}}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutWidth(pub PixelValue);
@@ -1933,6 +2025,11 @@ pub enum CssFontFamilyParseError<'a> {
     InvalidFontFamily(&'a str),
     UnclosedQuotes(&'a str),
 }
+
+impl_display!{CssFontFamilyParseError, {
+    InvalidFontFamily(val) => format!("Invalid font-family: \"{}\"", val),
+    UnclosedQuotes(val) => format!("Unclosed quotes: \"{}\"", val)
+}}
 
 impl<'a> From<UnclosedQuotesError<'a>> for CssFontFamilyParseError<'a> {
     fn from(err: UnclosedQuotesError<'a>) -> Self {
