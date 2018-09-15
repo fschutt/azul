@@ -6,6 +6,7 @@ use azul::error::{
 };
 
 pub fn main() {
+    // [CSS error] Unexpected value: "Test"
     println!(
         "{}",
         Error::CssParse(CssParseError::UnexpectedValue(
@@ -13,6 +14,7 @@ pub fn main() {
         ))
     );
 
+    // [CSS error] Dynamic parsing error: Dynamic css property braces are empty, i.e. `[[ ]]`
     println!(
         "{}",
         Error::CssParse(CssParseError::DynamicCssParseError(
@@ -20,6 +22,7 @@ pub fn main() {
         ))
     );
 
+    // [CSS error] Dynamic parsing error: Unexpected value: Invalid border thickness: Invalid component: "Foo"
     println!(
         "{}",
         Error::CssParse(CssParseError::DynamicCssParseError(
@@ -29,14 +32,18 @@ pub fn main() {
         ))
     );
 
+    // [Window-create error] WebGl is not supported by webrender
     println!(
         "{}",
         Error::WindowCreate(WindowCreateError::WebGlNotSupported)
     );
 
+    // [Clipboard error] Clipboard::Unimplemented: Attempted to get or set the clipboard, which hasn't been implemented yet.
     println!("{}", Error::Clipboard(ClipboardError::Unimplemented));
 
+    // [Window-create error] Webrender creation error (probably OpenGL missing?)
     println!("{}", Error::WindowCreate(WindowCreateError::Renderer));
 
+    // [Font error] Invalid format
     println!("{}", Error::Font(FontError::InvalidFormat));
 }
