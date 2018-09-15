@@ -15,7 +15,6 @@ pub use clipboard2::ClipboardError;
 pub use widgets::errors::*;
 pub use window::WindowCreateError;
 
-#[macro_export]
 macro_rules! impl_display {
     ($enum:ident, {$($variant:pat => $fmt_string:expr),+}) => (
     
@@ -33,7 +32,6 @@ macro_rules! impl_display {
     )
 }
 
-#[macro_export]
 macro_rules! impl_display_without_lifetime {
     ($enum:ident, {$($variant:pat => $fmt_string:expr),+}) => (
     
