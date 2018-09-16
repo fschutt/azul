@@ -3,13 +3,15 @@
 /// ```
 /// enum MyError<'a> {
 ///     Bar(BarError<'a>)
-///     Foo(FooError)
+///     Foo(FooError<'a>)
 /// }
 /// 
 /// impl_from!(BarError<'a>, Error::Bar);
-/// impl_from!(FooError, Error::Foo);
+/// impl_from!(BarError<'a>, Error::Bar);
+/// 
 /// ```
 macro_rules! impl_from {
+    // From a type with a lifetime to a type which also has a lifetime
     ($a:ident<$c:lifetime>, $b:ident::$enum_type:ident) => {
         impl<$c> From<$a<$c>> for $b<$c> {
             fn from(e: $a<$c>) -> Self {
@@ -18,6 +20,7 @@ macro_rules! impl_from {
         }
     };
 
+    // From a type without a lifetime to a type which also does not have a lifetime
     ($a:ident, $b:ident::$enum_type:ident) => {
         impl From<$a> for $b {
             fn from(e: $a) -> Self {
