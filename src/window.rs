@@ -361,7 +361,7 @@ pub enum WindowCreateError {
     Renderer/*(RendererError)*/,
 }
 
-impl_display_without_lifetime!{
+impl_display! {
     WindowCreateError,
     {
         DisplayCreateError(e) => format!("Could not create the display from the window and the EventsLoop: {}", e),

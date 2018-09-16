@@ -27,12 +27,12 @@ pub enum FontError {
     IoError(::std::io::Error),
 }
 
-impl_display_without_lifetime!(FontError, {
+impl_display!{ FontError, {
     UploadError => "Font failed to upload to the GPU",
     InvalidFormat => "Invalid format",
     ParseError(e) => format!("Rusttype failed to parse the font: {}", e),
     IoError(e) => format!("IO error: {}", e)
-});
+}}
 
 impl From<RusttypeError> for FontError {
     fn from(e: RusttypeError) -> Self {

@@ -66,8 +66,10 @@ extern crate serde;
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
-/// Re-exports of errors
 #[macro_use]
+mod macros;
+
+/// Re-exports of errors
 pub mod error;
 
 /// Daemon / timer system
