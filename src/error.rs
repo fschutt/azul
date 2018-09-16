@@ -16,40 +16,6 @@ pub use clipboard2::ClipboardError;
 pub use widgets::errors::*;
 pub use window::WindowCreateError;
 
-macro_rules! impl_display {
-    ($enum:ident, {$($variant:pat => $fmt_string:expr),+}) => (
-    
-        impl<'a> ::std::fmt::Display for $enum<'a> {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                use self::$enum::*;
-                match &self {
-                    $(
-                        $variant => write!(f, "{}", $fmt_string),
-                    )+
-                }
-            }
-        }
-
-    )
-}
-
-macro_rules! impl_display_without_lifetime {
-    ($enum:ident, {$($variant:pat => $fmt_string:expr),+}) => (
-    
-        impl ::std::fmt::Display for $enum {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                use self::$enum::*;
-                match &self {
-                    $(
-                        $variant => write!(f, "{}", $fmt_string),
-                    )+
-                }
-            }
-        }
-
-    )
-}
-
 #[derive(Debug)]
 pub enum Error<'a> {
     CssParse(CssParseError<'a>),
@@ -96,11 +62,14 @@ impl<'a> From<HotReloadError> for Error<'a> {
     }
 }
 
-impl_display! {Error, {
-    CssParse(e) => format!("[CSS error] {}", e),
-    Font(e) => format!("[Font error] {}", e),
-    Image(e) => format!("[Image error] {}", e),
-    Clipboard(e) => format!("[Clipboard error] {}", e),
-    WindowCreate(e) => format!("[Window-create error] {}", e),
-    HotReload(e) => format!("[Hot-reload error] {}", e)
-}}
+impl_display! {
+    Error<'a>,
+    {
+        CssParse(e) => format!("[CSS error] {}", e),
+        Font(e) => format!("[Font error] {}", e),
+        Image(e) => format!("[Image error] {}", e),
+        Clipboard(e) => format!("[Clipboard error] {}", e),
+        WindowCreate(e) => format!("[Window-create error] {}", e),
+        HotReload(e) => format!("[Hot-reload error] {}", e)
+    }
+}

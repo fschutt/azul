@@ -24,28 +24,6 @@ pub(crate) const DEFAULT_FONT_SIZE: FontSize = FontSize(PixelValue {
     number: 10_000,
 });
 
-/// Implements `From` for `$a`, mapping it to the `$b::$enum_type` variant
-macro_rules! impl_from {
-    ($a:ident, $b:ident::$enum_type:ident) => (
-        impl<'a> From<$a<'a>> for $b<'a> {
-            fn from(e: $a<'a>) -> Self {
-                $b::$enum_type(e)
-            }
-        }
-    )
-}
-
-/// Same as `impl_from`, but without lifetime annotations for `$a`
-macro_rules! impl_from_no_lifetimes {
-    ($a:ident, $b:ident::$enum_type:ident) => (
-        impl From<$a> for $b {
-            fn from(e: $a) -> Self {
-                $b::$enum_type(e)
-            }
-        }
-    )
-}
-
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
     ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => (
@@ -124,37 +102,37 @@ impl ParsedCssProperty {
     }
 }
 
-impl_from_no_lifetimes!(BorderRadius, ParsedCssProperty::BorderRadius);
-impl_from_no_lifetimes!(Background, ParsedCssProperty::Background);
-impl_from_no_lifetimes!(FontSize, ParsedCssProperty::FontSize);
-impl_from_no_lifetimes!(FontFamily, ParsedCssProperty::FontFamily);
-impl_from_no_lifetimes!(LayoutOverflow, ParsedCssProperty::Overflow);
-impl_from_no_lifetimes!(TextAlignmentHorz, ParsedCssProperty::TextAlign);
-impl_from_no_lifetimes!(LineHeight, ParsedCssProperty::LineHeight);
+impl_from!(BorderRadius, ParsedCssProperty::BorderRadius);
+impl_from!(Background, ParsedCssProperty::Background);
+impl_from!(FontSize, ParsedCssProperty::FontSize);
+impl_from!(FontFamily, ParsedCssProperty::FontFamily);
+impl_from!(LayoutOverflow, ParsedCssProperty::Overflow);
+impl_from!(TextAlignmentHorz, ParsedCssProperty::TextAlign);
+impl_from!(LineHeight, ParsedCssProperty::LineHeight);
 
-impl_from_no_lifetimes!(LayoutWidth, ParsedCssProperty::Width);
-impl_from_no_lifetimes!(LayoutHeight, ParsedCssProperty::Height);
-impl_from_no_lifetimes!(LayoutMinWidth, ParsedCssProperty::MinWidth);
-impl_from_no_lifetimes!(LayoutMinHeight, ParsedCssProperty::MinHeight);
-impl_from_no_lifetimes!(LayoutMaxWidth, ParsedCssProperty::MaxWidth);
-impl_from_no_lifetimes!(LayoutMaxHeight, ParsedCssProperty::MaxHeight);
+impl_from!(LayoutWidth, ParsedCssProperty::Width);
+impl_from!(LayoutHeight, ParsedCssProperty::Height);
+impl_from!(LayoutMinWidth, ParsedCssProperty::MinWidth);
+impl_from!(LayoutMinHeight, ParsedCssProperty::MinHeight);
+impl_from!(LayoutMaxWidth, ParsedCssProperty::MaxWidth);
+impl_from!(LayoutMaxHeight, ParsedCssProperty::MaxHeight);
 
-impl_from_no_lifetimes!(LayoutPosition, ParsedCssProperty::Position);
-impl_from_no_lifetimes!(LayoutTop, ParsedCssProperty::Top);
-impl_from_no_lifetimes!(LayoutBottom, ParsedCssProperty::Bottom);
-impl_from_no_lifetimes!(LayoutRight, ParsedCssProperty::Right);
-impl_from_no_lifetimes!(LayoutLeft, ParsedCssProperty::Left);
+impl_from!(LayoutPosition, ParsedCssProperty::Position);
+impl_from!(LayoutTop, ParsedCssProperty::Top);
+impl_from!(LayoutBottom, ParsedCssProperty::Bottom);
+impl_from!(LayoutRight, ParsedCssProperty::Right);
+impl_from!(LayoutLeft, ParsedCssProperty::Left);
 
-impl_from_no_lifetimes!(LayoutPadding, ParsedCssProperty::Padding);
+impl_from!(LayoutPadding, ParsedCssProperty::Padding);
 
-impl_from_no_lifetimes!(LayoutWrap, ParsedCssProperty::FlexWrap);
-impl_from_no_lifetimes!(LayoutDirection, ParsedCssProperty::FlexDirection);
-impl_from_no_lifetimes!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
-impl_from_no_lifetimes!(LayoutAlignItems, ParsedCssProperty::AlignItems);
-impl_from_no_lifetimes!(LayoutAlignContent, ParsedCssProperty::AlignContent);
+impl_from!(LayoutWrap, ParsedCssProperty::FlexWrap);
+impl_from!(LayoutDirection, ParsedCssProperty::FlexDirection);
+impl_from!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
+impl_from!(LayoutAlignItems, ParsedCssProperty::AlignItems);
+impl_from!(LayoutAlignContent, ParsedCssProperty::AlignContent);
 
-impl_from_no_lifetimes!(BackgroundColor, ParsedCssProperty::BackgroundColor);
-impl_from_no_lifetimes!(TextColor, ParsedCssProperty::TextColor);
+impl_from!(BackgroundColor, ParsedCssProperty::BackgroundColor);
+impl_from!(TextColor, ParsedCssProperty::TextColor);
 
 impl From<(BorderWidths, BorderDetails)> for ParsedCssProperty {
     fn from((widths, details): (BorderWidths, BorderDetails)) -> Self {
@@ -289,8 +267,7 @@ pub enum CssParsingError<'a> {
     UnsupportedCssKey(&'a str, &'a str),
 }
 
-impl_display!(CssParsingError,
-{
+impl_display!{ CssParsingError<'a>, {
     CssBorderRadiusParseError(e) => format!("Invalid border-radius: {}", e),
     CssBorderParseError(e) => format!("{}", e),
     CssShadowParseError(e) => format!("Invalid shadow: \"{}\"", e),
@@ -303,18 +280,18 @@ impl_display!(CssParsingError,
     CssColorParseError(e) => format!("{}", e),
     PaddingParseError(e) => format!("{}", e),
     UnsupportedCssKey(key, value) => format!("Unsupported Css-key: \"{}\" (value: \"{}\"", key, value)
-});
+}}
 
-impl_from!(CssBorderParseError, CssParsingError::CssBorderParseError);
-impl_from!(CssShadowParseError, CssParsingError::CssShadowParseError);
-impl_from!(CssColorParseError, CssParsingError::CssColorParseError);
-impl_from!(InvalidValueErr, CssParsingError::InvalidValueErr);
-impl_from!(PixelParseError, CssParsingError::PixelParseError);
-impl_from!(CssImageParseError, CssParsingError::CssImageParseError);
-impl_from!(CssFontFamilyParseError, CssParsingError::CssFontFamilyParseError);
-impl_from!(CssBackgroundParseError, CssParsingError::CssBackgroundParseError);
-impl_from!(CssBorderRadiusParseError, CssParsingError::CssBorderRadiusParseError);
-impl_from!(LayoutPaddingParseError, CssParsingError::PaddingParseError);
+impl_from!(CssBorderParseError<'a>, CssParsingError::CssBorderParseError);
+impl_from!(CssShadowParseError<'a>, CssParsingError::CssShadowParseError);
+impl_from!(CssColorParseError<'a>, CssParsingError::CssColorParseError);
+impl_from!(InvalidValueErr<'a>, CssParsingError::InvalidValueErr);
+impl_from!(PixelParseError<'a>, CssParsingError::PixelParseError);
+impl_from!(CssImageParseError<'a>, CssParsingError::CssImageParseError);
+impl_from!(CssFontFamilyParseError<'a>, CssParsingError::CssFontFamilyParseError);
+impl_from!(CssBackgroundParseError<'a>, CssParsingError::CssBackgroundParseError);
+impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::CssBorderRadiusParseError);
+impl_from!(LayoutPaddingParseError<'a>, CssParsingError::PaddingParseError);
 
 impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
     fn from((a, b): (&'a str, &'a str)) -> Self {
@@ -378,12 +355,12 @@ pub enum CssBorderRadiusParseError<'a> {
     PixelParseError(PixelParseError<'a>),
 }
 
-impl_display!{CssBorderRadiusParseError, {
+impl_display!{ CssBorderRadiusParseError<'a>, {
     TooManyValues(val) => format!("Too many values: \"{}\"", val),
     PixelParseError(e) => format!("{}", e)
 }}
 
-impl_from!(PixelParseError, CssBorderRadiusParseError::PixelParseError);
+impl_from!(PixelParseError<'a>, CssBorderRadiusParseError::PixelParseError);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssColorParseError<'a> {
@@ -408,7 +385,7 @@ pub enum CssImageParseError<'a> {
     UnclosedQuotes(&'a str),
 }
 
-impl_display!{CssImageParseError, {
+impl_display!{CssImageParseError<'a>, {
     UnclosedQuotes(e) => format!("Unclosed quotes: \"{}\"", e)
 }}
 
@@ -429,15 +406,12 @@ pub enum CssBorderParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
-impl_display!{
-    CssBorderParseError,
-    {
-        InvalidBorderStyle(e) => format!("Invalid border style: {}", e.0),
-        InvalidBorderDeclaration(e) => format!("Invalid border declaration: {}", e),
-        ThicknessParseError(e) => format!("Invalid border thickness: {}", e),
-        ColorParseError(e) => format!("Invalid border color: {}", e)
-    }
-}
+impl_display!{ CssBorderParseError<'a>, {
+    InvalidBorderStyle(e) => format!("Invalid border style: {}", e.0),
+    InvalidBorderDeclaration(e) => format!("Invalid border declaration: {}", e),
+    ThicknessParseError(e) => format!("Invalid border thickness: {}", e),
+    ColorParseError(e) => format!("Invalid border color: {}", e)
+}}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssShadowParseError<'a> {
@@ -447,18 +421,15 @@ pub enum CssShadowParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
-impl_display!{
-    CssShadowParseError,
-    {
-        InvalidSingleStatement(e) => format!("Invalid single statement: {}", e),
-        TooManyComponents(e) => format!("Too many components: {}", e),
-        ValueParseErr(e) => format!("Invalid value: {}", e),
-        ColorParseError(e) => format!("Invalid color-value: {}", e)
-    }
-}
+impl_display!{ CssShadowParseError<'a>, {
+    InvalidSingleStatement(e) => format!("Invalid single statement: {}", e),
+    TooManyComponents(e) => format!("Too many components: {}", e),
+    ValueParseErr(e) => format!("Invalid value: {}", e),
+    ColorParseError(e) => format!("Invalid color-value: {}", e)
+}}
 
-impl_from!(PixelParseError, CssShadowParseError::ValueParseErr);
-impl_from!(CssColorParseError, CssShadowParseError::ColorParseError);
+impl_from!(PixelParseError<'a>, CssShadowParseError::ValueParseErr);
+impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
 fn parse_css_border_radius<'a>(input: &'a str)
@@ -536,7 +507,7 @@ pub enum PixelParseError<'a> {
     ValueParseErr(ParseFloatError),
 }
 
-impl_display!{PixelParseError, {
+impl_display!{ PixelParseError<'a>, {
     InvalidComponent(component) => format!("Invalid component: \"{}\"", component),
     ValueParseErr(e) => format!("Unexpected value: \"{}\"", e)
 }}
@@ -575,7 +546,7 @@ pub enum PercentageParseError {
     ValueParseErr(ParseFloatError),
 }
 
-impl_display_without_lifetime!{ PercentageParseError, {
+impl_display! { PercentageParseError, {
     ValueParseErr(e) => format!("Invalid percentage-value: \"{}\"", e)
 }}
 
@@ -889,13 +860,13 @@ pub enum LayoutPaddingParseError<'a> {
     TooFewValues,
 }
 
-impl_display!{LayoutPaddingParseError, {
+impl_display!{ LayoutPaddingParseError<'a>, {
     PixelParseError(e) => format!("Invalid pixel value: {}", e),
     TooManyValues => format!("Too many values."),
     TooFewValues => format!("Too few values.")
 }}
 
-impl_from!(PixelParseError, LayoutPaddingParseError::PixelParseError);
+impl_from!(PixelParseError<'a>, LayoutPaddingParseError::PixelParseError);
 
 /// Parse a padding value such as
 ///
@@ -1148,7 +1119,7 @@ pub enum CssBackgroundParseError<'a> {
     ImageParseError(CssImageParseError<'a>),
 }
 
-impl_display!{ CssBackgroundParseError, {
+impl_display!{ CssBackgroundParseError<'a>, {
     Error(e) => e,
     InvalidBackground(val) => format!("Invalid value: \"{}\"", val),
     UnclosedGradient(val) => format!("Unclosed gradient: \"{}\"", val),
@@ -1160,10 +1131,10 @@ impl_display!{ CssBackgroundParseError, {
     ImageParseError(e) => format!("Image parse error: {}", e)
 }}
 
-impl_from!(CssDirectionParseError, CssBackgroundParseError::DirectionParseError);
-impl_from!(CssGradientStopParseError, CssBackgroundParseError::GradientParseError);
-impl_from!(CssShapeParseError, CssBackgroundParseError::ShapeParseError);
-impl_from!(CssImageParseError, CssBackgroundParseError::ImageParseError);
+impl_from!(CssDirectionParseError<'a>, CssBackgroundParseError::DirectionParseError);
+impl_from!(CssGradientStopParseError<'a>, CssBackgroundParseError::GradientParseError);
+impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
+impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Background {
@@ -1590,7 +1561,7 @@ pub enum CssGradientStopParseError<'a> {
     ColorParseError(CssColorParseError<'a>),
 }
 
-impl_display!{CssGradientStopParseError, {
+impl_display!{ CssGradientStopParseError<'a>, {
     Error(e) => e,
     ColorParseError(e) => format!("{}", e)
 }}
@@ -1637,7 +1608,7 @@ pub enum CssDirectionParseError<'a> {
     CornerError(CssDirectionCornerParseError<'a>),
 }
 
-impl_display!{CssDirectionParseError, {
+impl_display!{CssDirectionParseError<'a>, {
     Error(e) => e,
     InvalidArguments(val) => format!("Invalid arguments: \"{}\"", val),
     ParseFloat(e) => format!("Invalid value: {}", e),
@@ -1723,7 +1694,7 @@ pub enum CssDirectionCornerParseError<'a> {
     InvalidDirection(&'a str),
 }
 
-impl_display!{ CssDirectionCornerParseError, {
+impl_display!{ CssDirectionCornerParseError<'a>, {
     InvalidDirection(val) => format!("Invalid direction: \"{}\"", val)
 }}
 
@@ -1744,7 +1715,7 @@ pub enum CssShapeParseError<'a> {
     ShapeErr(InvalidValueErr<'a>),
 }
 
-impl_display!{CssShapeParseError, {
+impl_display!{CssShapeParseError<'a>, {
     ShapeErr(e) => format!("{}", e.0)
 }}
 
@@ -2026,7 +1997,7 @@ pub enum CssFontFamilyParseError<'a> {
     UnclosedQuotes(&'a str),
 }
 
-impl_display!{CssFontFamilyParseError, {
+impl_display!{CssFontFamilyParseError<'a>, {
     InvalidFontFamily(val) => format!("Invalid font-family: \"{}\"", val),
     UnclosedQuotes(val) => format!("Unclosed quotes: \"{}\"", val)
 }}
