@@ -394,10 +394,17 @@ impl<T: Layout> Hash for NodeData<T> {
 }
 
 impl<T: Layout> NodeData<T> {
+
     pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
         use std::hash::Hash;
-        use twox_hash::XxHash;
-        let mut hasher = XxHash::default();
+
+        // Pick hash algorithm based on features
+        #[cfg(feature = "faster-hashing")]
+        use twox_hash::XxHash as HashAlgorithm;
+        #[cfg(not(feature = "faster-hashing"))]
+        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
+
+        let mut hasher = HashAlgorithm::default();
         self.hash(&mut hasher);
         DomHash(hasher.finish())
     }
