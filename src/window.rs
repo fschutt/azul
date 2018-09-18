@@ -232,7 +232,7 @@ pub struct WindowCreateOptions<T: Layout> {
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
     /// Win32 menu callbacks
-    pub menu_callbacks: HashMap<u16, Callback<T>>,
+    pub menu_callbacks: FastHashMap<u16, Callback<T>>,
     /// Sets the window icon (Windows and Linux only). Usually 16x16 px or 32x32px
     pub window_icon: Option<Icon>,
     /// Windows only: Sets the 256x256 taskbar icon during startup
@@ -253,7 +253,7 @@ impl<T: Layout> Default for WindowCreateOptions<T> {
             mouse_mode: MouseMode::default(),
             update_behaviour: UpdateBehaviour::default(),
             renderer_type: RendererType::default(),
-            menu_callbacks: HashMap::new(),
+            menu_callbacks: FastHashMap::default(),
             window_icon: None,
             taskbar_icon: None,
             no_redirection_bitmap: false,

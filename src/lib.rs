@@ -43,6 +43,7 @@ extern crate lyon;
 extern crate usvg;
 extern crate webrender;
 extern crate cassowary;
+#[cfg(feature = "faster-hashing")]
 extern crate twox_hash;
 extern crate simplecss;
 extern crate rusttype;
@@ -128,9 +129,16 @@ mod logging;
 /// Cassowary-based UI solver
 mod ui_solver;
 
-/// Faster implementation of a HashMap
+// Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
+
+#[cfg(feature = "faster-hashing")]
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
+#[cfg(feature = "faster-hashing")]
 type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
+#[cfg(not(feature = "faster-hashing"))]
+type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
+#[cfg(not(feature = "faster-hashing"))]
+type FastHashSet<T> = ::std::collections::HashSet<T>;
 
 /// Quick exports of common types
 pub mod prelude {
