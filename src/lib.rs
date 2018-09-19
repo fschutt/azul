@@ -59,7 +59,7 @@ extern crate image;
 extern crate serde;
 #[cfg(feature = "svg")]
 extern crate lyon;
-#[cfg(all(feature = "svg", feature = "svg_parsing"))]
+#[cfg(feature = "svg_parsing")]
 extern crate usvg;
 #[cfg(feature = "faster-hashing")]
 extern crate twox_hash;
