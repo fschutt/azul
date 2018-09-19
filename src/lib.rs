@@ -28,23 +28,17 @@
 #![deny(missing_copy_implementations)]
 #![allow(dead_code)]
 
-#![windows_subsystem = "windows"]
-
-#[macro_use]
+#[cfg_attr(feature = "svg", macro_use)]
 pub extern crate glium;
 pub extern crate gleam;
 
 #[macro_use]
+extern crate log;
+#[macro_use]
 extern crate lazy_static;
 extern crate euclid;
-#[cfg(feature = "svg")]
-extern crate lyon;
-#[cfg(all(feature = "svg", feature = "svg_parsing"))]
-extern crate usvg;
 extern crate webrender;
 extern crate cassowary;
-#[cfg(feature = "faster-hashing")]
-extern crate twox_hash;
 extern crate simplecss;
 extern crate rusttype;
 extern crate app_units;
@@ -53,16 +47,22 @@ extern crate tinyfiledialogs;
 extern crate stb_truetype;
 extern crate clipboard2;
 extern crate font_loader;
-#[macro_use]
-extern crate log;
+
 #[cfg(feature = "logging")]
 extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
+#[cfg(feature = "image_loading")]
 extern crate image;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde;
+#[cfg(feature = "svg")]
+extern crate lyon;
+#[cfg(all(feature = "svg", feature = "svg_parsing"))]
+extern crate usvg;
+#[cfg(feature = "faster-hashing")]
+extern crate twox_hash;
 
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
@@ -198,6 +198,7 @@ pub mod errors {
     pub use simplecss::Error as CssSyntaxError;
     pub use css::{CssParseError, DynamicCssParseError};
     pub use font::FontError;
+    #[cfg(feature = "image_loading")]
     pub use image::ImageError;
 
     // TODO: re-export the sub-types of ClipboardError!
