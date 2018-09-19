@@ -4,7 +4,6 @@ use std::{
     time::Duration,
     fmt,
     rc::Rc,
-    collections::HashMap,
     marker::PhantomData,
 };
 use webrender::{

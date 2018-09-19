@@ -22,6 +22,7 @@ script:
   - cargo check --verbose --examples
   - cargo check --no-default-features
   - cargo check --no-default-features --features="svg"
+  - cargo check --no-default-features --features="image_loading"
   - cargo check --no-default-features --features="logging"
   - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
 

@@ -1,10 +1,14 @@
 //! Module for loading and handling images
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    path::Path,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use webrender::api::{
     ImageFormat as WebrenderImageFormat,
     ImageData, ImageDescriptor, ImageKey
 };
+#[cfg(feature = "image_loading")]
 use image::{
     self, ImageResult, ImageFormat,
     ImageError, DynamicImage, GenericImage,
@@ -58,6 +62,8 @@ pub(crate) enum ImageState {
 
 
 impl ImageType {
+
+    #[cfg(feature = "image_loading")]
     pub(crate) fn into_image_format(&self, data: &[u8]) -> ImageResult<ImageFormat> {
         use self::ImageType::*;
         match *self {
@@ -80,8 +86,6 @@ impl ImageType {
 
 // The next three functions are taken from:
 // https://github.com/christolliday/limn/blob/master/core/src/resources/image.rs
-
-use std::path::Path;
 
 /// Convenience function to get the image type from a path
 ///
@@ -114,6 +118,7 @@ pub fn get_image_type_from_extension(path: &Path) -> Option<ImageType> {
     }
 }
 
+#[cfg(feature = "image_loading")]
 pub(crate) fn prepare_image(image_decoded: DynamicImage)
     -> Result<(ImageData, ImageDescriptor), ImageError>
 {

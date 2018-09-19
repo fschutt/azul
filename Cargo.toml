@@ -18,37 +18,39 @@ exclude = ["assets", "doc", "examples"]
 autoexamples = false
 
 [dependencies]
-cassowary = "0.3.0"
-simplecss = "0.1.0"
-glium = "0.22.0"
-gleam = "0.6"
-euclid = "0.19"
-rusttype = "0.6.4"
-stb_truetype = "0.2.2"
-app_units = "0.7"
-unicode-normalization = "0.1.5"
-lazy_static = "1.0.1"
-tinyfiledialogs = "3.3.5"
-clipboard2 = "0.1.0"
-font-loader = "0.7.0"
-log = "0.4.1"
-fern = { version = "0.5.5", optional = true }
-backtrace = { version = "0.3.9", optional = true }
+cassowary = { version = "0.3.0", default-features = false }
+simplecss = { version = "0.1.0", default-features = false }
+glium = { version = "0.22.0", default-features = false, features = ["glutin"] }
+gleam = { version = "0.6", default-features = false }
+euclid = { version = "0.19", default-features = false }
+rusttype = { version = "0.6.4", default-features = false }
+stb_truetype = { version = "0.2.2", default-features = false }
+app_units = { version = "0.7", default-features = false }
+unicode-normalization = { version = "0.1.5", default-features = false }
+lazy_static = { version = "1.0.1", default-features = false }
+tinyfiledialogs = { version = "3.3.5", default-features = false }
+clipboard2 = { version = "0.1.0", default-features = false }
+font-loader = { version = "0.7.0", default-features = false }
+log = { version = "0.4.1", default-features = false }
+fern = { version = "0.5.5", default-features = false, optional = true }
+backtrace = { version = "0.3.9", default-features = false, optional = true }
 lyon = { version = "0.11.0", default-features = false, optional = true }
-serde = { version = "1.0", optional = true }
-twox-hash = { version = "1.1.0", optional = true }
+serde = { version = "1.0", default-features = false, optional = true }
+twox-hash = { version = "1.1.0", default-features = false, optional = true }
 
 [dependencies.image]
 version = "0.19.0"
 default-features = false
 features = ["gif_codec", "jpeg", "png_codec", "pnm", "tiff", "bmp"]
+optional = true
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-nfd = "0.0.4"
+nfd = { version = "0.0.4", default-features = false }
 
 [dependencies.webrender]
 git = "https://github.com/servo/webrender"
 rev = "58b4d2f3325726008812c0ee5ab8898e05133e60"
+default-features = false
 
 [dependencies.usvg]
 git = "https://github.com/RazrFalcon/usvg"
@@ -56,7 +58,7 @@ rev = "eb4b3bcb3598bdb4f09c71949868e4cb192525d1"
 optional = true
 
 [features]
-default = ["logging", "svg"]
+default = ["logging", "svg", "image_loading"]
 
 # The reason we do this is because doctests don't get cfg(test)
 # See: https://github.com/rust-lang/cargo/issues/4669
@@ -95,6 +97,10 @@ serde_serialization = ["serde"]
 # The performance hit should be negligible, so this feature is turned off by
 # default. Maybe turn it on in release builds.
 faster-hashing = ["twox-hash"]
+
+# On some applications you might not want to load any images. For these purposes
+# the image crate can be disabled, to speed up compile times
+image_loading = ["image"]
 
 [[example]]
 name = "debug"

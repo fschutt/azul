@@ -11,12 +11,14 @@ use glium::{
     },
 };
 use webrender::{PipelineInfo, api::{HitTestFlags, DevicePixel}};
-use image::ImageError;
 use euclid::TypedSize2D;
+#[cfg(feature = "image_loading")]
+use image::ImageError;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
+#[cfg(feature = "image_loading")]
+use images::ImageType;
 use {
-    images::ImageType,
     errors::{FontError, ClipboardError},
     window::{Window, WindowId},
     css_parser::{FontId, PixelValue},
@@ -359,13 +361,15 @@ impl<T: Layout> App<T> {
         }).collect()
     }
 
-    /// Add an image to the internal resources
+    /// Add an image to the internal resources. Only available with
+    /// `--feature="image_loading"` (on by default)
     ///
     /// ## Returns
     ///
     /// - `Ok(Some(()))` if an image with the same ID already exists.
     /// - `Ok(None)` if the image was added, but didn't exist previously.
     /// - `Err(e)` if the image couldn't be decoded
+    #[cfg(feature = "image_loading")]
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {

@@ -5,7 +5,10 @@ use std::{
     collections::hash_map::Entry::*,
 };
 use webrender::api::{FontKey, FontInstanceKey};
+#[cfg(feature = "image_loading")]
 use image::{self, ImageError};
+#[cfg(feature = "image_loading")]
+use images::ImageType;
 use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
@@ -14,7 +17,7 @@ use {
     text_layout::{PX_TO_PT, split_text_into_words},
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
-    images::{ImageId, ImageState, ImageType},
+    images::{ImageId, ImageState},
     css_parser::{FontSize, FontId},
 };
 
@@ -74,6 +77,7 @@ impl AppResources {
     }
 
     /// See `AppState::add_image()`
+    #[cfg(feature = "image_loading")]
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
