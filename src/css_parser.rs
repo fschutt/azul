@@ -2230,58 +2230,54 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_border_1() {
-        assert_eq!(parse_css_border("5px solid red"), Ok((BorderWidths {
-            top: 5.0,
-            bottom: 5.0,
-            left: 5.0,
-            right: 5.0,
-        }, BorderDetails::Normal(NormalBorder {
-            left: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            right: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            bottom: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            top: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            radius: BorderRadius::zero(),
-        }))));
+        assert_eq!(parse_css_border("5px solid red"), Ok((
+            SideOffsets2D::new(Au::from_f32_px(5.0), Au::from_f32_px(5.0), Au::from_f32_px(5.0), Au::from_f32_px(5.0)),
+            BorderDetails::Normal(NormalBorder {
+                left: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                right: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                bottom: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                top: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                radius: BorderRadius::zero(),
+            })
+        )));
     }
 
     #[test]
     fn test_parse_css_border_2() {
-        assert_eq!(parse_css_border("double"), Ok((BorderWidths {
-            top: 1.0,
-            bottom: 1.0,
-            left: 1.0,
-            right: 1.0,
-        }, BorderDetails::Normal(NormalBorder {
-            left: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            right: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            bottom: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            top: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            radius: BorderRadius::zero(),
-        }))));
+        assert_eq!(parse_css_border("double"), Ok((
+                SideOffsets2D::new(Au::from_f32_px(1.0), Au::from_f32_px(1.0), Au::from_f32_px(1.0), Au::from_f32_px(1.0)),
+                BorderDetails::Normal(NormalBorder {
+                left: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                right: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                bottom: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                top: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                radius: BorderRadius::zero(),
+            })
+        )));
     }
 
     #[test]
