@@ -150,7 +150,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
         SvgText {
             font_size: font_size,
             font_id: font_id.clone(),
-            text_layout: SvgTextLayout::from_str("On Curve!!!!", &font, &font_size),
+            text_layout: SvgTextLayout::from_str("On Curve!!!!", &font, &font_size, &TextLayoutOptions::default()),
             style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
             placement: SvgTextPlacement::OnCubicBezierCurve(SampledBezierCurve::from_curve(&[
                 BezierControlPoint { x: 0.0, y: 0.0 },
@@ -163,7 +163,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
         SvgText {
             font_size: font_size,
             font_id: font_id.clone(),
-            text_layout: SvgTextLayout::from_str("Rotated", &font, &font_size),
+            text_layout: SvgTextLayout::from_str("Rotated", &font, &font_size, &TextLayoutOptions::default()),
             style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
             placement: SvgTextPlacement::Rotated(-30.0),
             position: SvgPosition { x: 50.0, y: 50.0 },
@@ -171,7 +171,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
         SvgText {
             font_size: font_size,
             font_id: font_id.clone(),
-            text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size),
+            text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size, &TextLayoutOptions::default()),
             style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
             placement: SvgTextPlacement::Unmodified,
             position: SvgPosition { x: 50.0, y: 50.0 },

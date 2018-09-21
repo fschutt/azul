@@ -181,6 +181,7 @@ pub mod prelude {
     pub use app_resources::AppResources;
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
+    pub use text_layout::TextLayoutOptions;
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
