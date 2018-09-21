@@ -39,7 +39,7 @@ use {
     window::ReadOnlyWindow,
     css_parser::{FontId, FontSize},
     app_resources::AppResources,
-    text_layout::{FontMetrics, LayoutTextResult, layout_text},
+    text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
 };
 
 pub use lyon::tessellation::VertexBuffers;
@@ -1936,9 +1936,9 @@ impl SvgTextLayout {
     /// Calculate the text layout from a font and a font size.
     ///
     /// Warning: may be slow on large texts.
-    pub fn from_str(text: &str, font: &Font, font_size: &FontSize) -> Self {
-        let font_metrics = FontMetrics::new(font, font_size, None);
-        SvgTextLayout(layout_text(text, font, font_metrics))
+    pub fn from_str(text: &str, font: &Font, font_size: &FontSize, text_layout_options: &TextLayoutOptions) -> Self {
+        let font_metrics = FontMetrics::new(font, font_size, text_layout_options);
+        SvgTextLayout(layout_text(text, font, &font_metrics))
     }
 
     /// Get the bounding box of a layouted text
@@ -2012,7 +2012,7 @@ impl SvgText {
     {
         let font = resources.get_font(&self.font_id).unwrap().0;
         let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
-        let font_metrics = FontMetrics::new(&font, &self.font_size, None);
+        let font_metrics = FontMetrics::new(&font, &self.font_size, &TextLayoutOptions::default());
         match self.placement {
             SvgTextPlacement::Unmodified => {
                 normal_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics)

@@ -2,16 +2,16 @@
 
 use std::{fmt, num::{ParseIntError, ParseFloatError}};
 pub use {
-    euclid::{TypedSize2D, SideOffsets2D},
+    app_units::Au,
+    euclid::{TypedSize2D, SideOffsets2D, TypedPoint2D},
     webrender::api::{
-        BorderRadius, BorderWidths, BorderDetails, NormalBorder,
+        BorderRadius, BorderDetails, NormalBorder,
         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
         ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
         LayoutSize, ExtendMode
     },
 };
 use webrender::api::{BorderStyle, BorderSide, LayoutRect};
-use euclid::TypedPoint2D;
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;
 /// Webrender measures in points, not in pixels!
@@ -56,11 +56,12 @@ pub enum ParsedCssProperty {
     BorderRadius(BorderRadius),
     BackgroundColor(BackgroundColor),
     TextColor(TextColor),
-    Border(BorderWidths, BorderDetails),
+    Border(SideOffsets2D<Au>, BorderDetails),
     Background(Background),
     FontSize(FontSize),
     FontFamily(FontFamily),
     TextAlign(TextAlignmentHorz),
+    LetterSpacing(LetterSpacing),
     BoxShadow(Option<BoxShadowPreDisplayItem>),
     LineHeight(LineHeight),
 
@@ -109,6 +110,7 @@ impl_from!(FontFamily, ParsedCssProperty::FontFamily);
 impl_from!(LayoutOverflow, ParsedCssProperty::Overflow);
 impl_from!(TextAlignmentHorz, ParsedCssProperty::TextAlign);
 impl_from!(LineHeight, ParsedCssProperty::LineHeight);
+impl_from!(LetterSpacing, ParsedCssProperty::LetterSpacing);
 
 impl_from!(LayoutWidth, ParsedCssProperty::Width);
 impl_from!(LayoutHeight, ParsedCssProperty::Height);
@@ -134,8 +136,8 @@ impl_from!(LayoutAlignContent, ParsedCssProperty::AlignContent);
 impl_from!(BackgroundColor, ParsedCssProperty::BackgroundColor);
 impl_from!(TextColor, ParsedCssProperty::TextColor);
 
-impl From<(BorderWidths, BorderDetails)> for ParsedCssProperty {
-    fn from((widths, details): (BorderWidths, BorderDetails)) -> Self {
+impl From<(SideOffsets2D<Au>, BorderDetails)> for ParsedCssProperty {
+    fn from((widths, details): (SideOffsets2D<Au>, BorderDetails)) -> Self {
         ParsedCssProperty::Border(widths, details)
     }
 }
@@ -161,7 +163,8 @@ impl ParsedCssProperty {
             "font-size"         => Ok(parse_css_font_size(value)?.into()),
             "font-family"       => Ok(parse_css_font_family(value)?.into()),
             "box-shadow"        => Ok(parse_css_box_shadow(value)?.into()),
-            "line-height"       => Ok(parse_line_height(value)?.into()),
+            "letter-spacing"    => Ok(parse_css_letter_spacing(value)?.into()),
+            "line-height"       => Ok(parse_css_line_height(value)?.into()),
 
             "width"             => Ok(parse_layout_width(value)?.into()),
             "height"            => Ok(parse_layout_height(value)?.into()),
@@ -205,7 +208,6 @@ impl ParsedCssProperty {
                 }.into())
             },
             "text-align"        => Ok(parse_layout_text_align(value)?.into()),
-
             _ => Err((key, value).into())
         }
     }
@@ -920,7 +922,7 @@ fn parse_layout_padding<'a>(input: &'a str)
 ///
 /// "5px solid red"
 fn parse_css_border<'a>(input: &'a str)
--> Result<(BorderWidths, BorderDetails), CssBorderParseError<'a>>
+-> Result<(SideOffsets2D<Au>, BorderDetails), CssBorderParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
 
@@ -946,12 +948,13 @@ fn parse_css_border<'a>(input: &'a str)
        }
     }
 
-    let border_widths = BorderWidths {
-        top: thickness,
-        left: thickness,
-        right: thickness,
-        bottom: thickness,
-    };
+    // This should later be changed into the proper `border-left` and so on types
+    let top = Au::from_f32_px(thickness);
+    let right = Au::from_f32_px(thickness);
+    let bottom = Au::from_f32_px(thickness);
+    let left = Au::from_f32_px(thickness);
+
+    let border_widths = SideOffsets2D::new(top, right, bottom, left);
 
     let border_side = BorderSide {
         color: color.into(),
@@ -1744,6 +1747,9 @@ pub struct LayoutBottom(pub PixelValue);
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LineHeight(pub PercentageValue);
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LetterSpacing(pub PixelValue);
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutDirection {
     Row,
@@ -1892,7 +1898,7 @@ pub(crate) struct RectStyle {
     /// Gradient (location) + stops
     pub(crate) background: Option<Background>,
     /// Border
-    pub(crate) border: Option<(BorderWidths, BorderDetails)>,
+    pub(crate) border: Option<(SideOffsets2D<Au>, BorderDetails)>,
     /// Border radius
     pub(crate) border_radius: Option<BorderRadius>,
     /// Font size
@@ -1907,7 +1913,11 @@ pub(crate) struct RectStyle {
     pub(crate) overflow: Option<LayoutOverflow>,
     /// `line-height` property
     pub(crate) line_height: Option<LineHeight>,
+    /// `letter-spacing` property (modifies the width and height)
+    pub(crate) letter_spacing: Option<LetterSpacing>,
 }
+
+typed_pixel_value_parser!(parse_css_letter_spacing, LetterSpacing);
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
@@ -1947,7 +1957,7 @@ typed_pixel_value_parser!(parse_layout_bottom, LayoutBottom);
 typed_pixel_value_parser!(parse_layout_right, LayoutRight);
 typed_pixel_value_parser!(parse_layout_left, LayoutLeft);
 
-fn parse_line_height(input: &str)
+fn parse_css_line_height(input: &str)
 -> Result<LineHeight, PercentageParseError>
 {
     parse_percentage_value(input).and_then(|e| Ok(LineHeight(e)))
@@ -2288,58 +2298,54 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_border_1() {
-        assert_eq!(parse_css_border("5px solid red"), Ok((BorderWidths {
-            top: 5.0,
-            bottom: 5.0,
-            left: 5.0,
-            right: 5.0,
-        }, BorderDetails::Normal(NormalBorder {
-            left: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            right: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            bottom: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            top: BorderSide {
-                color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Solid,
-            },
-            radius: BorderRadius::zero(),
-        }))));
+        assert_eq!(parse_css_border("5px solid red"), Ok((
+            SideOffsets2D::new(Au::from_f32_px(5.0), Au::from_f32_px(5.0), Au::from_f32_px(5.0), Au::from_f32_px(5.0)),
+            BorderDetails::Normal(NormalBorder {
+                left: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                right: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                bottom: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                top: BorderSide {
+                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Solid,
+                },
+                radius: BorderRadius::zero(),
+            })
+        )));
     }
 
     #[test]
     fn test_parse_css_border_2() {
-        assert_eq!(parse_css_border("double"), Ok((BorderWidths {
-            top: 1.0,
-            bottom: 1.0,
-            left: 1.0,
-            right: 1.0,
-        }, BorderDetails::Normal(NormalBorder {
-            left: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            right: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            bottom: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            top: BorderSide {
-                color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                style: BorderStyle::Double,
-            },
-            radius: BorderRadius::zero(),
-        }))));
+        assert_eq!(parse_css_border("double"), Ok((
+                SideOffsets2D::new(Au::from_f32_px(1.0), Au::from_f32_px(1.0), Au::from_f32_px(1.0), Au::from_f32_px(1.0)),
+                BorderDetails::Normal(NormalBorder {
+                left: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                right: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                bottom: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                top: BorderSide {
+                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+                    style: BorderStyle::Double,
+                },
+                radius: BorderRadius::zero(),
+            })
+        )));
     }
 
     #[test]
