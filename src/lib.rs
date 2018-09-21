@@ -160,7 +160,7 @@ pub mod prelude {
     pub use text_cache::{TextCache, TextId};
     pub use css_parser::{
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
-        BorderWidths, BorderDetails, Background, FontSize,
+        SideOffsets2D, Au, BorderDetails, Background, FontSize,
         FontFamily, TextOverflowBehaviour, TextOverflowBehaviourInner, TextAlignmentHorz,
         BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
         LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
@@ -170,7 +170,7 @@ pub mod prelude {
         LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
 
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
-        Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
+        Gradient, RadialGradient, LayoutPoint, LayoutSize,
         ExtendMode, PixelValue, PercentageValue,
     };
     pub use glium::glutin::{

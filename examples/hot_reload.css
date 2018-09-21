@@ -12,6 +12,9 @@
     width: 400px;
     font-size: 30px;
     font-family: sans-serif;
+    text-align: right;
+    flex-direction: column;
+    align-items: flex-end;
 }
 
 #sub-wrapper {

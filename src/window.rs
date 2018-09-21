@@ -656,7 +656,6 @@ impl<T: Layout> Window<T> {
                 enable_subpixel_aa: true,
                 enable_aa: true,
                 clear_color: clear_color,
-                enable_render_on_scroll: true,
                 enable_scrollbars: false,
                 cached_programs: Some(ProgramCache::new(None)),
                 renderer_kind: if native {
