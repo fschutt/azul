@@ -28,22 +28,17 @@
 #![deny(missing_copy_implementations)]
 #![allow(dead_code)]
 
-#![windows_subsystem = "windows"]
-
-#[macro_use]
+#[cfg_attr(feature = "svg", macro_use)]
 pub extern crate glium;
 pub extern crate gleam;
 
 #[macro_use]
+extern crate log;
+#[macro_use]
 extern crate lazy_static;
 extern crate euclid;
-#[cfg(feature = "svg")]
-extern crate lyon;
-#[cfg(all(feature = "svg", feature = "svg_parsing"))]
-extern crate usvg;
 extern crate webrender;
 extern crate cassowary;
-extern crate twox_hash;
 extern crate simplecss;
 extern crate rusttype;
 extern crate app_units;
@@ -52,16 +47,22 @@ extern crate tinyfiledialogs;
 extern crate stb_truetype;
 extern crate clipboard2;
 extern crate font_loader;
-#[macro_use]
-extern crate log;
+
 #[cfg(feature = "logging")]
 extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
+#[cfg(feature = "image_loading")]
 extern crate image;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde;
+#[cfg(feature = "svg")]
+extern crate lyon;
+#[cfg(feature = "svg_parsing")]
+extern crate usvg;
+#[cfg(feature = "faster-hashing")]
+extern crate twox_hash;
 
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
@@ -134,9 +135,16 @@ mod logging;
 /// Cassowary-based UI solver
 mod ui_solver;
 
-/// Faster implementation of a HashMap
+// Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
+
+#[cfg(feature = "faster-hashing")]
 type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
+#[cfg(feature = "faster-hashing")]
 type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
+#[cfg(not(feature = "faster-hashing"))]
+type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
+#[cfg(not(feature = "faster-hashing"))]
+type FastHashSet<T> = ::std::collections::HashSet<T>;
 
 /// Quick exports of common types
 pub mod prelude {
@@ -158,7 +166,7 @@ pub mod prelude {
     pub use text_cache::{TextCache, TextId};
     pub use css_parser::{
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
-        BorderWidths, BorderDetails, Background, FontSize,
+        SideOffsets2D, Au, BorderDetails, Background, FontSize,
         FontFamily, TextOverflowBehaviour, TextOverflowBehaviourInner, TextAlignmentHorz,
         BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
         LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
@@ -168,7 +176,7 @@ pub mod prelude {
         LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
 
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
-        Gradient, SideOffsets2D, RadialGradient, LayoutPoint, LayoutSize,
+        Gradient, RadialGradient, LayoutPoint, LayoutSize,
         ExtendMode, PixelValue, PercentageValue,
     };
     pub use glium::glutin::{
@@ -179,6 +187,7 @@ pub mod prelude {
     pub use app_resources::AppResources;
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
+    pub use text_layout::TextLayoutOptions;
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;

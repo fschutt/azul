@@ -597,7 +597,7 @@ fn push_text(
     scrollbar_info: &ScrollbarInfo)
 -> Option<OverflowInfo>
 {
-    use text_layout;
+    use text_layout::{self, TextLayoutOptions};
 
     if text.is_empty_text(&*app_resources) {
         return None;
@@ -618,18 +618,21 @@ fn push_text(
         None => return None,
     };
 
-    let line_height = style.line_height;
-
     let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+
+    let text_layout_options = TextLayoutOptions {
+        horz_alignment,
+        vert_alignment,
+        line_height: style.line_height,
+        letter_spacing: style.letter_spacing,
+    };
 
     let (positioned_glyphs, text_overflow) = text_layout::get_glyphs(
         app_resources,
         bounds,
-        horz_alignment,
-        vert_alignment,
         &font_id,
         &font_size,
-        line_height,
+        &text_layout_options,
         text,
         &overflow_behaviour,
         scrollbar_info
@@ -659,7 +662,7 @@ fn push_scrollbar(
     scrollbar_info: &TextOverflowPass2,
     scrollbar_style: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>,
-    border: &Option<(BorderWidths, BorderDetails)>)
+    border: &Option<(SideOffsets2D<Au>, BorderDetails)>)
 {
     use euclid::TypedPoint2D;
 
@@ -667,8 +670,8 @@ fn push_scrollbar(
     // so that the scrollbar is laid out correctly
     let mut bounds = *bounds;
     if let Some((border_widths, _)) = border {
-        bounds.size.width -= border_widths.left;
-        bounds.size.height -= border_widths.bottom;
+        bounds.size.width -= border_widths.left.to_f32_px();
+        bounds.size.height -= border_widths.bottom.to_f32_px();
     }
 
     // Background of scrollbar (vertical)
@@ -741,6 +744,7 @@ fn push_triangle(
     direction: TriangleDirection)
 {
     use self::TriangleDirection::*;
+    use webrender::api::LayoutSideOffsets;
 
     // see: https://css-tricks.com/snippets/css/css-triangle/
     // uses the "3d effect" for making a triangle
@@ -792,12 +796,12 @@ fn push_triangle(
 
     // make the borders half the width / height of the rectangle,
     // so that the border looks like a triangle
-    let border_widths = BorderWidths {
-        left: bounds.size.width / 2.0,
-        top: bounds.size.height / 2.0,
-        right: bounds.size.width / 2.0,
-        bottom: bounds.size.height / 2.0,
-    };
+    let left = bounds.size.width / 2.0;
+    let top = bounds.size.height / 2.0;
+    let bottom = top;
+    let right = left;
+
+    let border_widths = LayoutSideOffsets::new(top, right, bottom, left);
 
     builder.push_border(&triangle_rect_info, border_widths, border_details);
 }
@@ -994,6 +998,16 @@ fn push_border(
     style: &RectStyle)
 {
     if let Some((border_widths, mut border_details)) = style.border {
+
+        use webrender::api::LayoutSideOffsets;
+
+        let border_top = border_widths.top.to_f32_px();
+        let border_bottom = border_widths.bottom.to_f32_px();
+        let border_left = border_widths.left.to_f32_px();
+        let border_right = border_widths.right.to_f32_px();
+
+        let border_widths = LayoutSideOffsets::new(border_top, border_right, border_bottom, border_left);
+
         if let Some(border_radius) = style.border_radius {
             if let BorderDetails::Normal(ref mut n) = border_details {
                 n.radius = border_radius;
@@ -1105,6 +1119,7 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             Background(b)               => { rect.style.background = Some(b.clone());               },
             FontSize(f)                 => { rect.style.font_size = Some(*f);                       },
             FontFamily(f)               => { rect.style.font_family = Some(f.clone());              },
+            LetterSpacing(l)            => { rect.style.letter_spacing = Some(*l);                  },
             Overflow(o)                 => {
                 if let Some(ref mut existing_overflow) = rect.style.overflow {
                     existing_overflow.merge(o);

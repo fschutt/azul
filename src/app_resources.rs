@@ -5,7 +5,10 @@ use std::{
     collections::hash_map::Entry::*,
 };
 use webrender::api::{FontKey, FontInstanceKey};
+#[cfg(feature = "image_loading")]
 use image::{self, ImageError};
+#[cfg(feature = "image_loading")]
+use images::ImageType;
 use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
@@ -14,8 +17,8 @@ use {
     text_layout::{PX_TO_PT, split_text_into_words},
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
-    images::{ImageId, ImageState, ImageType},
-    css_parser::{FontSize, FontId},
+    images::{ImageId, ImageState},
+    css_parser::{FontSize, FontId, LetterSpacing},
 };
 
 /// Font and image keys
@@ -74,6 +77,7 @@ impl AppResources {
     }
 
     /// See `AppState::add_image()`
+    #[cfg(feature = "image_loading")]
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
@@ -234,18 +238,18 @@ impl AppResources {
     /// Calculates the widths for the words, then stores the widths of the words + the actual words
     ///
     /// This leads to a faster layout cycle, but has an upfront performance cost
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize, letter_spacing: Option<LetterSpacing>)
     -> TextId
     {
         // First, insert the text into the text cache
         let id = self.add_text_uncached(text);
-        self.cache_text(id, font_id.clone(), font_size);
+        self.cache_text(id, font_id.clone(), font_size, letter_spacing);
         id
     }
 
     /// Promotes an uncached text to a cached text and calculates all the metrics
     /// for a given text ID.
-    pub fn cache_text(&mut self, id: TextId, font: FontId, size: FontSize) {
+    pub fn cache_text(&mut self, id: TextId, font: FontId, size: FontSize, letter_spacing: Option<LetterSpacing>) {
 
         use rusttype::Scale;
 
@@ -254,7 +258,7 @@ impl AppResources {
         let text = self.text_cache.string_cache.get(&id).expect("Invalid text Id");
         let font_size_no_line_height = Scale::uniform(size.0.to_pixels() * PX_TO_PT);
         let rusttype_font = self.get_font(&font).expect("Invalid font ID");
-        let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height);
+        let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height, letter_spacing);
 
         self.text_cache.cached_strings
             .entry(id).or_insert_with(|| FastHashMap::default())

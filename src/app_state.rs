@@ -4,7 +4,10 @@ use std::{
     sync::{Arc, Mutex},
     rc::Rc,
 };
+#[cfg(feature = "image_loading")]
 use image::ImageError;
+#[cfg(feature = "image_loading")]
+use images::ImageType;
 use rusttype::Font;
 use {
     FastHashMap,
@@ -14,9 +17,8 @@ use {
     dom::UpdateScreen,
     traits::Layout,
     app_resources::AppResources,
-    images::ImageType,
     font::FontError,
-    css_parser::{FontId, FontSize, PixelValue},
+    css_parser::{FontId, FontSize, PixelValue, LetterSpacing},
     error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
 };
@@ -86,6 +88,7 @@ impl<T: Layout> AppState<T> {
     ///
     /// [`ImageType::GuessImageFormat`]: ../prelude/enum.ImageType.html#variant.GuessImageFormat
     ///
+    #[cfg(feature = "image_loading")]
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
@@ -267,11 +270,11 @@ impl<T: Layout> AppState<T> {
         self.resources.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<LetterSpacing>)
     -> TextId
     {
         let font_size = FontSize(font_size);
-        self.resources.add_text_cached(text, font_id, font_size)
+        self.resources.add_text_cached(text, font_id, font_size, letter_spacing)
     }
 
     pub fn delete_text(&mut self, id: TextId) {

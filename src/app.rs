@@ -11,15 +11,17 @@ use glium::{
     },
 };
 use webrender::{PipelineInfo, api::{HitTestFlags, DevicePixel}};
-use image::ImageError;
 use euclid::TypedSize2D;
+#[cfg(feature = "image_loading")]
+use image::ImageError;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
+#[cfg(feature = "image_loading")]
+use images::ImageType;
 use {
-    images::ImageType,
     error::{FontError, ClipboardError},
     window::{Window, WindowId},
-    css_parser::{FontId, PixelValue},
+    css_parser::{FontId, PixelValue, LetterSpacing},
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
@@ -359,13 +361,15 @@ impl<T: Layout> App<T> {
         }).collect()
     }
 
-    /// Add an image to the internal resources
+    /// Add an image to the internal resources. Only available with
+    /// `--feature="image_loading"` (on by default)
     ///
     /// ## Returns
     ///
     /// - `Ok(Some(()))` if an image with the same ID already exists.
     /// - `Ok(None)` if the image was added, but didn't exist previously.
     /// - `Err(e)` if the image couldn't be decoded
+    #[cfg(feature = "image_loading")]
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
     {
@@ -472,10 +476,10 @@ impl<T: Layout> App<T> {
         self.app_state.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<LetterSpacing>)
     -> TextId
     {
-        self.app_state.add_text_cached(text, font_id, font_size)
+        self.app_state.add_text_cached(text, font_id, font_size, letter_spacing)
     }
 
     pub fn delete_text(&mut self, id: TextId) {
