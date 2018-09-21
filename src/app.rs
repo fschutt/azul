@@ -21,7 +21,7 @@ use images::ImageType;
 use {
     errors::{FontError, ClipboardError},
     window::{Window, WindowId},
-    css_parser::{FontId, PixelValue},
+    css_parser::{FontId, PixelValue, LetterSpacing},
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
@@ -476,10 +476,10 @@ impl<T: Layout> App<T> {
         self.app_state.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<LetterSpacing>)
     -> TextId
     {
-        self.app_state.add_text_cached(text, font_id, font_size)
+        self.app_state.add_text_cached(text, font_id, font_size, letter_spacing)
     }
 
     pub fn delete_text(&mut self, id: TextId) {
