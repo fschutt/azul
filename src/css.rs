@@ -218,7 +218,7 @@ impl Css {
         let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
         let mut css = match Self::new_from_str(&initial_css) {
             Ok(o) => o,
-            Err(e) => panic!("Hot reload parsing error in file {}: {:?}", file_path, e),
+            Err(e) => panic!("Hot reload parsing error in file {}:\n{}\n", file_path, e),
         };
         css.hot_reload_path = Some(file_path.into());
         Ok(css)
@@ -231,7 +231,7 @@ impl Css {
         let target_css = format!("{}\r\n{}", NATIVE_CSS, initial_css);
         let mut css = match Self::new_from_str(&target_css) {
             Ok(o) => o,
-            Err(e) => panic!("Hot reload parsing error in file {}: {:?}", file_path, e),
+            Err(e) => panic!("Hot reload parsing error in file {}:\n{}\n", file_path, e),
         };
         css.hot_reload_path = Some(file_path.into());
         css.hot_reload_override_native = true;
@@ -253,13 +253,13 @@ impl Css {
         let reloaded_css = match fs::read_to_string(&file_path) {
             Ok(o) => o,
             Err(e) => {
-                error!("Failed to hot-reload \"{}\":\r\n{:?}", file_path, e);
+                error!("Failed to hot-reload \"{}\":\r\n{}\n", file_path, e);
                 return;
             },
         };
 
         let target_css = if self.hot_reload_override_native {
-            format!("{}\r\n{}", NATIVE_CSS, reloaded_css)
+            format!("{}\r\n{}\n", NATIVE_CSS, reloaded_css)
         } else {
             reloaded_css
         };
@@ -267,7 +267,7 @@ impl Css {
         let mut parsed_css = match Self::new_from_str(&target_css) {
             Ok(o) => o,
             Err(e) => {
-                error!("Failed to reload - parse error\"{}\":\r\n{:?}", file_path, e);
+                error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
                 return;
             },
         };
