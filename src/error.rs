@@ -7,6 +7,7 @@ pub use css_parser::{
     PercentageParseError, PixelParseError,
 };
 pub use font::FontError;
+#[cfg(feature = "image_loading")]
 pub use image::ImageError;
 pub use simplecss::Error as CssSyntaxError;
 
@@ -20,6 +21,7 @@ pub use window::WindowCreateError;
 pub enum Error<'a> {
     CssParse(CssParseError<'a>),
     Font(FontError),
+    #[cfg(feature = "image_loading")]
     Image(ImageError),
     Clipboard(ClipboardError),
     WindowCreate(WindowCreateError),
@@ -38,6 +40,7 @@ impl<'a> From<FontError> for Error<'a> {
     }
 }
 
+#[cfg(feature = "image_loading")]
 impl<'a> From<ImageError> for Error<'a> {
     fn from(e: ImageError) -> Error<'a> {
         Error::Image(e)
