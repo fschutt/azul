@@ -2,13 +2,17 @@
 
 extern crate azul;
 
-use azul::prelude::*;
-use azul::widgets::*;
-use azul::dialogs::*;
+use azul::{
+    prelude::*,
+    widgets::{button::Button, svg::*},
+    dialogs::*,
+};
 
-use std::fs;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    fs,
+    collections::HashMap,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 static TEXT_ID: AtomicUsize = AtomicUsize::new(0);
 

@@ -4,7 +4,7 @@ extern crate azul;
 
 use azul::{
     prelude::*,
-    widgets::*,
+    widgets::{button::Button, label::Label},
 };
 use std::{
     thread,

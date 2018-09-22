@@ -14,7 +14,7 @@ categories = ["gui"]
 license = "MIT"
 repository = "https://github.com/maps4print/azul"
 readme = "README.md"
-exclude = ["assets", "doc", "examples"]
+exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
@@ -101,7 +101,7 @@ name = "async"
 name = "hot_reload"
 
 [[example]]
-name = "table_demo"
+name = "table"
 
 [[example]]
-name = "test_input_field"
+name = "text_input"
