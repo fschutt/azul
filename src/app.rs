@@ -19,7 +19,7 @@ use log::LevelFilter;
 #[cfg(feature = "image_loading")]
 use images::ImageType;
 use {
-    errors::{FontError, ClipboardError},
+    error::{FontError, ClipboardError},
     window::{Window, WindowId},
     css_parser::{FontId, PixelValue, LetterSpacing},
     text_cache::TextId,

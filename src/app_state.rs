@@ -19,7 +19,7 @@ use {
     app_resources::AppResources,
     font::FontError,
     css_parser::{FontId, FontSize, PixelValue, LetterSpacing},
-    errors::ClipboardError,
+    error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
 };
 

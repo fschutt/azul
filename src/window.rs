@@ -360,6 +360,20 @@ pub enum WindowCreateError {
     Renderer/*(RendererError)*/,
 }
 
+impl_display! {
+    WindowCreateError,
+    {
+        DisplayCreateError(e) => format!("Could not create the display from the window and the EventsLoop: {}", e),
+        Gl(e) => format!("{}", e),
+        Context(e) => format!("{}", e),
+        CreateError(e) => format!("{}", e),
+        SwapBuffers(e) => format!("{}", e),
+        Io(e) => format!("{}", e),
+        WebGlNotSupported => "WebGl is not supported by webrender",
+        Renderer => "Webrender creation error (probably OpenGL missing?)",
+    }
+}
+
 impl From<::glium::SwapBuffersError> for WindowCreateError {
     fn from(e: ::glium::SwapBuffersError) -> Self {
         WindowCreateError::SwapBuffers(e)
