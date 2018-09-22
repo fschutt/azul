@@ -70,6 +70,7 @@ impl_display! {
     {
         CssParse(e) => format!("[CSS parsing error] {}", e),
         Font(e) => format!("[Font error] {}", e),
+        #[cfg(feature = "image_loading")]
         Image(e) => format!("[Image error] {}", e),
         Clipboard(e) => format!("[Clipboard error] {}", e),
         WindowCreate(e) => format!("[Window creation error] {}", e),
