@@ -45,7 +45,8 @@ macro_rules! impl_from {
 /// }}
 /// ```
 macro_rules! impl_display {
-    ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+}) => {
+    // For a type with a lifetime
+    ($enum:ident<$lt:lifetime>, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
     
         impl<$lt> ::std::fmt::Display for $enum<$lt> {
             fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -60,7 +61,8 @@ macro_rules! impl_display {
 
     };
 
-    ($enum:ident, {$($variant:pat => $fmt_string:expr),+}) => {
+    // For a type without a lifetime
+    ($enum:ident, {$($variant:pat => $fmt_string:expr),+$(,)* }) => {
     
         impl ::std::fmt::Display for $enum {
             fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
