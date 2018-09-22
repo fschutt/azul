@@ -67,6 +67,12 @@ extern crate twox_hash;
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
+#[macro_use]
+mod macros;
+
+/// Re-exports of errors
+pub mod error;
+
 /// Daemon / timer system
 pub mod daemon;
 /// Handles default callbacks (such as an automatic text field update) via unsafe code
@@ -185,26 +191,4 @@ pub mod prelude {
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
-}
-
-/// Re-exports of errors
-pub mod errors {
-    pub use css_parser::{
-        CssParsingError, CssBorderParseError, CssShadowParseError, InvalidValueErr,
-        PixelParseError, CssImageParseError, CssFontFamilyParseError, CssMetric,
-        PercentageParseError,
-        CssBackgroundParseError, CssColorParseError, CssBorderRadiusParseError,
-        CssDirectionParseError, CssGradientStopParseError, CssShapeParseError,
-    };
-    pub use simplecss::Error as CssSyntaxError;
-    pub use css::{CssParseError, DynamicCssParseError};
-    pub use font::FontError;
-    #[cfg(feature = "image_loading")]
-    pub use image::ImageError;
-
-    // TODO: re-export the sub-types of ClipboardError!
-    pub use clipboard2::ClipboardError;
-
-    pub use window::WindowCreateError;
-    pub use widgets::errors::*;
 }
