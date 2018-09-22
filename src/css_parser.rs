@@ -271,7 +271,7 @@ pub enum CssParsingError<'a> {
 
 impl_display!{ CssParsingError<'a>, {
     CssBorderRadiusParseError(e) => format!("Invalid border-radius: {}", e),
-    CssBorderParseError(e) => format!("{}", e),
+    CssBorderParseError(e) => format!("Invalid border property: {}", e),
     CssShadowParseError(e) => format!("Invalid shadow: \"{}\"", e),
     InvalidValueErr(e) => format!("\"{}\"", e.0),
     PixelParseError(e) => format!("{}", e),
@@ -409,10 +409,10 @@ pub enum CssBorderParseError<'a> {
 }
 
 impl_display!{ CssBorderParseError<'a>, {
-    InvalidBorderStyle(e) => format!("Invalid border style: {}", e.0),
-    InvalidBorderDeclaration(e) => format!("Invalid border declaration: \"{}\"", e),
-    ThicknessParseError(e) => format!("Invalid border thickness: {}", e),
-    ColorParseError(e) => format!("Invalid border color: {}", e),
+    InvalidBorderStyle(e) => format!("Invalid style: {}", e.0),
+    InvalidBorderDeclaration(e) => format!("Invalid declaration: \"{}\"", e),
+    ThicknessParseError(e) => format!("Invalid thickness: {}", e),
+    ColorParseError(e) => format!("Invalid color: {}", e),
 }}
 
 #[derive(Debug, Clone, PartialEq)]
