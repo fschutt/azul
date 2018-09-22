@@ -65,15 +65,17 @@ impl<'a> From<HotReloadError> for Error<'a> {
     }
 }
 
-impl_display! {
-    Error<'a>,
-    {
-        CssParse(e) => format!("[CSS parsing error] {}", e),
-        Font(e) => format!("[Font error] {}", e),
-        #[cfg(feature = "image_loading")]
-        Image(e) => format!("[Image error] {}", e),
-        Clipboard(e) => format!("[Clipboard error] {}", e),
-        WindowCreate(e) => format!("[Window creation error] {}", e),
-        HotReload(e) => format!("[Hot-reload error] {}", e),
+use std::fmt;
+impl<'a> fmt::Display for Error<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::CssParse(e) => write!(f, "[CSS parsing error] {}", e),
+            Error::Font(e) => write!(f, "[Font error] {}", e),
+            #[cfg(feature = "image_loading")]
+            Error::Image(e) => write!(f, "[Image error] {}", e),
+            Error::Clipboard(e) => write!(f, "[Clipboard error] {}", e),
+            Error::WindowCreate(e) => write!(f, "[Window creation error] {}", e),
+            Error::HotReload(e) => write!(f, "[Hot-reload error] {}", e),
+        }
     }
 }
