@@ -97,7 +97,7 @@ impl_display!{ CssParseError<'a>, {
     UnclosedBlock => "Unclosed block",
     MalformedCss => "Malformed Css",
     DynamicCssParseError(e) => format!("Dynamic parsing error: {}", e),
-    UnexpectedValue(e) => format!("Unexpected value: {}", e)
+    UnexpectedValue(e) => format!("Unexpected value: {}", e),
 }}
 
 impl<'a> From<CssParsingError<'a>> for CssParseError<'a> {
@@ -193,7 +193,7 @@ pub enum HotReloadError {
 
 impl_display! { HotReloadError, {
     Io(e, file) => format!("Io error: {} (file: \"{}\"", e, file),
-    FailedToReload => "Failed to reload."
+    FailedToReload => "Failed to reload.",
 }}
 
 impl Css {
@@ -420,7 +420,7 @@ impl_display!{ DynamicCssParseError<'a>, {
     NoId => "The dynamic CSS property has no ID, i.e. [[ 400px ]]",
     InvalidId => "The ID may not start with a number or be a CSS property itself",
     EmptyBraces => "Dynamic css property braces are empty, i.e. `[[ ]]`",
-    UnexpectedValue(e) => format!("Unexpected value: {}", e)
+    UnexpectedValue(e) => format!("Unexpected value: {}", e),
 }}
 
 impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {

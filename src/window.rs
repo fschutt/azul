@@ -370,7 +370,7 @@ impl_display! {
         SwapBuffers(e) => format!("{}", e),
         Io(e) => format!("{}", e),
         WebGlNotSupported => "WebGl is not supported by webrender",
-        Renderer => "Webrender creation error (probably OpenGL missing?)"
+        Renderer => "Webrender creation error (probably OpenGL missing?)",
     }
 }
 

@@ -23,7 +23,7 @@ pub enum Error<'a> {
     Image(ImageError),
     Clipboard(ClipboardError),
     WindowCreate(WindowCreateError),
-    HotReload(HotReloadError)
+    HotReload(HotReloadError),
 }
 
 impl<'a> From<CssParseError<'a>> for Error<'a> {
@@ -65,11 +65,11 @@ impl<'a> From<HotReloadError> for Error<'a> {
 impl_display! {
     Error<'a>,
     {
-        CssParse(e) => format!("[CSS error] {}", e),
+        CssParse(e) => format!("[CSS parsing error] {}", e),
         Font(e) => format!("[Font error] {}", e),
         Image(e) => format!("[Image error] {}", e),
         Clipboard(e) => format!("[Clipboard error] {}", e),
-        WindowCreate(e) => format!("[Window-create error] {}", e),
-        HotReload(e) => format!("[Hot-reload error] {}", e)
+        WindowCreate(e) => format!("[Window creation error] {}", e),
+        HotReload(e) => format!("[Hot-reload error] {}", e),
     }
 }
