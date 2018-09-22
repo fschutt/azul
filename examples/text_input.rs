@@ -1,7 +1,7 @@
 extern crate azul;
 
 use azul::prelude::*;
-use azul::widgets::*;
+use azul::widgets::text_input::*;
 
 struct TestCrudApp {
     text_input: TextInputOutcome,

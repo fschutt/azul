@@ -2,7 +2,7 @@
 
 extern crate azul;
 
-use azul::{prelude::*, widgets::*};
+use azul::{prelude::*, widgets::table_view::*};
 
 struct TableDemo {
     table: TableViewOutcome,
@@ -20,7 +20,7 @@ fn main() {
         table: TableViewOutcome::default(),
     }, AppConfig::default());
 
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/table_view.css")) }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/table.css")) }
 
     #[cfg(debug_assertions)]
     let css = Css::hot_reload(CSS_PATH!()).unwrap();
