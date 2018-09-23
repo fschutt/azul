@@ -191,6 +191,7 @@ pub enum HotReloadError {
     FailedToReload,
 }
 
+#[cfg(debug_assertions)]
 impl_display! { HotReloadError, {
     Io(e, file) => format!("Io error: {} (file: \"{}\"", e, file),
     FailedToReload => "Failed to reload.",
