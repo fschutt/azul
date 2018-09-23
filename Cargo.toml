@@ -43,11 +43,11 @@ image                   = { version = "0.19.0", default-features = false, option
 # Windows: Use nativefiledialog because of better Unicode support for file browsers
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = { version = "0.0.4", default-features = false }
+webrender = { git = "https://github.com/servo/webrender", rev = "4e7d0ed1b08f5402a6971230864a7e497b2453ec", default-features = false }
 
-[dependencies.webrender]
-git = "https://github.com/servo/webrender"
-rev = "3e4a2dfdbc911e4d12610209f691248b0be488de"
-default-features = false
+# Linux: Use webrender with freetype feature enabled
+[target.'cfg(target_os = "linux")'.dependencies]
+webrender = { git = "https://github.com/servo/webrender", rev = "4e7d0ed1b08f5402a6971230864a7e497b2453ec" }
 
 [features]
 # The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
@@ -89,6 +89,13 @@ faster-hashing = ["twox-hash"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
 image_loading = ["image"]
+# Features to load extra image formats
+ico = ["image/ico"]
+tga = ["image/tga"]
+hdr = ["image/hdr"]
+jpeg_rayon = ["image/jpeg_rayon"]
+dxt = ["image/dxt"]
+webp = ["image/webp"]
 
 [[example]]
 name = "debug"
