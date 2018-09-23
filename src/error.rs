@@ -1,5 +1,7 @@
 pub use app::RuntimeError;
-pub use css::{CssParseError, DynamicCssParseError, HotReloadError};
+pub use css::{CssParseError, DynamicCssParseError};
+#[cfg(debug_assertions)]
+pub use css::HotReloadError;
 pub use css_parser::{
     CssBackgroundParseError, CssBorderParseError, CssBorderRadiusParseError, CssColorParseError,
     CssDirectionParseError, CssFontFamilyParseError, CssGradientStopParseError, CssImageParseError,
@@ -25,6 +27,7 @@ pub enum Error<'a> {
     Image(ImageError),
     Clipboard(ClipboardError),
     WindowCreate(WindowCreateError),
+    #[cfg(debug_assertions)]
     HotReload(HotReloadError),
 }
 
@@ -59,6 +62,7 @@ impl<'a> From<WindowCreateError> for Error<'a> {
     }
 }
 
+#[cfg(debug_assertions)]
 impl<'a> From<HotReloadError> for Error<'a> {
     fn from(e: HotReloadError) -> Error<'a> {
         Error::HotReload(e)
@@ -75,6 +79,7 @@ impl<'a> fmt::Display for Error<'a> {
             Error::Image(e) => write!(f, "[Image error] {}", e),
             Error::Clipboard(e) => write!(f, "[Clipboard error] {}", e),
             Error::WindowCreate(e) => write!(f, "[Window creation error] {}", e),
+            #[cfg(debug_assertions)]
             Error::HotReload(e) => write!(f, "[Hot-reload error] {}", e),
         }
     }
