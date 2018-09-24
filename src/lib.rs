@@ -168,7 +168,7 @@ pub mod prelude {
         ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
         SideOffsets2D, Au, BorderDetails, Background, FontSize,
         FontFamily, TextOverflowBehaviour, TextOverflowBehaviourInner, TextAlignmentHorz,
-        BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
+        TextAlignmentVert, BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
         LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
         LayoutMaxHeight, LayoutWrap, LayoutDirection,
         LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
