@@ -95,6 +95,7 @@ impl Default for FrameEventInfo {
     }
 }
 
+/// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone)]
 #[cfg_attr(not(feature = "logging"), derive(Copy))]
 pub struct AppConfig {

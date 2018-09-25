@@ -320,7 +320,7 @@ fn get_words_cached<'a>(
 
     let mut should_words_be_scaled = false;
 
-    match text_cache.cached_strings.entry(*text_id) {
+    match text_cache.layouted_strings_cache.entry(*text_id) {
         Occupied(mut font_hash_map) => {
 
             let font_size_map = font_hash_map.get_mut().entry(font_id.clone()).or_insert_with(|| FastHashMap::default());
@@ -346,7 +346,7 @@ fn get_words_cached<'a>(
     // instead of recalculating the words, we simply scale them up.
     if should_words_be_scaled {
         let words_cloned = {
-            let font_size_map = &text_cache.cached_strings[&text_id][&font_id];
+            let font_size_map = &text_cache.layouted_strings_cache[&text_id][&font_id];
             let (old_font_size, next_words_for_font) = font_size_map.iter().next().unwrap();
             let mut words_cloned: Words = next_words_for_font.clone();
             let scale_factor = font_size.0.to_pixels() / old_font_size.0.to_pixels();
@@ -355,10 +355,10 @@ fn get_words_cached<'a>(
             words_cloned
         };
 
-        text_cache.cached_strings.get_mut(&text_id).unwrap().get_mut(&font_id).unwrap().insert(*font_size, words_cloned);
+        text_cache.layouted_strings_cache.get_mut(&text_id).unwrap().get_mut(&font_id).unwrap().insert(*font_size, words_cloned);
     }
 
-    text_cache.cached_strings.get(&text_id).unwrap().get(&font_id).unwrap().get(&font_size).unwrap()
+    text_cache.layouted_strings_cache.get(&text_id).unwrap().get(&font_id).unwrap().get(&font_size).unwrap()
 }
 
 fn scale_words(words: &mut Words, scale_factor: f32) {

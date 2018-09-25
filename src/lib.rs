@@ -1,23 +1,63 @@
-//! azul is a library for creating graphical user interfaces in Rust.
+//! Azul is a free, functional, IMGUI-oriented GUI framework for rapid prototyping
+//! of desktop applications written in Rust, supported by the Mozilla WebRender rendering
+//! engine, using a CSS / DOM model for layout and styling.
 //!
-//! ## How it works
+//! ## Concepts
 //!
-//! azul requires your app data to "serialize" itself into a UI.
-//! This is different from how other GUI frameworks work, so it requires a bit of explanation:
+//! Azul is largely based on the IMGUI principle, in that you redraw the entire
+//! screen every frame. To not make this too performance intensive, Azul provides
+//! diffing and caching, as well as efficient callback handling and hit-testing.
 //!
-//! Your app data is one global struct for your whole application. This is the "model".
-//! azul takes your model and requires you to build a DOM tree to translate the model into a view.
-//! This (layouting, restyling, constraint solving) is done every 2 milliseconds. However, if your
-//! UI doesn't change, nothing is done (in order to not stress the CPU too much).
+//! Managing your code can be done by creating "widgets", i.e. reusable components
+//! that can register "default callbacks", for example a checkbox that toggles a
+//! certain field if it is checked.
 //!
-//! This model makes conditional UI elements and conditional styling very easy. azul takes care
-//! of caching for you - your CSS and DOM elements are cached and diffed for changes, in order to
-//! maximize performance. A full screen redraw should not take longer than 16 milliseconds
-//! (currently the frame time is around 1 - 2 milliseconds).
+//! Azul also has a standard library of widgets to use, see the [widgets] module.
+//! Further, it provides primitives for CSS parsing and handling (which takes care
+//! of the layouting part) as well as DOM handling.
 //!
-//! ## Hello world example
+//! ## Documentation
 //!
-//! For more examples, please look in the `/examples` folder.
+//! Explaining all concepts and examples is too much material to be included in
+//! this API reference. Please refer to the [wiki](https://github.com/maps4print/azul/wiki)
+//! or use the links below to learn about how to use Azul.
+//!
+//! - [Getting Started](https://github.com/maps4print/azul/wiki/Getting-Started)
+//! - [A simple counter](https://github.com/maps4print/azul/wiki/A-simple-counter)
+//! - [Styling your app with CSS](https://github.com/maps4print/azul/wiki/Styling-your-application-with-CSS)
+//! - [SVG drawing](https://github.com/maps4print/azul/wiki/SVG-drawing)
+//! - [OpenGL drawing](https://github.com/maps4print/azul/wiki/OpenGL-drawing)
+//! - [Timers, daemons, tasks and async IO](https://github.com/maps4print/azul/wiki/Timers,-daemons,-tasks-and-async-IO)
+//! - [Two-way data binding](https://github.com/maps4print/azul/wiki/Two-way-data-binding)
+//! - [Unit testing](https://github.com/maps4print/azul/wiki/Unit-testing)
+//!
+//! ## Hello world
+//!
+#![cfg_attr(feature = "no-opengl-tests", doc = " ```no_run")]
+#![cfg_attr(not(feature = "no-opengl-tests"), doc = " ```")]
+//! extern crate azul;
+//!
+//! use azul::prelude::*;
+//!
+//! struct MyDataModel { }
+//!
+//! impl Layout for MyDataModel {
+//!     fn layout(&self, _: WindowInfo<Self>) -> Dom<Self> {
+//!         Dom::new(NodeType::Div)
+//!     }
+//! }
+//!
+//! fn main() {
+//!     let app = App::new(MyDataModel { }, AppConfig::default());
+//!     let window = Window::new(WindowCreateOptions::default(), Css::native()).unwrap();
+//!     app.run(window).unwrap();
+//! }
+//! ```
+//!
+//! If you run this code, you should get a window like this:
+//!
+//! ![Opening a blank window](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_tutorial_empty_window.png)
+//!
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
@@ -70,9 +110,12 @@ extern crate nfd;
 #[macro_use]
 mod macros;
 
-/// Re-exports of errors
-pub mod error;
-
+/// Global application state, wrapping resources and app state
+pub mod app;
+/// Wrapper for the application data & application state
+pub mod app_state;
+/// Font & image resource handling, lookup and caching
+pub mod app_resources;
 /// Daemon / timer system
 pub mod daemon;
 /// Handles default callbacks (such as an automatic text field update) via unsafe code
@@ -81,6 +124,8 @@ pub mod default_callbacks;
 pub mod dialogs;
 /// DOM / HTML node handling
 pub mod dom;
+/// Re-exports of errors
+pub mod error;
 /// Font handling
 pub mod font;
 /// Async IO / task system
@@ -97,16 +142,9 @@ pub mod widgets;
 pub mod window;
 /// Window state handling, event filtering
 pub mod window_state;
+/// CSS parsing and styling module
+pub mod css;
 
-
-/// Global application (Initialization starts here)
-mod app;
-/// Wrapper for the application data & application state
-mod app_state;
-/// Styling & CSS parsing
-mod css;
-/// Font & image resource handling, lookup and caching
-mod app_resources;
 /// UI Description & display list handling (webrender)
 mod ui_description;
 /// Converts the UI description (the styled HTML nodes)

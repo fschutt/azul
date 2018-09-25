@@ -21,21 +21,15 @@ use {
     css_parser::{FontSize, FontId, LetterSpacing},
 };
 
-/// Font and image keys
+/// Stores the resources for the application, souch as fonts, images and cached
+/// texts, also clipboard strings
 ///
-/// The idea is that azul doesn't know where the resources come from,
-/// whether they are loaded from the network or a disk.
-/// Fonts and images must be added and removed dynamically. If you have a
-/// fonts that should be always accessible, then simply add them before the app
-/// starts up.
-///
-/// Images and fonts can be references across window contexts
-/// (not yet tested, but should work).
+/// Images and fonts can be references across window contexts (not yet tested,
+/// but should work).
 pub struct AppResources {
     /// When looking up images, there are two sources: Either the indirect way via using a
     /// CssId (which is a String) or a direct ImageId. The indirect way requires one extra
-    /// lookup (to map from the stringified ID to the actual image ID). This is what this
-    /// HashMap is for
+    /// lookup (to map from the stringified ID to the actual image ID).
     pub(crate) css_ids_to_image_ids: FastHashMap<String, ImageId>,
     /// The actual image cache, does NOT store the image data, only stores it temporarily
     /// while it is being uploaded to the GPU via webrender.
@@ -76,7 +70,7 @@ impl AppResources {
         self.font_data.borrow().keys().cloned().collect()
     }
 
-    /// See `AppState::add_image()`
+    /// See [`AppState::add_image()`](./struct.AppState.html#method.add_image)
     #[cfg(feature = "image_loading")]
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
@@ -106,7 +100,7 @@ impl AppResources {
         }
     }
 
-    /// See `AppState::delete_image()`
+    /// See [`AppState::delete_image()`](./struct.AppState.html#method.delete_image)
     pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
         -> Option<()>
     {
@@ -127,7 +121,7 @@ impl AppResources {
         }
     }
 
-    /// See `AppState::has_image()`
+    /// See [`AppState::has_image()`](./struct.AppState.html#method.has_image)
     pub fn has_image<S: AsRef<str>>(&self, id: S)
         -> bool
     {
@@ -146,7 +140,7 @@ impl AppResources {
         self.css_ids_to_image_ids.get(id.as_ref()).and_then(|id| Some(*id))
     }
 
-    /// See `AppState::add_font()`
+    /// See [`AppState::add_font()`](./struct.AppState.html#method.add_font)
     pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
         -> Result<Option<()>, FontError>
     {
@@ -193,6 +187,8 @@ impl AppResources {
         }
     }
 
+    /// Given a `FontId`, returns the `Font` and the original bytes making up the font
+    /// or `None`, if the `FontId` is invalid.
     pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
         self.get_font_internal(id).and_then(|(font, bytes, _)| Some((font, bytes)))
     }
@@ -202,14 +198,14 @@ impl AppResources {
         self.get_font_internal(id).and_then(|(_, _, state)| Some(state))
     }
 
-    /// Checks if a font is currently registered and ready-to-use
+    /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
     pub fn has_font(&self, id: &FontId)
         -> bool
     {
         self.font_data.borrow().get(id).is_some()
     }
 
-    /// See `AppState::delete_font()`
+    /// See [`AppState::delete_font()`](./struct.AppState.html#method.delete_font)
     pub fn delete_font(&mut self, id: &FontId)
         -> Option<()>
     {
@@ -229,13 +225,16 @@ impl AppResources {
         Some(())
     }
 
+    /// Adds a string to the internal text cache, but only store it as a string,
+    /// without caching the layout of the string.
     pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
     -> TextId
     {
         self.text_cache.add_text(text)
     }
 
-    /// Calculates the widths for the words, then stores the widths of the words + the actual words
+    /// Calculates the widths for the words (layouts the string), then stores
+    /// them in a text cache, together with the actual string
     ///
     /// This leads to a faster layout cycle, but has an upfront performance cost
     pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize, letter_spacing: Option<LetterSpacing>)
@@ -247,8 +246,9 @@ impl AppResources {
         id
     }
 
-    /// Promotes an uncached text to a cached text and calculates all the metrics
-    /// for a given text ID.
+    /// Promotes an uncached text (i.e. a text that was added via `add_text_uncached`)
+    /// to a cached text by calculating the font metrics for the uncached text.
+    /// This will not delete the original text!
     pub fn cache_text(&mut self, id: TextId, font: FontId, size: FontSize, letter_spacing: Option<LetterSpacing>) {
 
         use rusttype::Scale;
@@ -260,26 +260,40 @@ impl AppResources {
         let rusttype_font = self.get_font(&font).expect("Invalid font ID");
         let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height, letter_spacing);
 
-        self.text_cache.cached_strings
+        self.text_cache.layouted_strings_cache
             .entry(id).or_insert_with(|| FastHashMap::default())
             .entry(font).or_insert_with(|| FastHashMap::default())
             .insert(size, words);
     }
 
+    /// Removes a string from the string cache, but not the layouted text cache
+    pub fn delete_string(&mut self, id: TextId) {
+        self.text_cache.delete_string(id);
+    }
+
+    /// Removes a string from the layouted text cache, but not the string cache
+    pub fn delete_layouted_text(&mut self, id: TextId) {
+        self.text_cache.delete_layouted_text(id);
+    }
+
+    /// Removes a string from both the string cache and the layouted text cache
     pub fn delete_text(&mut self, id: TextId) {
         self.text_cache.delete_text(id);
     }
 
+    /// Empties the entire internal text cache, invalidating all `TextId`s. Use with care.
     pub fn clear_all_texts(&mut self) {
         self.text_cache.clear_all_texts();
     }
 
+    /// Returns the contents of the system clipboard
     pub fn get_clipboard_string(&self)
     -> Result<String, ClipboardError>
     {
         self.clipboard.get_string_contents()
     }
 
+    /// Sets the contents of the system clipboard - currently only strings are supported
     pub fn set_clipboard_string(&mut self, contents: String)
     -> Result<(), ClipboardError>
     {
