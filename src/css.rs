@@ -464,6 +464,7 @@ impl Css {
     }
 }
 
+/// Error that can happen during `ParsedCssProperty::from_kv`
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynamicCssParseError<'a> {
     /// The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `
