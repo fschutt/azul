@@ -12,19 +12,31 @@ use {
 /// Should a daemon terminate or not - used to remove active daemons
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TerminateDaemon {
+    /// Remove the daemon from the list of active daemons
     Terminate,
+    /// Do nothing and let the daemons continue to run
     Continue,
 }
 
 static MAX_DAEMON_ID: AtomicUsize = AtomicUsize::new(0);
 
+/// Generate a new, unique DaemonId
 pub fn new_daemon_id() -> DaemonId {
     DaemonId(MAX_DAEMON_ID.fetch_add(1, Ordering::SeqCst))
 }
 
+/// ID for uniquely identifying a daemon
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct DaemonId(usize);
 
+/// A `Daemon` is a function that is run on every frame.
+///
+/// The reason for needing this is simple - there are often a lot of visual tasks
+/// (such as animations, fetching the next frame for a GIF or video, etc.)
+/// going on, but we don't want to create a new thread for each of these tasks.
+///
+/// They are fast enough to run under 16ms, so they can run on the main thread.
+/// A daemon can also act as a timer, so that a function is called every X duration.
 pub struct Daemon<T> {
     created: Instant,
     last_run: Instant,
@@ -34,6 +46,7 @@ pub struct Daemon<T> {
     pub(crate) id: DaemonId,
 }
 
+/// Callback that can runs on every frame on the main thread - can modify the app data model
 pub struct DaemonCallback<T>(pub fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon));
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for DaemonCallback<T>
@@ -67,10 +80,15 @@ impl<T> Eq for DaemonCallback<T> { }
 impl<T> Copy for DaemonCallback<T> { }
 
 impl<T> Daemon<T> {
+    /// Create a daemon with a unique ID
     pub fn unique(callback: DaemonCallback<T>) -> Self {
         Self::with_id(callback, new_daemon_id())
     }
 
+    /// Create a daemon with an existing ID.
+    ///
+    /// The reason you might want this is to immediately replace one daemon
+    /// with another one, or merge several daemons together.
     pub fn with_id(callback: DaemonCallback<T>, id: DaemonId) -> Self {
         Daemon {
             created: Instant::now(),
@@ -82,6 +100,8 @@ impl<T> Daemon<T> {
         }
     }
 
+    /// Converts the daemon into a countdown, by giving it a maximum duration
+    /// (counted from the creation of the Daemon, not the first use).
     pub fn with_timeout(self, timeout: Duration) -> Self {
         Self {
             max_timeout: Some(timeout),
@@ -89,6 +109,8 @@ impl<T> Daemon<T> {
         }
     }
 
+    /// Converts the daemon into a timer, running the function only if the given
+    /// `Duration` has elapsed since the last run
     pub fn run_every(self, every: Duration) -> Self {
         Self {
             run_every: Some(every),
@@ -97,8 +119,13 @@ impl<T> Daemon<T> {
         }
     }
 
-    pub(crate) fn invoke_callback_with_data(&mut self, data: &mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon) {
-
+    /// Crate-internal: Invokes the daemon if the timer and the max_timeout allow it to
+    pub(crate) fn invoke_callback_with_data(
+        &mut self,
+        data: &mut T,
+        app_resources: &mut AppResources)
+    -> (UpdateScreen, TerminateDaemon)
+    {
         // Check if the deamons timeout is reached
         if let Some(max_timeout) = self.max_timeout {
             if Instant::now() - self.created > max_timeout {

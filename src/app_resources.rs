@@ -70,7 +70,7 @@ impl AppResources {
         self.font_data.borrow().keys().cloned().collect()
     }
 
-    /// See [`AppState::add_image()`](./struct.AppState.html#method.add_image)
+    /// See [`AppState::add_image()`](../app_state/struct.AppState.html#method.add_image)
     #[cfg(feature = "image_loading")]
     pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
         -> Result<Option<()>, ImageError>
@@ -100,7 +100,7 @@ impl AppResources {
         }
     }
 
-    /// See [`AppState::delete_image()`](./struct.AppState.html#method.delete_image)
+    /// See [`AppState::delete_image()`](../app_state/struct.AppState.html#method.delete_image)
     pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
         -> Option<()>
     {
@@ -121,7 +121,7 @@ impl AppResources {
         }
     }
 
-    /// See [`AppState::has_image()`](./struct.AppState.html#method.has_image)
+    /// See [`AppState::has_image()`](../app_state/struct.AppState.html#method.has_image)
     pub fn has_image<S: AsRef<str>>(&self, id: S)
         -> bool
     {

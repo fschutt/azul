@@ -2,17 +2,29 @@
 
 #[cfg(debug_assertions)]
 use std::io::Error as IoError;
+use std::{
+    collections::BTreeMap,
+    rc::Rc,
+    cell::RefCell,
+};
 use {
     FastHashMap,
     traits::IntoParsedCssProperty,
     css_parser::{ParsedCssProperty, CssParsingError},
     error::CssSyntaxError,
+    id_tree::{NodeId, Arena},
+    traits::Layout,
+    ui_description::{UiDescription, StyledNode, CssConstraintList},
+    dom::NodeData,
 };
 
+/// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
 #[cfg(target_os="windows")]
 pub const NATIVE_CSS: &str = include_str!("styles/native_windows.css");
+/// CSS mimicking the OS-native look - Linux: `styles/native_windows.css`
 #[cfg(target_os="linux")]
 pub const NATIVE_CSS: &str = include_str!("styles/native_linux.css");
+/// CSS mimicking the OS-native look - Mac: `styles/native_macos.css`
 #[cfg(target_os="macos")]
 pub const NATIVE_CSS: &str = include_str!("styles/native_macos.css");
 
@@ -29,33 +41,46 @@ const RELAYOUT_RULES: [&str; 13] = [
 pub struct Css {
     /// Path to hot-reload the CSS file from
     #[cfg(debug_assertions)]
-    pub(crate) hot_reload_path: Option<String>,
+    pub hot_reload_path: Option<String>,
     /// When hot-reloading, should the CSS file be appended to the built-in, native styles
     /// (equivalent to `NATIVE_CSS + include_str!(hot_reload_path)`)? Default: false
     #[cfg(debug_assertions)]
-    pub(crate) hot_reload_override_native: bool,
+    pub hot_reload_override_native: bool,
     /// The CSS rules making up the document
-    pub(crate) rules: Vec<CssRule>,
+    pub rules: Vec<CssRule>,
     /// The dynamic properties that have to be overridden for this frame
     ///
     /// - `String`: The ID of the dynamic property
     /// - `ParsedCssProperty`: What to override it with
-    pub(crate) dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
-    /// Has the CSS changed in a way where it needs a re-layout?
+    pub dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
+    /// Has the CSS changed in a way where it needs a re-layout? - default:
+    /// `true` in order to force a re-layout on the first frame
     ///
     /// Ex. if only a background color has changed, we need to redraw, but we
-    /// don't need to re-layout the frame
-    pub(crate) needs_relayout: bool,
+    /// don't need to re-layout the frame.
+    pub needs_relayout: bool,
 }
 
-/// Fake CSS that can be changed by the user
+/// Fake CSS containing the dynamic CSS properties for this frame -
+/// can be changed by the user to override styles if needed
 #[derive(Debug, Default, Clone)]
 pub struct FakeCss {
     pub dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
 }
 
 impl FakeCss {
-    /// Set a dynamic CSS property for the duration of one frame
+    /// Set a dynamic CSS property for the duration of one frame. You can
+    /// access the dynamic property on a window via `app_state.windows[event.window].css`.
+    ///
+    /// You can set dynamic properties from either a string or directly, however,
+    /// setting them directly avoids re-parsing the string:
+    ///
+    /// ```rust
+    /// # use azul::prelude::*;
+    /// let mut fake_css = FakeCss::default();
+    /// fake_css.set_dynamic_property("my_id", ("width", "500px")).unwrap();
+    /// fake_css.set_dynamic_property("my_id", ParsedCssProperty::Width(LayoutWidth(PixelValue::px(500.0)))).unwrap();
+    /// ```
     pub fn set_dynamic_property<'a, S, T>(&mut self, id: S, css_value: T)
     -> Result<(), CssParsingError<'a>>
     where S: Into<String>,
@@ -70,7 +95,7 @@ impl FakeCss {
     ///
     /// Is usually invoked at the end of the frame, to get a clean slate
     pub(crate) fn clear(&mut self) {
-        self.dynamic_css_overrides = FastHashMap::default();
+        self.dynamic_css_overrides.clear();
     }
 }
 
@@ -118,7 +143,7 @@ impl<'a> From<DynamicCssParseError<'a>> for CssParseError<'a> {
 /// The CSS rule is currently not cascaded, use `Css::new_from_str()`
 /// to do the cascading.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct CssRule {
+pub struct CssRule {
     /// `div` (`*` by default)
     pub html_type: String,
     /// `#myid` (`None` by default)
@@ -129,13 +154,18 @@ pub(crate) struct CssRule {
     pub declaration: (String, CssDeclaration),
 }
 
+/// Contains one parsed `key: value` pair, static or dynamic
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum CssDeclaration {
+pub enum CssDeclaration {
+    /// Static key-value pair, such as `width: 500px`
     Static(ParsedCssProperty),
+    /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
     Dynamic(DynamicCssProperty),
 }
 
 impl CssDeclaration {
+    /// Determines if the property will be inherited (applied to the children)
+    /// during the recursive application of the CSS on the DOM tree
     pub fn is_inheritable(&self) -> bool {
         use self::CssDeclaration::*;
         match self {
@@ -145,26 +175,33 @@ impl CssDeclaration {
     }
 }
 
-/// A `CssProperty` is a type of CSS Rule,
-/// but the contents of the rule is dynamic.
+/// A `DynamicCssProperty` is a type of CSS rule that can be changed on possibly
+/// every frame by the Rust code - for example to implement an `On::Hover` behaviour.
 ///
-/// Azul has "dynamic properties", i.e.:
+/// The syntax for such a property looks like this:
 ///
 /// ```no_run,ignore
 /// #my_div {
-///    padding: {{ my_dynamic_property_id | 400px }};
+///    padding: [[ my_dynamic_property_id | 400px ]];
 /// }
 /// ```
 ///
+/// Azul will register a dynamic property with the key "my_dynamic_property_id"
+/// and the default value of 400px. If the property gets overridden during one frame,
+/// the overridden property takes precedence.
+///
 /// At runtime the CSS is immutable (which is a performance optimization - if we
 /// can assume that the CSS never changes at runtime), we can do some optimizations on it.
-/// Also it leads to cleaner code, since both animations and conditional CSS styling
-/// now use the same API.
-///
+/// Dynamic CSS properties can also be used for animations and conditional CSS
+/// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
+/// special cases now use one single API.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct DynamicCssProperty {
-    pub(crate) dynamic_id: String,
-    pub(crate) default: ParsedCssProperty,
+pub struct DynamicCssProperty {
+    /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
+    pub dynamic_id: String,
+    /// Default value, used if the CSS property isn't overridden in this frame
+    /// i.e. the `500px` in `width: [[ my_id | 500px ]]`.
+    pub default: ParsedCssProperty,
 }
 
 impl DynamicCssProperty {
@@ -187,14 +224,13 @@ impl CssRule {
 #[derive(Debug)]
 pub enum HotReloadError {
     Io(IoError, String),
-    // TODO: get the CSS
     FailedToReload,
 }
 
 #[cfg(debug_assertions)]
 impl_display! { HotReloadError, {
-    Io(e, file) => format!("Io error: {} (file: \"{}\"", e, file),
-    FailedToReload => "Failed to reload.",
+    Io(e, file) => format!("Failed to hot-reload CSS file: Io error: {} when loading file: \"{}\"", e, file),
+    FailedToReload => "Failed to hot-reload CSS file",
 }}
 
 impl Css {
@@ -430,6 +466,7 @@ impl Css {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynamicCssParseError<'a> {
+    /// The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `
     UnclosedBraces,
     /// There is a valid dynamic css property, but no default case
     NoDefaultCase,
@@ -444,7 +481,7 @@ pub enum DynamicCssParseError<'a> {
 }
 
 impl_display!{ DynamicCssParseError<'a>, {
-    UnclosedBraces => "Unclosed braces",
+    UnclosedBraces => "The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `",
     NoDefaultCase => "There is a valid dynamic css property, but no default case",
     NoId => "The dynamic CSS property has no ID, i.e. [[ 400px ]]",
     InvalidId => "The ID may not start with a number or be a CSS property itself",
@@ -531,6 +568,196 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
             Ok(CssDeclaration::Static(ParsedCssProperty::from_kv(key, value)?))
         }
     }
+}
+
+/// CSS rules, sorted and grouped by priority
+pub(crate) struct ParsedCss<'a> {
+    pub(crate) pure_global_rules: Vec<&'a CssRule>,
+    pub(crate) pure_div_rules: Vec<&'a CssRule>,
+    pub(crate) pure_class_rules: Vec<&'a CssRule>,
+    pub(crate) pure_id_rules: Vec<&'a CssRule>,
+}
+
+impl<'a> ParsedCss<'a> {
+    /// Takes a `Css` struct and groups the types by their priority.
+    pub(crate) fn from_css(css: &'a Css) -> Self {
+
+        // Parse the CSS nodes cascading by their importance
+        // 1. global rules
+        // 2. div-type ("html { }") specific rules
+        // 3. class-based rules
+        // 4. ID-based rules
+
+        /*
+            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("direction", "row") }
+            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("justify-content", "center") }
+            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("align-items", "center") }
+            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("align-content", "center") }
+        */
+
+        // note: the following passes can be done in parallel ...
+
+        // Global rules
+        // * {
+        //    background-color: blue;
+        // }
+        let pure_global_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+            rule.html_type == "*" && rule.id.is_none() && rule.classes.is_empty()
+        ).collect();
+
+        // Pure-div-type specific rules
+        // button {
+        //    justify-content: center;
+        // }
+        let pure_div_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+            rule.html_type != "*" && rule.id.is_none() && rule.classes.is_empty()
+        ).collect();
+
+        // Pure-class rules
+        // NOTE: These classes are sorted alphabetically and are not duplicated
+        //
+        // .something .otherclass {
+        //    text-color: red;
+        // }
+        let pure_class_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+            rule.id.is_none() && !rule.classes.is_empty()
+        ).collect();
+
+        // Pure-id rules
+        // #something {
+        //    background-color: red;
+        // }
+        let pure_id_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+            rule.id.is_some() && rule.classes.is_empty()
+        ).collect();
+
+        Self {
+            pure_global_rules: pure_global_rules,
+            pure_div_rules: pure_div_rules,
+            pure_class_rules: pure_class_rules,
+            pure_id_rules: pure_id_rules,
+        }
+    }
+}
+
+pub(crate) fn match_dom_css_selectors<'a, T: Layout>(
+    root: NodeId,
+    arena: &Rc<RefCell<Arena<NodeData<T>>>>,
+    parsed_css: &ParsedCss<'a>,
+    css: &Css,
+    parent_z_level: u32)
+-> UiDescription<T>
+{
+    let mut root_constraints = CssConstraintList::default();
+    for global_rule in &parsed_css.pure_global_rules {
+        root_constraints.push_rule(global_rule);
+    }
+
+    let arena_borrow = &*(*arena).borrow();
+    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
+    let sibling_iterator = root.following_siblings(arena_borrow);
+    // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
+    // sibling_iterator.next().unwrap();
+
+    for sibling in sibling_iterator {
+        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, css, &root_constraints, parent_z_level));
+    }
+
+    UiDescription {
+        // note: this clone is neccessary, otherwise,
+        // we wouldn't be able to update the UiState
+        ui_descr_arena: (*arena).clone(),
+        ui_descr_root: Some(root),
+        styled_nodes: styled_nodes,
+        default_style_of_node: StyledNode::default(),
+        dynamic_css_overrides: css.dynamic_css_overrides.clone(),
+    }
+}
+
+fn match_dom_css_selectors_inner<'a, T: Layout>(
+    root: NodeId,
+    arena: &Arena<NodeData<T>>,
+    parsed_css: &ParsedCss<'a>,
+    css: &Css,
+    parent_constraints: &CssConstraintList,
+    parent_z_level: u32)
+-> BTreeMap<NodeId, StyledNode>
+{
+    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
+
+    let mut current_constraints = CssConstraintList {
+        list: parent_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
+    };
+
+    cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css, css);
+
+    let current_node = StyledNode {
+        z_level: parent_z_level,
+        css_constraints: current_constraints,
+    };
+
+    // DFS tree
+    for child in root.children(arena) {
+        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, parent_z_level + 1));
+    }
+
+    styled_nodes.insert(root, current_node);
+    styled_nodes
+}
+
+/// Cascade the rules, put them into the list
+#[allow(unused_variables)]
+fn cascade_constraints<'a, T: Layout>(
+    node: &NodeData<T>,
+    list: &mut CssConstraintList,
+    parsed_css: &ParsedCss<'a>,
+    css: &Css)
+{
+    for div_rule in &parsed_css.pure_div_rules {
+        if *node.node_type.get_css_id() == div_rule.html_type {
+            list.push_rule(div_rule);
+        }
+    }
+
+    let mut node_classes: Vec<&String> = node.classes.iter().map(|x| x).collect();
+    node_classes.sort();
+    node_classes.dedup_by(|a, b| *a == *b);
+
+    // for all classes that this node has
+    for class_rule in &parsed_css.pure_class_rules {
+        // NOTE: class_rule is sorted and de-duplicated
+        // If the selector matches, the node classes must be identical
+        let mut should_insert_rule = true;
+        if class_rule.classes.len() != node_classes.len() {
+            should_insert_rule = false;
+        } else {
+            for i in 0..class_rule.classes.len() {
+                // we verified that the length of the two classes is the same
+                if *node_classes[i] != class_rule.classes[i] {
+                    should_insert_rule = false;
+                    break;
+                }
+            }
+        }
+
+        if should_insert_rule {
+            list.push_rule(class_rule);
+        }
+    }
+
+    // first attribute for "id = something"
+    let node_id = &node.id;
+
+    if let Some(ref node_id) = *node_id {
+        // if the node has an ID
+        for id_rule in &parsed_css.pure_id_rules {
+            if *id_rule.id.as_ref().unwrap() == *node_id {
+                list.push_rule(id_rule);
+            }
+        }
+    }
+
+    // TODO: all the mixed rules
 }
 
 #[test]
