@@ -23,33 +23,60 @@ use {
     daemon::{Daemon, DaemonId, TerminateDaemon},
 };
 
-/// Wrapper for your application data. In order to be layout-able,
-/// you need to satisfy the `Layout` trait (how the application
-/// should be laid out)
+/// Wrapper for your application data, stores the data, windows and resources, as
+/// well as running daemons and asynchronous tasks.
+///
+/// In order to be layout-able, your data model needs to satisfy the `Layout` trait,
+/// which maps the state of your application to a DOM (how the application data should be laid out)
 pub struct AppState<T: Layout> {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: Arc<Mutex<T>>,
-    /// Note: this isn't the real window state. This is a "mock" window state which
-    /// can be modified by the user, i.e:
+    /// This field represents the state of the windows, public to the user. You can
+    /// mess around with the state as you like, however, the actual window won't update
+    /// until the next frame. This is done to "decouple" the frameworks internal
+    /// state updating logic from the user code (and to make the API future-proof
+    /// in case extra functions are introduced).
+    ///
+    /// Another reason this is needed is to (later) introduce testing for the window
+    /// state - if the API would directly modify the window itself, these changes
+    /// wouldn't be recorded anywhere, so there wouldn't be a way to unit-test certain APIs.
+    ///
+    /// This also allows you to dynamically override CSS values (to conditionally
+    /// style your elements at runtime, for example on a `On::Hover` event).
+    ///
+    /// The state of these `FakeWindow`s gets deleted and recreated on each frame, especially
+    /// the CSS. This should force a user to design his code in a functional way,
+    /// without relying on state-based conditions. Example:
+    ///
     /// ```no_run,ignore
+    /// let window_state = &mut app_state.windows[event.window];
     /// // For one frame, set the dynamic CSS value with `my_id` to `color: orange`
-    /// app_state.windows[event.window].css.set_dynamic_property("my_id", ("color", "orange")).unwrap();
+    /// window_state.css.set_dynamic_property("my_id", ("color", "orange")).unwrap();
     /// // Update the title
-    /// app_state.windows[event.window].state.title = "Hello";
+    /// window_state.state.title = "Hello";
     /// ```
     pub windows: Vec<FakeWindow<T>>,
-    /// Fonts and images that are currently loaded into the app
+    /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
+    ///
+    /// Accessing this field is often required to load new fonts or images, so instead of
+    /// requiring the `FontHashMap`, a lot of functions just require the whole `AppResources` field.
     pub resources: AppResources,
-    /// Currently running daemons (polling functions)
+    /// Currently running daemons (polling functions, run on the main thread)
     pub(crate) daemons: FastHashMap<DaemonId, Daemon<T>>,
-    /// Currently running tasks (asynchronous functions running on a different thread)
+    /// Currently running tasks (asynchronous functions running each on a different thread)
     pub(crate) tasks: Vec<Task<T>>,
 }
 
-/// Same as the app state, but without the `self.data` field -
-/// used for default callbacks
+/// Same as the [AppState](./struct.AppState.html) but without the
+/// `self.data` field - used for default callbacks, so that callbacks can
+/// load and unload fonts or images + access the system clipboard
+///
+/// Default callbacks don't have access to the `AppState.data` field,
+/// since they use a `StackCheckedPointer` instead.
 pub struct AppStateNoData<'a, T: 'a + Layout> {
+    /// See [`AppState.windows`](./struct.AppState.html#structfield.windows)
     pub windows: &'a Vec<FakeWindow<T>>,
+    /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
 }
 

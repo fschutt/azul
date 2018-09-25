@@ -23,20 +23,21 @@ pub struct TextId {
 /// Cache for accessing large amounts of text
 #[derive(Debug, Default, Clone)]
 pub struct TextCache {
-    /// Caches the layout of the strings / words.
-    ///
-    /// TextId -> FontId (to look up by font)
-    /// FontId -> FontSize (to categorize by size within a font)
-    /// FontSize -> layouted words (to cache the glyph widths on a per-font-size basis)
-    pub cached_strings: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<FontSize, Words>>>,
     /// Mapping from the TextID to the actual, UTF-8 String
     ///
     /// This is stored outside of the actual glyph calculation, because usually you don't
     /// need the string, except for rebuilding a cached string (for example, when the font is changed)
     pub string_cache: FastHashMap<TextId, String>,
+    /// Caches the layout of the strings / words.
+    ///
+    /// TextId -> FontId (to look up by font)
+    /// FontId -> FontSize (to categorize by size within a font)
+    /// FontSize -> layouted words (to cache the glyph widths on a per-font-size basis)
+    pub layouted_strings_cache: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<FontSize, Words>>>,
 }
 
 impl TextCache {
+
     /// Add a new, large text to the resources
     pub fn add_text<S: Into<String>>(&mut self, text: S) -> TextId {
         let id = new_text_id();
@@ -44,14 +45,25 @@ impl TextCache {
         id
     }
 
-    pub fn delete_text(&mut self, id: TextId) {
+    /// Removes a string from the string cache, but not the layouted text cache
+    pub fn delete_string(&mut self, id: TextId) {
         self.string_cache.remove(&id);
-        self.cached_strings.remove(&id);
+    }
+
+    /// Removes a string from the layouted text cache, but not the string cache
+    pub fn delete_layouted_text(&mut self, id: TextId) {
+        self.layouted_strings_cache.remove(&id);
+    }
+
+    /// Delete a text from both the string cache and the layouted text cache
+    pub fn delete_text(&mut self, id: TextId) {
+        self.delete_string(id);
+        self.delete_layouted_text(id);
     }
 
     pub fn clear_all_texts(&mut self) {
         self.string_cache.clear();
-        self.cached_strings.clear();
+        self.layouted_strings_cache.clear();
     }
 }
 

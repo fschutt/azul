@@ -212,74 +212,6 @@ impl Css {
         }
     }
 
-    /// **NOTE**: Only available in debug mode, can crash if the file isn't found
-    #[cfg(debug_assertions)]
-    pub fn hot_reload(file_path: &str) -> Result<Self, HotReloadError>  {
-        use std::fs;
-        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
-        let mut css = match Self::new_from_str(&initial_css) {
-            Ok(o) => o,
-            Err(e) => panic!("Hot reload parsing error in file {}:\n{}\n", file_path, e),
-        };
-        css.hot_reload_path = Some(file_path.into());
-        Ok(css)
-    }
-
-    #[cfg(debug_assertions)]
-    pub fn hot_reload_override_native(file_path: &str) -> Result<Self, HotReloadError> {
-        use std::fs;
-        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
-        let target_css = format!("{}\r\n{}", NATIVE_CSS, initial_css);
-        let mut css = match Self::new_from_str(&target_css) {
-            Ok(o) => o,
-            Err(e) => panic!("Hot reload parsing error in file {}:\n{}\n", file_path, e),
-        };
-        css.hot_reload_path = Some(file_path.into());
-        css.hot_reload_override_native = true;
-        Ok(css)
-    }
-
-    #[cfg(debug_assertions)]
-    pub fn reload_css(&mut self) {
-
-        use std::fs;
-
-        let file_path = if let Some(f) = &self.hot_reload_path {
-            f.clone()
-        } else {
-            error!("No file to hot-reload the CSS from!");
-            return;
-        };
-
-        let reloaded_css = match fs::read_to_string(&file_path) {
-            Ok(o) => o,
-            Err(e) => {
-                error!("Failed to hot-reload \"{}\":\r\n{}\n", file_path, e);
-                return;
-            },
-        };
-
-        let target_css = if self.hot_reload_override_native {
-            format!("{}\r\n{}\n", NATIVE_CSS, reloaded_css)
-        } else {
-            reloaded_css
-        };
-
-        let mut parsed_css = match Self::new_from_str(&target_css) {
-            Ok(o) => o,
-            Err(e) => {
-                error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
-                return;
-            },
-        };
-
-        parsed_css.hot_reload_path = self.hot_reload_path.clone();
-        parsed_css.dynamic_css_overrides = self.dynamic_css_overrides.clone();
-        parsed_css.hot_reload_override_native = self.hot_reload_override_native;
-
-        *self = parsed_css;
-    }
-
     /// Parses a CSS string (single-threaded) and returns the parsed rules
     pub fn new_from_str<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
         use simplecss::{Tokenizer, Token};
@@ -397,6 +329,102 @@ impl Css {
     /// Returns the native style for the OS
     pub fn native() -> Self {
         Self::new_from_str(NATIVE_CSS).unwrap()
+    }
+
+    /// Same as `new_from_str`, but applies the OS-native styles first, before
+    /// applying the user styles on top.
+    pub fn override_native<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
+        let parsed = Self::new_from_str(css_string)?;
+        let mut native = Self::native();
+        native.merge(parsed);
+        Ok(native)
+    }
+
+    // Combines two parsed stylesheets into one, appending the rules of
+    // `other` after the rules of `self`. Overrides `self.hot_reload_path` with
+    // `other.hot_reload_path`
+    pub fn merge(&mut self, mut other: Self) {
+        self.rules.append(&mut other.rules);
+        for (id, property) in other.dynamic_css_overrides {
+            self.dynamic_css_overrides.insert(id, property);
+        }
+        self.needs_relayout = self.needs_relayout || other.needs_relayout;
+
+        #[cfg(debug_assertions)] {
+            self.hot_reload_path = other.hot_reload_path;
+            self.hot_reload_override_native = other.hot_reload_override_native;
+        }
+    }
+
+    /// **NOTE**: Only available in debug mode, can crash if the file isn't found
+    #[cfg(debug_assertions)]
+    pub fn hot_reload(file_path: &str) -> Result<Self, HotReloadError>  {
+        use std::fs;
+        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
+        let mut css = match Self::new_from_str(&initial_css) {
+            Ok(o) => o,
+            Err(e) => panic!("Hot reload CSS: Parsing error in file {}:\n{}\n", file_path, e),
+        };
+        css.hot_reload_path = Some(file_path.into());
+
+        Ok(css)
+    }
+
+    /// Same as `hot_reload`, but applies the OS-native styles first, before
+    /// applying the user styles on top.
+    #[cfg(debug_assertions)]
+    pub fn hot_reload_override_native(file_path: &str) -> Result<Self, HotReloadError> {
+        use std::fs;
+        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
+        let mut css = match Self::override_native(&initial_css) {
+            Ok(o) => o,
+            Err(e) => panic!("Hot reload CSS: Parsing error in file {}:\n{}\n", file_path, e),
+        };
+        css.hot_reload_path = Some(file_path.into());
+        css.hot_reload_override_native = true;
+
+        Ok(css)
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn reload_css(&mut self) {
+
+        use std::fs;
+
+        let file_path = if let Some(f) = &self.hot_reload_path {
+            f.clone()
+        } else {
+            error!("No file to hot-reload the CSS from!");
+            return;
+        };
+
+        let reloaded_css = match fs::read_to_string(&file_path) {
+            Ok(o) => o,
+            Err(e) => {
+                error!("Failed to hot-reload \"{}\":\r\n{}\n", file_path, e);
+                return;
+            },
+        };
+
+        let target_css = if self.hot_reload_override_native {
+            format!("{}\r\n{}\n", NATIVE_CSS, reloaded_css)
+        } else {
+            reloaded_css
+        };
+
+        let mut parsed_css = match Self::new_from_str(&target_css) {
+            Ok(o) => o,
+            Err(e) => {
+                error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
+                return;
+            },
+        };
+
+        parsed_css.hot_reload_path = self.hot_reload_path.clone();
+        parsed_css.dynamic_css_overrides = self.dynamic_css_overrides.clone();
+        parsed_css.hot_reload_override_native = self.hot_reload_override_native;
+
+        *self = parsed_css;
     }
 }
 
