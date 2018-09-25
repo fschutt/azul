@@ -207,7 +207,7 @@ pub mod prelude {
         SideOffsets2D, Au, BorderDetails, Background, FontSize,
         FontFamily, TextOverflowBehaviour, TextOverflowBehaviourInner, TextAlignmentHorz,
         TextAlignmentVert, BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
-        LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth,
+        LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, CssMetric,
         LayoutMaxHeight, LayoutWrap, LayoutDirection,
         LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
         LayoutTop, LayoutBottom, LayoutRight, LayoutLeft,

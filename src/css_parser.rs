@@ -151,6 +151,14 @@ impl From<Option<BoxShadowPreDisplayItem>> for ParsedCssProperty {
 impl ParsedCssProperty {
     /// Main parsing function, takes a stringified key / value pair and either
     /// returns the parsed value or an error
+    ///
+    /// ```rust
+    /// # use azul::prelude::*;
+    /// assert_eq!(
+    ///     ParsedCssProperty::from_kv("width", "500px"),
+    ///     Ok(ParsedCssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
+    /// )
+    /// ```
     pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<Self, CssParsingError<'a>> {
         let key = key.trim();
         let value = value.trim();
@@ -320,6 +328,17 @@ pub struct PixelValue {
 }
 
 impl PixelValue {
+    pub fn px(value: f32) -> Self {
+        Self::from_metric(CssMetric::Px, value)
+    }
+
+    pub fn em(value: f32) -> Self {
+        Self::from_metric(CssMetric::Em, value)
+    }
+
+    pub fn pt(value: f32) -> Self {
+        Self::from_metric(CssMetric::Pt, value)
+    }
 
     pub fn from_metric(metric: CssMetric, value: f32) -> Self {
         Self {
@@ -591,6 +610,7 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
     }
 }
 
+/// Represents a parsed CSS `background-color` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BackgroundColor(pub ColorU);
 
@@ -600,6 +620,7 @@ fn parse_css_background_color<'a>(input: &'a str)
     parse_css_color(input).and_then(|ok| Ok(BackgroundColor(ok)))
 }
 
+/// Represents a parsed CSS `color` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct TextColor(pub ColorU);
 
@@ -847,6 +868,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
     }
 }
 
+/// Represents a parsed CSS `padding` attribute
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LayoutPadding {
     pub top: Option<PixelValue>,
@@ -863,7 +885,7 @@ pub enum LayoutPaddingParseError<'a> {
 }
 
 impl_display!{ LayoutPaddingParseError<'a>, {
-    PixelParseError(e) => format!("Invalid pixel value: {}", e),
+    PixelParseError(e) => format!("Could not parse pixel value: {}", e),
     TooManyValues => format!("Too many values - padding property has a maximum of 4 values."),
     TooFewValues => format!("Too few values - padding property has a minimum of 1 value."),
 }}
@@ -1722,34 +1744,47 @@ impl_display!{CssShapeParseError<'a>, {
     ShapeErr(e) => format!("\"{}\"", e.0),
 }}
 
+/// Represents a parsed CSS `width` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutWidth(pub PixelValue);
+/// Represents a parsed CSS `min-width` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutMinWidth(pub PixelValue);
+/// Represents a parsed CSS `max-width` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutMaxWidth(pub PixelValue);
+/// Represents a parsed CSS `height` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutHeight(pub PixelValue);
+/// Represents a parsed CSS `min-height` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutMinHeight(pub PixelValue);
+/// Represents a parsed CSS `max-height` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutMaxHeight(pub PixelValue);
 
+/// Represents a parsed CSS `top` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutTop(pub PixelValue);
+/// Represents a parsed CSS `left` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutLeft(pub PixelValue);
+/// Represents a parsed CSS `right` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutRight(pub PixelValue);
+/// Represents a parsed CSS `bottom` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutBottom(pub PixelValue);
 
+/// Represents a parsed CSS `line-height` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LineHeight(pub PercentageValue);
 
+/// Represents a parsed CSS `letter-spacing` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LetterSpacing(pub PixelValue);
 
+/// Represents a parsed CSS `flex-direction` attribute - default: `Column`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutDirection {
     Row,
@@ -1758,6 +1793,9 @@ pub enum LayoutDirection {
     ColumnReverse,
 }
 
+/// Represents a parsed CSS `position` attribute - default: `Static`
+///
+/// NOTE: No inline positioning is supported.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutPosition {
     Static,
@@ -1777,6 +1815,7 @@ impl Default for LayoutDirection {
     }
 }
 
+/// Represents a parsed CSS `flex-wrap` attribute - default: `Wrap`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutWrap {
     Wrap,
@@ -1789,6 +1828,7 @@ impl Default for LayoutWrap {
     }
 }
 
+/// Represents a parsed CSS `justify-content` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutJustifyContent {
     /// Default value. Items are positioned at the beginning of the container
@@ -1803,6 +1843,7 @@ pub enum LayoutJustifyContent {
     SpaceAround,
 }
 
+/// Represents a parsed CSS `align-items` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutAlignItems {
     /// Items are stretched to fit the container
@@ -1815,6 +1856,7 @@ pub enum LayoutAlignItems {
     End,
 }
 
+/// Represents a parsed CSS `align-content` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutAlignContent {
     /// Default value. Lines stretch to take up the remaining space
@@ -1831,6 +1873,11 @@ pub enum LayoutAlignContent {
     SpaceAround,
 }
 
+/// Represents a parsed CSS `overflow` attribute
+///
+/// NOTE: This is split into `NotModified` and `Modified`
+/// in order to be able to "merge" `overflow-x` and `overflow-y`
+/// into one property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TextOverflowBehaviour {
     NotModified,
@@ -1843,6 +1890,8 @@ impl Default for TextOverflowBehaviour {
     }
 }
 
+/// Represents a parsed CSS `overflow-x` or `overflow-y` property, see
+/// [`TextOverflowBehaviour`](./struct.TextOverflowBehaviour.html) - default: `Auto`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TextOverflowBehaviourInner {
     /// Always shows a scroll bar, overflows on scroll
@@ -1861,6 +1910,7 @@ impl Default for TextOverflowBehaviourInner {
     }
 }
 
+/// Horizontal text alignment enum (left, center, right) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TextAlignmentHorz {
     Left,
@@ -1874,6 +1924,7 @@ impl Default for TextAlignmentHorz {
     }
 }
 
+/// Vertical text alignment enum (top, center, bottom) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TextAlignmentVert {
     Top,
@@ -1971,17 +2022,17 @@ typed_pixel_value_parser!(parse_css_font_size, FontSize);
 impl FontSize {
     /// Creates the font size in pixel
     pub fn px(value: f32) -> Self {
-        FontSize(PixelValue::from_metric(CssMetric::Px, value))
+        FontSize(PixelValue::px(value))
     }
 
     /// Creates the font size in em
     pub fn em(value: f32) -> Self {
-        FontSize(PixelValue::from_metric(CssMetric::Em, value))
+        FontSize(PixelValue::em(value))
     }
 
     /// Creates the font size in point (pt)
     pub fn pt(value: f32) -> Self {
-        FontSize(PixelValue::from_metric(CssMetric::Pt, value))
+        FontSize(PixelValue::pt(value))
     }
 
     pub fn to_pixels(&self) -> f32 {
