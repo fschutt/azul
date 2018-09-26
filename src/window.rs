@@ -542,7 +542,11 @@ impl<T: Layout> Window<T> {
             .with_visibility(options.state.is_visible)
             .with_transparency(options.state.is_transparent)
             .with_multitouch();
+/*
+        events_loop.create_proxy().execute_in_thread(|_| {
 
+        });
+*/
         // TODO: Update winit to have:
         //      .with_always_on_top(options.state.is_always_on_top)
         //
