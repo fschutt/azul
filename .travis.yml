@@ -1,13 +1,12 @@
 language: rust
-
-# cache: cargo
-
+cache: cargo
+sudo: required
 rust:
   - 1.28.0
 
 os:
   - linux
-  - osx
+#  - osx
 
 matrix:
   fast_finish: true
@@ -18,12 +17,11 @@ notifications:
 # We can't test OpenGL 3.2 on Travis, the shader compilation fails
 # because glium does a check first if it has a OGL 3.2 context
 script:
-  - cargo clean
-  - cargo check --verbose --examples
-  - cargo check --no-default-features
-  - cargo check --no-default-features --features="svg"
-  - cargo check --no-default-features --features="image_loading"
-  - cargo check --no-default-features --features="logging"
+#  - cargo check --verbose --examples
+#  - cargo check --no-default-features
+#  - cargo check --no-default-features --features="svg"
+#  - cargo check --no-default-features --features="image_loading"
+#  - cargo check --no-default-features --features="logging"
   - RUST_BACKTRACE=1 cargo test --verbose --features "doc-test no-opengl-tests"
 
 install:
@@ -37,6 +35,8 @@ addons:
       - libelf-dev                # for kcov
       - libdw-dev                 # for kcov
       - cmake                     # for kcov
+      - binutils-dev              # for kcov
+      - libiberty-dev             # for kcov
 
 after_success:
 - |
