@@ -9,7 +9,6 @@ use glium::glutin::{
 use std::collections::HashSet;
 use {
     dom::On,
-    menu::{ApplicationMenu, ContextMenu},
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -105,10 +104,6 @@ pub struct WindowState
     pub title: String,
     /// The state of the keyboard for this frame
     pub(crate) keyboard_state: KeyboardState,
-    /// The "global" application menu of this window (one window usually only has one menu)
-    pub application_menu: Option<ApplicationMenu>,
-    /// The current context menu for this window
-    pub context_menu: Option<ContextMenu>,
     /// The x and y position, or None to let the WM decide where to put the window (default)
     pub position: Option<LogicalPosition>,
     /// The state of the mouse
@@ -160,8 +155,6 @@ impl Default for WindowState {
             title: DEFAULT_TITLE.into(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
-            application_menu: None,
-            context_menu: None,
             position: None,
             size: WindowSize::default(),
             is_maximized: false,
