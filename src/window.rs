@@ -5,6 +5,7 @@ use std::{
     fmt,
     rc::Rc,
     marker::PhantomData,
+    io::Error as IoError,
 };
 use webrender::{
     api::*,
@@ -12,7 +13,7 @@ use webrender::{
     // renderer::RendererError; -- not currently public in WebRender
 };
 use glium::{
-    IncompatibleOpenGl, Display,
+    IncompatibleOpenGl, Display, SwapBuffersError,
     debug::DebugCallbackBehavior,
     glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
              MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon},
@@ -374,41 +375,12 @@ impl_display! {
     }
 }
 
-impl From<::glium::SwapBuffersError> for WindowCreateError {
-    fn from(e: ::glium::SwapBuffersError) -> Self {
-        WindowCreateError::SwapBuffers(e)
-    }
-}
-
-impl From<CreationError> for WindowCreateError {
-    fn from(e: CreationError) -> Self {
-        WindowCreateError::CreateError(e)
-    }
-}
-
-impl From<::std::io::Error> for WindowCreateError {
-    fn from(e: ::std::io::Error) -> Self {
-        WindowCreateError::Io(e)
-    }
-}
-
-impl From<IncompatibleOpenGl> for WindowCreateError {
-    fn from(e: IncompatibleOpenGl) -> Self {
-        WindowCreateError::Gl(e)
-    }
-}
-
-impl From<DisplayCreationError> for WindowCreateError {
-    fn from(e: DisplayCreationError) -> Self {
-        WindowCreateError::DisplayCreateError(e)
-    }
-}
-
-impl From<ContextError> for WindowCreateError {
-    fn from(e: ContextError) -> Self {
-        WindowCreateError::Context(e)
-    }
-}
+impl_from!(SwapBuffersError, WindowCreateError::SwapBuffers);
+impl_from!(CreationError, WindowCreateError::CreateError);
+impl_from!(IoError, WindowCreateError::Io);
+impl_from!(IncompatibleOpenGl, WindowCreateError::Gl);
+impl_from!(DisplayCreationError, WindowCreateError::DisplayCreateError);
+impl_from!(ContextError, WindowCreateError::Context);
 
 struct Notifier {
     events_loop_proxy: EventsLoopProxy,
