@@ -38,12 +38,8 @@ addons:
       - binutils-dev              # for kcov
       - libiberty-dev             # for kcov
 
-after_success:
-- |
-  [ $TRAVIS_BRANCH = master ] &&
-  [ $TRAVIS_PULL_REQUEST = false ] &&
-  wget https://github.com/SimonKagstrom/kcov/archive/master.zip &&
-  unzip master.zip && mv kcov-master kcov && mkdir kcov/build && cd kcov/build &&
-  cmake .. && make && make install DESTDIR=../built && cd ../.. &&
-  for file in ./target/debug/*; do ./kcov/built/usr/local/bin/kcov --verify --exclude-pattern=/.cargo,$PWD/target/debug/build,$PWD/tests ./target/kcov ${file}; done &&
-  ./kcov/built/usr/local/bin/kcov --coveralls-id=$TRAVIS_JOB_ID --merge ./target/kcov-merge ./target/kcov
+after_success: |
+  wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
+  tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make &&
+  sudo make install && cd ../.. &&
+  kcov --verify --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo target/kcov $(find target/debug -maxdepth 1 -executable -name azul-\*)
