@@ -32,6 +32,19 @@ pub enum UpdateScreen {
     DontRedraw,
 }
 
+/// This exist so you can conveniently use the `?` and `.into()` for your own code
+///
+/// - `None`: Don't redraw
+/// - `Some(())`: Redraw
+impl From<Option<()>> for UpdateScreen {
+    fn from(input: Option<()>) -> Self {
+        match input {
+            None => UpdateScreen::DontRedraw,
+            Some(_) => UpdateScreen::Redraw,
+        }
+    }
+}
+
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
 /// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
