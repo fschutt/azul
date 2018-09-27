@@ -149,6 +149,11 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
     let font_size = FontSize::px(10.0);
     let font = app_state.resources.get_font(&font_id).unwrap().0;
 
+    let aligned = TextLayoutOptions {
+        horz_alignment: TextAlignmentHorz::Right,
+        .. Default::default()
+    };
+
     // Texts only for testing
     let texts = [
         SvgText {
@@ -175,7 +180,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
         SvgText {
             font_size: font_size,
             font_id: font_id.clone(),
-            text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size, &TextLayoutOptions::default()),
+            text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size, &aligned),
             style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
             placement: SvgTextPlacement::Unmodified,
             position: SvgPosition { x: 50.0, y: 50.0 },

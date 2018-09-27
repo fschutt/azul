@@ -155,6 +155,8 @@ pub struct FontMetrics {
     pub height_for_1px: f32,
     /// Spacing of the letters, or 0.0 by default
     pub letter_spacing: Option<LetterSpacing>,
+    /// Slightly duplicated: The layout options for the text
+    pub layout_options: TextLayoutOptions,
 }
 
 /// ## Inputs
@@ -260,7 +262,7 @@ pub(crate) fn get_glyphs(
     apply_knuth_plass_adjustments(&mut positioned_glyphs, knuth_plass_adjustments);
 
     // (9) Align text horizontally (early return if left-aligned)
-    align_text_horz(horz_alignment, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
+    align_text_horz(horz_alignment, &mut positioned_glyphs, &line_break_offsets);
 
     // (10) Align text vertically (early return if text overflows)
     align_text_vert(vert_alignment, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
@@ -302,6 +304,7 @@ fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, layout_opti
         font_size_with_line_height,
         font_size_no_line_height,
         letter_spacing: layout_options.letter_spacing,
+        layout_options: *layout_options,
     }
 }
 
@@ -838,7 +841,7 @@ fn apply_knuth_plass_adjustments(positioned_glyphs: &mut [GlyphInstance], knuth_
     // TODO
 }
 
-fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)], overflow: &TextOverflowPass2)
+fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)])
 {
     use css_parser::TextAlignmentHorz::*;
 
@@ -993,8 +996,10 @@ pub fn layout_text<'a>(
     // This function simply lays out a text, without trying to fit it into a rectangle.
     // This function does not calculate any overflow.
     let words = split_text_into_words(text, font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing);
-    let (layouted_glyphs, line_breaks, min_width, min_height) =
+    let (mut layouted_glyphs, line_breaks, min_width, min_height) =
         words_to_left_aligned_glyphs(&words, font, None, font_metrics);
+
+    align_text_horz(font_metrics.layout_options.horz_alignment, &mut layouted_glyphs, &line_breaks);
 
     LayoutTextResult {
         words, layouted_glyphs, line_breaks, min_width, min_height, font_metrics: *font_metrics,
