@@ -34,13 +34,26 @@ pub enum UpdateScreen {
 
 /// This exist so you can conveniently use the `?` and `.into()` for your own code
 ///
-/// - `None`: Don't redraw
-/// - `Some(())`: Redraw
-impl From<Option<()>> for UpdateScreen {
-    fn from(input: Option<()>) -> Self {
+/// - `Some`: `Redraw`
+/// - `None`: `DontRedraw`
+impl<T> From<Option<T>> for UpdateScreen {
+    fn from(input: Option<T>) -> Self {
         match input {
             None => UpdateScreen::DontRedraw,
             Some(_) => UpdateScreen::Redraw,
+        }
+    }
+}
+
+/// This exist so you can conveniently use the `?` and `.into()` for your own code
+///
+/// - `Ok` -> `Redraw`
+/// - `Err` -> `DontRedraw`
+impl<T, E> From<Result<T, E>> for UpdateScreen {
+    fn from(input: Result<T, E>) -> Self {
+        match input {
+            Ok(_) => UpdateScreen::DontRedraw,
+            Err(_) => UpdateScreen::Redraw,
         }
     }
 }
