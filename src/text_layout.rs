@@ -881,7 +881,7 @@ fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], l
     assert!(glyphs.len() - 1 == line_breaks[line_breaks.len() - 1].0);
 
     let multiply_factor = match alignment {
-        Left => { return; },
+        Left => return,
         Center => 0.5, // move the line by the half width
         Right => 1.0, // move the line by the full width
     };
@@ -897,27 +897,23 @@ fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], l
     //
     // To avoid the double-line-break problem, we can use ranges:
     //
-    // - from 0..2, shift the characters at i by X amount
-    // - from 2..2 (e.g. 0 characters) shift the characters at i by X amount
-    // - from 2..5 shift the characters by X amount
+    // - from 0..=2, shift the characters at i by X amount
+    // - from 3..3 (e.g. 0 characters) shift the characters at i by X amount
+    // - from 3..=5 shift the characters by X amount
     //
     // Because the middle range selects 0 characters, the shift is effectively
     // ignored, which is what we want - because there are no characters to shift.
 
     let mut start_range_char = 0;
 
-    // last line break is special, here we have to use an upper-bound-inclusive range, i.e. 2..=5
-    for (line_break_char, line_break_amount) in line_breaks.iter().take(line_breaks.len() - 1) {
-        for glyph in &mut glyphs[start_range_char..*line_break_char] {
+    for (line_break_char, line_break_amount) in line_breaks {
+
+        // NOTE: Inclusive range - beware: off-by-one-errors!
+        for glyph in &mut glyphs[start_range_char..=*line_break_char] {
+            let old_glyph_x = glyph.point.x;
             glyph.point.x += line_break_amount * multiply_factor;
         }
-        start_range_char = *line_break_char;
-    }
-
-    // last line: use an inclusive range: 2..=5
-    let (last_line_break_char, last_line_break_amount) = line_breaks[line_breaks.len() - 1];
-    for glyph in &mut glyphs[start_range_char..=last_line_break_char] {
-        glyph.point.x += last_line_break_amount * multiply_factor;
+        start_range_char = *line_break_char + 1; // NOTE: beware off-by-one error - note the +1!
     }
 }
 
