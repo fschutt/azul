@@ -521,11 +521,7 @@ pub struct Dom<T: Layout> {
 impl<T: Layout> fmt::Debug for Dom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
-        "Dom {{ \
-            \tarena: {:?}, \
-            \troot: {:?}, \
-            \thead: {:?}, \
-        }}",
+        "Dom {{ arena: {:?}, root: {:?}, head: {:?} }}",
         self.arena,
         self.root,
         self.head)
@@ -581,17 +577,30 @@ impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
 
 impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=NodeData<T>>>(iter: I) -> Self {
+
         use id_tree::Node;
 
-        let mut nodes = Vec::new();
+        // We have to use a "root" node, otherwise we run into problems if
+        // the iterator executes 0 times (and therefore pushes 0 nodes)
+
+        // "Root" node of this DOM
+        let mut nodes = vec![Node {
+            data: NodeData::new(NodeType::Div),
+            parent: None,
+            previous_sibling: None,
+            next_sibling: None,
+            last_child: None,
+            first_child: None,
+        }];
+
         let mut idx = 0;
 
         for i in iter {
             let node = Node {
                 data: i,
-                parent: None,
-                previous_sibling: if idx == 0 { None } else { Some(NodeId::new(idx - 1)) },
-                next_sibling: Some(NodeId::new(idx + 1)),
+                parent: Some(NodeId::new(0)),
+                previous_sibling: if idx == 0 { None } else { Some(NodeId::new(idx)) },
+                next_sibling: Some(NodeId::new(idx + 2)),
                 last_child: None,
                 first_child: None,
             };
@@ -600,13 +609,15 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
         }
 
         let nodes_len = nodes.len();
-        if nodes_len > 0 {
+
+        // nodes_len is always at least 1, since we pushed the original root node
+        // Check if there is a child DOM
+        if nodes_len > 1 {
             if let Some(last) = nodes.get_mut(nodes_len - 1) {
                 last.next_sibling = None;
             }
-        } else {
-            // WARNING: nodes can be empty, so the root
-            // could point to an invalid node!
+            nodes[0].last_child = Some(NodeId::new(nodes_len - 1));
+            nodes[0].first_child = Some(NodeId::new(1));
         }
 
         Dom { head: NodeId::new(0), root: NodeId::new(0), arena: Rc::new(RefCell::new(Arena { nodes })) }
@@ -825,6 +836,8 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn push_class<S: Into<String>>(&mut self, class: S) {
+        println!("push class!");
+        println!("{:#?}", self.arena);
         self.arena.borrow_mut()[self.head].data.classes.push(class.into());
     }
 
@@ -956,9 +969,30 @@ fn test_dom_from_iter_1() {
     let dom = TestLayout{ }.layout();
     let arena = dom.arena.borrow();
 
-    assert_eq!(arena.nodes.last(), Some(&Node {
+    // We need to have 6 nodes:
+    //
+    // root                 NodeId(0)
+    //   |-> 1              NodeId(1)
+    //   |-> 2              NodeId(2)
+    //   |-> 3              NodeId(3)
+    //   |-> 4              NodeId(4)
+    //   '-> 5              NodeId(5)
+
+    assert_eq!(arena.nodes_len(), 6);
+
+    // Check root node
+    assert_eq!(arena.nodes.first(), Some(&Node {
         parent: None,
-        previous_sibling: Some(NodeId::new(3)),
+        previous_sibling: None,
+        next_sibling: None,
+        first_child: Some(NodeId::new(1)),
+        last_child: Some(NodeId::new(5)),
+        data: NodeData::new(NodeType::Div),
+    }));
+
+    assert_eq!(arena.nodes.last(), Some(&Node {
+        parent: Some(NodeId::new(0)),
+        previous_sibling: Some(NodeId::new(4)),
         next_sibling: None,
         first_child: None,
         last_child: None,
@@ -970,4 +1004,27 @@ fn test_dom_from_iter_1() {
             events: CallbackList::default(),
         }
     }));
+}
+
+/// Test that there shouldn't be a DOM that has 0 nodes
+#[test]
+fn test_zero_size_dom() {
+
+    struct TestLayout { }
+
+    impl Layout for TestLayout {
+        fn layout(&self) -> Dom<Self> {
+            Dom::new(NodeType::Div)
+        }
+    }
+
+    let mut null_dom =
+        (0..0)
+        .map(|_| NodeData { node_type: NodeType::Div, .. Default::default() })
+        .collect::<Dom<TestLayout>>();
+
+    assert!(null_dom.arena.borrow().nodes_len() == 1);
+
+    null_dom.push_class("hello"); // should not panic
+    null_dom.set_id("id-hello"); // should not panic
 }
