@@ -836,8 +836,6 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn push_class<S: Into<String>>(&mut self, class: S) {
-        println!("push class!");
-        println!("{:#?}", self.arena);
         self.arena.borrow_mut()[self.head].data.classes.push(class.into());
     }
 
