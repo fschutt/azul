@@ -45,11 +45,9 @@ fn render_table<T: Layout>(data: &mut TableViewOutcome, info: WindowInfo<T>, wid
     // Column header with column  - "A", "B", "C"
     .with_child(
         (0..data.columns.len())
-        .map(|column_idx| {
-            NodeData { node_type: NodeType::Label(column_name_from_number(column_idx)), .. Default::default() }
-        })
-        .collect::<Dom<T>>()
-        .with_class("__azul-native-table-header")
+            .map(|column_idx| NodeType::Label(column_name_from_number(column_idx)))
+            .collect::<Dom<T>>()
+            .with_class("__azul-native-table-header")
     )
     .with_child(data.columns.iter().map(|column| {
         column.cells.iter().map(|cell| {
