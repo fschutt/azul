@@ -43,17 +43,29 @@ fn __codecov_test_constraints_file() {
 }
 
 /// Stores the variables of the root width and height (but not the values themselves)
+///
+/// Note that the position will always be (0, 0). The layout solver doesn't
+/// know where it is on the screen, it only knows the size, but not the position.
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) struct WindowSizeConstraints {
+pub(crate) struct RootSizeConstraints {
     pub(crate) width_var: Variable,
     pub(crate) height_var: Variable,
 }
 
-impl WindowSizeConstraints {
-    pub fn new() -> Self {
+impl RootSizeConstraints {
+    pub fn new(solver: &mut Solver, root_size: LogicalSize) -> Self {
+
+        let width_var = Variable::new();
+        let height_var = Variable::new();
+
+        solver.add_edit_variable(width_var, STRONG).unwrap();
+        solver.add_edit_variable(height_var, STRONG).unwrap();
+        solver.suggest_value(width_var, root_size.width as f64).unwrap();
+        solver.suggest_value(height_var, root_size.height as f64).unwrap();
+
         Self {
-            width_var: Variable::new(),
-            height_var: Variable::new(),
+            width_var,
+            height_var,
         }
     }
 }
@@ -67,11 +79,13 @@ pub struct UiSolver {
     /// anymore. This is a pretty hard problem, which is why we need `DomChangeSet`
     /// to get a list of removed NodeIds
     added_constraints: BTreeMap<NodeId, Vec<Constraint>>,
-    /// The size constraints of the root window
-    window_constraints: WindowSizeConstraints,
+    /// The size constraints of the root of the UI.
+    /// Usually this will be the window width and height, but it can also be a
+    /// Sub-DOM rectangle (for iframe rendering).
+    root_constraints: RootSizeConstraints,
     /// The list of variables that has been added to the solver
     edit_variable_cache: EditVariableCache,
-    ///
+    /// A cache of solved layout variables, updated by the solver on every frame
     solved_values: BTreeMap<Variable, f64>,
     /// The cache of the previous frames DOM tree
     dom_tree_cache: DomTreeCache,
@@ -79,21 +93,17 @@ pub struct UiSolver {
 
 impl UiSolver {
 
-    pub(crate) fn new(window_size: &LogicalSize) -> Self {
+    pub(crate) fn new(window_size: LogicalSize) -> Self {
 
         let mut solver = Solver::new();
-        let window_constraints = WindowSizeConstraints::new();
 
-        solver.add_edit_variable(window_constraints.width_var, STRONG).unwrap();
-        solver.add_edit_variable(window_constraints.height_var, STRONG).unwrap();
-        solver.suggest_value(window_constraints.width_var, window_size.width as f64).unwrap();
-        solver.suggest_value(window_constraints.height_var, window_size.height as f64).unwrap();
+        let root_constraints = RootSizeConstraints::new(&mut solver, window_size);
 
         Self {
             solver: solver,
             added_constraints: BTreeMap::new(),
             solved_values: BTreeMap::new(),
-            window_constraints: window_constraints,
+            root_constraints,
             edit_variable_cache: EditVariableCache::empty(),
             dom_tree_cache: DomTreeCache::empty(),
         }
@@ -112,8 +122,8 @@ impl UiSolver {
 
     /// Notifies the solver that the window size has changed
     pub(crate) fn update_window_size(&mut self, window_size: &LogicalSize) {
-        self.solver.suggest_value(self.window_constraints.width_var, window_size.width).unwrap();
-        self.solver.suggest_value(self.window_constraints.height_var, window_size.height).unwrap();
+        self.solver.suggest_value(self.root_constraints.width_var, window_size.width).unwrap();
+        self.solver.suggest_value(self.root_constraints.height_var, window_size.height).unwrap();
     }
 
     pub(crate) fn update_layout_cache(&mut self) {
@@ -134,6 +144,11 @@ impl UiSolver {
         TypedRect::new(TypedPoint2D::new(left as f32, top as f32), TypedSize2D::new(width as f32, height as f32))
     }
 
+    // TODO: This should use the root, not the
+    pub(crate) fn get_root_rect_constraints(&self) -> Option<RectConstraintVariables> {
+        self.get_rect_constraints(NodeId::new(0))
+    }
+
     pub(crate) fn get_rect_constraints(&self, rect_id: NodeId) -> Option<RectConstraintVariables> {
         let dom_hash = &self.dom_tree_cache.previous_layout.arena.get(&rect_id)?;
         self.edit_variable_cache.map.get(&dom_hash.data).and_then(|rect| Some(rect.1))
@@ -152,7 +167,7 @@ impl UiSolver {
         self.added_constraints = BTreeMap::new();
     }
 
-    pub(crate) fn get_window_constraints(&self) -> WindowSizeConstraints {
-        self.window_constraints
+    pub(crate) fn get_window_constraints(&self) -> RootSizeConstraints {
+        self.root_constraints
     }
 }
