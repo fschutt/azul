@@ -705,7 +705,7 @@ impl<T: Layout> Window<T> {
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
         */
 
-        let ui_solver = UiSolver::new(&options.state.size.dimensions);
+        let ui_solver = UiSolver::new(options.state.size.dimensions);
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
