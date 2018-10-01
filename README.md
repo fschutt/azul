@@ -138,7 +138,7 @@ composition, for example:
 
 ```rust
 struct DataModel {
-    text_input: TextInputOutcome,
+    text_input: TextInputState,
 }
 
 impl Layout for DataModel {
