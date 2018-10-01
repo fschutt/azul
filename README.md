@@ -6,8 +6,10 @@ Azul is a free, functional, IMGUI-oriented GUI framework for rapid prototyping
 of desktop applications written in Rust, supported by the Mozilla WebRender rendering
 engine, using a CSS / DOM model for layout and styling.
 
+<!--
 [Crates.io](https://crates.io/crates/azul) |
 [Library documentation](https://docs.rs/azul) |
+-->
 [Tutorial / user guide](https://github.com/maps4print/azul/wiki) |
 [Website](https://azul.rs/) |
 [Presentation slides](https://docs.google.com/presentation/d/12adMyK81Siv9auXEOBOGzcXXYh8BHWC71mfwunhCwLQ/edit?usp=sharing) |
