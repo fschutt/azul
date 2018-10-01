@@ -641,12 +641,18 @@ impl<'a> ParsedCss<'a> {
     }
 }
 
+/// Represents the z-index as defined by the stacking order
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct ZIndex(pub u32);
+
+impl Default for ZIndex { fn default() -> Self { ZIndex(0) }}
+
 pub(crate) fn match_dom_css_selectors<'a, T: Layout>(
     root: NodeId,
     arena: &Rc<RefCell<Arena<NodeData<T>>>>,
     parsed_css: &ParsedCss<'a>,
     css: &Css,
-    parent_z_level: u32)
+    parent_z_level: ZIndex)
 -> UiDescription<T>
 {
     let mut root_constraints = CssConstraintList::default();
@@ -681,7 +687,7 @@ fn match_dom_css_selectors_inner<'a, T: Layout>(
     parsed_css: &ParsedCss<'a>,
     css: &Css,
     parent_constraints: &CssConstraintList,
-    parent_z_level: u32)
+    parent_z_level: ZIndex)
 -> BTreeMap<NodeId, StyledNode>
 {
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
@@ -699,7 +705,7 @@ fn match_dom_css_selectors_inner<'a, T: Layout>(
 
     // DFS tree
     for child in root.children(arena) {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, parent_z_level + 1));
+        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, ZIndex(parent_z_level.0 + 1)));
     }
 
     styled_nodes.insert(root, current_node);

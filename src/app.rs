@@ -277,7 +277,7 @@ impl<T: Layout> App<T> {
                     ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
 
                     // Style the DOM
-                    ui_description_cache[idx] = UiDescription::from_ui_state(&ui_state_cache[idx], &mut window.css);
+                    ui_description_cache[idx] = UiDescription::from_dom(&ui_state_cache[idx].dom, &mut window.css);
                     // send webrender the size and buffer of the display
                     Self::update_display(&window);
                     // render the window (webrender will send an Awakened event when the frame is done)
