@@ -1,7 +1,7 @@
 //! Text input (demonstrates two-way data binding)
 
 use {
-    traits::{Layout, DefaultCallbackFn},
+    traits::Layout,
     dom::{Dom, On, NodeType, UpdateScreen},
     window::{FakeWindow, WindowEvent},
     prelude::{VirtualKeyCode},
@@ -15,11 +15,11 @@ pub struct TextInput {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TextInputOutcome {
+pub struct TextInputState {
     pub text: String,
 }
 
-impl TextInputOutcome {
+impl TextInputState {
     pub fn new<S: Into<String>>(input: S) -> Self {
         Self {
             text: input.into(),
@@ -28,19 +28,7 @@ impl TextInputOutcome {
 }
 
 struct TextInputCallback<'a> {
-    ptr: &'a TextInputOutcome,
-}
-
-impl<'a> DefaultCallbackFn for TextInputCallback<'a> {
-    type Outcome = TextInputOutcome;
-
-    fn get_callback_ptr(&self) -> &Self::Outcome {
-        self.ptr
-    }
-
-    fn get_callback_fn<U: Layout>(&self) -> DefaultCallback<U> {
-        DefaultCallback(update_text_field)
-    }
+    ptr: &'a TextInputState,
 }
 
 impl TextInput {
@@ -49,8 +37,9 @@ impl TextInput {
         TextInput { default_callback_id: None }
     }
 
-    pub fn bind<T: Layout>(self, window: &mut FakeWindow<T>, field: &TextInputOutcome, data: &T) -> Self {
-        let default_callback_id = window.push_callback(TextInputCallback { ptr: field }, data);
+    pub fn bind<T: Layout>(self, window: &mut FakeWindow<T>, field: &TextInputState, data: &T) -> Self {
+        let ptr = StackCheckedPointer::new(data, field).unwrap();
+        let default_callback_id = window.push_callback(ptr, DefaultCallback(update_text_field));
 
         Self {
             default_callback_id: Some(default_callback_id),
@@ -58,7 +47,7 @@ impl TextInput {
         }
     }
 
-    pub fn dom<T: Layout>(&self, field: &TextInputOutcome) -> Dom<T> {
+    pub fn dom<T: Layout>(&self, field: &TextInputState) -> Dom<T> {
 
         let mut parent_div = Dom::new(NodeType::Div).with_class("__azul-native-input-text");
 
@@ -76,7 +65,7 @@ fn update_text_field<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data
     unsafe { data.invoke_mut(update_text_field_inner, app_state_no_data, window_event) }
 }
 
-fn update_text_field_inner<T: Layout>(data: &mut TextInputOutcome, app_state_no_data: AppStateNoData<T>, event: WindowEvent)
+fn update_text_field_inner<T: Layout>(data: &mut TextInputState, app_state_no_data: AppStateNoData<T>, event: WindowEvent)
 -> UpdateScreen
 {
     let keyboard_state = app_state_no_data.windows[event.window].get_keyboard_state();

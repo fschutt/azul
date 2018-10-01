@@ -27,13 +27,13 @@ use {
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState},
-    traits::{Layout, DefaultCallbackFn},
+    traits::Layout,
     compositor::Compositor,
     app::FrameEventInfo,
     app_resources::AppResources,
     ui_solver::UiSolver,
     id_tree::NodeId,
-    default_callbacks::{DefaultCallbackSystem, DefaultCallbackId},
+    default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
 };
 
 /// azul-internal ID for a window
@@ -91,16 +91,25 @@ impl<T: Layout> FakeWindow<T> {
         self.state.mouse_state
     }
 
+    //     //         let stack_checked_pointer = StackCheckedPointer::new(app_data, ptr)?;
+
+
     /// Adds a default callback to the window. The default callbacks are
     /// cleared after every frame, so two-way data binding widgets have to call this
     /// on every frame they want to insert a default callback.
     ///
     /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
     #[must_use]
-    pub fn push_callback<U: DefaultCallbackFn>(&mut self, callback: U, data: &T) -> DefaultCallbackId {
+    pub fn push_callback(
+        &mut self,
+        callback_ptr: StackCheckedPointer<T>,
+        callback_fn: DefaultCallback<T>)
+    -> DefaultCallbackId
+    {
         use default_callbacks::get_new_unique_default_callback_id;
+
         let default_callback_id = get_new_unique_default_callback_id();
-        self.default_callbacks.push_callback(data, default_callback_id, callback.get_callback_ptr(), callback.get_callback_fn());
+        self.default_callbacks.push_callback(default_callback_id, callback_ptr, callback_fn);
         default_callback_id
     }
 }

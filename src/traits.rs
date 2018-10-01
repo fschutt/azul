@@ -4,7 +4,6 @@ use {
     ui_description::{UiDescription},
     css::{Css, ParsedCss, match_dom_css_selectors},
     css_parser::{CssParsingError, ParsedCssProperty},
-    default_callbacks::DefaultCallback,
 };
 #[cfg(not(test))]
 use window::WindowInfo;
@@ -30,17 +29,6 @@ pub trait Layout {
     fn style_dom(dom: &Dom<Self>, css: &Css) -> UiDescription<Self> where Self: Sized {
         match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, 0)
     }
-}
-
-/// Trait that can add a default callback to a type, used to "lock" the pointer
-/// type to the outcome type
-pub trait DefaultCallbackFn {
-    type Outcome;
-    fn get_callback_ptr(&self) -> &Self::Outcome;
-    // TODO: In the ideal case, this should be:
-    // because it isn't guaranteed that the callback fn acts on the same type
-    // fn get_callback_fn(&self) -> fn(&mut Self::Outcome);
-    fn get_callback_fn<T: Layout>(&self) -> DefaultCallback<T>;
 }
 
 /// Convenience trait for the `css.set_dynamic_property()` function.
