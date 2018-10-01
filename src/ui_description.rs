@@ -8,8 +8,8 @@ use {
     css_parser::ParsedCssProperty,
     id_tree::{Arena, NodeId},
     traits::Layout,
-    ui_state::UiState,
-    css::{Css, CssRule, CssDeclaration},
+    dom::Dom,
+    css::{Css, ParsedCss, CssRule, ZIndex, CssDeclaration},
     dom::NodeData,
 };
 
@@ -54,16 +54,19 @@ impl<T: Layout> Default for UiDescription<T> {
 }
 
 impl<T: Layout> UiDescription<T> {
-    pub fn from_ui_state(ui_state: &UiState<T>, style: &Css) -> Self
+    /// Applies the CSS styles to the nodes calculated from the `layout_screen`
+    /// function and calculates the final display list that is submitted to the
+    /// renderer.
+    pub fn from_dom(dom: &Dom<T>, style: &Css) -> Self
     {
-        T::style_dom(&ui_state.dom, style)
+        ::css::match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(style), style, ZIndex(0))
     }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct StyledNode {
     /// The z-index level that we are currently on, 0 by default
-    pub(crate) z_level: u32,
+    pub(crate) z_level: ZIndex,
     /// The CSS constraints, after the cascading step
     pub(crate) css_constraints: CssConstraintList
 }

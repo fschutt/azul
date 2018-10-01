@@ -1,10 +1,9 @@
 use std::sync::{Arc, Mutex};
 use {
     dom::{Dom},
-    ui_description::{UiDescription},
-    css::{Css, ParsedCss, match_dom_css_selectors},
     css_parser::{CssParsingError, ParsedCssProperty},
 };
+
 #[cfg(not(test))]
 use window::WindowInfo;
 
@@ -23,12 +22,6 @@ pub trait Layout {
     fn layout(&self, window_id: WindowInfo<Self>) -> Dom<Self> where Self: Sized;
     #[cfg(test)]
     fn layout(&self) -> Dom<Self> where Self: Sized;
-    /// Applies the CSS styles to the nodes calculated from the `layout_screen`
-    /// function and calculates the final display list that is submitted to the
-    /// renderer.
-    fn style_dom(dom: &Dom<Self>, css: &Css) -> UiDescription<Self> where Self: Sized {
-        match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(css), css, 0)
-    }
 }
 
 /// Convenience trait for the `css.set_dynamic_property()` function.
