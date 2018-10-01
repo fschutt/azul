@@ -247,28 +247,13 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         }
     }
 
-    pub fn push_callback<U>(
+    pub fn push_callback(
         &mut self,
-        app_data: &T,
         callback_id: DefaultCallbackId,
-        ptr: &U,
+        ptr: StackCheckedPointer<T>,
         func: DefaultCallback<T>)
     {
-        let stack_checked_pointer = match StackCheckedPointer::new(app_data, ptr) {
-            Some(s) => s,
-            None => panic!(
-                "Default callback for function {:?} constructed with \
-                non-stack pointer at 0x{:x}. This is a potential security risk \
-                and it is unsafe to continue execution. \n\
-                \n\
-                If you create a App<T> and want to register a default function, \
-                you can only create function that take pointers to the data of T, you \
-                can't use reference to heap-allocated data, since the lifetimes \
-                of these references can't be controlled by the framework.",
-                func, ptr as *const _ as usize),
-        };
-
-        self.callbacks.insert(callback_id, (stack_checked_pointer, func));
+        self.callbacks.insert(callback_id, (ptr, func));
     }
 
     /// NOTE: `app_data` is required so we know that we don't
