@@ -4,12 +4,10 @@ use std::{
     collections::BTreeMap,
 };
 use {
-    FastHashMap,
-    css_parser::ParsedCssProperty,
     id_tree::{Arena, NodeId},
     traits::Layout,
     dom::Dom,
-    css::{Css, ParsedCss, CssRule, ZIndex, CssDeclaration},
+    css::{Css, ParsedCss, CssRule, ZIndex, CssDeclaration, DynamicCssOverrideList},
     dom::NodeData,
 };
 
@@ -26,7 +24,7 @@ pub struct UiDescription<T: Layout> {
     /// This is why we need this field here
     pub(crate) default_style_of_node: StyledNode,
     /// The CSS properties that should be overridden for this frame, cloned from the `Css`
-    pub(crate) dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
+    pub(crate) dynamic_css_overrides: DynamicCssOverrideList,
 }
 
 impl<T: Layout> Clone for UiDescription<T> {
@@ -46,7 +44,8 @@ impl<T: Layout> Default for UiDescription<T> {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
         let default_css = Css::empty();
-        Self::from_dom(&default_dom, &default_css)
+        let parsed_css = ParsedCss::from_css(&default_css);
+        Self::from_dom(&default_dom, &parsed_css, &default_css.dynamic_css_overrides)
     }
 }
 
@@ -54,9 +53,9 @@ impl<T: Layout> UiDescription<T> {
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn from_dom(dom: &Dom<T>, style: &Css) -> Self
+    pub fn from_dom(dom: &Dom<T>, css: &ParsedCss, css_overrides: &DynamicCssOverrideList) -> Self
     {
-        ::css::match_dom_css_selectors(dom.root, &dom.arena, &ParsedCss::from_css(style), style, ZIndex(0))
+        ::css::match_dom_css_selectors(dom.root, &dom.arena, &css, &css_overrides, ZIndex(0))
     }
 }
 

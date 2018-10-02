@@ -25,7 +25,7 @@ use {
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
-    css::FakeCss,
+    css::{FakeCss, ParsedCss},
     app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
@@ -276,24 +276,33 @@ impl<T: Layout> App<T> {
                     let window_id = WindowId { id: idx };
                     ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
 
-                    // Style the DOM
-                    ui_description_cache[idx] = UiDescription::from_dom(&ui_state_cache[idx].dom, &mut window.css);
-                    // send webrender the size and buffer of the display
-                    Self::update_display(&window);
-                    // render the window (webrender will send an Awakened event when the frame is done)
+                    // TODO: cache this!
+                    let parsed_css = ParsedCss::from_css(&window.css);
 
-                    let arc_mutext_t_clone = self.app_state.data.clone();
+                    // Style the DOM
+                    ui_description_cache[idx] = UiDescription::from_dom(
+                        &ui_state_cache[idx].dom,
+                        &parsed_css,
+                        &window.css.dynamic_css_overrides
+                    );
+
+                    // Send webrender the size and buffer of the display
+                    Self::update_display(&window);
+
+                    // render the window (webrender will send an Awakened event when the frame is done)
+                    let arc_mutex_t_clone = self.app_state.data.clone();
                     let window_id = WindowId { id: idx };
 
                     render(
-                        arc_mutext_t_clone,
+                        arc_mutex_t_clone,
                         window,
                         window_id,
                         &mut self.app_state.windows[idx],
                         &ui_description_cache[idx],
                         &ui_state_cache[idx],
                         &mut self.app_state.resources,
-                        true);
+                        true,
+                        &parsed_css);
 
                     awakened_task[idx] = false;
                 }
@@ -759,7 +768,8 @@ fn render<T: Layout>(
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
     app_resources: &mut AppResources,
-    has_window_size_changed: bool)
+    has_window_size_changed: bool,
+    parsed_css: &ParsedCss)
 {
     use webrender::api::*;
     use display_list::DisplayList;
@@ -778,7 +788,8 @@ fn render<T: Layout>(
         has_window_size_changed,
         &window.state.size,
         window_id,
-        fake_window);
+        fake_window,
+        parsed_css);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     window.internal.last_display_list_builder = builder.finalize().2;

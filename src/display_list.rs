@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 #![allow(unused_macros)]
 
-use std::sync::{Arc, Mutex};
+use std::{fmt, sync::{Arc, Mutex}};
 use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
@@ -16,7 +16,7 @@ use {
     id_tree::{Arena, NodeId},
     css_parser::*,
     dom::{Dom, NodeData, NodeType::{self, *}},
-    css::Css,
+    css::{Css, ParsedCss},
     text_layout::{TextOverflowPass2, ScrollbarInfo},
     images::ImageId,
     text_cache::TextId,
@@ -29,6 +29,13 @@ const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 25
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
     pub(crate) rectangles: Arena<DisplayRectangle<'a>>
+}
+
+impl<'a, T: Layout + 'a> fmt::Debug for DisplayList<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+            "DisplayList {{ rectangles: {:?} }}", self.rectangles)
+    }
 }
 
 /// DisplayRectangle is the main type which the layout parsing step gets operated on.
@@ -237,44 +244,49 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         mut has_window_size_changed: bool,
         window_size: &WindowSize,
         window_id: WindowId,
-        fake_window: &mut FakeWindow<T>)
+        fake_window: &mut FakeWindow<T>,
+        parsed_css: &ParsedCss)
     -> DisplayListBuilder
     {
         use glium::glutin::dpi::LogicalSize;
         use std::collections::BTreeMap;
+        {
+            let changeset = {
+                let changeset = ui_solver.update_dom(
+                    &self.ui_descr.ui_descr_root,
+                    &*(self.ui_descr.ui_descr_arena.borrow()
+                ));
+                if changeset.is_empty() { None } else { Some(changeset) }
+            };
 
-        let changeset = {
-            let changeset = ui_solver.update_dom(&self.ui_descr.ui_descr_root, &*(self.ui_descr.ui_descr_arena.borrow()));
-            if changeset.is_empty() { None } else { Some(changeset) }
-        };
+            if css.needs_relayout || changeset.is_some() {
+                // inefficient for now, but prevents memory leak
+                ui_solver.clear_all_constraints();
+                for rect_idx in self.rectangles.linear_iter() {
+                    let constraints = create_layout_constraints(
+                        rect_idx,
+                        &self.rectangles,
+                        &*self.ui_descr.ui_descr_arena.borrow(),
+                        &ui_solver,
+                    );
+                    ui_solver.insert_css_constraints_for_rect(&constraints);
+                    ui_solver.push_added_constraints(rect_idx, constraints);
+                }
 
-        if css.needs_relayout || changeset.is_some() {
-            // inefficient for now, but prevents memory leak
-            ui_solver.clear_all_constraints();
-            for rect_idx in self.rectangles.linear_iter() {
-                let constraints = create_layout_constraints(
-                    rect_idx,
-                    &self.rectangles,
-                    &*self.ui_descr.ui_descr_arena.borrow(),
-                    &ui_solver,
-                );
-                ui_solver.insert_css_constraints_for_rect(&constraints);
-                ui_solver.push_added_constraints(rect_idx, constraints);
+                // If we push or pop constraints that means we also need to re-layout the window
+                has_window_size_changed = true;
             }
 
-            // If we push or pop constraints that means we also need to re-layout the window
-            has_window_size_changed = true;
+            // TODO: early return based on changeset?
+
+            // Recalculate the actual layout
+            if has_window_size_changed {
+                ui_solver.update_window_size(&window_size.dimensions);
+            }
+            ui_solver.update_layout_cache();
+
+            css.needs_relayout = false;
         }
-
-        // TODO: early return based on changeset?
-
-        // Recalculate the actual layout
-        if has_window_size_changed {
-            ui_solver.update_window_size(&window_size.dimensions);
-        }
-        ui_solver.update_layout_cache();
-
-        css.needs_relayout = false;
 
         let LogicalSize { width, height } = window_size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
@@ -324,7 +336,9 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     &mut resource_updates,
                     &app_data,
                     window_id,
-                    fake_window);
+                    fake_window,
+                    parsed_css,
+                    ui_solver);
             }
         }
 
@@ -334,53 +348,22 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-// For IFrame / Sub-DOM rendering: Render a DOM into a target rectangle
-fn dom_to_display_list_builder<T: Layout>(
-    target_rect: LayoutRect,
-    dom: Dom<T>,
-    css: &Css,
-    ui_solver: &mut UiSolver)
--> DisplayListBuilder
-{
-    let ui_description = UiDescription::from_dom(&dom, css);
-    let ui_state = UiState::from_dom(dom);
-    let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
-    /*
-    display_list.into_display_list_builder({
-        app_data: Arc<Mutex<T>>,
-        pipeline_id: PipelineId,
-        current_epoch: Epoch,
-        ui_solver: &mut UiSolver,
-        css: &mut Css,
-        app_resources: &mut AppResources,
-        render_api: &RenderApi,
-        mut has_window_size_changed: bool,
-        window_size: &WindowSize,
-        window_id: WindowId,
-        fake_window: &mut FakeWindow<T>)
-    })
-    */
-
-    // TODO: need to adjust the origins of the elements of the display list
-    // TODO: Use layout solver to insert stuff
-    let pipeline_id = PipelineId::dummy();
-    DisplayListBuilder::new(pipeline_id, target_rect.size)
-}
-
 fn displaylist_handle_rect<'a, T: Layout>(
     builder: &mut DisplayListBuilder,
     current_epoch: Epoch,
     rect_idx: NodeId,
     arena: &Arena<DisplayRectangle<'a>>,
     html_node: &NodeType<T>,
-    bounds: TypedRect<f32, LayoutPixel>,
-    full_screen_rect: TypedRect<f32, LayoutPixel>,
+    bounds: LayoutRect,
+    full_screen_rect: LayoutRect,
     app_resources: &mut AppResources,
     render_api: &RenderApi,
     resource_updates: &mut Vec<ResourceUpdate>,
     app_data: &Arc<Mutex<T>>,
     window_id: WindowId,
-    fake_window: &mut FakeWindow<T>)
+    fake_window: &mut FakeWindow<T>,
+    parsed_css: &ParsedCss,
+    ui_solver: &mut UiSolver)
 {
     let rect = &arena[rect_idx].data;
 
@@ -571,7 +554,13 @@ fn displaylist_handle_rect<'a, T: Layout>(
             };
 
             let new_dom = (iframe_callback.0)(&iframe_pointer, window_info, bounds_width, bounds_height);
-            println!("new DOM: {:?}", new_dom);
+            let new_display_list_builder = dom_to_display_list_builder(
+                bounds,
+                new_dom,
+                parsed_css,
+                ui_solver,
+            );
+
             None
         },
     };
@@ -594,6 +583,46 @@ fn displaylist_handle_rect<'a, T: Layout>(
     }
 
 }
+
+// For IFrame / Sub-DOM rendering: Render a DOM into a target rectangle
+fn dom_to_display_list_builder<T: Layout>(
+    target_rect: LayoutRect,
+    dom: Dom<T>,
+    css: &ParsedCss,
+    ui_solver: &mut UiSolver)
+-> DisplayListBuilder
+{
+    use css::DynamicCssOverrideList;
+
+    let css_overrides = DynamicCssOverrideList::default(); // TODO
+    let ui_description = UiDescription::from_dom(&dom, &css, &css_overrides);
+    let ui_state = UiState::from_dom(dom);
+    let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
+
+    println!("display list of sub-DOM: {:?}", display_list);
+
+    /*
+    display_list.into_display_list_builder({
+        app_data: Arc<Mutex<T>>,
+        pipeline_id: PipelineId,
+        current_epoch: Epoch,
+        ui_solver: &mut UiSolver,
+        css: &mut Css,
+        app_resources: &mut AppResources,
+        render_api: &RenderApi,
+        mut has_window_size_changed: bool,
+        window_size: &WindowSize,
+        window_id: WindowId,
+        fake_window: &mut FakeWindow<T>)
+    })
+    */
+
+    // TODO: need to adjust the origins of the elements of the display list
+    // TODO: Use layout solver to insert stuff
+    let pipeline_id = PipelineId::dummy();
+    DisplayListBuilder::new(pipeline_id, target_rect.size)
+}
+
 
 #[inline]
 fn push_rect(

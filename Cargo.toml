@@ -103,12 +103,16 @@ required-features = ["svg_parsing"]
 
 [[example]]
 name = "async"
+required-features = []
 
 [[example]]
 name = "hot_reload"
+required-features = ["image_loading"]
 
 [[example]]
 name = "table"
+required-features = []
 
 [[example]]
 name = "text_input"
+required-features = []
