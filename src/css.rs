@@ -6,6 +6,7 @@ use std::{
     collections::BTreeMap,
     rc::Rc,
     cell::RefCell,
+    ops::{Deref, DerefMut},
 };
 use {
     FastHashMap,
@@ -52,7 +53,7 @@ pub struct Css {
     ///
     /// - `String`: The ID of the dynamic property
     /// - `ParsedCssProperty`: What to override it with
-    pub dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
+    pub dynamic_css_overrides: DynamicCssOverrideList,
     /// Has the CSS changed in a way where it needs a re-layout? - default:
     /// `true` in order to force a re-layout on the first frame
     ///
@@ -61,11 +62,29 @@ pub struct Css {
     pub needs_relayout: bool,
 }
 
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct DynamicCssOverrideList {
+    pub inner: FastHashMap<String, ParsedCssProperty>,
+}
+
+impl Deref for DynamicCssOverrideList {
+    type Target = FastHashMap<String, ParsedCssProperty>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for DynamicCssOverrideList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 /// Fake CSS containing the dynamic CSS properties for this frame -
 /// can be changed by the user to override styles if needed
 #[derive(Debug, Default, Clone)]
 pub struct FakeCss {
-    pub dynamic_css_overrides: FastHashMap<String, ParsedCssProperty>,
+    pub dynamic_css_overrides: DynamicCssOverrideList,
 }
 
 impl FakeCss {
@@ -244,7 +263,7 @@ impl Css {
             hot_reload_override_native: false,
             rules: Vec::new(),
             needs_relayout: false,
-            dynamic_css_overrides: FastHashMap::default(),
+            dynamic_css_overrides: DynamicCssOverrideList::default(),
         }
     }
 
@@ -358,7 +377,7 @@ impl Css {
             rules: css_rules,
             // force re-layout for the first frame
             needs_relayout: true,
-            dynamic_css_overrides: FastHashMap::default(),
+            dynamic_css_overrides: DynamicCssOverrideList::default(),
         })
     }
 
@@ -381,7 +400,7 @@ impl Css {
     // `other.hot_reload_path`
     pub fn merge(&mut self, mut other: Self) {
         self.rules.append(&mut other.rules);
-        for (id, property) in other.dynamic_css_overrides {
+        for (id, property) in other.dynamic_css_overrides.inner {
             self.dynamic_css_overrides.insert(id, property);
         }
         self.needs_relayout = self.needs_relayout || other.needs_relayout;
@@ -572,16 +591,16 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 }
 
 /// CSS rules, sorted and grouped by priority
-pub(crate) struct ParsedCss<'a> {
-    pub(crate) pure_global_rules: Vec<&'a CssRule>,
-    pub(crate) pure_div_rules: Vec<&'a CssRule>,
-    pub(crate) pure_class_rules: Vec<&'a CssRule>,
-    pub(crate) pure_id_rules: Vec<&'a CssRule>,
+pub struct ParsedCss {
+    pub(crate) pure_global_rules: Vec<CssRule>,
+    pub(crate) pure_div_rules: Vec<CssRule>,
+    pub(crate) pure_class_rules: Vec<CssRule>,
+    pub(crate) pure_id_rules: Vec<CssRule>,
 }
 
-impl<'a> ParsedCss<'a> {
+impl ParsedCss {
     /// Takes a `Css` struct and groups the types by their priority.
-    pub(crate) fn from_css(css: &'a Css) -> Self {
+    pub fn from_css(css: &Css) -> Self {
 
         // Parse the CSS nodes cascading by their importance
         // 1. global rules
@@ -602,7 +621,7 @@ impl<'a> ParsedCss<'a> {
         // * {
         //    background-color: blue;
         // }
-        let pure_global_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+        let pure_global_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
             rule.html_type == "*" && rule.id.is_none() && rule.classes.is_empty()
         ).collect();
 
@@ -610,7 +629,7 @@ impl<'a> ParsedCss<'a> {
         // button {
         //    justify-content: center;
         // }
-        let pure_div_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+        let pure_div_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
             rule.html_type != "*" && rule.id.is_none() && rule.classes.is_empty()
         ).collect();
 
@@ -620,7 +639,7 @@ impl<'a> ParsedCss<'a> {
         // .something .otherclass {
         //    text-color: red;
         // }
-        let pure_class_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+        let pure_class_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
             rule.id.is_none() && !rule.classes.is_empty()
         ).collect();
 
@@ -628,7 +647,7 @@ impl<'a> ParsedCss<'a> {
         // #something {
         //    background-color: red;
         // }
-        let pure_id_rules: Vec<&CssRule> = css.rules.iter().filter(|rule|
+        let pure_id_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
             rule.id.is_some() && rule.classes.is_empty()
         ).collect();
 
@@ -647,11 +666,11 @@ pub(crate) struct ZIndex(pub u32);
 
 impl Default for ZIndex { fn default() -> Self { ZIndex(0) }}
 
-pub(crate) fn match_dom_css_selectors<'a, T: Layout>(
+pub(crate) fn match_dom_css_selectors<T: Layout>(
     root: NodeId,
     arena: &Rc<RefCell<Arena<NodeData<T>>>>,
-    parsed_css: &ParsedCss<'a>,
-    css: &Css,
+    parsed_css: &ParsedCss,
+    dynamic_css_overrides: &DynamicCssOverrideList,
     parent_z_level: ZIndex)
 -> UiDescription<T>
 {
@@ -667,7 +686,7 @@ pub(crate) fn match_dom_css_selectors<'a, T: Layout>(
     // sibling_iterator.next().unwrap();
 
     for sibling in sibling_iterator {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, css, &root_constraints, parent_z_level));
+        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, &root_constraints, parent_z_level));
     }
 
     UiDescription {
@@ -677,15 +696,14 @@ pub(crate) fn match_dom_css_selectors<'a, T: Layout>(
         ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),
-        dynamic_css_overrides: css.dynamic_css_overrides.clone(),
+        dynamic_css_overrides: dynamic_css_overrides.clone(),
     }
 }
 
-fn match_dom_css_selectors_inner<'a, T: Layout>(
+fn match_dom_css_selectors_inner<T: Layout>(
     root: NodeId,
     arena: &Arena<NodeData<T>>,
-    parsed_css: &ParsedCss<'a>,
-    css: &Css,
+    parsed_css: &ParsedCss,
     parent_constraints: &CssConstraintList,
     parent_z_level: ZIndex)
 -> BTreeMap<NodeId, StyledNode>
@@ -696,7 +714,7 @@ fn match_dom_css_selectors_inner<'a, T: Layout>(
         list: parent_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
     };
 
-    cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css, css);
+    cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css);
 
     let current_node = StyledNode {
         z_level: parent_z_level,
@@ -705,7 +723,7 @@ fn match_dom_css_selectors_inner<'a, T: Layout>(
 
     // DFS tree
     for child in root.children(arena) {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, css, &current_node.css_constraints, ZIndex(parent_z_level.0 + 1)));
+        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, &current_node.css_constraints, ZIndex(parent_z_level.0 + 1)));
     }
 
     styled_nodes.insert(root, current_node);
@@ -714,11 +732,10 @@ fn match_dom_css_selectors_inner<'a, T: Layout>(
 
 /// Cascade the rules, put them into the list
 #[allow(unused_variables)]
-fn cascade_constraints<'a, T: Layout>(
+fn cascade_constraints<T: Layout>(
     node: &NodeData<T>,
     list: &mut CssConstraintList,
-    parsed_css: &ParsedCss<'a>,
-    css: &Css)
+    parsed_css: &ParsedCss)
 {
     for div_rule in &parsed_css.pure_div_rules {
         if *node.node_type.get_css_id() == div_rule.html_type {
