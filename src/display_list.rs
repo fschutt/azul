@@ -15,7 +15,7 @@ use {
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css_parser::*,
-    dom::{NodeData, NodeType::{self, *}},
+    dom::{Dom, NodeData, NodeType::{self, *}},
     css::Css,
     text_layout::{TextOverflowPass2, ScrollbarInfo},
     images::ImageId,
@@ -99,7 +99,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     ///
     /// This only looks at the user-facing styles of the `UiDescription`, not the actual
     /// layout. The layout is done only in the `into_display_list_builder` step.
-    pub fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
+    pub(crate) fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
 
         let arena = ui_description.ui_descr_arena.borrow();
         let display_rect_arena = arena.transform(|node, node_id| {
@@ -225,7 +225,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         }
     }
 
-    pub fn into_display_list_builder(
+    pub(crate) fn into_display_list_builder(
         &self,
         app_data: Arc<Mutex<T>>,
         pipeline_id: PipelineId,
@@ -337,6 +337,39 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         builder
     }
+}
+
+// For IFrame / Sub-DOM rendering: Render a DOM into a target rectangle
+fn dom_to_display_list_builder<T: Layout>(
+    target_rect: LayoutRect,
+    dom: Dom<T>,
+    css: &Css,
+    ui_solver: &mut UiSolver)
+-> DisplayListBuilder
+{
+    let ui_description = UiDescription::from_dom(&dom, css);
+    let ui_state = UiState::from_dom(dom);
+    let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
+    /*
+    display_list.into_display_list_builder({
+        app_data: Arc<Mutex<T>>,
+        pipeline_id: PipelineId,
+        current_epoch: Epoch,
+        ui_solver: &mut UiSolver,
+        css: &mut Css,
+        app_resources: &mut AppResources,
+        render_api: &RenderApi,
+        mut has_window_size_changed: bool,
+        window_size: &WindowSize,
+        window_id: WindowId,
+        fake_window: &mut FakeWindow<T>)
+    })
+    */
+
+    // TODO: need to adjust the origins of the elements of the display list
+    // TODO: Use layout solver to insert stuff
+    let pipeline_id = PipelineId::dummy();
+    DisplayListBuilder::new(pipeline_id, target_rect.size)
 }
 
 fn displaylist_handle_rect<'a, T: Layout>(
