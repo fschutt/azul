@@ -34,7 +34,7 @@ pub(crate) struct DisplayList<'a, T: Layout + 'a> {
 impl<'a, T: Layout + 'a> fmt::Debug for DisplayList<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
-            "DisplayList {{ rectangles: {:?} }}", self.rectangles)
+            "DisplayList {{ ui_descr: {:?}, rectangles: {:?} }}", self.ui_descr, self.rectangles)
     }
 }
 
@@ -598,8 +598,6 @@ fn dom_to_display_list_builder<T: Layout>(
     let ui_description = UiDescription::from_dom(&dom, &css, &css_overrides);
     let ui_state = UiState::from_dom(dom);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
-
-    println!("display list of sub-DOM: {:?}", display_list);
 
     /*
     display_list.into_display_list_builder({

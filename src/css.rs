@@ -591,6 +591,7 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 }
 
 /// CSS rules, sorted and grouped by priority
+#[derive(Debug, Default, Clone)]
 pub struct ParsedCss {
     pub(crate) pure_global_rules: Vec<CssRule>,
     pub(crate) pure_div_rules: Vec<CssRule>,
@@ -680,6 +681,7 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
     }
 
     let arena_borrow = &*(*arena).borrow();
+
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
     let sibling_iterator = root.following_siblings(arena_borrow);
     // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
