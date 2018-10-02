@@ -243,14 +243,9 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         use glium::glutin::dpi::LogicalSize;
         use std::collections::BTreeMap;
 
-        let changeset = self.ui_descr.ui_descr_root.as_ref().and_then(|root| {
-            let changeset = ui_solver.update_dom(root, &*(self.ui_descr.ui_descr_arena.borrow()));
+        let changeset = {
+            let changeset = ui_solver.update_dom(&self.ui_descr.ui_descr_root, &*(self.ui_descr.ui_descr_arena.borrow()));
             if changeset.is_empty() { None } else { Some(changeset) }
-        });
-
-        let root = match self.ui_descr.ui_descr_root {
-            Some(r) => r,
-            None => panic!("Dom has no root element!"),
         };
 
         if css.needs_relayout || changeset.is_some() {

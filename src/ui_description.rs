@@ -16,7 +16,7 @@ use {
 pub struct UiDescription<T: Layout> {
     pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,
     /// ID of the root node of the arena (usually NodeId(0))
-    pub(crate) ui_descr_root: Option<NodeId>,
+    pub(crate) ui_descr_root: NodeId,
     /// This field is created from the Css parser
     pub(crate) styled_nodes: BTreeMap<NodeId, StyledNode>,
     /// In the display list, we take references to the `UiDescription.styled_nodes`
@@ -33,7 +33,7 @@ impl<T: Layout> Clone for UiDescription<T> {
     fn clone(&self) -> Self {
         Self {
             ui_descr_arena: self.ui_descr_arena.clone(),
-            ui_descr_root: self.ui_descr_root.clone(),
+            ui_descr_root: self.ui_descr_root,
             styled_nodes: self.styled_nodes.clone(),
             default_style_of_node: self.default_style_of_node.clone(),
             dynamic_css_overrides: self.dynamic_css_overrides.clone(),
@@ -43,13 +43,10 @@ impl<T: Layout> Clone for UiDescription<T> {
 
 impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
-        Self {
-            ui_descr_arena: Rc::new(RefCell::new(Arena::new())),
-            ui_descr_root: None,
-            styled_nodes: BTreeMap::new(),
-            default_style_of_node: StyledNode::default(),
-            dynamic_css_overrides: FastHashMap::default(),
-        }
+        use dom::NodeType;
+        let default_dom = Dom::new(NodeType::Div);
+        let default_css = Css::empty();
+        Self::from_dom(&default_dom, &default_css)
     }
 }
 
