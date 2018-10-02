@@ -5,19 +5,19 @@ extern crate azul;
 use azul::{prelude::*, widgets::table_view::*};
 
 struct TableDemo {
-    table: TableViewOutcome,
+    table_state: TableViewState,
 }
 
 impl Layout for TableDemo {
     fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
-        TableView::new().dom(&self.table, &self)
+        TableView::new().dom(&self.table_state, &self)
     }
 }
 
 fn main() {
 
     let app = App::new(TableDemo {
-        table: TableViewOutcome::default(),
+        table_state: TableViewState::default(),
     }, AppConfig::default());
 
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/table.css")) }

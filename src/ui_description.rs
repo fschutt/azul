@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     cell::RefCell,
     rc::Rc,
     collections::BTreeMap,
@@ -25,6 +26,24 @@ pub struct UiDescription<T: Layout> {
     pub(crate) default_style_of_node: StyledNode,
     /// The CSS properties that should be overridden for this frame, cloned from the `Css`
     pub(crate) dynamic_css_overrides: DynamicCssOverrideList,
+}
+
+impl<T: Layout> fmt::Debug for UiDescription<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "UiDescription {{ \
+            ui_descr_arena: {:?},
+            ui_descr_root: {:?},
+            styled_nodes: {:?},
+            default_style_of_node: {:?},
+            dynamic_css_overrides: {:?},
+        }}",
+            self.ui_descr_arena,
+            self.ui_descr_root,
+            self.styled_nodes,
+            self.default_style_of_node,
+            self.dynamic_css_overrides,
+        )
+    }
 }
 
 impl<T: Layout> Clone for UiDescription<T> {
