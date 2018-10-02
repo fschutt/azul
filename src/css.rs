@@ -674,7 +674,7 @@ pub(crate) fn match_dom_css_selectors<'a, T: Layout>(
         // note: this clone is neccessary, otherwise,
         // we wouldn't be able to update the UiState
         ui_descr_arena: (*arena).clone(),
-        ui_descr_root: Some(root),
+        ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),
         dynamic_css_overrides: css.dynamic_css_overrides.clone(),
