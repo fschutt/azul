@@ -52,7 +52,7 @@ impl<T: Layout> UiState<T> {
         };
 
         // Only shortly lock the data to get the dom out
-         let dom: Dom<T> = {
+        let dom: Dom<T> = {
             let dom_lock = app_state.data.lock().unwrap();
             #[cfg(test)]{
                 Dom::<T>::new(NodeType::Div)
@@ -63,7 +63,15 @@ impl<T: Layout> UiState<T> {
             }
         };
 
-        // Tree should have a single root element
+        Self::from_dom(dom)
+    }
+
+    /// Creates the UiState from a Dom, useful for IFrame-based layout
+    pub(crate) fn from_dom(dom: Dom<T>) -> Self {
+        use dom::NodeType;
+
+        // DOM tree should have a single root element, necessary for
+        // layout constraints having a single root
         let dom = {
             let mut parent_dom = Dom::with_capacity(NodeType::Div, dom.len());
             parent_dom.add_child(dom);
@@ -81,7 +89,7 @@ impl<T: Layout> UiState<T> {
             &mut node_ids_to_tag_ids,
             &mut tag_ids_to_node_ids);
 
-        UiState {
+        Self {
             dom,
             tag_ids_to_callbacks,
             tag_ids_to_default_callbacks,
