@@ -1,27 +1,36 @@
 #![allow(unused_variables)]
 #![allow(unused_macros)]
 
-use std::{fmt, sync::{Arc, Mutex}};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+    collections::BTreeMap
+};
 use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
+use glium::glutin::dpi::LogicalSize;
 use {
     FastHashMap,
     app_resources::AppResources,
+    default_callbacks::StackCheckedPointer,
     traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
-    ui_solver::UiSolver,
+    ui_solver::{UiSolver, DomSolver, DomId},
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css_parser::*,
-    dom::{Dom, NodeData, NodeType::{self, *}},
+    dom::{
+        IFrameCallback, GlTextureCallback,
+        NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
+    },
     css::{Css, ParsedCss},
     text_layout::{TextOverflowPass2, ScrollbarInfo},
     images::ImageId,
-    text_cache::TextId,
+    text_cache::TextInfo,
     compositor::new_opengl_texture_id,
-    window::{WindowId, FakeWindow},
+    window::{WindowInfo, FakeWindow, HidpiAdjustedBounds},
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -51,41 +60,6 @@ pub(crate) struct DisplayRectangle<'a> {
     pub(crate) style: RectStyle,
     /// The layout properties of the node, parsed
     pub(crate) layout: RectLayout,
-}
-
-/// This is used for caching large strings (in the `push_text` function)
-/// In the cached version, you can lookup the text as well as the dimensions of
-/// the words in the `AppResources`. For the `Uncached` version, you'll have to re-
-/// calculate it on every frame.
-///
-/// TODO: It should be possible to switch this over to a `&'a str`, but currently
-/// this leads to unsolvable borrowing issues.
-#[derive(Debug)]
-pub(crate) enum TextInfo {
-    Cached(TextId),
-    Uncached(String),
-}
-
-impl TextInfo {
-    /// Returns if the inner text is empty.
-    ///
-    /// Returns true if the TextInfo::Cached TextId does not exist
-    /// (since in that case, it is "empty", so to speak)
-    fn is_empty_text(&self, app_resources: &AppResources)
-    -> bool
-    {
-        use self::TextInfo::*;
-
-        match self {
-            Cached(text_id) => {
-                match app_resources.text_cache.string_cache.get(text_id) {
-                    Some(s) => s.is_empty(),
-                    None => true,
-                }
-            }
-            Uncached(s) => s.is_empty(),
-        }
-    }
 }
 
 impl<'a> DisplayRectangle<'a> {
@@ -237,77 +211,86 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         app_data: Arc<Mutex<T>>,
         pipeline_id: PipelineId,
         current_epoch: Epoch,
+        window_size_has_changed: bool,
+        render_api: &RenderApi,
+        parsed_css: &ParsedCss,
+        window_size: &WindowSize,
+        fake_window: &mut FakeWindow<T>,
         ui_solver: &mut UiSolver,
         css: &mut Css,
-        app_resources: &mut AppResources,
-        render_api: &RenderApi,
-        mut has_window_size_changed: bool,
-        window_size: &WindowSize,
-        window_id: WindowId,
-        fake_window: &mut FakeWindow<T>,
-        parsed_css: &ParsedCss)
+        app_resources: &mut AppResources)
     -> DisplayListBuilder
     {
         use glium::glutin::dpi::LogicalSize;
-        use std::collections::BTreeMap;
-        {
-            let changeset = {
-                let changeset = ui_solver.update_dom(
-                    &self.ui_descr.ui_descr_root,
-                    &*(self.ui_descr.ui_descr_arena.borrow()
-                ));
-                if changeset.is_empty() { None } else { Some(changeset) }
-            };
 
-            if css.needs_relayout || changeset.is_some() {
-                // inefficient for now, but prevents memory leak
-                ui_solver.clear_all_constraints();
-                for rect_idx in self.rectangles.linear_iter() {
-                    let constraints = create_layout_constraints(
-                        rect_idx,
-                        &self.rectangles,
-                        &*self.ui_descr.ui_descr_arena.borrow(),
-                        &ui_solver,
-                    );
-                    ui_solver.insert_css_constraints_for_rect(&constraints);
-                    ui_solver.push_added_constraints(rect_idx, constraints);
-                }
+        // Only clones the Arc!
+        let mut app_data_access = AppDataAccess::Owned(app_data.clone());
 
-                // If we push or pop constraints that means we also need to re-layout the window
-                has_window_size_changed = true;
-            }
-
-            // TODO: early return based on changeset?
-
-            // Recalculate the actual layout
-            if has_window_size_changed {
-                ui_solver.update_window_size(&window_size.dimensions);
-            }
-            ui_solver.update_layout_cache();
-
-            css.needs_relayout = false;
-        }
+        insert_constraints_into_solver(
+            &self.ui_descr,
+            ui_solver,
+            window_size,
+            &self.rectangles,
+            &mut css.needs_relayout,
+            window_size_has_changed,
+        );
 
         let LogicalSize { width, height } = window_size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
         let mut resource_updates = Vec::<ResourceUpdate>::new();
-        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
-        let arena = self.ui_descr.ui_descr_arena.borrow();
+        let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles);
 
-        // Determine the correct implicit z-index rendering order of every rectangle
-        let mut rects_in_rendering_order = BTreeMap::<usize, Vec<NodeId>>::new();
+        let mut mutable_content = DisplayListParametersMut {
+            ui_solver,
+            app_data: &mut app_data_access,
+            app_resources,
+            fake_window,
+            builder: &mut builder,
+            resource_updates: &mut resource_updates,
+        };
 
-        for rect_id in self.rectangles.linear_iter() {
+        let static_content = DisplayListParametersRef {
+            ui_description: self.ui_descr,
+            render_api,
+            display_rectangle_arena: &self.rectangles,
+            parsed_css,
+        };
+
+        // WARNING: recurive function!
+        push_rectangles_into_displaylist(
+            current_epoch,
+            rects_in_rendering_order,
+            &static_content,
+            &mut mutable_content,
+        );
+
+        render_api.update_resources(resource_updates);
+        builder
+    }
+}
+
+/// Rectangles in rendering order instead of stacking order
+#[derive(Debug, Clone)]
+struct ZOrderedRectangles(pub BTreeMap<usize, Vec<NodeId>>);
+
+impl ZOrderedRectangles {
+
+    /// Determine the correct implicit z-index rendering order of every rectangle
+    pub fn new<'a>(rectangles: &Arena<DisplayRectangle<'a>>) -> ZOrderedRectangles {
+
+        let mut rects_in_rendering_order = BTreeMap::new();
+
+        for rect_id in rectangles.linear_iter() {
 
             // how many z-levels does this rectangle have until we get to the root?
             let z_index = {
                 let mut index = 0;
                 let mut cur_rect_idx = rect_id;
-                while let Some(parent) = self.rectangles[cur_rect_idx].parent() {
+                while let Some(parent) = rectangles[cur_rect_idx].parent() {
                     index += 1;
                     cur_rect_idx = parent;
                 }
@@ -320,52 +303,119 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 .push(rect_id);
         }
 
-        for (z_index, rects) in rects_in_rendering_order.into_iter() {
-            for rect_idx in rects {
-                let bounds = ui_solver.query_bounds_of_rect(rect_idx);
-                displaylist_handle_rect(
-                    &mut builder,
-                    current_epoch,
-                    rect_idx,
-                    &self.rectangles,
-                    &arena[rect_idx].data.node_type,
-                    bounds,
-                    full_screen_rect,
-                    app_resources,
-                    render_api,
-                    &mut resource_updates,
-                    &app_data,
-                    window_id,
-                    fake_window,
-                    parsed_css,
-                    ui_solver);
-            }
-        }
-
-        render_api.update_resources(resource_updates);
-
-        builder
+        ZOrderedRectangles(rects_in_rendering_order)
     }
 }
 
-fn displaylist_handle_rect<'a, T: Layout>(
-    builder: &mut DisplayListBuilder,
-    current_epoch: Epoch,
-    rect_idx: NodeId,
-    arena: &Arena<DisplayRectangle<'a>>,
-    html_node: &NodeType<T>,
-    bounds: LayoutRect,
-    full_screen_rect: LayoutRect,
-    app_resources: &mut AppResources,
-    render_api: &RenderApi,
-    resource_updates: &mut Vec<ResourceUpdate>,
-    app_data: &Arc<Mutex<T>>,
-    window_id: WindowId,
-    fake_window: &mut FakeWindow<T>,
-    parsed_css: &ParsedCss,
-    ui_solver: &mut UiSolver)
+fn push_rectangles_into_displaylist<'a, T: Layout>(
+    epoch: Epoch,
+    dom_id: DomId,
+    z_ordered_rectangles: ZOrderedRectangles,
+    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>)
 {
-    let rect = &arena[rect_idx].data;
+    let arena = referenced_content.ui_description.ui_descr_arena.borrow();
+
+    for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
+        for rect_idx in rects {
+            let rectangle = DisplayListRectParams {
+                epoch,
+                dom_id,
+                rect_idx,
+                html_node: &arena[rect_idx].data.node_type,
+            };
+
+            displaylist_handle_rect(rectangle, referenced_content, referenced_mutable_content);
+        }
+    }
+}
+
+fn insert_constraints_into_solver<'a, T: Layout>(
+    ui_description: &UiDescription<T>,
+    dom_solver: &mut DomSolver,
+    bounds_size: &LogicalSize,
+    rectangles: &Arena<DisplayRectangle<'a>>,
+    css_needs_relayout: &mut bool,
+    window_size_has_changed: bool)
+{
+    let mut has_window_size_changed = window_size_has_changed;
+    let changeset = {
+        let changeset = dom_solver.update_dom(ui_description);
+        if changeset.is_empty() { None } else { Some(changeset) }
+    };
+
+    if *css_needs_relayout || changeset.is_some() {
+        // inefficient for now, but prevents memory leak
+        dom_solver.clear_all_constraints();
+        for rect_idx in rectangles.linear_iter() {
+            let constraints = dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow());
+            dom_solver.insert_css_constraints_for_rect(&constraints);
+            dom_solver.push_added_constraints(rect_idx, constraints);
+        }
+
+        // If we push or pop constraints that means we also need to re-layout the window
+        has_window_size_changed = true;
+    }
+
+    // TODO: early return based on changeset?
+
+    // Recalculate the actual layout
+    if has_window_size_changed {
+        dom_solver.update_window_size(&bounds_size);
+    }
+
+    dom_solver.update_layout_cache();
+
+    *css_needs_relayout = false;
+}
+
+/// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
+/// a `&'a mut T`, if not, push the
+pub(crate) enum AppDataAccess<'a, T: Layout> {
+    Owned(Arc<Mutex<T>>),
+    Referenced(&'a mut T),
+}
+
+impl<'a, T: Layout> AppDataAccess<'a, T> {
+    pub(crate) fn run_function_mut<F: FnMut(&mut T)>(&mut self, callback: F) {
+        use self::AppDataAccess::*;
+        match self {
+            Owned(arc) => (callback)(&mut *arc.lock().unwrap()),
+            Referenced(ref_mut) => (callback)(ref_mut),
+        }
+    }
+}
+
+/// Parameters that apply to a single rectangle / div node
+#[derive(Copy, Clone)]
+pub(crate) struct DisplayListRectParams<'a, T: Layout> {
+    pub epoch: Epoch,
+    pub rect_idx: NodeId,
+    pub dom_id: DomId,
+    pub html_node: &'a NodeType<T>,
+}
+
+/// Push a single rectangle into the display list builder
+fn displaylist_handle_rect<'a, T: Layout>(
+    rectangle: DisplayListRectParams<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>)
+{
+    let DisplayListParametersRef {
+        render_api, parsed_css, ui_description, display_rectangle_arena
+    } = referenced_content;
+
+    let DisplayListParametersMut {
+        ui_solver, builder, app_resources, resource_updates, fake_window, app_data
+    } = referenced_mutable_content;
+
+    let DisplayListRectParams {
+        epoch, rect_idx, html_node,
+    } = rectangle;
+
+    // TODO: This will be very slow!
+    let bounds = referenced_mutable_content.ui_solver.get_dom_ref(&rectangle.dom_id).unwrap().query_bounds_of_rect(rect_idx);
+    let rect = &display_rectangle_arena[rect_idx].data;
 
     let info = LayoutPrimitiveInfo {
         rect: bounds,
@@ -388,7 +438,6 @@ fn displaylist_handle_rect<'a, T: Layout>(
         builder,
         &rect.style,
         &bounds,
-        &full_screen_rect,
         BoxShadowClipMode::Outset);
 
     if let Some(id) = clip_region_id {
@@ -412,7 +461,6 @@ fn displaylist_handle_rect<'a, T: Layout>(
     push_box_shadow(builder,
                     &rect.style,
                     &bounds,
-                    &full_screen_rect,
                     BoxShadowClipMode::Inset);
 
     push_border(
@@ -445,7 +493,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
 
         text_bounds.size.width = text_bounds.size.width.max(0.0);
         text_bounds.size.height = text_bounds.size.height.max(0.0);
-/*
+
         let text_clip_region_id = rect.layout.padding.and_then(|_|
             Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
                 rect: text_bounds,
@@ -457,7 +505,7 @@ fn displaylist_handle_rect<'a, T: Layout>(
         if let Some(text_clip_id) = text_clip_region_id {
             builder.push_clip_id(text_clip_id);
         }
-*/
+
         let overflow = push_text(
             &info,
             text_info,
@@ -470,105 +518,29 @@ fn displaylist_handle_rect<'a, T: Layout>(
             horz_alignment,
             vert_alignment,
             &scrollbar_style);
-/*
+
         if text_clip_region_id.is_some() {
             builder.pop_clip_id();
         }
-*/
+
         overflow
     };
 
-    // Only necessary for GlTextures and IFrames that need the
-    // width and height of their container to calculate their content
-    use window::WindowInfo;
 
-    let hidpi_factor = fake_window.read_only_window().get_hidpi_factor();
-    let bounds_width = (bounds.size.width * hidpi_factor as f32) as usize;
-    let bounds_height = (bounds.size.height * hidpi_factor as f32) as usize;
-
-    // handle the special content of the node
+    // Handle the special content of the node, return if it overflows in the vertical direction
     let overflow_result = match html_node {
         Div => { None },
-        Label(text) => {
-            push_text_wrapper(&TextInfo::Uncached(text.clone()), builder, app_resources, resource_updates)
-        },
-        Text(text_id) => {
-            push_text_wrapper(&TextInfo::Cached(*text_id), builder, app_resources, resource_updates)
-        },
-        Image(image_id) => {
-            push_image(&info, builder, &bounds, app_resources, image_id)
-        },
-        GlTexture((texture_callback, texture_stack_ptr)) => {
-
-            let t_locked = app_data.lock().unwrap();
-            let window_info = WindowInfo {
-                window_id: window_id,
-                window: fake_window,
-                resources: &app_resources,
-            };
-
-            if let Some(texture) = (texture_callback.0)(&texture_stack_ptr, window_info, bounds_width, bounds_height) {
-
-                use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
-
-                let opaque = false;
-                let allow_mipmaps = true;
-                let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
-                let key = render_api.generate_image_key();
-                let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
-
-                let data = ImageData::External(ExternalImageData {
-                    id: external_image_id,
-                    channel_index: 0,
-                    image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
-                });
-
-                ACTIVE_GL_TEXTURES.lock().unwrap()
-                    .entry(current_epoch).or_insert_with(|| FastHashMap::default())
-                    .insert(external_image_id, ActiveTexture { texture: texture.clone() });
-
-                resource_updates.push(ResourceUpdate::AddImage(
-                    AddImage { key, descriptor, data, tiling: None }
-                ));
-
-                builder.push_image(
-                    &info,
-                    bounds.size,
-                    LayoutSize::zero(),
-                    ImageRendering::Auto,
-                    AlphaType::Alpha,
-                    key,
-                    ColorF::WHITE);
-            }
-
-            None
-        },
-        IFrame((iframe_callback, iframe_pointer)) => {
-
-            // note: must be locked!
-            let t_locked = app_data.lock().unwrap();
-            let window_info = WindowInfo {
-                window_id: window_id,
-                window: fake_window,
-                resources: &app_resources,
-            };
-
-            let new_dom = (iframe_callback.0)(&iframe_pointer, window_info, bounds_width, bounds_height);
-            let new_display_list_builder = dom_to_display_list_builder(
-                bounds,
-                new_dom,
-                parsed_css,
-                ui_solver,
-            );
-
-            None
-        },
+        Label(text) => push_text_wrapper(&TextInfo::Uncached(text.clone()), builder, app_resources, resource_updates),
+        Text(text_id) => push_text_wrapper(&TextInfo::Cached(*text_id), builder, app_resources, resource_updates),
+        Image(image_id) => push_image(&info, builder, app_resources, image_id),
+        GlTexture(callback) => push_opengl_texture(callback, &info, rectangle, referenced_content, referenced_mutable_content),
+        IFrame(callback) => push_iframe(callback, &info, rectangle, referenced_content, referenced_mutable_content),
     };
+
+    use text_layout::TextOverflow;
 
     if let Some(overflow) = &overflow_result {
         // push scrollbars if necessary
-        use text_layout::TextOverflow;
-
         // If the rectangle should have a scrollbar, push a scrollbar onto the display list
         if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
             push_scrollbar(builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
@@ -581,46 +553,147 @@ fn displaylist_handle_rect<'a, T: Layout>(
     if clip_region_id.is_some() {
         builder.pop_clip_id();
     }
-
 }
 
-// For IFrame / Sub-DOM rendering: Render a DOM into a target rectangle
-fn dom_to_display_list_builder<T: Layout>(
-    target_rect: LayoutRect,
-    dom: Dom<T>,
-    css: &ParsedCss,
-    ui_solver: &mut UiSolver)
--> DisplayListBuilder
+fn push_opengl_texture<'a, T: Layout>(
+    (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
+    info: &LayoutPrimitiveInfo,
+    rectangle: DisplayListRectParams<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>,
+) -> Option<OverflowInfo>
 {
+    use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
+
+    let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
+
+    let mut texture = None;
+
+    &referenced_mutable_content.app_data.run_function_mut(|_| {
+        let window_info = WindowInfo {
+            window: referenced_mutable_content.fake_window,
+            resources: &referenced_mutable_content.app_resources,
+        };
+
+        texture = (texture_callback.0)(&texture_stack_ptr, window_info, bounds);
+    });
+
+    let texture = texture?;
+
+    let opaque = false;
+    let allow_mipmaps = true;
+    let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
+    let key = referenced_content.render_api.generate_image_key();
+    let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
+
+    let data = ImageData::External(ExternalImageData {
+        id: external_image_id,
+        channel_index: 0,
+        image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+    });
+
+    ACTIVE_GL_TEXTURES.lock().unwrap()
+        .entry(rectangle.epoch).or_insert_with(|| FastHashMap::default())
+        .insert(external_image_id, ActiveTexture { texture: texture.clone() });
+
+    referenced_mutable_content.resource_updates.push(ResourceUpdate::AddImage(
+        AddImage { key, descriptor, data, tiling: None }
+    ));
+
+    referenced_mutable_content.builder.push_image(
+        &info,
+        info.rect.size,
+        LayoutSize::zero(),
+        ImageRendering::Auto,
+        AlphaType::Alpha,
+        key,
+        ColorF::TRANSPARENT);
+
+    None
+}
+
+fn push_iframe<'a, T: Layout>(
+    (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
+    info: &LayoutPrimitiveInfo,
+    rectangle: DisplayListRectParams<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>,
+) -> Option<OverflowInfo>
+{
+    let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
+
+    let mut new_dom = None;
+
+    &referenced_mutable_content.app_data.run_function_mut(|_| {
+        let window_info = WindowInfo {
+            window: referenced_mutable_content.fake_window,
+            resources: &referenced_mutable_content.app_resources,
+        };
+        (iframe_callback.0)(&iframe_pointer, window_info, bounds);
+    });
+
+
+    let new_dom = new_dom?;
+
     use css::DynamicCssOverrideList;
 
     let css_overrides = DynamicCssOverrideList::default(); // TODO
-    let ui_description = UiDescription::from_dom(&dom, &css, &css_overrides);
-    let ui_state = UiState::from_dom(dom);
+    let ui_description = UiDescription::from_dom(&new_dom, &referenced_content.parsed_css, &css_overrides);
+    let ui_state = UiState::from_dom(new_dom);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     /*
-    display_list.into_display_list_builder({
-        app_data: Arc<Mutex<T>>,
-        pipeline_id: PipelineId,
-        current_epoch: Epoch,
-        ui_solver: &mut UiSolver,
-        css: &mut Css,
-        app_resources: &mut AppResources,
-        render_api: &RenderApi,
-        mut has_window_size_changed: bool,
-        window_size: &WindowSize,
-        window_id: WindowId,
-        fake_window: &mut FakeWindow<T>)
-    })
+        let DisplayListParametersRef { parsed_css, render_api } = display_list_parameters_ref;
+        let DisplayListParametersMut { ui_solver, .. } = display_list_parameters_mut;
     */
+/*
+    ui_description: &UiDescription<T>,
+    ui_solver: &mut UiSolver,
+    window_size: &WindowSize,
+    rectangles: &Arena<DisplayRectangle<'a>>,
+    css_needs_relayout: &mut bool,
+    window_size_has_changed: bool
+*/
+    insert_constraints_into_solver(&ui_description, referenced_mutable_content, window_size, );
 
-    // TODO: need to adjust the origins of the elements of the display list
-    // TODO: Use layout solver to insert stuff
-    let pipeline_id = PipelineId::dummy();
-    DisplayListBuilder::new(pipeline_id, target_rect.size)
+    let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles);
+    push_rectangles_into_displaylist(rectangle.epoch, z_ordered_rectangles, referenced_content, referenced_mutable_content);
+
+    None
 }
 
+/// Since the display list can take a lot of parameters, we don't want to
+/// continually pass them as parameters of the function and rather use a
+/// struct to pass them around. This is purely for ergonomic reasons.
+///
+/// `DisplayListParametersRef` has only members that are
+///  **immutable references** to other things that need to be passed down the display list
+#[derive(Copy, Clone)]
+struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: Layout> {
+    pub ui_description: &'a UiDescription<T>,
+    /// The CSS that should be applied to the DOM
+    pub parsed_css: &'b ParsedCss,
+    /// Necessary to push
+    pub render_api: &'c RenderApi,
+    /// Reference to the arena that contains all the styled rectangles
+    pub display_rectangle_arena: &'d Arena<DisplayRectangle<'d>>,
+}
+
+struct DisplayListParametersMut<'a, 'b, 'c, 'd, 'e, 'f, T: Layout> {
+    pub ui_solver: &'a mut UiSolver,
+    /// Needs to be present, because the dom_to_displaylist_builder
+    /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
+    pub app_data: &'b mut AppDataAccess<'b, T>,
+    /// The original, top-level display list builder that we need to push stuff into
+    pub builder: &'c mut DisplayListBuilder,
+    /// The app resources, so that a sub-DOM / iframe can register fonts and images
+    /// TODO: How to handle cleanup ???
+    pub app_resources: &'d mut AppResources,
+    /// If new fonts or other stuff are created, we need to tell webrender about this
+    pub resource_updates: &'e mut Vec<ResourceUpdate>,
+    /// Window access, so that sub-items can register OpenGL textures
+    pub fake_window: &'f mut FakeWindow<T>,
+}
 
 #[inline]
 fn push_rect(
@@ -871,9 +944,10 @@ fn push_box_shadow(
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     bounds: &TypedRect<f32, LayoutPixel>,
-    full_screen_rect: &TypedRect<f32, LayoutPixel>,
     shadow_type: BoxShadowClipMode)
 {
+    let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
+
     let pre_shadow = match style.box_shadow {
         Some(ref ps) => ps,
         None => return,
@@ -902,7 +976,7 @@ fn push_box_shadow(
         clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
 
         // prevent shadows that are larger than the full screen
-        clip_rect.intersection(full_screen_rect).unwrap_or(clip_rect)
+        clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect)
     };
 
     // Apply a gamma of 2.2 to the original value
@@ -972,7 +1046,7 @@ fn push_background(
         },
         Background::Image(css_image_id) => {
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&css_image_id.0) {
-                push_image(info, builder, bounds, app_resources, image_id);
+                push_image(info, builder, app_resources, image_id);
             }
         },
         Background::NoBackground => { },
@@ -983,7 +1057,6 @@ fn push_background(
 fn push_image(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    bounds: &TypedRect<f32, LayoutPixel>,
     app_resources: &AppResources,
     image_id: &ImageId)
 -> Option<OverflowInfo>
@@ -991,11 +1064,12 @@ fn push_image(
     use images::ImageState::*;
 
     let image_info = app_resources.images.get(image_id)?;
+    let bounds = info.rect;
 
     match image_info {
         Uploaded(image_info) => {
 
-            let mut image_bounds = *bounds;
+            let mut image_bounds = bounds;
 
             let image_key = image_info.key;
             let image_size = image_info.descriptor.size;
@@ -1160,6 +1234,27 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
     (horz_alignment, vert_alignment)
 }
 
+/// Subtracts the padding from the bounds, returning the new bounds
+///
+/// Warning: The resulting rectangle may have negative width or height
+fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPadding)
+-> TypedRect<f32, LayoutPixel>
+{
+    let top     = padding.top.and_then(|top| Some(top.to_pixels())).unwrap_or(0.0);
+    let bottom  = padding.bottom.and_then(|bottom| Some(bottom.to_pixels())).unwrap_or(0.0);
+    let left    = padding.left.and_then(|left| Some(left.to_pixels())).unwrap_or(0.0);
+    let right   = padding.right.and_then(|right| Some(right.to_pixels())).unwrap_or(0.0);
+
+    let mut new_bounds = *bounds;
+
+    new_bounds.origin.x += left;
+    new_bounds.size.width -= right + left;
+    new_bounds.origin.y += top;
+    new_bounds.size.height -= top + bottom;
+
+    new_bounds
+}
+
 /// Populate the CSS style properties of the `DisplayRectangle`
 fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHashMap<String, ParsedCssProperty>)
 {
@@ -1238,238 +1333,6 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             }
         }
     }
-}
-
-use cassowary::Constraint;
-
-// Returns the constraints for one rectangle
-fn create_layout_constraints<'a, T: Layout>(
-    node_id: NodeId,
-    display_rectangles: &Arena<DisplayRectangle<'a>>,
-    dom: &Arena<NodeData<T>>,
-    ui_solver: &UiSolver)
--> Vec<Constraint>
-{
-    use cassowary::{
-        WeightedRelation::{EQ, GE, LE},
-    };
-    use ui_solver::RectConstraintVariables;
-    use std::f64;
-    use css_parser::LayoutDirection::*;
-
-    const WEAK: f64 = 3.0;
-    const MEDIUM: f64 = 30.0;
-    const STRONG: f64 = 300.0;
-    const REQUIRED: f64 = f64::MAX;
-
-    let rect = &display_rectangles[node_id].data;
-    let self_rect = ui_solver.get_rect_constraints(node_id).unwrap();
-
-    let dom_node = &dom[node_id];
-
-    let mut layout_constraints = Vec::new();
-
-    let window_constraints = ui_solver.get_window_constraints();
-
-    // Insert the max height and width constraints
-    //
-    // min-width and max-width are stronger than width because
-    // the width has to be between min and max width
-
-    // min-width, width, max-width
-    if let Some(min_width) = rect.layout.min_width {
-        layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
-    }
-    if let Some(width) = rect.layout.width {
-        layout_constraints.push(self_rect.width | EQ(STRONG) | width.0.to_pixels());
-    } else {
-        if let Some(parent) = dom_node.parent {
-            // If the parent has a flex-direction: row, divide the
-            // preferred width by the number of children
-            let parent_rect = ui_solver.get_rect_constraints(parent).unwrap();
-            let parent_direction = &display_rectangles[parent].data.layout.direction.unwrap_or_default();
-            match parent_direction {
-                Row | RowReverse => {
-                    let num_children = parent.children(dom).count();
-                    layout_constraints.push(self_rect.width | EQ(STRONG) | parent_rect.width / (num_children as f32));
-                    layout_constraints.push(self_rect.width | EQ(WEAK) | parent_rect.width);
-                },
-                Column | ColumnReverse => {
-                    layout_constraints.push(self_rect.width | EQ(STRONG) | parent_rect.width);
-                }
-            }
-        } else {
-            layout_constraints.push(self_rect.width | EQ(REQUIRED) | window_constraints.width_var);
-        }
-    }
-    if let Some(max_width) = rect.layout.max_width {
-        layout_constraints.push(self_rect.width | LE(REQUIRED) | max_width.0.to_pixels());
-    }
-
-    // min-height, height, max-height
-    if let Some(min_height) = rect.layout.min_height {
-        layout_constraints.push(self_rect.height | GE(REQUIRED) | min_height.0.to_pixels());
-    }
-    if let Some(height) = rect.layout.height {
-        layout_constraints.push(self_rect.height | EQ(STRONG) | height.0.to_pixels());
-    } else {
-        if let Some(parent) = dom_node.parent {
-            // If the parent has a flex-direction: column, divide the
-            // preferred height by the number of children
-            let parent_rect = ui_solver.get_rect_constraints(parent).unwrap();
-            let parent_direction = &display_rectangles[parent].data.layout.direction.unwrap_or_default();
-            match parent_direction {
-                Row | RowReverse => {
-                    layout_constraints.push(self_rect.height | EQ(STRONG) | parent_rect.height);
-                },
-                Column | ColumnReverse => {
-                    let num_children = parent.children(dom).count();
-                    layout_constraints.push(self_rect.height | EQ(STRONG) | parent_rect.height / (num_children as f32));
-                    layout_constraints.push(self_rect.height | EQ(WEAK) | parent_rect.height);
-                }
-            }
-        } else {
-            layout_constraints.push(self_rect.height | EQ(REQUIRED) | window_constraints.height_var);
-        }
-    }
-    if let Some(max_height) = rect.layout.max_height {
-        layout_constraints.push(self_rect.height | LE(REQUIRED) | max_height.0.to_pixels());
-    }
-
-    // root node: start at (0, 0)
-    if dom_node.parent.is_none() {
-        layout_constraints.push(self_rect.top | EQ(REQUIRED) | 0.0);
-        layout_constraints.push(self_rect.left | EQ(REQUIRED) | 0.0);
-    }
-
-    // Node has children: Push the constraints for `flex-direction`
-    if dom_node.first_child.is_some() {
-
-        let direction = rect.layout.direction.unwrap_or_default();
-
-        let mut next_child_id = dom_node.first_child;
-        let mut previous_child: Option<RectConstraintVariables> = None;
-
-        // Iterate through children
-        while let Some(child_id) = next_child_id {
-
-            let child = &display_rectangles[child_id].data;
-            let child_rect = ui_solver.get_rect_constraints(child_id).unwrap();
-
-            let should_respect_relative_positioning = child.layout.position == Some(LayoutPosition::Relative);
-
-            let (relative_top, relative_left, relative_right, relative_bottom) = if should_respect_relative_positioning {(
-                child.layout.top.and_then(|top| Some(top.0.to_pixels())).unwrap_or(0.0),
-                child.layout.left.and_then(|left| Some(left.0.to_pixels())).unwrap_or(0.0),
-                child.layout.right.and_then(|right| Some(right.0.to_pixels())).unwrap_or(0.0),
-                child.layout.right.and_then(|bottom| Some(bottom.0.to_pixels())).unwrap_or(0.0),
-            )} else {
-                (0.0, 0.0, 0.0, 0.0)
-            };
-
-            match direction {
-                Row => {
-                    match previous_child {
-                        None => layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left),
-                        Some(prev) => layout_constraints.push(child_rect.left | EQ(MEDIUM) | (prev.left + prev.width) + relative_left),
-                    }
-                    layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top);
-                },
-                RowReverse => {
-                    match previous_child {
-                        None => layout_constraints.push(child_rect.left | EQ(MEDIUM) | (self_rect.left  + relative_left + (self_rect.width - child_rect.width))),
-                        Some(prev) => layout_constraints.push((child_rect.left + child_rect.width) | EQ(MEDIUM) | prev.left + relative_left),
-                    }
-                    layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top);
-                },
-                Column => {
-                    match previous_child {
-                        None => layout_constraints.push(child_rect.top | EQ(MEDIUM) | self_rect.top),
-                        Some(prev) => layout_constraints.push(child_rect.top | EQ(MEDIUM) | (prev.top + prev.height)),
-                    }
-                    layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left);
-                },
-                ColumnReverse => {
-                    match previous_child {
-                        None => layout_constraints.push(child_rect.top | EQ(MEDIUM) | (self_rect.top + (self_rect.height - child_rect.height))),
-                        Some(prev) => layout_constraints.push((child_rect.top + child_rect.height) | EQ(MEDIUM) | prev.top),
-                    }
-                    layout_constraints.push(child_rect.left | EQ(MEDIUM) | self_rect.left + relative_left);
-                },
-            }
-
-            previous_child = Some(child_rect);
-            next_child_id = dom[child_id].next_sibling;
-        }
-    }
-
-    // Handle position: absolute
-    if let Some(LayoutPosition::Absolute) = rect.layout.position {
-
-        let top = rect.layout.top.and_then(|top| Some(top.0.to_pixels())).unwrap_or(0.0);
-        let left = rect.layout.left.and_then(|left| Some(left.0.to_pixels())).unwrap_or(0.0);
-        let right = rect.layout.right.and_then(|right| Some(right.0.to_pixels())).unwrap_or(0.0);
-        let bottom = rect.layout.right.and_then(|bottom| Some(bottom.0.to_pixels())).unwrap_or(0.0);
-
-        match get_nearest_positioned_ancestor(node_id, display_rectangles) {
-            None => {
-                // window is the nearest positioned ancestor
-                // TODO: hacky magic that relies on having one root element
-                let window_id = ui_solver.get_rect_constraints(NodeId::new(0)).unwrap();
-                layout_constraints.push(self_rect.top | EQ(REQUIRED) | window_id.top + top);
-                layout_constraints.push(self_rect.left | EQ(REQUIRED) | window_id.left + left);
-            },
-            Some(nearest_positioned) => {
-                let nearest_positioned = ui_solver.get_rect_constraints(nearest_positioned).unwrap();
-                layout_constraints.push(self_rect.top | GE(STRONG) | nearest_positioned.top + top);
-                layout_constraints.push(self_rect.left | GE(STRONG) | nearest_positioned.left + left);
-            }
-        }
-    }
-
-    layout_constraints
-}
-
-/// Subtracts the padding from the bounds, returning the new bounds
-///
-/// Warning: The resulting rectangle may have negative width or height
-fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPadding)
--> TypedRect<f32, LayoutPixel>
-{
-    let top     = padding.top.and_then(|top| Some(top.to_pixels())).unwrap_or(0.0);
-    let bottom  = padding.bottom.and_then(|bottom| Some(bottom.to_pixels())).unwrap_or(0.0);
-    let left    = padding.left.and_then(|left| Some(left.to_pixels())).unwrap_or(0.0);
-    let right   = padding.right.and_then(|right| Some(right.to_pixels())).unwrap_or(0.0);
-
-    let mut new_bounds = *bounds;
-
-    new_bounds.origin.x += left;
-    new_bounds.size.width -= right + left;
-    new_bounds.origin.y += top;
-    new_bounds.size.height -= top + bottom;
-
-    new_bounds
-}
-
-/// Returns the nearest common ancestor with a `position: relative` attribute
-/// or `None` if there is no ancestor that has `position: relative`. Usually
-/// used in conjunction with `position: absolute`
-fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<DisplayRectangle<'a>>)
--> Option<NodeId>
-{
-    let mut current_node = start_node_id;
-    while let Some(parent) = arena[current_node].parent() {
-        // An element with position: absolute; is positioned relative to the nearest
-        // positioned ancestor (instead of positioned relative to the viewport, like fixed).
-        //
-        // A "positioned" element is one whose position is anything except static.
-        if let Some(LayoutPosition::Static) = arena[parent].data.layout.position {
-            current_node = parent;
-        } else {
-            return Some(parent);
-        }
-    }
-    None
 }
 
 // Empty test, for some reason codecov doesn't detect any files (and therefore

@@ -6,6 +6,7 @@ use {
     traits::Layout,
     window::WindowInfo,
     default_callbacks::StackCheckedPointer,
+    window::HidpiAdjustedBounds,
 };
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -54,17 +55,17 @@ impl TableView {
     }
 }
 
-fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowInfo<T>, width: usize, height: usize)
+fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
 -> Dom<T>
 {
-    unsafe { ptr.invoke_mut_iframe(render_table, info, width, height) }
+    unsafe { ptr.invoke_mut_iframe(render_table, info, dimensions) }
 }
 
-fn render_table<T: Layout>(state: &mut TableViewState, info: WindowInfo<T>, width: usize, height: usize)
+fn render_table<T: Layout>(state: &mut TableViewState, info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
 -> Dom<T>
 {
-    let necessary_columns = (width as f32 / state.column_width).ceil() as usize;
-    let necessary_rows = (height as f32 / state.row_height).ceil() as usize;
+    let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;
+    let necessary_rows = (dimensions.logical_size.height as f32 / state.row_height).ceil() as usize;
 
     // div.__azul-native-table-container
     //     |-> div.__azul-native-table-column (Column 0)

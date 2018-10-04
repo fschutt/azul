@@ -193,7 +193,7 @@ pub mod prelude {
     };
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
-                     MouseMode, UpdateBehaviour, UpdateMode,
+                     MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
     pub use window_state::{WindowState, KeyboardState, MouseState};
     pub use images::{ImageType, ImageId};

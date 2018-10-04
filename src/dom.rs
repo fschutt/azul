@@ -16,6 +16,7 @@ use {
     app_state::AppState,
     id_tree::{NodeId, Node, Arena},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
+    window::HidpiAdjustedBounds,
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(0);
@@ -118,7 +119,7 @@ pub enum NodeType<T: Layout> {
     IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
 }
 
-pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, usize, usize) -> Option<Texture>);
+pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Option<Texture>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for GlTextureCallback<T>
 
@@ -149,7 +150,7 @@ impl<T: Layout> PartialEq for GlTextureCallback<T> {
 impl<T: Layout> Eq for GlTextureCallback<T> { }
 impl<T: Layout> Copy for GlTextureCallback<T> { }
 
-pub struct IFrameCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, usize, usize) -> Dom<T>);
+pub struct IFrameCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Dom<T>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for IFrameCallback<T>
 

@@ -301,14 +301,15 @@ impl<T: Layout> App<T> {
 
                     render(
                         arc_mutex_t_clone,
-                        window,
-                        window_id,
-                        &mut self.app_state.windows[idx],
+                        true, /* has_window_size_changed */
+
                         &ui_description_cache[idx],
                         &ui_state_cache[idx],
-                        &mut self.app_state.resources,
-                        true,
-                        &parsed_css);
+                        &parsed_css,
+
+                        &mut *window,
+                        &mut self.app_state.windows[idx],
+                        &mut self.app_state.resources);
 
                     awakened_task[idx] = false;
                 }
@@ -769,14 +770,15 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
 
 fn render<T: Layout>(
     app_data: Arc<Mutex<T>>,
-    window: &mut Window<T>,
-    window_id: WindowId,
-    fake_window: &mut FakeWindow<T>,
+    has_window_size_changed: bool,
+
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
-    app_resources: &mut AppResources,
-    has_window_size_changed: bool,
-    parsed_css: &ParsedCss)
+    parsed_css: &ParsedCss,
+
+    window: &mut Window<T>,
+    fake_window: &mut FakeWindow<T>,
+    app_resources: &mut AppResources)
 {
     use webrender::api::*;
     use display_list::DisplayList;
@@ -784,19 +786,21 @@ fn render<T: Layout>(
     use std::u32;
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
+
     let builder = display_list.into_display_list_builder(
         app_data,
         window.internal.pipeline_id,
         window.internal.epoch,
+        has_window_size_changed,
+
+        &window.internal.api,
+        &parsed_css,
+        &window.state.size,
+
+        &mut *fake_window,
         &mut window.ui_solver,
         &mut window.css,
-        app_resources,
-        &window.internal.api,
-        has_window_size_changed,
-        &window.state.size,
-        window_id,
-        fake_window,
-        parsed_css);
+        &mut *app_resources);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     window.internal.last_display_list_builder = builder.finalize().2;
