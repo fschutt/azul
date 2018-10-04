@@ -15,8 +15,11 @@ use webrender::{
 use glium::{
     IncompatibleOpenGl, Display, SwapBuffersError,
     debug::DebugCallbackBehavior,
-    glutin::{self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
-             MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon},
+    glutin::{
+        self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
+        MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon,
+        dpi::{LogicalSize, PhysicalSize}
+    },
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
@@ -90,9 +93,6 @@ impl<T: Layout> FakeWindow<T> {
     pub fn get_mouse_state(&self) -> MouseState {
         self.state.mouse_state
     }
-
-    //     //         let stack_checked_pointer = StackCheckedPointer::new(app_data, ptr)?;
-
 
     /// Adds a default callback to the window. The default callbacks are
     /// cleared after every frame, so two-way data binding widgets have to call this
@@ -174,7 +174,6 @@ impl Drop for ReadOnlyWindow {
 }
 
 pub struct WindowInfo<'a, 'b, T: 'b + Layout> {
-    pub window_id: WindowId,
     pub window: &'b mut FakeWindow<T>,
     pub resources: &'a AppResources,
 }
@@ -705,7 +704,7 @@ impl<T: Layout> Window<T> {
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
         */
 
-        let ui_solver = UiSolver::new(options.state.size.dimensions);
+        let ui_solver = UiSolver::new();
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
@@ -872,6 +871,29 @@ impl<T: Layout> Drop for Window<T> {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();
         renderer.deinit();
+    }
+}
+
+// Only necessary for GlTextures and IFrames that need the
+// width and height of their container to calculate their content
+#[derive(Debug, Copy, Clone)]
+pub struct HidpiAdjustedBounds {
+    pub logical_size: LogicalSize,
+    pub physical_size: PhysicalSize,
+    pub hidpi_factor: f64,
+}
+
+impl HidpiAdjustedBounds {
+    pub fn from_bounds<T: Layout>(fake_window: &FakeWindow<T>, bounds: LayoutRect) -> Self {
+        let hidpi_factor = fake_window.read_only_window().get_hidpi_factor();
+        let logical_size = LogicalSize::new(bounds.size.width as f64, bounds.size.height as f64);
+        let physical_size = logical_size.to_physical(hidpi_factor);
+
+        Self {
+            logical_size,
+            physical_size,
+            hidpi_factor,
+        }
     }
 }
 

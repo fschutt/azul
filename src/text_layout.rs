@@ -5,7 +5,7 @@ use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
 use {
     app_resources::AppResources,
-    display_list::TextInfo,
+    text_cache::TextInfo,
     css_parser::{
         TextAlignmentHorz, FontSize, BackgroundColor, LetterSpacing,
         FontId, TextAlignmentVert, LineHeight, LayoutOverflow

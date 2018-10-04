@@ -46,7 +46,6 @@ impl<T: Layout> UiState<T> {
         use std::sync::atomic::Ordering;
 
         let window_info = WindowInfo {
-            window_id,
             window: &mut app_state.windows[window_id.id],
             resources: &app_state.resources,
         };
