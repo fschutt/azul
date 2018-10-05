@@ -989,6 +989,7 @@ fn parse_css_border<'a>(input: &'a str)
         right: border_side,
         bottom: border_side,
         radius: BorderRadius::zero(),
+        do_aa: true,
     });
 
     Ok((border_widths, border_details))
@@ -2369,6 +2370,7 @@ mod css_tests {
                     style: BorderStyle::Solid,
                 },
                 radius: BorderRadius::zero(),
+                do_aa: true,
             })
         )));
     }
@@ -2395,6 +2397,7 @@ mod css_tests {
                     style: BorderStyle::Double,
                 },
                 radius: BorderRadius::zero(),
+                do_aa: true,
             })
         )));
     }

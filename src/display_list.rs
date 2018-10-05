@@ -597,7 +597,7 @@ fn push_opengl_texture<'a, 'b, 'c, T: Layout>(
         ImageRendering::Auto,
         AlphaType::Alpha,
         key,
-        ColorF::TRANSPARENT);
+        ColorF::WHITE);
 
     None
 }
@@ -927,6 +927,7 @@ fn push_triangle(
         top:    BorderSide { color: b_top.0.into(),          style: b_top.1    },
         bottom: BorderSide { color: b_bottom.0.into(),       style: b_bottom.1 },
         radius: BorderRadius::zero(),
+        do_aa: true,
     });
 
     // make the borders half the width / height of the rectangle,
