@@ -209,8 +209,31 @@ impl<T> Arena<T> {
         self.nodes.append(&mut other.nodes);
     }
 
-    pub fn get(&self, node: &NodeId) -> Option<&Node<T>> {
+    pub(crate) fn get(&self, node: &NodeId) -> Option<&Node<T>> {
         self.nodes.get(node.index())
+    }
+
+    /// Prints the debug version of the arena, without printing the actual arena
+    pub(crate) fn print_tree<F: Fn(&T) -> String + Copy>(&self, format_cb: F) -> String {
+        let mut s = String::new();
+        if self.nodes_len() > 0 {
+            self.print_tree_recursive(format_cb, &mut s, NodeId::new(0), 0);
+        }
+        s
+    }
+
+    fn print_tree_recursive<F: Fn(&T) -> String + Copy>(&self, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
+        let node = &self[current_node_id];
+        let tabs = String::from("\t|").repeat(indent);
+        string.push_str(&format!("{}-- {}: {}\n", tabs, current_node_id.index(), format_cb(&node.data)));
+
+        if let Some(first_child) = node.first_child {
+            self.print_tree_recursive(format_cb, string, first_child, indent + 1);
+        }
+
+        if let Some(next_sibling) = node.next_sibling {
+            self.print_tree_recursive(format_cb, string, next_sibling, indent);
+        }
     }
 }
 

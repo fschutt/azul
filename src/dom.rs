@@ -449,6 +449,17 @@ impl<T: Layout> Clone for NodeData<T> {
     }
 }
 
+impl<T: Layout> fmt::Display for NodeData<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        const DEFAULT: &str = "";
+        let id = match &self.id {
+            Some(s) => s,
+            None => DEFAULT,
+        };
+        write!(f, "[{} #{} .{:?}]", self.node_type.get_css_id(), id, self.classes)
+    }
+}
+
 impl<T: Layout> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
