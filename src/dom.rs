@@ -860,6 +860,11 @@ impl<T: Layout> Dom<T> {
     pub fn push_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
         self.arena.borrow_mut()[self.head].data.default_callback_ids.insert(on, id);
     }
+
+    /// Prints a debug formatted version of the DOM for easier debugging
+    pub fn debug_dump(&self) {
+        println!("{}", self.arena.borrow().print_tree(|t| format!("{}", t)));
+    }
 }
 
 pub type TagId = u64;

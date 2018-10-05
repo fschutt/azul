@@ -146,14 +146,14 @@ impl DomSolver {
         changeset
     }
 
-    pub(crate) fn insert_css_constraints_for_rect(&mut self, constraints: &[Constraint]) {
+    pub(crate) fn insert_css_constraints(&mut self, constraints: &[Constraint]) {
         self.solver.add_constraints(constraints).unwrap();
     }
 
     /// Notifies the solver that the window size has changed
     pub(crate) fn update_window_size(&mut self, window_size: &LogicalSize) {
-        self.solver.suggest_value(self.root_constraints.width_var, window_size.width).unwrap();
-        self.solver.suggest_value(self.root_constraints.height_var, window_size.height).unwrap();
+        println!("{:?}", self.solver.suggest_value(self.root_constraints.width_var, window_size.width));
+        println!("{:?}", self.solver.suggest_value(self.root_constraints.height_var, window_size.height));
     }
 
     pub(crate) fn update_layout_cache(&mut self) {
@@ -190,6 +190,7 @@ impl DomSolver {
         self.edit_variable_cache.map.get(&dom_hash.data).and_then(|rect| Some(rect.1))
     }
 
+    /// TODO: Make this an iterator, so we can avoid the unnecessary collections!
     pub(crate) fn create_layout_constraints<'a, T: Layout>(
         &self,
         rect_id: NodeId,
@@ -205,12 +206,15 @@ impl DomSolver {
     }
 
     pub(crate) fn clear_all_constraints(&mut self) {
+        /*
         for entry in self.added_constraints.values() {
             for constraint in entry {
                 self.solver.remove_constraint(constraint).unwrap();
             }
         }
         self.added_constraints = BTreeMap::new();
+        */
+        self.solver.reset();
     }
 
     pub(crate) fn get_window_constraints(&self) -> RootSizeConstraints {
