@@ -63,15 +63,20 @@ fn gl_texture_dom(map: &Map, data: &MyAppData) -> Dom<MyAppData> {
         .with_callback(On::MouseOver, Callback(check_hovered_font))
 }
 
-fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: WindowInfo<MyAppData>, width: usize, height: usize) -> Option<Texture> {
-    unsafe { ptr.invoke_mut_texture(render_map, window_info, width, height) }
+fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: WindowInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
+    unsafe { ptr.invoke_mut_texture(render_map, window_info, dimensions) }
 }
 
-fn render_map(map: &mut Map, info: WindowInfo<MyAppData>, width: usize, height: usize) -> Option<Texture> {
-    Some(Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
-        .with_pan(map.pan_horz as f32, map.pan_vert as f32)
-        .with_zoom(map.zoom as f32)
-        .render_svg(&map.cache, &info.window.read_only_window(), width, height))
+fn render_map(map: &mut Map, info: WindowInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
+    Some(
+         Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
+            .with_pan(map.pan_horz as f32, map.pan_vert as f32)
+            .with_zoom(map.zoom as f32)
+            .render_svg(&map.cache, &info.window.read_only_window(),
+                        dimensions.physical_size.width as usize,
+                        dimensions.physical_size.height  as usize
+            )
+    )
 }
 
 fn build_layers(
