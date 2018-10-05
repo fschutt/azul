@@ -343,26 +343,38 @@ fn insert_constraints_into_solver<'a, T: Layout>(
 
     if changeset.is_some() {
 
+        println!("4!");
+
         // inefficient for now, but prevents memory leak
         dom_solver.clear_all_constraints();
+        let mut constraints = Vec::new();
+
         for rect_idx in rectangles.linear_iter() {
-            let constraints = dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow());
-            dom_solver.insert_css_constraints_for_rect(&constraints);
-            dom_solver.push_added_constraints(rect_idx, constraints);
+            constraints.extend(dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow()));
         }
+
+        println!("constraints: {:?}", constraints.len());
+
+        dom_solver.insert_css_constraints(&constraints);
+
+        println!("5!");
 
         // If we push or pop constraints that means we also need to re-layout the window
         has_window_size_changed = true;
     }
+    println!("6!");
 
     // TODO: early return based on changeset?
 
     // Recalculate the actual layout
     if has_window_size_changed {
-        dom_solver.update_window_size(&bounds_size);
+        dom_solver.update_window_size(&bounds_size); // unknown
     }
+    println!("7!");
 
     dom_solver.update_layout_cache();
+    println!("8!");
+
     println!("end of insert constraints into DOM!");
 }
 
@@ -647,8 +659,6 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
     );
 
     referenced_mutable_content.ui_solver.insert_dom(new_dom_id, dom_solver);
-
-    // ui_description.ui_descr_arena.borrow().print_tree(|t| format!("{}", t)); // REMOVE
 
     println!("push_iframe");
     insert_constraints_into_solver(

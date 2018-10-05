@@ -91,7 +91,7 @@ fn render_table<T: Layout>(state: &mut TableViewState, info: WindowInfo<T>, dime
             .with_class("__azul-native-table-column-name")
             .with_sibling(
                 // Rows - "1", "2", "3"
-                (0..necessary_rows - 1)
+                (0..necessary_rows.saturating_sub(1))
                 .map(|row_idx|
                     NodeData {
                         node_type: NodeType::Label(format!("{}", row_idx + 1)),
@@ -116,7 +116,7 @@ fn render_table<T: Layout>(state: &mut TableViewState, info: WindowInfo<T>, dime
                 .with_class("__azul-native-table-column-name")
                 .with_sibling(
                     // Actual rows - if no content is given, they are simply empty
-                    (0..necessary_rows - 1)
+                    (0..necessary_rows.saturating_sub(1))
                     .map(|row_idx|
                         NodeData {
                             node_type: if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
