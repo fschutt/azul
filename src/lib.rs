@@ -84,6 +84,7 @@ extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
 extern crate tinyfiledialogs;
+#[cfg(feature = "svg")]
 extern crate stb_truetype;
 extern crate clipboard2;
 extern crate font_loader;
