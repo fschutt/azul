@@ -19,13 +19,16 @@ use {
     display_list::DisplayRectangle,
 };
 
-const LAST_DOM_ID: AtomicUsize = AtomicUsize::new(0);
+/// Reserve the 0th DOM ID for the windows root DOM
+pub(crate) const TOP_LEVEL_DOM_ID: DomId = DomId(0);
+/// Since we reserved the root DOM ID at 0, we have to start at 1, not at 0
+static LAST_DOM_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Counter for uniquely identifying a DOM solver -
 /// one DOM solver carries all the variables for one DOM, so that
 /// two DOMs don't accidentally interact with each other.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct DomId(pub(crate) usize);
+pub(crate) struct DomId(usize);
 
 /// Creates a new, unique DOM ID
 pub(crate) fn new_dom_id() -> DomId {
