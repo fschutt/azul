@@ -24,18 +24,18 @@ glium                   = { version = "0.22.0", default-features = false, featur
 gleam                   = { version = "0.6",    default-features = false }
 euclid                  = { version = "0.19",   default-features = false }
 rusttype                = { version = "0.6.4",  default-features = false }
-stb_truetype            = { version = "0.2.2",  default-features = false }
 app_units               = { version = "0.7",    default-features = false } # TODO: Remove once webrender PR is merged
 unicode-normalization   = { version = "0.1.5",  default-features = false }
-lazy_static             = { version = "1.0.1",  default-features = false }
+lazy_static             = { version = "1",      default-features = false }
 tinyfiledialogs         = { version = "3.3.5",  default-features = false }
 clipboard2              = { version = "0.1.0",  default-features = false }
 font-loader             = { version = "0.7.0",  default-features = false }
 log                     = { version = "0.4.1",  default-features = false }
+stb_truetype            = { version = "0.2.2",  default-features = false, optional = true }
 fern                    = { version = "0.5.5",  default-features = false, optional = true }
 backtrace               = { version = "0.3.9",  default-features = false, optional = true }
 lyon                    = { version = "0.11.0", default-features = false, optional = true }
-serde                   = { version = "1.0",    default-features = false, optional = true }
+serde                   = { version = "1",      default-features = false, optional = true }
 twox-hash               = { version = "1.1.0",  default-features = false, optional = true }
 usvg                    = { version = "0.3.0",  default-features = false, optional = true }
 image                   = { version = "0.19.0", default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "pnm", "tiff", "bmp"] }
@@ -43,11 +43,11 @@ image                   = { version = "0.19.0", default-features = false, option
 # Windows: Use nativefiledialog because of better Unicode support for file browsers
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = { version = "0.0.4", default-features = false }
-webrender = { git = "https://github.com/servo/webrender", rev = "4e7d0ed1b08f5402a6971230864a7e497b2453ec", default-features = false }
+webrender = { git = "https://github.com/servo/webrender", rev = "9dd465162183c127e7cefbe50ad9173e6ec27bb3", default-features = false }
 
 # Linux: Use webrender with freetype feature enabled
 [target.'cfg(target_os = "linux")'.dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "4e7d0ed1b08f5402a6971230864a7e497b2453ec" }
+webrender = { git = "https://github.com/servo/webrender", rev = "9dd465162183c127e7cefbe50ad9173e6ec27bb3" }
 
 [features]
 # The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
@@ -68,7 +68,7 @@ logging = ["fern", "backtrace"]
 # The SVG rendering module is pretty huge since it needs lyon - if you don't use
 # SVG rendering in your app, you can turn this off to increase compilation
 # speed and decrease your binary size
-svg = ["lyon"]
+svg = ["lyon", "stb_truetype"]
 # This is for activating **parsing** of SVG files. If you, for example, just
 # want to draw shapes on the screen, you do not need to activate this feature,
 # this is just for parsing the SVG from a file.

@@ -9,7 +9,7 @@ use std::{
 };
 use webrender::{
     api::*,
-    Renderer, RendererOptions, RendererKind,
+    Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags,
     // renderer::RendererError; -- not currently public in WebRender
 };
 use glium::{
@@ -534,6 +534,9 @@ impl<T: Layout> Window<T> {
     /// Creates a new window
     pub fn new(mut options: WindowCreateOptions<T>, css: Css) -> Result<Self, WindowCreateError>  {
 
+        use self::RendererType::*;
+        use webrender::WrShaders;
+
         let events_loop = EventsLoop::new();
 
         let monitor = match options.monitor {
@@ -643,19 +646,20 @@ impl<T: Layout> Window<T> {
 
         let device_pixel_ratio = display.gl_window().get_hidpi_factor();
 
+        // pre-caching shaders means to compile all shaders on startup
+        // this can take significant time and should be only used for testing the shaders
+        const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::EMPTY;
+
         // this exists because RendererOptions isn't Clone-able
         fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
             use webrender::ProgramCache;
             RendererOptions {
                 resource_override_path: None,
-                // pre-caching shaders means to compile all shaders on startup
-                // this can take significant time and should be only used for testing the shaders
-                precache_shaders: false,
+                precache_flags: PRECACHE_SHADER_FLAGS,
                 device_pixel_ratio: device_pixel_ratio,
                 enable_subpixel_aa: true,
                 enable_aa: true,
                 clear_color: clear_color,
-                enable_scrollbars: false,
                 cached_programs: Some(ProgramCache::new(None)),
                 renderer_kind: if native {
                     RendererKind::Native
@@ -678,20 +682,26 @@ impl<T: Layout> Window<T> {
         let opts_native = get_renderer_opts(true, device_pixel_ratio as f32, Some(options.background));
         let opts_osmesa = get_renderer_opts(false, device_pixel_ratio as f32, Some(options.background));
 
-        use self::RendererType::*;
+        // TODO: Right now it's not very ergonomic to cache shaders between
+        // renderers - notify webrender about this.
+        const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
+
         let (mut renderer, sender) = match options.renderer_type {
             Hardware => {
                 // force hardware renderer
-                Renderer::new(gl, notifier, opts_native).unwrap()
+                Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
             },
             Software => {
                 // force software renderer
-                Renderer::new(gl, notifier, opts_osmesa).unwrap()
+                Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
             },
             Default => {
                 // try hardware first, fall back to software
-                Renderer::new(gl.clone(), notifier.clone(), opts_native).or_else(|_|
-                Renderer::new(gl, notifier, opts_osmesa)).unwrap()
+                if let Ok(r) = Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
+                    r
+                } else {
+                    Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+                }
             }
         };
 
