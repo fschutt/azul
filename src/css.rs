@@ -676,13 +676,14 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
 -> UiDescription<T>
 {
     let mut root_constraints = CssConstraintList::default();
+    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
+
     for global_rule in &parsed_css.pure_global_rules {
         root_constraints.push_rule(global_rule);
     }
 
-    let arena_borrow = &*(*arena).borrow();
+    let arena_borrow = &*arena.borrow();
 
-    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
     let sibling_iterator = root.following_siblings(arena_borrow);
     // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
     // sibling_iterator.next().unwrap();
@@ -694,7 +695,11 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
     UiDescription {
         // note: this clone is neccessary, otherwise,
         // we wouldn't be able to update the UiState
-        ui_descr_arena: (*arena).clone(),
+        //
+        // WARNING: The UIState can modify the `arena` with its copy of the Rc !
+        // Be careful about appending things to the arena, since that could modify
+        // the UiDescription without you knowing!
+        ui_descr_arena: arena.clone(),
         ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),

@@ -309,6 +309,7 @@ fn push_rectangles_into_displaylist<'a, 'b, T: Layout>(
     referenced_content: &DisplayListParametersRef<'a,'b, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'a, T>)
 {
+    println!("push_rectangles_into_displaylist");
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
 
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
@@ -332,13 +333,16 @@ fn insert_constraints_into_solver<'a, T: Layout>(
     rectangles: &Arena<DisplayRectangle<'a>>,
     window_size_has_changed: bool)
 {
+    println!("insert constraints into DOM!");
     let mut has_window_size_changed = window_size_has_changed;
+
     let changeset = {
         let changeset = dom_solver.update_dom(ui_description);
         if changeset.is_empty() { None } else { Some(changeset) }
     };
 
     if changeset.is_some() {
+
         // inefficient for now, but prevents memory leak
         dom_solver.clear_all_constraints();
         for rect_idx in rectangles.linear_iter() {
@@ -359,6 +363,7 @@ fn insert_constraints_into_solver<'a, T: Layout>(
     }
 
     dom_solver.update_layout_cache();
+    println!("end of insert constraints into DOM!");
 }
 
 /// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
@@ -643,11 +648,14 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
 
     referenced_mutable_content.ui_solver.insert_dom(new_dom_id, dom_solver);
 
+    // ui_description.ui_descr_arena.borrow().print_tree(|t| format!("{}", t)); // REMOVE
+
+    println!("push_iframe");
     insert_constraints_into_solver(
         &ui_description,
         referenced_mutable_content.ui_solver.get_dom_mut(&new_dom_id).unwrap(),
         &rect_size,
-        &referenced_content.display_rectangle_arena,
+        &display_list.rectangles,
         true
     );
 
@@ -661,6 +669,7 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
 
     referenced_mutable_content.ui_solver.remove_dom(&new_dom_id);
 
+    println!("push iframe done!");
     None
 }
 
