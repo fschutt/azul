@@ -536,7 +536,7 @@ impl Iterator for LinearIterator {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
-        if self.position > (self.arena_len - 1) {
+        if self.arena_len < 1 || self.position > (self.arena_len - 1){
             None
         } else {
             let new_id = Some(NodeId::new(self.position));

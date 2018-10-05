@@ -17,7 +17,7 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
-    ui_solver::{UiSolver, DomSolver, DomId},
+    ui_solver::{UiSolver, DomSolver, DomId, TOP_LEVEL_DOM_ID},
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css_parser::*,
@@ -34,7 +34,6 @@ use {
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
-pub(crate) const TOP_LEVEL_DOM_ID: DomId = DomId(0);
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
