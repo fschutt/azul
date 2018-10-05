@@ -25,7 +25,7 @@ use {
         IFrameCallback, GlTextureCallback,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
-    css::{Css, ParsedCss},
+    css::ParsedCss,
     text_layout::{TextOverflowPass2, ScrollbarInfo},
     images::ImageId,
     text_cache::TextInfo,
@@ -34,6 +34,7 @@ use {
 };
 
 const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
+pub(crate) const TOP_LEVEL_DOM_ID: DomId = DomId(0);
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -206,6 +207,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         }
     }
 
+    /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
     pub(crate) fn into_display_list_builder(
         &self,
         app_data: Arc<Mutex<T>>,
@@ -217,7 +219,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         window_size: &WindowSize,
         fake_window: &mut FakeWindow<T>,
         ui_solver: &mut UiSolver,
-        css: &mut Css,
         app_resources: &mut AppResources)
     -> DisplayListBuilder
     {
@@ -228,10 +229,9 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         insert_constraints_into_solver(
             &self.ui_descr,
-            ui_solver,
-            window_size,
+            ui_solver.get_dom_mut(&TOP_LEVEL_DOM_ID).unwrap(),
+            &window_size.dimensions,
             &self.rectangles,
-            &mut css.needs_relayout,
             window_size_has_changed,
         );
 
@@ -244,28 +244,25 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles);
 
-        let mut mutable_content = DisplayListParametersMut {
-            ui_solver,
-            app_data: &mut app_data_access,
-            app_resources,
-            fake_window,
-            builder: &mut builder,
-            resource_updates: &mut resource_updates,
-        };
-
-        let static_content = DisplayListParametersRef {
-            ui_description: self.ui_descr,
-            render_api,
-            display_rectangle_arena: &self.rectangles,
-            parsed_css,
-        };
-
         // WARNING: recurive function!
         push_rectangles_into_displaylist(
             current_epoch,
+            TOP_LEVEL_DOM_ID,
             rects_in_rendering_order,
-            &static_content,
-            &mut mutable_content,
+            &DisplayListParametersRef {
+                ui_description: self.ui_descr,
+                render_api,
+                display_rectangle_arena: &self.rectangles,
+                parsed_css,
+            },
+            &mut DisplayListParametersMut {
+                ui_solver,
+                app_data: &mut app_data_access,
+                app_resources,
+                fake_window,
+                builder: &mut builder,
+                resource_updates: &mut resource_updates,
+            },
         );
 
         render_api.update_resources(resource_updates);
@@ -307,12 +304,12 @@ impl ZOrderedRectangles {
     }
 }
 
-fn push_rectangles_into_displaylist<'a, T: Layout>(
+fn push_rectangles_into_displaylist<'a, 'b, T: Layout>(
     epoch: Epoch,
     dom_id: DomId,
     z_ordered_rectangles: ZOrderedRectangles,
-    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>)
+    referenced_content: &DisplayListParametersRef<'a,'b, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>)
 {
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
 
@@ -329,13 +326,12 @@ fn push_rectangles_into_displaylist<'a, T: Layout>(
         }
     }
 }
-
+/// TODO: Cache if CSS values have changed the layout and not just the style?
 fn insert_constraints_into_solver<'a, T: Layout>(
     ui_description: &UiDescription<T>,
     dom_solver: &mut DomSolver,
     bounds_size: &LogicalSize,
     rectangles: &Arena<DisplayRectangle<'a>>,
-    css_needs_relayout: &mut bool,
     window_size_has_changed: bool)
 {
     let mut has_window_size_changed = window_size_has_changed;
@@ -344,7 +340,7 @@ fn insert_constraints_into_solver<'a, T: Layout>(
         if changeset.is_empty() { None } else { Some(changeset) }
     };
 
-    if *css_needs_relayout || changeset.is_some() {
+    if changeset.is_some() {
         // inefficient for now, but prevents memory leak
         dom_solver.clear_all_constraints();
         for rect_idx in rectangles.linear_iter() {
@@ -365,8 +361,6 @@ fn insert_constraints_into_solver<'a, T: Layout>(
     }
 
     dom_solver.update_layout_cache();
-
-    *css_needs_relayout = false;
 }
 
 /// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
@@ -377,7 +371,7 @@ pub(crate) enum AppDataAccess<'a, T: Layout> {
 }
 
 impl<'a, T: Layout> AppDataAccess<'a, T> {
-    pub(crate) fn run_function_mut<F: FnMut(&mut T)>(&mut self, callback: F) {
+    pub(crate) fn run_function_mut<F: FnMut(&mut T)>(&mut self, mut callback: F) {
         use self::AppDataAccess::*;
         match self {
             Owned(arc) => (callback)(&mut *arc.lock().unwrap()),
@@ -396,25 +390,23 @@ pub(crate) struct DisplayListRectParams<'a, T: Layout> {
 }
 
 /// Push a single rectangle into the display list builder
-fn displaylist_handle_rect<'a, T: Layout>(
-    rectangle: DisplayListRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>)
+fn displaylist_handle_rect<'a, 'b, 'c, T: Layout>(
+    rectangle: DisplayListRectParams<'c, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>)
 {
+    use text_layout::TextOverflow;
+
     let DisplayListParametersRef {
         render_api, parsed_css, ui_description, display_rectangle_arena
     } = referenced_content;
 
-    let DisplayListParametersMut {
-        ui_solver, builder, app_resources, resource_updates, fake_window, app_data
-    } = referenced_mutable_content;
-
     let DisplayListRectParams {
-        epoch, rect_idx, html_node,
+        epoch, rect_idx, html_node, dom_id
     } = rectangle;
 
-    // TODO: This will be very slow!
-    let bounds = referenced_mutable_content.ui_solver.get_dom_ref(&rectangle.dom_id).unwrap().query_bounds_of_rect(rect_idx);
+    // TODO: This will be very slow, find a way
+    let bounds = referenced_mutable_content.ui_solver.get_dom_ref(&dom_id).unwrap().query_bounds_of_rect(rect_idx);
     let rect = &display_rectangle_arena[rect_idx].data;
 
     let info = LayoutPrimitiveInfo {
@@ -430,42 +422,43 @@ fn displaylist_handle_rect<'a, T: Layout>(
             radii: border_radius,
             mode: ClipMode::Clip,
         };
-        Some(builder.define_clip(bounds, vec![region], None))
+        Some(referenced_mutable_content.builder.define_clip(bounds, vec![region], None))
     });
 
     // Push the "outset" box shadow, before the clip is active
     push_box_shadow(
-        builder,
+        referenced_mutable_content.builder,
         &rect.style,
         &bounds,
         BoxShadowClipMode::Outset);
 
     if let Some(id) = clip_region_id {
-        builder.push_clip_id(id);
+        referenced_mutable_content.builder.push_clip_id(id);
     }
 
     if let Some(ref bg_col) = rect.style.background_color {
-        push_rect(&info, builder, bg_col);
+        push_rect(&info, referenced_mutable_content.builder, bg_col);
     }
 
     if let Some(ref bg) = rect.style.background {
         push_background(
             &info,
             &bounds,
-            builder,
+            referenced_mutable_content.builder,
             bg,
-            &app_resources);
+            &referenced_mutable_content.app_resources);
     };
 
     // Push the inset shadow (if any)
-    push_box_shadow(builder,
-                    &rect.style,
-                    &bounds,
-                    BoxShadowClipMode::Inset);
+    push_box_shadow(
+        referenced_mutable_content.builder,
+        &rect.style,
+        &bounds,
+        BoxShadowClipMode::Inset);
 
     push_border(
         &info,
-        builder,
+        referenced_mutable_content.builder,
         &rect.style);
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
@@ -526,57 +519,73 @@ fn displaylist_handle_rect<'a, T: Layout>(
         overflow
     };
 
-
     // Handle the special content of the node, return if it overflows in the vertical direction
     let overflow_result = match html_node {
         Div => { None },
-        Label(text) => push_text_wrapper(&TextInfo::Uncached(text.clone()), builder, app_resources, resource_updates),
-        Text(text_id) => push_text_wrapper(&TextInfo::Cached(*text_id), builder, app_resources, resource_updates),
-        Image(image_id) => push_image(&info, builder, app_resources, image_id),
+        Label(text) => push_text_wrapper(
+            &TextInfo::Uncached(text.clone()),
+            referenced_mutable_content.builder,
+            referenced_mutable_content.app_resources,
+            referenced_mutable_content.resource_updates),
+        Text(text_id) => push_text_wrapper(
+            &TextInfo::Cached(*text_id),
+            referenced_mutable_content.builder,
+            referenced_mutable_content.app_resources,
+            referenced_mutable_content.resource_updates),
+        Image(image_id) => push_image(
+            &info,
+            referenced_mutable_content.builder,
+            referenced_mutable_content.app_resources,
+            image_id),
         GlTexture(callback) => push_opengl_texture(callback, &info, rectangle, referenced_content, referenced_mutable_content),
         IFrame(callback) => push_iframe(callback, &info, rectangle, referenced_content, referenced_mutable_content),
     };
-
-    use text_layout::TextOverflow;
 
     if let Some(overflow) = &overflow_result {
         // push scrollbars if necessary
         // If the rectangle should have a scrollbar, push a scrollbar onto the display list
         if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
-            push_scrollbar(builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+            push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
         }
         if let TextOverflow::IsOverflowing(amount_horz) = overflow.text_overflow.horizontal {
-            push_scrollbar(builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+            push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
         }
     }
 
     if clip_region_id.is_some() {
-        builder.pop_clip_id();
+        referenced_mutable_content.builder.pop_clip_id();
     }
 }
 
-fn push_opengl_texture<'a, T: Layout>(
+fn push_opengl_texture<'a, 'b, 'c, T: Layout>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
-    rectangle: DisplayListRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>,
+    rectangle: DisplayListRectParams<'c, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>,
 ) -> Option<OverflowInfo>
 {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
 
     let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
 
-    let mut texture = None;
+    let texture;
 
-    &referenced_mutable_content.app_data.run_function_mut(|_| {
+    {
+        // Make sure that the app data is locked before invoking the callback
+        let _lock = if let AppDataAccess::Owned(arc) = referenced_mutable_content.app_data {
+            Some(arc.lock().unwrap())
+        } else {
+            None
+        };
+
         let window_info = WindowInfo {
             window: referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
         };
 
         texture = (texture_callback.0)(&texture_stack_ptr, window_info, bounds);
-    });
+    }
 
     let texture = texture?;
 
@@ -612,52 +621,69 @@ fn push_opengl_texture<'a, T: Layout>(
     None
 }
 
-fn push_iframe<'a, T: Layout>(
+fn push_iframe<'a, 'b, 'c, T: Layout>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
-    rectangle: DisplayListRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'a,'a,'a,'a, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'a,'a,'a,'a,'a, T>,
+    rectangle: DisplayListRectParams<'c, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>,
 ) -> Option<OverflowInfo>
 {
+    use css::DynamicCssOverrideList;
+    use ui_solver::new_dom_id;
+    use glium::glutin::dpi::{LogicalPosition, LogicalSize};
+
     let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
 
-    let mut new_dom = None;
+    let new_dom;
 
-    &referenced_mutable_content.app_data.run_function_mut(|_| {
+    {
+        // Make sure that the app data is locked before invoking the callback
+        let _lock = if let AppDataAccess::Owned(arc) = referenced_mutable_content.app_data {
+            Some(arc.lock().unwrap())
+        } else {
+            None
+        };
+
         let window_info = WindowInfo {
             window: referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
         };
-        (iframe_callback.0)(&iframe_pointer, window_info, bounds);
-    });
-
-
-    let new_dom = new_dom?;
-
-    use css::DynamicCssOverrideList;
+        new_dom = (iframe_callback.0)(&iframe_pointer, window_info, bounds);
+    }
 
     let css_overrides = DynamicCssOverrideList::default(); // TODO
-    let ui_description = UiDescription::from_dom(&new_dom, &referenced_content.parsed_css, &css_overrides);
+    let ui_description = UiDescription::<T>::from_dom(&new_dom, &referenced_content.parsed_css, &css_overrides);
     let ui_state = UiState::from_dom(new_dom);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
-    /*
-        let DisplayListParametersRef { parsed_css, render_api } = display_list_parameters_ref;
-        let DisplayListParametersMut { ui_solver, .. } = display_list_parameters_mut;
-    */
-/*
-    ui_description: &UiDescription<T>,
-    ui_solver: &mut UiSolver,
-    window_size: &WindowSize,
-    rectangles: &Arena<DisplayRectangle<'a>>,
-    css_needs_relayout: &mut bool,
-    window_size_has_changed: bool
-*/
-    insert_constraints_into_solver(&ui_description, referenced_mutable_content, window_size, );
+    // Insert the DOM into the solver so we can solve the layout of the rectangles
+    let new_dom_id = new_dom_id();
+    let rect_size = LogicalSize::new(info.rect.size.width as f64, info.rect.size.height as f64);
+    let dom_solver = DomSolver::new(
+        LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64),
+        rect_size
+    );
+
+    referenced_mutable_content.ui_solver.insert_dom(new_dom_id, dom_solver);
+
+    insert_constraints_into_solver(
+        &ui_description,
+        referenced_mutable_content.ui_solver.get_dom_mut(&new_dom_id).unwrap(),
+        &rect_size,
+        &referenced_content.display_rectangle_arena,
+        true
+    );
 
     let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles);
-    push_rectangles_into_displaylist(rectangle.epoch, z_ordered_rectangles, referenced_content, referenced_mutable_content);
+    push_rectangles_into_displaylist(
+        rectangle.epoch,
+        new_dom_id,
+        z_ordered_rectangles,
+        referenced_content,
+        referenced_mutable_content);
+
+    referenced_mutable_content.ui_solver.remove_dom(&new_dom_id);
 
     None
 }
@@ -669,30 +695,30 @@ fn push_iframe<'a, T: Layout>(
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Copy, Clone)]
-struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: Layout> {
+struct DisplayListParametersRef<'a, 'b, T: Layout> {
     pub ui_description: &'a UiDescription<T>,
     /// The CSS that should be applied to the DOM
-    pub parsed_css: &'b ParsedCss,
+    pub parsed_css: &'a ParsedCss,
     /// Necessary to push
-    pub render_api: &'c RenderApi,
+    pub render_api: &'a RenderApi,
     /// Reference to the arena that contains all the styled rectangles
-    pub display_rectangle_arena: &'d Arena<DisplayRectangle<'d>>,
+    pub display_rectangle_arena: &'b Arena<DisplayRectangle<'b>>,
 }
 
-struct DisplayListParametersMut<'a, 'b, 'c, 'd, 'e, 'f, T: Layout> {
+struct DisplayListParametersMut<'a, 'b, T: Layout> {
     pub ui_solver: &'a mut UiSolver,
     /// Needs to be present, because the dom_to_displaylist_builder
     /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
     pub app_data: &'b mut AppDataAccess<'b, T>,
     /// The original, top-level display list builder that we need to push stuff into
-    pub builder: &'c mut DisplayListBuilder,
+    pub builder: &'a mut DisplayListBuilder,
     /// The app resources, so that a sub-DOM / iframe can register fonts and images
     /// TODO: How to handle cleanup ???
-    pub app_resources: &'d mut AppResources,
+    pub app_resources: &'a mut AppResources,
     /// If new fonts or other stuff are created, we need to tell webrender about this
-    pub resource_updates: &'e mut Vec<ResourceUpdate>,
+    pub resource_updates: &'a mut Vec<ResourceUpdate>,
     /// Window access, so that sub-items can register OpenGL textures
-    pub fake_window: &'f mut FakeWindow<T>,
+    pub fake_window: &'a mut FakeWindow<T>,
 }
 
 #[inline]

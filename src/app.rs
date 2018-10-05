@@ -799,7 +799,6 @@ fn render<T: Layout>(
 
         &mut *fake_window,
         &mut window.ui_solver,
-        &mut window.css,
         &mut *app_resources);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync

@@ -25,7 +25,7 @@ const LAST_DOM_ID: AtomicUsize = AtomicUsize::new(0);
 /// one DOM solver carries all the variables for one DOM, so that
 /// two DOMs don't accidentally interact with each other.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct DomId(usize);
+pub(crate) struct DomId(pub(crate) usize);
 
 /// Creates a new, unique DOM ID
 pub(crate) fn new_dom_id() -> DomId {
@@ -115,17 +115,19 @@ pub(crate) struct DomSolver {
     /// The cache of the previous frames DOM tree
     dom_tree_cache: DomTreeCache,
     /// Position of the DOM on screen. For the root dom, this will be (0, 0)
-    pub position: LogicalPosition,
-    pub size: LogicalSize,
+    position: LogicalPosition,
+    size: LogicalSize,
 }
 
 impl DomSolver {
-    pub(crate) fn new(solver: &mut Solver, size: LogicalSize, position: LogicalPosition) -> Self {
+    pub(crate) fn new(position: LogicalPosition, size: LogicalSize) -> Self {
+        let mut solver = Solver::new();
+        let root_constraints = RootSizeConstraints::new(&mut solver, size);
         Self {
-            solver: Solver::new(),
+            solver: solver,
             added_constraints: BTreeMap::new(),
             solved_values: BTreeMap::new(),
-            root_constraints: RootSizeConstraints::new(&mut solver, size),
+            root_constraints: root_constraints,
             edit_variable_cache: EditVariableCache::empty(),
             dom_tree_cache: DomTreeCache::empty(),
             position, size,
@@ -157,12 +159,18 @@ impl DomSolver {
         }
     }
 
+    /// Queries the bounds of the rectangle at the ID.
+    ///
+    /// **NOTE**: Automatically applies the `self.position` offset to the rectangle,
+    /// so that the resulting rectangle can be directly pushed into the display list!
     pub(crate) fn query_bounds_of_rect(&self, rect_id: NodeId) -> TypedRect<f32, LayoutPixel> {
 
         let display_rect = self.get_rect_constraints(rect_id).unwrap();
 
-        let top = self.solved_values.get(&display_rect.top).and_then(|x| Some(*x)).unwrap_or(0.0);
-        let left = self.solved_values.get(&display_rect.left).and_then(|x| Some(*x)).unwrap_or(0.0);
+        let origin_position = &self.position;
+
+        let top = self.solved_values.get(&display_rect.top).and_then(|x| Some(*x)).unwrap_or(0.0) + origin_position.y;
+        let left = self.solved_values.get(&display_rect.left).and_then(|x| Some(*x)).unwrap_or(0.0) + origin_position.x;
         let width = self.solved_values.get(&display_rect.width).and_then(|x| Some(*x)).unwrap_or(0.0);
         let height = self.solved_values.get(&display_rect.height).and_then(|x| Some(*x)).unwrap_or(0.0);
 
