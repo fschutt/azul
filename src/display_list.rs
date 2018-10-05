@@ -224,8 +224,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     {
         use glium::glutin::dpi::LogicalSize;
 
-        // Only clones the Arc!
-        let mut app_data_access = AppDataAccess::Owned(app_data.clone());
+        let mut app_data_access = AppDataAccess(app_data);
 
         insert_constraints_into_solver(
             &self.ui_descr,
@@ -309,7 +308,7 @@ fn push_rectangles_into_displaylist<'a, 'b, T: Layout>(
     dom_id: DomId,
     z_ordered_rectangles: ZOrderedRectangles,
     referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>)
+    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>)
 {
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
 
@@ -365,24 +364,11 @@ fn insert_constraints_into_solver<'a, T: Layout>(
 
 /// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
 /// a `&'a mut T`, if not, push the
-pub(crate) enum AppDataAccess<'a, T: Layout> {
-    Owned(Arc<Mutex<T>>),
-    Referenced(&'a mut T),
-}
-
-impl<'a, T: Layout> AppDataAccess<'a, T> {
-    pub(crate) fn run_function_mut<F: FnMut(&mut T)>(&mut self, mut callback: F) {
-        use self::AppDataAccess::*;
-        match self {
-            Owned(arc) => (callback)(&mut *arc.lock().unwrap()),
-            Referenced(ref_mut) => (callback)(ref_mut),
-        }
-    }
-}
+pub(crate) struct AppDataAccess<T: Layout>(Arc<Mutex<T>>);
 
 /// Parameters that apply to a single rectangle / div node
 #[derive(Copy, Clone)]
-pub(crate) struct DisplayListRectParams<'a, T: Layout> {
+pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
     pub epoch: Epoch,
     pub rect_idx: NodeId,
     pub dom_id: DomId,
@@ -393,7 +379,7 @@ pub(crate) struct DisplayListRectParams<'a, T: Layout> {
 fn displaylist_handle_rect<'a, 'b, 'c, T: Layout>(
     rectangle: DisplayListRectParams<'c, T>,
     referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>)
+    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>)
 {
     use text_layout::TextOverflow;
 
@@ -562,7 +548,7 @@ fn push_opengl_texture<'a, 'b, 'c, T: Layout>(
     info: &LayoutPrimitiveInfo,
     rectangle: DisplayListRectParams<'c, T>,
     referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>,
 ) -> Option<OverflowInfo>
 {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
@@ -573,12 +559,7 @@ fn push_opengl_texture<'a, 'b, 'c, T: Layout>(
 
     {
         // Make sure that the app data is locked before invoking the callback
-        let _lock = if let AppDataAccess::Owned(arc) = referenced_mutable_content.app_data {
-            Some(arc.lock().unwrap())
-        } else {
-            None
-        };
-
+        let _lock = referenced_mutable_content.app_data.0.lock().unwrap();
         let window_info = WindowInfo {
             window: referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
@@ -626,7 +607,7 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
     info: &LayoutPrimitiveInfo,
     rectangle: DisplayListRectParams<'c, T>,
     referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a,'b, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>,
 ) -> Option<OverflowInfo>
 {
     use css::DynamicCssOverrideList;
@@ -639,11 +620,7 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
 
     {
         // Make sure that the app data is locked before invoking the callback
-        let _lock = if let AppDataAccess::Owned(arc) = referenced_mutable_content.app_data {
-            Some(arc.lock().unwrap())
-        } else {
-            None
-        };
+        let _lock = referenced_mutable_content.app_data.0.lock().unwrap();
 
         let window_info = WindowInfo {
             window: referenced_mutable_content.fake_window,
@@ -695,7 +672,7 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Copy, Clone)]
-struct DisplayListParametersRef<'a, 'b, T: Layout> {
+struct DisplayListParametersRef<'a, 'b, T: 'a + Layout> {
     pub ui_description: &'a UiDescription<T>,
     /// The CSS that should be applied to the DOM
     pub parsed_css: &'a ParsedCss,
@@ -705,11 +682,15 @@ struct DisplayListParametersRef<'a, 'b, T: Layout> {
     pub display_rectangle_arena: &'b Arena<DisplayRectangle<'b>>,
 }
 
-struct DisplayListParametersMut<'a, 'b, T: Layout> {
+/// Same as `DisplayListParametersRef`, but for `&mut Something`
+///
+/// Note: The `'a` in the `'a + Layout` is technically not required.
+/// Only rustc 1.28 requires this, more modern compiler versions insert it automatically.
+struct DisplayListParametersMut<'a, T: 'a + Layout> {
     pub ui_solver: &'a mut UiSolver,
     /// Needs to be present, because the dom_to_displaylist_builder
     /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
-    pub app_data: &'b mut AppDataAccess<'b, T>,
+    pub app_data: &'a mut AppDataAccess<T>,
     /// The original, top-level display list builder that we need to push stuff into
     pub builder: &'a mut DisplayListBuilder,
     /// The app resources, so that a sub-DOM / iframe can register fonts and images
