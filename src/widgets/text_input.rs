@@ -73,11 +73,8 @@ fn update_text_field_inner<T: Layout>(data: &mut TextInputState, app_state_no_da
     if keyboard_state.current_virtual_keycodes.contains(&VirtualKeyCode::Back) {
         data.text.pop();
     } else {
-        let mut keys = keyboard_state.current_keys.iter().cloned().collect::<String>();
-        if keyboard_state.shift_down {
-            keys = keys.to_uppercase();
-        }
-        data.text += &keys;
+        // This next unwrap is safe as there will always be character in the iterator.
+        keyboard_state.latest_key.map(|key| data.text.push(if keyboard_state.shift_down { key.to_uppercase().next().unwrap() } else { key }));
     }
     UpdateScreen::Redraw
 }

@@ -34,6 +34,8 @@ pub struct KeyboardState
     pub super_down: bool,
     /// Currently pressed keys, already converted to characters
     pub current_keys: HashSet<char>,
+    /// Holds the key that was pressed last if there is Some. Holds None otherwise.
+    pub latest_key: Option<char>,
     /// Currently pressed virtual keycodes - this is essentially an "extension"
     /// of `current_keys` - `current_keys` stores the characters, but what if the
     /// pressed key is not a character (such as `ArrowRight` or `PgUp`)?
@@ -321,6 +323,7 @@ impl WindowState
                         if let Some(vk) = virtual_keycode {
                             if let Some(ch) = virtual_key_code_to_char(*vk) {
                                 self.keyboard_state.current_keys.insert(ch);
+                                self.keyboard_state.latest_key = Some(ch);
                             }
                             self.keyboard_state.current_virtual_keycodes.insert(*vk);
                         }
@@ -330,6 +333,7 @@ impl WindowState
                         if let Some(vk) = virtual_keycode {
                             if let Some(ch) = virtual_key_code_to_char(*vk) {
                                 self.keyboard_state.current_keys.remove(&ch);
+                                self.keyboard_state.latest_key = None;
                             }
                             self.keyboard_state.current_virtual_keycodes.remove(vk);
                         }
