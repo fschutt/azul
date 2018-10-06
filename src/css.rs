@@ -4,8 +4,6 @@
 use std::io::Error as IoError;
 use std::{
     collections::BTreeMap,
-    rc::Rc,
-    cell::RefCell,
     ops::{Deref, DerefMut},
 };
 use {
@@ -17,6 +15,7 @@ use {
     traits::Layout,
     ui_description::{UiDescription, StyledNode, CssConstraintList},
     dom::NodeData,
+    ui_state::UiState,
 };
 
 /// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
@@ -668,21 +667,21 @@ pub(crate) struct ZIndex(pub u32);
 impl Default for ZIndex { fn default() -> Self { ZIndex(0) }}
 
 pub(crate) fn match_dom_css_selectors<T: Layout>(
-    root: NodeId,
-    arena: &Rc<RefCell<Arena<NodeData<T>>>>,
+    ui_state: &UiState<T>,
     parsed_css: &ParsedCss,
     dynamic_css_overrides: &DynamicCssOverrideList,
     parent_z_level: ZIndex)
 -> UiDescription<T>
 {
+    let root = ui_state.dom.root;
+    let arena_borrow = &*ui_state.dom.arena.borrow();
+
     let mut root_constraints = CssConstraintList::default();
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
     for global_rule in &parsed_css.pure_global_rules {
         root_constraints.push_rule(global_rule);
     }
-
-    let arena_borrow = &*arena.borrow();
 
     let sibling_iterator = root.following_siblings(arena_borrow);
     // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
@@ -699,7 +698,7 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
         // WARNING: The UIState can modify the `arena` with its copy of the Rc !
         // Be careful about appending things to the arena, since that could modify
         // the UiDescription without you knowing!
-        ui_descr_arena: arena.clone(),
+        ui_descr_arena: ui_state.dom.arena.clone(),
         ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),

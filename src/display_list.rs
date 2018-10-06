@@ -302,12 +302,12 @@ impl ZOrderedRectangles {
     }
 }
 
-fn push_rectangles_into_displaylist<'a, 'b, T: Layout>(
+fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     epoch: Epoch,
     dom_id: DomId,
     z_ordered_rectangles: ZOrderedRectangles,
-    referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>)
+    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
 {
     println!("push_rectangles_into_displaylist");
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
@@ -333,7 +333,8 @@ fn insert_constraints_into_solver<'a, T: Layout>(
     rectangles: &Arena<DisplayRectangle<'a>>,
     window_size_has_changed: bool)
 {
-    println!("insert constraints into DOM!");
+    use cassowary::Constraint;
+
     let mut has_window_size_changed = window_size_has_changed;
 
     let changeset = {
@@ -343,26 +344,20 @@ fn insert_constraints_into_solver<'a, T: Layout>(
 
     if changeset.is_some() {
 
-        println!("4!");
-
         // inefficient for now, but prevents memory leak
         dom_solver.clear_all_constraints();
-        let mut constraints = Vec::new();
-
-        for rect_idx in rectangles.linear_iter() {
-            constraints.extend(dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow()));
-        }
-
-        println!("constraints: {:?}", constraints.len());
+        let constraints: Vec<Constraint> = {
+            let borrow = &*ui_description.ui_descr_arena.borrow();
+            rectangles.linear_iter().flat_map(|rect_idx| {
+                dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow())
+            }).collect()
+        };
 
         dom_solver.insert_css_constraints(&constraints);
-
-        println!("5!");
 
         // If we push or pop constraints that means we also need to re-layout the window
         has_window_size_changed = true;
     }
-    println!("6!");
 
     // TODO: early return based on changeset?
 
@@ -370,12 +365,8 @@ fn insert_constraints_into_solver<'a, T: Layout>(
     if has_window_size_changed {
         dom_solver.update_window_size(&bounds_size); // unknown
     }
-    println!("7!");
 
     dom_solver.update_layout_cache();
-    println!("8!");
-
-    println!("end of insert constraints into DOM!");
 }
 
 /// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
@@ -392,10 +383,10 @@ pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
 }
 
 /// Push a single rectangle into the display list builder
-fn displaylist_handle_rect<'a, 'b, 'c, T: Layout>(
+fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     rectangle: DisplayListRectParams<'c, T>,
-    referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>)
+    referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>)
 {
     use text_layout::TextOverflow;
 
@@ -559,12 +550,12 @@ fn displaylist_handle_rect<'a, 'b, 'c, T: Layout>(
     }
 }
 
-fn push_opengl_texture<'a, 'b, 'c, T: Layout>(
+fn push_opengl_texture<'a, 'b, 'c, 'd, 'e,'f, T: Layout>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
     rectangle: DisplayListRectParams<'c, T>,
-    referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> Option<OverflowInfo>
 {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
@@ -618,12 +609,12 @@ fn push_opengl_texture<'a, 'b, 'c, T: Layout>(
     None
 }
 
-fn push_iframe<'a, 'b, 'c, T: Layout>(
+fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
     rectangle: DisplayListRectParams<'c, T>,
-    referenced_content: &DisplayListParametersRef<'a,'b, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> Option<OverflowInfo>
 {
     use css::DynamicCssOverrideList;
@@ -646,8 +637,8 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
     }
 
     let css_overrides = DynamicCssOverrideList::default(); // TODO
-    let ui_description = UiDescription::<T>::from_dom(&new_dom, &referenced_content.parsed_css, &css_overrides);
     let ui_state = UiState::from_dom(new_dom);
+    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.parsed_css, &css_overrides);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
@@ -670,11 +661,18 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
     );
 
     let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles);
+    let referenced_content = DisplayListParametersRef {
+        // Important: Need to update the ui description, otherwise this function would be endlessly recursive
+        ui_description: &ui_description,
+        display_rectangle_arena: &display_list.rectangles,
+        .. *referenced_content
+    };
+
     push_rectangles_into_displaylist(
         rectangle.epoch,
         new_dom_id,
         z_ordered_rectangles,
-        referenced_content,
+        &referenced_content,
         referenced_mutable_content);
 
     referenced_mutable_content.ui_solver.remove_dom(&new_dom_id);
@@ -690,14 +688,14 @@ fn push_iframe<'a, 'b, 'c, T: Layout>(
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Copy, Clone)]
-struct DisplayListParametersRef<'a, 'b, T: 'a + Layout> {
+struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a + Layout> {
     pub ui_description: &'a UiDescription<T>,
     /// The CSS that should be applied to the DOM
-    pub parsed_css: &'a ParsedCss,
+    pub parsed_css: &'b ParsedCss,
     /// Necessary to push
-    pub render_api: &'a RenderApi,
+    pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
-    pub display_rectangle_arena: &'b Arena<DisplayRectangle<'b>>,
+    pub display_rectangle_arena: &'d Arena<DisplayRectangle<'d>>,
 }
 
 /// Same as `DisplayListParametersRef`, but for `&mut Something`

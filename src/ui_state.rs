@@ -74,12 +74,12 @@ impl<T: Layout> UiState<T> {
 
         // TODO: problematic, since the UiDescription has an Rc into the the DOM
         // and the .add_child empties / drains the original DOM arena !!!
-/*       let dom = {
+        let dom = {
             let mut parent_dom = Dom::with_capacity(NodeType::Div, dom.len());
             parent_dom.add_child(dom);
             parent_dom
         };
-*/
+
         let mut tag_ids_to_callbacks = BTreeMap::new();
         let mut tag_ids_to_default_callbacks = BTreeMap::new();
         let mut node_ids_to_tag_ids = BTreeMap::new();

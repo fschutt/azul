@@ -80,6 +80,7 @@ impl RootSizeConstraints {
         let width_var = Variable::new();
         let height_var = Variable::new();
 
+        println!("adding variable width height!");
         solver.add_edit_variable(width_var, STRONG).unwrap();
         solver.add_edit_variable(height_var, STRONG).unwrap();
         solver.suggest_value(width_var, root_size.width as f64).unwrap();

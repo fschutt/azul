@@ -287,7 +287,7 @@ impl<T: Layout> App<T> {
 
                     // Style the DOM
                     ui_description_cache[idx] = UiDescription::from_dom(
-                        &ui_state_cache[idx].dom,
+                        &ui_state_cache[idx],
                         &parsed_css,
                         &window.css.dynamic_css_overrides
                     );
