@@ -10,6 +10,7 @@ use {
     dom::Dom,
     css::{Css, ParsedCss, CssRule, ZIndex, CssDeclaration, DynamicCssOverrideList},
     dom::NodeData,
+    ui_state::UiState,
 };
 
 pub struct UiDescription<T: Layout> {
@@ -64,7 +65,8 @@ impl<T: Layout> Default for UiDescription<T> {
         let default_dom = Dom::new(NodeType::Div);
         let default_css = Css::empty();
         let parsed_css = ParsedCss::from_css(&default_css);
-        Self::from_dom(&default_dom, &parsed_css, &default_css.dynamic_css_overrides)
+        let default_ui_state = UiState::from_dom(default_dom);
+        Self::from_dom(&default_ui_state, &parsed_css, &default_css.dynamic_css_overrides)
     }
 }
 
@@ -72,9 +74,9 @@ impl<T: Layout> UiDescription<T> {
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn from_dom(dom: &Dom<T>, css: &ParsedCss, css_overrides: &DynamicCssOverrideList) -> Self
+    pub fn from_dom(ui_state: &UiState<T>, css: &ParsedCss, css_overrides: &DynamicCssOverrideList) -> Self
     {
-        ::css::match_dom_css_selectors(dom.root, &dom.arena, &css, &css_overrides, ZIndex(0))
+        ::css::match_dom_css_selectors(ui_state, &css, &css_overrides, ZIndex(0))
     }
 }
 
