@@ -56,14 +56,6 @@ impl Default for RectConstraintVariables {
     }
 }
 
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
-#[test]
-fn __codecov_test_constraints_file() {
-
-}
-
 /// Stores the variables of the root width and height (but not the values themselves)
 ///
 /// Note that the position will always be (0, 0). The layout solver doesn't
@@ -75,14 +67,15 @@ pub(crate) struct RootSizeConstraints {
 }
 
 impl RootSizeConstraints {
+
     pub fn new(solver: &mut Solver, root_size: LogicalSize) -> Self {
 
         let width_var = Variable::new();
         let height_var = Variable::new();
 
-        println!("adding variable width height!");
         solver.add_edit_variable(width_var, STRONG).unwrap();
         solver.add_edit_variable(height_var, STRONG).unwrap();
+
         solver.suggest_value(width_var, root_size.width as f64).unwrap();
         solver.suggest_value(height_var, root_size.height as f64).unwrap();
 
@@ -124,14 +117,15 @@ pub(crate) struct DomSolver {
 }
 
 impl DomSolver {
+
     pub(crate) fn new(position: LogicalPosition, size: LogicalSize) -> Self {
         let mut solver = Solver::new();
         let root_constraints = RootSizeConstraints::new(&mut solver, size);
         Self {
-            solver: solver,
+            solver,
             added_constraints: BTreeMap::new(),
             solved_values: BTreeMap::new(),
-            root_constraints: root_constraints,
+            root_constraints,
             edit_variable_cache: EditVariableCache::empty(),
             dom_tree_cache: DomTreeCache::empty(),
             position, size,
@@ -148,13 +142,14 @@ impl DomSolver {
     }
 
     pub(crate) fn insert_css_constraints(&mut self, constraints: &[Constraint]) {
+        // TODO: Solver currently locks up here when inserting 5000 constraints
         self.solver.add_constraints(constraints).unwrap();
     }
 
     /// Notifies the solver that the window size has changed
     pub(crate) fn update_window_size(&mut self, window_size: &LogicalSize) {
-        println!("{:?}", self.solver.suggest_value(self.root_constraints.width_var, window_size.width));
-        println!("{:?}", self.solver.suggest_value(self.root_constraints.height_var, window_size.height));
+        self.solver.suggest_value(self.root_constraints.width_var, window_size.width).unwrap();
+        self.solver.suggest_value(self.root_constraints.height_var, window_size.height).unwrap();
     }
 
     pub(crate) fn update_layout_cache(&mut self) {
@@ -202,25 +197,32 @@ impl DomSolver {
         create_layout_constraints(&self, rect_id, display_rectangles, dom)
     }
 
+    /// For tracking which constraints are actually in the solver, we need to track what
+    /// the added constraints are
     pub(crate) fn push_added_constraints(&mut self, rect_id: NodeId, constraints: Vec<Constraint>) {
         self.added_constraints.entry(rect_id).or_insert_with(|| Vec::new()).extend(constraints);
     }
 
+    /// Clears all the constraints, but **not the edit variables**!
     pub(crate) fn clear_all_constraints(&mut self) {
-        /*
         for entry in self.added_constraints.values() {
             for constraint in entry {
                 self.solver.remove_constraint(constraint).unwrap();
             }
         }
         self.added_constraints = BTreeMap::new();
-        */
-        self.solver.reset();
     }
 
     pub(crate) fn get_window_constraints(&self) -> RootSizeConstraints {
         self.root_constraints
     }
+}
+
+#[test]
+fn test_new_ui_solver_has_root_constraints() {
+    let mut solver = DomSolver::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(400.0, 600.0));
+    assert!(solver.solver.suggest_value(solver.root_constraints.width_var, 400.0).is_ok());
+    assert!(solver.solver.suggest_value(solver.root_constraints.width_var, 600.0).is_ok());
 }
 
 impl UiSolver {
