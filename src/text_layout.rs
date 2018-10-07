@@ -16,6 +16,7 @@ use {
 pub use webrender::api::GlyphInstance;
 
 pub const PX_TO_PT: f32 = 72.0 / 96.0;
+pub const PT_TO_PX: f32 = 1.0 / PX_TO_PT;
 
 /// When the text is regularly layouted, the text needs to be
 /// spaced out a bit vertically
@@ -265,7 +266,7 @@ pub(crate) fn get_glyphs(
     align_text_horz(horz_alignment, &mut positioned_glyphs, &line_break_offsets);
 
     // (10) Align text vertically (early return if text overflows)
-    align_text_vert(vert_alignment, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
+    align_text_vert(&font_metrics, vert_alignment, &mut positioned_glyphs, &line_break_offsets, &overflow_pass_2);
 
     // (11) Add the self.origin to all the glyphs to bring them from glyph space into world space
     add_origin(&mut positioned_glyphs, bounds.origin.x, bounds.origin.y);
@@ -565,7 +566,8 @@ fn estimate_overflow_pass_1(
             // is essentially the same thing as we do in the actual text layout stage
             let mut max_line_cursor: f32 = 0.0;
             let mut cur_line_cursor = 0.0;
-            let mut cur_line = 0;
+            // Start at line 1 because we always have one line and not zero.
+            let mut cur_line = 1;
 
             for w in words {
                 match w {
@@ -588,8 +590,7 @@ fn estimate_overflow_pass_1(
             }
 
             max_hor_len = Some(cur_line_cursor);
-
-            cur_line as f32 * vertical_advance
+            cur_line as f32 * vertical_advance * PT_TO_PX
         }
     };
 
@@ -811,7 +812,7 @@ fn words_to_left_aligned_glyphs<'a>(
     }
 
     let min_enclosing_width = max_word_caret;
-    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + (font_size_no_line_height.y / PX_TO_PT);
+    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + (font_size_no_line_height.y * PT_TO_PX);
 
     let line_break_offsets = line_break_offsets.into_iter().map(|(line, space_r)| {
         let space_r = match space_r {
@@ -917,12 +918,14 @@ fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], l
     }
 }
 
-fn align_text_vert(alignment: TextAlignmentVert, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)], overflow: &TextOverflowPass2) {
+fn align_text_vert(font_metrics: &FontMetrics, alignment: TextAlignmentVert, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)], overflow: &TextOverflowPass2) {
 
     use self::TextOverflow::*;
     use self::TextAlignmentVert::*;
 
-    assert!(glyphs.len() - 1 == line_breaks[line_breaks.len() - 1].0);
+    // Die if we have a line break at a position bigger than the position of the last glyph, because something went horribly wrong!
+    // The next unwrap is always safe as line_breaks will have a minimum of one entry!
+    assert!(glyphs.len() - 1 == line_breaks.last().unwrap().0);
 
     let multiply_factor = match alignment {
         Top => return,
@@ -932,7 +935,11 @@ fn align_text_vert(alignment: TextAlignmentVert, glyphs: &mut [GlyphInstance], l
 
     let space_to_add = match overflow.vertical {
         IsOverflowing(_) => return,
-        InBounds(s) => (s - (30.0 * DEFAULT_LINE_HEIGHT_MULTIPLIER)) * multiply_factor,
+        InBounds(remaining_space_px) => {
+            // Total text height (including last leading!)
+            let new = remaining_space_px * multiply_factor - (font_metrics.vertical_advance * multiply_factor) * PT_TO_PX;
+            new
+        },
     };
 
     glyphs.iter_mut().for_each(|g| g.point.y += space_to_add);
