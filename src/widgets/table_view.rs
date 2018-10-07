@@ -26,8 +26,9 @@ impl Default for TableViewState {
     fn default() -> Self {
         Self {
             work_sheet: Worksheet::default(),
-            column_width: 50.0,
-            row_height: 10.0,
+            // warning: 50 / 100 doesn't work - too many constraints, slow rendering, need to debug this!
+            column_width: 500.0,
+            row_height: 100.0,
             selected_cell: None,
         }
     }
@@ -61,7 +62,7 @@ fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowIn
     unsafe { ptr.invoke_mut_iframe(render_table, info, dimensions) }
 }
 
-fn render_table<T: Layout>(state: &mut TableViewState, info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
+fn render_table<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
 -> Dom<T>
 {
     let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;

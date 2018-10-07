@@ -345,7 +345,6 @@ fn insert_constraints_into_solver<'a, T: Layout>(
 
         // inefficient for now, but prevents memory leak
         dom_solver.clear_all_constraints();
-
         let constraints: Vec<Constraint> = {
             let borrow = &*ui_description.ui_descr_arena.borrow();
             rectangles.linear_iter().flat_map(|rect_idx| {
@@ -356,7 +355,7 @@ fn insert_constraints_into_solver<'a, T: Layout>(
             }).collect()
         };
 
-        dom_solver.insert_css_constraints(&constraints);
+        dom_solver.insert_css_constraints(constraints);
 
         // If we push or pop constraints that means we also need to re-layout the window
         has_window_size_changed = true;

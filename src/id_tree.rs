@@ -258,6 +258,7 @@ trait GetPairMut<T> {
 }
 
 impl<T> GetPairMut<T> for Vec<T> {
+    #[allow(unused_variables)]
     fn get_pair_mut(&mut self, a: usize, b: usize, same_index_error_message: &'static str)
     -> (&mut T, &mut T)
     {
