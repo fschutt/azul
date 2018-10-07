@@ -34,6 +34,8 @@ pub struct KeyboardState
     pub super_down: bool,
     /// Currently pressed keys, already converted to characters
     pub current_keys: HashSet<char>,
+    /// Holds the key that was pressed last if there is Some. Holds None otherwise.
+    pub latest_virtual_keycode: Option<VirtualKeyCode>,
     /// Currently pressed virtual keycodes - this is essentially an "extension"
     /// of `current_keys` - `current_keys` stores the characters, but what if the
     /// pressed key is not a character (such as `ArrowRight` or `PgUp`)?
@@ -323,6 +325,7 @@ impl WindowState
                                 self.keyboard_state.current_keys.insert(ch);
                             }
                             self.keyboard_state.current_virtual_keycodes.insert(*vk);
+                            self.keyboard_state.latest_virtual_keycode = Some(*vk);
                         }
                         self.keyboard_state.current_scancodes.insert(*scancode);
                     },
@@ -332,12 +335,14 @@ impl WindowState
                                 self.keyboard_state.current_keys.remove(&ch);
                             }
                             self.keyboard_state.current_virtual_keycodes.remove(vk);
+                            self.keyboard_state.latest_virtual_keycode = None;
                         }
                         self.keyboard_state.current_scancodes.remove(scancode);
                     },
                     WindowEvent::Focused(false) => {
                         self.keyboard_state.current_keys.clear();
                         self.keyboard_state.current_virtual_keycodes.clear();
+                        self.keyboard_state.latest_virtual_keycode = None;
                         self.keyboard_state.current_scancodes.clear();
                     },
                     _ => { },
@@ -355,7 +360,7 @@ fn update_mouse_cursor(window: &Window, old: &MouseCursor, new: &MouseCursor) {
     }
 }
 
-fn virtual_key_code_to_char(code: VirtualKeyCode) -> Option<char> {
+pub(crate) fn virtual_key_code_to_char(code: VirtualKeyCode) -> Option<char> {
     use glium::glutin::VirtualKeyCode::*;
     match code {
         Key1 => Some('1'),
