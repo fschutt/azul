@@ -141,9 +141,9 @@ impl DomSolver {
         changeset
     }
 
-    pub(crate) fn insert_css_constraints(&mut self, constraints: &[Constraint]) {
+    pub(crate) fn insert_css_constraints(&mut self, constraints: Vec<Constraint>) {
         // TODO: Solver currently locks up here when inserting 5000 constraints
-        self.solver.add_constraints(constraints).unwrap();
+        self.solver.add_constraints(&constraints).unwrap();
     }
 
     /// Notifies the solver that the window size has changed
