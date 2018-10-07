@@ -45,8 +45,3 @@ impl Button {
         button_root
     }
 }
-
-#[test]
-fn __codecov_test_widget_button_file() {
-
-}

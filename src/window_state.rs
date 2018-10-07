@@ -416,11 +416,3 @@ pub(crate) fn virtual_key_code_to_char(code: VirtualKeyCode) -> Option<char> {
         _ => None
     }
 }
-
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
-#[test]
-fn __codecov_test_window_state_file() {
-
-}

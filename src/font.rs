@@ -46,11 +46,3 @@ pub fn rusttype_load_font(data: Vec<u8>, index: Option<i32>) -> Result<(Font<'st
     let font = collection.clone().into_font().unwrap_or(collection.font_at(index.and_then(|i| Some(i as usize)).unwrap_or(0))?);
     Ok((font, data))
 }
-
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
-#[test]
-fn __codecov_test_font_file() {
-
-}

@@ -46,8 +46,9 @@ use {
     dom::NodeData,
 };
 
-/// We keep the tree from the previous re-layout. Then, when a re-layout is required,
-/// we re-hash all the nodes, insert the
+/// We keep the tree from the previous re-layout. Then, when a re-layout
+/// is required, we re-hash all the nodes, insert and remove the necessary
+/// constraints and detect changes between the frames
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct DomTreeCache {
     pub(crate) previous_layout: HashedDomTree,
@@ -88,11 +89,9 @@ impl DomTreeCache {
 
     pub(crate) fn update<T: Layout>(&mut self, new_root: NodeId, new_nodes_arena: &Arena<NodeData<T>>) -> DomChangeSet {
 
-        if let Some(previous_root) = self.previous_layout.root {
-            // let mut changeset = DomChangeSet::empty();
+        if let Some(_previous_root) = self.previous_layout.root {
             let new_tree = new_nodes_arena.transform(|data, _| data.calculate_node_data_hash());
-            // Self::update_tree_inner(previous_root, &self.previous_layout.arena, new_root, &new_nodes_arena, &mut changeset);
-            let changeset = Self::update_tree_inner_2(&self.previous_layout.arena, &new_tree);
+            let changeset = Self::update_tree_inner(&self.previous_layout.arena, &new_tree);
             self.previous_layout.arena = new_tree;
             changeset
         } else {
@@ -105,7 +104,7 @@ impl DomTreeCache {
         }
     }
 
-    fn update_tree_inner_2(previous_arena: &Arena<DomHash>, next_arena: &Arena<DomHash>) -> DomChangeSet {
+    fn update_tree_inner(previous_arena: &Arena<DomHash>, next_arena: &Arena<DomHash>) -> DomChangeSet {
 
         let mut previous_iter = previous_arena.nodes.iter();
         let mut next_iter = next_arena.nodes.iter().enumerate();
@@ -123,93 +122,6 @@ impl DomTreeCache {
         }
 
         changeset
-    }
-
-    fn update_tree_inner<T>(previous_root: NodeId,
-                            previous_hash_arena: &Arena<DomHash>,
-                            current_root: NodeId,
-                            current_dom_arena: &Arena<NodeData<T>>,
-                            changeset: &mut DomChangeSet)
-    where T: Layout
-    {
-        let mut old_child_iterator = previous_root.children(previous_hash_arena);
-        let mut new_child_iterator = current_root.children(previous_hash_arena);
-
-        // children first
-        loop {
-            // skip the root node itself, although it wouldn't be necessary here
-            // old_child_iterator.next();
-            // new_child_iterator.next();
-            let old_child_next = old_child_iterator.next();
-            let new_child_next = new_child_iterator.next();
-
-            match (old_child_next, new_child_next) {
-                (None, None) => {
-                    // println!("chrildren: old has no children, new has no children!");
-                    break;
-                },
-                (Some(old_hash), None) => {
-                    // meaning, the whole subtree should be removed
-                    // println!("chrildren: old has children at id: {:?}, new has children at id:", old_hash);
-                },
-                (None, Some(new_next_id)) => {
-                    // println!("chrildren: no old hash, but subtree has to be added: {:?}!", new_next_id);
-                    // TODO: add subtree
-                },
-                (Some(old_hash_id), Some(new_next_node_id)) => {
-                    let old_hash = previous_hash_arena[old_hash_id].data;
-                    let new_hash = current_dom_arena[new_next_node_id].data.calculate_node_data_hash();
-
-                    if old_hash == new_hash {
-                        // println!("chrildren: children are the same!");
-                    } else {
-                        // hashes differ
-                        // println!("chrildren: children are different!");
-                        // changeset.added_nodes.insert(new_next_node_id, new_hash);
-                    }
-                }
-            }
-        }
-
-        let mut old_iterator = previous_root.following_siblings(previous_hash_arena);
-        let mut new_iterator = current_root.following_siblings(current_dom_arena);
-
-        // now iterate over siblings
-        loop {
-            let old_next = old_iterator.next();
-            let new_next = new_iterator.next();
-
-            match (old_next, new_next) {
-                (None, None) => {
-                    // both old and new node have the same length
-                    break;
-                },
-                (None, Some(new_next_node_id)) => {
-                    // new node was pushed as a child
-                    let new_hash = current_dom_arena[new_next_node_id].data.calculate_node_data_hash();
-                    changeset.added_nodes.insert(new_next_node_id, new_hash);
-                    // println!("siblings: node was added as a child!");
-                },
-                (Some(old_hash_id), None) => {
-                    // node was removed as a child
-                    // mark node as inactive
-                    let old_hash = previous_hash_arena[old_hash_id].data;
-                    // println!("siblings: node was removed as a child: {:?}", old_hash);
-                },
-                (Some(old_hash_id), Some(new_next_node_id)) => {
-                    let old_hash = previous_hash_arena[old_hash_id].data;
-                    let new_hash = current_dom_arena[new_next_node_id].data.calculate_node_data_hash();
-
-                    if old_hash == new_hash {
-                        // println!("siblings: hashes are the same!");
-                    } else {
-                        // hashes differ
-                        // println!("siblings: hashes differ");
-                        changeset.added_nodes.insert(new_next_node_id, new_hash);
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -237,6 +149,7 @@ pub(crate) struct EditVariableCache {
 }
 
 impl EditVariableCache {
+
     pub(crate) fn empty() -> Self {
         Self {
             map: BTreeMap::new(),
@@ -263,6 +176,9 @@ impl EditVariableCache {
 
     /// Last step of the caching algorithm:
     /// Remove all edit variables where the `bool` is set to false
+    ///
+    /// TODO: Right now there is nothing that sets the edit variables to false,
+    /// so right now this function does nothing to the cache
     pub(crate) fn remove_unused_variables(&mut self) {
 
         let mut to_be_removed = Vec::<DomHash>::new();
@@ -279,10 +195,21 @@ impl EditVariableCache {
     }
 }
 
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
+/*
 #[test]
-fn __codecov_test_cache_file() {
+fn test_domhash_stability() {
+    let mut edit_variable_cache = EditVariableCache::empty();
+    let mut nodes = BTreeMap::new();
 
+    nodes.insert(NodeId::new(0), DomHash(0));
+    nodes.insert(NodeId::new(1), DomHash(1));
+
+    edit_variable_cache.initialize_new_rectangles(&DomChangeSet {
+        added_nodes: nodes
+    });
+    edit_variable_cache.remove_unused_variables();
+
+    // The nodes weren't used, so they should all be removed
+    assert!(edit_variable_cache.map.is_empty());
 }
+*/

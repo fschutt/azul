@@ -309,7 +309,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
 {
-    println!("push_rectangles_into_displaylist");
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
 
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
@@ -346,10 +345,14 @@ fn insert_constraints_into_solver<'a, T: Layout>(
 
         // inefficient for now, but prevents memory leak
         dom_solver.clear_all_constraints();
+
         let constraints: Vec<Constraint> = {
             let borrow = &*ui_description.ui_descr_arena.borrow();
             rectangles.linear_iter().flat_map(|rect_idx| {
-                dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow())
+                let constraints = dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow());
+                // Important: Keep track of the active constraints!
+                dom_solver.push_added_constraints(rect_idx, constraints.clone());
+                constraints
             }).collect()
         };
 
@@ -361,10 +364,12 @@ fn insert_constraints_into_solver<'a, T: Layout>(
 
     // TODO: early return based on changeset?
 
+
     // Recalculate the actual layout
     if has_window_size_changed {
-        dom_solver.update_window_size(&bounds_size); // unknown
+        dom_solver.update_window_size(&bounds_size);
     }
+
 
     dom_solver.update_layout_cache();
 }
@@ -651,7 +656,6 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 
     referenced_mutable_content.ui_solver.insert_dom(new_dom_id, dom_solver);
 
-    println!("push_iframe");
     insert_constraints_into_solver(
         &ui_description,
         referenced_mutable_content.ui_solver.get_dom_mut(&new_dom_id).unwrap(),
@@ -677,7 +681,6 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 
     referenced_mutable_content.ui_solver.remove_dom(&new_dom_id);
 
-    println!("push iframe done!");
     None
 }
 
@@ -1357,12 +1360,4 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
             }
         }
     }
-}
-
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
-#[test]
-fn __codecov_test_display_list_file() {
-
 }

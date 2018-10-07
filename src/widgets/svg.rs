@@ -2423,8 +2423,3 @@ fn srgba_to_linear(color: ColorF) -> ColorF {
         a: color.a,
     }
 }
-
-#[test]
-fn __codecov_test_widget_svg_file() {
-
-}

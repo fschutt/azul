@@ -297,7 +297,6 @@ impl<T: Layout> App<T> {
 
                     // render the window (webrender will send an Awakened event when the frame is done)
                     let arc_mutex_t_clone = self.app_state.data.clone();
-                    let window_id = WindowId { id: idx };
 
                     render(
                         arc_mutex_t_clone,
@@ -880,12 +879,4 @@ fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D
     unsafe { get_gl_context(&window.display).unwrap().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
     window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
     get_gl_context(&window.display).unwrap().use_program(current_program[0] as u32);
-}
-
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
-#[test]
-fn __codecov_test_app_file() {
-
 }
