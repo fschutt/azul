@@ -203,7 +203,7 @@ impl<T: Layout> App<T> {
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &mut self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut force_redraw_cache = vec![1_usize; self.windows.len()];
-        let mut parsed_css_cache = vec![None; self.windows.len()];
+        let mut parsed_css_cache: Vec<Option<ParsedCss>> = vec![None; self.windows.len()];
         let mut awakened_task = vec![false; self.windows.len()];
 
         #[cfg(debug_assertions)]
@@ -276,9 +276,18 @@ impl<T: Layout> App<T> {
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
 
-                    if parsed_css_cache[idx].is_none() {
+                    #[cfg(not(debug_assertions))]
+                    {
+                        if parsed_css_cache[idx].is_none() {
+                            parsed_css_cache[idx] = Some(ParsedCss::from_css(&window.css));
+                        }
+                    }
+
+                    #[cfg(debug_assertions)]
+                    {
                         parsed_css_cache[idx] = Some(ParsedCss::from_css(&window.css));
                     }
+
                     let parsed_css = parsed_css_cache[idx].as_ref().unwrap();
 
                     // Call the Layout::layout() fn, get the DOM
