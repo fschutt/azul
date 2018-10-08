@@ -12,7 +12,7 @@ use euclid::{TypedRect, TypedPoint2D, TypedSize2D};
 use {
     id_tree::{NodeId, Arena},
     ui_description::UiDescription,
-    css_parser::LayoutPosition,
+    css_parser::{LayoutPosition, RectLayout},
     cache::{EditVariableCache, DomTreeCache, DomChangeSet},
     traits::Layout,
     dom::NodeData,
@@ -286,6 +286,12 @@ fn create_layout_constraints<'a, T: Layout>(
     // the width has to be between min and max width
 
     // min-width, width, max-width
+
+    /*
+    let preferred_width = determine_preferred_width(&rect.layout);
+    let preferred_height = determine_preferred_height(&rect.layout);
+    */
+
     if let Some(min_width) = rect.layout.min_width {
         layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
     }
@@ -437,6 +443,145 @@ fn create_layout_constraints<'a, T: Layout>(
     }
 
     layout_constraints
+}
+
+macro_rules! determine_preferred {
+    ($fn_name:ident, $width:ident, $min_width:ident, $max_width:ident) => (
+    /// Returns the preferred width, given [width, min_width, max_width]
+    fn $fn_name(layout: &RectLayout) -> Option<f32> {
+
+        let width = layout.$width.and_then(|w| Some(w.0.to_pixels()));
+        let min_width = layout.$min_width.and_then(|w| Some(w.0.to_pixels()));
+        let max_width = layout.$max_width.and_then(|w| Some(w.0.to_pixels()));
+
+        let (absolute_min, absolute_max) = {
+            if let (Some(min), Some(max)) = (min_width, max_width) {
+                if min_width < max_width {
+                    (Some(min), Some(max))
+                } else {
+                    // min-width > max_width: max_width wins
+                    (Some(max), Some(max))
+                }
+            } else {
+                (min_width, max_width)
+            }
+        };
+
+        if let Some(width) = width {
+            if let Some(max_width) = absolute_max {
+                if let Some(min_width) = absolute_min {
+                    if min_width < width && width < max_width {
+                        // normal: min_width < width < max_width
+                        Some(width)
+                    } else if width > max_width {
+                        Some(max_width)
+                    } else if width < min_width {
+                        Some(min_width)
+                    } else {
+                        None /* unreachable */
+                    }
+                } else {
+                    // width & max_width
+                    Some(width.min(max_width))
+                }
+            } else if let Some(min_width) = absolute_min {
+                // no max width, only width & min_width
+                Some(width.max(min_width))
+            } else {
+                // no min-width or max-width
+                Some(width)
+            }
+        } else {
+            // no width, only min_width and max_width
+            absolute_min
+        }
+    }
+    )
+}
+
+// fn determine_preferred_width(layout: &RectLayout) -> Option<f32>
+determine_preferred!(determine_preferred_width, width, min_width, max_width);
+
+// fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
+determine_preferred!(determine_preferred_height, height, min_height, max_height);
+
+
+
+#[test]
+fn test_determine_preferred_width() {
+    use css_parser::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
+
+    let layout = RectLayout {
+        width: None,
+        min_width: None,
+        max_width: None,
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), None);
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(500.0))),
+        min_width: None,
+        max_width: None,
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), Some(500.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(500.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
+        max_width: None,
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), Some(600.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(10000.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), Some(800.0));
+
+    let layout = RectLayout {
+        width: None,
+        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), Some(600.0));
+
+    let layout = RectLayout {
+        width: None,
+        min_width: None,
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), None);
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(1000.0))),
+        min_width: None,
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), Some(800.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(1200.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(1000.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), Some(800.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(1200.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(1000.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(400.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), Some(400.0));
 }
 
 /// Returns the nearest common ancestor with a `position: relative` attribute
