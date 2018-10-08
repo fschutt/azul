@@ -218,13 +218,6 @@ impl DomSolver {
     }
 }
 
-#[test]
-fn test_new_ui_solver_has_root_constraints() {
-    let mut solver = DomSolver::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(400.0, 600.0));
-    assert!(solver.solver.suggest_value(solver.root_constraints.width_var, 400.0).is_ok());
-    assert!(solver.solver.suggest_value(solver.root_constraints.width_var, 600.0).is_ok());
-}
-
 impl UiSolver {
 
     pub(crate) fn new() -> Self {
@@ -445,14 +438,47 @@ fn create_layout_constraints<'a, T: Layout>(
     layout_constraints
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum WhConstraint {
+    /// between min, max, Prefer::Max | Prefer::Min
+    Between(f32, f32, WhPrefer),
+    /// Value needs to be exactly X
+    EqualTo(f32),
+    /// Value can be anything
+    Unconstrained,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum WhPrefer {
+    Max,
+    Min,
+}
+
+impl WhConstraint {
+    /// Returns the actual value of the constraint
+    pub fn actual_value(&self) -> Option<f32> {
+        use self::WhConstraint::*;
+        match self {
+            Between(min, max, prefer) => match prefer { WhPrefer::Min => Some(*min), WhPrefer::Max => Some(*max) },
+            EqualTo(exact) => Some(*exact),
+            Unconstrained => None,
+        }
+    }
+
+    pub fn min_needed_space(&self) -> f32 {
+        self.actual_value().unwrap_or(0.0)
+    }
+}
+
 macro_rules! determine_preferred {
     ($fn_name:ident, $width:ident, $min_width:ident, $max_width:ident) => (
-    /// Returns the preferred width, given [width, min_width, max_width]
-    fn $fn_name(layout: &RectLayout) -> Option<f32> {
+    fn $fn_name(layout: &RectLayout) -> WhConstraint {
 
         let width = layout.$width.and_then(|w| Some(w.0.to_pixels()));
         let min_width = layout.$min_width.and_then(|w| Some(w.0.to_pixels()));
         let max_width = layout.$max_width.and_then(|w| Some(w.0.to_pixels()));
+
+        // TODO: correct for width / height less than 0 - "negative" width is impossible!
 
         let (absolute_min, absolute_max) = {
             if let (Some(min), Some(max)) = (min_width, max_width) {
@@ -472,117 +498,99 @@ macro_rules! determine_preferred {
                 if let Some(min_width) = absolute_min {
                     if min_width < width && width < max_width {
                         // normal: min_width < width < max_width
-                        Some(width)
+                        WhConstraint::EqualTo(width)
                     } else if width > max_width {
-                        Some(max_width)
+                        WhConstraint::EqualTo(max_width)
                     } else if width < min_width {
-                        Some(min_width)
+                        WhConstraint::EqualTo(min_width)
                     } else {
-                        None /* unreachable */
+                        WhConstraint::Unconstrained /* unreachable */
                     }
                 } else {
                     // width & max_width
-                    Some(width.min(max_width))
+                    WhConstraint::EqualTo(width.min(max_width))
                 }
             } else if let Some(min_width) = absolute_min {
                 // no max width, only width & min_width
-                Some(width.max(min_width))
+                WhConstraint::EqualTo(width.max(min_width))
             } else {
                 // no min-width or max-width
-                Some(width)
+                WhConstraint::EqualTo(width)
             }
         } else {
             // no width, only min_width and max_width
-            absolute_min
+            if let Some(max_width) = absolute_max {
+                if let Some(min_width) = absolute_min {
+                    WhConstraint::Between(min_width, max_width, WhPrefer::Min)
+                } else {
+                    // TODO: check sign positive on max_width!
+                    WhConstraint::Between(0.0, max_width, WhPrefer::Min)
+                }
+            } else {
+                if let Some(min_width) = absolute_min {
+                    WhConstraint::Between(min_width, ::std::f32::MAX, WhPrefer::Min)
+                } else {
+                    // no width, min_width or max_width
+                    WhConstraint::Unconstrained
+                }
+            }
         }
-    }
-    )
+    })
 }
 
+/*
+use css_parser::{LayoutAxis, LayoutMargin, LayoutPadding};
+
+#[derive(Debug, Copy, Clone)]
+struct WidthCalculatedRect {
+    pub preferred_width: WhConstraint,
+    pub preferred_height: WhConstraint,
+    pub margin: LayoutMargin,
+    pub padding: LayoutPadding,
+}
+
+impl WidthCalculatedRect {
+    /// Get the flex basis in the main direction
+    pub fn get_flex_basis(&self, parent_axis: &LayoutAxis) -> f32 {
+        match parent_axis {
+            Horizontal => {
+                  self.preferred_width.unwrap_or(0.0)
+                + self.margin.left.unwrap_or(0.0)
+                + self.margin.right.unwrap_or(0.0)
+                + self.padding.right.unwrap_or(0.0)
+                + self.padding.left.unwrap_or(0.0)
+            },
+            Vertical => {
+                  self.preferred_height.unwrap_or(0.0)
+                + self.margin.top.unwrap_or(0.0)
+                + self.margin.bottom.unwrap_or(0.0)
+                + self.padding.top.unwrap_or(0.0)
+                + self.padding.bottom.unwrap_or(0.0)
+            },
+        }
+    }
+}
+
+/// Fill out the width of all nodes that don't have a `first_child`
+fn fill_out_width_of_innermost_nodes<'a>(arena: &Arena<DisplayRectangle<'a>>, fill_out: &mut Arena<>) {
+    for (node_id, node) in arena.linear_iter().filter(|(node_id, node)| node.first_child.is_some()) {
+
+    }
+}
+*/
+
+/// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
+/// or `None` if the height can't be determined from the node alone.
+///
 // fn determine_preferred_width(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_width, width, min_width, max_width);
 
+/// Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
+// or `None` if the height can't be determined from the node alone.
+///
 // fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_height, height, min_height, max_height);
 
-
-
-#[test]
-fn test_determine_preferred_width() {
-    use css_parser::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
-
-    let layout = RectLayout {
-        width: None,
-        min_width: None,
-        max_width: None,
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), None);
-
-    let layout = RectLayout {
-        width: Some(LayoutWidth(PixelValue::px(500.0))),
-        min_width: None,
-        max_width: None,
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), Some(500.0));
-
-    let layout = RectLayout {
-        width: Some(LayoutWidth(PixelValue::px(500.0))),
-        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
-        max_width: None,
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), Some(600.0));
-
-    let layout = RectLayout {
-        width: Some(LayoutWidth(PixelValue::px(10000.0))),
-        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
-        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), Some(800.0));
-
-    let layout = RectLayout {
-        width: None,
-        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
-        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), Some(600.0));
-
-    let layout = RectLayout {
-        width: None,
-        min_width: None,
-        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), None);
-
-    let layout = RectLayout {
-        width: Some(LayoutWidth(PixelValue::px(1000.0))),
-        min_width: None,
-        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), Some(800.0));
-
-    let layout = RectLayout {
-        width: Some(LayoutWidth(PixelValue::px(1200.0))),
-        min_width: Some(LayoutMinWidth(PixelValue::px(1000.0))),
-        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), Some(800.0));
-
-    let layout = RectLayout {
-        width: Some(LayoutWidth(PixelValue::px(1200.0))),
-        min_width: Some(LayoutMinWidth(PixelValue::px(1000.0))),
-        max_width: Some(LayoutMaxWidth(PixelValue::px(400.0))),
-        .. Default::default()
-    };
-    assert_eq!(determine_preferred_width(&layout), Some(400.0));
-}
 
 /// Returns the nearest common ancestor with a `position: relative` attribute
 /// or `None` if there is no ancestor that has `position: relative`. Usually
@@ -603,4 +611,88 @@ fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<Disp
         }
     }
     None
+}
+
+#[test]
+fn test_determine_preferred_width() {
+    use css_parser::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
+
+    let layout = RectLayout {
+        width: None,
+        min_width: None,
+        max_width: None,
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::Unconstrained);
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(500.0))),
+        min_width: None,
+        max_width: None,
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(500.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(500.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
+        max_width: None,
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(600.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(10000.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(800.0));
+
+    let layout = RectLayout {
+        width: None,
+        min_width: Some(LayoutMinWidth(PixelValue::px(600.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::Between(600.0, 800.0, WhPrefer::Min));
+
+    let layout = RectLayout {
+        width: None,
+        min_width: None,
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::Between(0.0, 800.0, WhPrefer::Min));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(1000.0))),
+        min_width: None,
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(800.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(1200.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(1000.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(800.0));
+
+    let layout = RectLayout {
+        width: Some(LayoutWidth(PixelValue::px(1200.0))),
+        min_width: Some(LayoutMinWidth(PixelValue::px(1000.0))),
+        max_width: Some(LayoutMaxWidth(PixelValue::px(400.0))),
+        .. Default::default()
+    };
+    assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(400.0));
+}
+
+#[test]
+fn test_new_ui_solver_has_root_constraints() {
+    let mut solver = DomSolver::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(400.0, 600.0));
+    assert!(solver.solver.suggest_value(solver.root_constraints.width_var, 400.0).is_ok());
+    assert!(solver.solver.suggest_value(solver.root_constraints.width_var, 600.0).is_ok());
 }
