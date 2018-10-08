@@ -79,6 +79,7 @@ pub enum ParsedCssProperty {
     Bottom(LayoutBottom),
 
     Padding(LayoutPadding),
+    Margin(LayoutMargin),
 
     FlexWrap(LayoutWrap),
     FlexDirection(LayoutDirection),
@@ -126,6 +127,7 @@ impl_from!(LayoutRight, ParsedCssProperty::Right);
 impl_from!(LayoutLeft, ParsedCssProperty::Left);
 
 impl_from!(LayoutPadding, ParsedCssProperty::Padding);
+impl_from!(LayoutMargin, ParsedCssProperty::Margin);
 
 impl_from!(LayoutWrap, ParsedCssProperty::FlexWrap);
 impl_from!(LayoutDirection, ParsedCssProperty::FlexDirection);
@@ -188,6 +190,7 @@ impl ParsedCssProperty {
             "bottom"            => Ok(parse_layout_bottom(value)?.into()),
 
             "padding"           => Ok(parse_layout_padding(value)?.into()),
+            "margin"            => Ok(parse_layout_margin(value)?.into()),
 
             "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
             "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
@@ -272,6 +275,7 @@ pub enum CssParsingError<'a> {
     CssColorParseError(CssColorParseError<'a>),
     CssBorderRadiusParseError(CssBorderRadiusParseError<'a>),
     PaddingParseError(LayoutPaddingParseError<'a>),
+    MarginParseError(LayoutMarginParseError<'a>),
     /// Key is not supported, i.e. `#div { aldfjasdflk: 400px }` results in an
     /// `UnsupportedCssKey("aldfjasdflk", "400px")` error
     UnsupportedCssKey(&'a str, &'a str),
@@ -289,6 +293,7 @@ impl_display!{ CssParsingError<'a>, {
     CssBackgroundParseError(e) => format!("{}", e),
     CssColorParseError(e) => format!("{}", e),
     PaddingParseError(e) => format!("{}", e),
+    MarginParseError(e) => format!("{}", e),
     UnsupportedCssKey(key, value) => format!("Unsupported Css-key: \"{}\" - value: \"{}\"", key, value),
 }}
 
@@ -302,6 +307,7 @@ impl_from!(CssFontFamilyParseError<'a>, CssParsingError::CssFontFamilyParseError
 impl_from!(CssBackgroundParseError<'a>, CssParsingError::CssBackgroundParseError);
 impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::CssBorderRadiusParseError);
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::PaddingParseError);
+impl_from!(LayoutMarginParseError<'a>, CssParsingError::MarginParseError);
 
 impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
     fn from((a, b): (&'a str, &'a str)) -> Self {
@@ -938,6 +944,48 @@ fn parse_layout_padding<'a>(input: &'a str)
         bottom: Some(third),
         left: Some(fourth),
     })
+}
+
+/// Represents a parsed CSS `padding` attribute
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct LayoutMargin {
+    pub top: Option<PixelValue>,
+    pub bottom: Option<PixelValue>,
+    pub left: Option<PixelValue>,
+    pub right: Option<PixelValue>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayoutMarginParseError<'a> {
+    PixelParseError(PixelParseError<'a>),
+    TooManyValues,
+    TooFewValues,
+}
+
+impl_display!{ LayoutMarginParseError<'a>, {
+    PixelParseError(e) => format!("Could not parse pixel value: {}", e),
+    TooManyValues => format!("Too many values - margin property has a maximum of 4 values."),
+    TooFewValues => format!("Too few values - margin property has a minimum of 1 value."),
+}}
+
+impl_from!(PixelParseError<'a>, LayoutMarginParseError::PixelParseError);
+
+fn parse_layout_margin<'a>(input: &'a str)
+-> Result<LayoutMargin, LayoutMarginParseError>
+{
+    match parse_layout_padding(input) {
+        Ok(padding) => {
+            Ok(LayoutMargin {
+                top: padding.top,
+                left: padding.left,
+                right: padding.right,
+                bottom: padding.bottom,
+            })
+        },
+        Err(LayoutPaddingParseError::PixelParseError(e)) => Err(e.into()),
+        Err(LayoutPaddingParseError::TooManyValues) => Err(LayoutMarginParseError::TooManyValues),
+        Err(LayoutPaddingParseError::TooFewValues) => Err(LayoutMarginParseError::TooFewValues),
+    }
 }
 
 /// Parse a CSS border such as
@@ -1794,6 +1842,25 @@ pub enum LayoutDirection {
     ColumnReverse,
 }
 
+/// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
+/// makes decisions based on horizontal / vertical direction easier to write.
+/// Use `LayoutDirection::get_axis()` to get the axis for a given `LayoutDirection`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LayoutAxis {
+    Horizontal,
+    Vertical,
+}
+
+impl LayoutDirection {
+    pub fn get_axis(&self) -> LayoutAxis {
+        use self::{LayoutAxis::*, LayoutDirection::*};
+        match self {
+            Row | RowReverse => Horizontal,
+            Column | ColumnReverse => Vertical,
+        }
+    }
+}
+
 /// Represents a parsed CSS `position` attribute - default: `Static`
 ///
 /// NOTE: No inline positioning is supported.
@@ -1995,6 +2062,7 @@ pub struct RectLayout {
     pub left: Option<LayoutLeft>,
 
     pub padding: Option<LayoutPadding>,
+    pub margin: Option<LayoutMargin>,
 }
 
 typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
