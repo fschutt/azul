@@ -875,7 +875,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
 }
 
 /// Represents a parsed CSS `padding` attribute
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct LayoutPadding {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,
@@ -947,7 +947,7 @@ fn parse_layout_padding<'a>(input: &'a str)
 }
 
 /// Represents a parsed CSS `padding` attribute
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct LayoutMargin {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,

@@ -448,6 +448,12 @@ enum WhConstraint {
     Unconstrained,
 }
 
+impl Default for WhConstraint {
+    fn default() -> Self {
+        WhConstraint::Unconstrained
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum WhPrefer {
     Max,
@@ -538,8 +544,7 @@ macro_rules! determine_preferred {
     })
 }
 
-/*
-use css_parser::{LayoutAxis, LayoutMargin, LayoutPadding};
+use css_parser::{LayoutMargin, LayoutPadding};
 
 #[derive(Debug, Copy, Clone)]
 struct WidthCalculatedRect {
@@ -550,34 +555,69 @@ struct WidthCalculatedRect {
 }
 
 impl WidthCalculatedRect {
-    /// Get the flex basis in the main direction
-    pub fn get_flex_basis(&self, parent_axis: &LayoutAxis) -> f32 {
-        match parent_axis {
-            Horizontal => {
-                  self.preferred_width.unwrap_or(0.0)
-                + self.margin.left.unwrap_or(0.0)
-                + self.margin.right.unwrap_or(0.0)
-                + self.padding.right.unwrap_or(0.0)
-                + self.padding.left.unwrap_or(0.0)
-            },
-            Vertical => {
-                  self.preferred_height.unwrap_or(0.0)
-                + self.margin.top.unwrap_or(0.0)
-                + self.margin.bottom.unwrap_or(0.0)
-                + self.padding.top.unwrap_or(0.0)
-                + self.padding.bottom.unwrap_or(0.0)
-            },
+    /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
+    pub fn get_flex_basis(&self) -> FlexBasisHorizontal {
+        FlexBasisHorizontal {
+            min_width: self.preferred_width.min_needed_space(),
+            self_margin_left: self.margin.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
+            self_margin_right: self.margin.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
+            self_padding_left: self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
+            self_padding_right: self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
         }
     }
 }
 
-/// Fill out the width of all nodes that don't have a `first_child`
-fn fill_out_width_of_innermost_nodes<'a>(arena: &Arena<DisplayRectangle<'a>>, fill_out: &mut Arena<>) {
-    for (node_id, node) in arena.linear_iter().filter(|(node_id, node)| node.first_child.is_some()) {
+/// Fill out the width of all nodes that don't have a `first_child` and are therefore leaf nodes
+fn fill_out_width_of_leaf_nodes<'a>(arena: &Arena<DisplayRectangle<'a>>) -> Arena<Option<WidthCalculatedRect>> {
+    arena.transform(|node, node_id| {
+        if arena[node_id].first_child.is_some() {
+            None
+        } else {
+            Some(WidthCalculatedRect {
+                preferred_width: determine_preferred_width(&node.layout),
+                preferred_height: determine_preferred_height(&node.layout),
+                margin: node.layout.margin.unwrap_or_default(),
+                padding: node.layout.padding.unwrap_or_default(),
+            })
+        }
+    })
+}
 
+struct FlexBasisHorizontal {
+    pub min_width: f32,
+    pub self_margin_left: f32,
+    pub self_margin_right: f32,
+    pub self_padding_right: f32,
+    pub self_padding_left: f32,
+}
+
+impl FlexBasisHorizontal {
+    /// Total flex basis in the horizontal direction (sum of the components)
+    pub fn total(&self) -> f32 {
+        self.min_width +
+        self.self_margin_left +
+        self.self_margin_right +
+        self.self_padding_left +
+        self.self_padding_right
     }
 }
+
+/*
+/// NOTE: Assumed that `arena` and `display_arena` have the same IDs
+fn caclulate_flex_basis_width<'a>(
+    node_id: NodeId,
+    arena: &Arena<Option<WidthCalculatedRect>>,
+    display_arena: &Arena<DisplayRectangle<'a>>,
+    current_width: &mut FlexBasisHorizontal)
+{
+    for node_id in
+}
+
+fn caclulate_flex_basis(leaf_nodes_populated: &Arena<Option<WidthCalculatedRect>>) -> Arena<FlexBasisHorizontal> {
+
+}
 */
+
 
 /// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
 /// or `None` if the height can't be determined from the node alone.
