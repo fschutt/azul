@@ -1322,8 +1322,10 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
 
             // TODO: merge new padding with existing padding
             Padding(p)                  => { rect.layout.padding = Some(*p);                        },
-            Margin(m)                   => { rect.layout.margin = Some(*m);                        },
+            Margin(m)                   => { rect.layout.margin = Some(*m);                         },
 
+            FlexGrow(g)                 => { rect.layout.flex_grow = Some(*g)                       },
+            FlexShrink(s)               => { rect.layout.flex_shrink = Some(*s)                     },
             FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
             FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
             JustifyContent(j)           => { rect.layout.justify_content = Some(*j);                },

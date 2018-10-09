@@ -83,6 +83,9 @@ pub enum ParsedCssProperty {
 
     FlexWrap(LayoutWrap),
     FlexDirection(LayoutDirection),
+    FlexGrow(LayoutFlexGrow),
+    FlexShrink(LayoutFlexShrink),
+
     JustifyContent(LayoutJustifyContent),
     AlignItems(LayoutAlignItems),
     AlignContent(LayoutAlignContent),
@@ -131,6 +134,8 @@ impl_from!(LayoutMargin, ParsedCssProperty::Margin);
 
 impl_from!(LayoutWrap, ParsedCssProperty::FlexWrap);
 impl_from!(LayoutDirection, ParsedCssProperty::FlexDirection);
+impl_from!(LayoutFlexGrow, ParsedCssProperty::FlexGrow);
+impl_from!(LayoutFlexShrink, ParsedCssProperty::FlexShrink);
 impl_from!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
 impl_from!(LayoutAlignItems, ParsedCssProperty::AlignItems);
 impl_from!(LayoutAlignContent, ParsedCssProperty::AlignContent);
@@ -194,6 +199,9 @@ impl ParsedCssProperty {
 
             "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
             "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
+            "flex-grow"         => Ok(parse_layout_flex_grow(value)?.into()),
+            "flex-shrink"       => Ok(parse_layout_flex_shrink(value)?.into()),
+
             "justify-content"   => Ok(parse_layout_justify_content(value)?.into()),
             "align-items"       => Ok(parse_layout_align_items(value)?.into()),
             "align-content"     => Ok(parse_layout_align_content(value)?.into()),
@@ -224,41 +232,6 @@ impl ParsedCssProperty {
     }
 }
 
-/// Wrapper for the `overflow-{x,y}` + `overflow` property
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct LayoutOverflow {
-    pub horizontal: TextOverflowBehaviour,
-    pub vertical: TextOverflowBehaviour,
-}
-
-impl LayoutOverflow {
-
-    // "merges" two LayoutOverflow properties
-    pub fn merge(&mut self, other: &LayoutOverflow) {
-        fn merge_property(p: &mut TextOverflowBehaviour, other: &TextOverflowBehaviour) {
-            if *other == TextOverflowBehaviour::NotModified {
-                return;
-            }
-            *p = *other;
-        }
-
-        merge_property(&mut self.horizontal, &other.horizontal);
-        merge_property(&mut self.vertical, &other.vertical);
-    }
-
-    pub fn allows_horizontal_overflow(&self) -> bool {
-        use self::TextOverflowBehaviourInner::*;
-        match self.horizontal {
-            TextOverflowBehaviour::Modified(m) => match m {
-                Scroll | Auto => true,
-                Hidden | Visible => false,
-            },
-            // default: allow horizontal overflow
-            TextOverflowBehaviour::NotModified => false,
-        }
-    }
-}
-
 /// Error containing all sub-errors that could happen during CSS parsing
 ///
 /// Usually we want to crash on the first error, to notify the user of the problem.
@@ -276,6 +249,8 @@ pub enum CssParsingError<'a> {
     CssBorderRadiusParseError(CssBorderRadiusParseError<'a>),
     PaddingParseError(LayoutPaddingParseError<'a>),
     MarginParseError(LayoutMarginParseError<'a>),
+    FlexShrinkParseError(FlexShrinkParseError<'a>),
+    FlexGrowParseError(FlexGrowParseError<'a>),
     /// Key is not supported, i.e. `#div { aldfjasdflk: 400px }` results in an
     /// `UnsupportedCssKey("aldfjasdflk", "400px")` error
     UnsupportedCssKey(&'a str, &'a str),
@@ -294,6 +269,8 @@ impl_display!{ CssParsingError<'a>, {
     CssColorParseError(e) => format!("{}", e),
     PaddingParseError(e) => format!("{}", e),
     MarginParseError(e) => format!("{}", e),
+    FlexShrinkParseError(e) => format!("{}", e),
+    FlexGrowParseError(e) => format!("{}", e),
     UnsupportedCssKey(key, value) => format!("Unsupported Css-key: \"{}\" - value: \"{}\"", key, value),
 }}
 
@@ -308,6 +285,8 @@ impl_from!(CssBackgroundParseError<'a>, CssParsingError::CssBackgroundParseError
 impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::CssBorderRadiusParseError);
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::PaddingParseError);
 impl_from!(LayoutMarginParseError<'a>, CssParsingError::MarginParseError);
+impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrinkParseError);
+impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrowParseError);
 
 impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
     fn from((a, b): (&'a str, &'a str)) -> Self {
@@ -614,6 +593,12 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
     } else {
         parse_color_builtin(input)
     }
+}
+
+fn parse_float_value(input: &str)
+-> Result<f32, ParseFloatError>
+{
+    input.trim().parse::<f32>()
 }
 
 /// Represents a parsed CSS `background-color` attribute
@@ -985,6 +970,41 @@ fn parse_layout_margin<'a>(input: &'a str)
         Err(LayoutPaddingParseError::PixelParseError(e)) => Err(e.into()),
         Err(LayoutPaddingParseError::TooManyValues) => Err(LayoutMarginParseError::TooManyValues),
         Err(LayoutPaddingParseError::TooFewValues) => Err(LayoutMarginParseError::TooFewValues),
+    }
+}
+
+/// Wrapper for the `overflow-{x,y}` + `overflow` property
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct LayoutOverflow {
+    pub horizontal: TextOverflowBehaviour,
+    pub vertical: TextOverflowBehaviour,
+}
+
+impl LayoutOverflow {
+
+    // "merges" two LayoutOverflow properties
+    pub fn merge(&mut self, other: &LayoutOverflow) {
+        fn merge_property(p: &mut TextOverflowBehaviour, other: &TextOverflowBehaviour) {
+            if *other == TextOverflowBehaviour::NotModified {
+                return;
+            }
+            *p = *other;
+        }
+
+        merge_property(&mut self.horizontal, &other.horizontal);
+        merge_property(&mut self.vertical, &other.vertical);
+    }
+
+    pub fn allows_horizontal_overflow(&self) -> bool {
+        use self::TextOverflowBehaviourInner::*;
+        match self.horizontal {
+            TextOverflowBehaviour::Modified(m) => match m {
+                Scroll | Auto => true,
+                Hidden | Visible => false,
+            },
+            // default: allow horizontal overflow
+            TextOverflowBehaviour::NotModified => false,
+        }
     }
 }
 
@@ -1825,13 +1845,12 @@ pub struct LayoutRight(pub PixelValue);
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct LayoutBottom(pub PixelValue);
 
-/// Represents a parsed CSS `line-height` attribute
+/// Represents a parsed CSS `flex-grow` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub struct LineHeight(pub PercentageValue);
-
-/// Represents a parsed CSS `letter-spacing` attribute
+pub struct LayoutFlexGrow(pub f32);
+/// Represents a parsed CSS `flex-shrink` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub struct LetterSpacing(pub PixelValue);
+pub struct LayoutFlexShrink(pub f32);
 
 /// Represents a parsed CSS `flex-direction` attribute - default: `Column`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1841,6 +1860,13 @@ pub enum LayoutDirection {
     Column,
     ColumnReverse,
 }
+
+/// Represents a parsed CSS `line-height` attribute
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LineHeight(pub PercentageValue);
+/// Represents a parsed CSS `letter-spacing` attribute
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct LetterSpacing(pub PixelValue);
 
 /// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
 /// makes decisions based on horizontal / vertical direction easier to write.
@@ -2049,12 +2075,6 @@ pub struct RectLayout {
     pub max_width: Option<LayoutMaxWidth>,
     pub max_height: Option<LayoutMaxHeight>,
 
-    pub direction: Option<LayoutDirection>,
-    pub wrap: Option<LayoutWrap>,
-    pub justify_content: Option<LayoutJustifyContent>,
-    pub align_items: Option<LayoutAlignItems>,
-    pub align_content: Option<LayoutAlignContent>,
-
     pub position: Option<LayoutPosition>,
     pub top: Option<LayoutTop>,
     pub bottom: Option<LayoutBottom>,
@@ -2063,6 +2083,14 @@ pub struct RectLayout {
 
     pub padding: Option<LayoutPadding>,
     pub margin: Option<LayoutMargin>,
+
+    pub direction: Option<LayoutDirection>,
+    pub wrap: Option<LayoutWrap>,
+    pub flex_grow: Option<LayoutFlexGrow>,
+    pub flex_shrink: Option<LayoutFlexShrink>,
+    pub justify_content: Option<LayoutJustifyContent>,
+    pub align_items: Option<LayoutAlignItems>,
+    pub align_content: Option<LayoutAlignContent>,
 }
 
 typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
@@ -2076,6 +2104,38 @@ typed_pixel_value_parser!(parse_layout_top, LayoutTop);
 typed_pixel_value_parser!(parse_layout_bottom, LayoutBottom);
 typed_pixel_value_parser!(parse_layout_right, LayoutRight);
 typed_pixel_value_parser!(parse_layout_left, LayoutLeft);
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlexGrowParseError<'a> {
+    ParseFloat(ParseFloatError, &'a str),
+}
+
+impl_display!{FlexGrowParseError<'a>, {
+    ParseFloat(e, orig_str) => format!("flex-grow: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
+}}
+
+fn parse_layout_flex_grow<'a>(input: &'a str) -> Result<LayoutFlexGrow, FlexGrowParseError<'a>> {
+    match parse_float_value(input) {
+        Ok(o) => Ok(LayoutFlexGrow(o)),
+        Err(e) => Err(FlexGrowParseError::ParseFloat(e, input)),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlexShrinkParseError<'a> {
+    ParseFloat(ParseFloatError, &'a str),
+}
+
+impl_display!{FlexShrinkParseError<'a>, {
+    ParseFloat(e, orig_str) => format!("flex-shrink: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
+}}
+
+fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, FlexShrinkParseError<'a>> {
+    match parse_float_value(input) {
+        Ok(o) => Ok(LayoutFlexShrink(o)),
+        Err(e) => Err(FlexShrinkParseError::ParseFloat(e, input)),
+    }
+}
 
 fn parse_css_line_height(input: &str)
 -> Result<LineHeight, PercentageParseError>
