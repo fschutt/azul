@@ -479,13 +479,14 @@ impl WhConstraint {
         self.actual_value().unwrap_or(0.0)
     }
 
-    /// Returns the maximum space until the constraint is violated
-    pub fn max_available_space(&self) -> f32 {
+    /// Returns the maximum space until the constraint is violated - returns
+    /// `None` if the constraint is unbounded
+    pub fn max_available_space(&self) -> Option<f32> {
         use self::WhConstraint::*;
         match self {
-            Between(_, max, _) => { *max },
-            EqualTo(exact) => *exact,
-            Unconstrained => f32::MAX,
+            Between(_, max, _) => { Some(*max) },
+            EqualTo(exact) => Some(*exact),
+            Unconstrained => None,
         }
     }
 }
@@ -580,6 +581,12 @@ impl WidthCalculatedRect {
             self_padding_right: self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
         }
     }
+
+    // Get the sum of the horizontal padding amount (`padding.left + padding.right`)
+    pub fn get_horizontal_padding(&self) -> f32 {
+          self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        + self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -602,7 +609,6 @@ impl FlexBasisHorizontal {
     }
 }
 
-
 /// Returns the sum of the flex-basis of the current nodes' children
 fn sum_children_flex_basis<'a>(
     node_id: NodeId,
@@ -623,7 +629,9 @@ fn sum_children_flex_basis<'a>(
 }
 
 /// Fill out the preferred width of all nodes
-fn fill_out_preferred_width<'a>(arena: &Arena<DisplayRectangle<'a>>) -> Arena<WidthCalculatedRect> {
+fn fill_out_preferred_width<'a>(arena: &Arena<DisplayRectangle<'a>>)
+-> Arena<WidthCalculatedRect>
+{
     arena.transform(|node, _| {
         WidthCalculatedRect {
             preferred_width: determine_preferred_width(&node.layout),
@@ -635,9 +643,14 @@ fn fill_out_preferred_width<'a>(arena: &Arena<DisplayRectangle<'a>>) -> Arena<Wi
     })
 }
 
-/*
-fn caclulate_flex_basis<'a>(leaf_nodes_populated: &mut Arena<WidthCalculatedRect>, arena: &Arena<DisplayRectangle<'a>>) -> Arena<FlexBasisHorizontal> {
-
+/// On any parent nodes, fill out the width so that the `preferred_width` can contain the
+/// child nodes (if that doesn't violate the constraints of the parent)
+#[must_use]
+fn bubble_preferred_widths_to_parents<'a>(
+    arena: &Arena<DisplayRectangle<'a>>,
+    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>)
+-> Vec<(usize, NodeId)>
+{
     // This is going to be a bit slow, but we essentially need to "bubble" the sizes from the leaf
     // nodes to the parent nodes. So first we collect the IDs of all non-leaf nodes and then
     // sort them by their depth.
@@ -660,109 +673,209 @@ fn caclulate_flex_basis<'a>(leaf_nodes_populated: &mut Arena<WidthCalculatedRect
     non_leaf_nodes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // Reverse, since we want to go from the inside out (depth 5 needs to be filled out first)
+    //
+    // Set the preferred_width of the parent nodes
     for (_node_depth, non_leaf_id) in non_leaf_nodes.iter().rev() {
 
         use self::WhConstraint::*;
 
-        let non_leaf_node = leaf_nodes_populated[*non_leaf_id].data;
-
-        // Sum of the direct childrens flex-basis = the parents flex-basis
+        // Sum of the direct childrens flex-basis = the parents preferred width
         let children_flex_basis = sum_children_flex_basis(*non_leaf_id, leaf_nodes_populated, arena);
 
-        // Full flex-basis of the current node, includes the padding
-        let new_flex_basis_min_width =
-            children_flex_basis +
-            non_leaf_node.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-            non_leaf_node.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0);
-
         // Calculate the new flex-basis width
-        let current_width_metrics = leaf_nodes_populated[*non_leaf_id].data;
+        let parent_width_metrics = leaf_nodes_populated[*non_leaf_id].data;
 
-        enum LayoutViolation {
-            // The flex-basis of the child is bigger than the parents constraints
-            Overflow(f32),
-            // The layout wasn't violated, but there is still space remaining
-            SpaceRemaining(f32),
-            // The layout of the parent wasn't constrained, so the childs width is always valid
-            // The f32 represents the `new_flex_basis_min_width`, to
-            TakeWidthOfParent(f32),
-        }
+        // For calculating the inner width, subtract the parents padding
+        let parent_padding = leaf_nodes_populated[*non_leaf_id].data.get_horizontal_padding();
 
-        // Add the children-flex-basis to the non-leaf node's width
-        let (new_width_metrics, over_or_underflow) = match current_width_metrics.preferred_width {
+        // If the children are larger than the parents preferred max-width or smaller
+        // than the parents min-width, adjust
+        let child_width = match parent_width_metrics.preferred_width {
             Between(min, max, _) => {
-                if new_flex_basis_min_width > max {
-                    (EqualTo(max), LayoutViolation::Overflow(new_flex_basis_min_width - max))
-                } else if new_flex_basis_min_width < min {
-                    (EqualTo(min), LayoutViolation::Overflow(new_flex_basis_min_width - min))
+                if children_flex_basis > (max - parent_padding)  {
+                    max
+                } else if children_flex_basis < (min + parent_padding) {
+                    min
                 } else {
-                    (Between(new_flex_basis_min_width, max, WhPrefer::Min), LayoutViolation::SpaceRemaining(new_flex_basis_min_width - max))
+                    children_flex_basis
                 }
             },
-            EqualTo(exact) => {
-                if new_flex_basis_min_width > exact {
-                    (EqualTo(exact), LayoutViolation::Overflow(new_flex_basis_min_width - exact))
-                } else if new_flex_basis_min_width < exact {
-                    (EqualTo(exact), LayoutViolation::Overflow(new_flex_basis_min_width - exact))
-                } else {
-                    (EqualTo(exact), LayoutViolation::SpaceRemaining(0.0))
-                }
-            },
-            Unconstrained => {
-                (Between(new_flex_basis_min_width, f32::MAX, WhPrefer::Min), LayoutViolation::TakeWidthOfParent(new_flex_basis_min_width))
-            },
+            EqualTo(exact) => exact - parent_padding,
+            Unconstrained => children_flex_basis,
         };
 
-        leaf_nodes_populated[*non_leaf_id].data.preferred_width = new_width_metrics;
-
-
-        // If the children overflow (see `over_or_underflow`), adjust the children
-        // according to their flex-grow factor
-
-        const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
-        const DEFAULT_FLEX_SHRINK_FACTOR: f32 = 1.0;
-
-        match over_or_underflow {
-            // TODO: Handle them seperately?
-            LayoutViolation::Overflow(overflow) | LayoutViolation::SpaceRemaining(overflow) => {
-                // NOTE: We **have** to show scrollbars in this case
-                if overflow.is_sign_positive() {
-                    // flex-grow the children
-
-                    let children_flex_grow_factor = non_leaf_id.children(arena).map(|child_id| arena[child_id].data.layout.flex_grow.unwrap_or(DEFAULT_FLEX_GROW_FACTOR)).sum();
-
-                    for child_id in non_leaf_id.children(leaf_nodes_populated) {
-                        let flex_grow = arena[child_id].data.layout.flex_grow.unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
-                        let flex_grow_px = overflow * (flex_grow / children_flex_grow_factor);
-                        leaf_nodes_populated[*non_leaf_id].data.flex_grow_px = flex_grow_px;
-                    }
-
-                } else {
-                    // flex-shrink the children
-
-                    let children_combined_flex_basis = non_leaf_id.children(arena)
-                        .map(|child_id| leaf_nodes_populated[child_id].data.get_flex_basis().total())
-                        .sum();
-
-                    for child_id in non_leaf_id.children(leaf_nodes_populated) {
-                        let flex_shrink = arena[child_id].data.layout.flex_shrink.unwrap_or(DEFAULT_FLEX_SHRINK_FACTOR);
-                        let flex_basis = leaf_nodes_populated[child_id].data.get_flex_basis().total(); // can be 0
-                        let flex_shrink_px = overflow * ((flex_shrink * flex_basis) / children_combined_flex_basis);
-                        leaf_nodes_populated[*non_leaf_id].data.flex_grow_px = flex_shrink_px;
-                    }
-                }
-            },
-            LayoutViolation::TakeWidthOfParent(self_min) => {
-                // Technically this depends on the align-items value: should only
-                // take the width of the parent if it was stretched
-            },
-        }
-
+        leaf_nodes_populated[*non_leaf_id].data.preferred_width = EqualTo(child_width);
     }
 
-    // Now, the width of all elements should be filled
+    // Now, the width of all elements should be filled,
+    // but they aren't flex-growed or flex-shrinked yet
+
+    non_leaf_nodes
 }
-*/
+
+const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
+const DEFAULT_FLEX_SHRINK_FACTOR: f32 = 1.0;
+
+fn flex_grow_children_width<'a>(
+    id: NodeId,
+    arena: &Arena<DisplayRectangle<'a>>,
+    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>,
+    overflow: f32)
+{
+    // Assert that this function gets called on a node that has children
+    debug_assert!(arena[id].first_child.is_some());
+    // Overflow must be negative, otherwise flex-shrink doesn't apply
+    debug_assert!(!overflow.is_sign_positive());
+
+    let children_flex_grow_factor: f32 = id.children(arena).map(|child_id| {
+        arena[child_id].data.layout.flex_grow.and_then(|grow| Some(grow.0)).unwrap_or(DEFAULT_FLEX_GROW_FACTOR)
+    }).sum();
+
+    // borrowing problem - can't borrow leaf_nodes_populated although it would be safe
+    let mut children_to_change = Vec::new();
+
+    for child_id in id.children(leaf_nodes_populated) {
+        let flex_grow = arena[child_id].data.layout.flex_grow.and_then(|grow| Some(grow.0)).unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
+        let flex_grow_px = overflow * (flex_grow / children_flex_grow_factor);
+        children_to_change.push((child_id, flex_grow_px));
+    }
+
+    for (child_id, flex_grow_px) in children_to_change {
+        leaf_nodes_populated[child_id].data.flex_grow_px = flex_grow_px;
+    }
+}
+
+fn flex_shrink_children_width<'a>(
+    id: NodeId,
+    arena: &Arena<DisplayRectangle<'a>>,
+    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>,
+    overflow: f32)
+{
+
+    // Assert that this function gets called on a node that has children
+    debug_assert!(arena[id].first_child.is_some());
+    // Overflow must be negative, otherwise flex-shrink doesn't apply
+    debug_assert!(overflow.is_sign_positive());
+
+    let children_combined_flex_basis: f32 = id.children(arena)
+        .map(|child_id| leaf_nodes_populated[child_id].data.get_flex_basis().total())
+        .sum();
+
+    // borrowing problem
+    let mut children_to_change = Vec::new();
+
+    for child_id in id.children(leaf_nodes_populated) {
+        let flex_shrink = arena[child_id].data.layout.flex_shrink
+            .and_then(|shrink| Some(shrink.0))
+            .unwrap_or(DEFAULT_FLEX_SHRINK_FACTOR);
+
+        let flex_basis = leaf_nodes_populated[child_id].data.get_flex_basis().total(); // can be 0
+        let flex_shrink_px = overflow * ((flex_shrink * flex_basis) / children_combined_flex_basis);
+        children_to_change.push((child_id, flex_shrink_px));
+    }
+
+    for (child_id, flex_shrink_px) in children_to_change {
+        leaf_nodes_populated[child_id].data.flex_grow_px = flex_shrink_px;
+    }
+}
+
+// flex-grow or flex-shrink one parent nodes children
+fn apply_flex_grow_or_shrink_to_parent_node<'a>(
+    id: NodeId,
+    arena: &Arena<DisplayRectangle<'a>>,
+    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>)
+{
+    // Assert that this function gets called on a node that has children
+    debug_assert!(arena[id].first_child.is_some());
+
+    // Overflow = The inner value of the self item - must be unwrapped first - meaning on the self item,
+    // the item must be `EqualTo`!
+    let mut self_inner_width = if let WhConstraint::EqualTo(exact) = leaf_nodes_populated[id].data.preferred_width {
+        exact
+    } else {
+        panic!("EqualTo wasn't set on the parent, no way to resolve the childs width");
+    };
+
+    // Since we go from outer-to-inner now, the flex_grow_px has to be respected
+    self_inner_width += leaf_nodes_populated[id].data.flex_grow_px;
+
+    // Re-calculate the necessary width of the children items
+    let children_combined_flex_basis: f32 = id.children(arena)
+        .map(|child_id| leaf_nodes_populated[child_id].data.get_flex_basis().total())
+        .sum();
+
+    let overflow: f32 = self_inner_width - children_combined_flex_basis;
+    if overflow == 0.0 { return; }
+    if overflow.is_sign_positive() {
+        // Space is available, grow children of this node
+        flex_grow_children_width(id, arena, leaf_nodes_populated, overflow);
+    } else {
+        // Space has to be removed, shrink children of this node
+        flex_shrink_children_width(id, arena, leaf_nodes_populated, overflow);
+    }
+}
+
+fn apply_flex_grow_or_shrink<'a>(
+    arena: &Arena<DisplayRectangle<'a>>,
+    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>,
+    parent_ids_sorted_by_depths: &[(usize, NodeId)],
+    window_width: f32)
+{
+    // If the root node isn't constrained (which is likely the case),
+    // set it to equal the window's width
+    leaf_nodes_populated[NodeId::new(0)].data.preferred_width = WhConstraint::EqualTo(window_width);
+    leaf_nodes_populated[NodeId::new(0)].data.flex_grow_px = 0.0;
+    leaf_nodes_populated[NodeId::new(0)].data.margin = LayoutMargin::default();
+    leaf_nodes_populated[NodeId::new(0)].data.padding = LayoutPadding::default();
+
+    apply_flex_grow_or_shrink_to_parent_node(NodeId::new(0), arena, leaf_nodes_populated);
+
+    for (_node_depth, parent_id) in parent_ids_sorted_by_depths {
+        apply_flex_grow_or_shrink_to_parent_node(*parent_id, arena, leaf_nodes_populated);
+    }
+}
+
+pub(crate) struct WidthSolvedResult {
+    pub width: f32,
+    pub space_added: f32,
+}
+
+impl WidthSolvedResult {
+    pub fn total(&self) -> f32 {
+        self.width + self.space_added
+    }
+}
+
+/// Returns the solved widths of the items in a BTree form
+pub(crate) fn solve_flex_layout_width<'a>(
+    display_rectangles: &Arena<DisplayRectangle<'a>>,
+    window_width: f32)
+-> BTreeMap<NodeId, WidthSolvedResult>
+{
+    // Create the window widths from the arena
+    let mut width_calculated_arena = fill_out_preferred_width(display_rectangles);
+
+    // Bubble the inner sizes to their parents
+    let non_leaf_nodes_sorted_by_depth = bubble_preferred_widths_to_parents(&display_rectangles, &mut width_calculated_arena);
+
+    // Go from the root down and stretch or shrink the children if they overflow
+    apply_flex_grow_or_shrink(&display_rectangles, &mut width_calculated_arena, &non_leaf_nodes_sorted_by_depth, window_width);
+
+    // Calculate the final size and return the solution
+    let mut width_btree = BTreeMap::new();
+
+    for node_id in width_calculated_arena.linear_iter() {
+        // TODO: Put this in a function and incorporate the flex-start / flex-end / stretch, etc.
+        let total_adjusted_width =
+        width_btree.insert(node_id, WidthSolvedResult {
+            width: width_calculated_arena[node_id].data.preferred_width.min_needed_space(),
+            space_added: width_calculated_arena[node_id].data.flex_grow_px,
+        });
+    }
+
+    width_btree
+}
+
 
 /// Traverses from arena[id] to the root, returning the amount of parents, i.e. the depth of the node in the tree.
 fn leaf_node_depth<T>(id: &NodeId, arena: &Arena<T>) -> usize {
