@@ -985,12 +985,14 @@ fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<Disp
     None
 }
 
+use dom::NodeType;
+
 fn determine_height_based_on_width(node_id: NodeId, arena: &Arena<RectLayout>) {
-    let preferred_height = determine_preferred_height(&node);
+    let preferred_height = determine_preferred_height(&arena[node_id].data);
 }
 
 /// Returns the height based on the width of a node type (esp. text caching)
-fn height_from_width(node_type: NodeType) -> f32 {
+fn height_from_width<T: Layout>(node_type: NodeType<T>) -> f32 {
     50.0
 }
 
