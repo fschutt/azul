@@ -439,6 +439,8 @@ fn create_layout_constraints<'a, T: Layout>(
     layout_constraints
 }
 
+// -------------------------------- New layout system, no cassowary ------------------------------- //
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum WhConstraint {
     /// between min, max, Prefer::Max | Prefer::Min
@@ -559,6 +561,18 @@ macro_rules! determine_preferred {
     })
 }
 
+/// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
+/// or `None` if the height can't be determined from the node alone.
+///
+// fn determine_preferred_width(layout: &RectLayout) -> Option<f32>
+determine_preferred!(determine_preferred_width, width, min_width, max_width);
+
+/// Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
+// or `None` if the height can't be determined from the node alone.
+///
+// fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
+determine_preferred!(determine_preferred_height, height, min_height, max_height);
+
 use css_parser::{LayoutMargin, LayoutPadding};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -568,6 +582,7 @@ struct WidthCalculatedRect {
     pub margin: LayoutMargin,
     pub padding: LayoutPadding,
     pub flex_grow_px: f32,
+    pub min_inner_size_px: f32,
 }
 
 impl WidthCalculatedRect {
@@ -591,7 +606,7 @@ impl WidthCalculatedRect {
     /// Called after solver has run: Solved width of rectangle
     pub fn solved_result(&self) -> WidthSolvedResult {
         WidthSolvedResult {
-            min_width: self.preferred_width.min_needed_space(),
+            min_width: self.min_inner_size_px,
             space_added: self.flex_grow_px,
         }
     }
@@ -624,16 +639,14 @@ fn sum_children_flex_basis<'a>(
     display_arena: &Arena<RectLayout>)
 -> f32
 {
-    let mut current_min_width = 0.0;
+    // Function must be called on a non-leaf node
+    debug_assert!(arena[node_id].first_child.is_some());
 
-    // Sum up the flex-basis width of the nodes children
-    for child_node_id in node_id.children(arena) {
-        if display_arena[child_node_id].data.position != Some(LayoutPosition::Absolute) {
-            current_min_width += arena[child_node_id].data.get_flex_basis().total();
-        }
-    }
-
-    current_min_width
+    node_id
+        .children(arena)
+        .filter(|child_node_id| display_arena[*child_node_id].data.position != Some(LayoutPosition::Absolute))
+        .map(|child_node_id| arena[child_node_id].data.get_flex_basis().total())
+        .sum()
 }
 
 /// Fill out the preferred width of all nodes
@@ -647,6 +660,7 @@ fn fill_out_preferred_width(arena: &Arena<RectLayout>)
             margin: node.margin.unwrap_or_default(),
             padding: node.padding.unwrap_or_default(),
             flex_grow_px: 0.0,
+            min_inner_size_px: 0.0,
         }
     })
 }
@@ -712,7 +726,7 @@ fn bubble_preferred_widths_to_parents(
             Unconstrained => children_flex_basis,
         };
 
-        leaf_nodes_populated[*non_leaf_id].data.preferred_width = EqualTo(child_width);
+        leaf_nodes_populated[*non_leaf_id].data.min_inner_size_px = child_width;
     }
 
     // Now, the width of all elements should be filled,
@@ -736,19 +750,13 @@ fn flex_grow_children_width(
     debug_assert!(overflow.is_sign_positive());
 
     let children_flex_grow_factor: f32 = id.children(arena).map(|child_id| {
-        arena[child_id].data.flex_grow.and_then(|grow| Some(grow.0)).unwrap_or(DEFAULT_FLEX_GROW_FACTOR)
+        // Prevent flex-grow and flex-shrink to be less than 1
+        arena[child_id].data.flex_grow.and_then(|grow| Some(grow.0.max(1.0))).unwrap_or(DEFAULT_FLEX_GROW_FACTOR)
     }).sum();
 
-    // borrowing problem - can't borrow leaf_nodes_populated although it would be safe
-    let mut children_to_change = Vec::new();
-
-    for child_id in id.children(leaf_nodes_populated) {
+    for child_id in id.children(arena) {
         let flex_grow = arena[child_id].data.flex_grow.and_then(|grow| Some(grow.0)).unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
         let flex_grow_px = overflow * (flex_grow / children_flex_grow_factor);
-        children_to_change.push((child_id, flex_grow_px));
-    }
-
-    for (child_id, flex_grow_px) in children_to_change {
         leaf_nodes_populated[child_id].data.flex_grow_px = flex_grow_px;
     }
 }
@@ -768,20 +776,13 @@ fn flex_shrink_children_width(
         .map(|child_id| leaf_nodes_populated[child_id].data.get_flex_basis().total())
         .sum();
 
-    // borrowing problem
-    let mut children_to_change = Vec::new();
-
-    for child_id in id.children(leaf_nodes_populated) {
+    for child_id in id.children(arena) {
         let flex_shrink = arena[child_id].data.flex_shrink
             .and_then(|shrink| Some(shrink.0))
             .unwrap_or(DEFAULT_FLEX_SHRINK_FACTOR);
 
         let flex_basis = leaf_nodes_populated[child_id].data.get_flex_basis().total(); // can be 0
         let flex_shrink_px = overflow * ((flex_shrink * flex_basis) / children_combined_flex_basis);
-        children_to_change.push((child_id, flex_shrink_px));
-    }
-
-    for (child_id, flex_shrink_px) in children_to_change {
         leaf_nodes_populated[child_id].data.flex_grow_px = flex_shrink_px;
     }
 }
@@ -795,16 +796,8 @@ fn apply_flex_grow_or_shrink_to_parent_node(
     // Assert that this function gets called on a node that has children
     debug_assert!(arena[id].first_child.is_some());
 
-    // Overflow = The inner value of the self item - must be unwrapped first - meaning on the self item,
-    // the item must be `EqualTo`!
-    let mut self_inner_width = if let WhConstraint::EqualTo(exact) = leaf_nodes_populated[id].data.preferred_width {
-        exact
-    } else {
-        panic!("EqualTo wasn't set on the parent, no way to resolve the childs width");
-    };
-
     // Since we go from outer-to-inner now, the flex_grow_px has to be respected
-    self_inner_width += leaf_nodes_populated[id].data.flex_grow_px;
+    let self_inner_width = leaf_nodes_populated[id].data.min_inner_size_px + leaf_nodes_populated[id].data.flex_grow_px;
 
     // Re-calculate the necessary width of the children items
     let children_combined_flex_basis: f32 = id.children(arena)
@@ -812,7 +805,10 @@ fn apply_flex_grow_or_shrink_to_parent_node(
         .sum();
 
     let overflow: f32 = self_inner_width - children_combined_flex_basis;
-    if overflow == 0.0 { return; }
+    if overflow == 0.0 {
+        return;
+    }
+
     if overflow.is_sign_positive() {
         // Space is available, grow children of this node
         flex_grow_children_width(id, arena, leaf_nodes_populated, overflow);
@@ -834,7 +830,7 @@ fn apply_flex_grow_or_shrink(
     //
     // Usually `top_level_flex_basis` is NOT 0.0, rather it's the sum of all widths in the DOM,
     // i.e. the sum of the whole DOM tree
-    let top_level_flex_basis = leaf_nodes_populated[NodeId::new(0)].data.get_flex_basis().total();
+    let top_level_flex_basis = leaf_nodes_populated[NodeId::new(0)].data.min_inner_size_px;
     leaf_nodes_populated[NodeId::new(0)].data.flex_grow_px = window_width - top_level_flex_basis;
 
     for (_node_depth, parent_id) in parent_ids_sorted_by_depths {
@@ -899,19 +895,6 @@ fn leaf_node_depth<T>(id: &NodeId, arena: &Arena<T>) -> usize {
 
     counter
 }
-
-/// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
-/// or `None` if the height can't be determined from the node alone.
-///
-// fn determine_preferred_width(layout: &RectLayout) -> Option<f32>
-determine_preferred!(determine_preferred_width, width, min_width, max_width);
-
-/// Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
-// or `None` if the height can't be determined from the node alone.
-///
-// fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
-determine_preferred!(determine_preferred_height, height, min_height, max_height);
-
 
 /// Returns the nearest common ancestor with a `position: relative` attribute
 /// or `None` if there is no ancestor that has `position: relative`. Usually
@@ -1160,22 +1143,26 @@ mod layout_tests {
             assert_eq!(width_filled_out[node_id].data.flex_grow_px, 0.0);
         }
 
-        // All nodes that were touched should not have `EqualTo` in their constraint
-        for (_, node_id) in &non_leaf_nodes_sorted_by_depth {
-            match width_filled_out[*node_id].data.preferred_width {
-                WhConstraint::EqualTo(_) => { },
-                e => { panic!("Error: width_filled_out[{:?}] was not WhConstraint::EqualTo: {:?}!", node_id, e); },
-            }
-        }
+        // This step should not modify the `preferred_width`
+        assert_eq!(width_filled_out[NodeId::new(0)].data.preferred_width, WhConstraint::Unconstrained);
+        assert_eq!(width_filled_out[NodeId::new(1)].data.preferred_width, WhConstraint::Between(0.0, 200.0, WhPrefer::Min));
+        assert_eq!(width_filled_out[NodeId::new(2)].data.preferred_width, WhConstraint::Unconstrained);
+        assert_eq!(width_filled_out[NodeId::new(3)].data.preferred_width, WhConstraint::Unconstrained);
+        assert_eq!(width_filled_out[NodeId::new(4)].data.preferred_width, WhConstraint::Unconstrained);
+        assert_eq!(width_filled_out[NodeId::new(5)].data.preferred_width, WhConstraint::Unconstrained);
 
         // The padding of the Node 1 should have bubbled up to be the minimum width of Node 0
-        assert_eq!(width_filled_out[NodeId::new(0)].data.get_flex_basis().total(), 40.0);
+        assert_eq!(width_filled_out[NodeId::new(0)].data.min_inner_size_px, 40.0);
         assert_eq!(width_filled_out[NodeId::new(1)].data.get_flex_basis().total(), 40.0);
-        assert_eq!(width_filled_out[NodeId::new(1)].data.preferred_width, WhConstraint::EqualTo(0.0));
+        assert_eq!(width_filled_out[NodeId::new(1)].data.min_inner_size_px, 0.0);
         assert_eq!(width_filled_out[NodeId::new(2)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(2)].data.min_inner_size_px, 0.0);
         assert_eq!(width_filled_out[NodeId::new(3)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(3)].data.min_inner_size_px, 0.0);
         assert_eq!(width_filled_out[NodeId::new(4)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(4)].data.min_inner_size_px, 0.0);
         assert_eq!(width_filled_out[NodeId::new(5)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(5)].data.min_inner_size_px, 0.0);
 
         // -- Section 3: Test if growing the sizes works
 
