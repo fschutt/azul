@@ -278,14 +278,6 @@ fn create_layout_constraints<'a, T: Layout>(
     //
     // min-width and max-width are stronger than width because
     // the width has to be between min and max width
-
-    // min-width, width, max-width
-
-    /*
-    let preferred_width = determine_preferred_width(&rect.layout);
-    let preferred_height = determine_preferred_height(&rect.layout);
-    */
-
     if let Some(min_width) = rect.layout.min_width {
         layout_constraints.push(self_rect.width | GE(REQUIRED) | min_width.0.to_pixels());
     }
@@ -587,7 +579,6 @@ use css_parser::{LayoutMargin, LayoutPadding};
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct WidthCalculatedRect {
     pub preferred_width: WhConstraint,
-    pub preferred_height: WhConstraint,
     pub margin: LayoutMargin,
     pub padding: LayoutPadding,
     pub flex_grow_px: f32,
@@ -665,7 +656,6 @@ fn fill_out_preferred_width(arena: &Arena<RectLayout>)
     arena.transform(|node, _| {
         WidthCalculatedRect {
             preferred_width: determine_preferred_width(&node),
-            preferred_height: determine_preferred_height(&node),
             margin: node.margin.unwrap_or_default(),
             padding: node.padding.unwrap_or_default(),
             flex_grow_px: 0.0,
@@ -993,6 +983,15 @@ fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<Disp
         }
     }
     None
+}
+
+fn determine_height_based_on_width(node_id: NodeId, arena: &Arena<RectLayout>) {
+    let preferred_height = determine_preferred_height(&node);
+}
+
+/// Returns the height based on the width of a node type (esp. text caching)
+fn height_from_width(node_type: NodeType) -> f32 {
+    50.0
 }
 
 #[cfg(test)]
