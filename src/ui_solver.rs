@@ -500,25 +500,6 @@ impl WhConstraint {
             _ => false,
         }
     }
-
-    /// Tests if a number is in the bounds of the constraint, i.e.
-    ///
-    /// ```no_run
-    /// # use ui_solver::{WhConstraint, WhPrefer};
-    /// let constraint = WhConstraint::Between(0.0, 10.0, WhPrefer::Min);
-    ///
-    /// // 5.0 > 0.0 && 5.0 < 10.0 - so the number is inside of the bounds
-    /// assert_eq!(constraint.contains(5.0), true);
-    /// assert_eq!(constraint.contains(20.0), false);
-    /// ```
-    pub fn contains(&self, number_to_test: f32) -> bool {
-        use self::WhConstraint::*;
-        match self {
-            Between(min, max, _) => number_to_test > *min && number_to_test < *max,
-            EqualTo(exact) => number_to_test == *exact,
-            Unconstrained => true,
-        }
-    }
 }
 
 macro_rules! determine_preferred {
@@ -882,83 +863,130 @@ impl WidthSolvedResult {
 /// Should be called after `apply_flex_grow_or_shrink` - the `apply_flex_grow_or_shrink`
 /// step doesn't respect an elements `min_width` or `max_width` attributes, so we have to
 /// do a second pass to see if the width constraints have been violated.
-fn adjust_width_based_on_flex_constraints(
-    width_calculated_arena: &mut Arena<WidthCalculatedRect>,
-    parent_ids_sorted_by_depth: &[(usize, NodeId)])
+fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_arena: &mut Arena<WidthCalculatedRect>)
 {
-    // We know that the item already respects the min-width, since that gets bubbled
-    // to the parent. So everything we have to check for is if it violates the
-    // max-width or width constraint and then adjust every sibling according to that.
-    for (_node_depth, node_id) in parent_ids_sorted_by_depth {
+    // Function can only be called on parent nodes, not child nodes
+    debug_assert!(width_calculated_arena[*node_id].first_child.is_some());
 
-        // The problem is that if we subtract space, we can add it somewhere else, which might invalidate some
-
-        // 1. Filter out all the children that have a given width
-        // We can't modify the width at all, so we simply subtract it from the set
+/*
+    // The inner space of the parent node, without the padding
+    let mut parent_node_inner_width = {
         let parent_node = &width_calculated_arena[*node_id].data;
+        parent_node.min_inner_size_px + parent_node.flex_grow_px - parent_node.get_horizontal_padding()
+    };
+*/
 
-        // This is essentially the space we have to work with
-        let parent_node_inner_width = parent_node.min_inner_size_px + parent_node.flex_grow_px - parent_node.get_horizontal_padding();
+    // 1. Set all child elements that have an exact width to that width, record their violations
+    //    and add their violation to the leftover horizontal space.
+    let mut horizontal_space_from_fixed_width_items = 0.0;
+    // let mut horizontal_space_taken_up_by_fixed_width_items = 0.0;
 
-        // If all children are unconstrained (a common case), then we don't
-        // have to try to optimize their space, since they are already distributed
-        if node_id.children(width_calculated_arena).all(|id| width_calculated_arena[id].data.preferred_width == WhConstraint::Unconstrained) {
-            continue;
+    {
+        // Vec<(NodeId, PreferredWidth, ItemWidth)>
+        let exact_width_childs = node_id
+                .children(width_calculated_arena)
+                .filter_map(|id| if let WhConstraint::EqualTo(exact) = width_calculated_arena[id].data.preferred_width {
+                    let node = &width_calculated_arena[id].data;
+                    let current_width = node.min_inner_size_px + node.flex_grow_px; // include padding here
+                    Some((id, exact, current_width))
+                } else {
+                    None
+                })
+                .collect::<Vec<(NodeId, f32, f32)>>();
+
+        for (exact_width_child_id, preferred_width, current_width) in exact_width_childs {
+            let violation_px = current_width - preferred_width;
+            horizontal_space_from_fixed_width_items += violation_px;
+            // horizontal_space_taken_up_by_fixed_width_items += preferred_width;
+            // so that node.min_inner_size_px + node.flex_grow_px = preferred_width
+            width_calculated_arena[exact_width_child_id].data.flex_grow_px = preferred_width - width_calculated_arena[exact_width_child_id].data.min_inner_size_px;
+        }
+    }
+
+/*
+    // The fixed-width items are now considered solved, so subtract them out of the width of the parent.
+    parent_node_inner_width -= horizontal_space_taken_up_by_fixed_width_items;
+*/
+
+    // Now we can be sure that if we write #x { width: 500px; } that it will actually be 500px large
+    // and not be influenced by flex in any way.
+
+    // 2. Set all items to their minimium width. Record how much space is gained by doing so.
+    let mut horizontal_space_from_variable_items = 0.0;
+
+    use FastHashSet;
+
+    let mut variable_width_childs = node_id
+        .children(width_calculated_arena)
+        .filter(|id| !width_calculated_arena[*id].data.preferred_width.is_fixed_constraint())
+        .collect::<FastHashSet<NodeId>>();
+
+    for variable_child_id in &variable_width_childs {
+        let current_width = width_calculated_arena[*variable_child_id].data.min_inner_size_px +
+                            width_calculated_arena[*variable_child_id].data.flex_grow_px;
+
+        let min_width = width_calculated_arena[*variable_child_id].data.preferred_width.min_needed_space();
+        let violation_px = current_width - min_width;
+        horizontal_space_from_variable_items += violation_px;
+        // so that node.min_inner_size_px + node.flex_grow_px = min_width
+        width_calculated_arena[*variable_child_id].data.flex_grow_px = min_width - width_calculated_arena[*variable_child_id].data.min_inner_size_px;
+    }
+
+    // This satisfies the `width` and `min_width` constraints. However, we still need to worry about
+    // the `max_width` and unconstrained childs
+    //
+    // By setting the items to their minimum size, we've gained some space that we now need to distribute
+    // according to the flex_grow values
+    let mut total_horizontal_space_gained = horizontal_space_from_fixed_width_items + horizontal_space_from_variable_items;
+
+    let mut max_width_violations = Vec::<(NodeId, f32)>::new();
+
+    loop {
+
+        if total_horizontal_space_gained <= 0.0 || variable_width_childs.is_empty() {
+            break;
         }
 
-        // Check: if all children have a min-width or width that is larger than the inner size,
-        // then we don't need to do anything, since they will overflow anyways
-        if node_id.children(width_calculated_arena).map(|id| width_calculated_arena[id].data.preferred_width.min_needed_space()).sum::<f32>() > parent_node_inner_width {
-            continue;
-        }
+        // Grow all variable children by the same amount.
+        for variable_child_id in &variable_width_childs {
+            let added_space_for_one_child = total_horizontal_space_gained / variable_width_childs.len() as f32; // * flex_grow_factor[variable_child_id]
+            let current_width_of_child = width_calculated_arena[*variable_child_id].data.min_inner_size_px +
+                                         width_calculated_arena[*variable_child_id].data.flex_grow_px;
 
-        // If we get here, there must be some space to distribute unequally between the children.
-
-        // Sum of the flex-basis of the fixed-width children (children that have an `EqualTo` constraint
-        // and that we therefore can't modify)
-        let children_with_fixed_width_len: f32 = node_id
-            .children(width_calculated_arena)
-            .filter(|id| width_calculated_arena[*id].data.preferred_width.is_fixed_constraint())
-            .map(|id| width_calculated_arena[id].data.get_flex_basis().total())
-            .sum();
-
-        // This is the width we can distribute across the min-width / max-width - the inner width of
-        // the parent minus the width that the
-        let parent_node_width_to_distribute = parent_node_inner_width - children_with_fixed_width_len;
-
-        // Same as `children_with_fixed_width`, but only the children where the width can be adjusted
-        // (via Between or Unconstrained)
-        let children_with_variable_width = node_id
-            .children(width_calculated_arena)
-            .filter(|id| !width_calculated_arena[*id].data.preferred_width.is_fixed_constraint())
-            .collect::<Vec<NodeId>>();
-
-        // 2. Subtract all the min-width from the `parent_node_width_to_distribute`, to get the
-        // space that we can freely redistribute
-
-        // 3. Record the ratios of said child nodes to each other.
-
-        // 3. Take the remaining space, divide it by the number of children that have a variable constraint
-
-        // 4. Try to add that space to each one of them equally. If that addition violates the max-width,
-        // mark that child as visited and remove i
-
-        // 5. Make the fixed-width rectangles actually fixed-with (right now they are distributed evenly like all the other nodes).
-
-        // child_node.flex_grow_px += ???
-
-        for variable_child_id in &children_with_variable_width {
-            let variable_child_node = &width_calculated_arena[*variable_child_id].data;
-            // If the variable-width child has a max constraint
-            match variable_child_node.preferred_width.max_available_space() {
-                Some(max) => { /* warning: could be f32::MAX */}
-                None => { /* unconstrained */ }
+            if let Some(max_width) = width_calculated_arena[*variable_child_id].data.preferred_width.max_available_space() {
+                if (current_width_of_child + added_space_for_one_child) > max_width {
+                    let violation_px = current_width_of_child + added_space_for_one_child - max_width;
+                    // so that node.min_inner_size_px + node.flex_grow_px = max_width
+                    width_calculated_arena[*variable_child_id].data.flex_grow_px = max_width - width_calculated_arena[*variable_child_id].data.min_inner_size_px;
+                    max_width_violations.push((*variable_child_id, violation_px));
+                } else {
+                    // so that node.min_inner_size_px + node.flex_grow_px = max_width
+                    width_calculated_arena[*variable_child_id].data.flex_grow_px += added_space_for_one_child;
+                }
             }
         }
 
-
+        // If we haven't violated any max_width constraints, then we have successfully
+        if max_width_violations.is_empty() {
+            break;
+        } else {
+            // Nodes that were violated can't grow anymore in the next iteration,
+            // so we remove them from the solution and consider them "solved".
+            // Their amount of violation then gets distributed across the remaining
+            // items in the next iteration.
+            for (solved_node, violation_px) in max_width_violations.drain(..) {
+                total_horizontal_space_gained += violation_px;
+                variable_width_childs.remove(&solved_node);
+            }
+        }
     }
+}
 
+fn adjust_widths_after_solving(width_calculated_arena: &mut Arena<WidthCalculatedRect>, parent_ids_sorted_by_depth: &[(usize, NodeId)])
+{
+    for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
+        adjust_width_based_on_flex_constraints(parent_id, width_calculated_arena);
+    }
 }
 
 /// Returns the solved widths of the items in a BTree form
@@ -982,6 +1010,9 @@ pub(crate) fn solve_flex_layout_width<'a>(
 
     // Go from the root down and stretch or shrink the children if they overflow
     apply_flex_grow_or_shrink(&layout_only_arena, &mut width_calculated_arena, &non_leaf_nodes_sorted_by_depth, window_width);
+
+    // The layout step doesn't account for the min_width and max_width constraints, so we have to adjust them manually
+    adjust_widths_after_solving(&mut width_calculated_arena, &non_leaf_nodes_sorted_by_depth);
 
     // Calculate the final size and return the solution
     let mut width_btree = BTreeMap::new();
@@ -1294,8 +1325,10 @@ mod layout_tests {
             space_added: 754.0 - 40.0,
         });
 
-        // TODO: Right now the space is distributed and the padding is respected, however,
+        // Right now the space is distributed and the padding is respected, however,
         // the max-width / width isn't accounted for. Maybe this needs an extra step (after the initial distribution)
+
+        adjust_widths_after_solving(&mut width_filled_out, &non_leaf_nodes_sorted_by_depth);
 
         // panic!("{}", width_filled_out.print_tree(|n| format!("{:?}", n)));
 /*
