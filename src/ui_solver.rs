@@ -491,6 +491,34 @@ impl WhConstraint {
             Unconstrained => None,
         }
     }
+
+    /// Returns if this `WhConstraint` has leeway or if it is an `EqualTo` constraint
+    pub fn is_fixed_constraint(&self) -> bool {
+        use self::WhConstraint::*;
+        match self {
+            EqualTo(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Tests if a number is in the bounds of the constraint, i.e.
+    ///
+    /// ```no_run
+    /// # use ui_solver::{WhConstraint, WhPrefer};
+    /// let constraint = WhConstraint::Between(0.0, 10.0, WhPrefer::Min);
+    ///
+    /// // 5.0 > 0.0 && 5.0 < 10.0 - so the number is inside of the bounds
+    /// assert_eq!(constraint.contains(5.0), true);
+    /// assert_eq!(constraint.contains(20.0), false);
+    /// ```
+    pub fn contains(&self, number_to_test: f32) -> bool {
+        use self::WhConstraint::*;
+        match self {
+            Between(min, max, _) => number_to_test > *min && number_to_test < *max,
+            EqualTo(exact) => number_to_test == *exact,
+            Unconstrained => true,
+        }
+    }
 }
 
 macro_rules! determine_preferred {
@@ -821,7 +849,7 @@ fn apply_flex_grow_or_shrink_to_parent_node(
 fn apply_flex_grow_or_shrink(
     arena: &Arena<RectLayout>,
     leaf_nodes_populated: &mut Arena<WidthCalculatedRect>,
-    parent_ids_sorted_by_depths: &[(usize, NodeId)],
+    parent_ids_sorted_by_depth: &[(usize, NodeId)],
     window_width: f32)
 {
     debug_assert!(leaf_nodes_populated[NodeId::new(0)].data.flex_grow_px == 0.0);
@@ -833,7 +861,7 @@ fn apply_flex_grow_or_shrink(
     let top_level_flex_basis = leaf_nodes_populated[NodeId::new(0)].data.min_inner_size_px;
     leaf_nodes_populated[NodeId::new(0)].data.flex_grow_px = window_width - top_level_flex_basis;
 
-    for (_node_depth, parent_id) in parent_ids_sorted_by_depths {
+    for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
         apply_flex_grow_or_shrink_to_parent_node(*parent_id, arena, leaf_nodes_populated);
     }
 }
@@ -848,6 +876,89 @@ impl WidthSolvedResult {
     pub fn total(&self) -> f32 {
         self.min_width + self.space_added
     }
+}
+
+/// Last step of the layout: Adjust the items based on their constraint.
+/// Should be called after `apply_flex_grow_or_shrink` - the `apply_flex_grow_or_shrink`
+/// step doesn't respect an elements `min_width` or `max_width` attributes, so we have to
+/// do a second pass to see if the width constraints have been violated.
+fn adjust_width_based_on_flex_constraints(
+    width_calculated_arena: &mut Arena<WidthCalculatedRect>,
+    parent_ids_sorted_by_depth: &[(usize, NodeId)])
+{
+    // We know that the item already respects the min-width, since that gets bubbled
+    // to the parent. So everything we have to check for is if it violates the
+    // max-width or width constraint and then adjust every sibling according to that.
+    for (_node_depth, node_id) in parent_ids_sorted_by_depth {
+
+        // The problem is that if we subtract space, we can add it somewhere else, which might invalidate some
+
+        // 1. Filter out all the children that have a given width
+        // We can't modify the width at all, so we simply subtract it from the set
+        let parent_node = &width_calculated_arena[*node_id].data;
+
+        // This is essentially the space we have to work with
+        let parent_node_inner_width = parent_node.min_inner_size_px + parent_node.flex_grow_px - parent_node.get_horizontal_padding();
+
+        // If all children are unconstrained (a common case), then we don't
+        // have to try to optimize their space, since they are already distributed
+        if node_id.children(width_calculated_arena).all(|id| width_calculated_arena[id].data.preferred_width == WhConstraint::Unconstrained) {
+            continue;
+        }
+
+        // Check: if all children have a min-width or width that is larger than the inner size,
+        // then we don't need to do anything, since they will overflow anyways
+        if node_id.children(width_calculated_arena).map(|id| width_calculated_arena[id].data.preferred_width.min_needed_space()).sum::<f32>() > parent_node_inner_width {
+            continue;
+        }
+
+        // If we get here, there must be some space to distribute unequally between the children.
+
+        // Sum of the flex-basis of the fixed-width children (children that have an `EqualTo` constraint
+        // and that we therefore can't modify)
+        let children_with_fixed_width_len: f32 = node_id
+            .children(width_calculated_arena)
+            .filter(|id| width_calculated_arena[*id].data.preferred_width.is_fixed_constraint())
+            .map(|id| width_calculated_arena[id].data.get_flex_basis().total())
+            .sum();
+
+        // This is the width we can distribute across the min-width / max-width - the inner width of
+        // the parent minus the width that the
+        let parent_node_width_to_distribute = parent_node_inner_width - children_with_fixed_width_len;
+
+        // Same as `children_with_fixed_width`, but only the children where the width can be adjusted
+        // (via Between or Unconstrained)
+        let children_with_variable_width = node_id
+            .children(width_calculated_arena)
+            .filter(|id| !width_calculated_arena[*id].data.preferred_width.is_fixed_constraint())
+            .collect::<Vec<NodeId>>();
+
+        // 2. Subtract all the min-width from the `parent_node_width_to_distribute`, to get the
+        // space that we can freely redistribute
+
+        // 3. Record the ratios of said child nodes to each other.
+
+        // 3. Take the remaining space, divide it by the number of children that have a variable constraint
+
+        // 4. Try to add that space to each one of them equally. If that addition violates the max-width,
+        // mark that child as visited and remove i
+
+        // 5. Make the fixed-width rectangles actually fixed-with (right now they are distributed evenly like all the other nodes).
+
+        // child_node.flex_grow_px += ???
+
+        for variable_child_id in &children_with_variable_width {
+            let variable_child_node = &width_calculated_arena[*variable_child_id].data;
+            // If the variable-width child has a max constraint
+            match variable_child_node.preferred_width.max_available_space() {
+                Some(max) => { /* warning: could be f32::MAX */}
+                None => { /* unconstrained */ }
+            }
+        }
+
+
+    }
+
 }
 
 /// Returns the solved widths of the items in a BTree form
