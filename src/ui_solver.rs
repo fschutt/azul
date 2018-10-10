@@ -745,107 +745,6 @@ fn bubble_preferred_widths_to_parents(
 }
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
-const DEFAULT_FLEX_SHRINK_FACTOR: f32 = 1.0;
-
-fn flex_grow_children_width(
-    id: NodeId,
-    arena: &Arena<RectLayout>,
-    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>,
-    overflow: f32)
-{
-    // Assert that this function gets called on a node that has children
-    debug_assert!(arena[id].first_child.is_some());
-    // Overflow must be positive, otherwise flex-grow doesn't apply
-    debug_assert!(overflow.is_sign_positive());
-
-    let children_flex_grow_factor: f32 = id.children(arena).map(|child_id| {
-        // Prevent flex-grow and flex-shrink to be less than 1
-        arena[child_id].data.flex_grow.and_then(|grow| Some(grow.0.max(1.0))).unwrap_or(DEFAULT_FLEX_GROW_FACTOR)
-    }).sum();
-
-    for child_id in id.children(arena) {
-        let flex_grow = arena[child_id].data.flex_grow.and_then(|grow| Some(grow.0)).unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
-        let flex_grow_px = overflow * (flex_grow / children_flex_grow_factor);
-        leaf_nodes_populated[child_id].data.flex_grow_px = flex_grow_px;
-    }
-}
-
-fn flex_shrink_children_width(
-    id: NodeId,
-    arena: &Arena<RectLayout>,
-    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>,
-    overflow: f32)
-{
-    // Assert that this function gets called on a node that has children
-    debug_assert!(arena[id].first_child.is_some());
-    // Overflow must be negative, otherwise flex-shrink doesn't apply
-    debug_assert!(!overflow.is_sign_positive());
-
-    let children_combined_flex_basis: f32 = id.children(arena)
-        .map(|child_id| leaf_nodes_populated[child_id].data.get_flex_basis().total())
-        .sum();
-
-    for child_id in id.children(arena) {
-        let flex_shrink = arena[child_id].data.flex_shrink
-            .and_then(|shrink| Some(shrink.0))
-            .unwrap_or(DEFAULT_FLEX_SHRINK_FACTOR);
-
-        let flex_basis = leaf_nodes_populated[child_id].data.get_flex_basis().total(); // can be 0
-        let flex_shrink_px = overflow * ((flex_shrink * flex_basis) / children_combined_flex_basis);
-        leaf_nodes_populated[child_id].data.flex_grow_px = flex_shrink_px;
-    }
-}
-
-// flex-grow or flex-shrink one parent nodes children
-fn apply_flex_grow_or_shrink_to_parent_node(
-    id: NodeId,
-    arena: &Arena<RectLayout>,
-    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>)
-{
-    // Assert that this function gets called on a node that has children
-    debug_assert!(arena[id].first_child.is_some());
-
-    // Since we go from outer-to-inner now, the flex_grow_px has to be respected
-    let self_inner_width = leaf_nodes_populated[id].data.min_inner_size_px + leaf_nodes_populated[id].data.flex_grow_px;
-
-    // Re-calculate the necessary width of the children items
-    let children_combined_flex_basis: f32 = id.children(arena)
-        .map(|child_id| leaf_nodes_populated[child_id].data.get_flex_basis().total())
-        .sum();
-
-    let overflow: f32 = self_inner_width - children_combined_flex_basis;
-    if overflow == 0.0 {
-        return;
-    }
-
-    if overflow.is_sign_positive() {
-        // Space is available, grow children of this node
-        flex_grow_children_width(id, arena, leaf_nodes_populated, overflow);
-    } else {
-        // Space has to be removed, shrink children of this node
-        flex_shrink_children_width(id, arena, leaf_nodes_populated, overflow);
-    }
-}
-
-fn apply_flex_grow_or_shrink(
-    arena: &Arena<RectLayout>,
-    leaf_nodes_populated: &mut Arena<WidthCalculatedRect>,
-    parent_ids_sorted_by_depth: &[(usize, NodeId)],
-    window_width: f32)
-{
-    debug_assert!(leaf_nodes_populated[NodeId::new(0)].data.flex_grow_px == 0.0);
-
-    // Set the window width on the root node (since there is only one root node, we can calculate the `flex_grow_px` directly)
-    //
-    // Usually `top_level_flex_basis` is NOT 0.0, rather it's the sum of all widths in the DOM,
-    // i.e. the sum of the whole DOM tree
-    let top_level_flex_basis = leaf_nodes_populated[NodeId::new(0)].data.min_inner_size_px;
-    leaf_nodes_populated[NodeId::new(0)].data.flex_grow_px = window_width - top_level_flex_basis;
-
-    for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
-        apply_flex_grow_or_shrink_to_parent_node(*parent_id, arena, leaf_nodes_populated);
-    }
-}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) struct WidthSolvedResult {
@@ -859,11 +758,12 @@ impl WidthSolvedResult {
     }
 }
 
-/// Last step of the layout: Adjust the items based on their constraint.
-/// Should be called after `apply_flex_grow_or_shrink` - the `apply_flex_grow_or_shrink`
-/// step doesn't respect an elements `min_width` or `max_width` attributes, so we have to
-/// do a second pass to see if the width constraints have been violated.
-fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_arena: &mut Arena<WidthCalculatedRect>)
+/// Does the actual width layout, respects the `width`, `min_width` and `max_width`
+/// properties as well as the `flex_grow` factor. `flex_shrink` currently does nothing.
+fn apply_flex_grow_with_constraints(
+    node_id: &NodeId,
+    arena: &Arena<RectLayout>,
+    width_calculated_arena: &mut Arena<WidthCalculatedRect>)
 {
     // Function can only be called on parent nodes, not child nodes
     debug_assert!(width_calculated_arena[*node_id].first_child.is_some());
@@ -922,7 +822,6 @@ fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_are
                             width_calculated_arena[*variable_child_id].data.flex_grow_px;
 
         let min_width = width_calculated_arena[*variable_child_id].data.preferred_width.min_needed_space();
-        let violation_px = current_width - min_width;
         horizontal_space_taken_up_by_variable_items += min_width;
 
         // so that node.min_inner_size_px + node.flex_grow_px = min_width
@@ -935,8 +834,8 @@ fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_are
     // By setting the items to their minimum size, we've gained some space that we now need to distribute
     // according to the flex_grow values
     parent_node_inner_width -= horizontal_space_taken_up_by_variable_items;
-    let mut total_horizontal_space_available = parent_node_inner_width;
 
+    let mut total_horizontal_space_available = parent_node_inner_width;
     let mut max_width_violations = Vec::new();
 
     loop {
@@ -945,9 +844,28 @@ fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_are
             break;
         }
 
+        // In order to apply flex-grow correctly, we need the sum of
+        // the flex-grow factors of all the variable-width children
+        //
+        // NOTE: variable_width_childs can change its length, have to recalculate every loop!
+        let children_combined_flex_grow: f32 = variable_width_childs
+            .iter()
+            .map(|child_id|
+                    // Prevent flex-grow and flex-shrink to be less than 1
+                    arena[*child_id].data.flex_grow
+                        .and_then(|grow| Some(grow.0.max(1.0)))
+                        .unwrap_or(DEFAULT_FLEX_GROW_FACTOR))
+            .sum();
+
         // Grow all variable children by the same amount.
         for variable_child_id in &variable_width_childs {
-            let added_space_for_one_child = total_horizontal_space_available / variable_width_childs.len() as f32; // * flex_grow_factor[variable_child_id]
+
+            let flex_grow = arena[*variable_child_id].data.flex_grow
+                .and_then(|grow| Some(grow.0.max(1.0)))
+                .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
+
+            let added_space_for_one_child = total_horizontal_space_available * (flex_grow / children_combined_flex_grow);
+
             let current_width_of_child = width_calculated_arena[*variable_child_id].data.min_inner_size_px +
                                          width_calculated_arena[*variable_child_id].data.flex_grow_px;
 
@@ -988,10 +906,24 @@ fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_are
     }
 }
 
-fn adjust_widths_after_solving(width_calculated_arena: &mut Arena<WidthCalculatedRect>, parent_ids_sorted_by_depth: &[(usize, NodeId)])
+fn apply_flex_grow(
+    arena: &Arena<RectLayout>,
+    width_calculated_arena: &mut Arena<WidthCalculatedRect>,
+    parent_ids_sorted_by_depth: &[(usize, NodeId)],
+    root_width: f32)
 {
+    debug_assert!(width_calculated_arena[NodeId::new(0)].data.flex_grow_px == 0.0);
+
+    // Set the window width on the root node (since there is only one root node, we can
+    // calculate the `flex_grow_px` directly)
+    //
+    // Usually `top_level_flex_basis` is NOT 0.0, rather it's the sum of all widths in the DOM,
+    // i.e. the sum of the whole DOM tree
+    let top_level_flex_basis = width_calculated_arena[NodeId::new(0)].data.min_inner_size_px;
+    width_calculated_arena[NodeId::new(0)].data.flex_grow_px = root_width - top_level_flex_basis;
+
     for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
-        adjust_width_based_on_flex_constraints(parent_id, width_calculated_arena);
+        apply_flex_grow_with_constraints(parent_id, arena, width_calculated_arena);
     }
 }
 
@@ -1014,11 +946,9 @@ pub(crate) fn solve_flex_layout_width<'a>(
     // Bubble the inner sizes to their parents
     let non_leaf_nodes_sorted_by_depth = bubble_preferred_widths_to_parents(&layout_only_arena, &mut width_calculated_arena);
 
-    // Go from the root down and stretch or shrink the children if they overflow
-    apply_flex_grow_or_shrink(&layout_only_arena, &mut width_calculated_arena, &non_leaf_nodes_sorted_by_depth, window_width);
-
+    // Go from the root down and flex_grow the children if needed - respects the `width`, `min_width` and `max_width` properties
     // The layout step doesn't account for the min_width and max_width constraints, so we have to adjust them manually
-    adjust_widths_after_solving(&mut width_calculated_arena, &non_leaf_nodes_sorted_by_depth);
+    apply_flex_grow(&layout_only_arena, &mut width_calculated_arena, &non_leaf_nodes_sorted_by_depth, window_width);
 
     // Calculate the final size and return the solution
     let mut width_btree = BTreeMap::new();
@@ -1316,8 +1246,6 @@ mod layout_tests {
 
         let window_width = 754.0; // pixel
 
-        apply_flex_grow_or_shrink(&display_rectangles, &mut width_filled_out, &non_leaf_nodes_sorted_by_depth, window_width);
-
         // - window_width: 754px
         // 0                -- [] - expecting width to stretch to 754 px
         // '- 1             -- [max-width: 200px; padding: 20px] - expecting width to stretch to 200 px
@@ -1326,15 +1254,7 @@ mod layout_tests {
         //    '   '--- 4    -- [] - expecting width to stretch to 80px (half of 160)
         //    '-- 5         -- [] - expecting width to stretch to 554px (754 - 200px max-width of earlier sibling)
 
-        assert_eq!(width_filled_out[NodeId::new(0)].data.solved_result(), WidthSolvedResult {
-            min_width: 40.0,
-            space_added: 754.0 - 40.0,
-        });
-
-        // Right now the space is distributed and the padding is respected, however,
-        // the max-width / width isn't accounted for. Maybe this needs an extra step (after the initial distribution)
-
-        adjust_widths_after_solving(&mut width_filled_out, &non_leaf_nodes_sorted_by_depth);
+        apply_flex_grow(&display_rectangles, &mut width_filled_out, &non_leaf_nodes_sorted_by_depth, window_width);
 
         assert_eq!(width_filled_out[NodeId::new(0)].data.solved_result(), WidthSolvedResult {
             min_width: 40.0,
