@@ -937,7 +937,7 @@ fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_are
     parent_node_inner_width -= horizontal_space_taken_up_by_variable_items;
     let mut total_horizontal_space_available = parent_node_inner_width;
 
-    let mut max_width_violations = Vec::<(NodeId, f32)>::new();
+    let mut max_width_violations = Vec::new();
 
     loop {
 
@@ -953,18 +953,16 @@ fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_are
 
             if let Some(max_width) = width_calculated_arena[*variable_child_id].data.preferred_width.max_available_space() {
                 if (current_width_of_child + added_space_for_one_child) > max_width {
-                    let violation_px = current_width_of_child + added_space_for_one_child - max_width;
-
                     // so that node.min_inner_size_px + node.flex_grow_px = max_width
                     width_calculated_arena[*variable_child_id].data.flex_grow_px = max_width - width_calculated_arena[*variable_child_id].data.min_inner_size_px;
-                    max_width_violations.push((*variable_child_id, violation_px));
+                    max_width_violations.push(*variable_child_id);
                 } else {
-                    // so that node.min_inner_size_px + node.flex_grow_px = max_width
-                    width_calculated_arena[*variable_child_id].data.flex_grow_px += added_space_for_one_child;
+                    // so that node.min_inner_size_px + node.flex_grow_px = added_space_for_one_child
+                    width_calculated_arena[*variable_child_id].data.flex_grow_px = added_space_for_one_child - width_calculated_arena[*variable_child_id].data.min_inner_size_px;
                 }
             } else {
-                // so that node.min_inner_size_px + node.flex_grow_px = max_width
-                width_calculated_arena[*variable_child_id].data.flex_grow_px += added_space_for_one_child;
+                // so that node.min_inner_size_px + node.flex_grow_px = added_space_for_one_child
+                width_calculated_arena[*variable_child_id].data.flex_grow_px = added_space_for_one_child - width_calculated_arena[*variable_child_id].data.min_inner_size_px;
             }
         }
 
@@ -977,9 +975,14 @@ fn adjust_width_based_on_flex_constraints(node_id: &NodeId, width_calculated_are
             // so we remove them from the solution and consider them "solved".
             // Their amount of violation then gets distributed across the remaining
             // items in the next iteration.
-            for (solved_node, violation_px) in max_width_violations.drain(..) {
-                total_horizontal_space_available += violation_px;
-                variable_width_childs.remove(&solved_node);
+            for solved_node_id in max_width_violations.drain(..) {
+
+                // Since the node now gets removed, it doesn't contribute to the pool anymore
+                total_horizontal_space_available -=
+                                width_calculated_arena[solved_node_id].data.min_inner_size_px +
+                                width_calculated_arena[solved_node_id].data.flex_grow_px;
+
+                variable_width_childs.remove(&solved_node_id);
             }
         }
     }
@@ -1333,13 +1336,30 @@ mod layout_tests {
 
         adjust_widths_after_solving(&mut width_filled_out, &non_leaf_nodes_sorted_by_depth);
 
-        panic!("{}", width_filled_out.print_tree(|n| format!("{:?}", n)));
-/*
-        assert_eq!(width_filled_out[NodeId::new(1)].data.solved_result(), WidthSolvedResult {
-            width: 0.0,
-            space_added: 200.0 - 40.0,
+        assert_eq!(width_filled_out[NodeId::new(0)].data.solved_result(), WidthSolvedResult {
+            min_width: 40.0,
+            space_added: window_width - 40.0,
         });
-*/
+        assert_eq!(width_filled_out[NodeId::new(1)].data.solved_result(), WidthSolvedResult {
+            min_width: 0.0,
+            space_added: 200.0,
+        });
+        assert_eq!(width_filled_out[NodeId::new(2)].data.solved_result(), WidthSolvedResult {
+            min_width: 0.0,
+            space_added: 160.0,
+        });
+        assert_eq!(width_filled_out[NodeId::new(3)].data.solved_result(), WidthSolvedResult {
+            min_width: 0.0,
+            space_added: 80.0,
+        });
+        assert_eq!(width_filled_out[NodeId::new(4)].data.solved_result(), WidthSolvedResult {
+            min_width: 0.0,
+            space_added: 80.0,
+        });
+        assert_eq!(width_filled_out[NodeId::new(5)].data.solved_result(), WidthSolvedResult {
+            min_width: 0.0,
+            space_added: window_width - 200.0,
+        });
     }
 
     /// Tests that the node-depth calculation works correctly
