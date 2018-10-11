@@ -1,6 +1,9 @@
 use backtrace::{Backtrace, BacktraceFrame};
 use dialogs::msg_box_ok;
 use log::LevelFilter;
+use std::sync::atomic::{Ordering, AtomicBool};
+
+pub(crate) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_up_logging(log_file_path: Option<String>, log_level: LevelFilter) {
 
@@ -92,7 +95,7 @@ pub(crate) fn set_up_panic_hooks() {
         let thread_name = thread.name().unwrap_or("<unnamed thread>");
 
         let error_str = format!(
-            "We are sorry, an unexpected panic ocurred, the program has to exit.\r\n\
+            "An unexpected panic ocurred, the program has to exit.\r\n\
              Please report this error and attach the log file found in the directory of the executable.\r\n\
              \r\n\
              The error ocurred in: {} in thread {}\r\n\
@@ -115,10 +118,12 @@ pub(crate) fn set_up_panic_hooks() {
         // TODO: invoke external app crash handler with the location to the log file
         error!("{}", error_str);
 
-        #[cfg(not(target_os = "linux"))]
-        msg_box_ok("Unexpected fatal error", &error_str, ::tinyfiledialogs::MessageBoxIcon::Error);
-        #[cfg(target_os = "linux")]
-        msg_box_ok("Unexpected fatal error", &error_str_clone, ::tinyfiledialogs::MessageBoxIcon::Error);
+        if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst) {
+            #[cfg(not(target_os = "linux"))]
+            msg_box_ok("Unexpected fatal error", &error_str, ::tinyfiledialogs::MessageBoxIcon::Error);
+            #[cfg(target_os = "linux")]
+            msg_box_ok("Unexpected fatal error", &error_str_clone, ::tinyfiledialogs::MessageBoxIcon::Error);
+        }
     }
 
     panic::set_hook(Box::new(panic_fn));

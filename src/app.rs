@@ -107,11 +107,14 @@ pub struct AppConfig {
     /// Path to the output log if the logger is enabled
     #[cfg(feature = "logging")]
     pub log_file_path: Option<String>,
-    /// If the app crashes / panics, a window with a message box pops up
-    /// Additionally, the error + backtrace gets logged to the output
-    /// file (if logging is enabled).
+    /// If the app crashes / panics, a window with a message box pops up.
+    /// Setting this to `false` disables the popup box.
     #[cfg(feature = "logging")]
     pub enable_visual_panic_hook: bool,
+    /// If this is set to `true` (the default), a backtrace + error information
+    /// gets logged to stdout and the logging file (only if logging is enabled).
+    #[cfg(feature = "logging")]
+    pub enable_logging_on_panic: bool,
 }
 
 impl Default for AppConfig {
@@ -123,6 +126,8 @@ impl Default for AppConfig {
             log_file_path: None,
             #[cfg(feature = "logging")]
             enable_visual_panic_hook: true,
+            #[cfg(feature = "logging")]
+            enable_logging_on_panic: true,
         }
     }
 }
@@ -135,10 +140,15 @@ impl<T: Layout> App<T> {
         #[cfg(feature = "logging")] {
             if let Some(log_level) = config.enable_logging {
                 ::logging::set_up_logging(config.log_file_path, log_level);
-            }
 
-            if config.enable_visual_panic_hook {
-                ::logging::set_up_panic_hooks();
+                if config.enable_logging_on_panic {
+                    ::logging::set_up_panic_hooks();
+                }
+
+                if config.enable_visual_panic_hook {
+                    use std::sync::atomic::Ordering;
+                    ::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
+                }
             }
         }
 
