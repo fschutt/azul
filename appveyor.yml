@@ -4,8 +4,8 @@ environment:
   matrix:
     # Disable windows-gnu because appveyor has problems installing CMAKE correctly
     # (CMAKE_C_COMPILER not set)
-    - TARGET: i686-pc-windows-gnu
-      CHANNEL: stable
+    # - TARGET: i686-pc-windows-gnu
+    #   CHANNEL: stable
     - TARGET: i686-pc-windows-msvc
       CHANNEL: stable
     # This target is commented out because for some reason appveyor only ships
@@ -14,8 +14,8 @@ environment:
     # compiler anymore in the real world). Just use a 64-bit compiler and
     # everything will work fine.
     #
-    - TARGET: x86_64-pc-windows-gnu
-      CHANNEL: stable
+    # - TARGET: x86_64-pc-windows-gnu
+    #   CHANNEL: stable
     - TARGET: x86_64-pc-windows-msvc
       CHANNEL: stable
 
