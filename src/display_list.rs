@@ -763,7 +763,16 @@ fn push_text(
 
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    let font_id = match font_family.fonts.get(0) { Some(s) => s, None => { error!("div @ {:?} has no font assigned!", bounds); return None; }};
+    let font_id = match font_family.fonts.get(0) {
+        Some(s) => s,
+        None => {
+            #[cfg(feature = "logging")] {
+                error!("div @ {:?} has no font assigned!", bounds);
+            }
+            return None;
+        }
+    };
+
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
 
     let font_instance_key = match font_result {
@@ -1184,7 +1193,9 @@ fn push_font(
     use font::FontState;
 
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
-        error!("warning: too big or too small font size");
+        #[cfg(feature = "logging")] {
+            error!("warning: too big or too small font size");
+        }
         return None;
     }
 
@@ -1350,11 +1361,13 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
                     if property_type_matches(overridden_property, &dynamic_property.default) {
                         apply_parsed_css_property(rect, overridden_property);
                     } else {
-                        error!(
-                            "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
-                            cannot override {:?} with {:?} - enum discriminant mismatch",
-                            rect, dynamic_property.default, overridden_property
-                        )
+                        #[cfg(feature = "logging")] {
+                            error!(
+                                "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
+                                cannot override {:?} with {:?} - enum discriminant mismatch",
+                                rect, dynamic_property.default, overridden_property
+                            )
+                        }
                     }
                 } else {
                     apply_parsed_css_property(rect, &dynamic_property.default);

@@ -74,8 +74,6 @@ pub extern crate glium;
 pub extern crate gleam;
 
 #[macro_use]
-extern crate log;
-#[macro_use]
 extern crate lazy_static;
 extern crate euclid;
 extern crate webrender;
@@ -85,11 +83,14 @@ extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
 extern crate tinyfiledialogs;
-#[cfg(feature = "svg")]
-extern crate stb_truetype;
 extern crate clipboard2;
 extern crate font_loader;
 
+#[cfg(feature = "logging")]
+#[cfg_attr(feature = "logging", macro_use)]
+extern crate log;
+#[cfg(feature = "svg")]
+extern crate stb_truetype;
 #[cfg(feature = "logging")]
 extern crate fern;
 #[cfg(feature = "logging")]
