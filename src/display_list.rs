@@ -124,7 +124,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     updated_images.push((key.clone(), d.clone()));
                 },
                 ImageState::Uploaded(_) => { },
-                ImageState::AboutToBeDeleted(ref k) => {
+                ImageState::AboutToBeDeleted((ref k, _)) => {
                     to_delete_images.push((key.clone(), k.clone()));
                 }
             }
