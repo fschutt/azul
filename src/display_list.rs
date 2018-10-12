@@ -224,25 +224,18 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         use glium::glutin::dpi::LogicalSize;
 
         let mut app_data_access = AppDataAccess(app_data);
+        let mut resource_updates = Vec::<ResourceUpdate>::new();
 
-        insert_constraints_into_solver(
-            &self.ui_descr,
-            ui_solver.get_dom_mut(&TOP_LEVEL_DOM_ID).unwrap(),
-            &window_size.dimensions,
-            &self.rectangles,
-            window_size_has_changed,
-        );
+        do_the_layout(&self, &mut resource_updates, app_resources, render_api, window_size.dimensions);
 
         let LogicalSize { width, height } = window_size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
-        let mut resource_updates = Vec::<ResourceUpdate>::new();
 
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
         let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles);
 
-        // WARNING: recurive function!
         push_rectangles_into_displaylist(
             current_epoch,
             TOP_LEVEL_DOM_ID,
@@ -300,6 +293,86 @@ impl ZOrderedRectangles {
 
         ZOrderedRectangles(rects_in_rendering_order)
     }
+}
+
+use text_layout::{split_text_into_words, get_words_cached, Words, FontMetrics};
+use ui_solver::{solve_flex_layout_height, solve_flex_layout_width};
+
+fn do_the_layout<'a, 'b, T: Layout>(
+    display_list: &DisplayList<'a, T>,
+    resource_updates: &mut Vec<ResourceUpdate>,
+    app_resources: &'b mut AppResources,
+    render_api: &RenderApi,
+    rect_size: LogicalSize)
+{
+    use std::time::{Instant};
+    let start_time = Instant::now();
+    let arena = display_list.ui_descr.ui_descr_arena.borrow();
+    let word_cache: BTreeMap<NodeId, (Words, FontMetrics)> = arena.linear_iter()
+        .filter_map(|id| {
+
+            let (font, font_metrics, font_id, font_size) = match arena[id].data.node_type {
+                NodeType::Label(_) | NodeType::Text(_) => {
+                    use text_layout::TextLayoutOptions;
+
+                    let rect = &display_list.rectangles[id].data;
+                    let style = &rect.style;
+                    let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
+                    let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+                    let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
+                    let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
+                    let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+                    let font = app_resources.get_font(&font_id)?;
+                    let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
+
+                    let text_layout_options = TextLayoutOptions {
+                        horz_alignment,
+                        vert_alignment,
+                        line_height: style.line_height,
+                        letter_spacing: style.letter_spacing,
+                    };
+                    let font_metrics = FontMetrics::new(&font.0, &font_size, &text_layout_options);
+
+                    (font.0, font_metrics, font_id, font_size)
+                },
+                _ => return None,
+            };
+
+            match &arena[id].data.node_type {
+                NodeType::Label(ref string_to_render) => {
+                    Some((id, (split_text_into_words(&string_to_render, &font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing), font_metrics)))
+                },
+                NodeType::Text(text_id) => {
+                    // Cloning the words here due to lifetime problems
+                    Some((id, (get_words_cached(&text_id,
+                        &font,
+                        &font_id,
+                        &font_size,
+                        font_metrics.font_size_no_line_height,
+                        font_metrics.letter_spacing,
+                        &mut app_resources.text_cache).clone(), font_metrics)))
+                },
+                _ => None,
+            }
+        }).collect();
+
+    let preferred_widths = arena.transform(|node, _| node.node_type.get_preferred_width(&app_resources.images));
+    let solved_widths = solve_flex_layout_width(&display_list.rectangles, preferred_widths, rect_size.width as f32);
+    let preferred_heights = arena.transform(|node, id| {
+        node.node_type.get_preferred_height_based_on_width(
+            solved_widths.solved_widths[id].data.total(),
+            &app_resources.images,
+            word_cache.get(&id).and_then(|e| Some(&e.0)),
+            word_cache.get(&id).and_then(|e| Some(e.1)),
+        )
+    });
+    let solved_heights = solve_flex_layout_height(&solved_widths, preferred_heights, rect_size.height as f32);
+
+    println!("solved DOM with {:?} nodes - time: {:?}", arena.nodes_len(), Instant::now() - start_time);
+/*
+    println!("solved widths: {:?}", solved_widths);
+    println!("solved heights: {:?}", solved_heights);
+*/
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
@@ -363,7 +436,6 @@ fn insert_constraints_into_solver<'a, T: Layout>(
 
     // TODO: early return based on changeset?
 
-
     // Recalculate the actual layout
     if has_window_size_changed {
         dom_solver.update_window_size(&bounds_size);
@@ -402,8 +474,13 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         epoch, rect_idx, html_node, dom_id
     } = rectangle;
 
-    // TODO: This will be very slow, find a way
-    let bounds = referenced_mutable_content.ui_solver.get_dom_ref(&dom_id).unwrap().query_bounds_of_rect(rect_idx);
+    // TODO: This will be very slow, find a way to pass the DomSolver more efficiently
+    // let bounds = referenced_mutable_content.ui_solver.get_dom_ref(&dom_id).unwrap().query_bounds_of_rect(rect_idx);
+
+    // For testing the new layout solver
+    use webrender::api::{LayoutRect, LayoutSize, LayoutPoint};
+    let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.02), LayoutSize::new(1920.0, 1080.0));
+
     let rect = &display_rectangle_arena[rect_idx].data;
 
     let info = LayoutPrimitiveInfo {
@@ -648,6 +725,9 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     // Insert the DOM into the solver so we can solve the layout of the rectangles
     let new_dom_id = new_dom_id();
     let rect_size = LogicalSize::new(info.rect.size.width as f64, info.rect.size.height as f64);
+
+    do_the_layout(&display_list, &mut referenced_mutable_content.resource_updates, &mut referenced_mutable_content.app_resources, &referenced_content.render_api, rect_size);
+
     let dom_solver = DomSolver::new(
         LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64),
         rect_size
@@ -756,30 +836,10 @@ fn push_text(
         return None;
     }
 
-    let font_family = match style.font_family {
-        Some(ref ff) => ff,
-        None => return None,
-    };
-
+    let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    let font_id = match font_family.fonts.get(0) {
-        Some(s) => s,
-        None => {
-            #[cfg(feature = "logging")] {
-                error!("div @ {:?} has no font assigned!", bounds);
-            }
-            return None;
-        }
-    };
-
-    let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
-
-    let font_instance_key = match font_result {
-        Some(f) => f,
-        None => return None,
-    };
-
+    let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
     let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
     let text_layout_options = TextLayoutOptions {

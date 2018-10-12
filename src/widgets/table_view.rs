@@ -26,9 +26,8 @@ impl Default for TableViewState {
     fn default() -> Self {
         Self {
             work_sheet: Worksheet::default(),
-            // warning: 50 / 100 doesn't work - too many constraints, slow rendering, need to debug this!
-            column_width: 500.0,
-            row_height: 100.0,
+            column_width: 50.0,
+            row_height: 10.0,
             selected_cell: None,
         }
     }

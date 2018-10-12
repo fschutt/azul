@@ -361,7 +361,7 @@ fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, layout_opti
     }
 }
 
-fn get_words_cached<'a>(
+pub(crate) fn get_words_cached<'a>(
     text_id: &TextId,
     font: &Font<'a>,
     font_id: &FontId,
