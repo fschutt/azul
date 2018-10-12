@@ -57,9 +57,20 @@ pub(crate) enum ImageState {
     // image is loaded & decoded, but not yet available
     ReadyForUpload((ImageData, ImageDescriptor)),
     // Image is about to get deleted in the next frame
-    AboutToBeDeleted(Option<ImageKey>),
+    AboutToBeDeleted((Option<ImageKey>, ImageDescriptor)),
 }
 
+impl ImageState {
+    /// Returns the original dimensions of the image
+    pub fn get_dimensions(&self) -> (f32, f32) {
+        use self::ImageState::*;
+        match self {
+            Uploaded(ImageInfo { descriptor, .. }) |
+            ReadyForUpload((_, descriptor)) |
+            AboutToBeDeleted((_, descriptor)) => (descriptor.size.width as f32, descriptor.size.height as f32)
+        }
+    }
+}
 
 impl ImageType {
 

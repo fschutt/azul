@@ -5,11 +5,13 @@ use std::{
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
+    iter::FromIterator,
 };
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use {
+    FastHashMap,
     window::{WindowEvent, WindowInfo},
-    images::ImageId,
+    images::{ImageId, ImageState},
     cache::DomHash,
     text_cache::TextId,
     traits::Layout,
@@ -17,6 +19,7 @@ use {
     id_tree::{NodeId, Node, Arena},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
+    text_layout::{Words, FontMetrics},
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(0);
@@ -263,6 +266,45 @@ impl<T: Layout> NodeType<T> {
             Image(_) => "image",
             GlTexture(_) => "texture",
             IFrame(_) => "iframe",
+        }
+    }
+
+    /// Returns the preferred width, for example for an image, that would be the
+    /// original width (an image always wants to take up the original space)
+    pub(crate) fn get_preferred_width(&self, image_cache: &FastHashMap<ImageId, ImageState>) -> Option<f32> {
+        use self::NodeType::*;
+        match self {
+            Image(i) => image_cache.get(i).and_then(|image_state| Some(image_state.get_dimensions().0)),
+            Label(_) | Text(_) => /* TODO: Calculate the minimum width for the text? */ None,
+            _ => None,
+        }
+    }
+
+    /// Given a certain width, returns the
+    pub(crate) fn get_preferred_height_based_on_width(
+        &self,
+        div_width: f32,
+        image_cache: &FastHashMap<ImageId, ImageState>,
+        words: Option<(&Words, &FontMetrics)>,
+    ) -> Option<f32>
+    {
+        use self::NodeType::*;
+        use css_parser::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
+
+        match self {
+            Image(i) => image_cache.get(i).and_then(|image_state| {
+                let (image_original_height, image_original_width) = image_state.get_dimensions();
+                Some((image_original_width / image_original_height) * div_width)
+            }),
+            Label(_) | Text(_) => {
+                let (words, font) = words.unwrap();
+                let vertical_info = words.get_vertical_height(&LayoutOverflow {
+                    horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Scroll),
+                    .. Default::default()
+                }, font, div_width);
+                Some(vertical_info.vertical_height)
+            }
+            _ => None,
         }
     }
 }
@@ -574,8 +616,6 @@ impl<T: Layout> CallbackList<T> {
         }
     }
 }
-
-use std::iter::FromIterator;
 
 impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=Dom<T>>>(iter: I) -> Self {

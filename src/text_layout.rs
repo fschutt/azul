@@ -39,6 +39,58 @@ pub struct Words {
     pub longest_word_width: f32,
 }
 
+impl Words {
+    /// Given a width, returns the vertical height of the text (no vertical overflow checks)
+    pub fn get_vertical_height(&self, overflow: &LayoutOverflow, font_metrics: &FontMetrics, width: f32)
+    -> VerticalTextInfo
+    {
+        use self::SemanticWordItem::*;
+
+        let FontMetrics { space_width, tab_width, vertical_advance, .. } = *font_metrics;
+
+        if overflow.allows_horizontal_overflow() {
+            // If we can overflow horizontally, we only need to sum up the `Return`
+            // characters, since the actual length of the line doesn't matter
+            VerticalTextInfo {
+                vertical_height: self.items.iter().filter(|w| w.is_return()).count() as f32 * vertical_advance,
+                max_hor_len: None
+            }
+        } else {
+            // TODO: should this be cached? The calculation is probably quick, but this
+            // is essentially the same thing as we do in the actual text layout stage
+            let mut max_line_cursor: f32 = 0.0;
+            let mut cur_line_cursor = 0.0;
+            // Start at line 1 because we always have one line and not zero.
+            let mut cur_line = 1;
+
+            for w in &self.items {
+                match w {
+                    Word(w) => {
+                        if cur_line_cursor + w.total_width > width {
+                            max_line_cursor = max_line_cursor.max(cur_line_cursor);
+                            cur_line_cursor = 0.0;
+                            cur_line += 1;
+                        }
+                        cur_line_cursor += w.total_width + space_width;
+                    },
+                    // TODO: also check for rect break after tabs? Kinda pointless, isn't it?
+                    Tab => cur_line_cursor += tab_width,
+                    Return => {
+                        max_line_cursor = max_line_cursor.max(cur_line_cursor);
+                        cur_line_cursor = 0.0;
+                        cur_line += 1;
+                    }
+                }
+            }
+
+            VerticalTextInfo {
+                max_hor_len: Some(cur_line_cursor),
+                vertical_height: cur_line as f32 * vertical_advance * PT_TO_PX,
+            }
+        }
+    }
+}
+
 /// A `Word` contains information about the layout of a single word
 #[derive(Debug, Clone)]
 pub struct Word {
@@ -524,6 +576,12 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct VerticalTextInfo {
+    pub vertical_height: f32,
+    pub max_hor_len: Option<f32>,
+}
+
 // First pass: calculate if the words will overflow (using the tabs)
 fn estimate_overflow_pass_1(
     words: &Words,
@@ -534,10 +592,10 @@ fn estimate_overflow_pass_1(
 {
     use self::SemanticWordItem::*;
 
+    let VerticalTextInfo { vertical_height, max_hor_len } = words.get_vertical_height(overflow, font_metrics, rect_dimensions.width);
+
     let words = &words.items;
-
     let FontMetrics { space_width, tab_width, vertical_advance, .. } = *font_metrics;
-
     let max_text_line_len_horizontal = 0.0;
 
     // Determine the maximum width and height that the text needs for layout
@@ -552,52 +610,10 @@ fn estimate_overflow_pass_1(
     // Horizontal scrollbars, on the other hand, are 1.0x the width of the rectangle,
     // when the width is filled.
 
-    // TODO: this is duplicated code
-
-    let mut max_hor_len = None;
-
-    let vertical_length = {
-        if overflow.allows_horizontal_overflow() {
-            // If we can overflow horizontally, we only need to sum up the `Return`
-            // characters, since the actual length of the line doesn't matter
-            words.iter().filter(|w| w.is_return()).count() as f32 * vertical_advance
-        } else {
-            // TODO: should this be cached? The calculation is probably quick, but this
-            // is essentially the same thing as we do in the actual text layout stage
-            let mut max_line_cursor: f32 = 0.0;
-            let mut cur_line_cursor = 0.0;
-            // Start at line 1 because we always have one line and not zero.
-            let mut cur_line = 1;
-
-            for w in words {
-                match w {
-                    Word(w) => {
-                        if cur_line_cursor + w.total_width > rect_dimensions.width {
-                            max_line_cursor = max_line_cursor.max(cur_line_cursor);
-                            cur_line_cursor = 0.0;
-                            cur_line += 1;
-                        }
-                        cur_line_cursor += w.total_width + space_width;
-                    },
-                    // TODO: also check for rect break after tabs? Kinda pointless, isn't it?
-                    Tab => cur_line_cursor += tab_width,
-                    Return => {
-                        max_line_cursor = max_line_cursor.max(cur_line_cursor);
-                        cur_line_cursor = 0.0;
-                        cur_line += 1;
-                    }
-                }
-            }
-
-            max_hor_len = Some(cur_line_cursor);
-            cur_line as f32 * vertical_advance * PT_TO_PX
-        }
-    };
-
-    let vertical_length = if vertical_length > rect_dimensions.height {
-        TextOverflow::IsOverflowing(vertical_length - rect_dimensions.height)
+    let vertical_height = if vertical_height > rect_dimensions.height {
+        TextOverflow::IsOverflowing(vertical_height - rect_dimensions.height)
     } else {
-        TextOverflow::InBounds(rect_dimensions.height - vertical_length)
+        TextOverflow::InBounds(rect_dimensions.height - vertical_height)
     };
 
     let horizontal_length = {
@@ -632,7 +648,7 @@ fn estimate_overflow_pass_1(
 
     TextOverflowPass1 {
         horizontal: horizontal_length,
-        vertical: vertical_length,
+        vertical: vertical_height,
     }
 }
 
