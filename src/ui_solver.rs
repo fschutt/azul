@@ -579,15 +579,6 @@ determine_preferred!(determine_preferred_height, height, min_height, max_height)
 
 use css_parser::{LayoutMargin, LayoutPadding};
 
-/*
-// This macro creates a "typed rect" for separating width and height out
-// I.e. `typed_rect!(WidthCalculatedRect, preferred_width)` and
-// `typed_rect!(HeightCalculatedRect, preferred_height)`
-macro_rules! typed_rect {($rect_name:ident, $preferred:ident) => (
-
-)} // end of macro typed_rect!
-*/
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct WidthCalculatedRect {
     pub preferred_width: WhConstraint,
@@ -668,13 +659,19 @@ macro_rules! typed_arena {(
 
 impl Arena<$struct_name> {
 
-    /// Fill out the preferred width of all nodes
+    /// Fill out the preferred width of all nodes.
+    ///
+    /// We could operate on the Arena<DisplayRectangle> directly, but that makes testing very
+    /// hard since we are only interested in testing or touching the layout. So this makes the
+    /// calculation maybe a few microseconds slower, but gives better testing capabilities
+    ///
+    /// NOTE: Later on, this could maybe be a Arena<&'a RectLayout>.
     #[must_use]
-    fn from_rect_layout_arena(arena: &Arena<RectLayout>) -> Self {
-        arena.transform(|node, _| {
+    fn from_rect_layout_arena(arena: &Arena<RectLayout>, widths: Arena<Option<f32>>) -> Self {
+        arena.transform(|node, id| {
             $struct_name {
                 // TODO: get the initial width of the rect content
-                $preferred_field: $determine_preferred_fn(&node, None),
+                $preferred_field: $determine_preferred_fn(&node, widths[id].data),
                 margin: node.margin.unwrap_or_default(),
                 padding: node.padding.unwrap_or_default(),
                 flex_grow_px: 0.0,
@@ -754,6 +751,8 @@ impl Arena<$struct_name> {
         non_leaf_nodes
     }
 
+    /// Go from the root down and flex_grow the children if needed - respects the `width`, `min_width` and `max_width` properties
+    /// The layout step doesn't account for the min_width and max_width constraints, so we have to adjust them manually
     fn apply_flex_grow(
         &mut self,
         arena: &Arena<RectLayout>,
@@ -984,35 +983,43 @@ impl HeightSolvedResult {
     }
 }
 
+pub(crate) struct SolvedWidthLayout {
+    pub solved_widths: BTreeMap<NodeId, WidthSolvedResult>,
+    pub layout_only_arena: Arena<RectLayout>,
+}
+
+pub(crate) struct SolvedHeightLayout {
+    pub solved_heights: BTreeMap<NodeId, HeightSolvedResult>,
+}
+
 /// Returns the solved widths of the items in a BTree form
 pub(crate) fn solve_flex_layout_width<'a>(
     display_rectangles: &Arena<DisplayRectangle<'a>>,
+    preferred_widths: Arena<Option<f32>>,
     window_width: f32)
--> BTreeMap<NodeId, WidthSolvedResult>
+-> SolvedWidthLayout
 {
-    // We could operate on the Arena<DisplayRectangle> directly, but that makes testing very
-    // hard since we are only interested in testing or touching the layout. So this makes the
-    // calculation maybe a few microseconds slower, but gives better testing capabilities
-    //
-    // NOTE: Later on, this could maybe be a Arena<&'a RectLayout>.
     let layout_only_arena = display_rectangles.transform(|node, _| node.layout);
-
-    let mut width_calculated_arena = Arena::<WidthCalculatedRect>::from_rect_layout_arena(&layout_only_arena);
+    let mut width_calculated_arena = Arena::<WidthCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_widths);
     let non_leaf_nodes_sorted_by_depth = width_calculated_arena.bubble_preferred_widths_to_parents(&layout_only_arena);
-
-    // Go from the root down and flex_grow the children if needed - respects the `width`, `min_width` and `max_width` properties
-    // The layout step doesn't account for the min_width and max_width constraints, so we have to adjust them manually
     width_calculated_arena.apply_flex_grow(&layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_width);
+    let solved_widths = width_calculated_arena.linear_iter().map(|node_id| (node_id, width_calculated_arena[node_id].data.solved_result())).collect();
+    SolvedWidthLayout { solved_widths , layout_only_arena }
+}
 
-    // Calculate the final size and return the solution
-    let mut width_btree = BTreeMap::new();
-
-    for node_id in width_calculated_arena.linear_iter() {
-        // TODO: Put this in a function and incorporate the flex-start / flex-end / stretch, etc.
-        width_btree.insert(node_id, width_calculated_arena[node_id].data.solved_result());
-    }
-
-    width_btree
+/// Returns the solved height of the items in a BTree form
+pub(crate) fn solve_flex_layout_height(
+    solved_widths: &SolvedWidthLayout,
+    preferred_heights: Arena<Option<f32>>,
+    window_height: f32)
+-> SolvedHeightLayout
+{
+    let SolvedWidthLayout { layout_only_arena, .. } = solved_widths;
+    let mut height_calculated_arena = Arena::<HeightCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_heights);
+    let non_leaf_nodes_sorted_by_depth = height_calculated_arena.bubble_preferred_heights_to_parents(&layout_only_arena);
+    height_calculated_arena.apply_flex_grow(&layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_height);
+    let solved_heights = height_calculated_arena.linear_iter().map(|node_id| (node_id, height_calculated_arena[node_id].data.solved_result())).collect();
+    SolvedHeightLayout { solved_heights }
 }
 
 /// Traverses from arena[id] to the root, returning the amount of parents, i.e. the depth of the node in the tree.
@@ -1048,19 +1055,6 @@ fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<Rect
     }
     None
 }
-
-/*
-use dom::NodeType;
-
-fn determine_height_based_on_width(node_id: NodeId, arena: &Arena<RectLayout>, width: WidthSolvedResult) {
-    let preferred_height = determine_preferred_height(&arena[node_id].data, None);
-}
-
-/// Returns the height based on the width of a node type (esp. text caching)
-fn height_from_width<T: Layout>(node_type: NodeType<T>) -> f32 {
-    50.0
-}
-*/
 
 #[cfg(test)]
 mod layout_tests {
