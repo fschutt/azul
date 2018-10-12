@@ -8,8 +8,7 @@ use cassowary::{
     strength::*,
 };
 use glium::glutin::dpi::{LogicalSize, LogicalPosition};
-use webrender::api::LayoutPixel;
-use euclid::{TypedRect, TypedPoint2D, TypedSize2D};
+use webrender::api::{LayoutRect, LayoutSize, LayoutPoint};
 use {
     id_tree::{NodeId, Arena},
     ui_description::UiDescription,
@@ -163,7 +162,7 @@ impl DomSolver {
     ///
     /// **NOTE**: Automatically applies the `self.position` offset to the rectangle,
     /// so that the resulting rectangle can be directly pushed into the display list!
-    pub(crate) fn query_bounds_of_rect(&self, rect_id: NodeId) -> TypedRect<f32, LayoutPixel> {
+    pub(crate) fn query_bounds_of_rect(&self, rect_id: NodeId) -> LayoutRect {
 
         let display_rect = self.get_rect_constraints(rect_id).unwrap();
 
@@ -174,7 +173,7 @@ impl DomSolver {
         let width = self.solved_values.get(&display_rect.width).and_then(|x| Some(*x)).unwrap_or(0.0);
         let height = self.solved_values.get(&display_rect.height).and_then(|x| Some(*x)).unwrap_or(0.0);
 
-        TypedRect::new(TypedPoint2D::new(left as f32, top as f32), TypedSize2D::new(width as f32, height as f32))
+        LayoutRect::new(LayoutPoint::new(left as f32, top as f32), LayoutSize::new(width as f32, height as f32))
     }
 
     // TODO: This should use the root, not the
@@ -983,13 +982,15 @@ impl HeightSolvedResult {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct SolvedWidthLayout {
-    pub solved_widths: BTreeMap<NodeId, WidthSolvedResult>,
+    pub solved_widths: Arena<WidthSolvedResult>,
     pub layout_only_arena: Arena<RectLayout>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct SolvedHeightLayout {
-    pub solved_heights: BTreeMap<NodeId, HeightSolvedResult>,
+    pub solved_heights: Arena<HeightSolvedResult>,
 }
 
 /// Returns the solved widths of the items in a BTree form
@@ -1003,7 +1004,7 @@ pub(crate) fn solve_flex_layout_width<'a>(
     let mut width_calculated_arena = Arena::<WidthCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_widths);
     let non_leaf_nodes_sorted_by_depth = width_calculated_arena.bubble_preferred_widths_to_parents(&layout_only_arena);
     width_calculated_arena.apply_flex_grow(&layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_width);
-    let solved_widths = width_calculated_arena.linear_iter().map(|node_id| (node_id, width_calculated_arena[node_id].data.solved_result())).collect();
+    let solved_widths = width_calculated_arena.transform(|node, _| node.solved_result());
     SolvedWidthLayout { solved_widths , layout_only_arena }
 }
 
@@ -1018,11 +1019,12 @@ pub(crate) fn solve_flex_layout_height(
     let mut height_calculated_arena = Arena::<HeightCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_heights);
     let non_leaf_nodes_sorted_by_depth = height_calculated_arena.bubble_preferred_heights_to_parents(&layout_only_arena);
     height_calculated_arena.apply_flex_grow(&layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_height);
-    let solved_heights = height_calculated_arena.linear_iter().map(|node_id| (node_id, height_calculated_arena[node_id].data.solved_result())).collect();
+    let solved_heights = height_calculated_arena.transform(|node, _| node.solved_result());
     SolvedHeightLayout { solved_heights }
 }
 
 /// Traverses from arena[id] to the root, returning the amount of parents, i.e. the depth of the node in the tree.
+#[inline]
 fn leaf_node_depth<T>(id: &NodeId, arena: &Arena<T>) -> usize {
     let mut counter = 0;
     let mut last_id = *id;
@@ -1237,7 +1239,8 @@ mod layout_tests {
             })
         ]);
 
-        let mut width_filled_out = Arena::<WidthCalculatedRect>::from_rect_layout_arena(&display_rectangles);
+        let preferred_widths = display_rectangles.transform(|_, _| None);
+        let mut width_filled_out = Arena::<WidthCalculatedRect>::from_rect_layout_arena(&display_rectangles, preferred_widths);
 
         // Test some basic stuff - test that `get_flex_basis` works
 

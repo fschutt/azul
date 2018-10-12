@@ -285,7 +285,8 @@ impl<T: Layout> NodeType<T> {
         &self,
         div_width: f32,
         image_cache: &FastHashMap<ImageId, ImageState>,
-        words: Option<(&Words, &FontMetrics)>,
+        words: Option<&Words>,
+        font_metrics: Option<FontMetrics>,
     ) -> Option<f32>
     {
         use self::NodeType::*;
@@ -297,11 +298,11 @@ impl<T: Layout> NodeType<T> {
                 Some((image_original_width / image_original_height) * div_width)
             }),
             Label(_) | Text(_) => {
-                let (words, font) = words.unwrap();
+                let (words, font) = (words?, font_metrics?);
                 let vertical_info = words.get_vertical_height(&LayoutOverflow {
                     horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Scroll),
                     .. Default::default()
-                }, font, div_width);
+                }, &font, div_width);
                 Some(vertical_info.vertical_height)
             }
             _ => None,
