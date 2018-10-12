@@ -448,14 +448,18 @@ impl Css {
         let file_path = if let Some(f) = &self.hot_reload_path {
             f.clone()
         } else {
-            error!("No file to hot-reload the CSS from!");
+            #[cfg(feature = "logging")] {
+               error!("No file to hot-reload the CSS from!");
+            }
             return;
         };
 
         let reloaded_css = match fs::read_to_string(&file_path) {
             Ok(o) => o,
             Err(e) => {
-                error!("Failed to hot-reload \"{}\":\r\n{}\n", file_path, e);
+                #[cfg(feature = "logging")] {
+                    error!("Failed to hot-reload \"{}\":\r\n{}\n", file_path, e);
+                }
                 return;
             },
         };
@@ -469,7 +473,9 @@ impl Css {
         let mut parsed_css = match Self::new_from_str(&target_css) {
             Ok(o) => o,
             Err(e) => {
-                error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
+                #[cfg(feature = "logging")] {
+                    error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
+                }
                 return;
             },
         };

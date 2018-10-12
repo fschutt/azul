@@ -270,7 +270,9 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         if let Some((callback_ptr, callback_fn)) = self.callbacks.get(callback_id) {
             (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
         } else {
-            warn!("Calling default callback with invalid ID {:?}", callback_id);
+            #[cfg(feature = "logging")] {
+                warn!("Calling default callback with invalid ID {:?}", callback_id);
+            }
             UpdateScreen::DontRedraw
         }
     }

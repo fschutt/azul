@@ -770,20 +770,17 @@ fn apply_flex_grow_with_constraints(
     let mut horizontal_space_taken_up_by_fixed_width_items = 0.0;
 
     {
-        // Vec<(NodeId, PreferredWidth, ItemWidth)>
+        // Vec<(NodeId, PreferredWidth)>
         let exact_width_childs = node_id
                 .children(width_calculated_arena)
                 .filter_map(|id| if let WhConstraint::EqualTo(exact) = width_calculated_arena[id].data.preferred_width {
-                    let node = &width_calculated_arena[id].data;
-                    let current_width = node.min_inner_size_px + node.flex_grow_px; // include padding here
-                    Some((id, exact, current_width))
+                    Some((id, exact))
                 } else {
                     None
                 })
-                .collect::<Vec<(NodeId, f32, f32)>>();
+                .collect::<Vec<(NodeId, f32)>>();
 
-        for (exact_width_child_id, preferred_width, current_width) in exact_width_childs {
-            let violation_px = current_width - preferred_width;
+        for (exact_width_child_id, preferred_width) in exact_width_childs {
             // horizontal_space_from_fixed_width_items += violation_px;
             horizontal_space_taken_up_by_fixed_width_items += preferred_width;
             // so that node.min_inner_size_px + node.flex_grow_px = preferred_width
@@ -808,9 +805,6 @@ fn apply_flex_grow_with_constraints(
         .collect::<FastHashSet<NodeId>>();
 
     for variable_child_id in &variable_width_childs {
-        let current_width = width_calculated_arena[*variable_child_id].data.min_inner_size_px +
-                            width_calculated_arena[*variable_child_id].data.flex_grow_px;
-
         let min_width = width_calculated_arena[*variable_child_id].data.preferred_width.min_needed_space();
         horizontal_space_taken_up_by_variable_items += min_width;
 
@@ -987,7 +981,7 @@ fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<Disp
 
 use dom::NodeType;
 
-fn determine_height_based_on_width(node_id: NodeId, arena: &Arena<RectLayout>) {
+fn determine_height_based_on_width(node_id: NodeId, arena: &Arena<RectLayout>, width: WidthSolvedResult) {
     let preferred_height = determine_preferred_height(&arena[node_id].data);
 }
 
