@@ -459,6 +459,7 @@ pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
 }
 
 /// Push a single rectangle into the display list builder
+#[inline]
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     rectangle: DisplayListRectParams<'c, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
@@ -734,14 +735,6 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     );
 
     referenced_mutable_content.ui_solver.insert_dom(new_dom_id, dom_solver);
-
-    insert_constraints_into_solver(
-        &ui_description,
-        referenced_mutable_content.ui_solver.get_dom_mut(&new_dom_id).unwrap(),
-        &rect_size,
-        &display_list.rectangles,
-        true
-    );
 
     let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles);
     let referenced_content = DisplayListParametersRef {
