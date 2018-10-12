@@ -435,42 +435,25 @@ fn create_layout_constraints<'a, T: Layout>(
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum WhConstraint {
-    /// between min, max, Prefer::Max | Prefer::Min
-    Between(f32, f32, WhPrefer),
+    /// between min, max
+    Between(f32, f32),
     /// Value needs to be exactly X
     EqualTo(f32),
     /// Value can be anything
     Unconstrained,
 }
 
-impl Default for WhConstraint {
-    fn default() -> Self {
-        WhConstraint::Unconstrained
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum WhPrefer {
-    Max,
-    Min,
-}
-
 impl WhConstraint {
-
-    /// Returns the actual value of the constraint
-    pub fn actual_value(&self) -> Option<f32> {
-        use self::WhConstraint::*;
-        match self {
-            Between(min, max, prefer) => match prefer { WhPrefer::Min => Some(*min), WhPrefer::Max => Some(*max) },
-            EqualTo(exact) => Some(*exact),
-            Unconstrained => None,
-        }
-    }
 
     /// Returns the minimum value or 0 on `Unconstrained`
     /// (warning: this might not be what you want)
-    pub fn min_needed_space(&self) -> f32 {
-        self.actual_value().unwrap_or(0.0)
+    pub fn min_needed_space(&self) -> Option<f32> {
+        use self::WhConstraint::*;
+        match self {
+            Between(min, _) => Some(*min),
+            EqualTo(exact) => Some(*exact),
+            Unconstrained => None,
+        }
     }
 
     /// Returns the maximum space until the constraint is violated - returns
@@ -478,13 +461,13 @@ impl WhConstraint {
     pub fn max_available_space(&self) -> Option<f32> {
         use self::WhConstraint::*;
         match self {
-            Between(_, max, _) => { Some(*max) },
+            Between(_, max) => { Some(*max) },
             EqualTo(exact) => Some(*exact),
             Unconstrained => None,
         }
     }
 
-    /// Returns if this `WhConstraint` has leeway or if it is an `EqualTo` constraint
+    /// Returns if this `WhConstraint` is an `EqualTo` constraint
     pub fn is_fixed_constraint(&self) -> bool {
         use self::WhConstraint::*;
         match self {
@@ -496,9 +479,15 @@ impl WhConstraint {
 
 macro_rules! determine_preferred {
     ($fn_name:ident, $width:ident, $min_width:ident, $max_width:ident) => (
-    fn $fn_name(layout: &RectLayout) -> WhConstraint {
 
-        let width = layout.$width.and_then(|w| Some(w.0.to_pixels()));
+    /// - `preferred_inner_width` denotes the preferred width of the width or height got from the
+    /// from the rectangles content.
+    ///
+    /// For example, if you have an image, the `preferred_inner_width` is the images width,
+    /// if the node type is an text, the `preferred_inner_width` is the text height.
+    fn $fn_name(layout: &RectLayout, preferred_inner_width: Option<f32>) -> WhConstraint {
+
+        let mut width = layout.$width.and_then(|w| Some(w.0.to_pixels()));
         let min_width = layout.$min_width.and_then(|w| Some(w.0.to_pixels()));
         let max_width = layout.$max_width.and_then(|w| Some(w.0.to_pixels()));
 
@@ -514,6 +503,17 @@ macro_rules! determine_preferred {
                 }
             } else {
                 (min_width, max_width)
+            }
+        };
+
+        // We only need to correct the width if the preferred width is in
+        // the range between min & max and the width isn't already specified in CSS
+        if let Some(preferred_width) = preferred_inner_width {
+            if width.is_none() &&
+               preferred_width > absolute_min.unwrap_or(0.0) &&
+               preferred_width < absolute_max.unwrap_or(f32::MAX)
+            {
+                width = Some(preferred_width);
             }
         };
 
@@ -545,14 +545,14 @@ macro_rules! determine_preferred {
             // no width, only min_width and max_width
             if let Some(max_width) = absolute_max {
                 if let Some(min_width) = absolute_min {
-                    WhConstraint::Between(min_width, max_width, WhPrefer::Min)
+                    WhConstraint::Between(min_width, max_width)
                 } else {
                     // TODO: check sign positive on max_width!
-                    WhConstraint::Between(0.0, max_width, WhPrefer::Min)
+                    WhConstraint::Between(0.0, max_width)
                 }
             } else {
                 if let Some(min_width) = absolute_min {
-                    WhConstraint::Between(min_width, f32::MAX, WhPrefer::Min)
+                    WhConstraint::Between(min_width, f32::MAX)
                 } else {
                     // no width, min_width or max_width
                     WhConstraint::Unconstrained
@@ -587,14 +587,12 @@ struct WidthCalculatedRect {
 
 impl WidthCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
-    pub fn get_flex_basis(&self) -> FlexBasisHorizontal {
-        FlexBasisHorizontal {
-            min_width: self.preferred_width.min_needed_space(),
-            self_margin_left: self.margin.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
-            self_margin_right: self.margin.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
-            self_padding_left: self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
-            self_padding_right: self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0),
-        }
+    pub fn get_flex_basis(&self) -> f32 {
+        self.preferred_width.min_needed_space().unwrap_or(0.0) +
+        self.margin.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
+        self.margin.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
+        self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
+        self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
@@ -612,26 +610,6 @@ impl WidthCalculatedRect {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct FlexBasisHorizontal {
-    pub min_width: f32,
-    pub self_margin_left: f32,
-    pub self_margin_right: f32,
-    pub self_padding_right: f32,
-    pub self_padding_left: f32,
-}
-
-impl FlexBasisHorizontal {
-    /// Total flex basis in the horizontal direction (sum of the components)
-    pub fn total(&self) -> f32 {
-        self.min_width +
-        self.self_margin_left +
-        self.self_margin_right +
-        self.self_padding_left +
-        self.self_padding_right
-    }
-}
-
 /// Returns the sum of the flex-basis of the current nodes' children
 fn sum_children_flex_basis<'a>(
     node_id: NodeId,
@@ -645,7 +623,7 @@ fn sum_children_flex_basis<'a>(
     node_id
         .children(arena)
         .filter(|child_node_id| display_arena[*child_node_id].data.position != Some(LayoutPosition::Absolute))
-        .map(|child_node_id| arena[child_node_id].data.get_flex_basis().total())
+        .map(|child_node_id| arena[child_node_id].data.get_flex_basis())
         .sum()
 }
 
@@ -655,7 +633,8 @@ fn fill_out_preferred_width(arena: &Arena<RectLayout>)
 {
     arena.transform(|node, _| {
         WidthCalculatedRect {
-            preferred_width: determine_preferred_width(&node),
+            // TODO: get the initial width of the rect content
+            preferred_width: determine_preferred_width(&node, None),
             margin: node.margin.unwrap_or_default(),
             padding: node.padding.unwrap_or_default(),
             flex_grow_px: 0.0,
@@ -712,7 +691,7 @@ fn bubble_preferred_widths_to_parents(
         // If the children are larger than the parents preferred max-width or smaller
         // than the parents min-width, adjust
         let child_width = match parent_width_metrics.preferred_width {
-            Between(min, max, _) => {
+            Between(min, max) => {
                 if children_flex_basis > (max - parent_padding)  {
                     max
                 } else if children_flex_basis < (min + parent_padding) {
@@ -805,7 +784,7 @@ fn apply_flex_grow_with_constraints(
         .collect::<FastHashSet<NodeId>>();
 
     for variable_child_id in &variable_width_childs {
-        let min_width = width_calculated_arena[*variable_child_id].data.preferred_width.min_needed_space();
+        let min_width = width_calculated_arena[*variable_child_id].data.preferred_width.min_needed_space().unwrap_or(0.0);
         horizontal_space_taken_up_by_variable_items += min_width;
 
         // so that node.min_inner_size_px + node.flex_grow_px = min_width
@@ -982,7 +961,7 @@ fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<Disp
 use dom::NodeType;
 
 fn determine_height_based_on_width(node_id: NodeId, arena: &Arena<RectLayout>, width: WidthSolvedResult) {
-    let preferred_height = determine_preferred_height(&arena[node_id].data);
+    let preferred_height = determine_preferred_height(&arena[node_id].data, None);
 }
 
 /// Returns the height based on the width of a node type (esp. text caching)
@@ -1090,7 +1069,7 @@ mod layout_tests {
             max_width: None,
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::Unconstrained);
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::Unconstrained);
 
         let layout = RectLayout {
             width: Some(LayoutWidth(PixelValue::px(500.0))),
@@ -1098,7 +1077,7 @@ mod layout_tests {
             max_width: None,
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(500.0));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::EqualTo(500.0));
 
         let layout = RectLayout {
             width: Some(LayoutWidth(PixelValue::px(500.0))),
@@ -1106,7 +1085,7 @@ mod layout_tests {
             max_width: None,
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(600.0));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::EqualTo(600.0));
 
         let layout = RectLayout {
             width: Some(LayoutWidth(PixelValue::px(10000.0))),
@@ -1114,7 +1093,7 @@ mod layout_tests {
             max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(800.0));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::EqualTo(800.0));
 
         let layout = RectLayout {
             width: None,
@@ -1122,7 +1101,7 @@ mod layout_tests {
             max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::Between(600.0, 800.0, WhPrefer::Min));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::Between(600.0, 800.0));
 
         let layout = RectLayout {
             width: None,
@@ -1130,7 +1109,7 @@ mod layout_tests {
             max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::Between(0.0, 800.0, WhPrefer::Min));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::Between(0.0, 800.0));
 
         let layout = RectLayout {
             width: Some(LayoutWidth(PixelValue::px(1000.0))),
@@ -1138,7 +1117,7 @@ mod layout_tests {
             max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(800.0));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::EqualTo(800.0));
 
         let layout = RectLayout {
             width: Some(LayoutWidth(PixelValue::px(1200.0))),
@@ -1146,7 +1125,7 @@ mod layout_tests {
             max_width: Some(LayoutMaxWidth(PixelValue::px(800.0))),
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(800.0));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::EqualTo(800.0));
 
         let layout = RectLayout {
             width: Some(LayoutWidth(PixelValue::px(1200.0))),
@@ -1154,7 +1133,7 @@ mod layout_tests {
             max_width: Some(LayoutMaxWidth(PixelValue::px(400.0))),
             .. Default::default()
         };
-        assert_eq!(determine_preferred_width(&layout), WhConstraint::EqualTo(400.0));
+        assert_eq!(determine_preferred_width(&layout, None), WhConstraint::EqualTo(400.0));
     }
 
     /// Tests that the nodes get filled correctly
@@ -1176,19 +1155,19 @@ mod layout_tests {
         // Test some basic stuff - test that `get_flex_basis` works
 
         // Nodes 0, 2, 3, 4 and 5 have no basis
-        assert_eq!(width_filled_out[NodeId::new(0)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(0)].data.get_flex_basis(), 0.0);
 
         // Node 1 has a padding on left and right of 20, so a flex-basis of 40.0
-        assert_eq!(width_filled_out[NodeId::new(1)].data.get_flex_basis().total(), 40.0);
+        assert_eq!(width_filled_out[NodeId::new(1)].data.get_flex_basis(), 40.0);
         assert_eq!(width_filled_out[NodeId::new(1)].data.get_horizontal_padding(), 40.0);
 
-        assert_eq!(width_filled_out[NodeId::new(2)].data.get_flex_basis().total(), 0.0);
-        assert_eq!(width_filled_out[NodeId::new(3)].data.get_flex_basis().total(), 0.0);
-        assert_eq!(width_filled_out[NodeId::new(4)].data.get_flex_basis().total(), 0.0);
-        assert_eq!(width_filled_out[NodeId::new(5)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(2)].data.get_flex_basis(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(3)].data.get_flex_basis(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(4)].data.get_flex_basis(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(5)].data.get_flex_basis(), 0.0);
 
         assert_eq!(width_filled_out[NodeId::new(0)].data.preferred_width, WhConstraint::Unconstrained);
-        assert_eq!(width_filled_out[NodeId::new(1)].data.preferred_width, WhConstraint::Between(0.0, 200.0, WhPrefer::Min));
+        assert_eq!(width_filled_out[NodeId::new(1)].data.preferred_width, WhConstraint::Between(0.0, 200.0));
         assert_eq!(width_filled_out[NodeId::new(2)].data.preferred_width, WhConstraint::Unconstrained);
         assert_eq!(width_filled_out[NodeId::new(3)].data.preferred_width, WhConstraint::Unconstrained);
         assert_eq!(width_filled_out[NodeId::new(4)].data.preferred_width, WhConstraint::Unconstrained);
@@ -1218,7 +1197,7 @@ mod layout_tests {
 
         // This step should not modify the `preferred_width`
         assert_eq!(width_filled_out[NodeId::new(0)].data.preferred_width, WhConstraint::Unconstrained);
-        assert_eq!(width_filled_out[NodeId::new(1)].data.preferred_width, WhConstraint::Between(0.0, 200.0, WhPrefer::Min));
+        assert_eq!(width_filled_out[NodeId::new(1)].data.preferred_width, WhConstraint::Between(0.0, 200.0));
         assert_eq!(width_filled_out[NodeId::new(2)].data.preferred_width, WhConstraint::Unconstrained);
         assert_eq!(width_filled_out[NodeId::new(3)].data.preferred_width, WhConstraint::Unconstrained);
         assert_eq!(width_filled_out[NodeId::new(4)].data.preferred_width, WhConstraint::Unconstrained);
@@ -1226,15 +1205,15 @@ mod layout_tests {
 
         // The padding of the Node 1 should have bubbled up to be the minimum width of Node 0
         assert_eq!(width_filled_out[NodeId::new(0)].data.min_inner_size_px, 40.0);
-        assert_eq!(width_filled_out[NodeId::new(1)].data.get_flex_basis().total(), 40.0);
+        assert_eq!(width_filled_out[NodeId::new(1)].data.get_flex_basis(), 40.0);
         assert_eq!(width_filled_out[NodeId::new(1)].data.min_inner_size_px, 0.0);
-        assert_eq!(width_filled_out[NodeId::new(2)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(2)].data.get_flex_basis(), 0.0);
         assert_eq!(width_filled_out[NodeId::new(2)].data.min_inner_size_px, 0.0);
-        assert_eq!(width_filled_out[NodeId::new(3)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(3)].data.get_flex_basis(), 0.0);
         assert_eq!(width_filled_out[NodeId::new(3)].data.min_inner_size_px, 0.0);
-        assert_eq!(width_filled_out[NodeId::new(4)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(4)].data.get_flex_basis(), 0.0);
         assert_eq!(width_filled_out[NodeId::new(4)].data.min_inner_size_px, 0.0);
-        assert_eq!(width_filled_out[NodeId::new(5)].data.get_flex_basis().total(), 0.0);
+        assert_eq!(width_filled_out[NodeId::new(5)].data.get_flex_basis(), 0.0);
         assert_eq!(width_filled_out[NodeId::new(5)].data.min_inner_size_px, 0.0);
 
         // -- Section 3: Test if growing the sizes works
