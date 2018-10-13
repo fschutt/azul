@@ -1,12 +1,12 @@
 //! Contains methods related to event filtering (i.e. detecting whether a
 //! click was a mouseover, mouseout, and so on and calling the correct callbacks)
 
+use std::collections::HashSet;
 use glium::glutin::{
     Window, Event, WindowEvent, KeyboardInput, ScanCode, ElementState,
     MouseCursor, VirtualKeyCode, MouseScrollDelta,
     ModifiersState, dpi::{LogicalPosition, LogicalSize},
 };
-use std::collections::HashSet;
 use {
     dom::On,
 };
@@ -96,22 +96,76 @@ impl Default for MouseState {
     }
 }
 
+/// Toggles webrender debug flags (will make stuff appear on
+/// the screen that you might not want to - used for debugging purposes)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct DebugState {
+    /// Toggles `webrender::DebugFlags::PROFILER_DBG`
+    pub profiler_dbg: bool,
+    /// Toggles `webrender::DebugFlags::RENDER_TARGET_DBG`
+    pub render_target_dbg: bool,
+    /// Toggles `webrender::DebugFlags::TEXTURE_CACHE_DBG`
+    pub texture_cache_dbg: bool,
+    /// Toggles `webrender::DebugFlags::GPU_TIME_QUERIES`
+    pub gpu_time_queries: bool,
+    /// Toggles `webrender::DebugFlags::GPU_SAMPLE_QUERIES`
+    pub gpu_sample_queries: bool,
+    /// Toggles `webrender::DebugFlags::DISABLE_BATCHING`
+    pub disable_batching: bool,
+    /// Toggles `webrender::DebugFlags::EPOCHS`
+    pub epochs: bool,
+    /// Toggles `webrender::DebugFlags::COMPACT_PROFILER`
+    pub compact_profiler: bool,
+    /// Toggles `webrender::DebugFlags::ECHO_DRIVER_MESSAGES`
+    pub echo_driver_messages: bool,
+    /// Toggles `webrender::DebugFlags::NEW_FRAME_INDICATOR`
+    pub new_frame_indicator: bool,
+    /// Toggles `webrender::DebugFlags::NEW_SCENE_INDICATOR`
+    pub new_scene_indicator: bool,
+    /// Toggles `webrender::DebugFlags::SHOW_OVERDRAW`
+    pub show_overdraw: bool,
+    /// Toggles `webrender::DebugFlags::GPU_CACHE_DBG`
+    pub gpu_cache_dbg: bool,
+}
+
+impl Default for DebugState {
+    fn default() -> Self {
+        Self {
+            profiler_dbg: false,
+            render_target_dbg: false,
+            texture_cache_dbg: false,
+            gpu_time_queries: false,
+            gpu_sample_queries: false,
+            disable_batching: false,
+            epochs: false,
+            compact_profiler: false,
+            echo_driver_messages: false,
+            new_frame_indicator: false,
+            new_scene_indicator: false,
+            show_overdraw: false,
+            gpu_cache_dbg: false,
+        }
+    }
+}
+
 /// State, size, etc of the window, for comparing to the last frame
 #[derive(Debug, Clone)]
-pub struct WindowState
-{
-    /// Previous window state, used for determining mouseout, etc. events
-    pub(crate) previous_window_state: Option<Box<WindowState>>,
-    /// Current title of the window
-    pub title: String,
+pub struct WindowState {
     /// The state of the keyboard for this frame
     pub(crate) keyboard_state: KeyboardState,
-    /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<LogicalPosition>,
     /// The state of the mouse
     pub(crate) mouse_state: MouseState,
+    /// Mostly used for debugging, shows webrender-builtin graphs on the screen.
+    /// Used for performance monitoring and displaying frame times (rendering-only).
+    pub debug_state: DebugState,
+    /// Previous window state, used for determining mouseout, etc. events
+    pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
+    /// Current title of the window
+    pub title: String,
+    /// The x and y position, or None to let the WM decide where to put the window (default)
+    pub position: Option<LogicalPosition>,
     /// Is the window currently maximized
     pub is_maximized: bool,
     /// Is the window currently fullscreened?
@@ -165,6 +219,7 @@ impl Default for WindowState {
             is_visible: true,
             is_transparent: false,
             is_always_on_top: false,
+            debug_state: DebugState::default(),
         }
     }
 }
