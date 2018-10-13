@@ -198,7 +198,7 @@ pub mod prelude {
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
-    pub use window_state::{WindowState, KeyboardState, MouseState};
+    pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
     pub use css_parser::{

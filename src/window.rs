@@ -29,7 +29,7 @@ use {
     dom::{Texture, Callback, UpdateScreen},
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
-    window_state::{WindowState, MouseState, KeyboardState},
+    window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
     compositor::Compositor,
     app::FrameEventInfo,
@@ -723,6 +723,8 @@ impl<T: Layout> Window<T> {
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
+        set_webrender_debug_flags(&mut renderer, &DebugState::default(), &options.state.debug_state);
+
         let window = Window {
             events_loop: events_loop,
             state: options.state,
@@ -765,6 +767,9 @@ impl<T: Layout> Window<T> {
         let old_state = &mut self.state;
 
         // Compare the old and new state, field by field
+        if let Some(r) = &mut self.renderer {
+            set_webrender_debug_flags(r, &old_state.debug_state, &new_state.debug_state);
+        }
 
         if old_state.title != new_state.title {
             window.set_title(&new_state.title);
@@ -909,5 +914,51 @@ impl HidpiAdjustedBounds {
             physical_size,
             hidpi_factor,
         }
+    }
+}
+
+
+fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
+
+    use webrender::DebugFlags;
+
+    if old_flags.profiler_dbg != new_flags.profiler_dbg {
+        r.set_debug_flag(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
+    }
+    if old_flags.render_target_dbg != new_flags.render_target_dbg {
+        r.set_debug_flag(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
+    }
+    if old_flags.texture_cache_dbg != new_flags.texture_cache_dbg {
+        r.set_debug_flag(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
+    }
+    if old_flags.gpu_time_queries != new_flags.gpu_time_queries {
+        r.set_debug_flag(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
+    }
+    if old_flags.gpu_sample_queries != new_flags.gpu_sample_queries {
+        r.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
+    }
+    if old_flags.disable_batching != new_flags.disable_batching {
+        r.set_debug_flag(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
+    }
+    if old_flags.epochs != new_flags.epochs {
+        r.set_debug_flag(DebugFlags::EPOCHS, new_flags.epochs);
+    }
+    if old_flags.compact_profiler != new_flags.compact_profiler {
+        r.set_debug_flag(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
+    }
+    if old_flags.echo_driver_messages != new_flags.echo_driver_messages {
+        r.set_debug_flag(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+    }
+    if old_flags.new_frame_indicator != new_flags.new_frame_indicator {
+        r.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
+    }
+    if old_flags.new_scene_indicator != new_flags.new_scene_indicator {
+        r.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
+    }
+    if old_flags.show_overdraw != new_flags.show_overdraw {
+        r.set_debug_flag(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
+    }
+    if old_flags.gpu_cache_dbg != new_flags.gpu_cache_dbg {
+        r.set_debug_flag(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
     }
 }
