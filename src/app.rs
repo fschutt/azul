@@ -285,7 +285,9 @@ impl<T: Layout> App<T> {
 
                     #[cfg(debug_assertions)]
                     {
-                        parsed_css_cache[idx] = Some(ParsedCss::from_css(&window.css));
+                        if window.css.hot_reload_path.is_some() {
+                            parsed_css_cache[idx] = Some(ParsedCss::from_css(&window.css));
+                        }
                     }
 
                     let parsed_css = parsed_css_cache[idx].as_ref().unwrap();
