@@ -67,7 +67,12 @@ impl<T: Layout> From<SwapBuffersError> for RuntimeError<T> {
 
 impl<T: Layout> fmt::Debug for RuntimeError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        use self::RuntimeError::*;
+        match self {
+            GlSwapError(e) => write!(f, "RuntimeError::GlSwapError({:?})", e),
+            ArcUnlockError => write!(f, "RuntimeError::ArcUnlockError"),
+            MutexPoisonError(e) => write!(f, "RuntimeError::MutexPoisonError({:?})", e),
+        }
     }
 }
 
