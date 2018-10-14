@@ -709,71 +709,6 @@ impl<T: Layout> Dom<T> {
         }
     }
 
-    /// Adds a sibling to the current DOM
-    pub fn add_sibling(&mut self, sibling: Self) {
-
-        // Note: for a more readable Python version of this algorithm,
-        // see: https://gist.github.com/fschutt/4b3bd9a2654b548a6eb0b6a8623bdc8a#file-dow_new_2-py-L32-L63
-
-        let self_len = self.arena.borrow().nodes_len();
-        let sibling_len = sibling.arena.borrow().nodes_len();
-
-        if sibling_len == 0 {
-            return; // No nodes to append, nothing to do
-        }
-
-        if self_len == 0 {
-            *self = sibling;
-            return;
-        }
-
-        let mut self_arena = self.arena.borrow_mut();
-        let mut sibling_arena = sibling.arena.borrow_mut();
-
-        for node_id in 0..sibling_len {
-
-            let node: &mut Node<NodeData<T>> = &mut sibling_arena[NodeId::new(node_id)];
-
-            // NOTE: we cannot directly match on the option, since it leads to borrwowing issues
-            // We can't do `node.parent` in the `None` branch, since Rust thinks we still have access
-            // to the borrowed value because `node.parent_mut()` lives too long
-
-            if node.parent_mut().and_then(|parent| {
-                // Some(parent) - increase the parent by the current arena length
-                *parent += self_len;
-                Some(parent)
-            }).is_none() {
-                // No parent - insert the current arenas head as the parent of the node
-                node.parent = self_arena[self.head].parent;
-            }
-
-            if node.previous_sibling_mut().and_then(|previous_sibling| {
-                *previous_sibling += self_len;
-                Some(previous_sibling)
-            }).is_none() {
-                node.previous_sibling = Some(self.head);
-            }
-
-            if let Some(next_sibling) = node.next_sibling_mut() {
-                *next_sibling += self_len;
-            }
-
-            if let Some(first_child) = node.first_child_mut() {
-                *first_child += self_len;
-            }
-
-            if let Some(last_child) = node.last_child_mut() {
-                *last_child += self_len;
-            }
-        }
-
-        let head_node_id = NodeId::new(self_len);
-        self_arena[self.head].next_sibling = Some(head_node_id);
-        self.head = head_node_id;
-
-        (&mut *self_arena).append(&mut sibling_arena);
-    }
-
     /// Adds a child DOM to the current DOM
     pub fn add_child(&mut self, child: Self) {
 
@@ -873,12 +808,6 @@ impl<T: Layout> Dom<T> {
     #[inline]
     pub fn with_child(mut self, child: Self) -> Self {
         self.add_child(child);
-        self
-    }
-
-    #[inline]
-    pub fn with_sibling(mut self, sibling: Self) -> Self {
-        self.add_sibling(sibling);
         self
     }
 

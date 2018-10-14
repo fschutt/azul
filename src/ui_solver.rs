@@ -686,30 +686,9 @@ impl Arena<$struct_name> {
     #[must_use]
     fn $bubble_fn_name(
         &mut self,
-        arena: &Arena<RectLayout>)
-    -> Vec<(usize, NodeId)>
+        arena: &Arena<RectLayout>,
+        non_leaf_nodes: &[(usize, NodeId)])
     {
-        // This is going to be a bit slow, but we essentially need to "bubble" the sizes from the leaf
-        // nodes to the parent nodes. So first we collect the IDs of all non-leaf nodes and then
-        // sort them by their depth.
-
-        // This is so that we can substitute the flex-basis sizes from the inside out
-        // since the outer flex-basis depends on the inner flex-basis, so we have to calculate the inner-most sizes first.
-
-        let mut non_leaf_nodes: Vec<(usize, NodeId)> =
-            arena.nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, node)| if node.first_child.is_some() { Some(idx) } else { None })
-            .map(|non_leaf_id| {
-                let non_leaf_id = NodeId::new(non_leaf_id);
-                (leaf_node_depth(&non_leaf_id, &arena), non_leaf_id)
-            })
-            .collect();
-
-        // Sort the non-leaf nodes by their depth
-        non_leaf_nodes.sort_by(|a, b| a.0.cmp(&b.0));
-
         // Reverse, since we want to go from the inside out (depth 5 needs to be filled out first)
         //
         // Set the preferred_width of the parent nodes
@@ -747,8 +726,6 @@ impl Arena<$struct_name> {
 
         // Now, the width of all elements should be filled,
         // but they aren't flex-growed or flex-shrinked yet
-
-        non_leaf_nodes
     }
 
     /// Go from the root down and flex_grow the children if needed - respects the `width`, `min_width` and `max_width` properties
@@ -929,7 +906,15 @@ impl Arena<$struct_name> {
                     if min_width > parent_node_inner_width {
                         min_width
                     } else {
-                        width_calculated_arena[child_id].data.$preferred_field.max_available_space().unwrap_or(parent_node_inner_width)
+                        if let Some(max_width) = width_calculated_arena[child_id].data.$preferred_field.max_available_space() {
+                            if max_width > parent_node_inner_width {
+                                parent_node_inner_width
+                            } else {
+                                max_width
+                            }
+                        } else {
+                            parent_node_inner_width
+                        }
                     }
                 };
 
@@ -980,24 +965,6 @@ impl Arena<$struct_name> {
 
 )}
 
-/*
-fn apply_cross_axis_stretched(width_calculated_arena: Arena<WidthCalculatedRect>) -> BTree<NodeId, Height> {
-    // Function can only be called on parent nodes, not child nodes
-    debug_assert!(width_calculated_arena[*node_id].first_child.is_some());
-    // We act on a Arena<WidthCalculatedRect> and return an arena of heights that should
-    use css_parser::LayoutDirection::*;
-
-    for child_id in node_id.children(width_calculated_arena) {
-        if width_calculated_arena[child_id].data.direction == Row | RowReverse {
-            // heights of children = this.inner_height
-        } else {
-            // widths of children = this.inner_width
-        }
-    }
-    // If we are called on the width, apply the height
-}
-*/
-
 typed_arena!(
     WidthCalculatedRect,
     preferred_width,
@@ -1046,6 +1013,7 @@ impl HeightSolvedResult {
 pub(crate) struct SolvedWidthLayout {
     pub solved_widths: Arena<WidthSolvedResult>,
     pub layout_only_arena: Arena<RectLayout>,
+    pub non_leaf_nodes_sorted_by_depth: Vec<(usize, NodeId)>,
 }
 
 #[derive(Debug, Clone)]
@@ -1062,10 +1030,11 @@ pub(crate) fn solve_flex_layout_width<'a>(
 {
     let layout_only_arena = display_rectangles.transform(|node, _| node.layout);
     let mut width_calculated_arena = Arena::<WidthCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_widths);
-    let non_leaf_nodes_sorted_by_depth = width_calculated_arena.bubble_preferred_widths_to_parents(&layout_only_arena);
+    let non_leaf_nodes_sorted_by_depth = get_non_leaf_nodes_sorted_by_depth(&layout_only_arena);
+    width_calculated_arena.bubble_preferred_widths_to_parents(&layout_only_arena, &non_leaf_nodes_sorted_by_depth);
     width_calculated_arena.apply_flex_grow(&layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_width);
     let solved_widths = width_calculated_arena.transform(|node, _| node.solved_result());
-    SolvedWidthLayout { solved_widths , layout_only_arena }
+    SolvedWidthLayout { solved_widths , layout_only_arena, non_leaf_nodes_sorted_by_depth }
 }
 
 /// Returns the solved height of the items in a BTree form
@@ -1077,8 +1046,8 @@ pub(crate) fn solve_flex_layout_height(
 {
     let SolvedWidthLayout { layout_only_arena, .. } = solved_widths;
     let mut height_calculated_arena = Arena::<HeightCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_heights);
-    let non_leaf_nodes_sorted_by_depth = height_calculated_arena.bubble_preferred_heights_to_parents(&layout_only_arena);
-    height_calculated_arena.apply_flex_grow(&layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_height);
+    height_calculated_arena.bubble_preferred_heights_to_parents(&layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth);
+    height_calculated_arena.apply_flex_grow(&layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, window_height);
     let solved_heights = height_calculated_arena.transform(|node, _| node.solved_result());
     SolvedHeightLayout { solved_heights }
 }
@@ -1117,6 +1086,83 @@ fn get_nearest_positioned_ancestor<'a>(start_node_id: NodeId, arena: &Arena<Rect
     }
     None
 }
+
+/// Returns the `(depth, NodeId)` of all non-leaf nodes (i.e. nodes that have a
+/// `first_child`), in depth sorted order, (i.e. `NodeId(0)` with a depth of 0) is
+/// the first element.
+///
+/// Runtime: O(n) max
+fn get_non_leaf_nodes_sorted_by_depth<T>(arena: &Arena<T>) -> Vec<(usize, NodeId)> {
+
+    let mut non_leaf_nodes = Vec::new();
+    let mut current_children = vec![(0, NodeId::new(0))];
+    let mut next_children = Vec::new();
+    let mut depth = 1;
+
+    loop {
+
+        for id in &current_children {
+            for child_id in id.1.children(arena).filter(|id| arena[*id].first_child.is_some()) {
+                next_children.push((depth, child_id));
+            }
+        }
+
+        non_leaf_nodes.extend(&mut current_children.drain(..));
+
+        if next_children.is_empty() {
+            break;
+        } else {
+            current_children.extend(&mut next_children.drain(..));
+            depth += 1;
+        }
+    }
+
+    non_leaf_nodes
+}
+
+/*
+
+pub struct HorizontalSolvedPosition(pub f32);
+
+/// Traverses along the DOM and solved
+fn get_width_positions(arena: &Arena<RectLayout>, parents: &, origin: LogicalPosition, widths: Arena<WidthSolvedResult>)
+-> Arena<HorizontalSolvedPosition>
+{
+    let x = origin.x;
+    let y = origin.y;
+
+    // align-items
+
+    The CSS align-items property sets the align-self value on all direct children as a group.
+    The align-self property sets the alignment of an item within its containing block.
+
+    https://developer.mozilla.org/en-US/docs/Web/CSS/align-items
+
+    justify-content is used along the main axis, align-items along the cross axis
+
+
+
+    // align on main axis (row = width, column = height)
+    pub enum LayoutJustifyContent {
+        Start,
+        End,
+        Center,
+        SpaceBetween,
+        SpaceAround,
+    }
+
+
+
+    // align on cross axis (row = height, column = width)
+    pub enum LayoutAlignItems {
+        Stretch,
+        Center,
+        Start,
+        End,
+    }
+}
+
+*/
 
 #[cfg(test)]
 mod layout_tests {
@@ -1340,7 +1386,7 @@ mod layout_tests {
         // -- Section 2: Test that size-bubbling works:
         //
         // Size-bubbling should take the 40px padding and "bubble" it towards the
-        let non_leaf_nodes_sorted_by_depth = width_filled_out.bubble_preferred_widths_to_parents(&display_rectangles);
+        let non_leaf_nodes_sorted_by_depth = get_non_leaf_nodes_sorted_by_depth(&display_rectangles);
 
         // ID 5 has no child, so it's not returned, same as 3 and 4
         assert_eq!(non_leaf_nodes_sorted_by_depth, vec![
@@ -1348,6 +1394,9 @@ mod layout_tests {
             (1, NodeId::new(1)),
             (2, NodeId::new(2)),
         ]);
+
+        width_filled_out.bubble_preferred_widths_to_parents(&display_rectangles, &non_leaf_nodes_sorted_by_depth);
+
 
         // This step shouldn't have touched the flex_grow_px
         for node_id in width_filled_out.linear_iter() {

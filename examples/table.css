@@ -1,6 +1,9 @@
 .__azul-native-table-container {
     flex-direction: row;
-    background-color: white;
+}
+
+.__azul-native-table-column-container {
+    flex-direction: row;
 }
 
 .__azul-native-table-column {
@@ -8,35 +11,20 @@
     min-width: 50px;
 }
 
+.__azul-native-table-row-number-wrapper {
+    flex-direction: column;
+    width: 30px;
+}
+
 .__azul-native-table-column-name {
     height: 20px;
 }
 
-.__azul-native-table-row {
-    height: 10px;
+.__azul-native-table-rows {
+    flex-direction: column;
 }
 
 .__azul-native-table-cell {
     border: 1px solid grey;
+    height: 10px;
 }
-
-/*
-unused: __azul-native-table-top-left-rect;
-unused: __azul-native-table-row-numbers;
-unused: __azul-native-table-row-numbers;
-*/
-
-/*
-
-// div.__azul-native-table-container
-//     |-> div.__azul-native-table-column (Column 0)
-//         |-> div.__azul-native-table-top-left-rect .__azul-native-table-column-name
-//         '-> div.__azul-native-table-row-numbers .__azul-native-table-row
-//
-//     |-> div.__azul-native-table-column-container
-//         |-> div.__azul-native-table-column (Column 1 ...)
-//             |-> div.__azul-native-table-column-name
-//             '-> div.__azul-native-table-row
-//                 '-> div.__azul-native-table-cell
-
-*/
