@@ -17,6 +17,7 @@ use {
     traits::Layout,
     dom::NodeData,
     display_list::DisplayRectangle,
+    css_parser::{LayoutMargin, LayoutPadding},
 };
 
 /// Reserve the 0th DOM ID for the windows root DOM
@@ -111,8 +112,9 @@ pub(crate) struct DomSolver {
     solved_values: BTreeMap<Variable, f64>,
     /// The cache of the previous frames DOM tree
     dom_tree_cache: DomTreeCache,
-    /// Position of the DOM on screen. For the root dom, this will be (0, 0)
+    /// Position of the DOM on screen. For the root DOM, this will be (0, 0)
     position: LogicalPosition,
+    /// Size of the root node of the DOM. For the root DOM, this will be the size of the window
     size: LogicalSize,
 }
 
@@ -576,8 +578,6 @@ determine_preferred!(determine_preferred_width, width, min_width, max_width);
 // fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_height, height, min_height, max_height);
 
-use css_parser::{LayoutMargin, LayoutPadding};
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct WidthCalculatedRect {
     pub preferred_width: WhConstraint,
@@ -653,7 +653,8 @@ macro_rules! typed_arena {(
     $determine_preferred_fn:ident,
     $get_padding_fn:ident,
     $get_flex_basis:ident,
-    $bubble_fn_name:ident
+    $bubble_fn_name:ident,
+    $main_axis:ident
 ) => (
 
 impl Arena<$struct_name> {
@@ -760,7 +761,7 @@ impl Arena<$struct_name> {
     {
         /// Does the actual width layout, respects the `width`, `min_width` and `max_width`
         /// properties as well as the `flex_grow` factor. `flex_shrink` currently does nothing.
-        fn apply_flex_grow_with_constraints(
+        fn distribute_space_along_main_axis(
             node_id: &NodeId,
             arena: &Arena<RectLayout>,
             width_calculated_arena: &mut Arena<$struct_name>)
@@ -906,6 +907,38 @@ impl Arena<$struct_name> {
             }
         }
 
+        fn distribute_space_along_cross_axis(
+            node_id: &NodeId,
+            arena: &Arena<RectLayout>,
+            width_calculated_arena: &mut Arena<$struct_name>)
+        {
+            // Function can only be called on parent nodes, not child nodes
+            debug_assert!(width_calculated_arena[*node_id].first_child.is_some());
+
+            // The inner space of the parent node, without the padding
+            let parent_node_inner_width = {
+                let parent_node = &width_calculated_arena[*node_id].data;
+                parent_node.min_inner_size_px + parent_node.flex_grow_px - parent_node.$get_padding_fn()
+            };
+
+            for child_id in node_id.children(arena) {
+
+                let preferred_width = {
+                    let min_width = width_calculated_arena[child_id].data.$preferred_field.min_needed_space().unwrap_or(0.0);
+                    // In this case we want to overflow if the min width of the cross axis
+                    if min_width > parent_node_inner_width {
+                        min_width
+                    } else {
+                        width_calculated_arena[child_id].data.$preferred_field.max_available_space().unwrap_or(parent_node_inner_width)
+                    }
+                };
+
+                // so that node.min_inner_size_px + node.flex_grow_px = preferred_width
+                width_calculated_arena[child_id].data.flex_grow_px =
+                    preferred_width - width_calculated_arena[child_id].data.min_inner_size_px;
+            }
+        }
+
         debug_assert!(self[NodeId::new(0)].data.flex_grow_px == 0.0);
 
         // Set the window width on the root node (since there is only one root node, we can
@@ -917,7 +950,13 @@ impl Arena<$struct_name> {
         self[NodeId::new(0)].data.flex_grow_px = root_width - top_level_flex_basis;
 
         for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
-            apply_flex_grow_with_constraints(parent_id, arena, self);
+            use css_parser::LayoutAxis;
+
+            if arena[*parent_id].data.direction.unwrap_or_default().get_axis() == LayoutAxis::$main_axis {
+                distribute_space_along_main_axis(parent_id, arena, self);
+            } else {
+                distribute_space_along_cross_axis(parent_id, arena, self);
+            }
         }
     }
 
@@ -965,7 +1004,8 @@ typed_arena!(
     determine_preferred_width,
     get_horizontal_padding,
     get_flex_basis_horizontal,
-    bubble_preferred_widths_to_parents
+    bubble_preferred_widths_to_parents,
+    Horizontal
 );
 
 typed_arena!(
@@ -974,7 +1014,9 @@ typed_arena!(
     determine_preferred_height,
     get_vertical_padding,
     get_flex_basis_vertical,
-    bubble_preferred_heights_to_parents);
+    bubble_preferred_heights_to_parents,
+    Vertical
+);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) struct WidthSolvedResult {
@@ -1250,9 +1292,18 @@ mod layout_tests {
         use css_parser::*;
 
         let display_rectangles = get_display_rectangle_arena(&[
+            (0, RectLayout {
+                direction: Some(LayoutDirection::Row),
+                .. Default::default()
+            }),
             (1, RectLayout {
                 max_width: Some(LayoutMaxWidth(PixelValue::px(200.0))),
                 padding: Some(LayoutPadding { left: Some(PixelValue::px(20.0)), right: Some(PixelValue::px(20.0)), .. Default::default() }),
+                direction: Some(LayoutDirection::Row),
+                .. Default::default()
+            }),
+            (2, RectLayout {
+                direction: Some(LayoutDirection::Row),
                 .. Default::default()
             })
         ]);
@@ -1333,7 +1384,7 @@ mod layout_tests {
         // '- 1             -- [max-width: 200px; padding: 20px] - expecting width to stretch to 200 px
         //    '-- 2         -- [] - expecting width to stretch to 160px
         //    '   '-- 3     -- [] - expecting width to stretch to 80px (half of 160)
-        //    '   '--- 4    -- [] - expecting width to stretch to 80px (half of 160)
+        //    '   '-- 4     -- [] - expecting width to stretch to 80px (half of 160)
         //    '-- 5         -- [] - expecting width to stretch to 554px (754 - 200px max-width of earlier sibling)
 
         width_filled_out.apply_flex_grow(&display_rectangles, &non_leaf_nodes_sorted_by_depth, window_width);
