@@ -67,18 +67,21 @@ impl<T: Layout> UiState<T> {
 
     /// Creates the UiState from a Dom, useful for IFrame-based layout
     pub(crate) fn from_dom(dom: Dom<T>) -> Self {
-        use dom::NodeType;
 
-        // DOM tree should have a single root element, necessary for
-        // layout constraints having a single root
+        // NOTE: Originally it was allowed to create a DOM with
+        // multiple root elements using `add_sibling()` and `with_sibling()`.
+        //
+        // However, it was decided to remove these functions (in commit #586933),
+        // as they aren't practical (you can achieve the same thing with one
+        // wrapper div and multiple add_child() calls) and they create problems
+        // when layouting elements since add_sibling() essentially modifies the
+        // space that the parent can distribute, which in code, simply looks weird
+        // and led to bugs.
+        //
+        // It is assumed that the DOM returned by the user has exactly one root node
+        // with no further siblings and that the root node is the Node with the ID 0.
 
-        // TODO: problematic, since the UiDescription has an Rc into the the DOM
-        // and the .add_child empties / drains the original DOM arena !!!
-        let dom = {
-            let mut parent_dom = Dom::with_capacity(NodeType::Div, dom.len());
-            parent_dom.add_child(dom);
-            parent_dom
-        };
+        debug_assert!(dom.arena.borrow()[NodeId::new(0)].next_sibling.is_none());
 
         let mut tag_ids_to_callbacks = BTreeMap::new();
         let mut tag_ids_to_default_callbacks = BTreeMap::new();
