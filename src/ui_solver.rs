@@ -941,6 +941,24 @@ impl Arena<$struct_name> {
 
 )}
 
+/*
+fn apply_cross_axis_stretched(width_calculated_arena: Arena<WidthCalculatedRect>) -> BTree<NodeId, Height> {
+    // Function can only be called on parent nodes, not child nodes
+    debug_assert!(width_calculated_arena[*node_id].first_child.is_some());
+    // We act on a Arena<WidthCalculatedRect> and return an arena of heights that should
+    use css_parser::LayoutDirection::*;
+
+    for child_id in node_id.children(width_calculated_arena) {
+        if width_calculated_arena[child_id].data.direction == Row | RowReverse {
+            // heights of children = this.inner_height
+        } else {
+            // widths of children = this.inner_width
+        }
+    }
+    // If we are called on the width, apply the height
+}
+*/
+
 typed_arena!(
     WidthCalculatedRect,
     preferred_width,

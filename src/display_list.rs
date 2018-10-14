@@ -308,53 +308,54 @@ fn do_the_layout<'a, 'b, T: Layout>(
     use std::time::{Instant};
     let start_time = Instant::now();
     let arena = display_list.ui_descr.ui_descr_arena.borrow();
-    let word_cache: BTreeMap<NodeId, (Words, FontMetrics)> = arena.linear_iter()
-        .filter_map(|id| {
+    let word_cache: BTreeMap<NodeId, (Words, FontMetrics)> = arena
+    .linear_iter()
+    .filter_map(|id| {
 
-            let (font, font_metrics, font_id, font_size) = match arena[id].data.node_type {
-                NodeType::Label(_) | NodeType::Text(_) => {
-                    use text_layout::TextLayoutOptions;
+        let (font, font_metrics, font_id, font_size) = match arena[id].data.node_type {
+            NodeType::Label(_) | NodeType::Text(_) => {
+                use text_layout::TextLayoutOptions;
 
-                    let rect = &display_list.rectangles[id].data;
-                    let style = &rect.style;
-                    let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
-                    let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
-                    let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-                    let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
-                    let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
-                    let font = app_resources.get_font(&font_id)?;
-                    let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
+                let rect = &display_list.rectangles[id].data;
+                let style = &rect.style;
+                let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
+                let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+                let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
+                let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
+                let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+                let font = app_resources.get_font(&font_id)?;
+                let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
 
-                    let text_layout_options = TextLayoutOptions {
-                        horz_alignment,
-                        vert_alignment,
-                        line_height: style.line_height,
-                        letter_spacing: style.letter_spacing,
-                    };
-                    let font_metrics = FontMetrics::new(&font.0, &font_size, &text_layout_options);
+                let text_layout_options = TextLayoutOptions {
+                    horz_alignment,
+                    vert_alignment,
+                    line_height: style.line_height,
+                    letter_spacing: style.letter_spacing,
+                };
+                let font_metrics = FontMetrics::new(&font.0, &font_size, &text_layout_options);
 
-                    (font.0, font_metrics, font_id, font_size)
-                },
-                _ => return None,
-            };
+                (font.0, font_metrics, font_id, font_size)
+            },
+            _ => return None,
+        };
 
-            match &arena[id].data.node_type {
-                NodeType::Label(ref string_to_render) => {
-                    Some((id, (split_text_into_words(&string_to_render, &font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing), font_metrics)))
-                },
-                NodeType::Text(text_id) => {
-                    // Cloning the words here due to lifetime problems
-                    Some((id, (get_words_cached(&text_id,
-                        &font,
-                        &font_id,
-                        &font_size,
-                        font_metrics.font_size_no_line_height,
-                        font_metrics.letter_spacing,
-                        &mut app_resources.text_cache).clone(), font_metrics)))
-                },
-                _ => None,
-            }
-        }).collect();
+        match &arena[id].data.node_type {
+            NodeType::Label(ref string_to_render) => {
+                Some((id, (split_text_into_words(&string_to_render, &font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing), font_metrics)))
+            },
+            NodeType::Text(text_id) => {
+                // Cloning the words here due to lifetime problems
+                Some((id, (get_words_cached(&text_id,
+                    &font,
+                    &font_id,
+                    &font_size,
+                    font_metrics.font_size_no_line_height,
+                    font_metrics.letter_spacing,
+                    &mut app_resources.text_cache).clone(), font_metrics)))
+            },
+            _ => None,
+        }
+    }).collect();
 
     let preferred_widths = arena.transform(|node, _| node.node_type.get_preferred_width(&app_resources.images));
     let solved_widths = solve_flex_layout_width(&display_list.rectangles, preferred_widths, rect_size.width as f32);
@@ -369,10 +370,10 @@ fn do_the_layout<'a, 'b, T: Layout>(
     let solved_heights = solve_flex_layout_height(&solved_widths, preferred_heights, rect_size.height as f32);
 
     println!("solved DOM with {:?} nodes - time: {:?}", arena.nodes_len(), Instant::now() - start_time);
-/*
-    println!("solved widths: {:?}", solved_widths);
-    println!("solved heights: {:?}", solved_heights);
-*/
+    for width_id in solved_widths.solved_widths.linear_iter() {
+        println!("node - {:?} - width: {:?}, height: {:?}", width_id, solved_widths.solved_widths[width_id].data.total(), solved_heights.solved_heights[width_id].data.total());
+    }
+    println!("-----");
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
