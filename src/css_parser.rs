@@ -172,6 +172,8 @@ impl ParsedCssProperty {
         match key {
             "border-radius"     => Ok(parse_css_border_radius(value)?.into()),
             "background-color"  => Ok(parse_css_background_color(value)?.into()),
+
+            "font-color" |
             "color"             => Ok(parse_css_text_color(value)?.into()),
             "border"            => Ok(parse_css_border(value)?.into()),
             "background"        => Ok(parse_css_background(value)?.into()),
@@ -202,9 +204,15 @@ impl ParsedCssProperty {
             "flex-grow"         => Ok(parse_layout_flex_grow(value)?.into()),
             "flex-shrink"       => Ok(parse_layout_flex_shrink(value)?.into()),
 
+            "align-main-axis" |
             "justify-content"   => Ok(parse_layout_justify_content(value)?.into()),
+
+            "align-cross-axis" |
             "align-items"       => Ok(parse_layout_align_items(value)?.into()),
+
+            "align-cross-axis-multiline" |
             "align-content"     => Ok(parse_layout_align_content(value)?.into()),
+
             "overflow"          => {
                 let overflow_both_directions = parse_layout_text_overflow(value)?;
                 Ok(LayoutOverflow {
@@ -1937,6 +1945,12 @@ pub enum LayoutJustifyContent {
     SpaceAround,
 }
 
+impl Default for LayoutJustifyContent {
+    fn default() -> Self {
+        LayoutJustifyContent::Start
+    }
+}
+
 /// Represents a parsed CSS `align-items` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutAlignItems {
@@ -1948,6 +1962,12 @@ pub enum LayoutAlignItems {
     Start,
     /// Items are positioned at the end of the container
     End,
+}
+
+impl Default for LayoutAlignItems {
+    fn default() -> Self {
+        LayoutAlignItems::Stretch
+    }
 }
 
 /// Represents a parsed CSS `align-content` attribute

@@ -1120,49 +1120,77 @@ fn get_non_leaf_nodes_sorted_by_depth<T>(arena: &Arena<T>) -> Vec<(usize, NodeId
     non_leaf_nodes
 }
 
-/*
-
-pub struct HorizontalSolvedPosition(pub f32);
+pub(crate) struct HorizontalSolvedPosition(pub f32);
 
 /// Traverses along the DOM and solved
-fn get_width_positions(arena: &Arena<RectLayout>, parents: &, origin: LogicalPosition, widths: Arena<WidthSolvedResult>)
+pub(crate) fn get_width_positions(solved_widths: &SolvedWidthLayout, origin: LogicalPosition)
 -> Arena<HorizontalSolvedPosition>
 {
-    let x = origin.x;
-    let y = origin.y;
+    let arena = &solved_widths.layout_only_arena;
+    let non_leaf_nodes = &solved_widths.non_leaf_nodes_sorted_by_depth;
+    let widths = &solved_widths.solved_widths;
 
-    // align-items
+    let mut arena_solved = widths.transform(|_, _| HorizontalSolvedPosition(0.0));
 
-    The CSS align-items property sets the align-self value on all direct children as a group.
-    The align-self property sets the alignment of an item within its containing block.
+    arena_solved[NodeId::new(0)].data = HorizontalSolvedPosition(origin.x as f32);
 
-    https://developer.mozilla.org/en-US/docs/Web/CSS/align-items
+    for (_node_depth, parent_id) in non_leaf_nodes {
 
-    justify-content is used along the main axis, align-items along the cross axis
+        let parent_x_position = arena_solved[*parent_id].data.0;
+        let parent_padding = arena[*parent_id].data.padding.unwrap_or_default();
+        let parent_padding_left = parent_padding.left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let parent_padding_right = parent_padding.right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
+        let parent_inner_width = {
+            let parent_node = &widths[*parent_id].data;
+            parent_node.min_width + parent_node.space_added - (parent_padding_left + parent_padding_right)
+        };
 
+        let main_axis_alignment = arena[*parent_id].data.justify_content.unwrap_or_default();
 
-    // align on main axis (row = width, column = height)
-    pub enum LayoutJustifyContent {
-        Start,
-        End,
-        Center,
-        SpaceBetween,
-        SpaceAround,
+        let mut sum_x_of_children_so_far = 0.0;
+
+        for child_id in parent_id.children(arena) {
+
+            use css_parser::LayoutJustifyContent::*;
+
+            // width: increase X according to the main axis, Y according to the cross_axis
+            let child_margin = arena[child_id].data.margin.unwrap_or_default();
+            let child_margin_left = child_margin.left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+            let child_margin_right = child_margin.right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+
+            let child_width_with_padding = {
+                let child_node = &widths[child_id].data;
+                child_node.min_width + child_node.space_added
+            };
+
+            // Always the top left corner
+            let x_of_top_left_corner = match main_axis_alignment {
+                Start => {
+                    parent_x_position + sum_x_of_children_so_far + child_margin_left
+                },
+                End => {
+                    (parent_x_position + parent_inner_width) - (sum_x_of_children_so_far + child_margin_right + child_width_with_padding)
+                },
+                Center => {
+                    parent_x_position + ((parent_inner_width / 2.0) - ((sum_x_of_children_so_far + child_margin_right + child_width_with_padding) / 2.0))
+                },
+                SpaceBetween => {
+                    parent_x_position // TODO!
+                },
+                SpaceAround => {
+                    parent_x_position // TODO!
+                },
+            };
+
+            arena_solved[*parent_id].data.0 = x_of_top_left_corner;
+
+            sum_x_of_children_so_far += child_margin_right + child_width_with_padding + child_margin_left;
+        }
     }
 
-
-
-    // align on cross axis (row = height, column = width)
-    pub enum LayoutAlignItems {
-        Stretch,
-        Center,
-        Start,
-        End,
-    }
+    arena_solved
 }
-
-*/
 
 #[cfg(test)]
 mod layout_tests {
