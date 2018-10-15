@@ -64,12 +64,8 @@ fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowIn
 fn render_table<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
 -> Dom<T>
 {
-    // 78 columns??? - 39 * 2
     let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;
     let necessary_rows = (dimensions.logical_size.height as f32 / state.row_height).ceil() as usize;
-
-    println!("necessary columns: {} - ({} / {})", necessary_columns, dimensions.logical_size.width as f32, state.column_width);
-    println!("necessary rows: {} - ({} / {})", necessary_rows, dimensions.logical_size.height, state.row_height);
 
     // div.__azul-native-table-container
     //     |-> div.__azul-native-table-column (Column 0)
@@ -91,7 +87,6 @@ fn render_table<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dim
             // Empty rectangle at the top left of the table
             Dom::new(NodeType::Div)
             .with_class("__azul-native-table-top-left-rect")
-            .with_class("__azul-native-table-column-name")
         )
         .with_child(
             // Rows - "1", "2", "3"

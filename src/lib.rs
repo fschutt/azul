@@ -77,7 +77,6 @@ pub extern crate gleam;
 extern crate lazy_static;
 extern crate euclid;
 extern crate webrender;
-extern crate cassowary;
 extern crate simplecss;
 extern crate rusttype;
 extern crate app_units;
@@ -169,7 +168,7 @@ mod compositor;
 /// Default logger, can be turned off with `feature = "logging"`
 #[cfg(feature = "logging")]
 mod logging;
-/// Cassowary-based UI solver
+/// Flexbox-based UI solver
 mod ui_solver;
 
 // Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")

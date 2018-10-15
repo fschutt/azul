@@ -812,7 +812,6 @@ fn render<T: Layout>(
         &window.state.size,
 
         &mut *fake_window,
-        &mut window.ui_solver,
         &mut *app_resources);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
