@@ -1,4 +1,5 @@
 use std::{
+    mem,
     fmt,
     io::Read,
     sync::{Arc, Mutex, PoisonError},
@@ -207,6 +208,7 @@ impl<T: Layout> App<T> {
     {
         self.push_window(window);
         self.run_inner()?;
+        mem::drop(self.app_state.tasks);
         let unique_arc = Arc::try_unwrap(self.app_state.data).map_err(|_| RuntimeError::ArcUnlockError)?;
         unique_arc.into_inner().map_err(|e| e.into())
     }
