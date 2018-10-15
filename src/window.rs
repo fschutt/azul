@@ -18,7 +18,7 @@ use glium::{
     glutin::{
         self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
         MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon,
-        dpi::{LogicalPosition, LogicalSize, PhysicalSize}
+        dpi::{LogicalSize, PhysicalSize}
     },
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
@@ -34,7 +34,6 @@ use {
     compositor::Compositor,
     app::FrameEventInfo,
     app_resources::AppResources,
-    ui_solver::{UiSolver, DomSolver, TOP_LEVEL_DOM_ID},
     id_tree::NodeId,
     default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
 };
@@ -479,8 +478,6 @@ pub struct Window<T: Layout> {
     pub(crate) display: Rc<Display>,
     /// The `WindowInternal` allows us to solve some borrowing issues
     pub(crate) internal: WindowInternal,
-    /// The solver for the UI, for caching the results of the computations
-    pub(crate) ui_solver: UiSolver,
     /// Currently running animations / transitions
     pub(crate) animations: FastHashMap<DaemonId, Daemon<AnimationState>>,
     /// States of scrolling animations, updated every frame
@@ -718,9 +715,6 @@ impl<T: Layout> Window<T> {
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
         */
 
-        let mut ui_solver = UiSolver::new();
-        ui_solver.insert_dom(TOP_LEVEL_DOM_ID, DomSolver::new(LogicalPosition::new(0.0, 0.0), options.state.size.dimensions));
-
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
         set_webrender_debug_flags(&mut renderer, &DebugState::default(), &options.state.debug_state);
@@ -740,7 +734,6 @@ impl<T: Layout> Window<T> {
                 document_id: document_id,
                 last_display_list_builder: BuiltDisplayList::default(),
             },
-            ui_solver,
             marker: PhantomData,
         };
 

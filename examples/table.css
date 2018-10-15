@@ -20,11 +20,36 @@
     height: 20px;
 }
 
-.__azul-native-table-rows {
-    flex-direction: column;
+.__azul-native-table-top-left-rect {
+    height: 20px;
 }
 
 .__azul-native-table-cell {
-    border: 1px solid grey;
+    border: 0.5px solid light-grey;
     height: 10px;
+}
+
+.__azul-native-table-row {
+    height: 10px;
+}
+
+.__azul-native-table-column-name {
+    font-family: sans-serif;
+    color: white;
+    font-size: 12px;
+    background-color: #407c40;
+    flex-direction: column;
+    justify-content: center;
+    border: 0.5px dotted white;
+    max-height: 30px;
+}
+
+.__azul-native-table-row-numbers {
+    font-family: sans-serif;
+    color: white;
+    font-size: 12px;
+    background-color: #407c40;
+    flex-direction: column;
+    justify-content: center;
+    border: 0.5px dotted white;
 }
