@@ -149,9 +149,9 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) 
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
-
-    let font_id = FontId::BuiltinFont(String::from("sans-serif"));
     let font_size = FontSize::px(10.0);
+    
+    let font_id = FontId::BuiltinFont(String::from("sans-serif, Helvetica, Arial"));
     let font = app_state.resources.get_font(&font_id).unwrap().0;
 
     let aligned = TextLayoutOptions {

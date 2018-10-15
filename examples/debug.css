@@ -13,7 +13,7 @@
 
 * {
     font-size: 14.66px;
-    font-family: sans-serif;
+    font-family: sans-serif, Helvetica, Arial;
     color: #000;
     background-color: #f0f0f0; /* Windows Background color, rgb(240, 240, 240) */
 }

@@ -43,7 +43,7 @@ pub struct AppResources {
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
-    pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
+    pub fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
     /// Stores long texts across frames
     pub(crate) text_cache: TextCache,
     /// Keyboard clipboard storage and retrieval functionality
@@ -159,14 +159,20 @@ impl AppResources {
     }
 
     /// Search for a builtin font on the users computer, validate and return it
-    fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
+    fn get_builtin_font(ids: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
     {
         use font_loader::system_fonts::{self, FontPropertyBuilder};
         use font::rusttype_load_font;
-
-        let (font_bytes, idx) = system_fonts::get(&FontPropertyBuilder::new().family(&id).build())?;
-        let (f, b) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok()?;
-        Some((f, b, FontState::ReadyForUpload(font_bytes)))
+        for id in ids.split(",") {
+            let id = id.trim();
+            let fd = system_fonts::get(&FontPropertyBuilder::new().family(&id).build());
+            if let Some((font_bytes, idx)) = fd {
+                if let Some((f, b)) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok() {
+                    return Some((f, b, FontState::ReadyForUpload(font_bytes)));
+                }
+            }
+        }
+        None
     }
 
     /// Internal API - we want the user to get the first two fields of the

@@ -775,46 +775,52 @@ fn push_text(
 
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
 
-    let font_instance_key = match font_result {
-        Some(f) => f,
-        None => return None,
-    };
 
-    let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+    let mut font_iter = font_family.fonts.iter();
+    while let Some(font) = font_iter.next() {
+        if let Some(font_result) = push_font(font, font_size_app_units, resource_updates, app_resources, render_api) {
+            let font_instance_key = font_result;
+            let font_id = font;
 
-    let text_layout_options = TextLayoutOptions {
-        horz_alignment,
-        vert_alignment,
-        line_height: style.line_height,
-        letter_spacing: style.letter_spacing,
-    };
+            let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
-    let (positioned_glyphs, text_overflow) = text_layout::get_glyphs(
-        app_resources,
-        bounds,
-        &font_id,
-        &font_size,
-        &text_layout_options,
-        text,
-        &overflow_behaviour,
-        scrollbar_info
-    );
+            let text_layout_options = TextLayoutOptions {
+                horz_alignment,
+                vert_alignment,
+                line_height: style.line_height,
+                letter_spacing: style.letter_spacing,
+            };
 
-    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
-    let mut flags = FontInstanceFlags::empty();
-    flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
-    flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
-    flags.set(FontInstanceFlags::FORCE_AUTOHINT, true);
-    flags.set(FontInstanceFlags::LCD_VERTICAL, true);
+            let (positioned_glyphs, text_overflow) = text_layout::get_glyphs(
+                app_resources,
+                bounds,
+                &font_id,
+                &font_size,
+                &text_layout_options,
+                text,
+                &overflow_behaviour,
+                scrollbar_info
+            );
 
-    let options = GlyphOptions {
-        render_mode: FontRenderMode::Subpixel,
-        flags: flags,
-    };
+            let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
+            let mut flags = FontInstanceFlags::empty();
+            flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
+            flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
+            flags.set(FontInstanceFlags::FORCE_AUTOHINT, true);
+            flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
-    builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
+            let options = GlyphOptions {
+                render_mode: FontRenderMode::Subpixel,
+                flags: flags,
+            };
 
-    Some(OverflowInfo { text_overflow })
+            builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
+
+            return Some(OverflowInfo { text_overflow })
+        }
+    }
+    error!("div @ {:?} has no existing font assigned!", bounds);
+    None
 }
 
 /// Adds a scrollbar to the left or bottom side of a rectangle.
