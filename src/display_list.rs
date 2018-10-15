@@ -304,7 +304,7 @@ fn do_the_layout<'a, 'b, T: Layout>(
 {
 
     use text_layout::{split_text_into_words, get_words_cached, Words, FontMetrics};
-    use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_width_positions};
+    use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_width_positions, get_height_positions};
     use std::time::{Instant};
     use glium::glutin::dpi::LogicalPosition;
 
@@ -374,13 +374,14 @@ fn do_the_layout<'a, 'b, T: Layout>(
     let solved_heights = solve_flex_layout_height(&solved_widths, preferred_heights, rect_size.height as f32);
 
     let x_positions = get_width_positions(&solved_widths, LogicalPosition::new(0.0, 0.0));
+    let y_positions = get_height_positions(&solved_heights, &solved_widths, LogicalPosition::new(0.0, 0.0));
 
     println!("solved DOM with {:?} nodes - time: {:?}", arena.nodes_len(), Instant::now() - start_time);
     for width_id in solved_widths.solved_widths.linear_iter() {
         println!("Node {} - pos: ({:?} x, {:?} y), (width: {:?}, height: {:?})",
         width_id,
         x_positions[width_id].data.0,
-        0.0 /* y_positions[width_id].0 */,
+        y_positions[width_id].data.0,
         solved_widths.solved_widths[width_id].data.total(),
         solved_heights.solved_heights[width_id].data.total());
     }
