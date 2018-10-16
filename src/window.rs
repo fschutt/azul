@@ -26,7 +26,7 @@ use gleam::gl::{self, Gl};
 use {
     cache::DomHash,
     FastHashMap,
-    dom::{Texture, Callback},
+    dom::{Texture, On, Callback},
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
@@ -201,7 +201,7 @@ pub struct WindowEvent<'a, T: 'a + Layout> {
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
     /// UiState containing the necessary data for testing what
-    pub ui_state: &'a UiState<T>,
+    pub(crate) ui_state: &'a UiState<T>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: (f32, f32),
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -221,6 +221,36 @@ impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
 }
 
 impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> { }
+
+impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
+    pub fn get_first_hit_child(&self, node_id: NodeId, searched_event_type: On) -> Option<(usize, NodeId)> {
+
+        let ui_state = self.ui_state;
+        let arena = ui_state.dom.arena.borrow();
+
+        if node_id.index() > arena.nodes_len() {
+            return None; // node_id out of range
+        }
+
+        node_id
+            .children(&arena)
+            .enumerate()
+            .filter_map(|(idx, child_id)| {
+                ui_state.node_ids_to_tag_ids.get(&child_id).and_then(|tag| Some((tag, idx, child_id)))
+            })
+            .filter(|(tag, _, _)| {
+                if let Some(map) = ui_state.tag_ids_to_default_callbacks.get(&tag) {
+                    map.get(&searched_event_type).is_some()
+                } else if let Some(map) = ui_state.tag_ids_to_noop_callbacks.get(&tag) {
+                    map.get(&searched_event_type).is_some()
+                } else {
+                    false
+                }
+            })
+            .map(|(_, idx, child_id)| (idx, child_id))
+            .next()
+    }
+}
 
 /// Options on how to initially create the window
 #[derive(Debug, Clone)]
