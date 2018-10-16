@@ -26,7 +26,7 @@ use gleam::gl::{self, Gl};
 use {
     cache::DomHash,
     FastHashMap,
-    dom::{Texture, Callback, UpdateScreen},
+    dom::{Texture, Callback},
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
@@ -857,13 +857,6 @@ impl<T: Layout> Window<T> {
     /// Removes all scroll states that weren't used in the last frame
     pub(crate) fn remove_unused_scroll_states(&mut self) {
         self.scroll_states.retain(|_, state| state.used_this_frame);
-    }
-
-    /// Runs all animations currently registered in this DOM
-    #[must_use]
-    pub(crate) fn run_all_animations(&mut self) -> UpdateScreen {
-        // TODO
-        UpdateScreen::DontRedraw
     }
 }
 
