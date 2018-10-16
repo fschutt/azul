@@ -1,42 +1,62 @@
 .__azul-native-table-container {
     flex-direction: row;
-    background-color: white;
+}
+
+.__azul-native-table-column-container {
+    flex-direction: row;
 }
 
 .__azul-native-table-column {
     flex-direction: column;
-    min-width: 50px;
+    min-width: 100px;
+}
+
+.__azul-native-table-row-number-wrapper {
+    flex-direction: column;
+    max-width: 30px;
 }
 
 .__azul-native-table-column-name {
     height: 20px;
 }
 
-.__azul-native-table-row {
-    height: 10px;
+.__azul-native-table-top-left-rect {
+    height: 20px;
+    background-color: #407c40;
 }
 
 .__azul-native-table-cell {
-    border: 1px solid grey;
+    border: 0.5px solid light-grey;
+    min-height: 20px;
+    font-family: sans-serif;
+    color: black;
+    text-align: left;
+    font-size: 16px;
 }
 
-/*
-unused: __azul-native-table-top-left-rect;
-unused: __azul-native-table-row-numbers;
-unused: __azul-native-table-row-numbers;
-*/
+.__azul-native-table-row {
+    min-height: 20px;
+    font-size: 14px;
+    border: 0.5px solid #eee;
+    overflow: hidden;
+}
 
-/*
+.__azul-native-table-column-name {
+    font-family: sans-serif;
+    color: white;
+    font-size: 14px;
+    background-color: #407c40;
+    padding: 2px 0px 0px 0px;
+    flex-direction: row;
+    justify-content: center;
+    border: 0.5px solid #eee;
+    box-shadow: 0px 0px 10px black;
+}
 
-// div.__azul-native-table-container
-//     |-> div.__azul-native-table-column (Column 0)
-//         |-> div.__azul-native-table-top-left-rect .__azul-native-table-column-name
-//         '-> div.__azul-native-table-row-numbers .__azul-native-table-row
-//
-//     |-> div.__azul-native-table-column-container
-//         |-> div.__azul-native-table-column (Column 1 ...)
-//             |-> div.__azul-native-table-column-name
-//             '-> div.__azul-native-table-row
-//                 '-> div.__azul-native-table-cell
-
-*/
+.__azul-native-table-row-numbers {
+    font-family: sans-serif;
+    color: white;
+    background-color: #407c40;
+    flex-direction: column;
+    box-shadow: 0px 0px 10px black;
+}

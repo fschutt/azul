@@ -77,7 +77,6 @@ pub extern crate gleam;
 extern crate lazy_static;
 extern crate euclid;
 extern crate webrender;
-extern crate cassowary;
 extern crate simplecss;
 extern crate rusttype;
 extern crate app_units;
@@ -169,7 +168,7 @@ mod compositor;
 /// Default logger, can be turned off with `feature = "logging"`
 #[cfg(feature = "logging")]
 mod logging;
-/// Cassowary-based UI solver
+/// Flexbox-based UI solver
 mod ui_solver;
 
 // Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
@@ -198,7 +197,7 @@ pub mod prelude {
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
                      WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
-    pub use window_state::{WindowState, KeyboardState, MouseState};
+    pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
     pub use css_parser::{

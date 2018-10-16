@@ -18,7 +18,7 @@ use glium::{
     glutin::{
         self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
         MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon,
-        dpi::{LogicalPosition, LogicalSize, PhysicalSize}
+        dpi::{LogicalSize, PhysicalSize}
     },
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
@@ -26,15 +26,14 @@ use gleam::gl::{self, Gl};
 use {
     cache::DomHash,
     FastHashMap,
-    dom::{Texture, Callback, UpdateScreen},
+    dom::{Texture, Callback},
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
-    window_state::{WindowState, MouseState, KeyboardState},
+    window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
     compositor::Compositor,
     app::FrameEventInfo,
     app_resources::AppResources,
-    ui_solver::{UiSolver, DomSolver, TOP_LEVEL_DOM_ID},
     id_tree::NodeId,
     default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
 };
@@ -479,8 +478,6 @@ pub struct Window<T: Layout> {
     pub(crate) display: Rc<Display>,
     /// The `WindowInternal` allows us to solve some borrowing issues
     pub(crate) internal: WindowInternal,
-    /// The solver for the UI, for caching the results of the computations
-    pub(crate) ui_solver: UiSolver,
     /// Currently running animations / transitions
     pub(crate) animations: FastHashMap<DaemonId, Daemon<AnimationState>>,
     /// States of scrolling animations, updated every frame
@@ -718,10 +715,9 @@ impl<T: Layout> Window<T> {
         let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
         */
 
-        let mut ui_solver = UiSolver::new();
-        ui_solver.insert_dom(TOP_LEVEL_DOM_ID, DomSolver::new(LogicalPosition::new(0.0, 0.0), options.state.size.dimensions));
-
         renderer.set_external_image_handler(Box::new(Compositor::default()));
+
+        set_webrender_debug_flags(&mut renderer, &DebugState::default(), &options.state.debug_state);
 
         let window = Window {
             events_loop: events_loop,
@@ -738,7 +734,6 @@ impl<T: Layout> Window<T> {
                 document_id: document_id,
                 last_display_list_builder: BuiltDisplayList::default(),
             },
-            ui_solver,
             marker: PhantomData,
         };
 
@@ -765,6 +760,9 @@ impl<T: Layout> Window<T> {
         let old_state = &mut self.state;
 
         // Compare the old and new state, field by field
+        if let Some(r) = &mut self.renderer {
+            set_webrender_debug_flags(r, &old_state.debug_state, &new_state.debug_state);
+        }
 
         if old_state.title != new_state.title {
             window.set_title(&new_state.title);
@@ -860,13 +858,6 @@ impl<T: Layout> Window<T> {
     pub(crate) fn remove_unused_scroll_states(&mut self) {
         self.scroll_states.retain(|_, state| state.used_this_frame);
     }
-
-    /// Runs all animations currently registered in this DOM
-    #[must_use]
-    pub(crate) fn run_all_animations(&mut self) -> UpdateScreen {
-        // TODO
-        UpdateScreen::DontRedraw
-    }
 }
 
 pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateError> {
@@ -909,5 +900,51 @@ impl HidpiAdjustedBounds {
             physical_size,
             hidpi_factor,
         }
+    }
+}
+
+
+fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
+
+    use webrender::DebugFlags;
+
+    if old_flags.profiler_dbg != new_flags.profiler_dbg {
+        r.set_debug_flag(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
+    }
+    if old_flags.render_target_dbg != new_flags.render_target_dbg {
+        r.set_debug_flag(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
+    }
+    if old_flags.texture_cache_dbg != new_flags.texture_cache_dbg {
+        r.set_debug_flag(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
+    }
+    if old_flags.gpu_time_queries != new_flags.gpu_time_queries {
+        r.set_debug_flag(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
+    }
+    if old_flags.gpu_sample_queries != new_flags.gpu_sample_queries {
+        r.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
+    }
+    if old_flags.disable_batching != new_flags.disable_batching {
+        r.set_debug_flag(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
+    }
+    if old_flags.epochs != new_flags.epochs {
+        r.set_debug_flag(DebugFlags::EPOCHS, new_flags.epochs);
+    }
+    if old_flags.compact_profiler != new_flags.compact_profiler {
+        r.set_debug_flag(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
+    }
+    if old_flags.echo_driver_messages != new_flags.echo_driver_messages {
+        r.set_debug_flag(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+    }
+    if old_flags.new_frame_indicator != new_flags.new_frame_indicator {
+        r.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
+    }
+    if old_flags.new_scene_indicator != new_flags.new_scene_indicator {
+        r.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
+    }
+    if old_flags.show_overdraw != new_flags.show_overdraw {
+        r.set_debug_flag(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
+    }
+    if old_flags.gpu_cache_dbg != new_flags.gpu_cache_dbg {
+        r.set_debug_flag(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
     }
 }

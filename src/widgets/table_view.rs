@@ -26,9 +26,8 @@ impl Default for TableViewState {
     fn default() -> Self {
         Self {
             work_sheet: Worksheet::default(),
-            // warning: 50 / 100 doesn't work - too many constraints, slow rendering, need to debug this!
-            column_width: 500.0,
-            row_height: 100.0,
+            column_width: 100.0,
+            row_height: 20.0,
             selected_cell: None,
         }
     }
@@ -37,6 +36,15 @@ impl Default for TableViewState {
 #[derive(Debug, Default, Clone)]
 pub struct Worksheet {
     pub data: BTreeMap<usize, BTreeMap<usize, String>>,
+}
+
+impl Worksheet {
+    pub fn set_cell<I: Into<String>>(&mut self, x: usize, y: usize, value: I) {
+        self.data
+            .entry(x)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(y, value.into());
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -81,57 +89,51 @@ fn render_table<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dim
 
     Dom::new(NodeType::Div)
     .with_class("__azul-native-table-container")
-
     .with_child(
         Dom::new(NodeType::Div)
-        .with_class("__azul-native-table-column")
+        .with_class("__azul-native-table-row-number-wrapper")
         .with_child(
             // Empty rectangle at the top left of the table
             Dom::new(NodeType::Div)
             .with_class("__azul-native-table-top-left-rect")
-            .with_class("__azul-native-table-column-name")
-            .with_sibling(
-                // Rows - "1", "2", "3"
-                (0..necessary_rows.saturating_sub(1))
+        )
+        .with_child(
+            // Rows - "1", "2", "3"
+            (0..necessary_rows.saturating_sub(1))
+            .map(|row_idx|
+                NodeData {
+                    node_type: NodeType::Label(format!("{}", row_idx + 1)),
+                    classes: vec![String::from("__azul-native-table-row")],
+                    .. Default::default()
+                }
+            )
+            .collect::<Dom<T>>()
+            .with_class("__azul-native-table-row-numbers")
+        )
+    )
+    .with_child(
+        (0..necessary_columns)
+        .map(|col_idx|
+            // Column name
+            Dom::new(NodeType::Div)
+            .with_class("__azul-native-table-column")
+            .with_child(Dom::new(NodeType::Label(column_name_from_number(col_idx))).with_class("__azul-native-table-column-name"))
+            .with_child(
+                // Actual rows - if no content is given, they are simply empty
+                (0..necessary_rows)
                 .map(|row_idx|
                     NodeData {
-                        node_type: NodeType::Label(format!("{}", row_idx + 1)),
-                        classes: vec![String::from("__azul-native-table-row")],
+                        node_type: if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
+                            NodeType::Label(data.clone())
+                        } else {
+                            NodeType::Div
+                        },
+                        classes: vec![String::from("__azul-native-table-cell")],
                         .. Default::default()
                     }
                 )
                 .collect::<Dom<T>>()
-                .with_class("__azul-native-table-row-numbers")
-            )
-        )
-    )
-
-    .with_child(
-        (0..necessary_columns)
-        .map(|col_idx|
-            Dom::new(NodeType::Div)
-            .with_class("__azul-native-table-column")
-            .with_child(
-                // Column name
-                Dom::new(NodeType::Label(column_name_from_number(col_idx)))
-                .with_class("__azul-native-table-column-name")
-                .with_sibling(
-                    // Actual rows - if no content is given, they are simply empty
-                    (0..necessary_rows.saturating_sub(1))
-                    .map(|row_idx|
-                        NodeData {
-                            node_type: if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
-                                NodeType::Label(data.clone())
-                            } else {
-                                NodeType::Div
-                            },
-                            classes: vec![String::from("__azul-native-table-cell")],
-                            .. Default::default()
-                        }
-                    )
-                    .collect::<Dom<T>>()
-                    .with_class("__azul-native-table-row")
-                )
+                .with_class("__azul-native-table-rows")
             )
         )
         .collect::<Dom<T>>()

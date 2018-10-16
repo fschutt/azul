@@ -17,7 +17,6 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
-    ui_solver::{UiSolver, DomSolver, DomId, TOP_LEVEL_DOM_ID},
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css_parser::*,
@@ -124,7 +123,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                     updated_images.push((key.clone(), d.clone()));
                 },
                 ImageState::Uploaded(_) => { },
-                ImageState::AboutToBeDeleted(ref k) => {
+                ImageState::AboutToBeDeleted((ref k, _)) => {
                     to_delete_images.push((key.clone(), k.clone()));
                 }
             }
@@ -217,35 +216,34 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         parsed_css: &ParsedCss,
         window_size: &WindowSize,
         fake_window: &mut FakeWindow<T>,
-        ui_solver: &mut UiSolver,
         app_resources: &mut AppResources)
     -> DisplayListBuilder
     {
         use glium::glutin::dpi::LogicalSize;
 
         let mut app_data_access = AppDataAccess(app_data);
+        let mut resource_updates = Vec::<ResourceUpdate>::new();
 
-        insert_constraints_into_solver(
-            &self.ui_descr,
-            ui_solver.get_dom_mut(&TOP_LEVEL_DOM_ID).unwrap(),
-            &window_size.dimensions,
-            &self.rectangles,
-            window_size_has_changed,
+        let laid_out_rectangles = do_the_layout(
+            &self,
+            &mut resource_updates,
+            app_resources,
+            render_api,
+            window_size.dimensions,
+            LogicalPosition::new(0.0, 0.0)
         );
 
         let LogicalSize { width, height } = window_size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
-        let mut resource_updates = Vec::<ResourceUpdate>::new();
 
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
         let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles);
 
-        // WARNING: recurive function!
         push_rectangles_into_displaylist(
+            &laid_out_rectangles,
             current_epoch,
-            TOP_LEVEL_DOM_ID,
             rects_in_rendering_order,
             &DisplayListParametersRef {
                 ui_description: self.ui_descr,
@@ -254,7 +252,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 parsed_css,
             },
             &mut DisplayListParametersMut {
-                ui_solver,
                 app_data: &mut app_data_access,
                 app_resources,
                 fake_window,
@@ -302,9 +299,97 @@ impl ZOrderedRectangles {
     }
 }
 
+use glium::glutin::dpi::LogicalPosition;
+
+fn do_the_layout<'a, 'b, T: Layout>(
+    display_list: &DisplayList<'a, T>,
+    resource_updates: &mut Vec<ResourceUpdate>,
+    app_resources: &'b mut AppResources,
+    render_api: &RenderApi,
+    rect_size: LogicalSize,
+    rect_offset: LogicalPosition)
+-> Arena<LayoutRect>
+{
+    use text_layout::{split_text_into_words, get_words_cached, Words, FontMetrics};
+    use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
+
+    let arena = display_list.ui_descr.ui_descr_arena.borrow();
+
+    let word_cache: BTreeMap<NodeId, (Words, FontMetrics)> = arena
+    .linear_iter()
+    .filter_map(|id| {
+
+        let (font, font_metrics, font_id, font_size) = match arena[id].data.node_type {
+            NodeType::Label(_) | NodeType::Text(_) => {
+                use text_layout::TextLayoutOptions;
+
+                let rect = &display_list.rectangles[id].data;
+                let style = &rect.style;
+                let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
+                let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+                let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
+                let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
+                let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+                let font = app_resources.get_font(&font_id)?;
+                let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
+
+                let text_layout_options = TextLayoutOptions {
+                    horz_alignment,
+                    vert_alignment,
+                    line_height: style.line_height,
+                    letter_spacing: style.letter_spacing,
+                };
+                let font_metrics = FontMetrics::new(&font.0, &font_size, &text_layout_options);
+
+                (font.0, font_metrics, font_id, font_size)
+            },
+            _ => return None,
+        };
+
+        match &arena[id].data.node_type {
+            NodeType::Label(ref string_to_render) => {
+                Some((id, (split_text_into_words(&string_to_render, &font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing), font_metrics)))
+            },
+            NodeType::Text(text_id) => {
+                // Cloning the words here due to lifetime problems
+                Some((id, (get_words_cached(&text_id,
+                    &font,
+                    &font_id,
+                    &font_size,
+                    font_metrics.font_size_no_line_height,
+                    font_metrics.letter_spacing,
+                    &mut app_resources.text_cache).clone(), font_metrics)))
+            },
+            _ => None,
+        }
+    }).collect();
+
+    let preferred_widths = arena.transform(|node, _| node.node_type.get_preferred_width(&app_resources.images));
+    let solved_widths = solve_flex_layout_width(&display_list.rectangles, preferred_widths, rect_size.width as f32);
+    let preferred_heights = arena.transform(|node, id| {
+        node.node_type.get_preferred_height_based_on_width(
+            solved_widths.solved_widths[id].data.total(),
+            &app_resources.images,
+            word_cache.get(&id).and_then(|e| Some(&e.0)),
+            word_cache.get(&id).and_then(|e| Some(e.1)),
+        )
+    });
+    let solved_heights = solve_flex_layout_height(&solved_widths, preferred_heights, rect_size.height as f32);
+
+    let x_positions = get_x_positions(&solved_widths, rect_offset);
+    let y_positions = get_y_positions(&solved_heights, &solved_widths, rect_offset);
+
+    arena.transform(|node, node_id| {
+        LayoutRect::new(
+            TypedPoint2D::new(x_positions[node_id].data.0, y_positions[node_id].data.0),
+            TypedSize2D::new(solved_widths.solved_widths[node_id].data.total(), solved_heights.solved_heights[node_id].data.total())
+        )
+    })
+}
+
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
+    solved_rects: &Arena<LayoutRect>,
     epoch: Epoch,
-    dom_id: DomId,
     z_ordered_rectangles: ZOrderedRectangles,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
@@ -315,62 +400,13 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
         for rect_idx in rects {
             let rectangle = DisplayListRectParams {
                 epoch,
-                dom_id,
                 rect_idx,
                 html_node: &arena[rect_idx].data.node_type,
             };
 
-            displaylist_handle_rect(rectangle, referenced_content, referenced_mutable_content);
+            displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content);
         }
     }
-}
-/// TODO: Cache if CSS values have changed the layout and not just the style?
-fn insert_constraints_into_solver<'a, T: Layout>(
-    ui_description: &UiDescription<T>,
-    dom_solver: &mut DomSolver,
-    bounds_size: &LogicalSize,
-    rectangles: &Arena<DisplayRectangle<'a>>,
-    window_size_has_changed: bool)
-{
-    use cassowary::Constraint;
-
-    let mut has_window_size_changed = window_size_has_changed;
-
-    let changeset = {
-        let changeset = dom_solver.update_dom(ui_description);
-        if changeset.is_empty() { None } else { Some(changeset) }
-    };
-
-    if changeset.is_some() {
-
-        // inefficient for now, but prevents memory leak
-        dom_solver.clear_all_constraints();
-        let constraints: Vec<Constraint> = {
-            let borrow = &*ui_description.ui_descr_arena.borrow();
-            rectangles.linear_iter().flat_map(|rect_idx| {
-                let constraints = dom_solver.create_layout_constraints(rect_idx, &rectangles, &*ui_description.ui_descr_arena.borrow());
-                // Important: Keep track of the active constraints!
-                dom_solver.push_added_constraints(rect_idx, constraints.clone());
-                constraints
-            }).collect()
-        };
-
-        dom_solver.insert_css_constraints(constraints);
-
-        // If we push or pop constraints that means we also need to re-layout the window
-        has_window_size_changed = true;
-    }
-
-    // TODO: early return based on changeset?
-
-
-    // Recalculate the actual layout
-    if has_window_size_changed {
-        dom_solver.update_window_size(&bounds_size);
-    }
-
-
-    dom_solver.update_layout_cache();
 }
 
 /// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
@@ -382,12 +418,13 @@ pub(crate) struct AppDataAccess<T: Layout>(Arc<Mutex<T>>);
 pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
     pub epoch: Epoch,
     pub rect_idx: NodeId,
-    pub dom_id: DomId,
     pub html_node: &'a NodeType<T>,
 }
 
 /// Push a single rectangle into the display list builder
+#[inline]
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
+    bounds: LayoutRect,
     rectangle: DisplayListRectParams<'c, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>)
@@ -399,11 +436,9 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     } = referenced_content;
 
     let DisplayListRectParams {
-        epoch, rect_idx, html_node, dom_id
+        epoch, rect_idx, html_node,
     } = rectangle;
 
-    // TODO: This will be very slow, find a way
-    let bounds = referenced_mutable_content.ui_solver.get_dom_ref(&dom_id).unwrap().query_bounds_of_rect(rect_idx);
     let rect = &display_rectangle_arena[rect_idx].data;
 
     let info = LayoutPrimitiveInfo {
@@ -622,7 +657,6 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 ) -> Option<OverflowInfo>
 {
     use css::DynamicCssOverrideList;
-    use ui_solver::new_dom_id;
     use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 
     let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
@@ -646,22 +680,16 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
-    let new_dom_id = new_dom_id();
     let rect_size = LogicalSize::new(info.rect.size.width as f64, info.rect.size.height as f64);
-    let dom_solver = DomSolver::new(
-        LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64),
-        rect_size
-    );
+    let rect_origin = LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64);
 
-    referenced_mutable_content.ui_solver.insert_dom(new_dom_id, dom_solver);
-
-    insert_constraints_into_solver(
-        &ui_description,
-        referenced_mutable_content.ui_solver.get_dom_mut(&new_dom_id).unwrap(),
-        &rect_size,
-        &display_list.rectangles,
-        true
-    );
+    let laid_out_rectangles = do_the_layout(
+        &display_list,
+        &mut referenced_mutable_content.resource_updates,
+        &mut referenced_mutable_content.app_resources,
+        &referenced_content.render_api,
+        rect_size,
+        rect_origin);
 
     let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles);
     let referenced_content = DisplayListParametersRef {
@@ -672,13 +700,11 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     };
 
     push_rectangles_into_displaylist(
+        &laid_out_rectangles,
         rectangle.epoch,
-        new_dom_id,
         z_ordered_rectangles,
         &referenced_content,
         referenced_mutable_content);
-
-    referenced_mutable_content.ui_solver.remove_dom(&new_dom_id);
 
     None
 }
@@ -705,7 +731,6 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a + Layout> {
 /// Note: The `'a` in the `'a + Layout` is technically not required.
 /// Only rustc 1.28 requires this, more modern compiler versions insert it automatically.
 struct DisplayListParametersMut<'a, T: 'a + Layout> {
-    pub ui_solver: &'a mut UiSolver,
     /// Needs to be present, because the dom_to_displaylist_builder
     /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
     pub app_data: &'a mut AppDataAccess<T>,
@@ -756,11 +781,7 @@ fn push_text(
         return None;
     }
 
-    let font_family = match style.font_family {
-        Some(ref ff) => ff,
-        None => return None,
-    };
-
+    let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
     let font_id = match font_family.fonts.get(0) {

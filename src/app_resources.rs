@@ -111,11 +111,13 @@ impl AppResources {
             Some(v) => {
                 let to_delete_image_key = match *v {
                     ImageState::Uploaded(ref image_info) => {
-                        Some(image_info.key.clone())
+                        Some((Some(image_info.key.clone()), image_info.descriptor.clone()))
                     },
                     _ => None,
                 };
-                *v = ImageState::AboutToBeDeleted(to_delete_image_key);
+                if let Some((key, descriptor)) = to_delete_image_key {
+                    *v = ImageState::AboutToBeDeleted((key, descriptor));
+                }
                 Some(())
             }
         }

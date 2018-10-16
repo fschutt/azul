@@ -40,7 +40,6 @@ use std::{
     collections::BTreeMap,
 };
 use {
-    ui_solver::RectConstraintVariables,
     id_tree::{NodeId, Arena},
     traits::Layout,
     dom::NodeData,
@@ -142,74 +141,3 @@ pub(crate) struct DomNodeHash {
     /// The self_hash-es of the children, in their correct order
     pub(crate) children_hash: Vec<DomHash>,
 }
-
-#[derive(Debug)]
-pub(crate) struct EditVariableCache {
-    pub(crate) map: BTreeMap<DomHash, (bool, RectConstraintVariables)>
-}
-
-impl EditVariableCache {
-
-    pub(crate) fn empty() -> Self {
-        Self {
-            map: BTreeMap::new(),
-        }
-    }
-
-    pub(crate) fn initialize_new_rectangles(&mut self, rects: &DomChangeSet) {
-        use std::collections::btree_map::Entry::*;
-
-        for dom_hash in rects.added_nodes.values() {
-
-            let map_entry = self.map.entry(*dom_hash);
-            match map_entry {
-                Occupied(e) => {
-                    e.into_mut().0 = true;
-                },
-                Vacant(e) => {
-                    let rect = RectConstraintVariables::default();
-                    e.insert((true, rect));
-                }
-            }
-        }
-    }
-
-    /// Last step of the caching algorithm:
-    /// Remove all edit variables where the `bool` is set to false
-    ///
-    /// TODO: Right now there is nothing that sets the edit variables to false,
-    /// so right now this function does nothing to the cache
-    pub(crate) fn remove_unused_variables(&mut self) {
-
-        let mut to_be_removed = Vec::<DomHash>::new();
-
-        for (key, &(active, _)) in &self.map {
-            if !active {
-                to_be_removed.push(*key);
-            }
-        }
-
-        for hash in &to_be_removed {
-            self.map.remove(hash);
-        }
-    }
-}
-
-/*
-#[test]
-fn test_domhash_stability() {
-    let mut edit_variable_cache = EditVariableCache::empty();
-    let mut nodes = BTreeMap::new();
-
-    nodes.insert(NodeId::new(0), DomHash(0));
-    nodes.insert(NodeId::new(1), DomHash(1));
-
-    edit_variable_cache.initialize_new_rectangles(&DomChangeSet {
-        added_nodes: nodes
-    });
-    edit_variable_cache.remove_unused_variables();
-
-    // The nodes weren't used, so they should all be removed
-    assert!(edit_variable_cache.map.is_empty());
-}
-*/
