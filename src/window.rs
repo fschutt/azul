@@ -36,6 +36,7 @@ use {
     app_resources::AppResources,
     id_tree::NodeId,
     default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
+    ui_state::UiState,
 };
 
 /// azul-internal ID for a window
@@ -55,6 +56,8 @@ pub struct FakeWindow<T: Layout> {
     pub css: FakeCss,
     /// The window state for the next frame
     pub state: WindowState,
+    /// The user can push default callbacks in this `DefaultCallbackSystem`,
+    /// which get called later in the hit-testing logic
     pub(crate) default_callbacks: DefaultCallbackSystem<T>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
@@ -189,31 +192,35 @@ impl<T: Layout> fmt::Debug for FakeWindow<T> {
 }
 
 /// Window event that is passed to the user when a callback is invoked
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct WindowEvent {
+#[derive(Debug)]
+pub struct WindowEvent<'a, T: 'a + Layout> {
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window: usize,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
+    /// UiState containing the necessary data for testing what
+    pub ui_state: &'a UiState<T>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: (f32, f32),
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
     pub cursor_in_viewport: (f32, f32),
 }
 
-impl WindowEvent {
-    // Mock window event, used for testing / calling callbacks without a window
-    pub fn mock() -> Self {
+impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
+    fn clone(&self) -> Self {
         Self {
-            window: 0,
-            hit_dom_node: NodeId::new(0),
-            cursor_relative_to_item: (0.0, 0.0),
-            cursor_in_viewport: (0.0, 0.0),
+            window: self.window,
+            hit_dom_node: self.hit_dom_node,
+            ui_state: self.ui_state,
+            cursor_relative_to_item: self.cursor_relative_to_item,
+            cursor_in_viewport: self.cursor_in_viewport,
         }
     }
 }
+
+impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> { }
 
 /// Options on how to initially create the window
 #[derive(Debug, Clone)]

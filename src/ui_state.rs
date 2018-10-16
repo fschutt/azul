@@ -88,9 +88,9 @@ impl<T: Layout> UiState<T> {
 
         let mut tag_ids_to_callbacks = BTreeMap::new();
         let mut tag_ids_to_default_callbacks = BTreeMap::new();
+        let mut tag_ids_to_noop_callbacks = BTreeMap::new();
         let mut node_ids_to_tag_ids = BTreeMap::new();
         let mut tag_ids_to_node_ids = BTreeMap::new();
-        let mut tag_ids_to_noop_callbacks = BTreeMap::new();
 
         dom.collect_callbacks(
             &mut tag_ids_to_callbacks,

@@ -3,8 +3,8 @@
 use app_state::AppStateNoData;
 use window::WindowEvent;
 
-pub type DefaultCallbackType<T, U> = fn(&mut U, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent) -> UpdateScreen;
-pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent) -> UpdateScreen;
+pub type DefaultCallbackType<T, U> = fn(&mut U, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent<T>) -> UpdateScreen;
+pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent<T>) -> UpdateScreen;
 
 mod stack_checked_pointer {
 
@@ -68,7 +68,7 @@ mod stack_checked_pointer {
             &self,
             callback: DefaultCallbackType<T, U>,
             app_state_no_data: AppStateNoData<T>,
-            window_event: WindowEvent)
+            window_event: WindowEvent<T>)
         -> UpdateScreen
         {
             // VERY UNSAFE, TRIPLE-CHECK FOR UNDEFINED BEHAVIOUR
@@ -264,7 +264,7 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         _app_data: &mut T,
         callback_id: &DefaultCallbackId,
         app_state_no_data: AppStateNoData<T>,
-        window_event: WindowEvent)
+        window_event: WindowEvent<T>)
     -> UpdateScreen
     {
         if let Some((callback_ptr, callback_fn)) = self.callbacks.get(callback_id) {
