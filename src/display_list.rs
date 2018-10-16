@@ -781,7 +781,8 @@ fn push_text(
         return None;
     }
 
-    let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
+    let font_family = style.font_family.as_ref()?;
+    let font_id = font_family.fonts.get(0)?.clone();
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
     let font_id = match font_family.fonts.get(0) {
@@ -796,13 +797,9 @@ fn push_text(
 
     let font_result = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api);
 
-
     let mut font_iter = font_family.fonts.iter();
-    while let Some(font) = font_iter.next() {
-        if let Some(font_result) = push_font(font, font_size_app_units, resource_updates, app_resources, render_api) {
-            let font_instance_key = font_result;
-            let font_id = font;
-
+    while let Some(font_id) = font_iter.next() {
+        if let Some(font_instance_key) = push_font(font_id, font_size_app_units, resource_updates, app_resources, render_api) {
             let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
 
             let text_layout_options = TextLayoutOptions {
@@ -840,7 +837,9 @@ fn push_text(
             return Some(OverflowInfo { text_overflow })
         }
     }
-    error!("div @ {:?} has no existing font assigned!", bounds);
+    #[cfg(feature = "logging")] {
+        error!("div @ {:?} has no existing font assigned!", bounds);
+    }
     None
 }
 
