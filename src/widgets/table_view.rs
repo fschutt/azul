@@ -26,8 +26,8 @@ impl Default for TableViewState {
     fn default() -> Self {
         Self {
             work_sheet: Worksheet::default(),
-            column_width: 50.0,
-            row_height: 10.0,
+            column_width: 100.0,
+            row_height: 20.0,
             selected_cell: None,
         }
     }
@@ -36,6 +36,15 @@ impl Default for TableViewState {
 #[derive(Debug, Default, Clone)]
 pub struct Worksheet {
     pub data: BTreeMap<usize, BTreeMap<usize, String>>,
+}
+
+impl Worksheet {
+    pub fn set_cell<I: Into<String>>(&mut self, x: usize, y: usize, value: I) {
+        self.data
+            .entry(x)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(y, value.into());
+    }
 }
 
 #[derive(Debug, Default, Clone)]
