@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
 };
 use {
     window::{WindowInfo, WindowId},
@@ -16,6 +16,7 @@ pub struct UiState<T: Layout> {
     pub dom: Dom<T>,
     pub tag_ids_to_callbacks: BTreeMap<TagId, BTreeMap<On, Callback<T>>>,
     pub tag_ids_to_default_callbacks: BTreeMap<TagId, BTreeMap<On, DefaultCallbackId>>,
+    pub tag_ids_to_noop_callbacks: BTreeMap<TagId, BTreeSet<On>>,
     pub node_ids_to_tag_ids: BTreeMap<NodeId, TagId>,
     pub tag_ids_to_node_ids: BTreeMap<TagId, NodeId>,
 }
@@ -27,12 +28,14 @@ impl<T: Layout> fmt::Debug for UiState<T> {
                 \tdom: {:?}, \
                 \ttag_ids_to_callbacks: {:?}, \
                 \ttag_ids_to_default_callbacks: {:?}, \
+                \tag_ids_to_noop_callbacks: {:?}, \
                 \tnode_ids_to_tag_ids: {:?} \
                 \ttag_ids_to_node_ids: {:?} \
             }}",
         self.dom,
         self.tag_ids_to_callbacks,
         self.tag_ids_to_default_callbacks,
+        self.tag_ids_to_noop_callbacks,
         self.node_ids_to_tag_ids,
         self.tag_ids_to_node_ids)
     }
@@ -87,10 +90,12 @@ impl<T: Layout> UiState<T> {
         let mut tag_ids_to_default_callbacks = BTreeMap::new();
         let mut node_ids_to_tag_ids = BTreeMap::new();
         let mut tag_ids_to_node_ids = BTreeMap::new();
+        let mut tag_ids_to_noop_callbacks = BTreeMap::new();
 
         dom.collect_callbacks(
             &mut tag_ids_to_callbacks,
             &mut tag_ids_to_default_callbacks,
+            &mut tag_ids_to_noop_callbacks,
             &mut node_ids_to_tag_ids,
             &mut tag_ids_to_node_ids);
 
@@ -98,6 +103,7 @@ impl<T: Layout> UiState<T> {
             dom,
             tag_ids_to_callbacks,
             tag_ids_to_default_callbacks,
+            tag_ids_to_noop_callbacks,
             node_ids_to_tag_ids,
             tag_ids_to_node_ids,
         }
