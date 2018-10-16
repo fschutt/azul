@@ -115,3 +115,7 @@ required-features = []
 [[example]]
 name = "text_input"
 required-features = []
+
+[[example]]
+name = "list"
+required-features = []
