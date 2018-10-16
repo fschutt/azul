@@ -281,9 +281,6 @@ impl<T: Layout> App<T> {
                     force_redraw_cache[idx] = 2;
                 }
 
-                // TODO: use this!
-                let should_redraw_animations = window.run_all_animations();
-
                 // Update the window state that we got from the frame event (updates window dimensions and DPI)
                 window.update_from_external_window_state(&mut frame_event_info);
                 // Update the window state every frame that was set by the user
@@ -293,9 +290,20 @@ impl<T: Layout> App<T> {
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
 
-                    if parsed_css_cache[idx].is_none() {
+                    let should_update_parsed_css = {
+                        // In debug mode, if hot-reloading is active, we want to always update the ParsedCss
+                        #[cfg(not(debug_assertions))] {
+                            parsed_css_cache[idx].is_none()
+                        }
+                        #[cfg(debug_assertions)] {
+                            parsed_css_cache[idx].is_none() || window.css.hot_reload_path.is_some()
+                        }
+                    };
+
+                    if should_update_parsed_css {
                         parsed_css_cache[idx] = Some(ParsedCss::from_css(&window.css));
                     }
+
                     let parsed_css = parsed_css_cache[idx].as_ref().unwrap();
 
                     // Call the Layout::layout() fn, get the DOM
@@ -334,7 +342,7 @@ impl<T: Layout> App<T> {
             #[cfg(debug_assertions)] {
                 for (window_idx, window) in self.windows.iter_mut().enumerate() {
                     // Hot-reload CSS if necessary
-                    if window.css.hot_reload_path.is_some() && Instant::now() - last_css_reload > Duration::from_millis(500) {
+                    if window.css.hot_reload_path.is_some() && (Instant::now() - last_css_reload) > Duration::from_millis(500) {
                         window.css.reload_css();
                         window.css.needs_relayout = true;
                         last_css_reload = Instant::now();
