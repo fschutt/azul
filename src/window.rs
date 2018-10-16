@@ -202,6 +202,7 @@ pub struct WindowEvent<'a, T: 'a + Layout> {
     pub hit_dom_node: NodeId,
     /// UiState containing the necessary data for testing what
     pub(crate) ui_state: &'a UiState<T>,
+    pub(crate) hit_test_result: &'a HitTestResult,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: (f32, f32),
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -214,6 +215,7 @@ impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
             window: self.window,
             hit_dom_node: self.hit_dom_node,
             ui_state: self.ui_state,
+            hit_test_result: self.hit_test_result,
             cursor_relative_to_item: self.cursor_relative_to_item,
             cursor_in_viewport: self.cursor_in_viewport,
         }
@@ -236,7 +238,10 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
             .children(&arena)
             .enumerate()
             .filter_map(|(idx, child_id)| {
-                ui_state.node_ids_to_tag_ids.get(&child_id).and_then(|tag| Some((tag, idx, child_id)))
+                ui_state.node_ids_to_tag_ids.get(&child_id).and_then(|tag| Some((*tag, idx, child_id)))
+            })
+            .filter(|(tag, _, _)| {
+                self.hit_test_result.items.iter().any(|item| item.tag.0 == *tag)
             })
             .filter(|(tag, _, _)| {
                 if let Some(map) = ui_state.tag_ids_to_default_callbacks.get(&tag) {
