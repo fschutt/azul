@@ -822,18 +822,20 @@ impl<T: Layout> Dom<T> {
                 node_tag_id = Some(tag_id);
             }
 
-            // Force-enabling hit-testing is important for child nodes that don't have any
-            // callbacks attached themselves, but their parents need them to be hit-tested
-            if !item.data.force_enable_hit_test.is_empty() {
-                let tag_id = node_tag_id.unwrap_or(new_tag_id());
-                tag_ids_to_noop_callbacks.insert(tag_id, item.data.force_enable_hit_test.clone());
-                node_tag_id = Some(tag_id);
-            }
-
             if let Some(tag_id) = node_tag_id {
                 tag_ids_to_node_ids.insert(tag_id, node_id);
                 node_ids_to_tag_ids.insert(node_id, tag_id);
             }
+/*
+            // Force-enabling hit-testing is important for child nodes that don't have any
+            // callbacks attached themselves, but their parents need them to be hit-tested
+            if !item.data.force_enable_hit_test.is_empty() {
+                let new_tag_id = new_tag_id();
+                tag_ids_to_noop_callbacks.insert(new_tag_id, item.data.force_enable_hit_test.clone());
+                tag_ids_to_node_ids.insert(new_tag_id, node_id);
+            }
+*/
+
         }
 
         TAG_ID.swap(0, Ordering::SeqCst);

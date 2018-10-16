@@ -676,7 +676,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
         None => return,
     };
 
-    let hit_test_results =  window.internal.api.hit_test(
+    let hit_test_results = window.internal.api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
         cursor_location,
@@ -690,6 +690,11 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
     app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
 
+    if !hit_test_results.items.is_empty() {
+        println!("hit test result: {:?}", hit_test_results);
+        println!("tags to callbacks:{:?}", ui_state_cache[window_id.id].tag_ids_to_callbacks);
+        println!("tags to noop callbacks:\n{:?}", ui_state_cache[window_id.id].tag_ids_to_noop_callbacks);
+    }
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
     // TODO: duplicated code!

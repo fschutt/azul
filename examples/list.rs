@@ -19,16 +19,16 @@ impl Layout for List {
                 force_enable_hit_test: set.clone(),
                 .. Default::default()
             }
-        }).collect::<Dom<_>>()
+        }).collect::<Dom<Self>>()
         .with_callback(On::MouseDown, Callback(print_which_item_was_selected))
     }
 }
 
 fn print_which_item_was_selected(app_state: &mut AppState<List>, event: WindowEvent<List>) -> UpdateScreen {
+    println!("mouse click!");
+
     let selected = event.get_first_hit_child(event.hit_dom_node, On::MouseDown).and_then(|x| Some(x.0));
     let mut should_redraw = UpdateScreen::DontRedraw;
-
-    println!("mouse click!");
 
     app_state.data.modify(|state| {
         if selected != state.selected {
