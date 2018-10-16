@@ -74,7 +74,7 @@ impl<T, E> From<Result<T, E>> for UpdateScreen {
 /// The CSS is not affected by this, so if you push to the windows' CSS inside the
 /// function, the screen will not be automatically redrawn, unless you return an
 /// `UpdateScreen::Redraw` from the function
-pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, WindowEvent) -> UpdateScreen);
+pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, WindowEvent<T>) -> UpdateScreen);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for Callback<T>
 
@@ -993,10 +993,7 @@ fn test_dom_from_iter_1() {
         last_child: None,
         data: NodeData {
             node_type: NodeType::Label(String::from("5")),
-            id: None,
-            classes: Vec::new(),
-            default_callback_ids: BTreeMap::new(),
-            events: CallbackList::default(),
+            .. Default::default()
         }
     }));
 }

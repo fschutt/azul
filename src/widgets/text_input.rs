@@ -59,13 +59,13 @@ impl TextInput {
     }
 }
 
-fn update_text_field<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent)
+fn update_text_field<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent<T>)
 -> UpdateScreen
 {
     unsafe { data.invoke_mut(update_text_field_inner, app_state_no_data, window_event) }
 }
 
-fn update_text_field_inner<T: Layout>(data: &mut TextInputState, app_state_no_data: AppStateNoData<T>, event: WindowEvent)
+fn update_text_field_inner<T: Layout>(data: &mut TextInputState, app_state_no_data: AppStateNoData<T>, event: WindowEvent<T>)
 -> UpdateScreen
 {
     let keyboard_state = app_state_no_data.windows[event.window].get_keyboard_state();
