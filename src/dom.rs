@@ -4,7 +4,7 @@ use std::{
     cell::RefCell,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     iter::FromIterator,
 };
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
@@ -23,6 +23,12 @@ use {
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) type TagId = u64;
+
+fn new_tag_id() -> TagId {
+    TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
+}
 
 /// A callback function has to return if the screen should
 /// be updated after the function has run.PartialEq
@@ -70,6 +76,8 @@ impl<T, E> From<Result<T, E>> for UpdateScreen {
 /// `UpdateScreen::Redraw` from the function
 pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, WindowEvent) -> UpdateScreen);
 
+// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for Callback<T>
+
 impl<T: Layout> fmt::Debug for Callback<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Callback @ 0x{:x}", self.0 as usize)
@@ -103,24 +111,6 @@ impl<T: Layout> Eq for Callback<T> { }
 
 impl<T: Layout> Copy for Callback<T> { }
 
-/// List of core DOM node types built-into by `azul`.
-pub enum NodeType<T: Layout> {
-    /// Regular div with no particular type of data attached
-    Div,
-    /// A small label that can be (optionally) be selectable with the mouse
-    Label(String),
-    /// Larger amount of text, that has to be cached
-    Text(TextId),
-    /// An image that is rendered by webrender. The id is aquired by the
-    /// `AppState::add_image()` function
-    Image(ImageId),
-    /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
-    /// Equality and Hash values are only checked by the OpenGl texture ID,
-    /// azul does not check that the contents of two textures are the same
-    GlTexture((GlTextureCallback<T>, StackCheckedPointer<T>)),
-    /// DOM that gets passed its width / height during the layout
-    IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
-}
 
 pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Option<Texture>);
 
@@ -182,7 +172,28 @@ impl<T: Layout> PartialEq for IFrameCallback<T> {
 }
 
 impl<T: Layout> Eq for IFrameCallback<T> { }
+
 impl<T: Layout> Copy for IFrameCallback<T> { }
+
+
+/// List of core DOM node types built-into by `azul`.
+pub enum NodeType<T: Layout> {
+    /// Regular div with no particular type of data attached
+    Div,
+    /// A small label that can be (optionally) be selectable with the mouse
+    Label(String),
+    /// Larger amount of text, that has to be cached
+    Text(TextId),
+    /// An image that is rendered by webrender. The id is aquired by the
+    /// `AppState::add_image()` function
+    Image(ImageId),
+    /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
+    /// Equality and Hash values are only checked by the OpenGl texture ID,
+    /// azul does not check that the contents of two textures are the same
+    GlTexture((GlTextureCallback<T>, StackCheckedPointer<T>)),
+    /// DOM that gets passed its width / height during the layout
+    IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
+}
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType<T>
 
@@ -310,56 +321,6 @@ impl<T: Layout> NodeType<T> {
     }
 }
 
-/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-///
-/// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-/// when you are done with your OpenGL drawing, otherwise webrender will render
-/// to the texture, not the window, so your texture will actually never show up.
-/// If you use a `Texture` and you get a blank screen, this is probably why.
-#[derive(Debug, Clone)]
-pub struct Texture {
-    pub(crate) inner: Rc<Texture2d>,
-}
-
-impl Texture {
-    pub(crate) fn new(tex: Texture2d) -> Self {
-        Self {
-            inner: Rc::new(tex),
-        }
-    }
-
-    /// Prepares the texture for drawing - you can only draw
-    /// on a framebuffer, the texture itself is readonly from the
-    /// OpenGL drivers point of view.
-    ///
-    /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-    /// when you are done with your OpenGL drawing, otherwise webrender will render
-    /// to the texture instead of the window, so your texture will actually
-    /// never show up on the screen, since it is never rendered.
-    /// If you use a `Texture` and you get a blank screen, this is probably why.
-    pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
-        self.inner.as_surface()
-    }
-}
-
-impl Hash for Texture {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        use glium::GlObject;
-        self.inner.get_id().hash(state);
-    }
-}
-
-impl PartialEq for Texture {
-    /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
-    /// actual contents of the texture.
-    fn eq(&self, other: &Texture) -> bool {
-        use glium::GlObject;
-        self.inner.get_id() == other.inner.get_id()
-    }
-}
-
-impl Eq for Texture { }
-
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum On {
@@ -423,6 +384,9 @@ pub struct NodeData<T: Layout> {
     ///
     /// This is only important if this node has any default callbacks.
     pub default_callback_ids: BTreeMap<On, DefaultCallbackId>,
+    /// Force this DOM node to be part of the hit-testing although it may have no
+    /// callbacks attached. Default: `BTreeSet::new()`.
+    pub force_enable_hit_test: BTreeSet<On>,
 }
 
 impl<T: Layout> PartialEq for NodeData<T> {
@@ -431,7 +395,8 @@ impl<T: Layout> PartialEq for NodeData<T> {
         self.id == other.id &&
         self.classes == other.classes &&
         self.events == other.events &&
-        self.default_callback_ids == other.default_callback_ids
+        self.default_callback_ids == other.default_callback_ids &&
+        self.force_enable_hit_test == other.force_enable_hit_test
     }
 }
 
@@ -445,6 +410,7 @@ impl<T: Layout> Default for NodeData<T> {
             classes: Vec::new(),
             events: CallbackList::default(),
             default_callback_ids: BTreeMap::new(),
+            force_enable_hit_test: BTreeSet::new(),
         }
     }
 }
@@ -460,23 +426,7 @@ impl<T: Layout> Hash for NodeData<T> {
             default_callback_id.hash(state);
         }
         self.events.hash(state);
-    }
-}
-
-impl<T: Layout> NodeData<T> {
-
-    pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
-        use std::hash::Hash;
-
-        // Pick hash algorithm based on features
-        #[cfg(feature = "faster-hashing")]
-        use twox_hash::XxHash as HashAlgorithm;
-        #[cfg(not(feature = "faster-hashing"))]
-        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
-
-        let mut hasher = HashAlgorithm::default();
-        self.hash(&mut hasher);
-        DomHash(hasher.finish())
+        self.force_enable_hit_test.hash(state);
     }
 }
 
@@ -486,8 +436,9 @@ impl<T: Layout> Clone for NodeData<T> {
             node_type: self.node_type.clone(),
             id: self.id.clone(),
             classes: self.classes.clone(),
-            events: self.events.special_clone(),
+            events: self.events.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
+            force_enable_hit_test: self.force_enable_hit_test.clone(),
         }
     }
 }
@@ -512,78 +463,42 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tclasses: {:?}, \
                 \tevents: {:?}, \
                 \tdefault_callback_ids: {:?}, \
+                \tforce_enable_hit_test: {:?}, \
             }}",
         self.node_type,
         self.id,
         self.classes,
         self.events,
-        self.default_callback_ids)
-    }
-}
-
-impl<T: Layout> PartialEq for CallbackList<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    if self.callbacks.len() != rhs.callbacks.len() {
-        return false;
-    }
-    self.callbacks.iter().all(|(key, val)| {
-        rhs.callbacks.get(key) == Some(val)
-    })
-  }
-}
-
-impl<T: Layout> CallbackList<T> {
-    fn special_clone(&self) -> Self {
-        Self {
-            callbacks: self.callbacks.clone(),
-        }
+        self.default_callback_ids,
+        self.force_enable_hit_test)
     }
 }
 
 impl<T: Layout> NodeData<T> {
+
+    pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
+        use std::hash::Hash;
+
+        // Pick hash algorithm based on features
+        #[cfg(feature = "faster-hashing")]
+        use twox_hash::XxHash as HashAlgorithm;
+        #[cfg(not(feature = "faster-hashing"))]
+        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
+
+        let mut hasher = HashAlgorithm::default();
+        self.hash(&mut hasher);
+        DomHash(hasher.finish())
+    }
+
     /// Creates a new NodeData
     pub fn new(node_type: NodeType<T>) -> Self {
         Self {
-            node_type: node_type,
-            id: None,
-            classes: Vec::new(),
-            events: CallbackList::<T>::new(),
-            default_callback_ids: BTreeMap::new(),
-        }
-    }
-
-    /// Since `#[derive(Clone)]` requires `T: Clone`, we currently
-    /// have to make our own version
-    fn special_clone(&self) -> Self {
-        Self {
-            node_type: self.node_type.clone(),
-            id: self.id.clone(),
-            classes: self.classes.clone(),
-            events: self.events.special_clone(),
-            default_callback_ids: self.default_callback_ids.clone(),
+            node_type,
+            .. Default::default()
         }
     }
 }
 
-/// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
-#[derive(Clone, PartialEq, Eq)]
-pub struct Dom<T: Layout> {
-    pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
-    pub(crate) root: NodeId,
-    pub(crate) head: NodeId,
-}
-
-impl<T: Layout> fmt::Debug for Dom<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-        "Dom {{ arena: {:?}, root: {:?}, head: {:?} }}",
-        self.arena,
-        self.root,
-        self.head)
-    }
-}
-
-#[derive(Clone, Eq)]
 pub struct CallbackList<T: Layout> {
     pub callbacks: BTreeMap<On, Callback<T>>
 }
@@ -610,11 +525,40 @@ impl<T: Layout> fmt::Debug for CallbackList<T> {
     }
 }
 
-impl<T: Layout> CallbackList<T> {
-    pub fn new() -> Self {
-        Self {
-            callbacks: BTreeMap::new(),
-        }
+impl<T: Layout> Clone for CallbackList<T> {
+    fn clone(&self) -> Self {
+        CallbackList { callbacks: self.callbacks.clone() }
+    }
+}
+
+impl<T: Layout> PartialEq for CallbackList<T> {
+  fn eq(&self, rhs: &Self) -> bool {
+    if self.callbacks.len() != rhs.callbacks.len() {
+        return false;
+    }
+    self.callbacks.iter().all(|(key, val)| {
+        rhs.callbacks.get(key) == Some(val)
+    })
+  }
+}
+
+impl<T: Layout> Eq for CallbackList<T> { }
+
+/// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
+#[derive(Clone, PartialEq, Eq)]
+pub struct Dom<T: Layout> {
+    pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
+    pub(crate) root: NodeId,
+    pub(crate) head: NodeId,
+}
+
+impl<T: Layout> fmt::Debug for Dom<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+        "Dom {{ arena: {:?}, root: {:?}, head: {:?} }}",
+        self.arena,
+        self.root,
+        self.head)
     }
 }
 
@@ -811,6 +755,14 @@ impl<T: Layout> Dom<T> {
         self
     }
 
+    /// Enable the DOM to trigger a hit-test on the specified event, although
+    /// there may not be any callbacks attached.
+    #[inline]
+    pub fn with_hit_test(mut self, on: On) -> Self {
+        self.enable_hit_testing(on);
+        self
+    }
+
     #[inline]
     pub fn set_id<S: Into<String>>(&mut self, id: S) {
         self.arena.borrow_mut()[self.head].data.id = Some(id.into());
@@ -835,20 +787,20 @@ impl<T: Layout> Dom<T> {
     pub fn debug_dump(&self) {
         println!("{}", self.arena.borrow().print_tree(|t| format!("{}", t)));
     }
-}
 
-pub type TagId = u64;
-
-fn new_tag_id() -> TagId {
-    TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
-}
-
-impl<T: Layout> Dom<T> {
+    /// Enables the current DOM element to be hit-tested even though it may
+    /// not have any callbacks or default callbacks attached to it. See the
+    /// two-way data binding tutorial on why this is useful (last section)
+    #[inline]
+    pub fn enable_hit_testing(&mut self, when_to_hit_test: On) {
+        self.arena.borrow_mut()[self.head].data.force_enable_hit_test.insert(when_to_hit_test);
+    }
 
     pub(crate) fn collect_callbacks(
         &self,
         tag_ids_to_callback_list: &mut BTreeMap<TagId, BTreeMap<On, Callback<T>>>,
         tag_ids_to_default_callback_list: &mut BTreeMap<TagId, BTreeMap<On, DefaultCallbackId>>,
+        tag_ids_to_noop_callbacks: &mut BTreeMap<TagId, BTreeSet<On>>,
         node_ids_to_tag_ids: &mut BTreeMap<NodeId, TagId>,
         tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>)
     {
@@ -870,6 +822,14 @@ impl<T: Layout> Dom<T> {
                 node_tag_id = Some(tag_id);
             }
 
+            // Force-enabling hit-testing is important for child nodes that don't have any
+            // callbacks attached themselves, but their parents need them to be hit-tested
+            if !item.data.force_enable_hit_test.is_empty() {
+                let tag_id = node_tag_id.unwrap_or(new_tag_id());
+                tag_ids_to_noop_callbacks.insert(tag_id, item.data.force_enable_hit_test.clone());
+                node_tag_id = Some(tag_id);
+            }
+
             if let Some(tag_id) = node_tag_id {
                 tag_ids_to_node_ids.insert(tag_id, node_id);
                 node_ids_to_tag_ids.insert(node_id, tag_id);
@@ -879,6 +839,56 @@ impl<T: Layout> Dom<T> {
         TAG_ID.swap(0, Ordering::SeqCst);
     }
 }
+
+/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
+///
+/// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
+/// when you are done with your OpenGL drawing, otherwise webrender will render
+/// to the texture, not the window, so your texture will actually never show up.
+/// If you use a `Texture` and you get a blank screen, this is probably why.
+#[derive(Debug, Clone)]
+pub struct Texture {
+    pub(crate) inner: Rc<Texture2d>,
+}
+
+impl Texture {
+    pub(crate) fn new(tex: Texture2d) -> Self {
+        Self {
+            inner: Rc::new(tex),
+        }
+    }
+
+    /// Prepares the texture for drawing - you can only draw
+    /// on a framebuffer, the texture itself is readonly from the
+    /// OpenGL drivers point of view.
+    ///
+    /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
+    /// when you are done with your OpenGL drawing, otherwise webrender will render
+    /// to the texture instead of the window, so your texture will actually
+    /// never show up on the screen, since it is never rendered.
+    /// If you use a `Texture` and you get a blank screen, this is probably why.
+    pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
+        self.inner.as_surface()
+    }
+}
+
+impl Hash for Texture {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        use glium::GlObject;
+        self.inner.get_id().hash(state);
+    }
+}
+
+impl PartialEq for Texture {
+    /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
+    /// actual contents of the texture.
+    fn eq(&self, other: &Texture) -> bool {
+        use glium::GlObject;
+        self.inner.get_id() == other.inner.get_id()
+    }
+}
+
+impl Eq for Texture { }
 
 #[test]
 fn test_dom_sibling_1() {
