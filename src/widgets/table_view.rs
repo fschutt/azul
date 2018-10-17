@@ -60,85 +60,94 @@ impl TableView {
     }
 
     pub fn dom<T: Layout>(&self, data: &TableViewState, t: &T) -> Dom<T> {
-        Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), StackCheckedPointer::new(t, data).unwrap())))
+        if let Some(ptr) =  StackCheckedPointer::new(t, data) {
+            Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), ptr)))
+        } else {
+            Dom::new(NodeType::Label(
+                "Cannot create table from heap-allocated TableViewState, \
+                 please call TableViewState::render_dom manually".into())
+            )
+        }
     }
 }
 
 fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
 -> Dom<T>
 {
-    unsafe { ptr.invoke_mut_iframe(render_table, info, dimensions) }
+    unsafe { ptr.invoke_mut_iframe(TableViewState::render, info, dimensions) }
 }
 
-fn render_table<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
--> Dom<T>
-{
-    let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;
-    let necessary_rows = (dimensions.logical_size.height as f32 / state.row_height).ceil() as usize;
+impl TableViewState {
+    pub fn render<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
+    -> Dom<T>
+    {
+        let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;
+        let necessary_rows = (dimensions.logical_size.height as f32 / state.row_height).ceil() as usize;
 
-    // div.__azul-native-table-container
-    //     |-> div.__azul-native-table-column (Column 0)
-    //         |-> div.__azul-native-table-top-left-rect .__azul-native-table-column-name
-    //         '-> div.__azul-native-table-row-numbers .__azul-native-table-row
-    //
-    //     |-> div.__azul-native-table-column-container
-    //         |-> div.__azul-native-table-column (Column 1 ...)
-    //             |-> div.__azul-native-table-column-name
-    //             '-> div.__azul-native-table-row
-    //                 '-> div.__azul-native-table-cell
+        // div.__azul-native-table-container
+        //     |-> div.__azul-native-table-column (Column 0)
+        //         |-> div.__azul-native-table-top-left-rect .__azul-native-table-column-name
+        //         '-> div.__azul-native-table-row-numbers .__azul-native-table-row
+        //
+        //     |-> div.__azul-native-table-column-container
+        //         |-> div.__azul-native-table-column (Column 1 ...)
+        //             |-> div.__azul-native-table-column-name
+        //             '-> div.__azul-native-table-row
+        //                 '-> div.__azul-native-table-cell
 
-    Dom::new(NodeType::Div)
-    .with_class("__azul-native-table-container")
-    .with_child(
         Dom::new(NodeType::Div)
-        .with_class("__azul-native-table-row-number-wrapper")
+        .with_class("__azul-native-table-container")
         .with_child(
-            // Empty rectangle at the top left of the table
             Dom::new(NodeType::Div)
-            .with_class("__azul-native-table-top-left-rect")
-        )
-        .with_child(
-            // Rows - "1", "2", "3"
-            (0..necessary_rows.saturating_sub(1))
-            .map(|row_idx|
-                NodeData {
-                    node_type: NodeType::Label(format!("{}", row_idx + 1)),
-                    classes: vec![String::from("__azul-native-table-row")],
-                    .. Default::default()
-                }
-            )
-            .collect::<Dom<T>>()
-            .with_class("__azul-native-table-row-numbers")
-        )
-    )
-    .with_child(
-        (0..necessary_columns)
-        .map(|col_idx|
-            // Column name
-            Dom::new(NodeType::Div)
-            .with_class("__azul-native-table-column")
-            .with_child(Dom::new(NodeType::Label(column_name_from_number(col_idx))).with_class("__azul-native-table-column-name"))
+            .with_class("__azul-native-table-row-number-wrapper")
             .with_child(
-                // Actual rows - if no content is given, they are simply empty
-                (0..necessary_rows)
+                // Empty rectangle at the top left of the table
+                Dom::new(NodeType::Div)
+                .with_class("__azul-native-table-top-left-rect")
+            )
+            .with_child(
+                // Rows - "1", "2", "3"
+                (0..necessary_rows.saturating_sub(1))
                 .map(|row_idx|
                     NodeData {
-                        node_type: if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
-                            NodeType::Label(data.clone())
-                        } else {
-                            NodeType::Div
-                        },
-                        classes: vec![String::from("__azul-native-table-cell")],
+                        node_type: NodeType::Label(format!("{}", row_idx + 1)),
+                        classes: vec![String::from("__azul-native-table-row")],
                         .. Default::default()
                     }
                 )
                 .collect::<Dom<T>>()
-                .with_class("__azul-native-table-rows")
+                .with_class("__azul-native-table-row-numbers")
             )
         )
-        .collect::<Dom<T>>()
-        .with_class("__azul-native-table-column-container")
-    )
+        .with_child(
+            (0..necessary_columns)
+            .map(|col_idx|
+                // Column name
+                Dom::new(NodeType::Div)
+                .with_class("__azul-native-table-column")
+                .with_child(Dom::new(NodeType::Label(column_name_from_number(col_idx))).with_class("__azul-native-table-column-name"))
+                .with_child(
+                    // Actual rows - if no content is given, they are simply empty
+                    (0..necessary_rows)
+                    .map(|row_idx|
+                        NodeData {
+                            node_type: if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
+                                NodeType::Label(data.clone())
+                            } else {
+                                NodeType::Div
+                            },
+                            classes: vec![String::from("__azul-native-table-cell")],
+                            .. Default::default()
+                        }
+                    )
+                    .collect::<Dom<T>>()
+                    .with_class("__azul-native-table-rows")
+                )
+            )
+            .collect::<Dom<T>>()
+            .with_class("__azul-native-table-column-container")
+        )
+    }
 }
 
 /// Maps an index number to a value, necessary for creating the column name:

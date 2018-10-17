@@ -613,6 +613,13 @@ fn parse_float_value(input: &str)
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BackgroundColor(pub ColorU);
 
+impl Default for BackgroundColor {
+    fn default() -> Self {
+        // Transparent color
+        BackgroundColor(ColorU::new(255, 255, 255, 255))
+    }
+}
+
 fn parse_css_background_color<'a>(input: &'a str)
 -> Result<BackgroundColor, CssColorParseError<'a>>
 {

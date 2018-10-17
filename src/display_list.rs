@@ -468,9 +468,10 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_mutable_content.builder.push_clip_id(id);
     }
 
-    if let Some(ref bg_col) = rect.style.background_color {
-        push_rect(&info, referenced_mutable_content.builder, bg_col);
-    }
+    // We always have to push the rect, otherwise the hit-testing gets confused
+    push_rect(&info,
+              referenced_mutable_content.builder,
+              &rect.style.background_color.unwrap_or_default());
 
     if let Some(ref bg) = rect.style.background {
         push_background(
