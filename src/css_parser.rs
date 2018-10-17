@@ -1900,6 +1900,11 @@ impl LayoutDirection {
             Column | ColumnReverse => Vertical,
         }
     }
+
+    /// Returns true, if this direction is a `column-reverse` or `row-reverse` direction
+    pub fn is_reverse(&self) -> bool {
+        *self == LayoutDirection::RowReverse || *self == LayoutDirection::ColumnReverse
+    }
 }
 
 /// Represents a parsed CSS `position` attribute - default: `Static`
