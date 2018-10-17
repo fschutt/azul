@@ -8,6 +8,8 @@ struct List {
     selected: Option<usize>,
 }
 
+const CUSTOM_CSS: &str = ".selected { background-color: black; color: white; }";
+
 impl Layout for List {
     fn layout(&self, _: WindowInfo<Self>) -> Dom<Self> {
         let mut set = BTreeSet::new();
@@ -25,7 +27,6 @@ impl Layout for List {
 }
 
 fn print_which_item_was_selected(app_state: &mut AppState<List>, event: WindowEvent<List>) -> UpdateScreen {
-    println!("mouse click!");
 
     let selected = event.get_first_hit_child(event.hit_dom_node, On::MouseDown).and_then(|x| Some(x.0));
     let mut should_redraw = UpdateScreen::DontRedraw;
@@ -42,7 +43,7 @@ fn print_which_item_was_selected(app_state: &mut AppState<List>, event: WindowEv
 }
 
 fn main() {
-    let app = App::new(List {
+    let data = List {
         items: vec![
             "Hello",
             "World",
@@ -53,6 +54,10 @@ fn main() {
             "Ipsum",
         ],
         selected: None,
-    }, AppConfig::default());
-    app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
+    };
+
+    let app = App::new(data, AppConfig::default());
+    let css = Css::override_native(CUSTOM_CSS).unwrap();
+    let window = Window::new(WindowCreateOptions::default(), css).unwrap();
+    app.run(window).unwrap();
 }

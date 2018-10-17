@@ -22,7 +22,7 @@ use {
     text_layout::{Words, FontMetrics},
 };
 
-static TAG_ID: AtomicUsize = AtomicUsize::new(0);
+static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
 pub(crate) type TagId = u64;
 
@@ -804,8 +804,10 @@ impl<T: Layout> Dom<T> {
         node_ids_to_tag_ids: &mut BTreeMap<NodeId, TagId>,
         tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>)
     {
-        for item in self.root.traverse(&*self.arena.borrow()) {
-            let node_id = item.inner_value();
+        let arena = self.arena.borrow();
+
+        for node_id in arena.linear_iter() {
+
             let item = &self.arena.borrow()[node_id];
 
             let mut node_tag_id = None;
@@ -822,23 +824,21 @@ impl<T: Layout> Dom<T> {
                 node_tag_id = Some(tag_id);
             }
 
+            // Force-enabling hit-testing is important for child nodes that don't have any
+            // callbacks attached themselves, but their parents need them to be hit-tested
+            if !item.data.force_enable_hit_test.is_empty() {
+                let tag_id = node_tag_id.unwrap_or(new_tag_id());
+                tag_ids_to_noop_callbacks.insert(tag_id, item.data.force_enable_hit_test.clone());
+                node_tag_id = Some(tag_id);
+            }
+
             if let Some(tag_id) = node_tag_id {
                 tag_ids_to_node_ids.insert(tag_id, node_id);
                 node_ids_to_tag_ids.insert(node_id, tag_id);
             }
-/*
-            // Force-enabling hit-testing is important for child nodes that don't have any
-            // callbacks attached themselves, but their parents need them to be hit-tested
-            if !item.data.force_enable_hit_test.is_empty() {
-                let new_tag_id = new_tag_id();
-                tag_ids_to_noop_callbacks.insert(new_tag_id, item.data.force_enable_hit_test.clone());
-                tag_ids_to_node_ids.insert(new_tag_id, node_id);
-            }
-*/
-
         }
 
-        TAG_ID.swap(0, Ordering::SeqCst);
+        TAG_ID.swap(1, Ordering::SeqCst);
     }
 }
 
