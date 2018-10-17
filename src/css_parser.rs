@@ -616,7 +616,7 @@ pub struct BackgroundColor(pub ColorU);
 impl Default for BackgroundColor {
     fn default() -> Self {
         // Transparent color
-        BackgroundColor(ColorU::new(255, 255, 255, 255))
+        BackgroundColor(ColorU::new(0, 0, 0, 0))
     }
 }
 
