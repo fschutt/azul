@@ -686,28 +686,44 @@ fn get_non_leaf_nodes_sorted_by_depth<T>(arena: &Arena<T>) -> Vec<(usize, NodeId
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub(crate) struct HorizontalSolvedPosition(pub f32);
 
-/// Traverses along the DOM and solved
-pub(crate) fn get_x_positions(solved_widths: &SolvedWidthLayout, origin: LogicalPosition)
--> Arena<HorizontalSolvedPosition>
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub(crate) struct VerticalSolvedPosition(pub f32);
+
+macro_rules! get_position {
+($fn_name:ident,
+ $width_layout:ident,
+ $height_solved_position:ident,
+ $solved_widths_field:ident,
+ $min_width:ident,
+ $left:ident,
+ $right:ident,
+ $axis:ident
+) => (
+
+/// Traverses along the DOM and solve for the X or Y position
+fn $fn_name(
+    arena: &Arena<RectLayout>,
+    non_leaf_nodes: &[(usize, NodeId)],
+    solved_widths: &$width_layout,
+    origin: LogicalPosition)
+-> Arena<$height_solved_position>
 {
     use css_parser::LayoutAxis;
 
-    let arena = &solved_widths.layout_only_arena;
-    let non_leaf_nodes = &solved_widths.non_leaf_nodes_sorted_by_depth;
-    let widths = &solved_widths.solved_widths;
+    let widths = &solved_widths.$solved_widths_field;
 
-    let mut arena_solved = widths.transform(|_, _| HorizontalSolvedPosition(0.0));
+    let mut arena_solved = widths.transform(|_, _| $height_solved_position(0.0));
 
-    arena_solved[NodeId::new(0)].data = HorizontalSolvedPosition(origin.x as f32);
+    arena_solved[NodeId::new(0)].data = $height_solved_position(origin.x as f32);
 
     for (_node_depth, parent_id) in non_leaf_nodes {
 
         let parent_padding = arena[*parent_id].data.padding.unwrap_or_default();
-        let parent_padding_left = parent_padding.left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let parent_padding_right = parent_padding.right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let parent_padding_left = parent_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let parent_padding_right = parent_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
         let parent_x_position = arena_solved[*parent_id].data.0 + parent_padding_left;
 
-        if arena[*parent_id].data.direction.unwrap_or_default().get_axis() == LayoutAxis::Vertical {
+        if arena[*parent_id].data.direction.unwrap_or_default().get_axis() == LayoutAxis::$axis {
             // Along main axis: Take X of parent
             for child_id in parent_id.children(arena) {
                 arena_solved[child_id].data.0 = parent_x_position;
@@ -717,7 +733,7 @@ pub(crate) fn get_x_positions(solved_widths: &SolvedWidthLayout, origin: Logical
 
             let parent_inner_width = {
                 let parent_node = &widths[*parent_id].data;
-                parent_node.min_width + parent_node.space_added - (parent_padding_left + parent_padding_right)
+                parent_node.$min_width + parent_node.space_added - (parent_padding_left + parent_padding_right)
             };
 
             let main_axis_alignment = arena[*parent_id].data.justify_content.unwrap_or_default();
@@ -730,12 +746,12 @@ pub(crate) fn get_x_positions(solved_widths: &SolvedWidthLayout, origin: Logical
 
                 // width: increase X according to the main axis, Y according to the cross_axis
                 let child_margin = arena[child_id].data.margin.unwrap_or_default();
-                let child_margin_left = child_margin.left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-                let child_margin_right = child_margin.right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+                let child_margin_left = child_margin.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+                let child_margin_right = child_margin.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
                 let child_width_with_padding = {
                     let child_node = &widths[child_id].data;
-                    child_node.min_width + child_node.space_added
+                    child_node.$min_width + child_node.space_added
                 };
 
                 // Always the top left corner
@@ -767,87 +783,22 @@ pub(crate) fn get_x_positions(solved_widths: &SolvedWidthLayout, origin: Logical
     arena_solved
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub(crate) struct VerticalSolvedPosition(pub f32);
+)}
 
-/// Traverses along the DOM and solved
-pub(crate) fn get_y_positions(solved_heights: &SolvedHeightLayout, width_arena: &SolvedWidthLayout, origin: LogicalPosition)
+pub(crate) fn get_x_positions(solved_widths: &SolvedWidthLayout, origin: LogicalPosition)
+-> Arena<HorizontalSolvedPosition>
+{
+    get_position!(get_pos_x, SolvedWidthLayout, HorizontalSolvedPosition, solved_widths, min_width, left, right, Vertical);
+
+    get_pos_x(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_widths, origin)
+}
+
+pub(crate) fn get_y_positions(solved_heights: &SolvedHeightLayout, solved_widths: &SolvedWidthLayout, origin: LogicalPosition)
 -> Arena<VerticalSolvedPosition>
 {
-    use css_parser::LayoutAxis;
+    get_position!(get_pos_y, SolvedHeightLayout, VerticalSolvedPosition, solved_heights, min_height, top, bottom, Horizontal);
 
-    let arena = &width_arena.layout_only_arena;
-    let non_leaf_nodes = &width_arena.non_leaf_nodes_sorted_by_depth;
-    let heights = &solved_heights.solved_heights;
-
-    let mut arena_solved = heights.transform(|_, _| VerticalSolvedPosition(0.0));
-
-    arena_solved[NodeId::new(0)].data = VerticalSolvedPosition(origin.y as f32);
-
-    for (_node_depth, parent_id) in non_leaf_nodes {
-
-        let parent_padding = arena[*parent_id].data.padding.unwrap_or_default();
-        let parent_padding_top = parent_padding.top.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let parent_padding_bottom = parent_padding.bottom.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let parent_y_position = arena_solved[*parent_id].data.0 + parent_padding_top;
-
-        if arena[*parent_id].data.direction.unwrap_or_default().get_axis() == LayoutAxis::Horizontal {
-            // Along main axis: Take Y of parent
-            for child_id in parent_id.children(arena) {
-                arena_solved[child_id].data.0 = parent_y_position;
-            }
-        } else {
-            // Cross axis: increase Y
-            let parent_inner_height = {
-                let parent_node = &heights[*parent_id].data;
-                parent_node.min_height + parent_node.space_added - (parent_padding_top + parent_padding_bottom)
-            };
-
-            let main_axis_alignment = arena[*parent_id].data.justify_content.unwrap_or_default();
-
-            let mut sum_y_of_children_so_far = 0.0;
-
-            for child_id in parent_id.children(arena) {
-
-                use css_parser::LayoutJustifyContent::*;
-
-                // width: increase X according to the main axis, Y according to the cross_axis
-                let child_margin = arena[child_id].data.margin.unwrap_or_default();
-                let child_margin_top = child_margin.top.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-                let child_margin_bottom = child_margin.bottom.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-
-                let child_height_with_padding = {
-                    let child_node = &heights[child_id].data;
-                    child_node.min_height + child_node.space_added
-                };
-
-                // Always the top left corner
-                let y_of_top_left_corner = match main_axis_alignment {
-                    Start => {
-                        parent_y_position + sum_y_of_children_so_far + child_margin_top
-                    },
-                    End => {
-                        (parent_y_position + parent_inner_height) - (sum_y_of_children_so_far + child_margin_top + child_height_with_padding)
-                    },
-                    Center => {
-                        parent_y_position + ((parent_inner_height / 2.0) - ((sum_y_of_children_so_far + child_margin_top + child_height_with_padding) / 2.0))
-                    },
-                    SpaceBetween => {
-                        parent_y_position // TODO!
-                    },
-                    SpaceAround => {
-                        parent_y_position // TODO!
-                    },
-                };
-
-                arena_solved[child_id].data.0 = y_of_top_left_corner;
-
-                sum_y_of_children_so_far += child_margin_top + child_height_with_padding + child_margin_bottom;
-            }
-        }
-    }
-
-    arena_solved
+    get_pos_y(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_heights, origin)
 }
 
 #[cfg(test)]
