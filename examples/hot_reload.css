@@ -18,7 +18,7 @@
 }
 
 #sub-wrapper {
-    flex-direction: column-reverse;
+    flex-direction: column;
     width: 400px;
     box-shadow: 0px 0px 50px black;
     position: relative;
@@ -32,6 +32,7 @@
     flex-direction: row-reverse;
     box-shadow: 0px 0px 50px black;
     position: absolute;
+    margin: 50px 50px;
     left: 50px;
     top: -34px;
 }
