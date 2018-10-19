@@ -767,6 +767,7 @@ fn $fn_name(
         main_axis_alignment: LayoutJustifyContent,
         arena: &Arena<RectLayout>,
         arena_solved: &mut Arena<$height_solved_position>,
+        solved_widths: &$width_layout,
         child_id: NodeId,
         parent_x_position: f32,
         parent_inner_width: f32,
@@ -784,19 +785,30 @@ fn $fn_name(
 
         if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
             let zero_node = NodeId::new(0);
-            let last_relative_node = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
+            let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
+
+            let last_relative_node = arena[*last_relative_node_id].data;
+            let last_relative_padding = last_relative_node.padding.unwrap_or_default();
+            let last_relative_padding_left = last_relative_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+            let last_relative_padding_right = last_relative_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
             // For absolute-positioned nodes, the position is `margin-left` + `left`
             // Note that we are re-using the left here to access the `LayoutLeft` / `LayoutTop`
-            let last_relative_node_width = arena_solved[*last_relative_node].data.0;
+            let last_relative_node_x = arena_solved[*last_relative_node_id].data.0 + last_relative_padding_left;
+            let last_relative_node_inner_width = {
+                let last_relative_node = &solved_widths.$solved_widths_field[*last_relative_node_id].data;
+                last_relative_node.$min_width + last_relative_node.space_added - (last_relative_padding_left + last_relative_padding_right)
+            };
 
             let child_left = &arena[child_id].data.$left.and_then(|s| Some(s.0.to_pixels()));
             let child_right = &arena[child_id].data.$right.and_then(|s| Some(s.0.to_pixels()));
 
             if let Some(child_right) = child_right {
-                arena_solved[child_id].data.0 = (arena_solved[*last_relative_node].data.0 + last_relative_node_width) - child_margin_right - child_right;
+                // align right / bottom of last relative parent
+                arena_solved[child_id].data.0 = (last_relative_node_x + last_relative_node_inner_width) - child_margin_right - child_right;
             } else {
-                arena_solved[child_id].data.0 = arena_solved[*last_relative_node].data.0 + child_margin_left + child_left.unwrap_or(0.0);
+                // align left / top of last relative parent
+                arena_solved[child_id].data.0 = last_relative_node_x + child_margin_left + child_left.unwrap_or(0.0);
             }
         } else {
             // Relative or static item
@@ -878,6 +890,7 @@ fn $fn_name(
                         main_axis_alignment,
                         &arena,
                         &mut arena_solved,
+                        solved_widths,
                         child_id,
                         parent_x_position,
                         parent_inner_width,
@@ -898,6 +911,7 @@ fn $fn_name(
                         main_axis_alignment,
                         &arena,
                         &mut arena_solved,
+                        solved_widths,
                         child_id,
                         parent_x_position,
                         parent_inner_width,
