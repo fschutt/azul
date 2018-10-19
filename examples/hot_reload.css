@@ -32,9 +32,10 @@
     flex-direction: row-reverse;
     box-shadow: 0px 0px 50px black;
     position: absolute;
-    margin: 50px 50px;
     left: 50px;
-    top: -34px;
+    bottom: -5px;
+    width: 10px;
+    height: 10px;
 }
 
 #grey {
@@ -44,7 +45,8 @@
 #below-yellow {
     background-color: #F14C13;
     box-shadow: 2px 2px 10px black;
-    width: 50px;
+    width: 5px;
+    height: 5px;
 }
 
 #cat {
