@@ -29,7 +29,7 @@
 #yellow {
     background-color: #F5900E;
     height: 70px;
-    flex-direction: row-reverse;
+    flex-direction: row;
     box-shadow: 0px 0px 50px black;
     position: absolute;
     right: -25px;
@@ -45,6 +45,9 @@
 #below-yellow {
     background-color: #F14C13;
     box-shadow: 2px 2px 10px black;
+    width: 10px;
+    height: 10px;
+    margin: 5px 0px;
 }
 
 #cat {
