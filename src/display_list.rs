@@ -224,7 +224,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let mut app_data_access = AppDataAccess(app_data);
         let mut resource_updates = Vec::<ResourceUpdate>::new();
 
-        let laid_out_rectangles = do_the_layout(
+        let (laid_out_rectangles, node_depths) = do_the_layout(
             &self,
             &mut resource_updates,
             app_resources,
@@ -239,7 +239,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
-        let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles);
+        let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles, &node_depths);
 
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
@@ -272,27 +272,18 @@ struct ZOrderedRectangles(pub BTreeMap<usize, Vec<NodeId>>);
 impl ZOrderedRectangles {
 
     /// Determine the correct implicit z-index rendering order of every rectangle
-    pub fn new<'a>(rectangles: &Arena<DisplayRectangle<'a>>) -> ZOrderedRectangles {
+    pub fn new<'a>(rectangles: &Arena<DisplayRectangle<'a>>, node_depths: &[(usize, NodeId)]) -> ZOrderedRectangles {
 
         let mut rects_in_rendering_order = BTreeMap::new();
+        rects_in_rendering_order.insert(0, vec![NodeId::new(0)]);
 
-        for rect_id in rectangles.linear_iter() {
-
-            // how many z-levels does this rectangle have until we get to the root?
-            let z_index = {
-                let mut index = 0;
-                let mut cur_rect_idx = rect_id;
-                while let Some(parent) = rectangles[cur_rect_idx].parent() {
-                    index += 1;
-                    cur_rect_idx = parent;
-                }
-                index
-            };
-
-            rects_in_rendering_order
-                .entry(z_index)
-                .or_insert_with(|| Vec::new())
-                .push(rect_id);
+        for (node_depth, node_id) in node_depths {
+            for child_id in node_id.children(rectangles) {
+                rects_in_rendering_order
+                    .entry(node_depth + 1)
+                    .or_insert_with(|| Vec::new())
+                    .push(child_id);
+            }
         }
 
         ZOrderedRectangles(rects_in_rendering_order)
@@ -308,7 +299,7 @@ fn do_the_layout<'a, 'b, T: Layout>(
     render_api: &RenderApi,
     rect_size: LogicalSize,
     rect_offset: LogicalPosition)
--> Arena<LayoutRect>
+-> (Arena<LayoutRect>, Vec<(usize, NodeId)>)
 {
     use text_layout::{split_text_into_words, get_words_cached, Words, FontMetrics};
     use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
@@ -379,12 +370,12 @@ fn do_the_layout<'a, 'b, T: Layout>(
     let x_positions = get_x_positions(&solved_widths, rect_offset);
     let y_positions = get_y_positions(&solved_heights, &solved_widths, rect_offset);
 
-    arena.transform(|node, node_id| {
+    (arena.transform(|node, node_id| {
         LayoutRect::new(
             TypedPoint2D::new(x_positions[node_id].data.0, y_positions[node_id].data.0),
             TypedSize2D::new(solved_widths.solved_widths[node_id].data.total(), solved_heights.solved_heights[node_id].data.total())
         )
-    })
+    }), solved_widths.non_leaf_nodes_sorted_by_depth)
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
@@ -684,7 +675,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     let rect_size = LogicalSize::new(info.rect.size.width as f64, info.rect.size.height as f64);
     let rect_origin = LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64);
 
-    let laid_out_rectangles = do_the_layout(
+    let (laid_out_rectangles, node_depths) = do_the_layout(
         &display_list,
         &mut referenced_mutable_content.resource_updates,
         &mut referenced_mutable_content.app_resources,
@@ -692,7 +683,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         rect_size,
         rect_origin);
 
-    let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles);
+    let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles, &node_depths);
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description, otherwise this function would be endlessly recursive
         ui_description: &ui_description,
