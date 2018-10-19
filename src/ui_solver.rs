@@ -870,13 +870,10 @@ fn $fn_name(
         child_id: NodeId,
         positioned_node_stack: &[NodeId],
         arena_solved: &mut Arena<$height_solved_position>,
-        parent_x_position: f32,
-        parent_inner_width: f32,
-        reverse: bool)
+        parent_x_position: f32)
     {
         let child_node = &arena[child_id].data;
         let child_margin_left = child_node.margin.unwrap_or_default().$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let child_margin_right = child_node.margin.unwrap_or_default().$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
         if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -887,11 +884,7 @@ fn $fn_name(
                 solved_widths
             );
         } else {
-            if reverse {
-                arena_solved[child_id].data.0 = parent_x_position + parent_inner_width - child_margin_right;
-            } else {
-                arena_solved[child_id].data.0 = parent_x_position + child_margin_left;
-            }
+            arena_solved[child_id].data.0 = parent_x_position + child_margin_left;
         }
     }
 
@@ -929,8 +922,6 @@ fn $fn_name(
                         &positioned_node_stack,
                         &mut arena_solved,
                         parent_x_position,
-                        parent_inner_width,
-                        true
                     );
                 }
             } else {
@@ -942,8 +933,6 @@ fn $fn_name(
                         &positioned_node_stack,
                         &mut arena_solved,
                         parent_x_position,
-                        parent_inner_width,
-                        false
                     );
                 }
             }
