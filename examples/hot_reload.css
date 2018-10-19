@@ -1,9 +1,7 @@
 #wrapper {
     background: linear-gradient(15deg, red 0%, blue 100%);
     flex-direction: row;
-    position: absolute;
-    top: -50px;
-    left: -50px;
+    justify-content: flex-start;
 }
 
 #red {
@@ -29,7 +27,8 @@
 #yellow {
     background-color: #F5900E;
     height: 70px;
-    flex-direction: row;
+    flex-direction: column-reverse;
+    align-items: flex-end;
     box-shadow: 0px 0px 50px black;
     position: absolute;
     right: -25px;
@@ -42,16 +41,19 @@
     background-color: #44ccee33;
 }
 
-#below-yellow {
+#orange-1 {
     background-color: #F14C13;
+    box-shadow: 2px 2px 10px black;
+}
+
+#orange-2 {
+    background-color: green;
     box-shadow: 2px 2px 10px black;
     width: 10px;
     height: 10px;
-    margin: 5px 0px;
 }
 
 #cat {
     /*background: image("Cat01");*/
-    width: 1920px;
-    height: 1080px;
+    max-width: 500px;
 }

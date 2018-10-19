@@ -806,7 +806,7 @@ fn $fn_name(
         }
     }
 
-    fn determine_child_x_along_cross_axis(
+    fn determine_child_x_along_main_axis(
         main_axis_alignment: LayoutJustifyContent,
         arena: &Arena<RectLayout>,
         arena_solved: &mut Arena<$height_solved_position>,
@@ -839,14 +839,11 @@ fn $fn_name(
                 solved_widths
             );
         } else {
-            // Relative or static item
-            // Always the top left corner
+            // X position of the top left corner
+            // WARNING: End has to be added after all children!
             let x_of_top_left_corner = match main_axis_alignment {
-                Start => {
+                Start | End => {
                     parent_x_position + *sum_x_of_children_so_far + child_margin_left
-                },
-                End => {
-                    (parent_x_position + parent_inner_width) - (*sum_x_of_children_so_far + child_margin_right + child_width_with_padding)
                 },
                 Center => {
                     parent_x_position + ((parent_inner_width / 2.0) - ((*sum_x_of_children_so_far + child_margin_right + child_width_with_padding) / 2.0))
@@ -864,7 +861,7 @@ fn $fn_name(
         }
     }
 
-    fn determine_child_x_along_main_axis(
+    fn determine_child_x_along_cross_axis(
         arena: &Arena<RectLayout>,
         solved_widths: &$width_layout,
         child_id: NodeId,
@@ -913,38 +910,12 @@ fn $fn_name(
 
         if parent_direction.get_axis() == LayoutAxis::$axis {
             // Along main axis: Take X of parent
-            if parent_direction.is_reverse() {
-                for child_id in parent_id.reverse_children(arena) {
-                    determine_child_x_along_main_axis(
-                        arena,
-                        solved_widths,
-                        child_id,
-                        &positioned_node_stack,
-                        &mut arena_solved,
-                        parent_x_position,
-                    );
-                }
-            } else {
-                for child_id in parent_id.children(arena) {
-                    determine_child_x_along_main_axis(
-                        arena,
-                        solved_widths,
-                        child_id,
-                        &positioned_node_stack,
-                        &mut arena_solved,
-                        parent_x_position,
-                    );
-                }
-            }
-        } else {
-            // Along cross axis: Increase X with width of current element
-
             let main_axis_alignment = arena[*parent_id].data.justify_content.unwrap_or_default();
             let mut sum_x_of_children_so_far = 0.0;
 
             if parent_direction.is_reverse() {
                 for child_id in parent_id.reverse_children(arena) {
-                    determine_child_x_along_cross_axis(
+                    determine_child_x_along_main_axis(
                         main_axis_alignment,
                         &arena,
                         &mut arena_solved,
@@ -958,7 +929,7 @@ fn $fn_name(
                 }
             } else {
                 for child_id in parent_id.children(arena) {
-                    determine_child_x_along_cross_axis(
+                    determine_child_x_along_main_axis(
                         main_axis_alignment,
                         &arena,
                         &mut arena_solved,
@@ -968,6 +939,46 @@ fn $fn_name(
                         parent_inner_width,
                         &mut sum_x_of_children_so_far,
                         &positioned_node_stack,
+                    );
+                }
+            }
+
+            // If the direction is `flex-end`, we can't add the X position during the iteration,
+            // so we have to "add" the diff to the parent_inner_width at the end
+            let should_align_towards_end =
+                (!parent_direction.is_reverse() && main_axis_alignment == LayoutJustifyContent::End) ||
+                (parent_direction.is_reverse() && main_axis_alignment == LayoutJustifyContent::Start);
+
+            if should_align_towards_end {
+                let diff = parent_inner_width - sum_x_of_children_so_far;
+                for child_id in parent_id.children(arena).filter(|ch| arena[*ch].data.position.unwrap_or_default() != LayoutPosition::Absolute) {
+                    arena_solved[child_id].data.0 += diff;
+                }
+            }
+
+        } else {
+            // Along cross axis: Increase X with width of current element
+
+            if parent_direction.is_reverse() {
+                for child_id in parent_id.reverse_children(arena) {
+                    determine_child_x_along_cross_axis(
+                        arena,
+                        solved_widths,
+                        child_id,
+                        &positioned_node_stack,
+                        &mut arena_solved,
+                        parent_x_position,
+                    );
+                }
+            } else {
+                for child_id in parent_id.children(arena) {
+                    determine_child_x_along_cross_axis(
+                        arena,
+                        solved_widths,
+                        child_id,
+                        &positioned_node_stack,
+                        &mut arena_solved,
+                        parent_x_position,
                     );
                 }
             }
@@ -987,15 +998,14 @@ fn $fn_name(
 pub(crate) fn get_x_positions(solved_widths: &SolvedWidthLayout, origin: LogicalPosition)
 -> Arena<HorizontalSolvedPosition>
 {
-    get_position!(get_pos_x, SolvedWidthLayout, HorizontalSolvedPosition, solved_widths, min_width, left, right, Vertical);
-
+    get_position!(get_pos_x, SolvedWidthLayout, HorizontalSolvedPosition, solved_widths, min_width, left, right, Horizontal);
     get_pos_x(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_widths, origin)
 }
 
 pub(crate) fn get_y_positions(solved_heights: &SolvedHeightLayout, solved_widths: &SolvedWidthLayout, origin: LogicalPosition)
 -> Arena<VerticalSolvedPosition>
 {
-    get_position!(get_pos_y, SolvedHeightLayout, VerticalSolvedPosition, solved_heights, min_height, top, bottom, Horizontal);
+    get_position!(get_pos_y, SolvedHeightLayout, VerticalSolvedPosition, solved_heights, min_height, top, bottom, Vertical);
 
     get_pos_y(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_heights, origin)
 }
@@ -1298,26 +1308,5 @@ mod layout_tests {
             min_width: 0.0,
             space_added: window_width - 200.0,
         });
-    }
-
-    /// Tests that the node-depth calculation works correctly
-    #[test]
-    fn test_leaf_node_depth() {
-
-        let arena = get_testing_dom();
-
-        // 0                -- depth 0
-        // '- 1             -- depth 1
-        //    '-- 2         -- depth 2
-        //    '   '-- 3     -- depth 3
-        //    '   '--- 4    -- depth 3
-        //    '-- 5         -- depth 2
-
-        assert_eq!(leaf_node_depth(&NodeId::new(0), &arena), 0);
-        assert_eq!(leaf_node_depth(&NodeId::new(1), &arena), 1);
-        assert_eq!(leaf_node_depth(&NodeId::new(2), &arena), 2);
-        assert_eq!(leaf_node_depth(&NodeId::new(3), &arena), 3);
-        assert_eq!(leaf_node_depth(&NodeId::new(4), &arena), 3);
-        assert_eq!(leaf_node_depth(&NodeId::new(5), &arena), 2);
     }
 }
