@@ -32,8 +32,8 @@
     flex-direction: row-reverse;
     box-shadow: 0px 0px 50px black;
     position: absolute;
-    left: 50px;
-    bottom: -5px;
+    right: 50px;
+    bottom: 5px;
     width: 10px;
     height: 10px;
 }
