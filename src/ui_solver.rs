@@ -763,7 +763,50 @@ fn $fn_name(
     let mut arena_solved = widths.transform(|_, _| $height_solved_position(0.0));
     arena_solved[NodeId::new(0)].data = $height_solved_position(origin.x as f32);
 
-    fn determine_child_x(
+    fn determine_child_x_absolute(
+        child_id: NodeId,
+        positioned_node_stack: &[NodeId],
+        arena: &Arena<RectLayout>,
+        arena_solved: &mut Arena<$height_solved_position>,
+        solved_widths: &$width_layout,
+    ) {
+        let child_width_with_padding = {
+            let child_node = &solved_widths.$solved_widths_field[child_id].data;
+            child_node.$min_width + child_node.space_added
+        };
+
+        let child_node = &arena[child_id].data;
+        let child_margin = child_node.margin.unwrap_or_default();
+        let child_margin_left = child_margin.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_right = child_margin.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+
+        let zero_node = NodeId::new(0);
+        let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
+
+        let last_relative_node = arena[*last_relative_node_id].data;
+        let last_relative_padding = last_relative_node.padding.unwrap_or_default();
+        let last_relative_padding_left = last_relative_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let last_relative_padding_right = last_relative_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+
+        let last_relative_node_x = arena_solved[*last_relative_node_id].data.0 + last_relative_padding_left;
+        let last_relative_node_inner_width = {
+            let last_relative_node = &solved_widths.$solved_widths_field[*last_relative_node_id].data;
+            last_relative_node.$min_width + last_relative_node.space_added - (last_relative_padding_left + last_relative_padding_right)
+        };
+
+        let child_left = &arena[child_id].data.$left.and_then(|s| Some(s.0.to_pixels()));
+        let child_right = &arena[child_id].data.$right.and_then(|s| Some(s.0.to_pixels()));
+
+        if let Some(child_right) = child_right {
+            // align right / bottom of last relative parent
+            arena_solved[child_id].data.0 = (last_relative_node_x + last_relative_node_inner_width) - child_width_with_padding - child_margin_right - child_right;
+        } else {
+            // align left / top of last relative parent
+            arena_solved[child_id].data.0 = last_relative_node_x + child_margin_left + child_left.unwrap_or(0.0);
+        }
+    }
+
+    fn determine_child_x_along_cross_axis(
         main_axis_alignment: LayoutJustifyContent,
         arena: &Arena<RectLayout>,
         arena_solved: &mut Arena<$height_solved_position>,
@@ -772,10 +815,14 @@ fn $fn_name(
         parent_x_position: f32,
         parent_inner_width: f32,
         sum_x_of_children_so_far: &mut f32,
-        child_width_with_padding: f32,
         positioned_node_stack: &[NodeId],
     ) {
         use css_parser::LayoutJustifyContent::*;
+
+        let child_width_with_padding = {
+            let child_node = &solved_widths.$solved_widths_field[child_id].data;
+            child_node.$min_width + child_node.space_added
+        };
 
         // width: increase X according to the main axis, Y according to the cross_axis
         let child_node = &arena[child_id].data;
@@ -784,32 +831,13 @@ fn $fn_name(
         let child_margin_right = child_margin.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
         if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
-            let zero_node = NodeId::new(0);
-            let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
-
-            let last_relative_node = arena[*last_relative_node_id].data;
-            let last_relative_padding = last_relative_node.padding.unwrap_or_default();
-            let last_relative_padding_left = last_relative_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-            let last_relative_padding_right = last_relative_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-
-            // For absolute-positioned nodes, the position is `margin-left` + `left`
-            // Note that we are re-using the left here to access the `LayoutLeft` / `LayoutTop`
-            let last_relative_node_x = arena_solved[*last_relative_node_id].data.0 + last_relative_padding_left;
-            let last_relative_node_inner_width = {
-                let last_relative_node = &solved_widths.$solved_widths_field[*last_relative_node_id].data;
-                last_relative_node.$min_width + last_relative_node.space_added - (last_relative_padding_left + last_relative_padding_right)
-            };
-
-            let child_left = &arena[child_id].data.$left.and_then(|s| Some(s.0.to_pixels()));
-            let child_right = &arena[child_id].data.$right.and_then(|s| Some(s.0.to_pixels()));
-
-            if let Some(child_right) = child_right {
-                // align right / bottom of last relative parent
-                arena_solved[child_id].data.0 = (last_relative_node_x + last_relative_node_inner_width) - child_margin_right - child_right;
-            } else {
-                // align left / top of last relative parent
-                arena_solved[child_id].data.0 = last_relative_node_x + child_margin_left + child_left.unwrap_or(0.0);
-            }
+            determine_child_x_absolute(
+                child_id,
+                positioned_node_stack,
+                arena,
+                arena_solved,
+                solved_widths
+            );
         } else {
             // Relative or static item
             // Always the top left corner
@@ -836,6 +864,37 @@ fn $fn_name(
         }
     }
 
+    fn determine_child_x_along_main_axis(
+        arena: &Arena<RectLayout>,
+        solved_widths: &$width_layout,
+        child_id: NodeId,
+        positioned_node_stack: &[NodeId],
+        arena_solved: &mut Arena<$height_solved_position>,
+        parent_x_position: f32,
+        parent_inner_width: f32,
+        reverse: bool)
+    {
+        let child_node = &arena[child_id].data;
+        let child_margin_left = child_node.margin.unwrap_or_default().$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_right = child_node.margin.unwrap_or_default().$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+
+        if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
+            determine_child_x_absolute(
+                child_id,
+                positioned_node_stack,
+                arena,
+                arena_solved,
+                solved_widths
+            );
+        } else {
+            if reverse {
+                arena_solved[child_id].data.0 = parent_x_position + parent_inner_width - child_margin_right;
+            } else {
+                arena_solved[child_id].data.0 = parent_x_position + child_margin_left;
+            }
+        }
+    }
+
     // Stack of the positioned nodes (nearest relative or absolute positioned node)
     let mut positioned_node_stack = vec![NodeId::new(0)];
 
@@ -854,39 +913,49 @@ fn $fn_name(
             positioned_node_stack.push(*parent_id);
         }
 
+        let parent_inner_width = {
+            let parent_node = &widths[*parent_id].data;
+            parent_node.$min_width + parent_node.space_added - (parent_padding_left + parent_padding_right)
+        };
+
         if parent_direction.get_axis() == LayoutAxis::$axis {
             // Along main axis: Take X of parent
-            for child_id in parent_id.children(arena) {
-                let child_node = &arena[child_id].data;
-                let child_margin_left = child_node.margin.unwrap_or_default().$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-
-                if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
-                    let zero_node = NodeId::new(0);
-                    let last_relative_node = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
-                    arena_solved[child_id].data.0 = arena_solved[*last_relative_node].data.0 + child_margin_left;
-                } else {
-                    arena_solved[child_id].data.0 = parent_x_position + child_margin_left;
+            if parent_direction.is_reverse() {
+                for child_id in parent_id.reverse_children(arena) {
+                    determine_child_x_along_main_axis(
+                        arena,
+                        solved_widths,
+                        child_id,
+                        &positioned_node_stack,
+                        &mut arena_solved,
+                        parent_x_position,
+                        parent_inner_width,
+                        true
+                    );
+                }
+            } else {
+                for child_id in parent_id.children(arena) {
+                    determine_child_x_along_main_axis(
+                        arena,
+                        solved_widths,
+                        child_id,
+                        &positioned_node_stack,
+                        &mut arena_solved,
+                        parent_x_position,
+                        parent_inner_width,
+                        false
+                    );
                 }
             }
         } else {
             // Along cross axis: Increase X with width of current element
-
-            let parent_inner_width = {
-                let parent_node = &widths[*parent_id].data;
-                parent_node.$min_width + parent_node.space_added - (parent_padding_left + parent_padding_right)
-            };
 
             let main_axis_alignment = arena[*parent_id].data.justify_content.unwrap_or_default();
             let mut sum_x_of_children_so_far = 0.0;
 
             if parent_direction.is_reverse() {
                 for child_id in parent_id.reverse_children(arena) {
-                    let child_width_with_padding = {
-                        let child_node = &widths[child_id].data;
-                        child_node.$min_width + child_node.space_added
-                    };
-
-                    determine_child_x(
+                    determine_child_x_along_cross_axis(
                         main_axis_alignment,
                         &arena,
                         &mut arena_solved,
@@ -895,19 +964,12 @@ fn $fn_name(
                         parent_x_position,
                         parent_inner_width,
                         &mut sum_x_of_children_so_far,
-                        child_width_with_padding,
                         &positioned_node_stack,
                     );
                 }
             } else {
                 for child_id in parent_id.children(arena) {
-
-                    let child_width_with_padding = {
-                        let child_node = &widths[child_id].data;
-                        child_node.$min_width + child_node.space_added
-                    };
-
-                    determine_child_x(
+                    determine_child_x_along_cross_axis(
                         main_axis_alignment,
                         &arena,
                         &mut arena_solved,
@@ -916,7 +978,6 @@ fn $fn_name(
                         parent_x_position,
                         parent_inner_width,
                         &mut sum_x_of_children_so_far,
-                        child_width_with_padding,
                         &positioned_node_stack,
                     );
                 }
