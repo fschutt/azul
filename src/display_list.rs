@@ -32,7 +32,7 @@ use {
     window::{WindowInfo, FakeWindow, HidpiAdjustedBounds},
 };
 
-const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
+const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -490,9 +490,9 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     let scrollbar_style = ScrollbarInfo {
         width: 17,
         padding: 2,
-        background_color: BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
-        triangle_color: BackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
-        bar_color: BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
+        background_color: StyleBackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
+        triangle_color: StyleBackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
+        bar_color: StyleBackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
     };
 
     // The only thing changed between TextId and String is
@@ -514,7 +514,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         let text_clip_region_id = rect.layout.padding.and_then(|_|
             Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
                 rect: text_bounds,
-                radii: BorderRadius::zero(),
+                radii: StyleBorderRadius::zero(),
                 mode: ClipMode::Clip,
             }], None))
         );
@@ -741,7 +741,7 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    color: &BackgroundColor)
+    color: &StyleBackgroundColor)
 {
     builder.push_rect(&info, color.0.into());
 }
@@ -762,8 +762,8 @@ fn push_text(
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>,
-    horz_alignment: TextAlignmentHorz,
-    vert_alignment: TextAlignmentVert,
+    horz_alignment: StyleTextAlignmentHorz,
+    vert_alignment: StyleTextAlignmentVert,
     scrollbar_info: &ScrollbarInfo)
 -> Option<OverflowInfo>
 {
@@ -821,9 +821,13 @@ fn push_scrollbar(
     scrollbar_info: &TextOverflowPass2,
     scrollbar_style: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>,
-    border: &Option<(SideOffsets2D<Au>, BorderDetails)>)
+    border: &Option<StyleBorder>)
 {
     use euclid::TypedPoint2D;
+
+    // TODO - properly push all borders
+    // not implemented since this function is likely to be removed later
+    let border = border.and_then(|b| b.top);
 
     // The border is inside the rectangle - subtract the border width on the left and bottom side,
     // so that the scrollbar is laid out correctly
@@ -899,7 +903,7 @@ enum TriangleDirection {
 fn push_triangle(
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    background_color: &BackgroundColor,
+    background_color: &StyleBackgroundColor,
     direction: TriangleDirection)
 {
     use self::TriangleDirection::*;
@@ -950,7 +954,7 @@ fn push_triangle(
         right:  BorderSide { color: b_right.0.into(),        style: b_right.1  },
         top:    BorderSide { color: b_top.0.into(),          style: b_top.1    },
         bottom: BorderSide { color: b_bottom.0.into(),       style: b_bottom.1 },
-        radius: BorderRadius::zero(),
+        radius: StyleBorderRadius::zero(),
         do_aa: true,
     });
 
@@ -985,8 +989,8 @@ fn push_box_shadow(
         None => return,
     };
 
-    // The pre_shadow is missing the BorderRadius & LayoutRect
-    let border_radius = style.border_radius.unwrap_or(BorderRadius::zero());
+    // The pre_shadow is missing the StyleBorderRadius & LayoutRect
+    let border_radius = style.border_radius.unwrap_or(StyleBorderRadius::zero());
     if pre_shadow.clip_mode != shadow_type {
         return;
     }
@@ -1038,11 +1042,12 @@ fn push_background(
     info: &PrimitiveInfo<LayoutPixel>,
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    background: &Background,
+    background: &StyleBackground,
     app_resources: &AppResources)
 {
+    use css_parser::StyleBackground::*;
     match background {
-        Background::RadialGradient(gradient) => {
+        RadialGradient(gradient) => {
             use css_parser::Shape;
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
@@ -1064,7 +1069,7 @@ fn push_background(
             let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
-        Background::LinearGradient(gradient) => {
+        LinearGradient(gradient) => {
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
@@ -1076,12 +1081,12 @@ fn push_background(
             let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
-        Background::Image(css_image_id) => {
+        Image(css_image_id) => {
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&css_image_id.0) {
                 push_image(info, builder, app_resources, image_id);
             }
         },
-        Background::NoBackground => { },
+        NoBackground => { },
     }
 }
 
@@ -1234,19 +1239,19 @@ fn push_font(
 
 /// For a given rectangle, determines what text alignment should be used
 fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
--> (TextAlignmentHorz, TextAlignmentVert)
+-> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
 {
-    let mut horz_alignment = TextAlignmentHorz::default();
-    let mut vert_alignment = TextAlignmentVert::default();
+    let mut horz_alignment = StyleTextAlignmentHorz::default();
+    let mut vert_alignment = StyleTextAlignmentVert::default();
 
     if let Some(align_items) = rect.layout.align_items {
         // Vertical text alignment
         use css_parser::LayoutAlignItems;
         match align_items {
-            LayoutAlignItems::Start => vert_alignment = TextAlignmentVert::Top,
-            LayoutAlignItems::End => vert_alignment = TextAlignmentVert::Bottom,
+            LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
+            LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
             // technically stretch = blocktext, but we don't have that yet
-            _ => vert_alignment = TextAlignmentVert::Center,
+            _ => vert_alignment = StyleTextAlignmentVert::Center,
         }
     }
 
@@ -1254,9 +1259,9 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
         use css_parser::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
-            LayoutJustifyContent::Start => horz_alignment = TextAlignmentHorz::Left,
-            LayoutJustifyContent::End => horz_alignment = TextAlignmentHorz::Right,
-            _ => horz_alignment = TextAlignmentHorz::Center,
+            LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
+            LayoutJustifyContent::End => horz_alignment = StyleTextAlignmentHorz::Right,
+            _ => horz_alignment = StyleTextAlignmentHorz::Center,
         }
     }
 
@@ -1296,49 +1301,42 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
 
     fn apply_parsed_css_property(rect: &mut DisplayRectangle, property: &ParsedCssProperty) {
         match property {
-            BorderRadius(b)             => { rect.style.border_radius = Some(*b);                   },
-            BackgroundColor(c)          => { rect.style.background_color = Some(*c);                },
-            TextColor(t)                => { rect.style.font_color = Some(*t);                      },
-            Border(widths, details)     => { rect.style.border = Some((*widths, *details));         },
-            Background(b)               => { rect.style.background = Some(b.clone());               },
-            FontSize(f)                 => { rect.style.font_size = Some(*f);                       },
-            FontFamily(f)               => { rect.style.font_family = Some(f.clone());              },
-            LetterSpacing(l)            => { rect.style.letter_spacing = Some(*l);                  },
-            Overflow(o)                 => {
-                if let Some(ref mut existing_overflow) = rect.style.overflow {
-                    existing_overflow.merge(o);
-                } else {
-                    rect.style.overflow = Some(*o)
-                }
-            },
-            TextAlign(ta)               => { rect.style.text_align = Some(*ta);                     },
-            BoxShadow(opt_box_shadow)   => { rect.style.box_shadow = *opt_box_shadow;               },
-            LineHeight(lh)              => { rect.style.line_height = Some(*lh);                     },
+            BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
+            BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
+            TextColor(t)        => { rect.style.font_color = Some(*t);                      },
+            Border(b)           => { StyleBorder::merge(&mut rect.style.border, &b);        },
+            Background(b)       => { rect.style.background = Some(b.clone());               },
+            FontSize(f)         => { rect.style.font_size = Some(*f);                       },
+            FontFamily(f)       => { rect.style.font_family = Some(f.clone());              },
+            LetterSpacing(l)    => { rect.style.letter_spacing = Some(*l);                  },
+            Overflow(o)         => { LayoutOverflow::merge(&mut rect.style.overflow, &o);   },
+            TextAlign(ta)       => { rect.style.text_align = Some(*ta);                     },
+            BoxShadow(b)        => { StyleBoxShadow::merge(&mut rect.style.box_shadow, b);  },
+            LineHeight(lh)      => { rect.style.line_height = Some(*lh);                    },
 
-            Width(w)                    => { rect.layout.width = Some(*w);                          },
-            Height(h)                   => { rect.layout.height = Some(*h);                         },
-            MinWidth(mw)                => { rect.layout.min_width = Some(*mw);                     },
-            MinHeight(mh)               => { rect.layout.min_height = Some(*mh);                    },
-            MaxWidth(mw)                => { rect.layout.max_width = Some(*mw);                     },
-            MaxHeight(mh)               => { rect.layout.max_height = Some(*mh);                    },
+            Width(w)            => { rect.layout.width = Some(*w);                          },
+            Height(h)           => { rect.layout.height = Some(*h);                         },
+            MinWidth(mw)        => { rect.layout.min_width = Some(*mw);                     },
+            MinHeight(mh)       => { rect.layout.min_height = Some(*mh);                    },
+            MaxWidth(mw)        => { rect.layout.max_width = Some(*mw);                     },
+            MaxHeight(mh)       => { rect.layout.max_height = Some(*mh);                    },
 
-            Position(p)                 => { rect.layout.position = Some(*p);                       },
-            Top(t)                      => { rect.layout.top = Some(*t);                            },
-            Bottom(b)                   => { rect.layout.bottom = Some(*b);                         },
-            Right(r)                    => { rect.layout.right = Some(*r);                          },
-            Left(l)                     => { rect.layout.left = Some(*l);                           },
+            Position(p)         => { rect.layout.position = Some(*p);                       },
+            Top(t)              => { rect.layout.top = Some(*t);                            },
+            Bottom(b)           => { rect.layout.bottom = Some(*b);                         },
+            Right(r)            => { rect.layout.right = Some(*r);                          },
+            Left(l)             => { rect.layout.left = Some(*l);                           },
 
-            // TODO: merge new padding with existing padding
-            Padding(p)                  => { rect.layout.padding = Some(*p);                        },
-            Margin(m)                   => { rect.layout.margin = Some(*m);                         },
+            Padding(p)          => { LayoutPadding::merge(&mut rect.layout.padding, &p);    },
+            Margin(m)           => { LayoutMargin::merge(&mut rect.layout.margin, &m);      },
 
-            FlexGrow(g)                 => { rect.layout.flex_grow = Some(*g)                       },
-            FlexShrink(s)               => { rect.layout.flex_shrink = Some(*s)                     },
-            FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
-            FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
-            JustifyContent(j)           => { rect.layout.justify_content = Some(*j);                },
-            AlignItems(a)               => { rect.layout.align_items = Some(*a);                    },
-            AlignContent(a)             => { rect.layout.align_content = Some(*a);                  },
+            FlexGrow(g)         => { rect.layout.flex_grow = Some(*g)                       },
+            FlexShrink(s)       => { rect.layout.flex_shrink = Some(*s)                     },
+            FlexWrap(w)         => { rect.layout.wrap = Some(*w);                           },
+            FlexDirection(d)    => { rect.layout.direction = Some(*d);                      },
+            JustifyContent(j)   => { rect.layout.justify_content = Some(*j);                },
+            AlignItems(a)       => { rect.layout.align_items = Some(*a);                    },
+            AlignContent(a)     => { rect.layout.align_content = Some(*a);                  },
         }
     }
 

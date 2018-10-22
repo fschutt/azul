@@ -201,19 +201,19 @@ pub mod prelude {
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
     pub use css_parser::{
-        ParsedCssProperty, BorderRadius, BackgroundColor, TextColor,
-        SideOffsets2D, Au, BorderDetails, Background, FontSize,
-        FontFamily, TextOverflowBehaviour, TextOverflowBehaviourInner, TextAlignmentHorz,
-        TextAlignmentVert, BoxShadowPreDisplayItem, LayoutWidth, LayoutHeight,
-        LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, CssMetric,
-        LayoutMaxHeight, LayoutWrap, LayoutDirection,
-        LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
-        LayoutTop, LayoutBottom, LayoutRight, LayoutLeft, LineHeight, LetterSpacing,
-        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
+        StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
+        StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
+        StyleBoxShadow, StyleBorder, BoxShadowPreDisplayItem, StyleLineHeight, StyleLetterSpacing,
 
+        LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, CssMetric,
+        LayoutMaxHeight, LayoutWrap, LayoutDirection, LayoutJustifyContent, LayoutAlignItems,
+        LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft,
+
+        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
+        TextOverflowBehaviour, TextOverflowBehaviourInner, ParsedCssProperty,
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
-        Gradient, RadialGradient, LayoutPoint, LayoutSize,
-        ExtendMode, PixelValue, PercentageValue,
+        Gradient, RadialGradient, LayoutPoint, LayoutSize, Au, BorderDetails,
+        ExtendMode, PixelValue, PercentageValue, SideOffsets2D,
     };
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},

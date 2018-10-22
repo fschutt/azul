@@ -798,10 +798,10 @@ fn cascade_constraints<T: Layout>(
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
-    use css_parser::{TextAlignmentHorz, InvalidValueErr};
+    use css_parser::{StyleTextAlignmentHorz, InvalidValueErr};
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
-        Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(TextAlignmentHorz::Center)))
+        Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center)))
     );
 
     assert_eq!(
@@ -821,7 +821,7 @@ fn test_detect_static_or_dynamic_property() {
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            default: ParsedCssProperty::TextAlign(TextAlignmentHorz::Center),
+            default: ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center),
             dynamic_id: String::from("hello"),
         }))
     );

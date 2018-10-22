@@ -7,8 +7,8 @@ use {
     app_resources::AppResources,
     text_cache::TextInfo,
     css_parser::{
-        TextAlignmentHorz, FontSize, BackgroundColor, LetterSpacing,
-        FontId, TextAlignmentVert, LineHeight, LayoutOverflow
+        StyleTextAlignmentHorz, StyleFontSize, StyleBackgroundColor, StyleLetterSpacing,
+        FontId, StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow
     },
     text_cache::{TextId, TextCache},
 };
@@ -181,11 +181,11 @@ pub(crate) struct ScrollbarInfo {
     /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
     pub(crate) padding: usize,
     /// Style of the scrollbar (how to draw it)
-    pub(crate) bar_color: BackgroundColor,
+    pub(crate) bar_color: StyleBackgroundColor,
     /// How to draw the "up / down" arrows
-    pub(crate) triangle_color: BackgroundColor,
+    pub(crate) triangle_color: StyleBackgroundColor,
     /// Style of the scrollbar background
-    pub(crate) background_color: BackgroundColor,
+    pub(crate) background_color: StyleBackgroundColor,
 }
 
 /// Temporary struct that contains various metrics related to a font -
@@ -207,7 +207,7 @@ pub struct FontMetrics {
     /// Some fonts have a base height of 2048 or something weird like that
     pub height_for_1px: f32,
     /// Spacing of the letters, or 0.0 by default
-    pub letter_spacing: Option<LetterSpacing>,
+    pub letter_spacing: Option<StyleLetterSpacing>,
     /// Slightly duplicated: The layout options for the text
     pub layout_options: TextLayoutOptions,
 }
@@ -237,7 +237,7 @@ pub(crate) fn get_glyphs(
     app_resources: &mut AppResources,
     bounds: &TypedRect<f32, LayoutPixel>,
     target_font_id: &FontId,
-    target_font_size: &FontSize,
+    target_font_size: &StyleFontSize,
     text_layout_options: &TextLayoutOptions,
     text: &TextInfo,
     overflow: &LayoutOverflow,
@@ -329,12 +329,12 @@ pub(crate) fn get_glyphs(
 impl FontMetrics {
     /// Given a font, font size and line height, calculates the `FontMetrics` necessary
     /// which are later used to layout a block of text
-    pub fn new<'a>(font: &Font<'a>, font_size: &FontSize, layout_options: &TextLayoutOptions) -> Self {
+    pub fn new<'a>(font: &Font<'a>, font_size: &StyleFontSize, layout_options: &TextLayoutOptions) -> Self {
         calculate_font_metrics(font, font_size, layout_options)
     }
 }
 
-fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &FontSize, layout_options: &TextLayoutOptions) -> FontMetrics {
+fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &StyleFontSize, layout_options: &TextLayoutOptions) -> FontMetrics {
 
     let font_size_f32 = font_size.0.to_pixels() * PX_TO_PT;
     let line_height = layout_options.line_height.and_then(|lh| Some(lh.0.number)).unwrap_or(1.0);
@@ -365,9 +365,9 @@ pub(crate) fn get_words_cached<'a>(
     text_id: &TextId,
     font: &Font<'a>,
     font_id: &FontId,
-    font_size: &FontSize,
+    font_size: &StyleFontSize,
     font_size_no_line_height: Scale,
-    letter_spacing: Option<LetterSpacing>,
+    letter_spacing: Option<StyleLetterSpacing>,
     text_cache: &'a mut TextCache)
 -> &'a Words
 {
@@ -438,7 +438,7 @@ fn scale_words(words: &mut Words, scale_factor: f32) {
 /// This function is also used in the `text_cache` module for caching large strings.
 ///
 /// It is one of the most expensive functions, use with care.
-pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: Scale, letter_spacing: Option<LetterSpacing>)
+pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: Scale, letter_spacing: Option<StyleLetterSpacing>)
 -> Words
 {
     use unicode_normalization::UnicodeNormalization;
@@ -858,9 +858,9 @@ fn apply_knuth_plass_adjustments(positioned_glyphs: &mut [GlyphInstance], knuth_
     // TODO
 }
 
-fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)])
+fn align_text_horz(alignment: StyleTextAlignmentHorz, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)])
 {
-    use css_parser::TextAlignmentHorz::*;
+    use css_parser::StyleTextAlignmentHorz::*;
 
     // Text alignment is theoretically very simple:
     //
@@ -934,10 +934,10 @@ fn align_text_horz(alignment: TextAlignmentHorz, glyphs: &mut [GlyphInstance], l
     }
 }
 
-fn align_text_vert(font_metrics: &FontMetrics, alignment: TextAlignmentVert, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)], overflow: &TextOverflowPass2) {
+fn align_text_vert(font_metrics: &FontMetrics, alignment: StyleTextAlignmentVert, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)], overflow: &TextOverflowPass2) {
 
     use self::TextOverflow::*;
-    use self::TextAlignmentVert::*;
+    use self::StyleTextAlignmentVert::*;
 
     // Die if we have a line break at a position bigger than the position of the last glyph, because something went horribly wrong!
     // The next unwrap is always safe as line_breaks will have a minimum of one entry!
@@ -996,10 +996,10 @@ pub struct LayoutTextResult {
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct TextLayoutOptions {
-    pub line_height: Option<LineHeight>,
-    pub letter_spacing: Option<LetterSpacing>,
-    pub horz_alignment: TextAlignmentHorz,
-    pub vert_alignment: TextAlignmentVert,
+    pub line_height: Option<StyleLineHeight>,
+    pub letter_spacing: Option<StyleLetterSpacing>,
+    pub horz_alignment: StyleTextAlignmentHorz,
+    pub vert_alignment: StyleTextAlignmentVert,
 }
 
 /// Layout a string of text horizontally, given a font with its metrics.

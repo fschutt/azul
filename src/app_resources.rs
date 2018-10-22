@@ -18,7 +18,7 @@ use {
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
     images::{ImageId, ImageState},
-    css_parser::{FontSize, FontId, LetterSpacing},
+    css_parser::{StyleFontSize, FontId, StyleLetterSpacing},
 };
 
 /// Stores the resources for the application, souch as fonts, images and cached
@@ -239,7 +239,7 @@ impl AppResources {
     /// them in a text cache, together with the actual string
     ///
     /// This leads to a faster layout cycle, but has an upfront performance cost
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: FontSize, letter_spacing: Option<LetterSpacing>)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: StyleFontSize, letter_spacing: Option<StyleLetterSpacing>)
     -> TextId
     {
         // First, insert the text into the text cache
@@ -251,7 +251,7 @@ impl AppResources {
     /// Promotes an uncached text (i.e. a text that was added via `add_text_uncached`)
     /// to a cached text by calculating the font metrics for the uncached text.
     /// This will not delete the original text!
-    pub fn cache_text(&mut self, id: TextId, font: FontId, size: FontSize, letter_spacing: Option<LetterSpacing>) {
+    pub fn cache_text(&mut self, id: TextId, font: FontId, size: StyleFontSize, letter_spacing: Option<StyleLetterSpacing>) {
 
         use rusttype::Scale;
 
