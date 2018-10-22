@@ -915,8 +915,23 @@ impl $struct_name {
     }
 })}
 
+macro_rules! struct_all {($struct_name:ident, $field_type:ty) => (
+impl $struct_name {
+    /// Sets all of the fields (top, left, right, bottom) to `Some(field)`
+    fn all(field: $field_type) -> Self {
+        Self {
+            top: Some(field),
+            right: Some(field),
+            left: Some(field),
+            bottom: Some(field),
+        }
+    }
+})}
+
 merge_struct!(LayoutPadding);
 merge_struct!(LayoutMargin);
+struct_all!(LayoutPadding, PixelValue);
+struct_all!(LayoutMargin, PixelValue);
 parse_tblr!(LayoutPadding, LayoutPaddingParseError, parse_pixel_value);
 parse_tblr!(LayoutMargin, LayoutMarginParseError, parse_pixel_value);
 
@@ -1070,6 +1085,7 @@ pub struct StyleBorder {
 
 merge_struct!(StyleBorder);
 parse_tblr!(StyleBorder, CssBorderParseError, parse_css_border);
+struct_all!(StyleBorder, (SideOffsets2D<Au>, BorderDetails));
 
 /// Parse a CSS border such as
 ///
@@ -1151,6 +1167,7 @@ pub struct StyleBoxShadow {
 
 merge_struct!(StyleBoxShadow);
 parse_tblr!(StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
+struct_all!(StyleBoxShadow, Option<BoxShadowPreDisplayItem>);
 
 // missing BorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq)]
