@@ -883,6 +883,43 @@ pub struct LayoutPadding {
     pub right: Option<PixelValue>,
 }
 
+macro_rules! parse_x {($struct_name:ident, $error_name:ident, $fn_name:ident, $field:ident, $body:ident) => (
+fn $fn_name<'a>(input: &'a str) -> Result<$struct_name, $error_name> {
+    let value = $body(input)?;
+    Ok($struct_name {
+        $field: Some(value),
+        .. Default::default()
+    })
+})}
+
+macro_rules! parse_tblr {($struct_name:ident, $error_name:ident, $parse_fn:ident) => (
+impl $struct_name {
+    parse_x!($struct_name, $error_name, parse_left, left, $parse_fn);
+    parse_x!($struct_name, $error_name, parse_right, right, $parse_fn);
+    parse_x!($struct_name, $error_name, parse_bottom, bottom, $parse_fn);
+    parse_x!($struct_name, $error_name, parse_top, top, $parse_fn);
+})}
+
+// $struct_name has to have top, left, right, bottom properties
+macro_rules! merge_struct {($struct_name:ident) => (
+impl $struct_name {
+    pub fn merge(a: &mut Option<$struct_name>, b: &$struct_name) {
+       if let Some(ref mut existing) = a {
+           if b.top.is_some() { existing.top = b.top; }
+           if b.bottom.is_some() { existing.bottom = b.bottom; }
+           if b.left.is_some() { existing.left = b.left; }
+           if b.right.is_some() { existing.right = b.right; }
+       } else {
+           *a = Some(*b);
+       }
+    }
+})}
+
+merge_struct!(LayoutPadding);
+merge_struct!(LayoutMargin);
+parse_tblr!(LayoutPadding, LayoutPaddingParseError, parse_pixel_value);
+parse_tblr!(LayoutMargin, LayoutMarginParseError, parse_pixel_value);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutPaddingParseError<'a> {
     PixelParseError(PixelParseError<'a>),
@@ -1023,6 +1060,17 @@ impl LayoutOverflow {
     }
 }
 
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct StyleBorder {
+    pub top: Option<(SideOffsets2D<Au>, BorderDetails)>,
+    pub left: Option<(SideOffsets2D<Au>, BorderDetails)>,
+    pub bottom: Option<(SideOffsets2D<Au>, BorderDetails)>,
+    pub right: Option<(SideOffsets2D<Au>, BorderDetails)>,
+}
+
+merge_struct!(StyleBorder);
+parse_tblr!(StyleBorder, CssBorderParseError, parse_css_border);
+
 /// Parse a CSS border such as
 ///
 /// "5px solid red"
@@ -1092,6 +1140,17 @@ multi_type_parser!(parse_border_style, BorderStyle,
     ["ridge", Ridge],
     ["inset", Inset],
     ["outset", Outset]);
+
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct StyleBoxShadow {
+    pub top: Option<Option<BoxShadowPreDisplayItem>>,
+    pub left: Option<Option<BoxShadowPreDisplayItem>>,
+    pub bottom: Option<Option<BoxShadowPreDisplayItem>>,
+    pub right: Option<Option<BoxShadowPreDisplayItem>>,
+}
+
+merge_struct!(StyleBoxShadow);
+parse_tblr!(StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
 
 // missing BorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq)]
