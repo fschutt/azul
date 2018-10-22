@@ -3,8 +3,8 @@ pub use css::{CssParseError, DynamicCssParseError};
 #[cfg(debug_assertions)]
 pub use css::HotReloadError;
 pub use css_parser::{
-    CssBackgroundParseError, CssBorderParseError, CssBorderRadiusParseError, CssColorParseError,
-    CssDirectionParseError, CssFontFamilyParseError, CssGradientStopParseError, CssImageParseError,
+    CssBackgroundParseError, CssBorderParseError, CssStyleBorderRadiusParseError, CssColorParseError,
+    CssDirectionParseError, CssStyleFontFamilyParseError, CssGradientStopParseError, CssImageParseError,
     CssMetric, CssParsingError, CssShadowParseError, CssShapeParseError, InvalidValueErr,
     PercentageParseError, PixelParseError,
 };

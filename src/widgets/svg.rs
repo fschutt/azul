@@ -37,7 +37,7 @@ use {
     dom::{Callback, Texture},
     traits::Layout,
     window::ReadOnlyWindow,
-    css_parser::{FontId, FontSize},
+    css_parser::{FontId, StyleFontSize},
     app_resources::AppResources,
     text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
 };
@@ -836,7 +836,7 @@ pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert, u32>]) -> VerticesInd
     VerticesIndicesBuffer { vertices: vertex_buf, indices: index_buf }
 }
 
-pub fn scale_vertex_buffer(input: &mut [SvgVert], scale: &FontSize, height_for_1px: f32) {
+pub fn scale_vertex_buffer(input: &mut [SvgVert], scale: &StyleFontSize, height_for_1px: f32) {
     let real_size = scale.to_pixels();
     let scale_factor = real_size * height_for_1px;
     for vert in input {
@@ -1853,7 +1853,7 @@ pub enum SvgTextPlacement {
 #[derive(Debug, Clone)]
 pub struct SvgText {
     /// Font size of the text
-    pub font_size: FontSize,
+    pub font_size: StyleFontSize,
     /// Font ID, such as "ExternalFont('Arial')"
     pub font_id: FontId,
     /// What are the glyphs in this text
@@ -1936,7 +1936,7 @@ impl SvgTextLayout {
     /// Calculate the text layout from a font and a font size.
     ///
     /// Warning: may be slow on large texts.
-    pub fn from_str(text: &str, font: &Font, font_size: &FontSize, text_layout_options: &TextLayoutOptions) -> Self {
+    pub fn from_str(text: &str, font: &Font, font_size: &StyleFontSize, text_layout_options: &TextLayoutOptions) -> Self {
         let font_metrics = FontMetrics::new(font, font_size, text_layout_options);
         SvgTextLayout(layout_text(text, font, &font_metrics))
     }
@@ -2039,7 +2039,7 @@ fn normal_text(
     text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
-    font_size: &FontSize,
+    font_size: &StyleFontSize,
     font_metrics: &FontMetrics)
 -> SvgLayerResource
 {
@@ -2071,7 +2071,7 @@ impl Default for SvgPosition {
 }
 
 fn normal_text_to_vertices(
-    font_size: &FontSize,
+    font_size: &StyleFontSize,
     position: &SvgPosition,
     glyph_ids: &[GlyphInstance],
     vectorized_font: &VectorizedFont,
@@ -2098,7 +2098,7 @@ fn rotated_text(
     text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
-    font_size: &FontSize,
+    font_size: &StyleFontSize,
     font_metrics: &FontMetrics,
     rotation_degrees: f32)
 -> SvgLayerResource
@@ -2119,7 +2119,7 @@ fn rotated_text(
 }
 
 fn rotated_text_to_vertices(
-    font_size: &FontSize,
+    font_size: &StyleFontSize,
     position: &SvgPosition,
     glyph_ids: &[GlyphInstance],
     vectorized_font: &VectorizedFont,
@@ -2152,7 +2152,7 @@ fn text_on_curve(
     text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
-    font_size: &FontSize,
+    font_size: &StyleFontSize,
     font_metrics: &FontMetrics,
     curve: &SampledBezierCurve)
 -> SvgLayerResource
@@ -2176,7 +2176,7 @@ fn text_on_curve(
 
 // Calculates the layout for one word block
 fn curved_vector_text_to_vertices(
-    font_size: &FontSize,
+    font_size: &StyleFontSize,
     position: &SvgPosition,
     glyph_ids: &[GlyphInstance],
     vectorized_font: &VectorizedFont,

@@ -5,7 +5,7 @@ pub use {
     app_units::Au,
     euclid::{TypedSize2D, SideOffsets2D, TypedPoint2D},
     webrender::api::{
-        BorderRadius, BorderDetails, NormalBorder,
+        BorderRadius as StyleBorderRadius, BorderDetails, NormalBorder,
         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
         ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
         LayoutSize, ExtendMode
@@ -19,7 +19,7 @@ pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
 
 // In case no font size is specified for a node,
 // this will be subsituted as the default font size
-pub(crate) const DEFAULT_FONT_SIZE: FontSize = FontSize(PixelValue {
+pub(crate) const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
     metric: CssMetric::Px,
     number: 10_000,
 });
@@ -53,17 +53,17 @@ macro_rules! typed_pixel_value_parser {
 /// A successfully parsed CSS property
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedCssProperty {
-    BorderRadius(BorderRadius),
-    BackgroundColor(BackgroundColor),
-    TextColor(TextColor),
-    Border(SideOffsets2D<Au>, BorderDetails),
-    Background(Background),
-    FontSize(FontSize),
-    FontFamily(FontFamily),
-    TextAlign(TextAlignmentHorz),
-    LetterSpacing(LetterSpacing),
-    BoxShadow(Option<BoxShadowPreDisplayItem>),
-    LineHeight(LineHeight),
+    BorderRadius(StyleBorderRadius),
+    BackgroundColor(StyleBackgroundColor),
+    TextColor(StyleTextColor),
+    Border(StyleBorder),
+    Background(StyleBackground),
+    FontSize(StyleFontSize),
+    FontFamily(StyleFontFamily),
+    TextAlign(StyleTextAlignmentHorz),
+    LetterSpacing(StyleLetterSpacing),
+    BoxShadow(StyleBoxShadow),
+    LineHeight(StyleLineHeight),
 
     Width(LayoutWidth),
     Height(LayoutHeight),
@@ -71,21 +71,17 @@ pub enum ParsedCssProperty {
     MinHeight(LayoutMinHeight),
     MaxWidth(LayoutMaxWidth),
     MaxHeight(LayoutMaxHeight),
-
     Position(LayoutPosition),
     Top(LayoutTop),
     Right(LayoutRight),
     Left(LayoutLeft),
     Bottom(LayoutBottom),
-
     Padding(LayoutPadding),
     Margin(LayoutMargin),
-
     FlexWrap(LayoutWrap),
     FlexDirection(LayoutDirection),
     FlexGrow(LayoutFlexGrow),
     FlexShrink(LayoutFlexShrink),
-
     JustifyContent(LayoutJustifyContent),
     AlignItems(LayoutAlignItems),
     AlignContent(LayoutAlignContent),
@@ -107,15 +103,19 @@ impl ParsedCssProperty {
     }
 }
 
-impl_from!(BorderRadius, ParsedCssProperty::BorderRadius);
-impl_from!(Background, ParsedCssProperty::Background);
-impl_from!(FontSize, ParsedCssProperty::FontSize);
-impl_from!(FontFamily, ParsedCssProperty::FontFamily);
-impl_from!(LayoutOverflow, ParsedCssProperty::Overflow);
-impl_from!(TextAlignmentHorz, ParsedCssProperty::TextAlign);
-impl_from!(LineHeight, ParsedCssProperty::LineHeight);
-impl_from!(LetterSpacing, ParsedCssProperty::LetterSpacing);
+impl_from!(StyleBorderRadius, ParsedCssProperty::BorderRadius);
+impl_from!(StyleBackground, ParsedCssProperty::Background);
+impl_from!(StyleBoxShadow, ParsedCssProperty::BoxShadow);
+impl_from!(StyleBorder, ParsedCssProperty::Border);
+impl_from!(StyleFontSize, ParsedCssProperty::FontSize);
+impl_from!(StyleFontFamily, ParsedCssProperty::FontFamily);
+impl_from!(StyleTextAlignmentHorz, ParsedCssProperty::TextAlign);
+impl_from!(StyleLineHeight, ParsedCssProperty::LineHeight);
+impl_from!(StyleLetterSpacing, ParsedCssProperty::LetterSpacing);
+impl_from!(StyleBackgroundColor, ParsedCssProperty::BackgroundColor);
+impl_from!(StyleTextColor, ParsedCssProperty::TextColor);
 
+impl_from!(LayoutOverflow, ParsedCssProperty::Overflow);
 impl_from!(LayoutWidth, ParsedCssProperty::Width);
 impl_from!(LayoutHeight, ParsedCssProperty::Height);
 impl_from!(LayoutMinWidth, ParsedCssProperty::MinWidth);
@@ -140,20 +140,19 @@ impl_from!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
 impl_from!(LayoutAlignItems, ParsedCssProperty::AlignItems);
 impl_from!(LayoutAlignContent, ParsedCssProperty::AlignContent);
 
-impl_from!(BackgroundColor, ParsedCssProperty::BackgroundColor);
-impl_from!(TextColor, ParsedCssProperty::TextColor);
-
+/*
 impl From<(SideOffsets2D<Au>, BorderDetails)> for ParsedCssProperty {
-    fn from((widths, details): (SideOffsets2D<Au>, BorderDetails)) -> Self {
-        ParsedCssProperty::Border(widths, details)
+    fn from(widths_details: (SideOffsets2D<Au>, BorderDetails)) -> Self {
+        ParsedCssProperty::Border(StyleBorder::all(Some(widths_details)))
     }
 }
 
 impl From<Option<BoxShadowPreDisplayItem>> for ParsedCssProperty {
     fn from(box_shadow: Option<BoxShadowPreDisplayItem>) -> Self {
-        ParsedCssProperty::BoxShadow(box_shadow)
+        ParsedCssProperty::BoxShadow(StyleBoxShadow::all(box_shadow))
     }
 }
+*/
 
 impl ParsedCssProperty {
     /// Main parsing function, takes a stringified key / value pair and either
@@ -175,11 +174,11 @@ impl ParsedCssProperty {
 
             "font-color" |
             "color"             => Ok(parse_css_text_color(value)?.into()),
-            "border"            => Ok(parse_css_border(value)?.into()),
+            "border"            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
             "background"        => Ok(parse_css_background(value)?.into()),
             "font-size"         => Ok(parse_css_font_size(value)?.into()),
             "font-family"       => Ok(parse_css_font_family(value)?.into()),
-            "box-shadow"        => Ok(parse_css_box_shadow(value)?.into()),
+            "box-shadow"        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
             "letter-spacing"    => Ok(parse_css_letter_spacing(value)?.into()),
             "line-height"       => Ok(parse_css_line_height(value)?.into()),
 
@@ -251,10 +250,10 @@ pub enum CssParsingError<'a> {
     PixelParseError(PixelParseError<'a>),
     PercentageParseError(PercentageParseError),
     CssImageParseError(CssImageParseError<'a>),
-    CssFontFamilyParseError(CssFontFamilyParseError<'a>),
+    CssStyleFontFamilyParseError(CssStyleFontFamilyParseError<'a>),
     CssBackgroundParseError(CssBackgroundParseError<'a>),
     CssColorParseError(CssColorParseError<'a>),
-    CssBorderRadiusParseError(CssBorderRadiusParseError<'a>),
+    CssStyleBorderRadiusParseError(CssStyleBorderRadiusParseError<'a>),
     PaddingParseError(LayoutPaddingParseError<'a>),
     MarginParseError(LayoutMarginParseError<'a>),
     FlexShrinkParseError(FlexShrinkParseError<'a>),
@@ -265,14 +264,14 @@ pub enum CssParsingError<'a> {
 }
 
 impl_display!{ CssParsingError<'a>, {
-    CssBorderRadiusParseError(e) => format!("Invalid border-radius: {}", e),
+    CssStyleBorderRadiusParseError(e) => format!("Invalid border-radius: {}", e),
     CssBorderParseError(e) => format!("Invalid border property: {}", e),
     CssShadowParseError(e) => format!("Invalid shadow: \"{}\"", e),
     InvalidValueErr(e) => format!("\"{}\"", e.0),
     PixelParseError(e) => format!("{}", e),
     PercentageParseError(e) => format!("{}", e),
     CssImageParseError(e) => format!("{}", e),
-    CssFontFamilyParseError(e) => format!("{}", e),
+    CssStyleFontFamilyParseError(e) => format!("{}", e),
     CssBackgroundParseError(e) => format!("{}", e),
     CssColorParseError(e) => format!("{}", e),
     PaddingParseError(e) => format!("{}", e),
@@ -288,9 +287,9 @@ impl_from!(CssColorParseError<'a>, CssParsingError::CssColorParseError);
 impl_from!(InvalidValueErr<'a>, CssParsingError::InvalidValueErr);
 impl_from!(PixelParseError<'a>, CssParsingError::PixelParseError);
 impl_from!(CssImageParseError<'a>, CssParsingError::CssImageParseError);
-impl_from!(CssFontFamilyParseError<'a>, CssParsingError::CssFontFamilyParseError);
+impl_from!(CssStyleFontFamilyParseError<'a>, CssParsingError::CssStyleFontFamilyParseError);
 impl_from!(CssBackgroundParseError<'a>, CssParsingError::CssBackgroundParseError);
-impl_from!(CssBorderRadiusParseError<'a>, CssParsingError::CssBorderRadiusParseError);
+impl_from!(CssStyleBorderRadiusParseError<'a>, CssParsingError::CssStyleBorderRadiusParseError);
 impl_from!(LayoutPaddingParseError<'a>, CssParsingError::PaddingParseError);
 impl_from!(LayoutMarginParseError<'a>, CssParsingError::MarginParseError);
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrinkParseError);
@@ -364,17 +363,17 @@ pub enum CssMetric {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CssBorderRadiusParseError<'a> {
+pub enum CssStyleBorderRadiusParseError<'a> {
     TooManyValues(&'a str),
     PixelParseError(PixelParseError<'a>),
 }
 
-impl_display!{ CssBorderRadiusParseError<'a>, {
+impl_display!{ CssStyleBorderRadiusParseError<'a>, {
     TooManyValues(val) => format!("Too many values: \"{}\"", val),
     PixelParseError(e) => format!("{}", e),
 }}
 
-impl_from!(PixelParseError<'a>, CssBorderRadiusParseError::PixelParseError);
+impl_from!(PixelParseError<'a>, CssStyleBorderRadiusParseError::PixelParseError);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssColorParseError<'a> {
@@ -447,7 +446,7 @@ impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
 fn parse_css_border_radius<'a>(input: &'a str)
--> Result<BorderRadius, CssBorderRadiusParseError<'a>>
+-> Result<StyleBorderRadius, CssStyleBorderRadiusParseError<'a>>
 {
     let mut components = input.split_whitespace();
     let len = components.clone().count();
@@ -458,7 +457,7 @@ fn parse_css_border_radius<'a>(input: &'a str)
             // (the value applies to all four corners, which are rounded equally:
 
             let uniform_radius = parse_pixel_value(components.next().unwrap())?.to_pixels();
-            Ok(BorderRadius::uniform(uniform_radius))
+            Ok(StyleBorderRadius::uniform(uniform_radius))
         },
         2 => {
             // Two values - border-radius: 15px 50px;
@@ -468,7 +467,7 @@ fn parse_css_border_radius<'a>(input: &'a str)
             let top_left_bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
             let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
 
-            Ok(BorderRadius{
+            Ok(StyleBorderRadius{
                 top_left: LayoutSize::new(top_left_bottom_right, top_left_bottom_right),
                 bottom_right: LayoutSize::new(top_left_bottom_right, top_left_bottom_right),
                 top_right: LayoutSize::new(top_right_bottom_left, top_right_bottom_left),
@@ -484,7 +483,7 @@ fn parse_css_border_radius<'a>(input: &'a str)
             let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
             let bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
 
-            Ok(BorderRadius{
+            Ok(StyleBorderRadius{
                 top_left: LayoutSize::new(top_left, top_left),
                 bottom_right: LayoutSize::new(bottom_right, bottom_right),
                 top_right: LayoutSize::new(top_right_bottom_left, top_right_bottom_left),
@@ -502,7 +501,7 @@ fn parse_css_border_radius<'a>(input: &'a str)
             let bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
             let bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
 
-            Ok(BorderRadius{
+            Ok(StyleBorderRadius{
                 top_left: LayoutSize::new(top_left, top_left),
                 bottom_right: LayoutSize::new(bottom_right, bottom_right),
                 top_right: LayoutSize::new(top_right, top_right),
@@ -510,7 +509,7 @@ fn parse_css_border_radius<'a>(input: &'a str)
             })
         },
         _ => {
-            Err(CssBorderRadiusParseError::TooManyValues(input))
+            Err(CssStyleBorderRadiusParseError::TooManyValues(input))
         }
     }
 }
@@ -611,29 +610,29 @@ fn parse_float_value(input: &str)
 
 /// Represents a parsed CSS `background-color` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct BackgroundColor(pub ColorU);
+pub struct StyleBackgroundColor(pub ColorU);
 
-impl Default for BackgroundColor {
+impl Default for StyleBackgroundColor {
     fn default() -> Self {
         // Transparent color
-        BackgroundColor(ColorU::new(0, 0, 0, 0))
+        StyleBackgroundColor(ColorU::new(0, 0, 0, 0))
     }
 }
 
 fn parse_css_background_color<'a>(input: &'a str)
--> Result<BackgroundColor, CssColorParseError<'a>>
+-> Result<StyleBackgroundColor, CssColorParseError<'a>>
 {
-    parse_css_color(input).and_then(|ok| Ok(BackgroundColor(ok)))
+    parse_css_color(input).and_then(|ok| Ok(StyleBackgroundColor(ok)))
 }
 
 /// Represents a parsed CSS `color` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TextColor(pub ColorU);
+pub struct StyleTextColor(pub ColorU);
 
 fn parse_css_text_color<'a>(input: &'a str)
--> Result<TextColor, CssColorParseError<'a>>
+-> Result<StyleTextColor, CssColorParseError<'a>>
 {
-    parse_css_color(input).and_then(|ok| Ok(TextColor(ok)))
+    parse_css_color(input).and_then(|ok| Ok(StyleTextColor(ok)))
 }
 
 /// Parse a built-in background color
@@ -1050,7 +1049,8 @@ pub struct LayoutOverflow {
 impl LayoutOverflow {
 
     // "merges" two LayoutOverflow properties
-    pub fn merge(&mut self, other: &LayoutOverflow) {
+    pub fn merge(a: &mut Option<Self>, b: &Self) {
+
         fn merge_property(p: &mut TextOverflowBehaviour, other: &TextOverflowBehaviour) {
             if *other == TextOverflowBehaviour::NotModified {
                 return;
@@ -1058,8 +1058,12 @@ impl LayoutOverflow {
             *p = *other;
         }
 
-        merge_property(&mut self.horizontal, &other.horizontal);
-        merge_property(&mut self.vertical, &other.vertical);
+        if let Some(ref mut existing_overflow) = a {
+            merge_property(&mut existing_overflow.horizontal, &b.horizontal);
+            merge_property(&mut existing_overflow.vertical, &b.vertical);
+        } else {
+            *a = Some(*b)
+        }
     }
 
     pub fn allows_horizontal_overflow(&self) -> bool {
@@ -1135,7 +1139,7 @@ fn parse_css_border<'a>(input: &'a str)
         left: border_side,
         right: border_side,
         bottom: border_side,
-        radius: BorderRadius::zero(),
+        radius: StyleBorderRadius::zero(),
         do_aa: true,
     });
 
@@ -1169,7 +1173,7 @@ merge_struct!(StyleBoxShadow);
 parse_tblr!(StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
 struct_all!(StyleBoxShadow, Option<BoxShadowPreDisplayItem>);
 
-// missing BorderRadius & LayoutRect
+// missing StyleBorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BoxShadowPreDisplayItem {
     pub offset: LayoutVector2D,
@@ -1322,16 +1326,16 @@ impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Background {
+pub enum StyleBackground {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
     Image(CssImageId),
     NoBackground,
 }
 
-impl<'a> From<CssImageId> for Background {
+impl<'a> From<CssImageId> for StyleBackground {
     fn from(id: CssImageId) -> Self {
-        Background::Image(id)
+        StyleBackground::Image(id)
     }
 }
 
@@ -1502,7 +1506,7 @@ enum BackgroundType {
 
 // parses a background, such as "linear-gradient(red, green)"
 fn parse_css_background<'a>(input: &'a str)
--> Result<Background, CssBackgroundParseError<'a>>
+-> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
     use self::BackgroundType::*;
 
@@ -1510,7 +1514,7 @@ fn parse_css_background<'a>(input: &'a str)
     let first_item = input_iter.next();
 
     let background_type = match first_item {
-        Some("none") => { return Ok(Background::NoBackground); },
+        Some("none") => { return Ok(StyleBackground::NoBackground); },
         Some("linear-gradient") => LinearGradient,
         Some("repeating-linear-gradient") => RepeatingLinearGradient,
         Some("radial-gradient") => RadialGradient,
@@ -1650,28 +1654,28 @@ fn parse_css_background<'a>(input: &'a str)
 
     match background_type {
         LinearGradient => {
-            Ok(Background::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: direction,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
         RepeatingLinearGradient => {
-            Ok(Background::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: direction,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
         },
         RadialGradient => {
-            Ok(Background::RadialGradient(RadialGradientPreInfo {
+            Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
                 shape: shape,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
         RepeatingRadialGradient => {
-            Ok(Background::RadialGradient(RadialGradientPreInfo {
+            Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
                 shape: shape,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
@@ -1954,10 +1958,10 @@ pub enum LayoutDirection {
 
 /// Represents a parsed CSS `line-height` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub struct LineHeight(pub PercentageValue);
+pub struct StyleLineHeight(pub PercentageValue);
 /// Represents a parsed CSS `letter-spacing` attribute
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub struct LetterSpacing(pub PixelValue);
+pub struct StyleLetterSpacing(pub PixelValue);
 
 /// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
 /// makes decisions based on horizontal / vertical direction easier to write.
@@ -2114,29 +2118,29 @@ impl Default for TextOverflowBehaviourInner {
 
 /// Horizontal text alignment enum (left, center, right) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TextAlignmentHorz {
+pub enum StyleTextAlignmentHorz {
     Left,
     Center,
     Right,
 }
 
-impl Default for TextAlignmentHorz {
+impl Default for StyleTextAlignmentHorz {
     fn default() -> Self {
-        TextAlignmentHorz::Center
+        StyleTextAlignmentHorz::Center
     }
 }
 
 /// Vertical text alignment enum (top, center, bottom) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TextAlignmentVert {
+pub enum StyleTextAlignmentVert {
     Top,
     Center,
     Bottom,
 }
 
-impl Default for TextAlignmentVert {
+impl Default for StyleTextAlignmentVert {
     fn default() -> Self {
-        TextAlignmentVert::Center
+        StyleTextAlignmentVert::Center
     }
 }
 
@@ -2145,32 +2149,32 @@ impl Default for TextAlignmentVert {
 #[derive(Default, Debug, Clone, PartialEq)]
 pub(crate) struct RectStyle {
     /// Background color of this rectangle
-    pub(crate) background_color: Option<BackgroundColor>,
+    pub(crate) background_color: Option<StyleBackgroundColor>,
     /// Shadow color
-    pub(crate) box_shadow: Option<BoxShadowPreDisplayItem>,
+    pub(crate) box_shadow: Option<StyleBoxShadow>,
     /// Gradient (location) + stops
-    pub(crate) background: Option<Background>,
+    pub(crate) background: Option<StyleBackground>,
     /// Border
-    pub(crate) border: Option<(SideOffsets2D<Au>, BorderDetails)>,
+    pub(crate) border: Option<StyleBorder>,
     /// Border radius
-    pub(crate) border_radius: Option<BorderRadius>,
+    pub(crate) border_radius: Option<StyleBorderRadius>,
     /// Font size
-    pub(crate) font_size: Option<FontSize>,
+    pub(crate) font_size: Option<StyleFontSize>,
     /// Font name / family
-    pub(crate) font_family: Option<FontFamily>,
+    pub(crate) font_family: Option<StyleFontFamily>,
     /// Text color
-    pub(crate) font_color: Option<TextColor>,
+    pub(crate) font_color: Option<StyleTextColor>,
     /// Text alignment
-    pub(crate) text_align: Option<TextAlignmentHorz>,
+    pub(crate) text_align: Option<StyleTextAlignmentHorz,>,
     /// Text overflow behaviour
     pub(crate) overflow: Option<LayoutOverflow>,
     /// `line-height` property
-    pub(crate) line_height: Option<LineHeight>,
+    pub(crate) line_height: Option<StyleLineHeight>,
     /// `letter-spacing` property (modifies the width and height)
-    pub(crate) letter_spacing: Option<LetterSpacing>,
+    pub(crate) letter_spacing: Option<StyleLetterSpacing>,
 }
 
-typed_pixel_value_parser!(parse_css_letter_spacing, LetterSpacing);
+typed_pixel_value_parser!(parse_css_letter_spacing, StyleLetterSpacing);
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
@@ -2246,30 +2250,30 @@ fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, Flex
 }
 
 fn parse_css_line_height(input: &str)
--> Result<LineHeight, PercentageParseError>
+-> Result<StyleLineHeight, PercentageParseError>
 {
-    parse_percentage_value(input).and_then(|e| Ok(LineHeight(e)))
+    parse_percentage_value(input).and_then(|e| Ok(StyleLineHeight(e)))
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct FontSize(pub(crate) PixelValue);
+pub struct StyleFontSize(pub(crate) PixelValue);
 
-typed_pixel_value_parser!(parse_css_font_size, FontSize);
+typed_pixel_value_parser!(parse_css_font_size, StyleFontSize);
 
-impl FontSize {
+impl StyleFontSize {
     /// Creates the font size in pixel
     pub fn px(value: f32) -> Self {
-        FontSize(PixelValue::px(value))
+        StyleFontSize(PixelValue::px(value))
     }
 
     /// Creates the font size in em
     pub fn em(value: f32) -> Self {
-        FontSize(PixelValue::em(value))
+        StyleFontSize(PixelValue::em(value))
     }
 
     /// Creates the font size in point (pt)
     pub fn pt(value: f32) -> Self {
-        FontSize(PixelValue::pt(value))
+        StyleFontSize(PixelValue::pt(value))
     }
 
     pub fn to_pixels(&self) -> f32 {
@@ -2278,7 +2282,7 @@ impl FontSize {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FontFamily {
+pub struct StyleFontFamily {
     // parsed fonts, in order, i.e. "Webly Sleeky UI", "monospace", etc.
     pub(crate) fonts: Vec<FontId>
 }
@@ -2290,19 +2294,19 @@ pub enum FontId {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum CssFontFamilyParseError<'a> {
-    InvalidFontFamily(&'a str),
+pub enum CssStyleFontFamilyParseError<'a> {
+    InvalidStyleFontFamily(&'a str),
     UnclosedQuotes(&'a str),
 }
 
-impl_display!{CssFontFamilyParseError<'a>, {
-    InvalidFontFamily(val) => format!("Invalid font-family: \"{}\"", val),
+impl_display!{CssStyleFontFamilyParseError<'a>, {
+    InvalidStyleFontFamily(val) => format!("Invalid font-family: \"{}\"", val),
     UnclosedQuotes(val) => format!("Unclosed quotes: \"{}\"", val),
 }}
 
-impl<'a> From<UnclosedQuotesError<'a>> for CssFontFamilyParseError<'a> {
+impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
     fn from(err: UnclosedQuotesError<'a>) -> Self {
-        CssFontFamilyParseError::UnclosedQuotes(err.0)
+        CssStyleFontFamilyParseError::UnclosedQuotes(err.0)
     }
 }
 
@@ -2311,7 +2315,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssFontFamilyParseError<'a> {
 // "Webly Sleeky UI", monospace
 // 'Webly Sleeky Ui', monospace
 // sans-serif
-pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, CssFontFamilyParseError<'a>> {
+pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
 
@@ -2331,7 +2335,7 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<FontFamily, Cs
         }
     }
 
-    Ok(FontFamily {
+    Ok(StyleFontFamily {
         fonts: fonts,
     })
 }
@@ -2382,7 +2386,7 @@ multi_type_parser!(parse_layout_text_overflow, TextOverflowBehaviourInner,
                     ["visible", Visible],
                     ["hidden", Hidden]);
 
-multi_type_parser!(parse_layout_text_align, TextAlignmentHorz,
+multi_type_parser!(parse_layout_text_align, StyleTextAlignmentHorz,
                     ["center", Center],
                     ["left", Left],
                     ["right", Right]);
@@ -2605,7 +2609,7 @@ mod css_tests {
                     color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
                     style: BorderStyle::Solid,
                 },
-                radius: BorderRadius::zero(),
+                radius: StyleBorderRadius::zero(),
                 do_aa: true,
             })
         )));
@@ -2632,7 +2636,7 @@ mod css_tests {
                     color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
                     style: BorderStyle::Double,
                 },
-                radius: BorderRadius::zero(),
+                radius: StyleBorderRadius::zero(),
                 do_aa: true,
             })
         )));
@@ -2807,12 +2811,12 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_border_radius_1() {
-        assert_eq!(parse_css_border_radius("15px"), Ok(BorderRadius::uniform(15.0)));
+        assert_eq!(parse_css_border_radius("15px"), Ok(StyleBorderRadius::uniform(15.0)));
     }
 
     #[test]
     fn test_parse_css_border_radius_2() {
-        assert_eq!(parse_css_border_radius("15px 50px"), Ok(BorderRadius {
+        assert_eq!(parse_css_border_radius("15px 50px"), Ok(StyleBorderRadius {
             top_left: LayoutSize::new(15.0, 15.0),
             bottom_right: LayoutSize::new(15.0, 15.0),
             top_right: LayoutSize::new(50.0, 50.0),
@@ -2822,7 +2826,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_border_radius_3() {
-        assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(BorderRadius {
+        assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(StyleBorderRadius {
             top_left: LayoutSize::new(15.0, 15.0),
             bottom_right: LayoutSize::new(30.0, 30.0),
             top_right: LayoutSize::new(50.0, 50.0),
@@ -2832,7 +2836,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_border_radius_4() {
-        assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(BorderRadius {
+        assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(StyleBorderRadius {
             top_left: LayoutSize::new(15.0, 15.0),
             bottom_right: LayoutSize::new(30.0, 30.0),
             top_right: LayoutSize::new(50.0, 50.0),
@@ -2842,7 +2846,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_font_family_1() {
-        assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(FontFamily {
+        assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(StyleFontFamily {
             fonts: vec![
                 FontId::ExternalFont("Webly Sleeky UI".into()),
                 FontId::BuiltinFont("monospace".into()),
@@ -2852,7 +2856,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_font_family_2() {
-        assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(FontFamily {
+        assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(StyleFontFamily {
             fonts: vec![
                 FontId::ExternalFont("Webly Sleeky UI".into()),
             ]
