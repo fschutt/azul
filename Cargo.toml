@@ -42,11 +42,11 @@ image                   = { version = "0.19.0", default-features = false, option
 # Windows: Use nativefiledialog because of better Unicode support for file browsers
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 nfd = { version = "0.0.4", default-features = false }
-webrender = { git = "https://github.com/servo/webrender", rev = "f4941fb8d126f893f01f3511ab9bb4d15dbbab70", default-features = false }
+webrender = { git = "https://github.com/servo/webrender", rev = "b46d984b8987fc301d6e89860167b3bfd2038cde", default-features = false }
 
 # Linux: Use webrender with freetype feature enabled
 [target.'cfg(target_os = "linux")'.dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "f4941fb8d126f893f01f3511ab9bb4d15dbbab70" }
+webrender = { git = "https://github.com/servo/webrender", rev = "b46d984b8987fc301d6e89860167b3bfd2038cde" }
 
 [features]
 # The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
