@@ -203,7 +203,8 @@ pub mod prelude {
     pub use css_parser::{
         StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
         StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
-        StyleBoxShadow, StyleBorder, BoxShadowPreDisplayItem, StyleLineHeight, StyleLetterSpacing,
+        StyleBoxShadow, BoxShadowPreDisplayItem, StyleLineHeight, StyleLetterSpacing,
+        StyleBorder, StyleBorderSide,
 
         LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, CssMetric,
         LayoutMaxHeight, LayoutWrap, LayoutDirection, LayoutJustifyContent, LayoutAlignItems,
