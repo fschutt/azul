@@ -480,10 +480,13 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         &bounds,
         BoxShadowClipMode::Inset);
 
-    push_border(
-        &info,
-        referenced_mutable_content.builder,
-        &rect.style);
+    if let Some(ref border) = rect.style.border {
+        push_border(
+            &info,
+            referenced_mutable_content.builder,
+            &border,
+            &rect.style.border_radius);
+    }
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
 
@@ -825,16 +828,12 @@ fn push_scrollbar(
 {
     use euclid::TypedPoint2D;
 
-    // TODO - properly push all borders
-    // not implemented since this function is likely to be removed later
-    let border = border.and_then(|b| b.top);
-
     // The border is inside the rectangle - subtract the border width on the left and bottom side,
     // so that the scrollbar is laid out correctly
     let mut bounds = *bounds;
-    if let Some((border_widths, _)) = border {
-        bounds.size.width -= border_widths.left.to_f32_px();
-        bounds.size.height -= border_widths.bottom.to_f32_px();
+    if let Some(StyleBorder { left: Some(l), bottom: Some(b), .. }) = border {
+        bounds.size.width -= l.border_width.to_pixels();
+        bounds.size.height -= b.border_width.to_pixels();
     }
 
     // Background of scrollbar (vertical)
@@ -979,62 +978,91 @@ fn push_triangle(
 fn push_box_shadow(
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    bounds: &TypedRect<f32, LayoutPixel>,
+    bounds: &LayoutRect,
     shadow_type: BoxShadowClipMode)
 {
-    let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
+    fn push_box_shadow_inner(
+        builder: &mut DisplayListBuilder,
+        pre_shadow: &Option<BoxShadowPreDisplayItem>,
+        border_radius: StyleBorderRadius,
+        bounds: &LayoutRect,
+        shadow_type: BoxShadowClipMode)
+    {
+        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 
-    let pre_shadow = match style.box_shadow {
-        Some(ref ps) => ps,
+        let pre_shadow = match pre_shadow {
+            Some(ref ps) => ps,
+            None => return,
+        };
+
+        // The pre_shadow is missing the StyleBorderRadius & LayoutRect
+        if pre_shadow.clip_mode != shadow_type {
+            return;
+        }
+
+        let clip_rect = if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
+            // inset shadows do not work like outset shadows
+            // for inset shadows, you have to push a clip ID first, so that they are
+            // clipped to the bounds -we trust that the calling function knows to do this
+            *bounds
+        } else {
+            // calculate the maximum extent of the outset shadow
+            let mut clip_rect = *bounds;
+
+            let origin_displace = (pre_shadow.spread_radius + pre_shadow.blur_radius) * 2.0;
+            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset.x - origin_displace;
+            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset.y - origin_displace;
+
+            clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
+            clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
+
+            // prevent shadows that are larger than the full screen
+            clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect)
+        };
+
+        // Apply a gamma of 2.2 to the original value
+        //
+        // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
+        fn apply_gamma(color: ColorF) -> ColorF {
+
+            const GAMMA: f32 = 2.2;
+            const GAMMA_F: f32 = 1.0 / GAMMA;
+
+            ColorF {
+                r: color.r.powf(GAMMA_F),
+                g: color.g.powf(GAMMA_F),
+                b: color.b.powf(GAMMA_F),
+                a: color.a,
+            }
+        }
+
+        let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
+        builder.push_box_shadow(&info, *bounds, pre_shadow.offset, apply_gamma(pre_shadow.color),
+                                 pre_shadow.blur_radius, pre_shadow.spread_radius,
+                                 border_radius, pre_shadow.clip_mode);
+    }
+
+    // Box-shadow can be applied to each corner separately. This means, in practice
+    // that we simply overlay multiple shadows with shifted clipping rectangles
+    let StyleBoxShadow { top, left, bottom, right } = match &style.box_shadow {
+        Some(s) => s,
         None => return,
     };
-
-    // The pre_shadow is missing the StyleBorderRadius & LayoutRect
     let border_radius = style.border_radius.unwrap_or(StyleBorderRadius::zero());
-    if pre_shadow.clip_mode != shadow_type {
-        return;
+
+    // TODO: Improve this!!! -- pushes 4 separate shadows right now!
+    if let Some(bottom_shadow) = bottom {
+        push_box_shadow_inner(builder, bottom_shadow, border_radius, bounds, shadow_type);
     }
-
-    let clip_rect = if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
-        // inset shadows do not work like outset shadows
-        // for inset shadows, you have to push a clip ID first, so that they are
-        // clipped to the bounds -we trust that the calling function knows to do this
-        *bounds
-    } else {
-        // calculate the maximum extent of the outset shadow
-        let mut clip_rect = *bounds;
-
-        let origin_displace = (pre_shadow.spread_radius + pre_shadow.blur_radius) * 2.0;
-        clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset.x - origin_displace;
-        clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset.y - origin_displace;
-
-        clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
-        clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
-
-        // prevent shadows that are larger than the full screen
-        clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect)
-    };
-
-    // Apply a gamma of 2.2 to the original value
-    //
-    // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
-    fn apply_gamma(color: ColorF) -> ColorF {
-
-        const GAMMA: f32 = 2.2;
-        const GAMMA_F: f32 = 1.0 / GAMMA;
-
-        ColorF {
-            r: color.r.powf(GAMMA_F),
-            g: color.g.powf(GAMMA_F),
-            b: color.b.powf(GAMMA_F),
-            a: color.a,
-        }
+    if let Some(right_shadow) = right {
+        push_box_shadow_inner(builder, right_shadow, border_radius, bounds, shadow_type);
     }
-
-    let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, apply_gamma(pre_shadow.color),
-                             pre_shadow.blur_radius, pre_shadow.spread_radius,
-                             border_radius, pre_shadow.clip_mode);
+    if let Some(top_shadow) = top {
+        push_box_shadow_inner(builder, top_shadow, border_radius, bounds, shadow_type);
+    }
+    if let Some(left_shadow) = top {
+        push_box_shadow_inner(builder, left_shadow, border_radius, bounds, shadow_type);
+    }
 }
 
 #[inline]
@@ -1161,24 +1189,10 @@ fn push_image(
 fn push_border(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    style: &RectStyle)
+    border: &StyleBorder,
+    border_radius: &Option<StyleBorderRadius>)
 {
-    if let Some((border_widths, mut border_details)) = style.border {
-
-        use webrender::api::LayoutSideOffsets;
-
-        let border_top = border_widths.top.to_f32_px();
-        let border_bottom = border_widths.bottom.to_f32_px();
-        let border_left = border_widths.left.to_f32_px();
-        let border_right = border_widths.right.to_f32_px();
-
-        let border_widths = LayoutSideOffsets::new(border_top, border_right, border_bottom, border_left);
-
-        if let Some(border_radius) = style.border_radius {
-            if let BorderDetails::Normal(ref mut n) = border_details {
-                n.radius = border_radius;
-            }
-        }
+    if let Some((border_widths, border_details)) = border.get_webrender_border(*border_radius) {
         builder.push_border(info, border_widths, border_details);
     }
 }

@@ -8,7 +8,7 @@ pub use {
         BorderRadius as StyleBorderRadius, BorderDetails, NormalBorder,
         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
         ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
-        LayoutSize, ExtendMode
+        LayoutSize, ExtendMode, LayoutSideOffsets,
     },
 };
 use webrender::api::{BorderStyle, BorderSide, LayoutRect};
@@ -140,21 +140,8 @@ impl_from!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
 impl_from!(LayoutAlignItems, ParsedCssProperty::AlignItems);
 impl_from!(LayoutAlignContent, ParsedCssProperty::AlignContent);
 
-/*
-impl From<(SideOffsets2D<Au>, BorderDetails)> for ParsedCssProperty {
-    fn from(widths_details: (SideOffsets2D<Au>, BorderDetails)) -> Self {
-        ParsedCssProperty::Border(StyleBorder::all(Some(widths_details)))
-    }
-}
-
-impl From<Option<BoxShadowPreDisplayItem>> for ParsedCssProperty {
-    fn from(box_shadow: Option<BoxShadowPreDisplayItem>) -> Self {
-        ParsedCssProperty::BoxShadow(StyleBoxShadow::all(box_shadow))
-    }
-}
-*/
-
 impl ParsedCssProperty {
+
     /// Main parsing function, takes a stringified key / value pair and either
     /// returns the parsed value or an error
     ///
@@ -171,16 +158,25 @@ impl ParsedCssProperty {
         match key {
             "border-radius"     => Ok(parse_css_border_radius(value)?.into()),
             "background-color"  => Ok(parse_css_background_color(value)?.into()),
-
             "font-color" |
             "color"             => Ok(parse_css_text_color(value)?.into()),
-            "border"            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
             "background"        => Ok(parse_css_background(value)?.into()),
             "font-size"         => Ok(parse_css_font_size(value)?.into()),
             "font-family"       => Ok(parse_css_font_family(value)?.into()),
-            "box-shadow"        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
             "letter-spacing"    => Ok(parse_css_letter_spacing(value)?.into()),
             "line-height"       => Ok(parse_css_line_height(value)?.into()),
+
+            "border"            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
+            "border-top"        => Ok(StyleBorder::parse_top(value)?.into()),
+            "border-bottom"     => Ok(StyleBorder::parse_bottom(value)?.into()),
+            "border-left"       => Ok(StyleBorder::parse_left(value)?.into()),
+            "border-right"      => Ok(StyleBorder::parse_right(value)?.into()),
+
+            "box-shadow"        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
+            "box-shadow-top"    => Ok(StyleBoxShadow::parse_top(value)?.into()),
+            "box-shadow-bottom" => Ok(StyleBoxShadow::parse_bottom(value)?.into()),
+            "box-shadow-left"   => Ok(StyleBoxShadow::parse_left(value)?.into()),
+            "box-shadow-right"  => Ok(StyleBoxShadow::parse_right(value)?.into()),
 
             "width"             => Ok(parse_layout_width(value)?.into()),
             "height"            => Ok(parse_layout_height(value)?.into()),
@@ -194,9 +190,19 @@ impl ParsedCssProperty {
             "right"             => Ok(parse_layout_right(value)?.into()),
             "left"              => Ok(parse_layout_left(value)?.into()),
             "bottom"            => Ok(parse_layout_bottom(value)?.into()),
+            "text-align"        => Ok(parse_layout_text_align(value)?.into()),
 
             "padding"           => Ok(parse_layout_padding(value)?.into()),
+            "padding-top"       => Ok(LayoutPadding::parse_top(value)?.into()),
+            "padding-bottom"    => Ok(LayoutPadding::parse_bottom(value)?.into()),
+            "padding-left"      => Ok(LayoutPadding::parse_left(value)?.into()),
+            "padding-right"     => Ok(LayoutPadding::parse_right(value)?.into()),
+
             "margin"            => Ok(parse_layout_margin(value)?.into()),
+            "margin-top"       => Ok(LayoutMargin::parse_top(value)?.into()),
+            "margin-bottom"    => Ok(LayoutMargin::parse_bottom(value)?.into()),
+            "margin-left"      => Ok(LayoutMargin::parse_left(value)?.into()),
+            "margin-right"     => Ok(LayoutMargin::parse_right(value)?.into()),
 
             "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
             "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
@@ -233,7 +239,8 @@ impl ParsedCssProperty {
                     vertical: TextOverflowBehaviour::Modified(overflow_y),
                 }.into())
             },
-            "text-align"        => Ok(parse_layout_text_align(value)?.into()),
+
+
             _ => Err((key, value).into())
         }
     }
@@ -1081,39 +1088,96 @@ impl LayoutOverflow {
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct StyleBorder {
-    pub top: Option<(SideOffsets2D<Au>, BorderDetails)>,
-    pub left: Option<(SideOffsets2D<Au>, BorderDetails)>,
-    pub bottom: Option<(SideOffsets2D<Au>, BorderDetails)>,
-    pub right: Option<(SideOffsets2D<Au>, BorderDetails)>,
+    pub top: Option<StyleBorderSide>,
+    pub left: Option<StyleBorderSide>,
+    pub bottom: Option<StyleBorderSide>,
+    pub right: Option<StyleBorderSide>,
 }
 
 merge_struct!(StyleBorder);
 parse_tblr!(StyleBorder, CssBorderParseError, parse_css_border);
-struct_all!(StyleBorder, (SideOffsets2D<Au>, BorderDetails));
+struct_all!(StyleBorder, StyleBorderSide);
+
+impl StyleBorder {
+
+    /// Returns the merged offsets and details for the top, left,
+    /// right and bottom styles - necessary, so we can combine `border-top`,
+    /// `border-left`, etc. into one border
+    pub fn get_webrender_border(&self, border_radius: Option<StyleBorderRadius>) -> Option<(LayoutSideOffsets, BorderDetails)> {
+        match (self.top, self.left, self.bottom, self.right) {
+            (None, None, None, None) => None,
+            (top, left, bottom, right) => {
+
+                // Widths
+                let border_width_top = top.and_then(|top|  Some(top.border_width.to_pixels())).unwrap_or(0.0);
+                let border_width_bottom = bottom.and_then(|bottom|  Some(bottom.border_width.to_pixels())).unwrap_or(0.0);
+                let border_width_left = left.and_then(|left|  Some(left.border_width.to_pixels())).unwrap_or(0.0);
+                let border_width_right = right.and_then(|right|  Some(right.border_width.to_pixels())).unwrap_or(0.0);
+
+                // Color
+                let border_color_top = top.and_then(|top| Some(top.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
+                let border_color_bottom = bottom.and_then(|bottom| Some(bottom.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
+                let border_color_left = left.and_then(|left| Some(left.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
+                let border_color_right = right.and_then(|right| Some(right.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
+
+                // Styles
+                let border_style_top = top.and_then(|top| Some(top.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
+                let border_style_bottom = bottom.and_then(|bottom| Some(bottom.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
+                let border_style_left = left.and_then(|left| Some(left.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
+                let border_style_right = right.and_then(|right| Some(right.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
+
+                let border_widths = LayoutSideOffsets::new(border_width_top, border_width_right, border_width_bottom, border_width_left);
+                let border_details = BorderDetails::Normal(NormalBorder {
+                    top: BorderSide { color:  border_color_top.into(), style: border_style_top },
+                    left: BorderSide { color:  border_color_left.into(), style: border_style_left },
+                    right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
+                    bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
+                    radius: border_radius.unwrap_or(StyleBorderRadius::zero()),
+                    do_aa: border_radius.is_some(),
+                });
+
+                Some((border_widths, border_details))
+            }
+        }
+    }
+}
+
+const DEFAULT_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
+const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+
+#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+pub struct StyleBorderSide {
+    pub border_width: PixelValue,
+    pub border_style: BorderStyle,
+    pub border_color: ColorU,
+}
 
 /// Parse a CSS border such as
 ///
 /// "5px solid red"
 fn parse_css_border<'a>(input: &'a str)
--> Result<(SideOffsets2D<Au>, BorderDetails), CssBorderParseError<'a>>
+-> Result<StyleBorderSide, CssBorderParseError<'a>>
 {
+    // Default border thickness on the web seems to be 3px
+    const DEFAULT_BORDER_THICKNESS: f32 = 3.0;
+
     let mut input_iter = input.split_whitespace();
 
-    let (thickness, style, color);
+    let (border_width, border_style, border_color);
 
     match input_iter.clone().count() {
         1 => {
-            style = parse_border_style(input_iter.next().unwrap())
+            border_style = parse_border_style(input_iter.next().unwrap())
                             .map_err(|e| CssBorderParseError::InvalidBorderStyle(e))?;
-            thickness = 1.0;
-            color = ColorU { r: 0, g: 0, b: 0, a: 255 };
+            border_width = PixelValue::px(DEFAULT_BORDER_THICKNESS);
+            border_color = DEFAULT_BORDER_COLOR;
         },
         3 => {
-            thickness = parse_pixel_value(input_iter.next().unwrap())
-                           .map_err(|e| CssBorderParseError::ThicknessParseError(e))?.to_pixels();
-            style = parse_border_style(input_iter.next().unwrap())
+            border_width = parse_pixel_value(input_iter.next().unwrap())
+                           .map_err(|e| CssBorderParseError::ThicknessParseError(e))?;
+            border_style = parse_border_style(input_iter.next().unwrap())
                            .map_err(|e| CssBorderParseError::InvalidBorderStyle(e))?;
-            color = parse_css_color(input_iter.next().unwrap())
+            border_color = parse_css_color(input_iter.next().unwrap())
                            .map_err(|e| CssBorderParseError::ColorParseError(e))?;
        },
        _ => {
@@ -1121,29 +1185,11 @@ fn parse_css_border<'a>(input: &'a str)
        }
     }
 
-    // This should later be changed into the proper `border-left` and so on types
-    let top = Au::from_f32_px(thickness);
-    let right = Au::from_f32_px(thickness);
-    let bottom = Au::from_f32_px(thickness);
-    let left = Au::from_f32_px(thickness);
-
-    let border_widths = SideOffsets2D::new(top, right, bottom, left);
-
-    let border_side = BorderSide {
-        color: color.into(),
-        style: style,
-    };
-
-    let border_details = BorderDetails::Normal(NormalBorder {
-        top: border_side,
-        left: border_side,
-        right: border_side,
-        bottom: border_side,
-        radius: StyleBorderRadius::zero(),
-        do_aa: true,
-    });
-
-    Ok((border_widths, border_details))
+    Ok(StyleBorderSide {
+        border_width,
+        border_style,
+        border_color,
+    })
 }
 
 /// Parse a border style such as "none", "dotted", etc.
