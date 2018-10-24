@@ -46,11 +46,13 @@
     color: white;
     font-size: 14px;
     background-color: #407c40;
-    padding: 2px 0px 0px 0px;
+    padding-top: 2px;
     flex-direction: row;
     justify-content: center;
-    border: 0.5px solid #eee;
-    box-shadow: 0px 0px 10px black;
+    border-left: 0.6px solid white;
+    border-radius: 15px;
+    background: linear-gradient(135deg, #cb60b3 0%,#c146a1 50%,#a80077 51%,#db36a4 100%);
+    /*box-shadow-bottom: 0px 0px 10px black;*/
 }
 
 .__azul-native-table-row-numbers {
@@ -58,5 +60,5 @@
     color: white;
     background-color: #407c40;
     flex-direction: column;
-    box-shadow: 0px 0px 10px black;
+    /*box-shadow: 0px 0px 10px black;*/
 }
