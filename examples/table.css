@@ -50,9 +50,8 @@
     flex-direction: row;
     justify-content: center;
     border-left: 0.6px solid white;
-    border-radius: 15px;
     background: linear-gradient(135deg, #cb60b3 0%,#c146a1 50%,#a80077 51%,#db36a4 100%);
-    /*box-shadow-bottom: 0px 0px 10px black;*/
+    box-shadow-bottom: 0px 0px 5px black;
 }
 
 .__azul-native-table-row-numbers {
