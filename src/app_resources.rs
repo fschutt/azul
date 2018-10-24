@@ -161,20 +161,14 @@ impl AppResources {
     }
 
     /// Search for a builtin font on the users computer, validate and return it
-    fn get_builtin_font(ids: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
+    fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
     {
         use font_loader::system_fonts::{self, FontPropertyBuilder};
         use font::rusttype_load_font;
-        for id in ids.split(",") {
-            let id = id.trim();
-            let fd = system_fonts::get(&FontPropertyBuilder::new().family(&id).build());
-            if let Some((font_bytes, idx)) = fd {
-                if let Some((f, b)) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok() {
-                    return Some((f, b, FontState::ReadyForUpload(font_bytes)));
-                }
-            }
-        }
-        None
+
+        let (font_bytes, idx) = system_fonts::get(&FontPropertyBuilder::new().family(&id).build())?;
+        let (f, b) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok()?;
+        Some((f, b, FontState::ReadyForUpload(font_bytes)))
     }
 
     /// Internal API - we want the user to get the first two fields of the
@@ -199,6 +193,18 @@ impl AppResources {
     /// or `None`, if the `FontId` is invalid.
     pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
         self.get_font_internal(id).and_then(|(font, bytes, _)| Some((font, bytes)))
+    }
+
+    /// Given a `Vec<FontId>`, returns the first corresponding `Font` that is found and the original bytes making up the font
+    /// or `None`, if all of the the `FontId`s are invalid.
+    pub fn get_any_font(&self, ids: &Vec<FontId>) -> Option<(FontId, Rc<Font<'static>>, Rc<Vec<u8>>)> {
+        for id in ids {
+            let retval = self.get_font_internal(id).and_then(|(font, bytes, _)| Some((font, bytes)));
+            if let Some(data) = retval {
+                return Some((id.clone(), data.0, data.1));
+            }
+        }
+        None
     }
 
     /// Note the pub(crate) here: We don't want to expose the FontState in the public API

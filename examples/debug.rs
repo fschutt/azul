@@ -151,8 +151,12 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
     let font_size = FontSize::px(10.0);
     
-    let font_id = FontId::BuiltinFont(String::from("sans-serif, Helvetica, Arial"));
-    let font = app_state.resources.get_font(&font_id).unwrap().0;
+    let font_ids = vec![
+        FontId::BuiltinFont(String::from("sans-serif")),
+        FontId::BuiltinFont(String::from("Helvetica")),
+        FontId::BuiltinFont(String::from("Arial"))
+    ];
+    let (font_id, font, _) = app_state.resources.get_any_font(&font_ids).unwrap();
 
     let aligned = TextLayoutOptions {
         horz_alignment: TextAlignmentHorz::Right,
