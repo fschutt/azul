@@ -1406,7 +1406,7 @@ pub enum Direction {
 }
 
 impl Direction {
-    /// Calculates the point for the bounds
+    /// Calculates the points of the gradient stops for angled linear gradients
     pub fn to_points(&self, rect: &LayoutRect)
     -> (LayoutPoint, LayoutPoint)
     {
@@ -2636,62 +2636,32 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_border_1() {
-        assert_eq!(parse_css_border("5px solid red"), Ok((
-            SideOffsets2D::new(Au::from_f32_px(5.0), Au::from_f32_px(5.0), Au::from_f32_px(5.0), Au::from_f32_px(5.0)),
-            BorderDetails::Normal(NormalBorder {
-                left: BorderSide {
-                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Solid,
-                },
-                right: BorderSide {
-                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Solid,
-                },
-                bottom: BorderSide {
-                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Solid,
-                },
-                top: BorderSide {
-                    color: ColorF { r: 1.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Solid,
-                },
-                radius: StyleBorderRadius::zero(),
-                do_aa: true,
+        assert_eq!(
+            parse_css_border("5px solid red"),
+            Ok(StyleBorderSide {
+                border_width: PixelValue::px(5.0),
+                border_style: BorderStyle::Solid,
+                border_color: ColorU { r: 255, g: 0, b: 0, a: 255 },
             })
-        )));
+        );
     }
 
     #[test]
     fn test_parse_css_border_2() {
-        assert_eq!(parse_css_border("double"), Ok((
-                SideOffsets2D::new(Au::from_f32_px(1.0), Au::from_f32_px(1.0), Au::from_f32_px(1.0), Au::from_f32_px(1.0)),
-                BorderDetails::Normal(NormalBorder {
-                left: BorderSide {
-                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Double,
-                },
-                right: BorderSide {
-                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Double,
-                },
-                bottom: BorderSide {
-                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Double,
-                },
-                top: BorderSide {
-                    color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-                    style: BorderStyle::Double,
-                },
-                radius: StyleBorderRadius::zero(),
-                do_aa: true,
+        assert_eq!(
+            parse_css_border("double"),
+            Ok(StyleBorderSide {
+                border_width: PixelValue::px(3.0),
+                border_style: BorderStyle::Double,
+                border_color: ColorU { r: 0, g: 0, b: 0, a: 255 },
             })
-        )));
+        );
     }
 
     #[test]
     fn test_parse_linear_gradient_1() {
         assert_eq!(parse_css_background("linear-gradient(red, yellow)"),
-            Ok(Background::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2708,7 +2678,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_2() {
         assert_eq!(parse_css_background("linear-gradient(red, lime, blue, yellow)"),
-            Ok(Background::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2733,7 +2703,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_3() {
         assert_eq!(parse_css_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
-            Ok(Background::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::Angle(50.0),
                 extend_mode: ExtendMode::Repeat,
                 stops: vec![
@@ -2755,7 +2725,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_4() {
         assert_eq!(parse_css_background("linear-gradient(to bottom right, red, yellow)"),
-            Ok(Background::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2772,7 +2742,7 @@ mod css_tests {
     #[test]
     fn test_parse_radial_gradient_1() {
         assert_eq!(parse_css_background("radial-gradient(circle, lime, blue, yellow)"),
-            Ok(Background::RadialGradient(RadialGradientPreInfo {
+            Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
@@ -2911,7 +2881,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_background_image() {
-        assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(Background::Image(
+        assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(StyleBackground::Image(
             CssImageId(String::from("Cat 01"))
         )));
     }
