@@ -1046,6 +1046,72 @@ fn push_box_shadow(
         }
     }
 
+    fn push_single_box_shadow_edge(
+            builder: &mut DisplayListBuilder,
+            current_shadow: &BoxShadowPreDisplayItem,
+            bounds: &LayoutRect,
+            border_radius: StyleBorderRadius,
+            shadow_type: BoxShadowClipMode,
+            top: &Option<Option<BoxShadowPreDisplayItem>>,
+            bottom: &Option<Option<BoxShadowPreDisplayItem>>,
+            left: &Option<Option<BoxShadowPreDisplayItem>>,
+            right: &Option<Option<BoxShadowPreDisplayItem>>,
+    ) {
+        let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
+        let origin_displace = (current_shadow.spread_radius + current_shadow.blur_radius) * 2.0;
+
+        let mut shadow_bounds = *bounds;
+        let mut clip_rect = *bounds;
+
+        if is_inset_shadow {
+            // If the shadow is inset, we adjust the clip rect to be
+            // exactly the amount of the shadow
+            if let Some(Some(top)) = top {
+                clip_rect.size.height = origin_displace;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(bottom)) = bottom {
+                clip_rect.size.height = origin_displace;
+                clip_rect.origin.y += bounds.size.height - origin_displace;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(left)) = left {
+                clip_rect.size.width = origin_displace;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            } else if let Some(Some(right)) = right {
+                clip_rect.size.width = origin_displace;
+                clip_rect.origin.x += bounds.size.width - origin_displace;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            }
+        } else {
+            if let Some(Some(top)) = top {
+                clip_rect.size.height = origin_displace;
+                clip_rect.origin.y -= origin_displace;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(bottom)) = bottom {
+                clip_rect.size.height = origin_displace;
+                clip_rect.origin.y += bounds.size.height;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(left)) = left {
+                clip_rect.size.width = origin_displace;
+                clip_rect.origin.x -= origin_displace;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            } else if let Some(Some(right)) = right {
+                clip_rect.size.width = origin_displace;
+                clip_rect.origin.x += bounds.size.width;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            }
+        }
+
+        push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type);
+    }
+
     // Box-shadow can be applied to each corner separately. This means, in practice
     // that we simply overlay multiple shadows with shifted clipping rectangles
     let StyleBoxShadow { top, left, bottom, right } = match &style.box_shadow {
@@ -1069,78 +1135,36 @@ fn push_box_shadow(
 
     match what_shadow_to_push {
         ShouldPushShadow::PushOneShadow => {
-            let current_shadow;
-            let mut shadow_bounds = *bounds;
-
-            let (mut clip_rect, is_inset_shadow) = match (top, left, bottom, right) {
+            let current_shadow = match (top, left, bottom, right) {
                  | (Some(Some(shadow)), None, None, None)
                  | (None, Some(Some(shadow)), None, None)
                  | (None, None, Some(Some(shadow)), None)
                  | (None, None, None, Some(Some(shadow)))
-                 => {
-                    current_shadow = shadow;
-                    (get_clip_rect(shadow, bounds), shadow.clip_mode == BoxShadowClipMode::Inset)
-                 },
+                 => shadow,
                  _ => return, // reachable, but invalid box-shadow
             };
 
-            let origin_displace = (current_shadow.spread_radius + current_shadow.blur_radius) * 2.0;
-
-            if is_inset_shadow {
-                // If the shadow is inset, we adjust the clip rect to be exactly
-                // the amount of the shadow
-                if let Some(Some(top)) = top {
-
-                } else if let Some(Some(bottom)) = bottom {
-
-                } else if let Some(Some(left)) = left {
-
-                } else if let Some(Some(right)) = right {
-
-                }
-            } else {
-                let mut clip = *bounds;
-
-                if let Some(Some(top)) = top {
-                    clip.size.height = origin_displace;
-                    clip.origin.y -= origin_displace;
-                    shadow_bounds.size.width += origin_displace;
-                    shadow_bounds.origin.x -= origin_displace / 2.0;
-                } else if let Some(Some(bottom)) = bottom {
-                    clip.size.height = origin_displace;
-                    clip.origin.y += bounds.size.height;
-                    shadow_bounds.size.width += origin_displace;
-                    shadow_bounds.origin.x -= origin_displace / 2.0;
-                } else if let Some(Some(left)) = left {
-                    clip.size.width = origin_displace;
-                    clip.origin.x -= origin_displace;
-                    shadow_bounds.size.height += origin_displace;
-                    shadow_bounds.origin.y -= origin_displace / 2.0;
-                } else if let Some(Some(right)) = right {
-                    clip.size.width = origin_displace;
-                    clip.origin.x += bounds.size.width;
-                    shadow_bounds.size.height += origin_displace;
-                    shadow_bounds.origin.y -= origin_displace / 2.0;
-                }
-
-                clip_rect = clip;
-            }
-            push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type);
-
-            // DEBUG RECT
-            let debug_info = LayoutPrimitiveInfo::new(clip_rect);
-            push_rect(&debug_info, builder, &StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-
+            push_single_box_shadow_edge(builder, current_shadow, bounds, border_radius, shadow_type,
+                                        top, bottom, left, right);
         },
+        // Two shadows in opposite directions:
+        //
+        // box-shadow-top: 0px 0px 5px red;
+        // box-shadow-bottom: 0px 0px 5px blue;
         ShouldPushShadow::PushTwoShadows => {
             match (top, left, bottom, right) {
-                (Some(top), None, Some(bottom), right) => {
-                    /* TODO: push bottom/top shadow */
+                (Some(Some(t)), None, Some(Some(b)), right) => {
+                    push_single_box_shadow_edge(builder, t, bounds, border_radius, shadow_type,
+                                                top, &None, &None, &None);
+                    push_single_box_shadow_edge(builder, b, bounds, border_radius, shadow_type,
+                                                &None, bottom, &None, &None);
 
                 },
-                (None, Some(left), None, Some(right)) => {
-                    /* TODO: push right/left shadow */
-
+                (None, Some(Some(l)), None, Some(Some(r))) => {
+                    push_single_box_shadow_edge(builder, l, bounds, border_radius, shadow_type,
+                                                &None, &None, left, &None);
+                    push_single_box_shadow_edge(builder, r, bounds, border_radius, shadow_type,
+                                                &None, &None, &None, right);
                 }
                 _ => return, // reachable, but invalid
             }

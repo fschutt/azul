@@ -17,7 +17,7 @@
 }
 
 .__azul-native-table-column-name {
-    height: 20px;
+    height: 40px;
 }
 
 .__azul-native-table-top-left-rect {
@@ -52,9 +52,12 @@
     background-color: #407c40;
     flex-direction: row;
     align-items: center;
-    border-left: 0.6px solid white;
+    border-right: 0.6px solid white;
     background: linear-gradient(135deg, #cb60b3 0%,#c146a1 50%,#a80077 51%,#db36a4 100%);
-    box-shadow-bottom: 0px 0px 5px black;
+    margin-top: 50px;
+    margin-left: 50px;
+    box-shadow-bottom: 0px 0px 50px black;
+    box-shadow-top: 0px 0px 50px black;
 }
 
 .__azul-native-table-row-numbers {
@@ -62,5 +65,5 @@
     color: white;
     background-color: #407c40;
     flex-direction: column;
-    box-shadow-right: 0px 0px 5px black;
+    box-shadow-right: 0px 0px 50px black;
 }
