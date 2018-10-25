@@ -147,7 +147,11 @@ impl TableViewState {
             .collect::<Dom<T>>()
             .with_class("__azul-native-table-column-container")
             // current active selection (s)
-            .with_child(Dom::new(NodeType::Div).with_class("__azul-native-table-selection"))
+            .with_child(
+                Dom::new(NodeType::Div)
+                    .with_class("__azul-native-table-selection")
+                    .with_child(Dom::new(NodeType::Div).with_class("__azul-native-table-selection-handle"))
+            )
         )
     }
 }

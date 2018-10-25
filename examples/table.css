@@ -74,5 +74,15 @@
     margin-top: 500px;
     margin-left: 100px;
     position: absolute;
-    border: 4px solid #407c40;
+    /* border-bottom gets cut off by 1px? */
+    border: 2px solid #407c40;
+}
+
+.__azul-native-table-selection-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: #407c40;
+    bottom: -5px;
+    right: -5px;
 }
