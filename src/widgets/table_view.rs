@@ -146,6 +146,8 @@ impl TableViewState {
             )
             .collect::<Dom<T>>()
             .with_class("__azul-native-table-column-container")
+            // current active selection (s)
+            .with_child(Dom::new(NodeType::Div).with_class("__azul-native-table-selection"))
         )
     }
 }
@@ -168,6 +170,11 @@ pub fn column_name_from_number(num: usize) -> String {
     // usize::MAX is "GKGWBYLWRXTLPP" with a length of 15 characters
     const MAX_LEN: usize = 15;
 
+    #[inline(always)]
+    fn u8_to_char(input: u8) -> u8 {
+        'A' as u8 + input
+    }
+
     let mut result = [0;MAX_LEN + 1];
     let mut multiple_of_alphabet = num / ALPHABET_LEN;
     let mut character_count = 0;
@@ -183,11 +190,6 @@ pub fn column_name_from_number(num: usize) -> String {
     let zeroed_characters = MAX_LEN.saturating_sub(character_count);
     let slice = &result[zeroed_characters..];
     unsafe { ::std::str::from_utf8_unchecked(slice) }.to_string()
-}
-
-#[inline(always)]
-fn u8_to_char(input: u8) -> u8 {
-    'A' as u8 + input
 }
 
 #[test]
