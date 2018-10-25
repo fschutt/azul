@@ -2,11 +2,12 @@
 
 use std::collections::BTreeMap;
 use {
-    dom::{Dom, NodeData, NodeType, IFrameCallback},
+    dom::{Dom, On, NodeData, NodeType, IFrameCallback, UpdateScreen},
+    app_state::AppStateNoData,
     traits::Layout,
     window::WindowInfo,
-    default_callbacks::StackCheckedPointer,
-    window::HidpiAdjustedBounds,
+    default_callbacks::{StackCheckedPointer, DefaultCallback},
+    window::{HidpiAdjustedBounds, WindowEvent, FakeWindow},
 };
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -59,15 +60,24 @@ impl TableView {
         }
     }
 
-    pub fn dom<T: Layout>(&self, data: &TableViewState, t: &T) -> Dom<T> {
+    pub fn dom<T: Layout>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
         if let Some(ptr) =  StackCheckedPointer::new(t, data) {
-            Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), ptr)))
+            let mut dom = Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), ptr)));
+            let callback_id = window.push_callback(ptr, DefaultCallback(Self::table_view_on_click));
+            dom.push_default_callback_id(On::MouseUp, callback_id);
+            dom
         } else {
             Dom::new(NodeType::Label(
                 "Cannot create table from heap-allocated TableViewState, \
                  please call TableViewState::render_dom manually".into())
             )
         }
+    }
+
+    fn table_view_on_click<T: Layout>(ptr: &StackCheckedPointer<T>, data: AppStateNoData<T>, event: WindowEvent<T>)
+    -> UpdateScreen
+    {
+        unsafe { ptr.invoke_mut(TableViewState::on_click, data, event) }
     }
 }
 
@@ -76,6 +86,7 @@ fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowIn
 {
     unsafe { ptr.invoke_mut_iframe(TableViewState::render, info, dimensions) }
 }
+
 
 impl TableViewState {
     pub fn render<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
@@ -153,6 +164,16 @@ impl TableViewState {
                     .with_child(Dom::new(NodeType::Div).with_class("__azul-native-table-selection-handle"))
             )
         )
+    }
+
+    pub fn on_click<T: Layout>(
+        &mut self,
+        _app_state: AppStateNoData<T>,
+        _window_event: WindowEvent<T>)
+    -> UpdateScreen
+    {
+        println!("table was clicked");
+        UpdateScreen::DontRedraw
     }
 }
 
