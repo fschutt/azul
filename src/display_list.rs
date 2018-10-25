@@ -1099,39 +1099,38 @@ fn push_box_shadow(
 
                 }
             } else {
-                if let Some(Some(top)) = top {
-                    // TODO: Make top and other bounds work!!!
-                    let mut clip = *bounds;
-                    clip.origin.y = clip.origin.y - current_shadow.offset.y - origin_displace;
-                    clip.size.height = clip.size.height + origin_displace;
-                    clip_rect = clip;
-                } else if let Some(Some(bottom)) = bottom {
+                let mut clip = *bounds;
 
-                    // bottom works
-                    let mut clip = *bounds;
-                    clip.size.height += origin_displace;
-                    clip_rect = clip;
+                if let Some(Some(top)) = top {
+                    clip.size.height = origin_displace;
+                    clip.origin.y -= origin_displace;
                     shadow_bounds.size.width += origin_displace;
                     shadow_bounds.origin.x -= origin_displace / 2.0;
-
+                } else if let Some(Some(bottom)) = bottom {
+                    clip.size.height = origin_displace;
+                    clip.origin.y += bounds.size.height;
+                    shadow_bounds.size.width += origin_displace;
+                    shadow_bounds.origin.x -= origin_displace / 2.0;
                 } else if let Some(Some(left)) = left {
-                    let mut clip = *bounds;
-                    clip.origin.x = clip.origin.x - current_shadow.offset.x - origin_displace;
-                    clip.size.width = clip.size.width + origin_displace;
-                    clip_rect = clip;
+                    clip.size.width = origin_displace;
+                    clip.origin.x -= origin_displace;
+                    shadow_bounds.size.height += origin_displace;
+                    shadow_bounds.origin.y -= origin_displace / 2.0;
                 } else if let Some(Some(right)) = right {
-                    let mut clip = *bounds;
-                    clip.origin.x = clip.origin.x + current_shadow.offset.x + origin_displace;
-                    clip.size.width = clip.size.width + origin_displace;
-                    clip_rect = clip;
+                    clip.size.width = origin_displace;
+                    clip.origin.x += bounds.size.width;
+                    shadow_bounds.size.height += origin_displace;
+                    shadow_bounds.origin.y -= origin_displace / 2.0;
                 }
+
+                clip_rect = clip;
             }
-/*
+            push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type);
+
             // DEBUG RECT
             let debug_info = LayoutPrimitiveInfo::new(clip_rect);
             push_rect(&debug_info, builder, &StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-*/
-            push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type);
+
         },
         ShouldPushShadow::PushTwoShadows => {
             match (top, left, bottom, right) {

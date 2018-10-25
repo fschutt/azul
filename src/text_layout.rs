@@ -953,7 +953,7 @@ fn align_text_vert(font_metrics: &FontMetrics, alignment: StyleTextAlignmentVert
         IsOverflowing(_) => return,
         InBounds(remaining_space_px) => {
             // Total text height (including last leading!)
-            let new = remaining_space_px * multiply_factor - (font_metrics.vertical_advance * multiply_factor) * PT_TO_PX;
+            let new = remaining_space_px * multiply_factor - (font_metrics.vertical_advance * multiply_factor);
             new
         },
     };
