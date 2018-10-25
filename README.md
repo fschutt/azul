@@ -229,7 +229,7 @@ extremely low memory requirements.
 Several projects have helped severely during the development and should be credited:
 
 - Chris Tollidays [limn](https://github.com/christolliday/limn) framework has helped
-  severely with discovering undocumented parts of webrender.
+  a lot with discovering undocumented parts of webrender.
 - Nicolas Silva for his work on [lyon](https://github.com/nical/lyon) - without this,
   the SVG renderer wouldn't have been possible
 
