@@ -32,13 +32,17 @@
     color: black;
     text-align: left;
     font-size: 16px;
+    align-items: center;
 }
 
 .__azul-native-table-row {
     min-height: 20px;
     font-size: 14px;
-    border: 0.5px solid #eee;
+    border-top: 0.5px solid #eee;
     overflow: hidden;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
 }
 
 .__azul-native-table-column-name {
@@ -46,9 +50,8 @@
     color: white;
     font-size: 14px;
     background-color: #407c40;
-    padding-top: 2px;
     flex-direction: row;
-    justify-content: center;
+    align-items: center;
     border-left: 0.6px solid white;
     background: linear-gradient(135deg, #cb60b3 0%,#c146a1 50%,#a80077 51%,#db36a4 100%);
     box-shadow-bottom: 0px 0px 5px black;
@@ -59,5 +62,5 @@
     color: white;
     background-color: #407c40;
     flex-direction: column;
-    /*box-shadow: 0px 0px 10px black;*/
+    box-shadow-right: 0px 0px 5px black;
 }
