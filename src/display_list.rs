@@ -473,13 +473,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             &referenced_mutable_content.app_resources);
     };
 
-    // Push the inset shadow (if any)
-    push_box_shadow(
-        referenced_mutable_content.builder,
-        &rect.style,
-        &bounds,
-        BoxShadowClipMode::Inset);
-
     if let Some(ref border) = rect.style.border {
         push_border(
             &info,
@@ -567,6 +560,13 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         GlTexture(callback) => push_opengl_texture(callback, &info, rectangle, referenced_content, referenced_mutable_content),
         IFrame(callback) => push_iframe(callback, &info, rectangle, referenced_content, referenced_mutable_content),
     };
+
+    // Push the inset shadow (if any)
+    push_box_shadow(
+        referenced_mutable_content.builder,
+        &rect.style,
+        &bounds,
+        BoxShadowClipMode::Inset);
 
     if let Some(overflow) = &overflow_result {
         // push scrollbars if necessary
@@ -1246,49 +1246,13 @@ fn push_image(
 
     match image_info {
         Uploaded(image_info) => {
-
-            let mut image_bounds = bounds;
-
-            let image_key = image_info.key;
-            let image_size = image_info.descriptor.size;
-
-            // For now, adjust the width and height based on the
-            if image_size.width < bounds.size.width as u32 && image_size.height < bounds.size.height as u32 {
-                image_bounds.size.width = image_size.width as f32;
-                image_bounds.size.height = image_size.height as f32;
-            } else {
-                let scale_factor_w = image_size.width as f32 / bounds.size.width;
-                let scale_factor_h = image_size.height as f32 / bounds.size.height;
-
-                if image_size.width < bounds.size.width as u32 {
-                    // if the image fits horizontally
-                    image_bounds.size.width = image_size.width as f32;
-                    image_bounds.size.height = image_size.height as f32 * scale_factor_w;
-                } else if image_size.height < bounds.size.height as u32 {
-                    // if the image fits vertically
-                    image_bounds.size.width = image_size.width as f32 * scale_factor_h;
-                    image_bounds.size.height = image_size.height as f32;
-                } else {
-                    // image fits neither horizontally nor vertically
-                    let scale_factor_smaller = scale_factor_w.max(scale_factor_w);
-                    let new_width = image_size.width as f32 * scale_factor_smaller;
-                    let new_height = image_size.height as f32 * scale_factor_smaller;
-                    image_bounds.size.width = new_width;
-                    image_bounds.size.height = new_height;
-                }
-            }
-
-            // Just for testing
-            image_bounds.size.width /= 2.0;
-            image_bounds.size.height /= 2.0;
-
             builder.push_image(
                     &info,
-                    image_bounds.size,
+                    bounds.size,
                     LayoutSize::zero(),
                     ImageRendering::Auto,
                     AlphaType::PremultipliedAlpha,
-                    image_key,
+                    image_info.key,
                     ColorF::WHITE);
         },
         _ => { },
