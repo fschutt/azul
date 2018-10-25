@@ -54,6 +54,7 @@
 }
 
 #cat {
-    /*background: image("Cat01");*/
-    max-width: 500px;
+    max-width: 400px;
+    box-shadow-bottom: 0px 0px 50px black inset;
+    box-shadow-top: 0px 0px 50px black inset;
 }
