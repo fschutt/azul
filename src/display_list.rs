@@ -277,17 +277,62 @@ impl ZOrderedRectangles {
         let mut rects_in_rendering_order = BTreeMap::new();
         rects_in_rendering_order.insert(0, vec![NodeId::new(0)]);
 
-        for (node_depth, node_id) in node_depths {
-            for child_id in node_id.children(rectangles) {
+        let mut positioned_node_stack = Vec::new();
+        let mut node_depths_of_absolute_nodes = BTreeMap::new();
+
+        for (node_depth, parent_id) in node_depths {
+
+            let parent_position = rectangles[*parent_id].data.layout.position.unwrap_or_default();
+
+            if parent_position != LayoutPosition::Static {
+                positioned_node_stack.push(*parent_id);
+            }
+
+            let z_offset_parent = *(node_depths_of_absolute_nodes.get(parent_id).unwrap_or(&0));
+
+            for child_id in parent_id.children(rectangles) {
+                let child_position = rectangles[child_id].data.layout.position.unwrap_or_default();
+
+                // if we have an absolute item, go to the nearest relative item, calculate the number
+                // of children of that node, then add it to the self.z_index
+                // TODO: sort out all relative nodes when calculating the depth?
+                let z_offset_self = if child_position == LayoutPosition::Absolute {
+                    let root_id = NodeId::new(0);
+                    let last_positioned_node = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&root_id);
+                    let z_off = get_total_num_children_of_node(*last_positioned_node, rectangles);
+                    node_depths_of_absolute_nodes.insert(child_id, z_off);
+                    z_off
+                } else {
+                    0
+                };
+
+                let new_node_depth = node_depth + z_offset_parent + z_offset_self + 1;
                 rects_in_rendering_order
-                    .entry(node_depth + 1)
+                    .entry(new_node_depth)
                     .or_insert_with(|| Vec::new())
                     .push(child_id);
+            }
+
+            if parent_position != LayoutPosition::Static {
+                positioned_node_stack.pop();
             }
         }
 
         ZOrderedRectangles(rects_in_rendering_order)
     }
+}
+
+// Returns how many children a node has (including grandchildren, grand-grandchildren, etc.)
+fn get_total_num_children_of_node<T>(id: NodeId, arena: &Arena<T>) -> usize {
+    let first_child = match arena[id].first_child {
+        None => return 0,
+        Some(id) => id,
+    };
+    let mut last_child = arena[id].last_child.unwrap();
+    while let Some(last) = arena[last_child].last_child {
+        last_child = last;
+    }
+    last_child.index() - first_child.index()
 }
 
 use glium::glutin::dpi::LogicalPosition;
