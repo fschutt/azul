@@ -14,7 +14,7 @@ use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use rusttype::Font;
 use {
-    text_layout::{PX_TO_PT, split_text_into_words},
+    text_layout::{split_text_into_words, TextSizePx},
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
     images::{ImageId, ImageState},
@@ -252,13 +252,10 @@ impl AppResources {
     /// to a cached text by calculating the font metrics for the uncached text.
     /// This will not delete the original text!
     pub fn cache_text(&mut self, id: TextId, font: FontId, size: StyleFontSize, letter_spacing: Option<StyleLetterSpacing>) {
-
-        use rusttype::Scale;
-
         // We need to assume that the actual string contents have already been stored in self.text_cache
         // Otherwise, how would the TextId be valid?
         let text = self.text_cache.string_cache.get(&id).expect("Invalid text Id");
-        let font_size_no_line_height = Scale::uniform(size.0.to_pixels() * PX_TO_PT);
+        let font_size_no_line_height = TextSizePx(size.0.to_pixels());
         let rusttype_font = self.get_font(&font).expect("Invalid font ID");
         let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height, letter_spacing);
 

@@ -19,7 +19,7 @@ use {
     id_tree::{NodeId, Node, Arena},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
-    text_layout::{Words, FontMetrics},
+    text_layout::{Words, FontMetrics, TextSizePx},
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -294,11 +294,11 @@ impl<T: Layout> NodeType<T> {
     /// Given a certain width, returns the
     pub(crate) fn get_preferred_height_based_on_width(
         &self,
-        div_width: f32,
+        div_width: TextSizePx,
         image_cache: &FastHashMap<ImageId, ImageState>,
         words: Option<&Words>,
         font_metrics: Option<FontMetrics>,
-    ) -> Option<f32>
+    ) -> Option<TextSizePx>
     {
         use self::NodeType::*;
         use css_parser::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
@@ -306,7 +306,7 @@ impl<T: Layout> NodeType<T> {
         match self {
             Image(i) => image_cache.get(i).and_then(|image_state| {
                 let (image_original_height, image_original_width) = image_state.get_dimensions();
-                Some((image_original_width / image_original_height) * div_width)
+                Some(div_width * (image_original_width / image_original_height))
             }),
             Label(_) | Text(_) => {
                 let (words, font) = (words?, font_metrics?);
