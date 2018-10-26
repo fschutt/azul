@@ -18,7 +18,7 @@ use {
     traits::Layout,
     app_resources::AppResources,
     font::FontError,
-    css_parser::{FontId, FontSize, PixelValue, LetterSpacing},
+    css_parser::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing},
     error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
 };
@@ -172,7 +172,7 @@ impl<T: Layout> AppState<T> {
     ///      }
     /// }
     ///
-    /// fn my_callback(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
+    /// fn my_callback(app_state: &mut AppState<MyAppData>, event: WindowEvent<MyAppData>) -> UpdateScreen {
     ///     /// Here you can add your font at runtime to the app_state
     ///     app_state.add_font(FontId::ExternalFont("Webly Sleeky UI".into()), &mut TEST_FONT).unwrap();
     ///     UpdateScreen::DontRedraw
@@ -297,10 +297,10 @@ impl<T: Layout> AppState<T> {
         self.resources.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<LetterSpacing>)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>)
     -> TextId
     {
-        let font_size = FontSize(font_size);
+        let font_size = StyleFontSize(font_size);
         self.resources.add_text_cached(text, font_id, font_size, letter_spacing)
     }
 

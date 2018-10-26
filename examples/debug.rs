@@ -103,7 +103,7 @@ fn build_layers(
 }
 
 // Check what text was hovered over
-fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
+fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: WindowEvent<MyAppData>) -> UpdateScreen {
     let (cursor_x, cursor_y) = event.cursor_relative_to_item;
 
     let mut should_redraw = UpdateScreen::DontRedraw;
@@ -124,7 +124,7 @@ fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: WindowEvent) -
     should_redraw
 }
 
-fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) -> UpdateScreen {
+fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent<MyAppData>) -> UpdateScreen {
     app_state.data.modify(|data| {
         if let Some(map) = data.map.as_mut() {
 
@@ -148,7 +148,7 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent) 
     UpdateScreen::Redraw
 }
 
-fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent) -> UpdateScreen {
+fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent<MyAppData>) -> UpdateScreen {
     let font_size = FontSize::px(10.0);
     
     let font_ids = vec![
@@ -159,7 +159,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
     let (font_id, font, _) = app_state.resources.get_any_font(&font_ids).unwrap();
 
     let aligned = TextLayoutOptions {
-        horz_alignment: TextAlignmentHorz::Right,
+        horz_alignment: StyleTextAlignmentHorz::Right,
         .. Default::default()
     };
 

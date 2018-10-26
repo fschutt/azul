@@ -4,11 +4,13 @@
 
 .__azul-native-table-column-container {
     flex-direction: row;
+    position: relative;
 }
 
 .__azul-native-table-column {
     flex-direction: column;
     min-width: 100px;
+    border-right: 1px solid #d1d1d1;
 }
 
 .__azul-native-table-row-number-wrapper {
@@ -22,41 +24,64 @@
 
 .__azul-native-table-top-left-rect {
     height: 20px;
-    background-color: #407c40;
+    background-color: #e6e6e6;
+    border-bottom: 1px solid #b5b5b5;
+    border-right: 1px solid #b5b5b5;
 }
 
 .__azul-native-table-cell {
-    border: 0.5px solid light-grey;
-    min-height: 20px;
     font-family: sans-serif;
     color: black;
     text-align: left;
-    font-size: 16px;
+    font-size: 14px;
+    border-bottom: 1px solid #d1d1d1;
+    height: 20px;
 }
 
 .__azul-native-table-row {
-    min-height: 20px;
     font-size: 14px;
-    border: 0.5px solid #eee;
     overflow: hidden;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    min-height: 20px;
+    border-bottom: 0.6px solid #b5b5b5;
 }
 
 .__azul-native-table-column-name {
     font-family: sans-serif;
-    color: white;
+    color: #2d2d2d;
     font-size: 14px;
-    background-color: #407c40;
-    padding: 2px 0px 0px 0px;
+    background-color: #e6e6e6;
     flex-direction: row;
-    justify-content: center;
-    border: 0.5px solid #eee;
-    box-shadow: 0px 0px 10px black;
+    align-items: center;
+    border-right: 0.6px solid #b5b5b5;
+    box-shadow-bottom: 0px 0px 3px black;
 }
 
 .__azul-native-table-row-numbers {
     font-family: sans-serif;
-    color: white;
-    background-color: #407c40;
+    color: #2d2d2d;
+    background-color: #e6e6e6;
     flex-direction: column;
-    box-shadow: 0px 0px 10px black;
+    box-shadow-right: 0px 0px 3px black;
+}
+
+.__azul-native-table-selection {
+    width: 100px;
+    height: 20px;
+    margin-top: 500px;
+    margin-left: 100px;
+    position: absolute;
+    /* border-bottom gets cut off by 1px? */
+    border: 2px solid #407c40;
+}
+
+.__azul-native-table-selection-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: #407c40;
+    bottom: -5px;
+    right: -5px;
 }

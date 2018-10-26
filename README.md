@@ -55,13 +55,13 @@ impl Layout for DataModel {
     }
 }
 
-fn update_counter(app_state: &mut AppState<DataModel>, _event: WindowEvent) -> UpdateScreen {
+fn update_counter(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataModel>) -> UpdateScreen {
     app_state.data.modify(|state| state.counter += 1);
     UpdateScreen::Redraw
 }
 
 fn main() {
-    let app = App::new(CounterApplication { counter: 0 }, AppConfig::default());
+    let app = App::new(DataModel { counter: 0 }, AppConfig::default());
     app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
 }
 ```
@@ -95,7 +95,7 @@ like this:
 impl Layout for DataModel {
     fn layout(&self, _info: WindowInfo<Self>) -> Dom<DataModel> {
         match self.state {
-            LoginScreen() => {
+            LoginScreen => {
                 Dom::new(NodeType::Div).with_id("login_screen")
                     .with_child(render_hello_mgs())
                     .with_child(render_login_with_button())
@@ -153,7 +153,7 @@ impl Layout for DataModel {
     }
 }
 
-fn print_text_field(app_state: &mut AppState<DataModel>, _event: WindowEvent) -> UpdateScreen {
+fn print_text_field(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataModel>) -> UpdateScreen {
     println!("You've typed: {}", app_state.data.lock().unwrap().text_input.text);
     UpdateScreen::DontRedraw
 }
@@ -165,7 +165,7 @@ fn print_text_field(app_state: &mut AppState<DataModel>, _event: WindowEvent) ->
 
 Azul features a CSS-like layout and styling engine that is modeled after the
 flexbox model - i.e. by default, every element will try to stretch to the dimensions
-of its parent. The layout itself is handled by the `cassowary` layout solver.
+of its parent. The layout itself is handled by a simple and fast flexbox layout solver.
 
 [Read more about CSS styling ...](https://github.com/maps4print/azul/wiki/Styling-your-application-with-CSS)
 
@@ -229,8 +229,7 @@ extremely low memory requirements.
 Several projects have helped severely during the development and should be credited:
 
 - Chris Tollidays [limn](https://github.com/christolliday/limn) framework has helped
-  severely with discovering undocumented parts of webrender as well as working with
-  constraints.
+  a lot with discovering undocumented parts of webrender.
 - Nicolas Silva for his work on [lyon](https://github.com/nical/lyon) - without this,
   the SVG renderer wouldn't have been possible
 

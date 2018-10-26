@@ -32,7 +32,7 @@ use {
     window::{WindowInfo, FakeWindow, HidpiAdjustedBounds},
 };
 
-const DEFAULT_FONT_COLOR: TextColor = TextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
+const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -224,7 +224,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let mut app_data_access = AppDataAccess(app_data);
         let mut resource_updates = Vec::<ResourceUpdate>::new();
 
-        let laid_out_rectangles = do_the_layout(
+        let (laid_out_rectangles, node_depths) = do_the_layout(
             &self,
             &mut resource_updates,
             app_resources,
@@ -239,7 +239,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         // Upload image and font resources
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
-        let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles);
+        let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles, &node_depths);
 
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
@@ -272,31 +272,67 @@ struct ZOrderedRectangles(pub BTreeMap<usize, Vec<NodeId>>);
 impl ZOrderedRectangles {
 
     /// Determine the correct implicit z-index rendering order of every rectangle
-    pub fn new<'a>(rectangles: &Arena<DisplayRectangle<'a>>) -> ZOrderedRectangles {
+    pub fn new<'a>(rectangles: &Arena<DisplayRectangle<'a>>, node_depths: &[(usize, NodeId)]) -> ZOrderedRectangles {
 
         let mut rects_in_rendering_order = BTreeMap::new();
+        rects_in_rendering_order.insert(0, vec![NodeId::new(0)]);
 
-        for rect_id in rectangles.linear_iter() {
+        let mut positioned_node_stack = Vec::new();
+        let mut node_depths_of_absolute_nodes = BTreeMap::new();
 
-            // how many z-levels does this rectangle have until we get to the root?
-            let z_index = {
-                let mut index = 0;
-                let mut cur_rect_idx = rect_id;
-                while let Some(parent) = rectangles[cur_rect_idx].parent() {
-                    index += 1;
-                    cur_rect_idx = parent;
-                }
-                index
-            };
+        for (node_depth, parent_id) in node_depths {
 
-            rects_in_rendering_order
-                .entry(z_index)
-                .or_insert_with(|| Vec::new())
-                .push(rect_id);
+            let parent_position = rectangles[*parent_id].data.layout.position.unwrap_or_default();
+
+            if parent_position != LayoutPosition::Static {
+                positioned_node_stack.push(*parent_id);
+            }
+
+            let z_offset_parent = *(node_depths_of_absolute_nodes.get(parent_id).unwrap_or(&0));
+
+            for child_id in parent_id.children(rectangles) {
+                let child_position = rectangles[child_id].data.layout.position.unwrap_or_default();
+
+                // if we have an absolute item, go to the nearest relative item, calculate the number
+                // of children of that node, then add it to the self.z_index
+                // TODO: sort out all relative nodes when calculating the depth?
+                let z_offset_self = if child_position == LayoutPosition::Absolute {
+                    let root_id = NodeId::new(0);
+                    let last_positioned_node = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&root_id);
+                    let z_off = get_total_num_children_of_node(*last_positioned_node, rectangles);
+                    node_depths_of_absolute_nodes.insert(child_id, z_off);
+                    z_off
+                } else {
+                    0
+                };
+
+                let new_node_depth = node_depth + z_offset_parent + z_offset_self + 1;
+                rects_in_rendering_order
+                    .entry(new_node_depth)
+                    .or_insert_with(|| Vec::new())
+                    .push(child_id);
+            }
+
+            if parent_position != LayoutPosition::Static {
+                positioned_node_stack.pop();
+            }
         }
 
         ZOrderedRectangles(rects_in_rendering_order)
     }
+}
+
+// Returns how many children a node has (including grandchildren, grand-grandchildren, etc.)
+fn get_total_num_children_of_node<T>(id: NodeId, arena: &Arena<T>) -> usize {
+    let first_child = match arena[id].first_child {
+        None => return 0,
+        Some(id) => id,
+    };
+    let mut last_child = arena[id].last_child.unwrap();
+    while let Some(last) = arena[last_child].last_child {
+        last_child = last;
+    }
+    last_child.index() - first_child.index()
 }
 
 use glium::glutin::dpi::LogicalPosition;
@@ -308,7 +344,7 @@ fn do_the_layout<'a, 'b, T: Layout>(
     render_api: &RenderApi,
     rect_size: LogicalSize,
     rect_offset: LogicalPosition)
--> Arena<LayoutRect>
+-> (Arena<LayoutRect>, Vec<(usize, NodeId)>)
 {
     use text_layout::{split_text_into_words, get_words_cached, Words, FontMetrics};
     use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
@@ -379,12 +415,12 @@ fn do_the_layout<'a, 'b, T: Layout>(
     let x_positions = get_x_positions(&solved_widths, rect_offset);
     let y_positions = get_y_positions(&solved_heights, &solved_widths, rect_offset);
 
-    arena.transform(|node, node_id| {
+    (arena.transform(|node, node_id| {
         LayoutRect::new(
             TypedPoint2D::new(x_positions[node_id].data.0, y_positions[node_id].data.0),
             TypedSize2D::new(solved_widths.solved_widths[node_id].data.total(), solved_heights.solved_heights[node_id].data.total())
         )
-    })
+    }), solved_widths.non_leaf_nodes_sorted_by_depth)
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
@@ -468,9 +504,10 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_mutable_content.builder.push_clip_id(id);
     }
 
-    if let Some(ref bg_col) = rect.style.background_color {
-        push_rect(&info, referenced_mutable_content.builder, bg_col);
-    }
+    // We always have to push the rect, otherwise the hit-testing gets confused
+    push_rect(&info,
+              referenced_mutable_content.builder,
+              &rect.style.background_color.unwrap_or_default());
 
     if let Some(ref bg) = rect.style.background {
         push_background(
@@ -481,26 +518,22 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             &referenced_mutable_content.app_resources);
     };
 
-    // Push the inset shadow (if any)
-    push_box_shadow(
-        referenced_mutable_content.builder,
-        &rect.style,
-        &bounds,
-        BoxShadowClipMode::Inset);
-
-    push_border(
-        &info,
-        referenced_mutable_content.builder,
-        &rect.style);
+    if let Some(ref border) = rect.style.border {
+        push_border(
+            &info,
+            referenced_mutable_content.builder,
+            &border,
+            &rect.style.border_radius);
+    }
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
 
     let scrollbar_style = ScrollbarInfo {
         width: 17,
         padding: 2,
-        background_color: BackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
-        triangle_color: BackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
-        bar_color: BackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
+        background_color: StyleBackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
+        triangle_color: StyleBackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
+        bar_color: StyleBackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
     };
 
     // The only thing changed between TextId and String is
@@ -522,7 +555,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         let text_clip_region_id = rect.layout.padding.and_then(|_|
             Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
                 rect: text_bounds,
-                radii: BorderRadius::zero(),
+                radii: StyleBorderRadius::zero(),
                 mode: ClipMode::Clip,
             }], None))
         );
@@ -572,6 +605,13 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         GlTexture(callback) => push_opengl_texture(callback, &info, rectangle, referenced_content, referenced_mutable_content),
         IFrame(callback) => push_iframe(callback, &info, rectangle, referenced_content, referenced_mutable_content),
     };
+
+    // Push the inset shadow (if any)
+    push_box_shadow(
+        referenced_mutable_content.builder,
+        &rect.style,
+        &bounds,
+        BoxShadowClipMode::Inset);
 
     if let Some(overflow) = &overflow_result {
         // push scrollbars if necessary
@@ -683,7 +723,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     let rect_size = LogicalSize::new(info.rect.size.width as f64, info.rect.size.height as f64);
     let rect_origin = LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64);
 
-    let laid_out_rectangles = do_the_layout(
+    let (laid_out_rectangles, node_depths) = do_the_layout(
         &display_list,
         &mut referenced_mutable_content.resource_updates,
         &mut referenced_mutable_content.app_resources,
@@ -691,7 +731,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         rect_size,
         rect_origin);
 
-    let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles);
+    let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles, &node_depths);
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description, otherwise this function would be endlessly recursive
         ui_description: &ui_description,
@@ -749,7 +789,7 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    color: &BackgroundColor)
+    color: &StyleBackgroundColor)
 {
     builder.push_rect(&info, color.0.into());
 }
@@ -770,8 +810,8 @@ fn push_text(
     render_api: &RenderApi,
     bounds: &TypedRect<f32, LayoutPixel>,
     resource_updates: &mut Vec<ResourceUpdate>,
-    horz_alignment: TextAlignmentHorz,
-    vert_alignment: TextAlignmentVert,
+    horz_alignment: StyleTextAlignmentHorz,
+    vert_alignment: StyleTextAlignmentVert,
     scrollbar_info: &ScrollbarInfo)
 -> Option<OverflowInfo>
 {
@@ -850,16 +890,16 @@ fn push_scrollbar(
     scrollbar_info: &TextOverflowPass2,
     scrollbar_style: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>,
-    border: &Option<(SideOffsets2D<Au>, BorderDetails)>)
+    border: &Option<StyleBorder>)
 {
     use euclid::TypedPoint2D;
 
     // The border is inside the rectangle - subtract the border width on the left and bottom side,
     // so that the scrollbar is laid out correctly
     let mut bounds = *bounds;
-    if let Some((border_widths, _)) = border {
-        bounds.size.width -= border_widths.left.to_f32_px();
-        bounds.size.height -= border_widths.bottom.to_f32_px();
+    if let Some(StyleBorder { left: Some(l), bottom: Some(b), .. }) = border {
+        bounds.size.width -= l.border_width.to_pixels();
+        bounds.size.height -= b.border_width.to_pixels();
     }
 
     // Background of scrollbar (vertical)
@@ -928,7 +968,7 @@ enum TriangleDirection {
 fn push_triangle(
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    background_color: &BackgroundColor,
+    background_color: &StyleBackgroundColor,
     direction: TriangleDirection)
 {
     use self::TriangleDirection::*;
@@ -979,7 +1019,7 @@ fn push_triangle(
         right:  BorderSide { color: b_right.0.into(),        style: b_right.1  },
         top:    BorderSide { color: b_top.0.into(),          style: b_top.1    },
         bottom: BorderSide { color: b_bottom.0.into(),       style: b_bottom.1 },
-        radius: BorderRadius::zero(),
+        radius: StyleBorderRadius::zero(),
         do_aa: true,
     });
 
@@ -1004,62 +1044,204 @@ fn push_triangle(
 fn push_box_shadow(
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
-    bounds: &TypedRect<f32, LayoutPixel>,
+    bounds: &LayoutRect,
     shadow_type: BoxShadowClipMode)
 {
-    let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
+    fn push_box_shadow_inner(
+        builder: &mut DisplayListBuilder,
+        pre_shadow: &Option<BoxShadowPreDisplayItem>,
+        border_radius: StyleBorderRadius,
+        bounds: &LayoutRect,
+        clip_rect: LayoutRect,
+        shadow_type: BoxShadowClipMode)
+    {
+        let pre_shadow = match pre_shadow {
+            None => return,
+            Some(ref s) => s,
+        };
 
-    let pre_shadow = match style.box_shadow {
-        Some(ref ps) => ps,
-        None => return,
-    };
+        // The pre_shadow is missing the StyleBorderRadius & LayoutRect
+        if pre_shadow.clip_mode != shadow_type {
+            return;
+        }
 
-    // The pre_shadow is missing the BorderRadius & LayoutRect
-    let border_radius = style.border_radius.unwrap_or(BorderRadius::zero());
-    if pre_shadow.clip_mode != shadow_type {
-        return;
-    }
-
-    let clip_rect = if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
-        // inset shadows do not work like outset shadows
-        // for inset shadows, you have to push a clip ID first, so that they are
-        // clipped to the bounds -we trust that the calling function knows to do this
-        *bounds
-    } else {
-        // calculate the maximum extent of the outset shadow
-        let mut clip_rect = *bounds;
-
-        let origin_displace = (pre_shadow.spread_radius + pre_shadow.blur_radius) * 2.0;
-        clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset.x - origin_displace;
-        clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset.y - origin_displace;
-
-        clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
-        clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
+        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
 
         // prevent shadows that are larger than the full screen
-        clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect)
-    };
+        let clip_rect = clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect);
 
-    // Apply a gamma of 2.2 to the original value
-    //
-    // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
-    fn apply_gamma(color: ColorF) -> ColorF {
+        // Apply a gamma of 2.2 to the original value
+        //
+        // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
+        fn apply_gamma(color: ColorF) -> ColorF {
 
-        const GAMMA: f32 = 2.2;
-        const GAMMA_F: f32 = 1.0 / GAMMA;
+            const GAMMA: f32 = 2.2;
+            const GAMMA_F: f32 = 1.0 / GAMMA;
 
-        ColorF {
-            r: color.r.powf(GAMMA_F),
-            g: color.g.powf(GAMMA_F),
-            b: color.b.powf(GAMMA_F),
-            a: color.a,
+            ColorF {
+                r: color.r.powf(GAMMA_F),
+                g: color.g.powf(GAMMA_F),
+                b: color.b.powf(GAMMA_F),
+                a: color.a,
+            }
+        }
+
+        let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
+        builder.push_box_shadow(&info, *bounds, pre_shadow.offset, apply_gamma(pre_shadow.color),
+                                 pre_shadow.blur_radius, pre_shadow.spread_radius,
+                                 border_radius, pre_shadow.clip_mode);
+    }
+
+    fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: &LayoutRect) -> LayoutRect {
+        if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
+            // inset shadows do not work like outset shadows
+            // for inset shadows, you have to push a clip ID first, so that they are
+            // clipped to the bounds -we trust that the calling function knows to do this
+            *bounds
+        } else {
+            // calculate the maximum extent of the outset shadow
+            let mut clip_rect = *bounds;
+
+            let origin_displace = (pre_shadow.spread_radius + pre_shadow.blur_radius) * 2.0;
+            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset.x - origin_displace;
+            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset.y - origin_displace;
+
+            clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
+            clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
+            clip_rect
         }
     }
 
-    let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-    builder.push_box_shadow(&info, *bounds, pre_shadow.offset, apply_gamma(pre_shadow.color),
-                             pre_shadow.blur_radius, pre_shadow.spread_radius,
-                             border_radius, pre_shadow.clip_mode);
+    fn push_single_box_shadow_edge(
+            builder: &mut DisplayListBuilder,
+            current_shadow: &BoxShadowPreDisplayItem,
+            bounds: &LayoutRect,
+            border_radius: StyleBorderRadius,
+            shadow_type: BoxShadowClipMode,
+            top: &Option<Option<BoxShadowPreDisplayItem>>,
+            bottom: &Option<Option<BoxShadowPreDisplayItem>>,
+            left: &Option<Option<BoxShadowPreDisplayItem>>,
+            right: &Option<Option<BoxShadowPreDisplayItem>>,
+    ) {
+        let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
+        let origin_displace = (current_shadow.spread_radius + current_shadow.blur_radius) * 2.0;
+
+        let mut shadow_bounds = *bounds;
+        let mut clip_rect = *bounds;
+
+        if is_inset_shadow {
+            // If the shadow is inset, we adjust the clip rect to be
+            // exactly the amount of the shadow
+            if let Some(Some(top)) = top {
+                clip_rect.size.height = origin_displace;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(bottom)) = bottom {
+                clip_rect.size.height = origin_displace;
+                clip_rect.origin.y += bounds.size.height - origin_displace;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(left)) = left {
+                clip_rect.size.width = origin_displace;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            } else if let Some(Some(right)) = right {
+                clip_rect.size.width = origin_displace;
+                clip_rect.origin.x += bounds.size.width - origin_displace;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            }
+        } else {
+            if let Some(Some(top)) = top {
+                clip_rect.size.height = origin_displace;
+                clip_rect.origin.y -= origin_displace;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(bottom)) = bottom {
+                clip_rect.size.height = origin_displace;
+                clip_rect.origin.y += bounds.size.height;
+                shadow_bounds.size.width += origin_displace;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
+            } else if let Some(Some(left)) = left {
+                clip_rect.size.width = origin_displace;
+                clip_rect.origin.x -= origin_displace;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            } else if let Some(Some(right)) = right {
+                clip_rect.size.width = origin_displace;
+                clip_rect.origin.x += bounds.size.width;
+                shadow_bounds.size.height += origin_displace;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
+            }
+        }
+
+        push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type);
+    }
+
+    // Box-shadow can be applied to each corner separately. This means, in practice
+    // that we simply overlay multiple shadows with shifted clipping rectangles
+    let StyleBoxShadow { top, left, bottom, right } = match &style.box_shadow {
+        Some(s) => s,
+        None => return,
+    };
+    let border_radius = style.border_radius.unwrap_or(StyleBorderRadius::zero());
+
+    enum ShouldPushShadow {
+        PushOneShadow,
+        PushTwoShadows,
+        PushAllShadows,
+    }
+
+    let what_shadow_to_push = match [top, left, bottom, right].iter().filter(|x| x.is_some()).count() {
+        1 => ShouldPushShadow::PushOneShadow,
+        2 => ShouldPushShadow::PushTwoShadows,
+        4 => ShouldPushShadow::PushAllShadows,
+        _ => return,
+    };
+
+    match what_shadow_to_push {
+        ShouldPushShadow::PushOneShadow => {
+            let current_shadow = match (top, left, bottom, right) {
+                 | (Some(Some(shadow)), None, None, None)
+                 | (None, Some(Some(shadow)), None, None)
+                 | (None, None, Some(Some(shadow)), None)
+                 | (None, None, None, Some(Some(shadow)))
+                 => shadow,
+                 _ => return, // reachable, but invalid box-shadow
+            };
+
+            push_single_box_shadow_edge(builder, current_shadow, bounds, border_radius, shadow_type,
+                                        top, bottom, left, right);
+        },
+        // Two shadows in opposite directions:
+        //
+        // box-shadow-top: 0px 0px 5px red;
+        // box-shadow-bottom: 0px 0px 5px blue;
+        ShouldPushShadow::PushTwoShadows => {
+            match (top, left, bottom, right) {
+                (Some(Some(t)), None, Some(Some(b)), right) => {
+                    push_single_box_shadow_edge(builder, t, bounds, border_radius, shadow_type,
+                                                top, &None, &None, &None);
+                    push_single_box_shadow_edge(builder, b, bounds, border_radius, shadow_type,
+                                                &None, bottom, &None, &None);
+
+                },
+                (None, Some(Some(l)), None, Some(Some(r))) => {
+                    push_single_box_shadow_edge(builder, l, bounds, border_radius, shadow_type,
+                                                &None, &None, left, &None);
+                    push_single_box_shadow_edge(builder, r, bounds, border_radius, shadow_type,
+                                                &None, &None, &None, right);
+                }
+                _ => return, // reachable, but invalid
+            }
+        },
+        ShouldPushShadow::PushAllShadows => {
+            // Assumes that all box shadows are the same, so just use the top shadow
+            let top_shadow = top.unwrap();
+            let clip_rect = top_shadow.as_ref().and_then(|top_shadow| Some(get_clip_rect(top_shadow, bounds))).unwrap_or(*bounds);
+            push_box_shadow_inner(builder, &top_shadow, border_radius, bounds, clip_rect, shadow_type);
+        }
+    }
 }
 
 #[inline]
@@ -1067,11 +1249,12 @@ fn push_background(
     info: &PrimitiveInfo<LayoutPixel>,
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    background: &Background,
+    background: &StyleBackground,
     app_resources: &AppResources)
 {
+    use css_parser::StyleBackground::*;
     match background {
-        Background::RadialGradient(gradient) => {
+        RadialGradient(gradient) => {
             use css_parser::Shape;
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
@@ -1093,7 +1276,7 @@ fn push_background(
             let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
-        Background::LinearGradient(gradient) => {
+        LinearGradient(gradient) => {
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
@@ -1105,12 +1288,12 @@ fn push_background(
             let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
-        Background::Image(css_image_id) => {
+        Image(css_image_id) => {
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&css_image_id.0) {
                 push_image(info, builder, app_resources, image_id);
             }
         },
-        Background::NoBackground => { },
+        NoBackground => { },
     }
 }
 
@@ -1129,49 +1312,13 @@ fn push_image(
 
     match image_info {
         Uploaded(image_info) => {
-
-            let mut image_bounds = bounds;
-
-            let image_key = image_info.key;
-            let image_size = image_info.descriptor.size;
-
-            // For now, adjust the width and height based on the
-            if image_size.width < bounds.size.width as u32 && image_size.height < bounds.size.height as u32 {
-                image_bounds.size.width = image_size.width as f32;
-                image_bounds.size.height = image_size.height as f32;
-            } else {
-                let scale_factor_w = image_size.width as f32 / bounds.size.width;
-                let scale_factor_h = image_size.height as f32 / bounds.size.height;
-
-                if image_size.width < bounds.size.width as u32 {
-                    // if the image fits horizontally
-                    image_bounds.size.width = image_size.width as f32;
-                    image_bounds.size.height = image_size.height as f32 * scale_factor_w;
-                } else if image_size.height < bounds.size.height as u32 {
-                    // if the image fits vertically
-                    image_bounds.size.width = image_size.width as f32 * scale_factor_h;
-                    image_bounds.size.height = image_size.height as f32;
-                } else {
-                    // image fits neither horizontally nor vertically
-                    let scale_factor_smaller = scale_factor_w.max(scale_factor_w);
-                    let new_width = image_size.width as f32 * scale_factor_smaller;
-                    let new_height = image_size.height as f32 * scale_factor_smaller;
-                    image_bounds.size.width = new_width;
-                    image_bounds.size.height = new_height;
-                }
-            }
-
-            // Just for testing
-            image_bounds.size.width /= 2.0;
-            image_bounds.size.height /= 2.0;
-
             builder.push_image(
                     &info,
-                    image_bounds.size,
+                    bounds.size,
                     LayoutSize::zero(),
                     ImageRendering::Auto,
                     AlphaType::PremultipliedAlpha,
-                    image_key,
+                    image_info.key,
                     ColorF::WHITE);
         },
         _ => { },
@@ -1185,24 +1332,10 @@ fn push_image(
 fn push_border(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    style: &RectStyle)
+    border: &StyleBorder,
+    border_radius: &Option<StyleBorderRadius>)
 {
-    if let Some((border_widths, mut border_details)) = style.border {
-
-        use webrender::api::LayoutSideOffsets;
-
-        let border_top = border_widths.top.to_f32_px();
-        let border_bottom = border_widths.bottom.to_f32_px();
-        let border_left = border_widths.left.to_f32_px();
-        let border_right = border_widths.right.to_f32_px();
-
-        let border_widths = LayoutSideOffsets::new(border_top, border_right, border_bottom, border_left);
-
-        if let Some(border_radius) = style.border_radius {
-            if let BorderDetails::Normal(ref mut n) = border_details {
-                n.radius = border_radius;
-            }
-        }
+    if let Some((border_widths, border_details)) = border.get_webrender_border(*border_radius) {
         builder.push_border(info, border_widths, border_details);
     }
 }
@@ -1263,19 +1396,19 @@ fn push_font(
 
 /// For a given rectangle, determines what text alignment should be used
 fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
--> (TextAlignmentHorz, TextAlignmentVert)
+-> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
 {
-    let mut horz_alignment = TextAlignmentHorz::default();
-    let mut vert_alignment = TextAlignmentVert::default();
+    let mut horz_alignment = StyleTextAlignmentHorz::default();
+    let mut vert_alignment = StyleTextAlignmentVert::default();
 
     if let Some(align_items) = rect.layout.align_items {
         // Vertical text alignment
         use css_parser::LayoutAlignItems;
         match align_items {
-            LayoutAlignItems::Start => vert_alignment = TextAlignmentVert::Top,
-            LayoutAlignItems::End => vert_alignment = TextAlignmentVert::Bottom,
+            LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
+            LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
             // technically stretch = blocktext, but we don't have that yet
-            _ => vert_alignment = TextAlignmentVert::Center,
+            _ => vert_alignment = StyleTextAlignmentVert::Center,
         }
     }
 
@@ -1283,9 +1416,9 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
         use css_parser::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
-            LayoutJustifyContent::Start => horz_alignment = TextAlignmentHorz::Left,
-            LayoutJustifyContent::End => horz_alignment = TextAlignmentHorz::Right,
-            _ => horz_alignment = TextAlignmentHorz::Center,
+            LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
+            LayoutJustifyContent::End => horz_alignment = StyleTextAlignmentHorz::Right,
+            _ => horz_alignment = StyleTextAlignmentHorz::Center,
         }
     }
 
@@ -1325,49 +1458,42 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
 
     fn apply_parsed_css_property(rect: &mut DisplayRectangle, property: &ParsedCssProperty) {
         match property {
-            BorderRadius(b)             => { rect.style.border_radius = Some(*b);                   },
-            BackgroundColor(c)          => { rect.style.background_color = Some(*c);                },
-            TextColor(t)                => { rect.style.font_color = Some(*t);                      },
-            Border(widths, details)     => { rect.style.border = Some((*widths, *details));         },
-            Background(b)               => { rect.style.background = Some(b.clone());               },
-            FontSize(f)                 => { rect.style.font_size = Some(*f);                       },
-            FontFamily(f)               => { rect.style.font_family = Some(f.clone());              },
-            LetterSpacing(l)            => { rect.style.letter_spacing = Some(*l);                  },
-            Overflow(o)                 => {
-                if let Some(ref mut existing_overflow) = rect.style.overflow {
-                    existing_overflow.merge(o);
-                } else {
-                    rect.style.overflow = Some(*o)
-                }
-            },
-            TextAlign(ta)               => { rect.style.text_align = Some(*ta);                     },
-            BoxShadow(opt_box_shadow)   => { rect.style.box_shadow = *opt_box_shadow;               },
-            LineHeight(lh)              => { rect.style.line_height = Some(*lh);                     },
+            BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
+            BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
+            TextColor(t)        => { rect.style.font_color = Some(*t);                      },
+            Border(b)           => { StyleBorder::merge(&mut rect.style.border, &b);        },
+            Background(b)       => { rect.style.background = Some(b.clone());               },
+            FontSize(f)         => { rect.style.font_size = Some(*f);                       },
+            FontFamily(f)       => { rect.style.font_family = Some(f.clone());              },
+            LetterSpacing(l)    => { rect.style.letter_spacing = Some(*l);                  },
+            Overflow(o)         => { LayoutOverflow::merge(&mut rect.style.overflow, &o);   },
+            TextAlign(ta)       => { rect.style.text_align = Some(*ta);                     },
+            BoxShadow(b)        => { StyleBoxShadow::merge(&mut rect.style.box_shadow, b);  },
+            LineHeight(lh)      => { rect.style.line_height = Some(*lh);                    },
 
-            Width(w)                    => { rect.layout.width = Some(*w);                          },
-            Height(h)                   => { rect.layout.height = Some(*h);                         },
-            MinWidth(mw)                => { rect.layout.min_width = Some(*mw);                     },
-            MinHeight(mh)               => { rect.layout.min_height = Some(*mh);                    },
-            MaxWidth(mw)                => { rect.layout.max_width = Some(*mw);                     },
-            MaxHeight(mh)               => { rect.layout.max_height = Some(*mh);                    },
+            Width(w)            => { rect.layout.width = Some(*w);                          },
+            Height(h)           => { rect.layout.height = Some(*h);                         },
+            MinWidth(mw)        => { rect.layout.min_width = Some(*mw);                     },
+            MinHeight(mh)       => { rect.layout.min_height = Some(*mh);                    },
+            MaxWidth(mw)        => { rect.layout.max_width = Some(*mw);                     },
+            MaxHeight(mh)       => { rect.layout.max_height = Some(*mh);                    },
 
-            Position(p)                 => { rect.layout.position = Some(*p);                       },
-            Top(t)                      => { rect.layout.top = Some(*t);                            },
-            Bottom(b)                   => { rect.layout.bottom = Some(*b);                         },
-            Right(r)                    => { rect.layout.right = Some(*r);                          },
-            Left(l)                     => { rect.layout.left = Some(*l);                           },
+            Position(p)         => { rect.layout.position = Some(*p);                       },
+            Top(t)              => { rect.layout.top = Some(*t);                            },
+            Bottom(b)           => { rect.layout.bottom = Some(*b);                         },
+            Right(r)            => { rect.layout.right = Some(*r);                          },
+            Left(l)             => { rect.layout.left = Some(*l);                           },
 
-            // TODO: merge new padding with existing padding
-            Padding(p)                  => { rect.layout.padding = Some(*p);                        },
-            Margin(m)                   => { rect.layout.margin = Some(*m);                         },
+            Padding(p)          => { LayoutPadding::merge(&mut rect.layout.padding, &p);    },
+            Margin(m)           => { LayoutMargin::merge(&mut rect.layout.margin, &m);      },
 
-            FlexGrow(g)                 => { rect.layout.flex_grow = Some(*g)                       },
-            FlexShrink(s)               => { rect.layout.flex_shrink = Some(*s)                     },
-            FlexWrap(w)                 => { rect.layout.wrap = Some(*w);                           },
-            FlexDirection(d)            => { rect.layout.direction = Some(*d);                      },
-            JustifyContent(j)           => { rect.layout.justify_content = Some(*j);                },
-            AlignItems(a)               => { rect.layout.align_items = Some(*a);                    },
-            AlignContent(a)             => { rect.layout.align_content = Some(*a);                  },
+            FlexGrow(g)         => { rect.layout.flex_grow = Some(*g)                       },
+            FlexShrink(s)       => { rect.layout.flex_shrink = Some(*s)                     },
+            FlexWrap(w)         => { rect.layout.wrap = Some(*w);                           },
+            FlexDirection(d)    => { rect.layout.direction = Some(*d);                      },
+            JustifyContent(j)   => { rect.layout.justify_content = Some(*j);                },
+            AlignItems(a)       => { rect.layout.align_items = Some(*a);                    },
+            AlignContent(a)     => { rect.layout.align_content = Some(*a);                  },
         }
     }
 

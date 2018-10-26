@@ -22,7 +22,7 @@ use images::ImageType;
 use {
     error::{FontError, ClipboardError},
     window::{Window, WindowId},
-    css_parser::{FontId, PixelValue, LetterSpacing},
+    css_parser::{FontId, PixelValue, StyleLetterSpacing},
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
@@ -518,7 +518,7 @@ impl<T: Layout> App<T> {
         self.app_state.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<LetterSpacing>)
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>)
     -> TextId
     {
         self.app_state.add_text_cached(text, font_id, font_size, letter_spacing)
@@ -676,7 +676,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
         None => return,
     };
 
-    let hit_test_results =  window.internal.api.hit_test(
+    let hit_test_results = window.internal.api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
         cursor_location,
@@ -689,7 +689,6 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     // TODO: this should be refactored - currently very stateful and error-prone!
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
     app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
-
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
     // TODO: duplicated code!
@@ -708,6 +707,8 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
             let window_event = WindowEvent {
                 window: window_id.id,
                 hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
+                ui_state: &ui_state_cache[window_id.id],
+                hit_test_result: &hit_test_results,
                 cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
                 cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
             };
@@ -756,6 +757,8 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
         let window_event = WindowEvent {
             window: window_id.id,
             hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
+            ui_state: &ui_state_cache[window_id.id],
+            hit_test_result: &hit_test_results,
             cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
             cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
         };

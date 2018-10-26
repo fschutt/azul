@@ -26,7 +26,7 @@ use gleam::gl::{self, Gl};
 use {
     cache::DomHash,
     FastHashMap,
-    dom::{Texture, Callback},
+    dom::{Texture, On, Callback},
     daemon::{Daemon, DaemonId},
     css::{Css, FakeCss},
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
@@ -36,6 +36,7 @@ use {
     app_resources::AppResources,
     id_tree::NodeId,
     default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
+    ui_state::UiState,
 };
 
 /// azul-internal ID for a window
@@ -55,6 +56,8 @@ pub struct FakeWindow<T: Layout> {
     pub css: FakeCss,
     /// The window state for the next frame
     pub state: WindowState,
+    /// The user can push default callbacks in this `DefaultCallbackSystem`,
+    /// which get called later in the hit-testing logic
     pub(crate) default_callbacks: DefaultCallbackSystem<T>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
@@ -189,29 +192,68 @@ impl<T: Layout> fmt::Debug for FakeWindow<T> {
 }
 
 /// Window event that is passed to the user when a callback is invoked
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct WindowEvent {
+#[derive(Debug)]
+pub struct WindowEvent<'a, T: 'a + Layout> {
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window: usize,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
+    /// UiState containing the necessary data for testing what
+    pub(crate) ui_state: &'a UiState<T>,
+    pub(crate) hit_test_result: &'a HitTestResult,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: (f32, f32),
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
     pub cursor_in_viewport: (f32, f32),
 }
 
-impl WindowEvent {
-    // Mock window event, used for testing / calling callbacks without a window
-    pub fn mock() -> Self {
+impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
+    fn clone(&self) -> Self {
         Self {
-            window: 0,
-            hit_dom_node: NodeId::new(0),
-            cursor_relative_to_item: (0.0, 0.0),
-            cursor_in_viewport: (0.0, 0.0),
+            window: self.window,
+            hit_dom_node: self.hit_dom_node,
+            ui_state: self.ui_state,
+            hit_test_result: self.hit_test_result,
+            cursor_relative_to_item: self.cursor_relative_to_item,
+            cursor_in_viewport: self.cursor_in_viewport,
         }
+    }
+}
+
+impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> { }
+
+impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
+    pub fn get_first_hit_child(&self, node_id: NodeId, searched_event_type: On) -> Option<(usize, NodeId)> {
+
+        let ui_state = self.ui_state;
+        let arena = ui_state.dom.arena.borrow();
+
+        if node_id.index() > arena.nodes_len() {
+            return None; // node_id out of range
+        }
+
+        node_id
+            .children(&arena)
+            .enumerate()
+            .filter_map(|(idx, child_id)| {
+                ui_state.node_ids_to_tag_ids.get(&child_id).and_then(|tag| Some((*tag, idx, child_id)))
+            })
+            .filter(|(tag, _, _)| {
+                self.hit_test_result.items.iter().any(|item| item.tag.0 == *tag)
+            })
+            .filter(|(tag, _, _)| {
+                if let Some(map) = ui_state.tag_ids_to_default_callbacks.get(&tag) {
+                    map.get(&searched_event_type).is_some()
+                } else if let Some(map) = ui_state.tag_ids_to_noop_callbacks.get(&tag) {
+                    map.get(&searched_event_type).is_some()
+                } else {
+                    false
+                }
+            })
+            .map(|(_, idx, child_id)| (idx, child_id))
+            .next()
     }
 }
 

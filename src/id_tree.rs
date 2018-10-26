@@ -22,7 +22,7 @@ mod node_id {
     };
 
     /// A node identifier within a particular `Arena`.
-    #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+    #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
     pub struct NodeId {
         index: NonZeroUsize,
     }
@@ -77,6 +77,12 @@ mod node_id {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "{}", self.index())
         }
+    }
+}
+
+impl fmt::Debug for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "NodeId({})", self.index())
     }
 }
 

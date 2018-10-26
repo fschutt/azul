@@ -1,9 +1,7 @@
 #wrapper {
     background: linear-gradient(15deg, red 0%, blue 100%);
     flex-direction: row;
-    position: absolute;
-    top: -50px;
-    left: -50px;
+    justify-content: flex-start;
 }
 
 #red {
@@ -18,7 +16,7 @@
 }
 
 #sub-wrapper {
-    flex-direction: column-reverse;
+    flex-direction: column;
     width: 400px;
     box-shadow: 0px 0px 50px black;
     position: relative;
@@ -29,25 +27,34 @@
 #yellow {
     background-color: #F5900E;
     height: 70px;
-    flex-direction: row-reverse;
+    flex-direction: column-reverse;
+    align-items: flex-end;
     box-shadow: 0px 0px 50px black;
     position: absolute;
-    left: 50px;
-    top: -34px;
+    right: -25px;
+    top: 0px;
+    width: 50px;
+    height: 50px;
 }
 
 #grey {
     background-color: #44ccee33;
 }
 
-#below-yellow {
+#orange-1 {
     background-color: #F14C13;
     box-shadow: 2px 2px 10px black;
-    width: 50px;
+}
+
+#orange-2 {
+    background-color: green;
+    box-shadow: 2px 2px 10px black;
+    width: 10px;
+    height: 10px;
 }
 
 #cat {
-    /*background: image("Cat01");*/
-    width: 1920px;
-    height: 1080px;
+    max-width: 400px;
+    box-shadow-bottom: 0px 0px 50px black inset;
+    box-shadow-top: 0px 0px 50px black inset;
 }
