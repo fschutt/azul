@@ -15,8 +15,47 @@ use {
 
 pub use webrender::api::GlyphInstance;
 
-pub const PX_TO_PT: f32 = 72.0 / 96.0;
-pub const PT_TO_PX: f32 = 1.0 / PX_TO_PT;
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct TextSizePt(pub f32);
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct TextSizePx(pub f32);
+
+use std::ops::{Mul, Add};
+
+impl Mul<f32> for TextSizePx {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self {
+        TextSizePx(self.0 * rhs)
+    }
+}
+
+impl Add for TextSizePx {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        TextSizePx(self.0 + rhs.0)
+    }
+}
+
+impl From<TextSizePx> for TextSizePt {
+    fn from(original: TextSizePx) -> TextSizePt {
+        const PX_TO_PT: f32 = 72.0 / 96.0;
+        TextSizePt(original.0 * PX_TO_PT)
+    }
+}
+
+impl From<TextSizePt> for TextSizePx {
+    fn from(original: TextSizePt) -> TextSizePx {
+        const PT_TO_PX: f32 = 96.0 / 72.0;
+        TextSizePx(original.0 * PT_TO_PX)
+    }
+}
+
+impl TextSizePx {
+    // Note rusttype::Scale is in PX, not PT.
+    pub fn to_rusttype_scale(&self) -> Scale {
+        Scale::uniform(self.0)
+    }
+}
 
 /// When the text is regularly layouted, the text needs to be
 /// spaced out a bit vertically
@@ -40,8 +79,9 @@ pub struct Words {
 }
 
 impl Words {
+
     /// Given a width, returns the vertical height of the text (no vertical overflow checks)
-    pub fn get_vertical_height(&self, overflow: &LayoutOverflow, font_metrics: &FontMetrics, width: f32)
+    pub fn get_vertical_height(&self, overflow: &LayoutOverflow, font_metrics: &FontMetrics, width: TextSizePx)
     -> VerticalTextInfo
     {
         use self::SemanticWordItem::*;
@@ -51,8 +91,9 @@ impl Words {
         if overflow.allows_horizontal_overflow() {
             // If we can overflow horizontally, we only need to sum up the `Return`
             // characters, since the actual length of the line doesn't matter
+            let number_of_returns = self.items.iter().filter(|w| w.is_return()).count();
             VerticalTextInfo {
-                vertical_height: self.items.iter().filter(|w| w.is_return()).count() as f32 * vertical_advance,
+                vertical_height: vertical_advance * number_of_returns as f32,
                 max_hor_len: None
             }
         } else {
@@ -66,15 +107,15 @@ impl Words {
             for w in &self.items {
                 match w {
                     Word(w) => {
-                        if cur_line_cursor + w.total_width > width {
+                        if cur_line_cursor + w.total_width > width.0 {
                             max_line_cursor = max_line_cursor.max(cur_line_cursor);
                             cur_line_cursor = 0.0;
                             cur_line += 1;
                         }
-                        cur_line_cursor += w.total_width + space_width;
+                        cur_line_cursor += w.total_width + space_width.0; // space width is in px
                     },
                     // TODO: also check for rect break after tabs? Kinda pointless, isn't it?
-                    Tab => cur_line_cursor += tab_width,
+                    Tab => cur_line_cursor += tab_width.0, // tab width is in px
                     Return => {
                         max_line_cursor = max_line_cursor.max(cur_line_cursor);
                         cur_line_cursor = 0.0;
@@ -84,8 +125,8 @@ impl Words {
             }
 
             VerticalTextInfo {
-                max_hor_len: Some(cur_line_cursor),
-                vertical_height: cur_line as f32 * vertical_advance * PT_TO_PX,
+                max_hor_len: Some(TextSizePx(cur_line_cursor)),
+                vertical_height: vertical_advance * cur_line as f32,
             }
         }
     }
@@ -148,12 +189,12 @@ pub(crate) struct TextOverflowPass2 {
 /// These metrics are important for showing the scrollbars
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum TextOverflow {
-    /// Text is overflowing, by how much (in pixels)?
+    /// Text is overflowing, by how much?
     /// Necessary for determining the size of the scrollbar
-    IsOverflowing(f32),
-    /// Text is in bounds, how much space (in pixels) is available until
+    IsOverflowing(TextSizePx),
+    /// Text is in bounds, how much space is available until
     /// the edge of the rectangle? Necessary for centering / aligning text vertically.
-    InBounds(f32),
+    InBounds(TextSizePx),
 }
 
 impl TextOverflow {
@@ -177,9 +218,9 @@ struct KnuthPlassAdjustment(pub f32);
 pub(crate) struct ScrollbarInfo {
     /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
     /// of the scrollbar in pixels
-    pub(crate) width: usize,
+    pub(crate) width: TextSizePx,
     /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
-    pub(crate) padding: usize,
+    pub(crate) padding: TextSizePx,
     /// Style of the scrollbar (how to draw it)
     pub(crate) bar_color: StyleBackgroundColor,
     /// How to draw the "up / down" arrows
@@ -193,17 +234,16 @@ pub(crate) struct ScrollbarInfo {
 #[derive(Debug, Copy, Clone)]
 pub struct FontMetrics {
     /// Width of the space character
-    pub space_width: f32,
+    pub space_width: TextSizePx,
     /// Usually 4 * space_width
-    pub tab_width: f32,
+    pub tab_width: TextSizePx,
     /// font_size * line_height
-    pub vertical_advance: f32,
-    /// Font size (for rusttype) in **pt** (not px)
-    /// Used for vertical layouting (since it includes the line height)
-    pub font_size_with_line_height: Scale,
-    /// Same as `font_size_with_line_height` but without the line height incorporated.
-    /// Used for horizontal layouting
-    pub font_size_no_line_height: Scale,
+    pub vertical_advance: TextSizePx,
+    /// Font size, including line height
+    pub font_size_with_line_height: TextSizePx,
+    /// Same as `font_size_with_line_height` but without the
+    /// `self.line height` incorporated. Used for horizontal layouting
+    pub font_size_no_line_height: TextSizePx,
     /// Some fonts have a base height of 2048 or something weird like that
     pub height_for_1px: f32,
     /// Spacing of the letters, or 0.0 by default
@@ -258,7 +298,7 @@ pub(crate) fn get_glyphs(
         None => panic!("Drawing with invalid font!: {:?}", target_font_id),
     };
 
-    let font_metrics = calculate_font_metrics(&target_font.0, target_font_size, text_layout_options);
+    let font_metrics = FontMetrics::new(&target_font.0, target_font_size, text_layout_options);
 
     // (1) Split the text into semantic items (word, tab or newline) OR get the cached
     // text and scale it accordingly.
@@ -330,34 +370,28 @@ impl FontMetrics {
     /// Given a font, font size and line height, calculates the `FontMetrics` necessary
     /// which are later used to layout a block of text
     pub fn new<'a>(font: &Font<'a>, font_size: &StyleFontSize, layout_options: &TextLayoutOptions) -> Self {
-        calculate_font_metrics(font, font_size, layout_options)
-    }
-}
+        let font_size_no_line_height = TextSizePx(font_size.0.to_pixels());
+        let line_height = layout_options.line_height.and_then(|lh| Some(lh.0.number)).unwrap_or(1.0);
+        let font_size_with_line_height = font_size_no_line_height * line_height;
 
-fn calculate_font_metrics<'a>(font: &Font<'a>, font_size: &StyleFontSize, layout_options: &TextLayoutOptions) -> FontMetrics {
+        let space_glyph = font.glyph(' ').scaled(font_size_no_line_height.to_rusttype_scale());
+        let height_for_1px = font.glyph(' ').standalone().get_data().unwrap().scale_for_1_pixel;
+        let space_width = TextSizePx(space_glyph.h_metrics().advance_width);
+        let tab_width = space_width * 4.0; // TODO: make this configurable
 
-    let font_size_f32 = font_size.0.to_pixels() * PX_TO_PT;
-    let line_height = layout_options.line_height.and_then(|lh| Some(lh.0.number)).unwrap_or(1.0);
-    let font_size_with_line_height = Scale::uniform(font_size_f32 * line_height);
-    let font_size_no_line_height = Scale::uniform(font_size_f32);
+        let v_metrics_scaled = font.v_metrics(font_size_with_line_height.to_rusttype_scale());
+        let v_advance_scaled = TextSizePx(v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap);
 
-    let space_glyph = font.glyph(' ').scaled(font_size_no_line_height);
-    let height_for_1px = font.glyph(' ').standalone().get_data().unwrap().scale_for_1_pixel;
-    let space_width = space_glyph.h_metrics().advance_width;
-    let tab_width = 4.0 * space_width; // TODO: make this configurable
-
-    let v_metrics_scaled = font.v_metrics(font_size_with_line_height);
-    let v_advance_scaled = v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap;
-
-    FontMetrics {
-        vertical_advance: v_advance_scaled,
-        space_width,
-        tab_width,
-        height_for_1px,
-        font_size_with_line_height,
-        font_size_no_line_height,
-        letter_spacing: layout_options.letter_spacing,
-        layout_options: *layout_options,
+        FontMetrics {
+            vertical_advance: v_advance_scaled,
+            space_width,
+            tab_width,
+            height_for_1px,
+            font_size_with_line_height,
+            font_size_no_line_height,
+            letter_spacing: layout_options.letter_spacing,
+            layout_options: *layout_options,
+        }
     }
 }
 
@@ -366,7 +400,7 @@ pub(crate) fn get_words_cached<'a>(
     font: &Font<'a>,
     font_id: &FontId,
     font_size: &StyleFontSize,
-    font_size_no_line_height: Scale,
+    font_size_no_line_height: TextSizePx,
     letter_spacing: Option<StyleLetterSpacing>,
     text_cache: &'a mut TextCache)
 -> &'a Words
@@ -438,12 +472,12 @@ fn scale_words(words: &mut Words, scale_factor: f32) {
 /// This function is also used in the `text_cache` module for caching large strings.
 ///
 /// It is one of the most expensive functions, use with care.
-pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: Scale, letter_spacing: Option<StyleLetterSpacing>)
+pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: TextSizePx, letter_spacing: Option<StyleLetterSpacing>)
 -> Words
 {
     use unicode_normalization::UnicodeNormalization;
 
-    let letter_spacing = letter_spacing.and_then(|l| Some(l.0.to_pixels())).unwrap_or(0.0);
+    let letter_spacing_px = letter_spacing.and_then(|l| Some(l.0.to_pixels())).unwrap_or(0.0);
 
     let mut words = Vec::new();
 
@@ -483,7 +517,7 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
     let v_metrics_font = font.v_metrics_unscaled();
     // Warning: rusttype has a bit of a weird layout system - you have to
     // subtract the descent from the ascent to get the proper vertical height
-    let v_metrics_height_unscaled = Scale::uniform(v_metrics_font.ascent - v_metrics_font.descent);
+    let v_metrics_height_unscaled = TextSizePx(v_metrics_font.ascent - v_metrics_font.descent).to_rusttype_scale();
 
     for cur_char in text.nfc() {
         match cur_char {
@@ -532,15 +566,16 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                 // calculate the real width
                 let glyph_metrics = g.standalone().get_data().unwrap();
                 let h_metrics = g.scaled(v_metrics_height_unscaled).h_metrics();
-                let kerning_adjust = last_glyph.and_then(|last| Some(font.pair_kerning(font_size, last, id))).unwrap_or(0.0);
+                let kerning_adjust = last_glyph.and_then(|last| {
+                    Some(font.pair_kerning(font_size.to_rusttype_scale(), last, id))
+                }).unwrap_or(0.0);
 
                 let horiz_advance = {
                         h_metrics.advance_width *
                         glyph_metrics.scale_for_1_pixel *
-                        font_size.x * (96.0 / 72.0)
-                        * DEFAULT_CHARACTER_WIDTH_MULTIPLIER
+                        font_size.0 // px
                     }
-                    + letter_spacing
+                    + letter_spacing_px
                     + kerning_adjust;
 
                 let word_caret_saved = word_caret;
@@ -578,8 +613,8 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct VerticalTextInfo {
-    pub vertical_height: f32,
-    pub max_hor_len: Option<f32>,
+    pub vertical_height: TextSizePx,
+    pub max_hor_len: Option<TextSizePx>,
 }
 
 // First pass: calculate if the words will overflow (using the tabs)
@@ -592,7 +627,7 @@ fn estimate_overflow_pass_1(
 {
     use self::SemanticWordItem::*;
 
-    let VerticalTextInfo { vertical_height, max_hor_len } = words.get_vertical_height(overflow, font_metrics, rect_dimensions.width);
+    let VerticalTextInfo { vertical_height, max_hor_len } = words.get_vertical_height(overflow, font_metrics, TextSizePx(rect_dimensions.width));
 
     let words = &words.items;
     let FontMetrics { space_width, tab_width, vertical_advance, .. } = *font_metrics;
@@ -610,10 +645,11 @@ fn estimate_overflow_pass_1(
     // Horizontal scrollbars, on the other hand, are 1.0x the width of the rectangle,
     // when the width is filled.
 
-    let vertical_height = if vertical_height > rect_dimensions.height {
-        TextOverflow::IsOverflowing(vertical_height - rect_dimensions.height)
+    // vertical_height is in pixels
+    let vertical_height = if vertical_height.0 > rect_dimensions.height {
+        TextOverflow::IsOverflowing(TextSizePx(vertical_height.0 - rect_dimensions.height))
     } else {
-        TextOverflow::InBounds(rect_dimensions.height - vertical_height)
+        TextOverflow::InBounds(TextSizePx(rect_dimensions.height - vertical_height.0))
     };
 
     let horizontal_length = {
@@ -626,7 +662,7 @@ fn estimate_overflow_pass_1(
             for w in words {
                 match w {
                     Word(w) => cur_line_cursor += w.total_width,
-                    Tab => cur_line_cursor += tab_width,
+                    Tab => cur_line_cursor += tab_width.0,
                     Return => {
                         max_line_cursor = max_line_cursor.max(cur_line_cursor);
                         cur_line_cursor = 0.0;
@@ -636,13 +672,13 @@ fn estimate_overflow_pass_1(
 
             max_line_cursor
         } else {
-           max_hor_len.unwrap()
+           max_hor_len.and_then(|hor| Some(hor.0)).unwrap()
         };
 
         if horz_max > rect_dimensions.width {
-            TextOverflow::IsOverflowing(horz_max - rect_dimensions.width)
+            TextOverflow::IsOverflowing(TextSizePx(horz_max - rect_dimensions.width))
         } else {
-            TextOverflow::InBounds(rect_dimensions.width - horz_max)
+            TextOverflow::InBounds(TextSizePx(rect_dimensions.width - horz_max))
         }
     };
 
@@ -828,7 +864,7 @@ fn words_to_left_aligned_glyphs<'a>(
     }
 
     let min_enclosing_width = max_word_caret;
-    let min_enclosing_height = (current_line_num as f32 * vertical_advance) + (font_size_no_line_height.y * PT_TO_PX);
+    let min_enclosing_height = (vertical_advance * current_line_num as f32) + font_size_no_line_height;
 
     let line_break_offsets = line_break_offsets.into_iter().map(|(line, space_r)| {
         let space_r = match space_r {
@@ -988,9 +1024,9 @@ pub struct LayoutTextResult {
     /// - How much space each line has (to the right edge of the containing rectangle)
     pub line_breaks: Vec<(IndexOfLineBreak, RemainingSpaceToRight)>,
     /// Minimal width of the layouted text
-    pub min_width: f32,
+    pub min_width: TextSizePx,
     /// Minimal height of the layouted text
-    pub min_height: f32,
+    pub min_height: TextSizePx,
     pub font_metrics: FontMetrics,
 }
 

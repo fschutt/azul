@@ -403,8 +403,9 @@ fn do_the_layout<'a, 'b, T: Layout>(
     let preferred_widths = arena.transform(|node, _| node.node_type.get_preferred_width(&app_resources.images));
     let solved_widths = solve_flex_layout_width(&display_list.rectangles, preferred_widths, rect_size.width as f32);
     let preferred_heights = arena.transform(|node, id| {
+        use text_layout::TextSizePx;
         node.node_type.get_preferred_height_based_on_width(
-            solved_widths.solved_widths[id].data.total(),
+            TextSizePx(solved_widths.solved_widths[id].data.total()),
             &app_resources.images,
             word_cache.get(&id).and_then(|e| Some(&e.0)),
             word_cache.get(&id).and_then(|e| Some(e.1)),
@@ -465,7 +466,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>)
 {
-    use text_layout::TextOverflow;
+    use text_layout::{TextOverflow, TextSizePx};
 
     let DisplayListParametersRef {
         render_api, parsed_css, ui_description, display_rectangle_arena
@@ -529,8 +530,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
 
     let scrollbar_style = ScrollbarInfo {
-        width: 17,
-        padding: 2,
+        width: TextSizePx(17),
+        padding: TextSizePx(2),
         background_color: StyleBackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
         triangle_color: StyleBackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
         bar_color: StyleBackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
@@ -902,8 +903,8 @@ fn push_scrollbar(
             bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
             bounds.origin.y + scrollbar_style.width as f32),
         size: TypedSize2D::new(
-            (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
-             bounds.size.height - (scrollbar_style.width * 2) as f32),
+            scrollbar_style.width as f32 - (scrollbar_style.padding.0 * 2.0),
+            bounds.size.height as f32 - (scrollbar_style.width.0 * 2.0)),
     };
 
     let scrollbar_vertical_bar_info = PrimitiveInfo {
@@ -918,11 +919,11 @@ fn push_scrollbar(
     // Triangle top
     let mut scrollbar_triangle_rect = TypedRect::<f32, LayoutPixel> {
         origin: TypedPoint2D::new(
-            bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
-            bounds.origin.y + scrollbar_style.padding as f32),
+            bounds.origin.x + bounds.size.width - scrollbar_style.width.0 + scrollbar_style.padding.0,
+            bounds.origin.y + scrollbar_style.padding.0),
         size: TypedSize2D::new(
-            (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32,
-            (scrollbar_style.width - (scrollbar_style.padding * 2)) as f32),
+            scrollbar_style.width as f32 - (scrollbar_style.padding.0 * 2.0),
+            scrollbar_style.width as f32 - (scrollbar_style.padding.0 * 2.0)),
     };
 
     scrollbar_triangle_rect.origin.x += scrollbar_triangle_rect.size.width / 4.0;
