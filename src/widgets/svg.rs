@@ -1944,10 +1944,9 @@ impl SvgTextLayout {
     /// Get the bounding box of a layouted text
     pub fn get_bbox(&self, placement: &SvgTextPlacement) -> SvgBbox {
         use self::SvgTextPlacement::*;
-        use text_layout::{DEFAULT_CHARACTER_WIDTH_MULTIPLIER, DEFAULT_LINE_HEIGHT_MULTIPLIER};
 
-        let normal_width = self.0.min_width / DEFAULT_CHARACTER_WIDTH_MULTIPLIER;
-        let normal_height = self.0.min_height / DEFAULT_LINE_HEIGHT_MULTIPLIER;
+        let normal_width = self.0.min_width.0;
+        let normal_height = self.0.min_height.0;
 
         SvgBbox(match placement {
             Unmodified => {
@@ -1997,7 +1996,7 @@ impl SvgTextLayout {
                 // This is not so much about correctness as it is about simply making
                 // it work for now.
 
-                let font_size = self.0.font_metrics.font_size_no_line_height.y;
+                let font_size = self.0.font_metrics.font_size_no_line_height.0;
                 bbox.0.origin.y -= font_size;
                 bbox.0.size.height += font_size;
                 bbox.0
@@ -2080,13 +2079,11 @@ fn normal_text_to_vertices(
     transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
 ) -> VerticesIndicesBuffer
 {
-    use text_layout::{DEFAULT_LINE_HEIGHT_MULTIPLIER, DEFAULT_CHARACTER_WIDTH_MULTIPLIER};
-
     let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
 
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
         scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
-        transform_vertex_buffer(&mut vertex_buf.vertices, (gid.point.x / DEFAULT_CHARACTER_WIDTH_MULTIPLIER) + position.x, (gid.point.y / DEFAULT_LINE_HEIGHT_MULTIPLIER) + position.y);
+        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x + position.x, gid.point.y + position.y);
     });
 
     join_vertex_buffers(&vertex_buffers)
@@ -2129,8 +2126,6 @@ fn rotated_text_to_vertices(
     transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
 ) -> VerticesIndicesBuffer
 {
-    use text_layout::{DEFAULT_CHARACTER_WIDTH_MULTIPLIER, DEFAULT_LINE_HEIGHT_MULTIPLIER};
-
     let rotation_rad = rotation_degrees.to_radians();
     let (char_sin, char_cos) = (rotation_rad.sin(), rotation_rad.cos());
 
@@ -2138,7 +2133,7 @@ fn rotated_text_to_vertices(
 
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
         scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
-        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x / DEFAULT_CHARACTER_WIDTH_MULTIPLIER, gid.point.y / DEFAULT_LINE_HEIGHT_MULTIPLIER);
+        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x, gid.point.y);
         rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
         transform_vertex_buffer(&mut vertex_buf.vertices, position.x, position.y);
     });

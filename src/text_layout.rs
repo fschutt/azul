@@ -20,7 +20,7 @@ pub struct TextSizePt(pub f32);
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TextSizePx(pub f32);
 
-use std::ops::{Mul, Add};
+use std::ops::{Mul, Add, Sub};
 
 impl Mul<f32> for TextSizePx {
     type Output = Self;
@@ -33,6 +33,13 @@ impl Add for TextSizePx {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         TextSizePx(self.0 + rhs.0)
+    }
+}
+
+impl Sub for TextSizePx {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        TextSizePx(self.0 - rhs.0)
     }
 }
 
@@ -56,11 +63,6 @@ impl TextSizePx {
         Scale::uniform(self.0)
     }
 }
-
-/// When the text is regularly layouted, the text needs to be
-/// spaced out a bit vertically
-pub const DEFAULT_LINE_HEIGHT_MULTIPLIER: f32 = 1.5;
-pub const DEFAULT_CHARACTER_WIDTH_MULTIPLIER: f32 = 1.1;
 
 /// Words are a collection of glyph information, i.e. how much
 /// horizontal space each of the words in a text block and how much
@@ -710,11 +712,11 @@ fn estimate_overflow_pass_2(
     // **width** of the rectangle.
 
     if pass1.horizontal.is_overflowing() {
-        new_size.height -= scrollbar_info.width as f32;
+        new_size.height -= scrollbar_info.width.0; // both in px
     }
 
     if pass1.vertical.is_overflowing() {
-        new_size.width -= scrollbar_info.width as f32;
+        new_size.width -= scrollbar_info.width.0; // both in px
     }
 
     // If the words are not overflowing, just take the result from the first pass
@@ -763,7 +765,7 @@ fn words_to_left_aligned_glyphs<'a>(
     font: &Font<'a>,
     max_horizontal_width: Option<f32>,
     font_metrics: &FontMetrics)
--> (Vec<GlyphInstance>, Vec<(usize, f32)>, f32, f32)
+-> (Vec<GlyphInstance>, Vec<(usize, f32)>, TextSizePx, TextSizePx)
 {
     let words = &words.items;
 
@@ -819,19 +821,24 @@ fn words_to_left_aligned_glyphs<'a>(
                 }
 
                 for glyph in &word.glyphs {
+                    // vertical_advance is in px
                     let mut new_glyph = *glyph;
                     let push_x = word_caret;
-                    let push_y = (current_line_num + 1) as f32 * vertical_advance * DEFAULT_LINE_HEIGHT_MULTIPLIER;
+                    let push_y = (current_line_num + 1) as f32 * vertical_advance.0;
                     new_glyph.point.x += push_x;
                     new_glyph.point.y += push_y;
                     left_aligned_glyphs.push(new_glyph);
                 }
 
                 // Add the word width to the current word_caret
-                word_caret += word.total_width + space_width + letter_spacing;
+                // space_width is in px
+                // letter_spacing is in px
+                word_caret += word.total_width + space_width.0 + letter_spacing;
             },
             Tab => {
-                word_caret += tab_width + letter_spacing;
+                // tab_width is in px
+                // letter_spacing is in px
+                word_caret += tab_width.0 + letter_spacing;
             },
             Return => {
                 // TODO: dupliated code
@@ -863,7 +870,7 @@ fn words_to_left_aligned_glyphs<'a>(
         }
     }
 
-    let min_enclosing_width = max_word_caret;
+    let min_enclosing_width = TextSizePx(max_word_caret);
     let min_enclosing_height = (vertical_advance * current_line_num as f32) + font_size_no_line_height;
 
     let line_break_offsets = line_break_offsets.into_iter().map(|(line, space_r)| {
@@ -989,12 +996,13 @@ fn align_text_vert(font_metrics: &FontMetrics, alignment: StyleTextAlignmentVert
         IsOverflowing(_) => return,
         InBounds(remaining_space_px) => {
             // Total text height (including last leading!)
-            let new = remaining_space_px * multiply_factor - (font_metrics.vertical_advance * multiply_factor);
-            new
+            // All metrics in pixels
+            (remaining_space_px * multiply_factor) - (font_metrics.vertical_advance * multiply_factor)
         },
     };
 
-    glyphs.iter_mut().for_each(|g| g.point.y += space_to_add);
+    // TODO: space_to_add is in px, should this really be just added to the result?
+    glyphs.iter_mut().for_each(|g| g.point.y += space_to_add.0);
 }
 
 /// Adds the X and Y offset to each glyph in the positioned glyph

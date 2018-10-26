@@ -409,7 +409,7 @@ fn do_the_layout<'a, 'b, T: Layout>(
             &app_resources.images,
             word_cache.get(&id).and_then(|e| Some(&e.0)),
             word_cache.get(&id).and_then(|e| Some(e.1)),
-        )
+        ).and_then(|text_size| Some(text_size.0))
     });
     let solved_heights = solve_flex_layout_height(&solved_widths, preferred_heights, rect_size.height as f32);
 
@@ -530,8 +530,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
 
     let scrollbar_style = ScrollbarInfo {
-        width: TextSizePx(17),
-        padding: TextSizePx(2),
+        width: TextSizePx(17.0),
+        padding: TextSizePx(2.0),
         background_color: StyleBackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
         triangle_color: StyleBackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
         bar_color: StyleBackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
@@ -884,8 +884,8 @@ fn push_scrollbar(
 
     // Background of scrollbar (vertical)
     let scrollbar_vertical_background = TypedRect::<f32, LayoutPixel> {
-        origin: TypedPoint2D::new(bounds.origin.x + bounds.size.width - scrollbar_style.width as f32, bounds.origin.y),
-        size: TypedSize2D::new(scrollbar_style.width as f32, bounds.size.height),
+        origin: TypedPoint2D::new(bounds.origin.x + bounds.size.width - scrollbar_style.width.0, bounds.origin.y),
+        size: TypedSize2D::new(scrollbar_style.width.0, bounds.size.height),
     };
 
     let scrollbar_vertical_background_info = PrimitiveInfo {
@@ -900,11 +900,11 @@ fn push_scrollbar(
     // Actual scroll bar
     let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
         origin: TypedPoint2D::new(
-            bounds.origin.x + bounds.size.width - scrollbar_style.width as f32 + scrollbar_style.padding as f32,
-            bounds.origin.y + scrollbar_style.width as f32),
+            bounds.origin.x + bounds.size.width - scrollbar_style.width.0 + scrollbar_style.padding.0,
+            bounds.origin.y + scrollbar_style.width.0),
         size: TypedSize2D::new(
-            scrollbar_style.width as f32 - (scrollbar_style.padding.0 * 2.0),
-            bounds.size.height as f32 - (scrollbar_style.width.0 * 2.0)),
+            scrollbar_style.width.0 - (scrollbar_style.padding.0 * 2.0),
+            bounds.size.height - (scrollbar_style.width.0 * 2.0)),
     };
 
     let scrollbar_vertical_bar_info = PrimitiveInfo {
@@ -922,8 +922,8 @@ fn push_scrollbar(
             bounds.origin.x + bounds.size.width - scrollbar_style.width.0 + scrollbar_style.padding.0,
             bounds.origin.y + scrollbar_style.padding.0),
         size: TypedSize2D::new(
-            scrollbar_style.width as f32 - (scrollbar_style.padding.0 * 2.0),
-            scrollbar_style.width as f32 - (scrollbar_style.padding.0 * 2.0)),
+            scrollbar_style.width.0 - (scrollbar_style.padding.0 * 2.0),
+            scrollbar_style.width.0 - (scrollbar_style.padding.0 * 2.0)),
     };
 
     scrollbar_triangle_rect.origin.x += scrollbar_triangle_rect.size.width / 4.0;
@@ -934,7 +934,7 @@ fn push_scrollbar(
     push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointUp);
 
     // Triangle bottom
-    scrollbar_triangle_rect.origin.y += bounds.size.height - scrollbar_style.width as f32 + scrollbar_style.padding as f32;
+    scrollbar_triangle_rect.origin.y += bounds.size.height - scrollbar_style.width.0 + scrollbar_style.padding.0;
     push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointDown);
 }
 
