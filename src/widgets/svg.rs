@@ -72,7 +72,7 @@ pub fn new_svg_layer_id() -> SvgLayerId {
     SvgLayerId(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
 }
 
-const SHADER_VERSION_GL: &str = "#version 150";
+const SHADER_VERSION_GL: &str = "#version 330";
 const SHADER_VERSION_GLES: &str = "#version 300 es";
 const DEFAULT_GLYPH_TOLERANCE: f32 = 0.01;
 
@@ -2258,21 +2258,17 @@ impl Svg {
     -> Texture
     {
         let tex = window.create_texture(width as u32, height as u32);
+        let (window_width, window_height) = window.get_physical_size();
 
         // TODO: This currently doesn't work - only the first draw call is drawn
         // This is probably because either webrender or glium messes with the texture
         // in some way. Need to investigate.
         let background_color: ColorF = self.background_color.into();
-        tex.as_surface().clear_color(
-            background_color.r,
-            background_color.g,
-            background_color.b,
-            0.0);
 
         let z_index: f32 = 0.5;
         let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
                 origin: TypedPoint2D::new(0.0, 0.0),
-                size: TypedSize2D::new(width as f32, height as f32),
+                size: TypedSize2D::new(window_width as f32, window_height as f32),
         };
         let shader = svg_cache.init_shader(window);
 
@@ -2287,6 +2283,11 @@ impl Svg {
 
         {
             let mut surface = tex.as_surface();
+            surface.clear_color(
+            background_color.r,
+            background_color.g,
+            background_color.b,
+            0.0);
 
             for layer in &self.layers {
 
