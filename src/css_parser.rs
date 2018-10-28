@@ -5,13 +5,13 @@ pub use {
     app_units::Au,
     euclid::{TypedSize2D, SideOffsets2D, TypedPoint2D},
     webrender::api::{
-        BorderRadius as StyleBorderRadius, BorderDetails, NormalBorder,
+        BorderDetails, NormalBorder,
         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
         ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
         LayoutSize, ExtendMode, LayoutSideOffsets,
     },
 };
-use webrender::api::{BorderStyle, BorderSide, LayoutRect};
+use webrender::api::{BorderStyle, BorderRadius, BorderSide, LayoutRect};
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;
 /// Webrender measures in points, not in pixels!
@@ -50,8 +50,26 @@ macro_rules! typed_pixel_value_parser {
     )
 }
 
+/// Creates `pt`, `px` and `em` constructors for any struct that has a
+/// `PixelValue` as it's self.0 field.
+macro_rules! impl_pixel_value {($struct:ident) => (
+    impl $struct {
+        pub fn px(value: f32) -> Self {
+            $struct(PixelValue::from_metric(CssMetric::Px, value))
+        }
+
+        pub fn em(value: f32) -> Self {
+            $struct(PixelValue::from_metric(CssMetric::Em, value))
+        }
+
+        pub fn pt(value: f32) -> Self {
+            $struct(PixelValue::from_metric(CssMetric::Pt, value))
+        }
+    }
+)}
+
 /// A successfully parsed CSS property
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum ParsedCssProperty {
     BorderRadius(StyleBorderRadius),
     BackgroundColor(StyleBackgroundColor),
@@ -355,11 +373,43 @@ impl PixelValue {
     }
 }
 
-/// "100%" or "1.0" value
-#[derive(Debug, PartialEq, Copy, Clone)]
+/// "100%" or "1.0" value - usize based, so it can be
+/// safely hashed, accurate to 4 decimal places
+#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq)]
 pub struct PercentageValue {
     /// Normalized value, 100% = 1.0
-    pub number: f32,
+    number: usize,
+}
+
+impl PercentageValue {
+    pub fn new(value: f32) -> Self {
+        Self { number: (value * 1000.0) as usize }
+    }
+
+    pub fn get(&self) -> f32 {
+        self.number as f32 / 1000.0
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq)]
+pub struct FloatValue {
+    number: usize,
+}
+
+impl FloatValue {
+    pub fn new(value: f32) -> Self {
+        Self { number: (value * 1000.0) as usize }
+    }
+
+    pub fn get(&self) -> f32 {
+        self.number as f32 / 1000.0
+    }
+}
+
+impl From<f32> for FloatValue {
+    fn from(val: f32) -> Self {
+        Self::new(val)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
@@ -463,7 +513,7 @@ fn parse_css_border_radius<'a>(input: &'a str)
             // One value - border-radius: 15px;
             // (the value applies to all four corners, which are rounded equally:
 
-            let uniform_radius = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let uniform_radius = parse_pixel_value(components.next().unwrap())?;
             Ok(StyleBorderRadius::uniform(uniform_radius))
         },
         2 => {
@@ -471,14 +521,14 @@ fn parse_css_border_radius<'a>(input: &'a str)
             // (first value applies to top-left and bottom-right corners,
             // and the second value applies to top-right and bottom-left corners):
 
-            let top_left_bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
-            let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let top_left_bottom_right = parse_pixel_value(components.next().unwrap())?;
+            let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
 
             Ok(StyleBorderRadius{
-                top_left: LayoutSize::new(top_left_bottom_right, top_left_bottom_right),
-                bottom_right: LayoutSize::new(top_left_bottom_right, top_left_bottom_right),
-                top_right: LayoutSize::new(top_right_bottom_left, top_right_bottom_left),
-                bottom_left: LayoutSize::new(top_right_bottom_left, top_right_bottom_left),
+                top_left: [top_left_bottom_right, top_left_bottom_right],
+                bottom_right: [top_left_bottom_right, top_left_bottom_right],
+                top_right: [top_right_bottom_left, top_right_bottom_left],
+                bottom_left: [top_right_bottom_left, top_right_bottom_left],
             })
         },
         3 => {
@@ -486,15 +536,15 @@ fn parse_css_border_radius<'a>(input: &'a str)
             // (first value applies to top-left corner,
             // second value applies to top-right and bottom-left corners,
             // and third value applies to bottom-right corner):
-            let top_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
-            let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
-            let bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let top_left = parse_pixel_value(components.next().unwrap())?;
+            let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
+            let bottom_right = parse_pixel_value(components.next().unwrap())?;
 
             Ok(StyleBorderRadius{
-                top_left: LayoutSize::new(top_left, top_left),
-                bottom_right: LayoutSize::new(bottom_right, bottom_right),
-                top_right: LayoutSize::new(top_right_bottom_left, top_right_bottom_left),
-                bottom_left: LayoutSize::new(top_right_bottom_left, top_right_bottom_left),
+                top_left: [top_left, top_left],
+                bottom_right: [bottom_right, bottom_right],
+                top_right: [top_right_bottom_left, top_right_bottom_left],
+                bottom_left: [top_right_bottom_left, top_right_bottom_left],
             })
         }
         4 => {
@@ -503,16 +553,16 @@ fn parse_css_border_radius<'a>(input: &'a str)
             //  second value applies to top-right corner,
             //  third value applies to bottom-right corner,
             //  fourth value applies to bottom-left corner)
-            let top_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
-            let top_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
-            let bottom_right = parse_pixel_value(components.next().unwrap())?.to_pixels();
-            let bottom_left = parse_pixel_value(components.next().unwrap())?.to_pixels();
+            let top_left = parse_pixel_value(components.next().unwrap())?;
+            let top_right = parse_pixel_value(components.next().unwrap())?;
+            let bottom_right = parse_pixel_value(components.next().unwrap())?;
+            let bottom_left = parse_pixel_value(components.next().unwrap())?;
 
             Ok(StyleBorderRadius{
-                top_left: LayoutSize::new(top_left, top_left),
-                bottom_right: LayoutSize::new(bottom_right, bottom_right),
-                top_right: LayoutSize::new(top_right, top_right),
-                bottom_left: LayoutSize::new(bottom_left, bottom_left),
+                top_left: [top_left, top_left],
+                bottom_right: [bottom_right, bottom_right],
+                top_right: [top_right, top_right],
+                bottom_left: [bottom_left, bottom_left],
             })
         },
         _ => {
@@ -590,9 +640,7 @@ fn parse_percentage_value(input: &str)
         number /= 100.0;
     }
 
-    Ok(PercentageValue {
-        number: number,
-    })
+    Ok(PercentageValue::new(number))
 }
 
 /// Parse any valid CSS color, INCLUDING THE HASH
@@ -610,13 +658,49 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
 }
 
 fn parse_float_value(input: &str)
--> Result<f32, ParseFloatError>
+-> Result<FloatValue, ParseFloatError>
 {
-    input.trim().parse::<f32>()
+    Ok(FloatValue::new(input.trim().parse::<f32>()?))
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct StyleBorderRadius {
+    pub top_left: [PixelValue;2],
+    pub top_right: [PixelValue;2],
+    pub bottom_left: [PixelValue;2],
+    pub bottom_right: [PixelValue;2],
+}
+
+impl StyleBorderRadius {
+
+    pub fn zero() -> Self {
+        const ZERO_PX: PixelValue = PixelValue { number: 0, metric: CssMetric::Px };
+        Self::uniform(ZERO_PX)
+    }
+
+    pub fn uniform(value: PixelValue) -> Self {
+        Self {
+            top_left: [value, value],
+            top_right: [value, value],
+            bottom_left: [value, value],
+            bottom_right: [value, value],
+        }
+    }
+}
+
+impl From<StyleBorderRadius> for BorderRadius {
+    fn from(radius: StyleBorderRadius) -> BorderRadius {
+        Self {
+            top_left: LayoutSize::new(radius.top_left[0].to_pixels(), radius.top_left[1].to_pixels()),
+            top_right: LayoutSize::new(radius.top_right[0].to_pixels(), radius.top_right[1].to_pixels()),
+            bottom_left: LayoutSize::new(radius.bottom_left[0].to_pixels(), radius.bottom_left[1].to_pixels()),
+            bottom_right: LayoutSize::new(radius.bottom_right[0].to_pixels(), radius.bottom_right[1].to_pixels()),
+        }
+    }
 }
 
 /// Represents a parsed CSS `background-color` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBackgroundColor(pub ColorU);
 
 impl Default for StyleBackgroundColor {
@@ -633,7 +717,7 @@ fn parse_css_background_color<'a>(input: &'a str)
 }
 
 /// Represents a parsed CSS `color` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleTextColor(pub ColorU);
 
 fn parse_css_text_color<'a>(input: &'a str)
@@ -881,7 +965,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
 }
 
 /// Represents a parsed CSS `padding` attribute
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
 pub struct LayoutPadding {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,
@@ -1005,7 +1089,7 @@ fn parse_layout_padding<'a>(input: &'a str)
 }
 
 /// Represents a parsed CSS `padding` attribute
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
 pub struct LayoutMargin {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,
@@ -1047,7 +1131,7 @@ fn parse_layout_margin<'a>(input: &'a str)
 }
 
 /// Wrapper for the `overflow-{x,y}` + `overflow` property
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
 pub struct LayoutOverflow {
     pub horizontal: TextOverflowBehaviour,
     pub vertical: TextOverflowBehaviour,
@@ -1086,7 +1170,7 @@ impl LayoutOverflow {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
 pub struct StyleBorder {
     pub top: Option<StyleBorderSide>,
     pub left: Option<StyleBorderSide>,
@@ -1132,7 +1216,7 @@ impl StyleBorder {
                     left: BorderSide { color:  border_color_left.into(), style: border_style_left },
                     right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
                     bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
-                    radius: border_radius.unwrap_or(StyleBorderRadius::zero()),
+                    radius: border_radius.and_then(|b| Some(b.into())).unwrap_or(BorderRadius::zero()),
                     do_aa: border_radius.is_some(),
                 });
 
@@ -1207,7 +1291,7 @@ multi_type_parser!(parse_border_style, BorderStyle,
     ["inset", Inset],
     ["outset", Outset]);
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
 pub struct StyleBoxShadow {
     pub top: Option<Option<BoxShadowPreDisplayItem>>,
     pub left: Option<Option<BoxShadowPreDisplayItem>>,
@@ -1220,12 +1304,12 @@ parse_tblr!(StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
 struct_all!(StyleBoxShadow, Option<BoxShadowPreDisplayItem>);
 
 // missing StyleBorderRadius & LayoutRect
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Hash)]
 pub struct BoxShadowPreDisplayItem {
-    pub offset: LayoutVector2D,
-    pub color: ColorF,
-    pub blur_radius: f32,
-    pub spread_radius: f32,
+    pub offset: [PixelValue;2],
+    pub color: ColorU,
+    pub blur_radius: PixelValue,
+    pub spread_radius: PixelValue,
     pub clip_mode: BoxShadowClipMode,
 }
 
@@ -1237,10 +1321,10 @@ fn parse_css_box_shadow<'a>(input: &'a str)
     let count = input_iter.clone().count();
 
     let mut box_shadow = BoxShadowPreDisplayItem {
-        offset: LayoutVector2D::zero(),
-        color: ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
-        blur_radius: 0.0,
-        spread_radius: 0.0,
+        offset: [PixelValue::px(0.0), PixelValue::px(0.0)],
+        color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+        blur_radius: PixelValue::px(0.0),
+        spread_radius: PixelValue::px(0.0),
         clip_mode: BoxShadowClipMode::Outset,
     };
 
@@ -1266,72 +1350,72 @@ fn parse_css_box_shadow<'a>(input: &'a str)
         },
         2 => {
             // box-shadow: 5px 10px; (h_offset, v_offset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            box_shadow.offset.x = h_offset;
-            box_shadow.offset.y = v_offset;
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            box_shadow.offset[0] = h_offset;
+            box_shadow.offset[1] = v_offset;
         },
         3 => {
             // box-shadow: 5px 10px inset; (h_offset, v_offset, inset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            box_shadow.offset.x = h_offset;
-            box_shadow.offset.y = v_offset;
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            box_shadow.offset[0] = h_offset;
+            box_shadow.offset[1] = v_offset;
 
             if !is_inset {
                 // box-shadow: 5px 10px #888888; (h_offset, v_offset, color)
                 let color = parse_css_color(input_iter.next().unwrap())?;
-                box_shadow.color = ColorF::from(color);
+                box_shadow.color = color;
             }
         },
         4 => {
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            box_shadow.offset.x = h_offset;
-            box_shadow.offset.y = v_offset;
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            box_shadow.offset[0] = h_offset;
+            box_shadow.offset[1] = v_offset;
 
             if !is_inset {
-                let blur = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+                let blur = parse_pixel_value(input_iter.next().unwrap())?;
                 box_shadow.blur_radius = blur.into();
             }
 
             let color = parse_css_color(input_iter.next().unwrap())?;
-            box_shadow.color = ColorF::from(color);
+            box_shadow.color = color;
         },
         5 => {
             // box-shadow: 5px 10px 5px 10px #888888; (h_offset, v_offset, blur, spread, color)
             // box-shadow: 5px 10px 5px #888888 inset; (h_offset, v_offset, blur, color, inset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            box_shadow.offset.x = h_offset;
-            box_shadow.offset.y = v_offset;
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            box_shadow.offset[0] = h_offset;
+            box_shadow.offset[1] = v_offset;
 
-            let blur = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let blur = parse_pixel_value(input_iter.next().unwrap())?;
             box_shadow.blur_radius = blur.into();
 
             if !is_inset {
-                let spread = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+                let spread = parse_pixel_value(input_iter.next().unwrap())?;
                 box_shadow.spread_radius = spread.into();
             }
 
             let color = parse_css_color(input_iter.next().unwrap())?;
-            box_shadow.color = ColorF::from(color);
+            box_shadow.color = color;
         },
         6 => {
             // box-shadow: 5px 10px 5px 10px #888888 inset; (h_offset, v_offset, blur, spread, color, inset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
-            box_shadow.offset.x = h_offset;
-            box_shadow.offset.y = v_offset;
+            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            box_shadow.offset[0] = h_offset;
+            box_shadow.offset[1] = v_offset;
 
-            let blur = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let blur = parse_pixel_value(input_iter.next().unwrap())?;
             box_shadow.blur_radius = blur.into();
 
-            let spread = parse_pixel_value(input_iter.next().unwrap())?.to_pixels();
+            let spread = parse_pixel_value(input_iter.next().unwrap())?;
             box_shadow.spread_radius = spread.into();
 
             let color = parse_css_color(input_iter.next().unwrap())?;
-            box_shadow.color = ColorF::from(color);
+            box_shadow.color = color;
         }
         _ => {
             return Err(CssShadowParseError::TooManyComponents(input));
@@ -1371,7 +1455,7 @@ impl_from!(CssGradientStopParseError<'a>, CssBackgroundParseError::GradientParse
 impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub enum StyleBackground {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
@@ -1385,23 +1469,23 @@ impl<'a> From<CssImageId> for StyleBackground {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct LinearGradientPreInfo {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct RadialGradientPreInfo {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Hash)]
 pub enum Direction {
-    Angle(f32),
+    Angle(FloatValue),
     FromTo(DirectionCorner, DirectionCorner),
 }
 
@@ -1415,6 +1499,8 @@ impl Direction {
                 // note: assumes that the LayoutRect has positive sides
 
                 // see: https://hugogiraudel.com/2013/02/04/css-gradients/
+
+                let deg = deg.get(); // FloatValue -> f32
 
                 let deg = -deg; // negate winding direction
 
@@ -1480,13 +1566,13 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Shape {
     Ellipse,
     Circle,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DirectionCorner {
     Right,
     Left,
@@ -1541,7 +1627,7 @@ impl DirectionCorner {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 enum BackgroundType {
     LinearGradient,
     RepeatingLinearGradient,
@@ -1644,7 +1730,7 @@ fn parse_css_background<'a>(input: &'a str)
     }
 
     // correct percentages
-    let mut last_stop = 0.0_f32;
+    let mut last_stop = PercentageValue::new(0.0);
     let mut increase_stop_cnt: Option<f32> = None;
 
     let color_stop_len = color_stops.len();
@@ -1659,7 +1745,7 @@ fn parse_css_background<'a>(input: &'a str)
                 let (_, next) = color_stops.split_at_mut(i);
 
                 if let Some(increase_stop_cnt) = increase_stop_cnt {
-                    last_stop += increase_stop_cnt;
+                    last_stop = PercentageValue::new(last_stop.get() + increase_stop_cnt);
                     next[0].offset = Some(last_stop);
                     continue 'outer;
                 }
@@ -1681,14 +1767,14 @@ fn parse_css_background<'a>(input: &'a str)
                     }
                 }
 
-                let next_value = next_value.unwrap_or(100.0_f32);
-                let increase = (next_value - last_stop) / (next_count as f32);
+                let next_value = next_value.unwrap_or(PercentageValue::new(100.0));
+                let increase = (next_value.get() - last_stop.get()) / (next_count as f32);
                 increase_stop_cnt = Some(increase);
                 if next_count == 1 && (color_stop_len - i) == 1 {
                     next[0].offset = Some(last_stop);
                 } else {
                     if i == 0 {
-                        next[0].offset = Some(0.0);
+                        next[0].offset = Some(PercentageValue::new(0.0));
                     } else {
                         next[0].offset = Some(last_stop);
                         // last_stop += increase;
@@ -1739,7 +1825,7 @@ fn parse_css_background<'a>(input: &'a str)
 /// However, this allows the `Css` struct to be independent
 /// of the original source text, i.e. the original CSS string
 /// can be deallocated after successfully parsing it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CssImageId(pub(crate) String);
 
 impl<'a> From<QuoteStripped<'a>> for CssImageId {
@@ -1748,7 +1834,7 @@ impl<'a> From<QuoteStripped<'a>> for CssImageId {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str);
 
 fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
@@ -1801,10 +1887,10 @@ impl_display!{ CssGradientStopParseError<'a>, {
     ColorParseError(e) => format!("{}", e),
 }}
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Hash)]
 pub struct GradientStopPre {
-    pub offset: Option<f32>, // this is set to None if there was no offset that could be parsed
-    pub color: ColorF,
+    pub offset: Option<PercentageValue>, // this is set to None if there was no offset that could be parsed
+    pub color: ColorU,
 }
 
 // parses "red" , "red 5%"
@@ -1813,7 +1899,7 @@ fn parse_gradient_stop<'a>(input: &'a str)
 {
     let mut input_iter = input.split_whitespace();
     let first_item = input_iter.next().ok_or(CssGradientStopParseError::Error(input))?;
-    let color = ColorF::from(parse_css_color(first_item).map_err(|e| CssGradientStopParseError::ColorParseError(e))?);
+    let color = parse_css_color(first_item).map_err(|e| CssGradientStopParseError::ColorParseError(e))?;
     let second_item = match input_iter.next() {
         None => return Ok(GradientStopPre { offset: None, color: color }),
         Some(s) => s,
@@ -1824,14 +1910,14 @@ fn parse_gradient_stop<'a>(input: &'a str)
 
 // parses "5%" -> 5
 fn parse_percentage(input: &str)
--> Option<f32>
+-> Option<PercentageValue>
 {
     let mut input_iter = input.rsplitn(2, '%');
     let perc = input_iter.next();
     if perc.is_none() {
         None
     } else {
-        input_iter.next()?.parse::<f32>().ok()
+        Some(PercentageValue::new(input_iter.next()?.parse::<f32>().ok()?))
     }
 }
 
@@ -1889,9 +1975,21 @@ fn parse_direction<'a>(input: &'a str)
 
     if let Some(angle_type) = angle {
         match angle_type {
-            AngleType::Deg => { return Ok(Direction::Angle(first_input.split("deg").next().unwrap().parse::<f32>()?)); }
-            AngleType::Rad => { return Ok(Direction::Angle(first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 * PI)); }
-            AngleType::Gon => { return Ok(Direction::Angle(first_input.split("grad").next().unwrap().parse::<f32>()?  / 400.0 * 360.0)); }
+            AngleType::Deg => {
+                return Ok(Direction::Angle(FloatValue::new(
+                    first_input.split("deg").next().unwrap().parse::<f32>()?
+                )));
+            },
+            AngleType::Rad => {
+                return Ok(Direction::Angle(FloatValue::new(
+                    first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 * PI
+                )));
+            },
+            AngleType::Gon => {
+                return Ok(Direction::Angle(FloatValue::new(
+                    first_input.split("grad").next().unwrap().parse::<f32>()? / 400.0 * 360.0
+                )));
+            },
         }
     }
 
@@ -1955,46 +2053,46 @@ impl_display!{CssShapeParseError<'a>, {
 }}
 
 /// Represents a parsed CSS `width` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutWidth(pub PixelValue);
 /// Represents a parsed CSS `min-width` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMinWidth(pub PixelValue);
 /// Represents a parsed CSS `max-width` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMaxWidth(pub PixelValue);
 /// Represents a parsed CSS `height` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutHeight(pub PixelValue);
 /// Represents a parsed CSS `min-height` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMinHeight(pub PixelValue);
 /// Represents a parsed CSS `max-height` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMaxHeight(pub PixelValue);
 
 /// Represents a parsed CSS `top` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutTop(pub PixelValue);
 /// Represents a parsed CSS `left` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutLeft(pub PixelValue);
 /// Represents a parsed CSS `right` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutRight(pub PixelValue);
 /// Represents a parsed CSS `bottom` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutBottom(pub PixelValue);
 
 /// Represents a parsed CSS `flex-grow` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct LayoutFlexGrow(pub f32);
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub struct LayoutFlexGrow(pub FloatValue);
 /// Represents a parsed CSS `flex-shrink` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct LayoutFlexShrink(pub f32);
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub struct LayoutFlexShrink(pub FloatValue);
 
 /// Represents a parsed CSS `flex-direction` attribute - default: `Column`
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutDirection {
     Row,
     RowReverse,
@@ -2003,16 +2101,16 @@ pub enum LayoutDirection {
 }
 
 /// Represents a parsed CSS `line-height` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct StyleLineHeight(pub PercentageValue);
 /// Represents a parsed CSS `letter-spacing` attribute
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct StyleLetterSpacing(pub PixelValue);
 
 /// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
 /// makes decisions based on horizontal / vertical direction easier to write.
 /// Use `LayoutDirection::get_axis()` to get the axis for a given `LayoutDirection`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutAxis {
     Horizontal,
     Vertical,
@@ -2036,7 +2134,7 @@ impl LayoutDirection {
 /// Represents a parsed CSS `position` attribute - default: `Static`
 ///
 /// NOTE: No inline positioning is supported.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutPosition {
     Static,
     Relative,
@@ -2056,7 +2154,7 @@ impl Default for LayoutDirection {
 }
 
 /// Represents a parsed CSS `flex-wrap` attribute - default: `Wrap`
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutWrap {
     Wrap,
     NoWrap,
@@ -2069,7 +2167,7 @@ impl Default for LayoutWrap {
 }
 
 /// Represents a parsed CSS `justify-content` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutJustifyContent {
     /// Default value. Items are positioned at the beginning of the container
     Start,
@@ -2090,7 +2188,7 @@ impl Default for LayoutJustifyContent {
 }
 
 /// Represents a parsed CSS `align-items` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutAlignItems {
     /// Items are stretched to fit the container
     Stretch,
@@ -2109,7 +2207,7 @@ impl Default for LayoutAlignItems {
 }
 
 /// Represents a parsed CSS `align-content` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutAlignContent {
     /// Default value. Lines stretch to take up the remaining space
     Stretch,
@@ -2130,7 +2228,7 @@ pub enum LayoutAlignContent {
 /// NOTE: This is split into `NotModified` and `Modified`
 /// in order to be able to "merge" `overflow-x` and `overflow-y`
 /// into one property.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TextOverflowBehaviour {
     NotModified,
     Modified(TextOverflowBehaviourInner),
@@ -2144,7 +2242,7 @@ impl Default for TextOverflowBehaviour {
 
 /// Represents a parsed CSS `overflow-x` or `overflow-y` property, see
 /// [`TextOverflowBehaviour`](./struct.TextOverflowBehaviour.html) - default: `Auto`
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TextOverflowBehaviourInner {
     /// Always shows a scroll bar, overflows on scroll
     Scroll,
@@ -2163,7 +2261,7 @@ impl Default for TextOverflowBehaviourInner {
 }
 
 /// Horizontal text alignment enum (left, center, right) - default: `Center`
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StyleTextAlignmentHorz {
     Left,
     Center,
@@ -2177,7 +2275,7 @@ impl Default for StyleTextAlignmentHorz {
 }
 
 /// Vertical text alignment enum (top, center, bottom) - default: `Center`
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StyleTextAlignmentVert {
     Top,
     Center,
@@ -2192,7 +2290,7 @@ impl Default for StyleTextAlignmentVert {
 
 /// Stylistic options of the rectangle that don't influence the layout
 /// (todo: border-box?)
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq, Hash)]
 pub(crate) struct RectStyle {
     /// Background color of this rectangle
     pub(crate) background_color: Option<StyleBackgroundColor>,
@@ -2221,9 +2319,10 @@ pub(crate) struct RectStyle {
 }
 
 typed_pixel_value_parser!(parse_css_letter_spacing, StyleLetterSpacing);
+impl_pixel_value!(StyleLetterSpacing);
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
-#[derive(Default, Debug, Copy, Clone, PartialEq)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]
 pub struct RectLayout {
 
     pub width: Option<LayoutWidth>,
@@ -2252,16 +2351,27 @@ pub struct RectLayout {
 }
 
 typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
+impl_pixel_value!(LayoutWidth);
 typed_pixel_value_parser!(parse_layout_height, LayoutHeight);
+
+impl_pixel_value!(LayoutHeight);
 typed_pixel_value_parser!(parse_layout_min_height, LayoutMinHeight);
+impl_pixel_value!(LayoutMinHeight);
 typed_pixel_value_parser!(parse_layout_min_width, LayoutMinWidth);
+impl_pixel_value!(LayoutMinWidth);
 typed_pixel_value_parser!(parse_layout_max_width, LayoutMaxWidth);
+impl_pixel_value!(LayoutMaxWidth);
 typed_pixel_value_parser!(parse_layout_max_height, LayoutMaxHeight);
+impl_pixel_value!(LayoutMaxHeight);
 
 typed_pixel_value_parser!(parse_layout_top, LayoutTop);
+impl_pixel_value!(LayoutTop);
 typed_pixel_value_parser!(parse_layout_bottom, LayoutBottom);
+impl_pixel_value!(LayoutBottom);
 typed_pixel_value_parser!(parse_layout_right, LayoutRight);
+impl_pixel_value!(LayoutRight);
 typed_pixel_value_parser!(parse_layout_left, LayoutLeft);
+impl_pixel_value!(LayoutLeft);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlexGrowParseError<'a> {
@@ -2302,32 +2412,18 @@ fn parse_css_line_height(input: &str)
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct StyleFontSize(pub(crate) PixelValue);
+pub struct StyleFontSize(pub PixelValue);
 
 typed_pixel_value_parser!(parse_css_font_size, StyleFontSize);
+impl_pixel_value!(StyleFontSize);
 
 impl StyleFontSize {
-    /// Creates the font size in pixel
-    pub fn px(value: f32) -> Self {
-        StyleFontSize(PixelValue::px(value))
-    }
-
-    /// Creates the font size in em
-    pub fn em(value: f32) -> Self {
-        StyleFontSize(PixelValue::em(value))
-    }
-
-    /// Creates the font size in point (pt)
-    pub fn pt(value: f32) -> Self {
-        StyleFontSize(PixelValue::pt(value))
-    }
-
     pub fn to_pixels(&self) -> f32 {
         self.0.to_pixels()
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Hash)]
 pub struct StyleFontFamily {
     // parsed fonts, in order, i.e. "Webly Sleeky UI", "monospace", etc.
     pub(crate) fonts: Vec<FontId>

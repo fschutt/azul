@@ -467,6 +467,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>)
 {
     use text_layout::{TextOverflow, TextSizePx};
+    use webrender::api::BorderRadius;
 
     let DisplayListParametersRef {
         render_api, parsed_css, ui_description, display_rectangle_arena
@@ -488,7 +489,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
         let region = ComplexClipRegion {
             rect: bounds,
-            radii: border_radius,
+            radii: border_radius.into(),
             mode: ClipMode::Clip,
         };
         Some(referenced_mutable_content.builder.define_clip(bounds, vec![region], None))
@@ -556,7 +557,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         let text_clip_region_id = rect.layout.padding.and_then(|_|
             Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
                 rect: text_bounds,
-                radii: StyleBorderRadius::zero(),
+                radii: BorderRadius::zero(),
                 mode: ClipMode::Clip,
             }], None))
         );
@@ -952,7 +953,7 @@ fn push_triangle(
     direction: TriangleDirection)
 {
     use self::TriangleDirection::*;
-    use webrender::api::LayoutSideOffsets;
+    use webrender::api::{LayoutSideOffsets, BorderRadius};
 
     // see: https://css-tricks.com/snippets/css/css-triangle/
     // uses the "3d effect" for making a triangle
@@ -999,7 +1000,7 @@ fn push_triangle(
         right:  BorderSide { color: b_right.0.into(),        style: b_right.1  },
         top:    BorderSide { color: b_top.0.into(),          style: b_top.1    },
         bottom: BorderSide { color: b_bottom.0.into(),       style: b_bottom.1 },
-        radius: StyleBorderRadius::zero(),
+        radius: BorderRadius::zero(),
         do_aa: true,
     });
 
@@ -1035,6 +1036,8 @@ fn push_box_shadow(
         clip_rect: LayoutRect,
         shadow_type: BoxShadowClipMode)
     {
+        use webrender::api::LayoutVector2D;
+
         let pre_shadow = match pre_shadow {
             None => return,
             Some(ref s) => s,
@@ -1067,9 +1070,16 @@ fn push_box_shadow(
         }
 
         let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-        builder.push_box_shadow(&info, *bounds, pre_shadow.offset, apply_gamma(pre_shadow.color),
-                                 pre_shadow.blur_radius, pre_shadow.spread_radius,
-                                 border_radius, pre_shadow.clip_mode);
+        builder.push_box_shadow(
+            &info,
+            *bounds,
+            LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
+            apply_gamma(pre_shadow.color.into()),
+            pre_shadow.blur_radius.to_pixels(),
+            pre_shadow.spread_radius.to_pixels(),
+            border_radius.into(),
+            pre_shadow.clip_mode
+        );
     }
 
     fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: &LayoutRect) -> LayoutRect {
@@ -1082,9 +1092,9 @@ fn push_box_shadow(
             // calculate the maximum extent of the outset shadow
             let mut clip_rect = *bounds;
 
-            let origin_displace = (pre_shadow.spread_radius + pre_shadow.blur_radius) * 2.0;
-            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset.x - origin_displace;
-            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset.y - origin_displace;
+            let origin_displace = (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
+            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
+            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
 
             clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
             clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
@@ -1104,7 +1114,7 @@ fn push_box_shadow(
             right: &Option<Option<BoxShadowPreDisplayItem>>,
     ) {
         let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
-        let origin_displace = (current_shadow.spread_radius + current_shadow.blur_radius) * 2.0;
+        let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
 
         let mut shadow_bounds = *bounds;
         let mut clip_rect = *bounds;
@@ -1239,8 +1249,8 @@ fn push_background(
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
-                    offset: gradient_pre.offset.unwrap(),
-                    color: gradient_pre.color,
+                    offset: gradient_pre.offset.unwrap().get(),
+                    color: gradient_pre.color.into(),
                 }).collect();
 
             let center = bounds.center();
@@ -1260,8 +1270,8 @@ fn push_background(
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
-                    offset: gradient_pre.offset.unwrap() / 100.0,
-                    color: gradient_pre.color,
+                    offset: gradient_pre.offset.unwrap().get() / 100.0,
+                    color: gradient_pre.color.into(),
                 }).collect();
 
             let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&bounds);
