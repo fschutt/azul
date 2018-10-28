@@ -1,7 +1,6 @@
 extern crate azul;
 
 use azul::prelude::*;
-use std::collections::BTreeSet;
 
 struct List {
     items: Vec<&'static str>,
@@ -12,13 +11,11 @@ const CUSTOM_CSS: &str = ".selected { background-color: black; color: white; }";
 
 impl Layout for List {
     fn layout(&self, _: WindowInfo<Self>) -> Dom<Self> {
-        let mut set = BTreeSet::new();
-        set.insert(On::MouseDown);
         self.items.iter().enumerate().map(|(idx, item)| {
             NodeData {
                 node_type: NodeType::Label(item.to_string()),
                 classes: if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] },
-                force_enable_hit_test: set.clone(),
+                force_enable_hit_test: vec![On::MouseDown],
                 .. Default::default()
             }
         }).collect::<Dom<Self>>()
