@@ -578,7 +578,7 @@ pub(crate) fn split_text_into_words<'a>(text: &str, font: &Font<'a>, font_size: 
                         font_size.0 // px
                     }
                     + letter_spacing_px
-                    + kerning_adjust;
+                    - kerning_adjust;
 
                 let word_caret_saved = word_caret;
 

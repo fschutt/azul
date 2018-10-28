@@ -847,11 +847,11 @@ fn push_text(
         scrollbar_info
     );
 
+    // WARNING: Do not enable FontInstanceFlags::FONT_SMOOTHING or FontInstanceFlags::FORCE_AUTOHINT -
+    // they seem to interfere with the text layout thereby messing with the actual text layout.
     let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
-    flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
-    flags.set(FontInstanceFlags::FORCE_AUTOHINT, true);
     flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
     let options = GlyphOptions {
