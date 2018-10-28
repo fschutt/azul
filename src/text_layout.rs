@@ -373,7 +373,7 @@ impl FontMetrics {
     /// which are later used to layout a block of text
     pub fn new<'a>(font: &Font<'a>, font_size: &StyleFontSize, layout_options: &TextLayoutOptions) -> Self {
         let font_size_no_line_height = TextSizePx(font_size.0.to_pixels());
-        let line_height = layout_options.line_height.and_then(|lh| Some(lh.0.number)).unwrap_or(1.0);
+        let line_height = layout_options.line_height.and_then(|lh| Some(lh.0.get())).unwrap_or(1.0);
         let font_size_with_line_height = font_size_no_line_height * line_height;
 
         let space_glyph = font.glyph(' ').scaled(font_size_no_line_height.to_rusttype_scale());

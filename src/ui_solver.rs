@@ -454,7 +454,7 @@ impl Arena<$struct_name> {
                     .map(|child_id|
                             // Prevent flex-grow and flex-shrink to be less than 1
                             arena[*child_id].data.flex_grow
-                                .and_then(|grow| Some(grow.0.max(1.0)))
+                                .and_then(|grow| Some(grow.0.get().max(1.0)))
                                 .unwrap_or(DEFAULT_FLEX_GROW_FACTOR))
                     .sum();
 
@@ -462,7 +462,7 @@ impl Arena<$struct_name> {
                 for variable_child_id in &variable_width_childs {
 
                     let flex_grow = arena[*variable_child_id].data.flex_grow
-                        .and_then(|grow| Some(grow.0.max(1.0)))
+                        .and_then(|grow| Some(grow.0.get().max(1.0)))
                         .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
 
                     let added_space_for_one_child = total_horizontal_space_available * (flex_grow / children_combined_flex_grow);

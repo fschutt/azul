@@ -20,6 +20,7 @@ use {
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
     text_layout::{Words, FontMetrics, TextSizePx},
+    css_parser::ParsedCssProperty,
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -383,10 +384,26 @@ pub struct NodeData<T: Layout> {
     /// to this node.
     ///
     /// This is only important if this node has any default callbacks.
-    pub default_callback_ids: BTreeMap<On, DefaultCallbackId>,
+    pub default_callback_ids: Vec<(On, DefaultCallbackId)>,
     /// Force this DOM node to be part of the hit-testing although it may have no
     /// callbacks attached. Default: `BTreeSet::new()`.
-    pub force_enable_hit_test: BTreeSet<On>,
+    pub force_enable_hit_test: Vec<On>,
+    /// Override certain dynamic styling properties in this frame. For this,
+    /// these properties have to have a name (the ID).
+    ///
+    /// For example, in the CSS stylesheet:
+    ///
+    /// ```css,ignore
+    /// #my_item { width: [[ my_custom_width | 200px ]] }
+    /// ```
+    ///
+    /// ```rust,ignore
+    /// let node = NodeData {
+    ///     id: Some("my_item".into()),
+    ///     dynamic_css_overrides: vec![("my_custom_width".into(), ParsedCssProperty::Width(LayoutWidth::px(500.0)))]
+    /// }
+    /// ```
+    pub dynamic_css_overrides: Vec<(String, ParsedCssProperty)>
 }
 
 impl<T: Layout> PartialEq for NodeData<T> {
@@ -396,7 +413,8 @@ impl<T: Layout> PartialEq for NodeData<T> {
         self.classes == other.classes &&
         self.events == other.events &&
         self.default_callback_ids == other.default_callback_ids &&
-        self.force_enable_hit_test == other.force_enable_hit_test
+        self.force_enable_hit_test == other.force_enable_hit_test &&
+        self.dynamic_css_overrides == other.dynamic_css_overrides
     }
 }
 
@@ -409,8 +427,9 @@ impl<T: Layout> Default for NodeData<T> {
             id: None,
             classes: Vec::new(),
             events: CallbackList::default(),
-            default_callback_ids: BTreeMap::new(),
-            force_enable_hit_test: BTreeSet::new(),
+            default_callback_ids: Vec::new(),
+            force_enable_hit_test: Vec::new(),
+            dynamic_css_overrides: Vec::new(),
         }
     }
 }
@@ -427,6 +446,9 @@ impl<T: Layout> Hash for NodeData<T> {
         }
         self.events.hash(state);
         self.force_enable_hit_test.hash(state);
+        for override_property in &self.dynamic_css_overrides {
+            override_property.hash(state);
+        }
     }
 }
 
@@ -439,6 +461,7 @@ impl<T: Layout> Clone for NodeData<T> {
             events: self.events.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
             force_enable_hit_test: self.force_enable_hit_test.clone(),
+            dynamic_css_overrides: self.dynamic_css_overrides.clone(),
         }
     }
 }
@@ -464,13 +487,15 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tevents: {:?}, \
                 \tdefault_callback_ids: {:?}, \
                 \tforce_enable_hit_test: {:?}, \
+                \tdynamic_css_overrides: {:?}, \
             }}",
         self.node_type,
         self.id,
         self.classes,
         self.events,
         self.default_callback_ids,
-        self.force_enable_hit_test)
+        self.force_enable_hit_test,
+        self.dynamic_css_overrides)
     }
 }
 
@@ -780,7 +805,7 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn push_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
-        self.arena.borrow_mut()[self.head].data.default_callback_ids.insert(on, id);
+        self.arena.borrow_mut()[self.head].data.default_callback_ids.push((on, id));
     }
 
     /// Prints a debug formatted version of the DOM for easier debugging
@@ -793,7 +818,7 @@ impl<T: Layout> Dom<T> {
     /// two-way data binding tutorial on why this is useful (last section)
     #[inline]
     pub fn enable_hit_testing(&mut self, when_to_hit_test: On) {
-        self.arena.borrow_mut()[self.head].data.force_enable_hit_test.insert(when_to_hit_test);
+        self.arena.borrow_mut()[self.head].data.force_enable_hit_test.push(when_to_hit_test);
     }
 
     pub(crate) fn collect_callbacks(
@@ -820,7 +845,7 @@ impl<T: Layout> Dom<T> {
 
             if !item.data.default_callback_ids.is_empty() {
                 let tag_id = node_tag_id.unwrap_or(new_tag_id());
-                tag_ids_to_default_callback_list.insert(tag_id, item.data.default_callback_ids.clone());
+                tag_ids_to_default_callback_list.insert(tag_id, item.data.default_callback_ids.iter().cloned().collect());
                 node_tag_id = Some(tag_id);
             }
 
@@ -828,7 +853,7 @@ impl<T: Layout> Dom<T> {
             // callbacks attached themselves, but their parents need them to be hit-tested
             if !item.data.force_enable_hit_test.is_empty() {
                 let tag_id = node_tag_id.unwrap_or(new_tag_id());
-                tag_ids_to_noop_callbacks.insert(tag_id, item.data.force_enable_hit_test.clone());
+                tag_ids_to_noop_callbacks.insert(tag_id, item.data.force_enable_hit_test.iter().cloned().collect());
                 node_tag_id = Some(tag_id);
             }
 
