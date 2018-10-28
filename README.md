@@ -37,7 +37,9 @@ following points:
 Here is what a Hello World application in Azul looks like:
 
 ```rust
-use azul::{prelude::*, widgets::*};
+extern crate azul;
+
+use azul::{prelude::*, widgets::{label::Label, button::Button}};
 
 struct DataModel {
     counter: usize,
