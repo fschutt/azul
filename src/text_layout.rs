@@ -821,12 +821,16 @@ fn words_to_left_aligned_glyphs<'a>(
                 }
 
                 for glyph in &word.glyphs {
+                    use css_parser::PT_TO_PX;
+
                     // vertical_advance is in px
                     let mut new_glyph = *glyph;
                     let push_x = word_caret;
                     let push_y = (current_line_num + 1) as f32 * vertical_advance.0;
+
                     new_glyph.point.x += push_x;
-                    new_glyph.point.y += push_y;
+                    new_glyph.point.y += push_y / PT_TO_PX; // note: new_glyph.point seems to be in pt, not px!
+
                     left_aligned_glyphs.push(new_glyph);
                 }
 
@@ -901,8 +905,11 @@ fn apply_knuth_plass_adjustments(positioned_glyphs: &mut [GlyphInstance], knuth_
     // TODO
 }
 
-fn align_text_horz(alignment: StyleTextAlignmentHorz, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)])
-{
+fn align_text_horz(
+    alignment: StyleTextAlignmentHorz,
+    glyphs: &mut [GlyphInstance],
+    line_breaks: &[(usize, f32)]
+) {
     use css_parser::StyleTextAlignmentHorz::*;
 
     // Text alignment is theoretically very simple:
@@ -977,10 +984,16 @@ fn align_text_horz(alignment: StyleTextAlignmentHorz, glyphs: &mut [GlyphInstanc
     }
 }
 
-fn align_text_vert(font_metrics: &FontMetrics, alignment: StyleTextAlignmentVert, glyphs: &mut [GlyphInstance], line_breaks: &[(usize, f32)], overflow: &TextOverflowPass2) {
-
+fn align_text_vert(
+    font_metrics: &FontMetrics,
+    alignment: StyleTextAlignmentVert,
+    glyphs: &mut [GlyphInstance],
+    line_breaks: &[(usize, f32)],
+    overflow: &TextOverflowPass2)
+{
     use self::TextOverflow::*;
     use self::StyleTextAlignmentVert::*;
+    // use css_parser::PT_TO_PX;
 
     // Die if we have a line break at a position bigger than the position of the last glyph, because something went horribly wrong!
     // The next unwrap is always safe as line_breaks will have a minimum of one entry!
@@ -997,7 +1010,7 @@ fn align_text_vert(font_metrics: &FontMetrics, alignment: StyleTextAlignmentVert
         InBounds(remaining_space_px) => {
             // Total text height (including last leading!)
             // All metrics in pixels
-            (remaining_space_px * multiply_factor) - (font_metrics.vertical_advance * multiply_factor)
+            (remaining_space_px * multiply_factor) /* - (font_metrics.vertical_advance * multiply_factor) */
         },
     };
 
