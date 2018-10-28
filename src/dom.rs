@@ -270,6 +270,11 @@ impl<T: Layout> PartialEq for NodeType<T> {
 impl<T: Layout> Eq for NodeType<T> { }
 
 impl<T: Layout> NodeType<T> {
+
+    pub fn label<S: Into<String>>(value: S) -> Self {
+        NodeType::Label(value.into())
+    }
+
     pub(crate) fn get_css_id(&self) -> &'static str {
         use self::NodeType::*;
         match self {

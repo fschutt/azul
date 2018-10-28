@@ -119,3 +119,7 @@ required-features = []
 [[example]]
 name = "list"
 required-features = []
+
+[[example]]
+name = "calculator"
+required-features = []
