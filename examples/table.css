@@ -33,6 +33,7 @@
     font-family: sans-serif;
     color: black;
     text-align: left;
+    align-items: flex-start;
     font-size: 14px;
     border-bottom: 1px solid #d1d1d1;
     height: 20px;
