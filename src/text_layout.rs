@@ -70,7 +70,7 @@ impl TextSizePx {
 ///
 /// This is important for calculating metrics such as the minimal
 /// bounding box of a block of text, for example - without actually
-/// acessing the font at all.
+/// accessing the font at all.
 ///
 /// Be careful when caching this - the `Words` are independent of the
 /// original font, so be sure to note the font ID if you cache this struct.
@@ -263,7 +263,7 @@ pub struct FontMetrics {
 /// - `font_size`: The font size (without line height)
 /// - `text_layout_options`: Contains options for text layout, such as letter spacing, line height +
 ///    horizontal and vertical alignment
-/// - `text`: The actual text to layout. Will be unicode-normalized after the Unicode Normalization Form C
+/// - `text`: The actual text to layout. Will be Unicode-normalized after the Unicode Normalization Form C
 ///   (canonical decomposition followed by canonical composition).
 /// - `overflow`: If the scrollbars should be show, parsed from the `overflow-{x / y}` fields
 /// - `scrollbar_info`: Mostly used to reserve space for the scrollbar, if necessary.
@@ -779,7 +779,7 @@ fn words_to_left_aligned_glyphs<'a>(
         NoMaxWidth(f32),
     }
 
-    // The line break offsets (neded for center- / right-aligned text contains:
+    // The line break offsets (needed for center- / right-aligned text contains:
     //
     // - The index of the glyph at which the line breaks
     // - How much space each line has (to the right edge of the containing rectangle)
@@ -845,7 +845,7 @@ fn words_to_left_aligned_glyphs<'a>(
                 word_caret += tab_width.0 + letter_spacing;
             },
             Return => {
-                // TODO: dupliated code
+                // TODO: duplicated code
                 let space_until_horz_return = match max_horizontal_width {
                     Some(s) => WordCaretMax::SomeMaxWidth(s - word_caret),
                     None => WordCaretMax::NoMaxWidth(word_caret),
@@ -1067,7 +1067,7 @@ pub fn layout_text<'a>(
 -> LayoutTextResult
 {
     // NOTE: This function is different from the get_glyphs function that is
-    // used internally to azul.
+    // used internally to Azul.
     //
     // This function simply lays out a text, without trying to fit it into a rectangle.
     // This function does not calculate any overflow.

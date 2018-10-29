@@ -21,7 +21,7 @@ pub struct KeyboardState
 {
     // Modifier keys that are currently actively pressed during this frame
     //
-    // Note: These are tracked seperately by glium to prevent missing state changes
+    // Note: These are tracked separately by glium to prevent missing state changes
     // when the window isn't focused
 
     /// Shift key
@@ -155,7 +155,7 @@ pub struct WindowState {
     pub(crate) keyboard_state: KeyboardState,
     /// The state of the mouse
     pub(crate) mouse_state: MouseState,
-    /// Mostly used for debugging, shows webrender-builtin graphs on the screen.
+    /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
     /// Used for performance monitoring and displaying frame times (rendering-only).
     pub debug_state: DebugState,
     /// Previous window state, used for determining mouseout, etc. events
