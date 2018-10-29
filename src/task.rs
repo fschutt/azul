@@ -10,7 +10,7 @@ pub struct Task<T> {
     // Task is in progress
     join_handle: Option<JoinHandle<()>>,
     dropcheck: Weak<()>,
-    /// Deamons that run directly after completion of this task
+    /// Daemons that run directly after completion of this task
     pub(crate) after_completion_daemons: Vec<Daemon<T>>
 }
 

@@ -4,8 +4,9 @@
 //!
 //! Changes in the DOM can happen in three ways:
 //!
-//! - An element changes its content An element is pushed as a child The order / childs of an element
-//! - are restructured
+//! - An element changes its content
+//! - An element is pushed as a child
+//! - The order / children of an element are restructured
 //!
 //! In order for the caching to be effective, we need to solve the  problem of only adding
 //! EditVariable-s if needed. In order to do that, we need two elements for each DOM node:
@@ -115,7 +116,7 @@ impl DomTreeCache {
                     changeset.added_nodes.insert(NodeId::new(next_idx), next_hash.data);
                 }
             } else {
-                // println!("chrildren: no old hash, but subtree has to be added: {:?}!", new_next_id);
+                // println!("children: no old hash, but subtree has to be added: {:?}!", new_next_id);
                 changeset.added_nodes.insert(NodeId::new(next_idx), next_hash.data);
             }
         }
