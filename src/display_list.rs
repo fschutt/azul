@@ -51,7 +51,7 @@ impl<'a, T: Layout + 'a> fmt::Debug for DisplayList<'a, T> {
 pub(crate) struct DisplayRectangle<'a> {
     /// `Some(id)` if this rectangle has a callback attached to it
     /// Note: this is not the same as the `NodeId`!
-    /// These two are completely seperate numbers!
+    /// These two are completely separate numbers!
     pub tag: Option<u64>,
     /// The original styled node
     pub(crate) styled_node: &'a StyledNode,
@@ -781,7 +781,7 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
     /// The app resources, so that a sub-DOM / iframe can register fonts and images
     /// TODO: How to handle cleanup ???
     pub app_resources: &'a mut AppResources,
-    /// If new fonts or other stuff are created, we need to tell webrender about this
+    /// If new fonts or other stuff are created, we need to tell WebRender about this
     pub resource_updates: &'a mut Vec<ResourceUpdate>,
     /// Window access, so that sub-items can register OpenGL textures
     pub fake_window: &'a mut FakeWindow<T>,

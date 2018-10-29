@@ -311,7 +311,7 @@ impl<T: Layout> Default for WindowCreateOptions<T> {
 }
 
 /// Force a specific renderer.
-/// By default, azul will try to use the hardware renderer and fall
+/// By default, Azul will try to use the hardware renderer and fall
 /// back to the software renderer if it can't create an OpenGL 3.2 context.
 /// However, in some cases a hardware renderer might create problems
 /// or you want to force either a software or hardware renderer.
@@ -392,7 +392,7 @@ impl Default for MouseMode {
 /// Error that could happen during window creation
 #[derive(Debug)]
 pub enum WindowCreateError {
-    /// WebGl is not supported by webrender
+    /// WebGl is not supported by WebRender
     WebGlNotSupported,
     /// Couldn't create the display from the window and the EventsLoop
     DisplayCreateError(DisplayCreationError),
@@ -406,7 +406,7 @@ pub enum WindowCreateError {
     SwapBuffers(::glium::SwapBuffersError),
     /// IO error
     Io(::std::io::Error),
-    /// Webrender creation error (probably OpenGL missing?)
+    /// WebRender creation error (probably OpenGL missing?)
     Renderer/*(RendererError)*/,
 }
 
@@ -419,7 +419,7 @@ impl_display! {
         CreateError(e) => format!("{}", e),
         SwapBuffers(e) => format!("{}", e),
         Io(e) => format!("{}", e),
-        WebGlNotSupported => "WebGl is not supported by webrender",
+        WebGlNotSupported => "WebGl is not supported by WebRender",
         Renderer => "Webrender creation error (probably OpenGL missing?)",
     }
 }
@@ -514,7 +514,7 @@ pub struct Window<T: Layout> {
     ///
     /// This field is initialized from the `WindowCreateOptions`.
     pub(crate) state: WindowState,
-    /// The webrender renderer
+    /// The WebRender renderer
     pub(crate) renderer: Option<Renderer>,
     /// The display, i.e. the window
     pub(crate) display: Rc<Display>,
@@ -884,7 +884,7 @@ impl<T: Layout> Window<T> {
 
     /// Note: currently scrolling is only done in the vertical direction
     ///
-    /// Updating the scroll amound does not update the `entry.used_this_frame`,
+    /// Updating the scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
     pub(crate) fn scroll_node(&mut self, dom_hash: &DomHash, scroll_by: f32) {
         if let Some(entry) = self.scroll_states.get_mut(dom_hash) {

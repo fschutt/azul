@@ -698,7 +698,7 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
     }
 
     UiDescription {
-        // note: this clone is neccessary, otherwise,
+        // note: this clone is necessary, otherwise,
         // we wouldn't be able to update the UiState
         //
         // WARNING: The UIState can modify the `arena` with its copy of the Rc !

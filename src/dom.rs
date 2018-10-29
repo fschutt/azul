@@ -185,12 +185,12 @@ pub enum NodeType<T: Layout> {
     Label(String),
     /// Larger amount of text, that has to be cached
     Text(TextId),
-    /// An image that is rendered by webrender. The id is aquired by the
+    /// An image that is rendered by WebRender. The id is acquired by the
     /// `AppState::add_image()` function
     Image(ImageId),
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
     /// Equality and Hash values are only checked by the OpenGl texture ID,
-    /// azul does not check that the contents of two textures are the same
+    /// Azul does not check that the contents of two textures are the same
     GlTexture((GlTextureCallback<T>, StackCheckedPointer<T>)),
     /// DOM that gets passed its width / height during the layout
     IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
@@ -875,7 +875,7 @@ impl<T: Layout> Dom<T> {
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
 ///
 /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-/// when you are done with your OpenGL drawing, otherwise webrender will render
+/// when you are done with your OpenGL drawing, otherwise WebRender will render
 /// to the texture, not the window, so your texture will actually never show up.
 /// If you use a `Texture` and you get a blank screen, this is probably why.
 #[derive(Debug, Clone)]
@@ -895,7 +895,7 @@ impl Texture {
     /// OpenGL drivers point of view.
     ///
     /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-    /// when you are done with your OpenGL drawing, otherwise webrender will render
+    /// when you are done with your OpenGL drawing, otherwise WebRender will render
     /// to the texture instead of the window, so your texture will actually
     /// never show up on the screen, since it is never rendered.
     /// If you use a `Texture` and you get a blank screen, this is probably why.

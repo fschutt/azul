@@ -7,7 +7,7 @@ pub(crate) enum FontState {
     // Font is available for the renderer
     Uploaded(FontKey),
     // Raw bytes for the font, to be uploaded in the next
-    // draw call (for webrenders add_raw_font function)
+    // draw call (for WebRender's add_raw_font function)
     ReadyForUpload(Vec<u8>),
     /// Font that is about to be deleted
     /// We need both the ID (to delete the bytes of the font)
