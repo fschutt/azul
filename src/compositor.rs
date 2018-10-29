@@ -21,7 +21,7 @@ pub fn new_opengl_texture_id() -> usize {
 
 lazy_static! {
     /// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
-    /// as webrender needs it for drawing. To transparently do this, we store the epoch that the
+    /// as WebRender needs it for drawing. To transparently do this, we store the epoch that the
     /// texture was originally created with, and check, **after we have drawn the frame**,
     /// if there are any textures that need cleanup.
     ///
@@ -66,7 +66,7 @@ impl ExternalImageHandler for Compositor {
         let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
 
         // Search all epoch hash maps for the given key
-        // There does not seemt to be a way to get the epoch for the key,
+        // There does not seem to be a way to get the epoch for the key,
         // so we simply have to search all active epochs
         //
         // NOTE: Invalid textures can be generated on minimize / maximize

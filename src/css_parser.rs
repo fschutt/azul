@@ -14,11 +14,11 @@ pub use {
 use webrender::api::{BorderStyle, BorderRadius, BorderSide, LayoutRect};
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;
-/// Webrender measures in points, not in pixels!
+/// WebRender measures in points, not in pixels!
 pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
 
 // In case no font size is specified for a node,
-// this will be subsituted as the default font size
+// this will be substituted as the default font size
 pub(crate) const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
     metric: CssMetric::Px,
     number: 10_000,
@@ -1514,8 +1514,8 @@ impl Direction {
                 let width_half = rect.size.width as usize / 2;
                 let height_half = rect.size.height as usize / 2;
 
-                // hypothenuse_len is the length of the center of the rect to the corners
-                let hypothenuse_len = (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
+                // hypotenuse_len is the length of the center of the rect to the corners
+                let hypotenuse_len = (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
 
                 // clamp the degree to 360 (so 410deg = 50deg)
                 let mut deg = deg % 360.0;
@@ -1552,7 +1552,7 @@ impl Direction {
 
                 // Searched_len is the distance between the center of the rect and the
                 // ending point of the gradient
-                let searched_len = (hypothenuse_len * degree_diff_to_corner.to_radians().cos()).abs();
+                let searched_len = (hypotenuse_len * degree_diff_to_corner.to_radians().cos()).abs();
 
                 // TODO: This searched_len is incorrect...
 
@@ -2543,7 +2543,7 @@ multi_type_parser!(parse_layout_text_align, StyleTextAlignmentHorz,
 /// CssColor is simply a wrapper around the internal CSS color parsing methods.
 ///
 /// Sometimes you'd want to load and parse a CSS color, but you don't want to
-/// write your own parser for that. Since azul already has a parser for CSS colors,
+/// write your own parser for that. Since Azul already has a parser for CSS colors,
 /// this API exposes
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct CssColor {
@@ -2571,7 +2571,7 @@ impl CssColor {
 
     /// If `prefix_hash` is set to false, you only get the string, without a hash, in lowercase
     ///
-    /// If `self.alpha` is `FF`, it wil be omitted from the final result (since `FF` is the default for CSS colors)
+    /// If `self.alpha` is `FF`, it will be omitted from the final result (since `FF` is the default for CSS colors)
     pub fn to_string(&self, prefix_hash: bool) -> String {
         let prefix = if prefix_hash { "#" } else { "" };
         let alpha = if self.internal.a == 255 { String::new() } else { format!("{:02x}", self.internal.a) };

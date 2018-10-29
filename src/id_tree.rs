@@ -29,8 +29,8 @@ mod node_id {
 
     impl NodeId {
         /// **NOTE**: In debug mode, it panics on overflow, since having a
-        /// pointer that is zero is undefined behaviour (it would bascially be
-        /// casted to a `None`), which is incorrect, so we rather panic on overflow
+        /// pointer that is zero is undefined behaviour (it would basically be
+        /// cast to a `None`), which is incorrect, so we rather panic on overflow
         /// to prevent that.
         ///
         /// To trigger an overflow however, you'd need more that 4 billion DOM nodes -
@@ -554,7 +554,7 @@ macro_rules! impl_node_iterator {
     }
 }
 
-/// An linear iterator, does not respec the DOM in any way,
+/// An linear iterator, does not respect the DOM in any way,
 /// it just iterates over the nodes like a Vec
 #[derive(Debug, Copy, Clone)]
 pub struct LinearIterator {
@@ -687,7 +687,7 @@ impl<'a, T> Iterator for Traverse<'a, T> {
 
                                     // `node.parent()` here can only be `None`
                                     // if the tree has been modified during iteration,
-                                    // but silently stoping iteration
+                                    // but silently stopping iteration
                                     // seems a more sensible behavior than panicking.
                                     None => None
                                 }
@@ -733,7 +733,7 @@ impl<'a, T> Iterator for ReverseTraverse<'a, T> {
 
                                     // `node.parent()` here can only be `None`
                                     // if the tree has been modified during iteration,
-                                    // but silently stoping iteration
+                                    // but silently stopping iteration
                                     // seems a more sensible behavior than panicking.
                                     None => None
                                 }

@@ -268,7 +268,7 @@ impl Arena<$struct_name> {
 
             use self::WhConstraint::*;
 
-            // Sum of the direct childrens flex-basis = the parents preferred width
+            // Sum of the direct children's flex-basis = the parents preferred width
             let children_flex_basis = self.sum_children_flex_basis(*non_leaf_id, arena);
 
             // Calculate the new flex-basis width
@@ -358,7 +358,7 @@ impl Arena<$struct_name> {
             // Now we can be sure that if we write #x { width: 500px; } that it will actually be 500px large
             // and not be influenced by flex in any way.
 
-            // 2. Set all items to their minimium width. Record how much space is gained by doing so.
+            // 2. Set all items to their minimum width. Record how much space is gained by doing so.
             let mut horizontal_space_taken_up_by_variable_items = 0.0;
 
             use FastHashSet;
@@ -430,7 +430,7 @@ impl Arena<$struct_name> {
             }
 
             // This satisfies the `width` and `min_width` constraints. However, we still need to worry about
-            // the `max_width` and unconstrained childs
+            // the `max_width` and unconstrained children.
             //
             // By setting the items to their minimum size, we've gained some space that we now need to distribute
             // according to the flex_grow values

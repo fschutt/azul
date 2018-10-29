@@ -134,7 +134,7 @@ Azul features multiple ways of preventing your UI from being blocked, such as
 
 When programming reusable and common UI elements, such as lists, tables or sliders
 you don't want the user having to write code to update the UI state of these widgets.
-Previously, this could only be solved by inheritance, but due to Azuls unique
+Previously, this could only be solved by inheritance, but due to Azul's unique
 architecture, it is possible to create widgets that update themselves purely by
 composition, for example:
 
@@ -187,7 +187,7 @@ positioning), hit-testing texts, caching and an (optional) SVG parsing module.
 While Azul can't help you (yet) with 3D content, it does provide easy ways to hook
 into the OpenGL context of the running application - you can draw everything you
 want to an OpenGL texture, which will then be composited into the frame using
-webrender.
+WebRender.
 
 [Read more about OpenGL drawing ...](https://github.com/maps4print/azul/wiki/OpenGL-drawing)
 
@@ -231,7 +231,7 @@ extremely low memory requirements.
 Several projects have helped severely during the development and should be credited:
 
 - Chris Tollidays [limn](https://github.com/christolliday/limn) framework has helped
-  a lot with discovering undocumented parts of webrender.
+  a lot with discovering undocumented parts of WebRender.
 - Nicolas Silva for his work on [lyon](https://github.com/nical/lyon) - without this,
   the SVG renderer wouldn't have been possible
 

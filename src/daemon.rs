@@ -126,7 +126,7 @@ impl<T> Daemon<T> {
         app_resources: &mut AppResources)
     -> (UpdateScreen, TerminateDaemon)
     {
-        // Check if the deamons timeout is reached
+        // Check if the daemons timeout is reached
         if let Some(max_timeout) = self.max_timeout {
             if Instant::now() - self.created > max_timeout {
                 return (UpdateScreen::DontRedraw, TerminateDaemon::Terminate);
@@ -147,7 +147,7 @@ impl<T> Daemon<T> {
     }
 }
 
-// #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)] for Deamon<T>
+// #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)] for Daemon<T>
 
 impl<T> fmt::Debug for Daemon<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
