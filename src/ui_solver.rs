@@ -255,7 +255,6 @@ impl Arena<$struct_name> {
     /// Bubble the inner sizes to their parents -  on any parent nodes, fill out
     /// the width so that the `preferred_width` can contain the child nodes (if
     /// that doesn't violate the constraints of the parent)
-    #[must_use]
     fn $bubble_fn_name(
         &mut self,
         arena: &Arena<RectLayout>,
