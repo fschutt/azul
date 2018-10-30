@@ -832,13 +832,14 @@ impl<T: Layout> Dom<T> {
         tag_ids_to_default_callback_list: &mut BTreeMap<TagId, BTreeMap<On, DefaultCallbackId>>,
         tag_ids_to_noop_callbacks: &mut BTreeMap<TagId, BTreeSet<On>>,
         node_ids_to_tag_ids: &mut BTreeMap<NodeId, TagId>,
-        tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>)
+        tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>,
+        dynamic_css_overrides: &mut BTreeMap<NodeId, FastHashMap<String, ParsedCssProperty>>)
     {
         let arena = self.arena.borrow();
 
         for node_id in arena.linear_iter() {
 
-            let item = &self.arena.borrow()[node_id];
+            let item = &arena[node_id];
 
             let mut node_tag_id = None;
 
@@ -865,6 +866,11 @@ impl<T: Layout> Dom<T> {
             if let Some(tag_id) = node_tag_id {
                 tag_ids_to_node_ids.insert(tag_id, node_id);
                 node_ids_to_tag_ids.insert(node_id, tag_id);
+            }
+
+            // Collect all the styling overrides into one hash map
+            if !item.data.dynamic_css_overrides.is_empty() {
+                dynamic_css_overrides.insert(node_id, item.data.dynamic_css_overrides.iter().cloned().collect());
             }
         }
 

@@ -26,7 +26,7 @@ use {
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
-    css::{FakeCss, ParsedCss},
+    css::ParsedCss,
     app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
@@ -174,7 +174,6 @@ impl<T: Layout> App<T> {
 
         self.app_state.windows.push(FakeWindow {
             state: window.state.clone(),
-            css: FakeCss::default(),
             default_callbacks: DefaultCallbackSystem::new(),
             read_only_window: window.display.clone(),
         });
@@ -314,7 +313,6 @@ impl<T: Layout> App<T> {
                     ui_description_cache[idx] = UiDescription::from_dom(
                         &ui_state_cache[idx],
                         &parsed_css,
-                        &window.css.dynamic_css_overrides
                     );
 
                     // Send webrender the size and buffer of the display
@@ -785,13 +783,6 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
 
     if should_update_screen == UpdateScreen::Redraw {
         info.should_redraw_window = true;
-        // TODO: THIS IS PROBABLY THE WRONG PLACE TO DO THIS!!!
-        // Copy the current fake CSS changes to the real CSS, then clear the fake CSS again
-        // TODO: .clone() and .clear() can be one operation
-        window.css.dynamic_css_overrides = app_state.windows[window_id.id].css.dynamic_css_overrides.clone();
-        // clear the dynamic CSS overrides
-        app_state.windows[window_id.id].css.clear();
-        app_state.windows[window_id.id].default_callbacks.clear();
     }
 }
 

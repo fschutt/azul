@@ -4,11 +4,8 @@
 use std::io::Error as IoError;
 use std::{
     collections::BTreeMap,
-    ops::{Deref, DerefMut},
 };
 use {
-    FastHashMap,
-    traits::IntoParsedCssProperty,
     css_parser::{ParsedCssProperty, CssParsingError},
     error::CssSyntaxError,
     id_tree::{NodeId, Arena},
@@ -48,73 +45,12 @@ pub struct Css {
     pub hot_reload_override_native: bool,
     /// The CSS rules making up the document
     pub rules: Vec<CssRule>,
-    /// The dynamic properties that have to be overridden for this frame
-    ///
-    /// - `String`: The ID of the dynamic property
-    /// - `ParsedCssProperty`: What to override it with
-    pub dynamic_css_overrides: DynamicCssOverrideList,
     /// Has the CSS changed in a way where it needs a re-layout? - default:
     /// `true` in order to force a re-layout on the first frame
     ///
     /// Ex. if only a background color has changed, we need to redraw, but we
     /// don't need to re-layout the frame.
     pub needs_relayout: bool,
-}
-
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct DynamicCssOverrideList {
-    pub inner: FastHashMap<String, ParsedCssProperty>,
-}
-
-impl Deref for DynamicCssOverrideList {
-    type Target = FastHashMap<String, ParsedCssProperty>;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for DynamicCssOverrideList {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-/// Fake CSS containing the dynamic CSS properties for this frame -
-/// can be changed by the user to override styles if needed
-#[derive(Debug, Default, Clone)]
-pub struct FakeCss {
-    pub dynamic_css_overrides: DynamicCssOverrideList,
-}
-
-impl FakeCss {
-    /// Set a dynamic CSS property for the duration of one frame. You can
-    /// access the dynamic property on a window via `app_state.windows[event.window].css`.
-    ///
-    /// You can set dynamic properties from either a string or directly, however,
-    /// setting them directly avoids re-parsing the string:
-    ///
-    /// ```rust
-    /// # use azul::prelude::*;
-    /// let mut fake_css = FakeCss::default();
-    /// fake_css.set_dynamic_property("my_id", ("width", "500px")).unwrap();
-    /// fake_css.set_dynamic_property("my_id", ParsedCssProperty::Width(LayoutWidth(PixelValue::px(500.0)))).unwrap();
-    /// ```
-    pub fn set_dynamic_property<'a, S, T>(&mut self, id: S, css_value: T)
-    -> Result<(), CssParsingError<'a>>
-    where S: Into<String>,
-          T: IntoParsedCssProperty<'a>,
-    {
-        let value = css_value.into_parsed_css_property()?;
-        self.dynamic_css_overrides.insert(id.into(), value);
-        Ok(())
-    }
-
-    /// Library-internal only: clear the dynamic overrides
-    ///
-    /// Is usually invoked at the end of the frame, to get a clean slate
-    pub(crate) fn clear(&mut self) {
-        self.dynamic_css_overrides.clear();
-    }
 }
 
 /// Error that can happen during the parsing of a CSS value
@@ -262,7 +198,6 @@ impl Css {
             hot_reload_override_native: false,
             rules: Vec::new(),
             needs_relayout: false,
-            dynamic_css_overrides: DynamicCssOverrideList::default(),
         }
     }
 
@@ -376,7 +311,6 @@ impl Css {
             rules: css_rules,
             // force re-layout for the first frame
             needs_relayout: true,
-            dynamic_css_overrides: DynamicCssOverrideList::default(),
         })
     }
 
@@ -399,9 +333,6 @@ impl Css {
     // `other.hot_reload_path`
     pub fn merge(&mut self, mut other: Self) {
         self.rules.append(&mut other.rules);
-        for (id, property) in other.dynamic_css_overrides.inner {
-            self.dynamic_css_overrides.insert(id, property);
-        }
         self.needs_relayout = self.needs_relayout || other.needs_relayout;
 
         #[cfg(debug_assertions)] {
@@ -481,7 +412,6 @@ impl Css {
         };
 
         parsed_css.hot_reload_path = self.hot_reload_path.clone();
-        parsed_css.dynamic_css_overrides = self.dynamic_css_overrides.clone();
         parsed_css.hot_reload_override_native = self.hot_reload_override_native;
 
         *self = parsed_css;
@@ -675,7 +605,6 @@ impl Default for ZIndex { fn default() -> Self { ZIndex(0) }}
 pub(crate) fn match_dom_css_selectors<T: Layout>(
     ui_state: &UiState<T>,
     parsed_css: &ParsedCss,
-    dynamic_css_overrides: &DynamicCssOverrideList,
     parent_z_level: ZIndex)
 -> UiDescription<T>
 {
@@ -708,7 +637,7 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
         ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),
-        dynamic_css_overrides: dynamic_css_overrides.clone(),
+        dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
     }
 }
 

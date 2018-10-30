@@ -3,12 +3,14 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 use {
+    FastHashMap,
     window::{WindowInfo, WindowId},
     traits::Layout,
     dom::{Callback, Dom, On},
     app_state::AppState,
     id_tree::NodeId,
     dom::TagId,
+    css_parser::ParsedCssProperty,
     default_callbacks::DefaultCallbackId,
 };
 
@@ -19,6 +21,8 @@ pub struct UiState<T: Layout> {
     pub tag_ids_to_noop_callbacks: BTreeMap<TagId, BTreeSet<On>>,
     pub node_ids_to_tag_ids: BTreeMap<NodeId, TagId>,
     pub tag_ids_to_node_ids: BTreeMap<TagId, NodeId>,
+    /// The CSS properties that should be overridden for this frame, cloned from the `Css`
+    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, ParsedCssProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {
@@ -91,13 +95,15 @@ impl<T: Layout> UiState<T> {
         let mut tag_ids_to_noop_callbacks = BTreeMap::new();
         let mut node_ids_to_tag_ids = BTreeMap::new();
         let mut tag_ids_to_node_ids = BTreeMap::new();
+        let mut dynamic_css_overrides = BTreeMap::new();
 
         dom.collect_callbacks(
             &mut tag_ids_to_callbacks,
             &mut tag_ids_to_default_callbacks,
             &mut tag_ids_to_noop_callbacks,
             &mut node_ids_to_tag_ids,
-            &mut tag_ids_to_node_ids);
+            &mut tag_ids_to_node_ids,
+            &mut dynamic_css_overrides);
 
         Self {
             dom,
@@ -106,6 +112,7 @@ impl<T: Layout> UiState<T> {
             tag_ids_to_noop_callbacks,
             node_ids_to_tag_ids,
             tag_ids_to_node_ids,
+            dynamic_css_overrides,
         }
     }
 }

@@ -16,7 +16,7 @@ use glium::{
     IncompatibleOpenGl, Display, SwapBuffersError,
     debug::DebugCallbackBehavior,
     glutin::{
-        self, EventsLoop, AvailableMonitorsIter, GlProfile, GlContext, GlWindow, CreationError,
+        self, EventsLoop, AvailableMonitorsIter, GlContext, GlWindow, CreationError,
         MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon,
         dpi::{LogicalSize, PhysicalSize}
     },
@@ -28,7 +28,7 @@ use {
     FastHashMap,
     dom::{Texture, On, Callback},
     daemon::{Daemon, DaemonId},
-    css::{Css, FakeCss},
+    css::Css,
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
     compositor::Compositor,
@@ -52,8 +52,6 @@ impl WindowId {
 /// User-modifiable fake window
 #[derive(Clone)]
 pub struct FakeWindow<T: Layout> {
-    /// The CSS (use this field to override dynamic CSS ids).
-    pub css: FakeCss,
     /// The window state for the next frame
     pub state: WindowState,
     /// The user can push default callbacks in this `DefaultCallbackSystem`,
@@ -184,10 +182,9 @@ impl<T: Layout> fmt::Debug for FakeWindow<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "FakeWindow {{\
-                css: {:?}, \
                 state: {:?}, \
                 read_only_window: Rc<Display>, \
-            }}", self.css, self.state)
+            }}", self.state)
     }
 }
 
