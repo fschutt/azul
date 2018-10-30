@@ -245,7 +245,7 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         }
     }
 
-    pub fn push_callback(
+    pub fn add_callback(
         &mut self,
         callback_id: DefaultCallbackId,
         ptr: StackCheckedPointer<T>,
