@@ -640,12 +640,10 @@ impl<T: Layout> Window<T> {
         }
 
         fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
-            let mut builder = ContextBuilder::new()
-                .with_gl(glutin::GlRequest::GlThenGles {
-                    opengl_version: (3, 2),
-                    opengles_version: (3, 0),
-                })
-                .with_gl_profile(GlProfile::Core);
+            // See #33 - specifying a specific OpenGL version
+            // makes winit crash on older Intel drivers, which is why we
+            // don't specify a specific OpenGL version here
+            let mut builder = ContextBuilder::new();
 
             /*#[cfg(debug_assertions)] {
                 builder = builder.with_gl_debug_flag(true);
