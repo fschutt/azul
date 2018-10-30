@@ -768,14 +768,14 @@ impl<T: Layout> Dom<T> {
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_class<S: Into<String>>(mut self, class: S) -> Self {
-        self.push_class(class);
+        self.add_class(class);
         self
     }
 
     /// Same as `event`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_callback(mut self, on: On, callback: Callback<T>) -> Self {
-        self.push_callback(on, callback);
+        self.add_callback(on, callback);
         self
     }
 
@@ -794,23 +794,34 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
+    pub fn with_css_override<S: Into<String>>(mut self, id: S, property: ParsedCssProperty) -> Self {
+        self.add_css_override(id, property);
+        self
+    }
+
+    #[inline]
     pub fn set_id<S: Into<String>>(&mut self, id: S) {
         self.arena.borrow_mut()[self.head].data.id = Some(id.into());
     }
 
     #[inline]
-    pub fn push_class<S: Into<String>>(&mut self, class: S) {
+    pub fn add_class<S: Into<String>>(&mut self, class: S) {
         self.arena.borrow_mut()[self.head].data.classes.push(class.into());
     }
 
     #[inline]
-    pub fn push_callback(&mut self, on: On, callback: Callback<T>) {
+    pub fn add_callback(&mut self, on: On, callback: Callback<T>) {
         self.arena.borrow_mut()[self.head].data.events.callbacks.insert(on, callback);
     }
 
     #[inline]
-    pub fn push_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
+    pub fn add_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
         self.arena.borrow_mut()[self.head].data.default_callback_ids.push((on, id));
+    }
+
+    #[inline]
+    pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: ParsedCssProperty) {
+        self.arena.borrow_mut()[self.head].data.dynamic_css_overrides.push((override_id.into(), property));
     }
 
     /// Prints a debug formatted version of the DOM for easier debugging
@@ -1055,6 +1066,6 @@ fn test_zero_size_dom() {
 
     assert!(null_dom.arena.borrow().nodes_len() == 1);
 
-    null_dom.push_class("hello"); // should not panic
+    null_dom.add_class("hello"); // should not panic
     null_dom.set_id("id-hello"); // should not panic
 }

@@ -82,16 +82,16 @@ impl<T: Layout> FakeWindow<T> {
         self.state.mouse_state = *mouse;
     }
 
-    /// Returns a copy of the current keyboard keyboard state. We don't want the library
+    /// Returns the current keyboard keyboard state. We don't want the library
     /// user to be able to modify this state, only to read it.
-    pub fn get_keyboard_state(&self) -> KeyboardState {
-        self.state.keyboard_state.clone()
+    pub fn get_keyboard_state<'a>(&'a self) -> &'a KeyboardState {
+        self.state.get_keyboard_state()
     }
 
-    /// Returns a copy of the current windows mouse state. We don't want the library
+    /// Returns the current windows mouse state. We don't want the library
     /// user to be able to modify this state, only to read it
-    pub fn get_mouse_state(&self) -> MouseState {
-        self.state.mouse_state
+    pub fn get_mouse_state<'a>(&'a self) -> &'a MouseState {
+        self.state.get_mouse_state()
     }
 
     /// Adds a default callback to the window. The default callbacks are

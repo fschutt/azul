@@ -123,3 +123,7 @@ required-features = []
 [[example]]
 name = "calculator"
 required-features = []
+
+[[example]]
+name = "dragger"
+required-features = []
