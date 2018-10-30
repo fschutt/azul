@@ -72,7 +72,7 @@ pub fn new_svg_layer_id() -> SvgLayerId {
     SvgLayerId(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
 }
 
-const SHADER_VERSION_GL: &str = "#version 330";
+const SHADER_VERSION_GL: &str = "#version 150";
 const SHADER_VERSION_GLES: &str = "#version 300 es";
 const DEFAULT_GLYPH_TOLERANCE: f32 = 0.01;
 
