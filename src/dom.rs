@@ -384,7 +384,7 @@ pub struct NodeData<T: Layout> {
     pub classes: Vec<String>,
     /// `onclick` -> `my_button_click_handler`
     pub events: CallbackList<T>,
-    /// Usually not set by the user directly - `FakeWindow::push_default_callback`
+    /// Usually not set by the user directly - `FakeWindow::add_default_callback`
     /// returns a callback ID, so that we know which default callback(s) are attached
     /// to this node.
     ///

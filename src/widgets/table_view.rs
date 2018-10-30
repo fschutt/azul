@@ -63,7 +63,7 @@ impl TableView {
     pub fn dom<T: Layout>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
         if let Some(ptr) =  StackCheckedPointer::new(t, data) {
             let mut dom = Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), ptr)));
-            let callback_id = window.push_callback(ptr, DefaultCallback(Self::table_view_on_click));
+            let callback_id = window.add_callback(ptr, DefaultCallback(Self::table_view_on_click));
             dom.add_default_callback_id(On::MouseUp, callback_id);
             dom
         } else {

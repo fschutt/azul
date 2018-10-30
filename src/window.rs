@@ -100,7 +100,7 @@ impl<T: Layout> FakeWindow<T> {
     ///
     /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
     #[must_use]
-    pub fn push_callback(
+    pub fn add_callback(
         &mut self,
         callback_ptr: StackCheckedPointer<T>,
         callback_fn: DefaultCallback<T>)
@@ -109,7 +109,7 @@ impl<T: Layout> FakeWindow<T> {
         use default_callbacks::get_new_unique_default_callback_id;
 
         let default_callback_id = get_new_unique_default_callback_id();
-        self.default_callbacks.push_callback(default_callback_id, callback_ptr, callback_fn);
+        self.default_callbacks.add_callback(default_callback_id, callback_ptr, callback_fn);
         default_callback_id
     }
 }
