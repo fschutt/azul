@@ -226,6 +226,14 @@ impl Default for WindowState {
 
 impl WindowState
 {
+    pub fn get_mouse_state<'a>(&'a self) -> &MouseState {
+        &self.mouse_state
+    }
+
+    pub fn get_keyboard_state<'a>(&'a self) -> &KeyboardState {
+        &self.keyboard_state
+    }
+
     // Determine which event / which callback(s) should be called and in which order
     //
     // This function also updates / mutates the current window state,

@@ -64,7 +64,7 @@ impl TableView {
         if let Some(ptr) =  StackCheckedPointer::new(t, data) {
             let mut dom = Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), ptr)));
             let callback_id = window.push_callback(ptr, DefaultCallback(Self::table_view_on_click));
-            dom.push_default_callback_id(On::MouseUp, callback_id);
+            dom.add_default_callback_id(On::MouseUp, callback_id);
             dom
         } else {
             Dom::new(NodeType::Label(

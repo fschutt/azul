@@ -53,7 +53,7 @@ impl TextInput {
         let mut parent_div = Dom::new(NodeType::Div).with_class("__azul-native-input-text");
 
         if let Some(on_key_down_callback) = self.on_key_down_callback {
-            parent_div.push_default_callback_id(On::KeyDown, on_key_down_callback);
+            parent_div.add_default_callback_id(On::KeyDown, on_key_down_callback);
         } else {
             parent_div.enable_hit_testing(On::KeyDown);
         }
