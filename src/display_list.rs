@@ -86,7 +86,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
             let mut rect = DisplayRectangle::new(tag, style);
-            populate_css_properties(&mut rect, &ui_description.dynamic_css_overrides);
+            populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
             rect
         });
 
@@ -698,7 +698,6 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> Option<OverflowInfo>
 {
-    use css::DynamicCssOverrideList;
     use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 
     let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
@@ -716,9 +715,8 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         new_dom = (iframe_callback.0)(&iframe_pointer, window_info, bounds);
     }
 
-    let css_overrides = DynamicCssOverrideList::default(); // TODO
     let ui_state = UiState::from_dom(new_dom);
-    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.parsed_css, &css_overrides);
+    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.parsed_css);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
@@ -1442,7 +1440,10 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
 }
 
 /// Populate the CSS style properties of the `DisplayRectangle`
-fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHashMap<String, ParsedCssProperty>)
+fn populate_css_properties(
+    rect: &mut DisplayRectangle,
+    node_id: NodeId,
+    css_overrides: &BTreeMap<NodeId, FastHashMap<String, ParsedCssProperty>>)
 {
     use css_parser::ParsedCssProperty::{self, *};
 
@@ -1493,28 +1494,41 @@ fn populate_css_properties(rect: &mut DisplayRectangle, css_overrides: &FastHash
         discriminant(a) == discriminant(b)
     }
 
-    for constraint in &rect.styled_node.css_constraints.list {
-        use css::CssDeclaration::*;
-        match constraint {
-            Static(static_property) => apply_parsed_css_property(rect, static_property),
-            Dynamic(dynamic_property) => {
-                let calculated_property = css_overrides.get(&dynamic_property.dynamic_id);
-                if let Some(overridden_property) = calculated_property {
-                    if property_type_matches(overridden_property, &dynamic_property.default) {
-                        apply_parsed_css_property(rect, overridden_property);
-                    } else {
-                        #[cfg(feature = "logging")] {
-                            error!(
-                                "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
-                                cannot override {:?} with {:?} - enum discriminant mismatch",
-                                rect, dynamic_property.default, overridden_property
-                            )
+    if let Some(overrides) = css_overrides.get(&node_id) {
+        for constraint in &rect.styled_node.css_constraints.list {
+            use css::CssDeclaration::*;
+            match constraint {
+                Static(static_property) => apply_parsed_css_property(rect, static_property),
+                Dynamic(dynamic_property) => {
+                    if let Some(overridden_property) = overrides.get(&dynamic_property.dynamic_id) {
+                        if property_type_matches(overridden_property, &dynamic_property.default) {
+                            apply_parsed_css_property(rect, overridden_property);
+                        } else {
+                            #[cfg(feature = "logging")] {
+                                error!(
+                                    "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
+                                    cannot override {:?} with {:?} - enum discriminant mismatch",
+                                    rect, dynamic_property.default, overridden_property
+                                )
+                            }
                         }
+                    } else {
+                        apply_parsed_css_property(rect, &dynamic_property.default);
                     }
-                } else {
-                    apply_parsed_css_property(rect, &dynamic_property.default);
                 }
             }
+        }
+    } else {
+        // no overrides for this node...
+        use css::CssDeclaration;
+        for static_property in rect.styled_node.css_constraints.list.iter().filter_map(|c| {
+            if let CssDeclaration::Static(static_property) = c {
+                Some(static_property)
+            } else {
+                None
+            }
+        }) {
+            apply_parsed_css_property(rect, static_property)
         }
     }
 }

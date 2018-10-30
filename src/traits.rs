@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 use {
-    dom::{Dom},
-    css_parser::{CssParsingError, ParsedCssProperty},
+    dom::Dom,
 };
 
 #[cfg(not(test))]
@@ -22,22 +21,6 @@ pub trait Layout {
     fn layout(&self, window_id: WindowInfo<Self>) -> Dom<Self> where Self: Sized;
     #[cfg(test)]
     fn layout(&self) -> Dom<Self> where Self: Sized;
-}
-
-/// Convenience trait for the `css.set_dynamic_property()` function.
-///
-/// This trait exists because `TryFrom` / `TryInto` are not yet stabilized.
-/// This is the same as `Into<ParsedCssProperty>`, but with an additional error
-/// case (since the parsing of the CSS value could potentially fail)
-///
-/// Using this trait you can write: `css.set_dynamic_property("var", ("width", "500px"))`
-/// because `IntoParsedCssProperty` is implemented for `(&str, &str)`.
-///
-/// Note that the properties have to be re-parsed on every frame (which incurs a
-/// small per-frame performance hit), however `("width", "500px")` is easier to
-/// read than `ParsedCssProperty::Width(PixelValue::Pixels(500))`
-pub trait IntoParsedCssProperty<'a> {
-    fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>>;
 }
 
 /// Convenience trait that allows the `app_state.modify()` - only implemented for
@@ -62,17 +45,5 @@ impl<T> Modify<T> for Arc<Mutex<T>> {
             Ok(lock) => { closure(&mut *lock); true },
             Err(_) => false,
         }
-    }
-}
-
-impl<'a> IntoParsedCssProperty<'a> for ParsedCssProperty {
-    fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>> {
-        Ok(self.clone())
-    }
-}
-
-impl<'a> IntoParsedCssProperty<'a> for (&'a str, &'a str) {
-    fn into_parsed_css_property(self) -> Result<ParsedCssProperty, CssParsingError<'a>> {
-        ParsedCssProperty::from_kv(self.0, self.1)
     }
 }
