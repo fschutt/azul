@@ -21,7 +21,7 @@ pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
 // this will be substituted as the default font size
 pub(crate) const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
     metric: CssMetric::Px,
-    number: 10_000,
+    number: 100_000,
 });
 
 /// A parser that can accept a list of items and mappings
