@@ -1165,15 +1165,20 @@ impl LayoutOverflow {
     }
 
     pub fn allows_horizontal_overflow(&self) -> bool {
-        use self::TextOverflowBehaviourInner::*;
-        match self.horizontal {
-            TextOverflowBehaviour::Modified(m) => match m {
-                Scroll | Auto => true,
-                Hidden | Visible => false,
-            },
-            // default: allow horizontal overflow
-            TextOverflowBehaviour::NotModified => false,
-        }
+        self.horizontal.can_overflow()
+    }
+
+    pub fn allows_vertical_overflow(&self) -> bool {
+        self.vertical.can_overflow()
+    }
+
+    // If this overflow setting should show the horizontal scrollbar
+    pub fn allows_horizontal_scrollbar(&self) -> bool {
+        self.allows_horizontal_overflow()
+    }
+
+    pub fn allows_vertical_scrollbar(&self) -> bool {
+        self.allows_vertical_overflow()
     }
 }
 
@@ -2239,6 +2244,21 @@ pub enum LayoutAlignContent {
 pub enum TextOverflowBehaviour {
     NotModified,
     Modified(TextOverflowBehaviourInner),
+}
+
+impl TextOverflowBehaviour {
+    pub fn can_overflow(&self) -> bool {
+        use self::TextOverflowBehaviour::*;
+        use self::TextOverflowBehaviourInner::*;
+        match self {
+            Modified(m) => match m {
+                Scroll | Auto => true,
+                Hidden | Visible => false,
+            },
+            // default: allow horizontal overflow
+            NotModified => false,
+        }
+    }
 }
 
 impl Default for TextOverflowBehaviour {

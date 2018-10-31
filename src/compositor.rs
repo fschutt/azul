@@ -84,7 +84,7 @@ impl ExternalImageHandler for Compositor {
                     ExternalImageSource::NativeTexture(tex.texture.inner.get_id()),
                     TypedPoint2D::<f32, DevicePixel>::new(
                         tex.texture.inner.width() as f32,
-                        tex.texture.inner.height() as f32
+                        tex.texture.inner.height() as f32,
                     )
                 ))
             })

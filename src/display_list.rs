@@ -618,11 +618,15 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     if let Some(overflow) = &overflow_result {
         // push scrollbars if necessary
         // If the rectangle should have a scrollbar, push a scrollbar onto the display list
-        if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
-            push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+        if rect.style.overflow.unwrap_or_default().allows_vertical_scrollbar() {
+            if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
+                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+            }
         }
-        if let TextOverflow::IsOverflowing(amount_horz) = overflow.text_overflow.horizontal {
-            push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+        if rect.style.overflow.unwrap_or_default().allows_horizontal_scrollbar() {
+            if let TextOverflow::IsOverflowing(amount_horz) = overflow.text_overflow.horizontal {
+                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+            }
         }
     }
 
@@ -660,7 +664,7 @@ fn push_opengl_texture<'a, 'b, 'c, 'd, 'e,'f, T: Layout>(
 
     let opaque = false;
     let allow_mipmaps = true;
-    let descriptor = ImageDescriptor::new(texture.inner.width(), texture.inner.height(), ImageFormat::BGRA8, opaque, allow_mipmaps);
+    let descriptor = ImageDescriptor::new(info.rect.size.width as u32, info.rect.size.height as u32, ImageFormat::BGRA8, opaque, allow_mipmaps);
     let key = referenced_content.render_api.generate_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
@@ -680,7 +684,7 @@ fn push_opengl_texture<'a, 'b, 'c, 'd, 'e,'f, T: Layout>(
 
     referenced_mutable_content.builder.push_image(
         &info,
-        info.rect.size,
+        LayoutSize::new(texture.inner.width() as f32, texture.inner.height() as f32),
         LayoutSize::zero(),
         ImageRendering::Auto,
         AlphaType::Alpha,
@@ -825,7 +829,7 @@ fn push_text(
     let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
     let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
-    let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
+    let overflow_behaviour = style.overflow.unwrap_or_default();
 
     let text_layout_options = TextLayoutOptions {
         horz_alignment,
