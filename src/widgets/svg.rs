@@ -1684,6 +1684,9 @@ pub struct Svg {
     pub enable_hidpi: bool,
     /// Background color (default: transparent)
     pub background_color: ColorU,
+    /// Multisampling (default: 1.0) - since there is no anti-aliasing yet, simply
+    /// increases the texture size that is drawn to.
+    pub multisampling_factor: f32,
 }
 
 impl Default for Svg {
@@ -1695,6 +1698,7 @@ impl Default for Svg {
             enable_fxaa: false,
             enable_hidpi: true,
             background_color: ColorU { r: 0, b: 0, g: 0, a: 0 },
+            multisampling_factor: 1.0,
         }
     }
 }
@@ -2232,6 +2236,14 @@ impl Svg {
         self
     }
 
+    /// Since there is no anti-aliasing yet, this will enlarge the texture that is drawn to by
+    /// the factor X. Default is `1.0`, but you could for example, render to a `1.2x` texture.
+    #[inline]
+    pub fn with_multisampling_factor(mut self, multisampling_factor: f32) -> Self {
+        self.multisampling_factor = multisampling_factor;
+        self
+    }
+
     #[inline]
     pub fn with_fxaa(mut self, enable_fxaa: bool) -> Self {
         self.enable_fxaa = enable_fxaa;
@@ -2252,7 +2264,10 @@ impl Svg {
         height: usize)
     -> Texture
     {
-        let tex = window.create_texture(width as u32, height as u32);
+        let texture_width = (width as f32 * self.multisampling_factor) as u32;
+        let texture_height = (height as f32 * self.multisampling_factor) as u32;
+        let tex = window.create_texture(texture_width, texture_height);
+
         let (window_width, window_height) = window.get_physical_size();
 
         // TODO: This currently doesn't work - only the first draw call is drawn
@@ -2282,7 +2297,7 @@ impl Svg {
             background_color.r,
             background_color.g,
             background_color.b,
-            0.0);
+            background_color.a);
 
             for layer in &self.layers {
 

@@ -711,16 +711,19 @@ fn estimate_overflow_pass_2(
     // scrollbar gets shown on the right edge, so we need to subtract from the
     // **width** of the rectangle.
 
-    if pass1.horizontal.is_overflowing() {
+    let need_recalc_horz = pass1.horizontal.is_overflowing() && !overflow.allows_horizontal_overflow();
+    let need_recalc_vert = pass1.vertical.is_overflowing() && !overflow.allows_vertical_overflow();
+
+    if need_recalc_horz {
         new_size.height -= scrollbar_info.width.0; // both in px
     }
 
-    if pass1.vertical.is_overflowing() {
+    if need_recalc_vert {
         new_size.width -= scrollbar_info.width.0; // both in px
     }
 
     // If the words are not overflowing, just take the result from the first pass
-    let recalc_scrollbar_info = if pass1.horizontal.is_overflowing() || pass1.vertical.is_overflowing() {
+    let recalc_scrollbar_info = if need_recalc_horz || need_recalc_vert {
         estimate_overflow_pass_1(words, &new_size, font_metrics, overflow)
     } else {
         pass1
