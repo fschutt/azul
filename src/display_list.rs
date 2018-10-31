@@ -233,6 +233,12 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             LogicalPosition::new(0.0, 0.0)
         );
 
+        let rects_with_overflow = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
+        println!("{:?}", rects_with_overflow);
+
+        println!("{:?}", laid_out_rectangles);
+        println!("{:?}", node_depths);
+
         let LogicalSize { width, height } = window_size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
 
@@ -240,6 +246,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         Self::update_resources(render_api, app_resources, &mut resource_updates);
 
         let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles, &node_depths);
+
+        println!("{:?}", rects_in_rendering_order);
 
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
@@ -425,6 +433,19 @@ fn do_the_layout<'a, 'b, T: Layout>(
     (layouted_arena, solved_widths.non_leaf_nodes_sorted_by_depth, WordCache(word_cache))
 }
 
+fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usize, NodeId)>) -> Vec<NodeId> {
+    let mut nodes = vec![];
+    for (_, parent) in parents {
+        for child in parent.children(&arena) {
+            if arena.get(&child).unwrap().data.intersects(&arena.get(&parent).unwrap().data) {
+                nodes.push(parent.clone());
+                break;
+            }
+        }
+    }
+    nodes
+}
+
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     solved_rects: &Arena<LayoutRect>,
     epoch: Epoch,
@@ -439,6 +460,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
 
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
         for rect_idx in rects {
+            println!("{:?}", arena[rect_idx].data);
             let rectangle = DisplayListRectParams {
                 epoch,
                 rect_idx,

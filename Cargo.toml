@@ -127,3 +127,7 @@ required-features = []
 [[example]]
 name = "dragger"
 required-features = []
+
+[[example]]
+name = "scroll_list"
+required-features = []
