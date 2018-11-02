@@ -674,11 +674,14 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
         None => return,
     };
 
-    let hit_test_results = window.internal.api.hit_test(
+    let mut hit_test_results = window.internal.api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
         cursor_location,
         HitTestFlags::FIND_ALL);
+
+    // Execute callbacks back-to-front, not front-to-back
+    hit_test_results.items.reverse();
 
     let mut should_update_screen = UpdateScreen::DontRedraw;
 
