@@ -1504,41 +1504,28 @@ fn populate_css_properties(
         discriminant(a) == discriminant(b)
     }
 
-    if let Some(overrides) = css_overrides.get(&node_id) {
-        for constraint in &rect.styled_node.css_constraints.list {
-            use css::CssDeclaration::*;
-            match constraint {
-                Static(static_property) => apply_parsed_css_property(rect, static_property),
-                Dynamic(dynamic_property) => {
-                    if let Some(overridden_property) = overrides.get(&dynamic_property.dynamic_id) {
-                        if property_type_matches(overridden_property, &dynamic_property.default) {
-                            apply_parsed_css_property(rect, overridden_property);
-                        } else {
-                            #[cfg(feature = "logging")] {
-                                error!(
-                                    "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
-                                    cannot override {:?} with {:?} - enum discriminant mismatch",
-                                    rect, dynamic_property.default, overridden_property
-                                )
-                            }
-                        }
+    // Apply / static / dynamic properties
+    for constraint in &rect.styled_node.css_constraints.list {
+        use css::CssDeclaration::*;
+        match constraint {
+            Static(static_property) => apply_parsed_css_property(rect, static_property),
+            Dynamic(dynamic_property) => {
+                if let Some(overridden_property) = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
+                    if property_type_matches(overridden_property, &dynamic_property.default) {
+                        apply_parsed_css_property(rect, overridden_property);
                     } else {
-                        apply_parsed_css_property(rect, &dynamic_property.default);
+                        #[cfg(feature = "logging")] {
+                            error!(
+                                "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
+                                cannot override {:?} with {:?} - enum discriminant mismatch",
+                                rect, dynamic_property.default, overridden_property
+                            )
+                        }
                     }
+                } else {
+                    apply_parsed_css_property(rect, &dynamic_property.default);
                 }
             }
-        }
-    } else {
-        // no overrides for this node...
-        use css::CssDeclaration;
-        for static_property in rect.styled_node.css_constraints.list.iter().filter_map(|c| {
-            if let CssDeclaration::Static(static_property) = c {
-                Some(static_property)
-            } else {
-                None
-            }
-        }) {
-            apply_parsed_css_property(rect, static_property)
         }
     }
 }
