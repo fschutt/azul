@@ -233,11 +233,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             LogicalPosition::new(0.0, 0.0)
         );
 
-        let rects_with_overflow = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
-        println!("{:?}", rects_with_overflow);
-
-        println!("{:?}", laid_out_rectangles);
-        println!("{:?}", node_depths);
+        let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
 
         let LogicalSize { width, height } = window_size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
@@ -247,12 +243,13 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles, &node_depths);
 
-        println!("{:?}", rects_in_rendering_order);
+        // println!("{:?}", rects_in_rendering_order);
 
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
             current_epoch,
             rects_in_rendering_order,
+            &scrollable_nodes,
             &DisplayListParametersRef {
                 ui_description: self.ui_descr,
                 render_api,
@@ -433,14 +430,18 @@ fn do_the_layout<'a, 'b, T: Layout>(
     (layouted_arena, solved_widths.non_leaf_nodes_sorted_by_depth, WordCache(word_cache))
 }
 
-fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usize, NodeId)>) -> Vec<NodeId> {
-    let mut nodes = vec![];
+fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usize, NodeId)>) -> BTreeMap<NodeId, (TypedRect<f32, LayoutPixel>, TypedRect<f32, LayoutPixel>)> {
+    let mut nodes = BTreeMap::new();
     for (_, parent) in parents {
+        let mut inner_rect = TypedRect::zero();
         for child in parent.children(&arena) {
-            if arena.get(&child).unwrap().data.intersects(&arena.get(&parent).unwrap().data) {
-                nodes.push(parent.clone());
-                break;
-            }
+            inner_rect = inner_rect.union(&arena.get(&child).unwrap().data);
+        }
+        let outer_rect = &arena.get(&parent).unwrap().data;
+        if !inner_rect.contains_rect(outer_rect) {
+            // let x = inner_rect.max_x() - outer_rect.max_x();
+            // let y = inner_rect.max_y() - outer_rect.max_y();
+            nodes.insert(parent.clone(), (outer_rect.clone(), inner_rect));
         }
     }
     nodes
@@ -450,24 +451,54 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     solved_rects: &Arena<LayoutRect>,
     epoch: Epoch,
     z_ordered_rectangles: ZOrderedRectangles,
+    scrollable_nodes: &BTreeMap<NodeId, (TypedRect<f32, LayoutPixel>, TypedRect<f32, LayoutPixel>)>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
 {
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
+
+    // A stack containing all the nodes which have a scroll clip pushed to the builder.
+    let mut stack: Vec<NodeId> = vec![];
 
     // Workaround for https://github.com/servo/webrender/issues/3262
     let webrender_gamma_hack_necessary = needs_webrender_gamma_correction_hack(&arena);
 
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
         for rect_idx in rects {
-            println!("{:?}", arena[rect_idx].data);
+            // println!("{:?}", arena[rect_idx].data);
             let rectangle = DisplayListRectParams {
                 epoch,
                 rect_idx,
                 html_node: &arena[rect_idx].data.node_type,
             };
 
+            println!("Push {:?}", rect_idx);
+            if let Some(&(outer_rect, inner_rect)) = scrollable_nodes.get(&rect_idx) {
+                // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
+                stack.push(rect_idx.children(&arena).last().unwrap());
+                // set the scrolling clip
+                let clip_id = referenced_mutable_content.builder.define_scroll_frame(
+                    None,
+                    inner_rect,
+                    outer_rect,
+                    vec![],
+                    None,
+                    ScrollSensitivity::ScriptAndInputEvents,
+                );
+                referenced_mutable_content.builder.push_clip_id(clip_id);
+                referenced_mutable_content.builder.push_clip_id(clip_id);
+                println!("Push clip")
+            }
+
             displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
+            
+            if let Some(&child_idx) = stack.last() {
+                if child_idx == rect_idx {
+                    stack.pop();
+                    referenced_mutable_content.builder.pop_clip_id();
+                    println!("Pop clip");
+                }
+            }
         }
     }
 }
@@ -788,6 +819,8 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         rect_size,
         rect_origin);
 
+    let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
+
     let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles, &node_depths);
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description, otherwise this function would be endlessly recursive
@@ -801,6 +834,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         &laid_out_rectangles,
         rectangle.epoch,
         z_ordered_rectangles,
+        &scrollable_nodes,
         &referenced_content,
         referenced_mutable_content);
 

@@ -12,7 +12,7 @@ use glium::{
     },
 };
 use webrender::{PipelineInfo, api::{HitTestFlags, DevicePixel}};
-use euclid::TypedSize2D;
+use euclid::{TypedSize2D, TypedPoint2D};
 #[cfg(feature = "image_loading")]
 use image::ImageError;
 #[cfg(feature = "logging")]
@@ -826,6 +826,20 @@ fn render<T: Layout>(
     });
 
     txn.set_root_pipeline(window.internal.pipeline_id);
+
+    txn.scroll(
+        ScrollLocation::Delta(LayoutVector2D::new(10.0, 10.0)),
+        // TODO: change this line as soon as the scroll events are triggering the rerender.
+        //ScrollLocation::Delta(LayoutVector2D::new(window.state.mouse_state.scroll_x as f32, window.state.mouse_state.scroll_y as f32)),
+        TypedPoint2D::new(window.state.mouse_state.cursor_pos.unwrap().x as f32, window.state.mouse_state.cursor_pos.unwrap().y as f32),
+    );
+    println!(
+        "{}, {}, {}, {}",
+        window.state.mouse_state.cursor_pos.unwrap().x as f32,
+        window.state.mouse_state.cursor_pos.unwrap().y as f32,
+        window.state.mouse_state.scroll_x as f32,
+        window.state.mouse_state.scroll_y as f32
+    );
     txn.generate_frame();
 
     window.internal.api.send_transaction(window.internal.document_id, txn);
