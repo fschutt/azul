@@ -609,7 +609,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             &info,
             referenced_mutable_content.builder,
             referenced_mutable_content.app_resources,
-            image_id),
+            image_id,
+            info.rect.size),
         GlTexture(callback) => push_opengl_texture(callback, &info, rectangle, referenced_content, referenced_mutable_content),
         IFrame(callback) => push_iframe(callback, &info, rectangle, referenced_content, referenced_mutable_content),
     };
@@ -1287,8 +1288,14 @@ fn push_background(
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         Image(css_image_id) => {
+            // TODO: background-origin, background-position, background-repeat
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&css_image_id.0) {
-                push_image(info, builder, app_resources, image_id);
+                let bounds = info.rect;
+                let image_dimensions = app_resources.images.get(image_id).and_then(|i| Some(i.get_dimensions()))
+                    .unwrap_or((bounds.size.width, bounds.size.height)); // better than crashing...
+
+                let size = TypedSize2D::new(image_dimensions.0, image_dimensions.1);
+                push_image(info, builder, app_resources, image_id, size);
             }
         },
         NoBackground => { },
@@ -1300,19 +1307,19 @@ fn push_image(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
     app_resources: &AppResources,
-    image_id: &ImageId)
+    image_id: &ImageId,
+    size: TypedSize2D<f32, LayoutPixel>)
 -> Option<OverflowInfo>
 {
     use images::ImageState::*;
 
     let image_info = app_resources.images.get(image_id)?;
-    let bounds = info.rect;
 
     match image_info {
         Uploaded(image_info) => {
             builder.push_image(
                     &info,
-                    bounds.size,
+                    size,
                     LayoutSize::zero(),
                     ImageRendering::Auto,
                     AlphaType::PremultipliedAlpha,
