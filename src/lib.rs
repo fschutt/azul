@@ -208,7 +208,7 @@ pub mod prelude {
 
         LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, CssMetric,
         LayoutMaxHeight, LayoutWrap, LayoutDirection, LayoutJustifyContent, LayoutAlignItems,
-        LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft,
+        LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft, LayoutPadding, LayoutMargin,
 
         LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
         TextOverflowBehaviour, TextOverflowBehaviourInner, ParsedCssProperty,
