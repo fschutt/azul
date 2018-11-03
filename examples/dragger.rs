@@ -5,6 +5,7 @@ use azul::prelude::*;
 #[derive(Default)]
 struct DragMeApp {
     width: Option<f32>,
+    is_dragging: bool,
 }
 
 type Event<'a> = WindowEvent<'a, DragMeApp>;
@@ -26,25 +27,38 @@ impl Layout for DragMeApp {
         // inside of it, which can be dragged
         let dragger = Dom::new(NodeType::Div).with_id("dragger").with_child(
             Dom::new(NodeType::Div).with_id("dragger_handle")
-            .with_callback(On::MouseOver, Callback(drag)));
+            .with_callback(On::MouseDown, Callback(start_drag)));
 
         Dom::new(NodeType::Div).with_id("container")
+            .with_callback(On::MouseOver, Callback(update_drag))
+            .with_callback(On::MouseUp, Callback(stop_drag))
             .with_child(left)
             .with_child(dragger)
             .with_child(right)
     }
 }
 
-fn drag(app: &mut State, event: Event) -> UpdateScreen {
-    let mouse_state = app.windows[event.window].state.get_mouse_state();
-    if mouse_state.left_down {
+fn start_drag(state: &mut State, _event: Event) -> UpdateScreen {
+    state.data.modify(|data| data.is_dragging = true);
+    UpdateScreen::DontRedraw
+}
+
+fn stop_drag(state: &mut State, _event: Event) -> UpdateScreen {
+    state.data.modify(|data| data.is_dragging = false);
+    UpdateScreen::Redraw
+}
+
+fn update_drag(state: &mut State, event: Event) -> UpdateScreen {
+    let mouse_state = state.windows[event.window].state.get_mouse_state();
+    if state.data.lock().unwrap().is_dragging {
         let cursor_pos = mouse_state.cursor_pos.unwrap_or(LogicalPosition::new(0.0, 0.0));
-        app.data.modify(|state| state.width = Some(cursor_pos.x as f32));
+        state.data.modify(|data| data.width = Some(cursor_pos.x as f32));
         UpdateScreen::Redraw
     } else {
         UpdateScreen::DontRedraw
     }
 }
+
 fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/dragger.css")) }
 
