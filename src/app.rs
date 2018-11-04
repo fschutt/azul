@@ -827,19 +827,21 @@ fn render<T: Layout>(
 
     txn.set_root_pipeline(window.internal.pipeline_id);
 
-    txn.scroll(
-        ScrollLocation::Delta(LayoutVector2D::new(10.0, 10.0)),
-        // TODO: change this line as soon as the scroll events are triggering the rerender.
-        //ScrollLocation::Delta(LayoutVector2D::new(window.state.mouse_state.scroll_x as f32, window.state.mouse_state.scroll_y as f32)),
-        TypedPoint2D::new(window.state.mouse_state.cursor_pos.unwrap().x as f32, window.state.mouse_state.cursor_pos.unwrap().y as f32),
-    );
-    println!(
-        "{}, {}, {}, {}",
-        window.state.mouse_state.cursor_pos.unwrap().x as f32,
-        window.state.mouse_state.cursor_pos.unwrap().y as f32,
-        window.state.mouse_state.scroll_x as f32,
-        window.state.mouse_state.scroll_y as f32
-    );
+    if let Some(cursor_position) = window.state.mouse_state.cursor_pos {
+        txn.scroll(
+            ScrollLocation::Delta(LayoutVector2D::new(10.0, -10.0)),
+            // TODO: change this line as soon as the scroll events are triggering the rerender.
+            //ScrollLocation::Delta(LayoutVector2D::new(window.state.mouse_state.scroll_x as f32, window.state.mouse_state.scroll_y as f32)),
+            TypedPoint2D::new(cursor_position.x as f32, cursor_position.y as f32),
+        );
+        println!(
+            "{}, {}, {}, {}",
+            cursor_position.x as f32,
+            cursor_position.y as f32,
+            window.state.mouse_state.scroll_x as f32,
+            window.state.mouse_state.scroll_y as f32
+        );
+    }
     txn.generate_frame();
 
     window.internal.api.send_transaction(window.internal.document_id, txn);

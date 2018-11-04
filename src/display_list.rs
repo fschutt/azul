@@ -472,7 +472,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 html_node: &arena[rect_idx].data.node_type,
             };
 
-            println!("Push {:?}", rect_idx);
+            // println!("Push {:?}", rect_idx);
             if let Some(&(outer_rect, inner_rect)) = scrollable_nodes.get(&rect_idx) {
                 // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
                 stack.push(rect_idx.children(&arena).last().unwrap());
@@ -486,8 +486,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                     ScrollSensitivity::ScriptAndInputEvents,
                 );
                 referenced_mutable_content.builder.push_clip_id(clip_id);
-                referenced_mutable_content.builder.push_clip_id(clip_id);
-                println!("Push clip")
+                // println!("Push clip")
             }
 
             displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
@@ -496,7 +495,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 if child_idx == rect_idx {
                     stack.pop();
                     referenced_mutable_content.builder.pop_clip_id();
-                    println!("Pop clip");
+                    // println!("Pop clip");
                 }
             }
         }
