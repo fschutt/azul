@@ -222,6 +222,7 @@ impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
 impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> { }
 
 impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
+    /// Returns the index + the node ID of a child of the current node of a certain event type
     pub fn get_first_hit_child(&self, node_id: NodeId, searched_event_type: On) -> Option<(usize, NodeId)> {
 
         let ui_state = self.ui_state;
@@ -251,6 +252,20 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
             })
             .map(|(_, idx, child_id)| (idx, child_id))
             .next()
+    }
+
+    /// For any node ID, returns what the position in its parent it is, plus the parent itself.
+    /// Returns `None` on the root ID (because the root has no parent, therefore it's the 1st item)
+    pub fn get_index_in_parent(&self, node_id: NodeId) -> Option<(usize, NodeId)> {
+        let ui_state = self.ui_state;
+        let arena = ui_state.dom.arena.borrow();
+
+        if node_id.index() > arena.nodes_len() {
+            return None; // node_id out of range
+        }
+
+        let parent = arena[node_id].parent()?;
+        Some((node_id.preceding_siblings(&arena).count(), parent))
     }
 }
 
