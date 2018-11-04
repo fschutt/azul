@@ -1505,10 +1505,16 @@ fn populate_css_properties(
         }
     }
 
+    use css::DynamicCssPropertyDefault;
+
     // Assert that the types of two properties matches
-    fn property_type_matches(a: &ParsedCssProperty, b: &ParsedCssProperty) -> bool {
+    fn property_type_matches(a: &ParsedCssProperty, b: &DynamicCssPropertyDefault) -> bool {
         use std::mem::discriminant;
-        discriminant(a) == discriminant(b)
+        use css::DynamicCssPropertyDefault::*;
+        match b {
+            Exact(e) => discriminant(a) == discriminant(e),
+            Auto => true, // "auto" always matches
+        }
     }
 
     // Apply / static / dynamic properties
@@ -1518,6 +1524,7 @@ fn populate_css_properties(
             Static(static_property) => apply_parsed_css_property(rect, static_property),
             Dynamic(dynamic_property) => {
                 if let Some(overridden_property) = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
+                    // Only apply the dynamic CSS property default, if it isn't set to auto
                     if property_type_matches(overridden_property, &dynamic_property.default) {
                         apply_parsed_css_property(rect, overridden_property);
                     } else {
@@ -1529,8 +1536,8 @@ fn populate_css_properties(
                             )
                         }
                     }
-                } else {
-                    apply_parsed_css_property(rect, &dynamic_property.default);
+                } else if let DynamicCssPropertyDefault::Exact(default) = &dynamic_property.default {
+                    apply_parsed_css_property(rect, default);
                 }
             }
         }
