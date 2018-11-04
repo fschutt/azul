@@ -1,40 +1,49 @@
-# Azul [![Build Status Linux / macOS](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul) [![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul) [![codecov](https://codecov.io/gh/maps4print/azul/branch/master/graph/badge.svg)](https://codecov.io/gh/maps4print/azul) [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.28%20stable-blue.svg)]()
+
+# Azul - Desktop GUI framework
 
 ## WARNING: The features advertised in this README may not work yet.
 
-Azul is a free, functional, IMGUI-oriented GUI framework for rapid prototyping
+<!-- [START badges] -->
+[![Build Status Linux / macOS](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul)
+[![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
+[![codecov](https://codecov.io/gh/maps4print/azul/branch/master/graph/badge.svg)](https://codecov.io/gh/maps4print/azul)
+[![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.28%20stable-blue.svg)]()
+<!-- [END badges] -->
+
+> Azul is a free, functional, immediate mode GUI framework for rapid development
 of desktop applications written in Rust, supported by the Mozilla WebRender rendering
 engine, using a CSS / DOM model for layout and styling.
 
-<!--
-[Crates.io](https://crates.io/crates/azul) |
-[Library documentation](https://docs.rs/azul) |
--->
-[Tutorial / user guide](https://github.com/maps4print/azul/wiki) |
-[Website](https://azul.rs/) |
-[Presentation slides](https://docs.google.com/presentation/d/12adMyK81Siv9auXEOBOGzcXXYh8BHWC71mfwunhCwLQ/edit?usp=sharing) |
-[Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI)
+###### [Website](https://azul.rs/) | [Tutorial / user guide](https://github.com/maps4print/azul/wiki) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Discord Chat](https://discord.gg/nxUmsCG)
 
 ## About
 
-Azul is a library for creating graphical user interfaces or GUIs in Rust. It is
-very different from conventional GUI toolkits (QT / GTK / FLTK / etc.) in the
-following points:
+Azul is a library for creating graphical user interfaces or GUIs in Rust. It mixes
+paradigms from functional, immediate mode GUI programming commonly found in games
+and game engines with an API suitable for developing desktop applications.
+Instead of focusing on an object-oriented approach to GUI programming ("a button
+is an object"), it focuses on combining objects by composition ("a button is a function")
+and achieves complex layouts by composing widgets into a larger DOM tree.
 
-- Widgets of your user interface are seen as a "view" into your applications data,
-  they are not "objects that manage their own state", like in many other toolkits.
-  A user interface consists of a data model that can serialize itself into a
-  DOM-tree-like data structure. The user interface does not have direct access to
-  the data model.
-- The DOM is immutable and gets re-generated every frame. This makes testing
-  and debugging very easy, since it is a pure function, mapping from a specific
-  application state into a visual interface.
-- For layouting, Azul features a CSS-like layout engine, which closely follows the
-  CSS flexbox model.
+Azul separates the concerns of business logic / callbacks, data model and UI
+rendering / styling by not letting the UI / rendering logic have mutable access
+to the application data. Widgets of your user interface are seen as a "view" into
+your applications data, they are not "objects that manage their own state", like
+in so many other toolkits. Widgets are simply functions that render a certain state,
+more complex widgets combine buttons by calling a function multiple times.
+
+The generated DOM itself is immutable and gets re-generated every frame. This makes testing
+and debugging very easy, since the UI is a pure function, mapping from a specific application
+state into a visual interface. For layouting, Azul features a custom CSS-like layout engine,
+which closely follows the CSS flexbox model.
 
 ## Hello World
 
 Here is what a Hello World application in Azul looks like:
+
+![Hello World Application](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_hello_world_button.png)
+
+This application is created by the following code:
 
 ```rust
 extern crate azul;
@@ -46,6 +55,7 @@ struct DataModel {
 }
 
 impl Layout for DataModel {
+    // Model renders View
     fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
         let label = Label::new(format!("{}", self.counter)).dom();
         let button = Button::with_label("Update counter").dom()
@@ -57,6 +67,7 @@ impl Layout for DataModel {
     }
 }
 
+// View updates Model
 fn update_counter(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataModel>) -> UpdateScreen {
     app_state.data.modify(|state| state.counter += 1);
     UpdateScreen::Redraw
@@ -68,16 +79,7 @@ fn main() {
 }
 ```
 
-This creates the following UI with a button and a label that increases if you click
-the button:
-
-![Hello World Application](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_hello_world_button.png)
-
 [Read more about the Hello-World application ...](https://github.com/maps4print/azul/wiki/A-simple-counter)
-
-## Current WIP screenshot
-
-![Hello World Application](https://raw.githubusercontent.com/maps4print/azul/master/doc/pic_azul_wip.jpg)
 
 ## Programming model
 
@@ -122,14 +124,6 @@ necessary and therefore you don't need to worry about manually redrawing your UI
 
 ## Features
 
-### Asynchronous UI programming
-
-Azul features multiple ways of preventing your UI from being blocked, such as
-"Tasks" (threads that are managed by the Azul runtime) and "Daemons"
-(callback functions that can be optionally used as timers or timeouts).
-
-[Read more about async IO ...](https://github.com/maps4print/azul/wiki/Timers,-daemons,-tasks-and-async-IO)
-
 ### Easy two-way data binding
 
 When programming reusable and common UI elements, such as lists, tables or sliders
@@ -170,6 +164,14 @@ flexbox model - i.e. by default, every element will try to stretch to the dimens
 of its parent. The layout itself is handled by a simple and fast flexbox layout solver.
 
 [Read more about CSS styling ...](https://github.com/maps4print/azul/wiki/Styling-your-application-with-CSS)
+
+### Asynchronous UI programming
+
+Azul features multiple ways of preventing your UI from being blocked, such as
+"Tasks" (threads that are managed by the Azul runtime) and "Daemons"
+(callback functions that can be optionally used as timers or timeouts).
+
+[Read more about async IO ...](https://github.com/maps4print/azul/wiki/Timers,-daemons,-tasks-and-async-IO)
 
 ### SVG / GPU-accelerated 2D Vector drawing
 
