@@ -149,20 +149,37 @@ impl CssDeclaration {
 /// Dynamic CSS properties can also be used for animations and conditional CSS
 /// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
 /// special cases now use one single API.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct DynamicCssProperty {
     /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
     pub dynamic_id: String,
     /// Default value, used if the CSS property isn't overridden in this frame
     /// i.e. the `500px` in `width: [[ my_id | 500px ]]`.
-    pub default: ParsedCssProperty,
+    pub default: DynamicCssPropertyDefault,
+}
+
+/// If this value is set to default, the CSS property will not exist if it isn't overriden.
+/// An example where this is useful is when you want to say something like this:
+///
+/// `width: [[ 400px | auto ]];`
+///
+/// "If I set this property to width: 400px, then use exactly 400px. Otherwise use whatever the default width is."
+/// If this property wouldn't exist, you could only set the default to "0px" or something like
+/// that, meaning that if you don't override the property, then you'd set it to 0px - which is
+/// different from `auto`, since `auto` has its width determined by how much space there is
+/// available in the parent.
+#[derive(Debug, Clone, PartialEq, Hash)]
+pub enum DynamicCssPropertyDefault  {
+    Exact(ParsedCssProperty),
+    Auto,
 }
 
 impl DynamicCssProperty {
     pub fn is_inheritable(&self) -> bool {
-        // Since the overridden value has to have the same enum type
-        // we can just check if the default value is inheritable
-        self.default.is_inheritable()
+        // Dynamic CSS properties should not be inheritable,
+        // since that could lead to bugs - you set a property in Rust, suddenly
+        // the wrong UI component starts to react because it was inherited.
+        false
     }
 }
 
@@ -450,6 +467,9 @@ impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
     }
 }
 
+const START_BRACE: &str = "[[";
+const END_BRACE: &str = "]]";
+
 /// Determine if a Css property is static (immutable) or if it can change
 /// during the runtime of the program
 fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
@@ -457,9 +477,6 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 {
     let key = key.trim();
     let value = value.trim();
-
-    const START_BRACE: &str = "[[";
-    const END_BRACE: &str = "]]";
 
     let is_starting_with_braces = value.starts_with(START_BRACE);
     let is_ending_with_braces = value.ends_with(END_BRACE);
@@ -469,60 +486,67 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
             Err(DynamicCssParseError::UnclosedBraces)
         },
         (true, true) => {
-
-            use std::char;
-
-            // "[[ id | 400px ]]" => "id | 400px"
-            let value = value.trim_left_matches(START_BRACE);
-            let value = value.trim_right_matches(END_BRACE);
-            let value = value.trim();
-
-            let mut pipe_split = value.splitn(2, "|");
-            let dynamic_id = pipe_split.next();
-            let default_case = pipe_split.next();
-
-            // note: dynamic_id will always be Some(), which is why the
-            let (default_case, dynamic_id) = match (default_case, dynamic_id) {
-                (Some(default), Some(id)) => (default, id),
-                (None, Some(id)) => {
-                    if id.trim().is_empty() {
-                        return Err(DynamicCssParseError::EmptyBraces);
-                    } else if ParsedCssProperty::from_kv(key, id).is_ok() {
-                        // if there is an ID, but the ID is a CSS value
-                        return Err(DynamicCssParseError::NoId);
-                    } else {
-                        return Err(DynamicCssParseError::NoDefaultCase);
-                    }
-                },
-                (None, None) | (Some(_), None) => unreachable!(), // iterator would be broken if this happened
-            };
-
-            let dynamic_id = dynamic_id.trim();
-            let default_case = default_case.trim();
-
-            match (dynamic_id.is_empty(), default_case.is_empty()) {
-                (true, true) => return Err(DynamicCssParseError::EmptyBraces),
-                (true, false) => return Err(DynamicCssParseError::NoId),
-                (false, true) => return Err(DynamicCssParseError::NoDefaultCase),
-                (false, false) => { /* everything OK */ }
-            }
-
-            if dynamic_id.starts_with(char::is_numeric) ||
-               ParsedCssProperty::from_kv(key, dynamic_id).is_ok() {
-                return Err(DynamicCssParseError::InvalidId);
-            }
-
-            let default_case_parsed = ParsedCssProperty::from_kv(key, default_case)?;
-
-            Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-                dynamic_id: dynamic_id.to_string(),
-                default: default_case_parsed,
-            }))
+            parse_dynamic_css_property(key, value).and_then(|val| Ok(CssDeclaration::Dynamic(val)))
         },
         (false, false) => {
             Ok(CssDeclaration::Static(ParsedCssProperty::from_kv(key, value)?))
         }
     }
+}
+
+fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
+
+    use std::char;
+
+    // "[[ id | 400px ]]" => "id | 400px"
+    let value = value.trim_left_matches(START_BRACE);
+    let value = value.trim_right_matches(END_BRACE);
+    let value = value.trim();
+
+    let mut pipe_split = value.splitn(2, "|");
+    let dynamic_id = pipe_split.next();
+    let default_case = pipe_split.next();
+
+    // note: dynamic_id will always be Some(), which is why the
+    let (default_case, dynamic_id) = match (default_case, dynamic_id) {
+        (Some(default), Some(id)) => (default, id),
+        (None, Some(id)) => {
+            if id.trim().is_empty() {
+                return Err(DynamicCssParseError::EmptyBraces);
+            } else if ParsedCssProperty::from_kv(key, id).is_ok() {
+                // if there is an ID, but the ID is a CSS value
+                return Err(DynamicCssParseError::NoId);
+            } else {
+                return Err(DynamicCssParseError::NoDefaultCase);
+            }
+        },
+        (None, None) | (Some(_), None) => unreachable!(), // iterator would be broken if this happened
+    };
+
+    let dynamic_id = dynamic_id.trim();
+    let default_case = default_case.trim();
+
+    match (dynamic_id.is_empty(), default_case.is_empty()) {
+        (true, true) => return Err(DynamicCssParseError::EmptyBraces),
+        (true, false) => return Err(DynamicCssParseError::NoId),
+        (false, true) => return Err(DynamicCssParseError::NoDefaultCase),
+        (false, false) => { /* everything OK */ }
+    }
+
+    if dynamic_id.starts_with(char::is_numeric) ||
+       ParsedCssProperty::from_kv(key, dynamic_id).is_ok() {
+        return Err(DynamicCssParseError::InvalidId);
+    }
+
+    let default_case_parsed = match default_case {
+        "auto" => DynamicCssPropertyDefault::Auto,
+        other => DynamicCssPropertyDefault::Exact(ParsedCssProperty::from_kv(key, other)?),
+    };
+
+    Ok(DynamicCssProperty {
+        dynamic_id: dynamic_id.to_string(),
+        default: default_case_parsed,
+    })
 }
 
 /// CSS rules, sorted and grouped by priority
@@ -750,7 +774,15 @@ fn test_detect_static_or_dynamic_property() {
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            default: ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center),
+            default: DynamicCssPropertyDefault::Exact(ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
+            dynamic_id: String::from("hello"),
+        }))
+    );
+
+    assert_eq!(
+        determine_static_or_dynamic_css_property("text-align", "[[  hello | auto ]]"),
+        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+            default: DynamicCssPropertyDefault::Auto,
             dynamic_id: String::from("hello"),
         }))
     );
