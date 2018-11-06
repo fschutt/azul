@@ -21,7 +21,7 @@ use {
     id_tree::{Arena, NodeId},
     css_parser::*,
     dom::{
-        IFrameCallback, GlTextureCallback,
+        IFrameCallback, GlTextureCallback, NodeData,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
     css::ParsedCss,
@@ -439,6 +439,9 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
 {
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
 
+    // Workaround for https://github.com/servo/webrender/issues/3262
+    let webrender_gamma_hack_necessary = needs_webrender_gamma_correction_hack(&arena);
+
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
         for rect_idx in rects {
             let rectangle = DisplayListRectParams {
@@ -447,7 +450,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 html_node: &arena[rect_idx].data.node_type,
             };
 
-            displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content);
+            displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
         }
     }
 }
@@ -470,7 +473,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     bounds: LayoutRect,
     rectangle: DisplayListRectParams<'c, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>)
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
+    webrender_gamma_hack_necessary: bool)
 {
     use text_layout::{TextOverflow, TextSizePx};
     use webrender::api::BorderRadius;
@@ -506,7 +510,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_mutable_content.builder,
         &rect.style,
         &bounds,
-        BoxShadowClipMode::Outset);
+        BoxShadowClipMode::Outset,
+        webrender_gamma_hack_necessary);
 
     if let Some(id) = clip_region_id {
         referenced_mutable_content.builder.push_clip_id(id);
@@ -515,7 +520,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     // We always have to push the rect, otherwise the hit-testing gets confused
     push_rect(&info,
               referenced_mutable_content.builder,
-              &rect.style.background_color.unwrap_or_default());
+              &rect.style.background_color.unwrap_or_default(),
+              webrender_gamma_hack_necessary);
 
     if let Some(ref bg) = rect.style.background {
         push_background(
@@ -523,7 +529,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             &bounds,
             referenced_mutable_content.builder,
             bg,
-            &referenced_mutable_content.app_resources);
+            &referenced_mutable_content.app_resources,
+            webrender_gamma_hack_necessary);
     };
 
     if let Some(ref border) = rect.style.border {
@@ -531,7 +538,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             &info,
             referenced_mutable_content.builder,
             &border,
-            &rect.style.border_radius);
+            &rect.style.border_radius,
+            webrender_gamma_hack_necessary);
     }
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
@@ -550,7 +558,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         text_info: &TextInfo,
         builder: &mut DisplayListBuilder,
         app_resources: &mut AppResources,
-        resource_updates: &mut Vec<ResourceUpdate>|
+        resource_updates: &mut Vec<ResourceUpdate>,
+        webrender_gamma_hack_necessary: bool|
     {
         // Adjust the bounds by the padding
         let mut text_bounds = rect.layout.padding.as_ref().and_then(|padding| {
@@ -583,7 +592,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             resource_updates,
             horz_alignment,
             vert_alignment,
-            &scrollbar_style);
+            &scrollbar_style,
+            webrender_gamma_hack_necessary);
 
         if text_clip_region_id.is_some() {
             builder.pop_clip_id();
@@ -599,12 +609,14 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             &TextInfo::Uncached(text.clone()),
             referenced_mutable_content.builder,
             referenced_mutable_content.app_resources,
-            referenced_mutable_content.resource_updates),
+            referenced_mutable_content.resource_updates,
+            webrender_gamma_hack_necessary),
         Text(text_id) => push_text_wrapper(
             &TextInfo::Cached(*text_id),
             referenced_mutable_content.builder,
             referenced_mutable_content.app_resources,
-            referenced_mutable_content.resource_updates),
+            referenced_mutable_content.resource_updates,
+            webrender_gamma_hack_necessary),
         Image(image_id) => push_image(
             &info,
             referenced_mutable_content.builder,
@@ -620,19 +632,20 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_mutable_content.builder,
         &rect.style,
         &bounds,
-        BoxShadowClipMode::Inset);
+        BoxShadowClipMode::Inset,
+        webrender_gamma_hack_necessary);
 
     if let Some(overflow) = &overflow_result {
         // push scrollbars if necessary
         // If the rectangle should have a scrollbar, push a scrollbar onto the display list
         if rect.style.overflow.unwrap_or_default().allows_vertical_scrollbar() {
             if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
-                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border, webrender_gamma_hack_necessary)
             }
         }
         if rect.style.overflow.unwrap_or_default().allows_horizontal_scrollbar() {
             if let TextOverflow::IsOverflowing(amount_horz) = overflow.text_overflow.horizontal {
-                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
+                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border, webrender_gamma_hack_necessary)
             }
         }
     }
@@ -800,9 +813,10 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    color: &StyleBackgroundColor)
+    color: &StyleBackgroundColor,
+    webrender_gamma_hack_necessary: bool)
 {
-    builder.push_rect(&info, color.0.into());
+    builder.push_rect(&info, reverse_webrender_hack_3262(color.0.into(), webrender_gamma_hack_necessary));
 }
 
 struct OverflowInfo {
@@ -823,7 +837,8 @@ fn push_text(
     resource_updates: &mut Vec<ResourceUpdate>,
     horz_alignment: StyleTextAlignmentHorz,
     vert_alignment: StyleTextAlignmentVert,
-    scrollbar_info: &ScrollbarInfo)
+    scrollbar_info: &ScrollbarInfo,
+    webrender_gamma_correction_hack_necessary: bool)
 -> Option<OverflowInfo>
 {
     use text_layout::{self, TextLayoutOptions};
@@ -858,7 +873,7 @@ fn push_text(
 
     // WARNING: Do not enable FontInstanceFlags::FONT_SMOOTHING or FontInstanceFlags::FORCE_AUTOHINT -
     // they seem to interfere with the text layout thereby messing with the actual text layout.
-    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
+    let font_color = reverse_webrender_hack_3262(style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into(), webrender_gamma_correction_hack_necessary);
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
     flags.set(FontInstanceFlags::LCD_VERTICAL, true);
@@ -880,7 +895,8 @@ fn push_scrollbar(
     scrollbar_info: &TextOverflowPass2,
     scrollbar_style: &ScrollbarInfo,
     bounds: &TypedRect<f32, LayoutPixel>,
-    border: &Option<StyleBorder>)
+    border: &Option<StyleBorder>,
+    webrender_gamma_hack_necessary: bool)
 {
     use euclid::TypedPoint2D;
 
@@ -905,7 +921,7 @@ fn push_scrollbar(
         tag: None, // TODO: for hit testing
     };
 
-    push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_color);
+    push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_color, webrender_gamma_hack_necessary);
 
     // Actual scroll bar
     let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
@@ -924,7 +940,7 @@ fn push_scrollbar(
         tag: None, // TODO: for hit testing
     };
 
-    push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_color);
+    push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_color, webrender_gamma_hack_necessary);
 
     // Triangle top
     let mut scrollbar_triangle_rect = TypedRect::<f32, LayoutPixel> {
@@ -1025,6 +1041,49 @@ fn push_triangle(
     builder.push_border(&triangle_rect_info, border_widths, border_details);
 }
 
+/// Workaround for https://github.com/servo/webrender/issues/3262
+///
+/// If the frame contains an OpenGL texture, webrender seems to apply different brushes (?)
+/// and "forget" to correct colors to linear space, making colors lighter than they need to be
+///
+/// This function scans all nodes for an `GlTexture` callback and returns true if the "reverse gamma correction"
+/// needs to be applied.
+#[inline]
+fn needs_webrender_gamma_correction_hack<T: Layout>(arena: &Arena<NodeData<T>>) -> bool {
+    arena.linear_iter().any(|item| match &arena[item].data.node_type {
+        NodeType::GlTexture(_) => true,
+        _ => false,
+    })
+}
+
+/// Workaround for https://github.com/servo/webrender/issues/3262
+///
+/// The hack only needs to be applied if there are any OpenGL textures in the frame,
+/// see `needs_webrender_gamma_correction_hack` for more info.
+#[inline]
+fn reverse_webrender_hack_3262(color: ColorF, hack_necessary: bool) -> ColorF {
+
+    /// Returns a darker color than the original one
+    #[inline]
+    fn reverse_gamma(color: ColorF) -> ColorF {
+        const GAMMA: f32 = 2.2;
+
+        ColorF {
+            r: color.r.powf(GAMMA),
+            g: color.g.powf(GAMMA),
+            b: color.b.powf(GAMMA),
+            a: color.a,
+        }
+    }
+
+    if hack_necessary {
+        reverse_gamma(color)
+    } else {
+        // No hack necessary, just return the original color
+        color
+    }
+}
+
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
 /// shadow will not show up.
 ///
@@ -1035,7 +1094,8 @@ fn push_box_shadow(
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     bounds: &LayoutRect,
-    shadow_type: BoxShadowClipMode)
+    shadow_type: BoxShadowClipMode,
+    webrender_gamma_correction_hack_necessary: bool)
 {
     fn push_box_shadow_inner(
         builder: &mut DisplayListBuilder,
@@ -1043,7 +1103,8 @@ fn push_box_shadow(
         border_radius: StyleBorderRadius,
         bounds: &LayoutRect,
         clip_rect: LayoutRect,
-        shadow_type: BoxShadowClipMode)
+        shadow_type: BoxShadowClipMode,
+        webrender_gamma_correction_hack_necessary: bool)
     {
         use webrender::api::LayoutVector2D;
 
@@ -1083,7 +1144,7 @@ fn push_box_shadow(
             &info,
             *bounds,
             LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
-            apply_gamma(pre_shadow.color.into()),
+            apply_gamma(reverse_webrender_hack_3262(pre_shadow.color.into(), webrender_gamma_correction_hack_necessary)),
             pre_shadow.blur_radius.to_pixels(),
             pre_shadow.spread_radius.to_pixels(),
             border_radius.into(),
@@ -1121,6 +1182,7 @@ fn push_box_shadow(
             bottom: &Option<Option<BoxShadowPreDisplayItem>>,
             left: &Option<Option<BoxShadowPreDisplayItem>>,
             right: &Option<Option<BoxShadowPreDisplayItem>>,
+            webrender_gamma_correction_hack_necessary: bool,
     ) {
         let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
         let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
@@ -1174,7 +1236,7 @@ fn push_box_shadow(
             }
         }
 
-        push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type);
+        push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type, webrender_gamma_correction_hack_necessary);
     }
 
     // Box-shadow can be applied to each corner separately. This means, in practice
@@ -1210,7 +1272,7 @@ fn push_box_shadow(
             };
 
             push_single_box_shadow_edge(builder, current_shadow, bounds, border_radius, shadow_type,
-                                        top, bottom, left, right);
+                                        top, bottom, left, right, webrender_gamma_correction_hack_necessary);
         },
         // Two shadows in opposite directions:
         //
@@ -1220,16 +1282,16 @@ fn push_box_shadow(
             match (top, left, bottom, right) {
                 (Some(Some(t)), None, Some(Some(b)), right) => {
                     push_single_box_shadow_edge(builder, t, bounds, border_radius, shadow_type,
-                                                top, &None, &None, &None);
+                                                top, &None, &None, &None, webrender_gamma_correction_hack_necessary);
                     push_single_box_shadow_edge(builder, b, bounds, border_radius, shadow_type,
-                                                &None, bottom, &None, &None);
+                                                &None, bottom, &None, &None, webrender_gamma_correction_hack_necessary);
 
                 },
                 (None, Some(Some(l)), None, Some(Some(r))) => {
                     push_single_box_shadow_edge(builder, l, bounds, border_radius, shadow_type,
-                                                &None, &None, left, &None);
+                                                &None, &None, left, &None, webrender_gamma_correction_hack_necessary);
                     push_single_box_shadow_edge(builder, r, bounds, border_radius, shadow_type,
-                                                &None, &None, &None, right);
+                                                &None, &None, &None, right, webrender_gamma_correction_hack_necessary);
                 }
                 _ => return, // reachable, but invalid
             }
@@ -1238,7 +1300,7 @@ fn push_box_shadow(
             // Assumes that all box shadows are the same, so just use the top shadow
             let top_shadow = top.unwrap();
             let clip_rect = top_shadow.as_ref().and_then(|top_shadow| Some(get_clip_rect(top_shadow, bounds))).unwrap_or(*bounds);
-            push_box_shadow_inner(builder, &top_shadow, border_radius, bounds, clip_rect, shadow_type);
+            push_box_shadow_inner(builder, &top_shadow, border_radius, bounds, clip_rect, shadow_type, webrender_gamma_correction_hack_necessary);
         }
     }
 }
@@ -1249,7 +1311,8 @@ fn push_background(
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
     background: &StyleBackground,
-    app_resources: &AppResources)
+    app_resources: &AppResources,
+    needs_webrender_gamma_correction_hack: bool)
 {
     use css_parser::StyleBackground::*;
     match background {
@@ -1259,7 +1322,7 @@ fn push_background(
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap().get(),
-                    color: gradient_pre.color.into(),
+                    color: reverse_webrender_hack_3262(gradient_pre.color.into(), needs_webrender_gamma_correction_hack),
                 }).collect();
 
             let center = bounds.center();
@@ -1280,7 +1343,7 @@ fn push_background(
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap().get() / 100.0,
-                    color: gradient_pre.color.into(),
+                    color: reverse_webrender_hack_3262(gradient_pre.color.into(), needs_webrender_gamma_correction_hack),
                 }).collect();
 
             let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&bounds);
@@ -1317,6 +1380,13 @@ fn push_image(
 
     match image_info {
         Uploaded(image_info) => {
+
+            // NOTE: The webrender gamma hack doesn't apply to images,
+            // since webrender has no way of easily coloring images
+            // without using stacking contexts.
+            //
+            // This leads to lighter images, but that's just how things are right now
+
             builder.push_image(
                     &info,
                     size,
@@ -1338,9 +1408,16 @@ fn push_border(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
     border: &StyleBorder,
-    border_radius: &Option<StyleBorderRadius>)
+    border_radius: &Option<StyleBorderRadius>,
+    webrender_gamma_hack_necessary: bool)
 {
-    if let Some((border_widths, border_details)) = border.get_webrender_border(*border_radius) {
+    if let Some((border_widths, mut border_details)) = border.get_webrender_border(*border_radius) {
+        if let BorderDetails::Normal(normal_border) = &mut border_details {
+            normal_border.top.color = reverse_webrender_hack_3262(normal_border.top.color, webrender_gamma_hack_necessary);
+            normal_border.bottom.color = reverse_webrender_hack_3262(normal_border.bottom.color, webrender_gamma_hack_necessary);
+            normal_border.left.color = reverse_webrender_hack_3262(normal_border.left.color, webrender_gamma_hack_necessary);
+            normal_border.right.color = reverse_webrender_hack_3262(normal_border.right.color, webrender_gamma_hack_necessary);
+        }
         builder.push_border(info, border_widths, border_details);
     }
 }
