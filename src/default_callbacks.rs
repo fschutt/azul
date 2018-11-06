@@ -55,10 +55,10 @@ mod stack_checked_pointer {
             }
         }
 
-        /// **UNSAFE**: Invoke the pointer with a closure that can
-        /// modify the pointer. It isn't checked that the `U` that the
+        /// **UNSAFE**: Invoke the pointer with a function pointer that can
+        /// modify the pointer. It isn't checked that the type that the
         /// `StackCheckedPointer` was created with is the same as this `U`,
-        /// but the **must be the same type**. This can't be checked since
+        /// but they **must be the same type**. This can't be checked since
         /// the type has been (deliberately) erased.
         ///
         /// **NOTE**: To avoid undefined behaviour, you **must** check that
