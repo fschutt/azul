@@ -10,9 +10,8 @@
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.28%20stable-blue.svg)]()
 <!-- [END badges] -->
 
-> Azul is a free, functional, immediate mode GUI framework for rapid development
-of desktop applications written in Rust and supported by the Mozilla WebRender rendering
-engine. Azul uses a CSS / DOM model for layout and styling.
+> Azul is a free, functional, immediate mode GUI framework utilizing the Mozilla WebRender rendering engine for rapid development
+of desktop applications that are written in Rust and use a CSS / DOM model for layout and styling.
 
 ###### [Website](https://azul.rs/) | [Tutorial / user guide](https://github.com/maps4print/azul/wiki) | [Video demo](https://www.youtube.com/watch?v=kWL0ehf4wwI) | [Discord Chat](https://discord.gg/nxUmsCG)
 
