@@ -230,6 +230,8 @@ impl<T: Layout> App<T> {
             let time_start = Instant::now();
             let mut closed_windows = Vec::<usize>::new();
 
+            let mut frame_was_resize = false;
+
             'window_loop: for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
 
                 let window_id = WindowId { id: idx };
@@ -260,7 +262,7 @@ impl<T: Layout> App<T> {
                     }
                 }
 
-                if frame_event_info.should_swap_window || frame_event_info.is_resize_event {
+                if frame_event_info.should_swap_window || frame_event_info.is_resize_event || force_redraw_cache[idx] > 0 {
                     window.display.swap_buffers()?;
                     if let Some(i) = force_redraw_cache.get_mut(idx) {
                         if *i > 0 { *i -= 1 };
@@ -278,6 +280,7 @@ impl<T: Layout> App<T> {
                     //
                     // This is a reported bug and should be fixed somewhere in July
                     force_redraw_cache[idx] = 2;
+                    frame_was_resize = true;
                 }
 
                 // Update the window state that we got from the frame event (updates window dimensions and DPI)
@@ -365,8 +368,8 @@ impl<T: Layout> App<T> {
             if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
                 self.windows.iter().for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
                 awakened_task = vec![true; self.windows.len()];
-            } else {
-                // Wait until 16ms have passed
+            } else if !frame_was_resize {
+                // Wait until 16ms have passed, but not during a resize event
                 let diff = time_start.elapsed();
                 const FRAME_TIME: Duration = Duration::from_millis(16);
                 if diff < FRAME_TIME {
