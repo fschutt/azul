@@ -659,6 +659,10 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
 {
     if input.starts_with('#') {
         parse_color_no_hash(&input[1..])
+    } else if input.starts_with("rgba(") {
+        parse_color_rgba(&input[5..input.len()-1])
+    } else if input.starts_with("rgb(") {
+        parse_color_rgb(&input[4..input.len()-1])
     } else {
         parse_color_builtin(input)
     }
@@ -892,6 +896,74 @@ fn parse_color_builtin<'a>(input: &'a str)
         _ => { return Err(CssColorParseError::InvalidColor(input)); }
     };
     parse_color_no_hash(color)
+}
+
+/// Parse a color of the form 'rgb([0-255], [0-255], [0-255])', without the leading 'rgb(' or
+/// trailing ')'.
+fn parse_color_rgb<'a>(input: &'a str)
+-> Result<ColorU, CssColorParseError<'a>>
+{
+    let inputs: Vec<&str> = input.split(',').map(|component| component.trim()).collect();
+    if inputs.len() != 3 {
+        return Err(CssColorParseError::InvalidColor(input));
+    }
+    let r = match inputs[0].parse::<u8>() {
+        Ok(num) => num,
+        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
+    };
+    let g = match inputs[1].parse::<u8>() {
+        Ok(num) => num,
+        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
+    };
+    let b = match inputs[2].parse::<u8>() {
+        Ok(num) => num,
+        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
+    };
+    Ok(ColorU {
+        r,
+        g,
+        b,
+        a: 255,
+    })
+}
+
+/// Parse a color of the form 'rgba([0-255], [0-255], [0-255], [0-255])', without the leading
+/// 'rgba(' or trailing ')'.
+fn parse_color_rgba<'a>(input: &'a str)
+-> Result<ColorU, CssColorParseError<'a>>
+{
+    let inputs: Vec<&str> = input.split(',').map(|component| component.trim()).collect();
+    if inputs.len() != 4 {
+        return Err(CssColorParseError::InvalidColor(input));
+    }
+    let r = match inputs[0].parse::<u8>() {
+        Ok(num) => num,
+        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
+    };
+    let g = match inputs[1].parse::<u8>() {
+        Ok(num) => num,
+        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
+    };
+    let b = match inputs[2].parse::<u8>() {
+        Ok(num) => num,
+        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
+    };
+    let a = match inputs[3].parse::<f32>() {
+        Ok(num) => {
+            if num < 0. || num > 1. {
+                return Err(CssColorParseError::InvalidColor(input));
+            } else {
+                (num * 256.) as u8
+            }
+        }
+        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
+    };
+    Ok(ColorU {
+        r,
+        g,
+        b,
+        a,
+    })
 }
 
 /// Parse a background color, WITHOUT THE HASH
@@ -2926,6 +2998,26 @@ mod css_tests {
     #[test]
     fn test_parse_css_color_3() {
         assert_eq!(parse_css_color("#EEE"), Ok(ColorU { r: 238, g: 238, b: 238, a: 255 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_4() {
+        assert_eq!(parse_css_color("rgb(192, 14, 12)"), Ok(ColorU { r: 192, g: 14, b: 12, a: 255 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_5() {
+        assert_eq!(parse_css_color("rgb(283, 8, 105)"), Err(CssColorParseError::InvalidColor("283, 8, 105")));
+    }
+
+    #[test]
+    fn test_parse_css_color_6() {
+        assert_eq!(parse_css_color("rgba(192, 14, 12, 80)"), Err(CssColorParseError::InvalidColor("192, 14, 12, 80")));
+    }
+
+    #[test]
+    fn test_parse_css_color_7() {
+        assert_eq!(parse_css_color("rgba( 0,127,     255   , 0.25  )"), Ok(ColorU { r: 0, g: 127, b: 255, a: 64 }));
     }
 
     #[test]
