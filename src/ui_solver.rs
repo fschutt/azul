@@ -752,15 +752,13 @@ macro_rules! get_position {
 fn $fn_name(
     arena: &Arena<RectLayout>,
     non_leaf_nodes: &[(usize, NodeId)],
-    solved_widths: &$width_layout,
-    origin: LogicalPosition)
+    solved_widths: &$width_layout)
 -> Arena<$height_solved_position>
 {
     use css_parser::{LayoutAxis, LayoutJustifyContent};
 
     let widths = &solved_widths.$solved_widths_field;
     let mut arena_solved = widths.transform(|_, _| $height_solved_position(0.0));
-    arena_solved[NodeId::new(0)].data = $height_solved_position(origin.x as f32);
 
     fn determine_child_x_absolute(
         child_id: NodeId,
@@ -998,15 +996,32 @@ pub(crate) fn get_x_positions(solved_widths: &SolvedWidthLayout, origin: Logical
 -> Arena<HorizontalSolvedPosition>
 {
     get_position!(get_pos_x, SolvedWidthLayout, HorizontalSolvedPosition, solved_widths, min_width, left, right, Horizontal);
-    get_pos_x(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_widths, origin)
+    let mut arena = get_pos_x(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_widths);
+
+    // Add the origin on top of the position
+    let x = origin.x as f32;
+    if x > 0.5 || x < -0.5 {
+        for item in &mut arena.nodes {
+            item.data.0 += x;
+        }
+    }
+    arena
 }
 
 pub(crate) fn get_y_positions(solved_heights: &SolvedHeightLayout, solved_widths: &SolvedWidthLayout, origin: LogicalPosition)
 -> Arena<VerticalSolvedPosition>
 {
     get_position!(get_pos_y, SolvedHeightLayout, VerticalSolvedPosition, solved_heights, min_height, top, bottom, Vertical);
+    let mut arena = get_pos_y(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_heights);
 
-    get_pos_y(&solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_heights, origin)
+    // Add the origin on top of the position
+    let y = origin.y as f32;
+    if y > 0.5  || y < -0.5 {
+        for item in &mut arena.nodes {
+            item.data.0 += y;
+        }
+    }
+    arena
 }
 
 #[cfg(test)]
