@@ -446,7 +446,11 @@ impl_from!(PixelParseError<'a>, CssStyleBorderRadiusParseError::PixelParseError)
 pub enum CssColorParseError<'a> {
     InvalidColor(&'a str),
     InvalidColorComponent(u8),
-    ValueParseErr(ParseIntError),
+    IntValueParseErr(ParseIntError),
+    FloatValueParseErr(ParseFloatError),
+    FloatValueOutOfRange(f32),
+    MissingColorComponent(&'a str),
+    ExtraArguments(&'a str),
 }
 
 impl<'a> fmt::Display for CssColorParseError<'a> {
@@ -455,8 +459,24 @@ impl<'a> fmt::Display for CssColorParseError<'a> {
         match self {
             InvalidColor(i) => write!(f, "Invalid CSS color: \"{}\"", i),
             InvalidColorComponent(i) => write!(f, "Invalid color component when parsing CSS color: \"{}\"", i),
-            ValueParseErr(e) => write!(f, "Css color component: Value not in range between 00 - FF: \"{}\"", e),
+            IntValueParseErr(e) => write!(f, "CSS color component: Value not in range between 00 - FF: \"{}\"", e),
+            FloatValueParseErr(e) => write!(f, "CSS color component: Value cannot be parsed as floating point number: \"{}\"", e),
+            FloatValueOutOfRange(v) => write!(f, "CSS color component: Value not in range between 0.0 - 1.0: \"{}\"", v),
+            MissingColorComponent(c) => write!(f, "CSS color is missing {} component", c),
+            ExtraArguments(a) => write!(f, "Extra argument to CSS color: \"{}\"", a),
         }
+    }
+}
+
+impl<'a> From<ParseIntError> for CssColorParseError<'a> {
+    fn from(e: ParseIntError) -> Self {
+        CssColorParseError::IntValueParseErr(e)
+    }
+}
+
+impl<'a> From<ParseFloatError> for CssColorParseError<'a> {
+    fn from(e: ParseFloatError) -> Self {
+        CssColorParseError::FloatValueParseErr(e)
     }
 }
 
@@ -610,7 +630,6 @@ fn parse_pixel_value<'a>(input: &'a str)
         "px" => CssMetric::Px,
         "em" => CssMetric::Em,
         "pt" => CssMetric::Pt,
-        "" if input[..split_pos] == *"0" => CssMetric::Px,
         _ => { return Err(PixelParseError::InvalidComponent(&input[(split_pos - 1)..])); }
     };
 
@@ -660,9 +679,9 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
 {
     if input.starts_with('#') {
         parse_color_no_hash(&input[1..])
-    } else if input.starts_with("rgba(") {
+    } else if input.starts_with("rgba(") && input.ends_with(")") {
         parse_color_rgba(&input[5..input.len()-1])
-    } else if input.starts_with("rgb(") {
+    } else if input.starts_with("rgb(") && input.ends_with(")") {
         parse_color_rgb(&input[4..input.len()-1])
     } else {
         parse_color_builtin(input)
@@ -900,32 +919,16 @@ fn parse_color_builtin<'a>(input: &'a str)
 }
 
 /// Parse a color of the form 'rgb([0-255], [0-255], [0-255])', without the leading 'rgb(' or
-/// trailing ')'.
+/// trailing ')'. Alpha defaults to 255.
 fn parse_color_rgb<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
-    let inputs: Vec<&str> = input.split(',').map(|component| component.trim()).collect();
-    if inputs.len() != 3 {
-        return Err(CssColorParseError::InvalidColor(input));
+    let mut components = input.split(',').map(|c| c.trim());
+    let color = parse_color_rgb_components(&mut components)?;
+    if let Some(arg) = components.next() {
+        return Err(CssColorParseError::ExtraArguments(arg));
     }
-    let r = match inputs[0].parse::<u8>() {
-        Ok(num) => num,
-        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
-    };
-    let g = match inputs[1].parse::<u8>() {
-        Ok(num) => num,
-        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
-    };
-    let b = match inputs[2].parse::<u8>() {
-        Ok(num) => num,
-        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
-    };
-    Ok(ColorU {
-        r,
-        g,
-        b,
-        a: 255,
-    })
+    Ok(color)
 }
 
 /// Parse a color of the form 'rgba([0-255], [0-255], [0-255], [0.0-1.0])', without the leading
@@ -933,37 +936,38 @@ fn parse_color_rgb<'a>(input: &'a str)
 fn parse_color_rgba<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
-    let inputs: Vec<&str> = input.split(',').map(|component| component.trim()).collect();
-    if inputs.len() != 4 {
-        return Err(CssColorParseError::InvalidColor(input));
+    let mut components = input.split(',').map(|c| c.trim());
+    let rgb_color = parse_color_rgb_components(&mut components)?;
+    let a = components.next().ok_or(CssColorParseError::MissingColorComponent("alpha"))?;
+    let a = a.parse::<f32>()?;
+    if a < 0. || a > 1. {
+        return Err(CssColorParseError::FloatValueOutOfRange(a));
     }
-    let r = match inputs[0].parse::<u8>() {
-        Ok(num) => num,
-        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
-    };
-    let g = match inputs[1].parse::<u8>() {
-        Ok(num) => num,
-        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
-    };
-    let b = match inputs[2].parse::<u8>() {
-        Ok(num) => num,
-        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
-    };
-    let a = match inputs[3].parse::<f32>() {
-        Ok(num) => {
-            if num < 0. || num > 1. {
-                return Err(CssColorParseError::InvalidColor(input));
-            } else {
-                (num * 256.).min(255.) as u8
-            }
-        }
-        Err(_) => return Err(CssColorParseError::InvalidColor(input)),
-    };
+    let a = (a * 256.).min(255.) as u8;
+    if let Some(arg) = components.next() {
+        return Err(CssColorParseError::ExtraArguments(arg));
+    }
+    Ok(ColorU { a, ..rgb_color })
+}
+
+/// Parse the color components passed as arguments to an rgb(...) CSS color.
+fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
+-> Result<ColorU, CssColorParseError<'a>>
+{
+    #[inline]
+    fn component_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: &'a str)
+    -> Result<u8, CssColorParseError<'a>>
+    {
+        let c = components.next().ok_or(CssColorParseError::MissingColorComponent(which))?;
+        let c = c.parse::<u8>()?;
+        Ok(c)
+    }
+
     Ok(ColorU {
-        r,
-        g,
-        b,
-        a,
+        r: component_from_str(components, "red")?,
+        g: component_from_str(components, "green")?,
+        b: component_from_str(components, "blue")?,
+        a: 255
     })
 }
 
@@ -1023,7 +1027,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
             })
         },
         6 => {
-            let input = u32::from_str_radix(input, 16).map_err(|e| CssColorParseError::ValueParseErr(e))?;
+            let input = u32::from_str_radix(input, 16).map_err(|e| CssColorParseError::IntValueParseErr(e))?;
             Ok(ColorU {
                 r: ((input >> 16) & 255) as u8,
                 g: ((input >> 8) & 255) as u8,
@@ -1032,7 +1036,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
             })
         },
         8 => {
-            let input = u32::from_str_radix(input, 16).map_err(|e| CssColorParseError::ValueParseErr(e))?;
+            let input = u32::from_str_radix(input, 16).map_err(|e| CssColorParseError::IntValueParseErr(e))?;
             Ok(ColorU {
                 r: ((input >> 24) & 255) as u8,
                 g: ((input >> 16) & 255) as u8,
@@ -3008,12 +3012,12 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_color_5() {
-        assert_eq!(parse_css_color("rgb(283, 8, 105)"), Err(CssColorParseError::InvalidColor("283, 8, 105")));
+        assert_eq!(parse_css_color("rgb(283, 8, 105)"), Err(CssColorParseError::IntValueParseErr("283".parse::<u8>().err().unwrap())));
     }
 
     #[test]
     fn test_parse_css_color_6() {
-        assert_eq!(parse_css_color("rgba(192, 14, 12, 80)"), Err(CssColorParseError::InvalidColor("192, 14, 12, 80")));
+        assert_eq!(parse_css_color("rgba(192, 14, 12, 80)"), Err(CssColorParseError::FloatValueOutOfRange(80.)));
     }
 
     #[test]
@@ -3044,11 +3048,6 @@ mod css_tests {
     #[test]
     fn test_parse_pixel_value_4() {
         assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::InvalidComponent("aslkfdjasdflk")));
-    }
-
-    #[test]
-    fn test_parse_pixel_value_5() {
-        assert_eq!(parse_pixel_value("0"), Ok(PixelValue::px(0.)));
     }
 
     #[test]
