@@ -86,14 +86,13 @@ const SVG_VERTEX_SHADER: &str = "
     in vec2 xy;
     in vec2 normal;
 
-    uniform vec2 bbox_origin;
     uniform vec2 bbox_size;
     uniform vec2 offset;
     uniform float z_index;
     uniform float zoom;
 
     void main() {
-        vec2 position_centered = (xy - bbox_origin) / bbox_size;
+        vec2 position_centered = xy / bbox_size;
         vec2 position_zoomed = position_centered * vec2(zoom);
         gl_Position = vec4(vec2(-1.0) + position_zoomed + (offset / bbox_size), z_index, 1.0);
     }";
@@ -2268,7 +2267,7 @@ impl Svg {
         let texture_height = (height as f32 * self.multisampling_factor) as u32;
         let tex = window.create_texture(texture_width, texture_height);
 
-        let (window_width, window_height) = window.get_physical_size();
+        // let (window_width, window_height) = window.get_physical_size();
 
         // TODO: This currently doesn't work - only the first draw call is drawn
         // This is probably because either webrender or glium messes with the texture
@@ -2276,10 +2275,8 @@ impl Svg {
         let background_color: ColorF = self.background_color.into();
 
         let z_index: f32 = 0.5;
-        let bbox: TypedRect<f32, SvgWorldPixel> = TypedRect {
-                origin: TypedPoint2D::new(0.0, 0.0),
-                size: TypedSize2D::new(window_width as f32, window_height as f32),
-        };
+        // let bbox_size = TypedSize2D::new(window_width as f32, window_height as f32);
+        let bbox_size = TypedSize2D::new(texture_width as f32, texture_height as f32);
         let shader = svg_cache.init_shader(window);
 
         let hidpi = window.get_hidpi_factor() as f32;
@@ -2321,7 +2318,7 @@ impl Svg {
                             &fill_vertices,
                             &fill_indices,
                             &draw_options,
-                            &bbox,
+                            &bbox_size,
                             color.into(),
                             z_index,
                             pan,
@@ -2344,7 +2341,7 @@ impl Svg {
                             &stroke_vertices,
                             &stroke_indices,
                             &draw_options,
-                            &bbox,
+                            &bbox_size,
                             stroke_color.into(),
                             z_index,
                             pan,
@@ -2368,7 +2365,7 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
         vertices: &VertexBuffer<SvgVert>,
         indices: &IndexBuffer<u32>,
         draw_options: &DrawParameters,
-        bbox: &TypedRect<f32, SvgWorldPixel>,
+        bbox_size: &TypedSize2D<f32, SvgWorldPixel>,
         color: ColorF,
         z_index: f32,
         pan: (f32, f32),
@@ -2377,8 +2374,7 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
     let color = srgba_to_linear(color);
 
     let uniforms = uniform! {
-        bbox_origin: (bbox.origin.x, bbox.origin.y),
-        bbox_size: (bbox.size.width / 2.0, bbox.size.height / 2.0),
+        bbox_size: (bbox_size.width / 2.0, bbox_size.height / 2.0),
         z_index: z_index,
         color: (
             color.r as f32,
