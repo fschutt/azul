@@ -610,6 +610,7 @@ fn parse_pixel_value<'a>(input: &'a str)
         "px" => CssMetric::Px,
         "em" => CssMetric::Em,
         "pt" => CssMetric::Pt,
+        "" if input[..split_pos] == *"0" => CssMetric::Px,
         _ => { return Err(PixelParseError::InvalidComponent(&input[(split_pos - 1)..])); }
     };
 
@@ -3038,6 +3039,11 @@ mod css_tests {
     #[test]
     fn test_parse_pixel_value_4() {
         assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::InvalidComponent("aslkfdjasdflk")));
+    }
+
+    #[test]
+    fn test_parse_pixel_value_5() {
+        assert_eq!(parse_pixel_value("0"), Ok(PixelValue::px(0.)));
     }
 
     #[test]
