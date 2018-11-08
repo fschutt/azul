@@ -442,6 +442,14 @@ impl_display!{ CssStyleBorderRadiusParseError<'a>, {
 
 impl_from!(PixelParseError<'a>, CssStyleBorderRadiusParseError::PixelParseError);
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum CssColorComponent {
+    Red,
+    Green,
+    Blue,
+    Alpha,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssColorParseError<'a> {
     InvalidColor(&'a str),
@@ -449,7 +457,7 @@ pub enum CssColorParseError<'a> {
     IntValueParseErr(ParseIntError),
     FloatValueParseErr(ParseFloatError),
     FloatValueOutOfRange(f32),
-    MissingColorComponent(&'a str),
+    MissingColorComponent(CssColorComponent),
     ExtraArguments(&'a str),
     UnclosedColor(&'a str),
 }
@@ -463,7 +471,7 @@ impl<'a> fmt::Display for CssColorParseError<'a> {
             IntValueParseErr(e) => write!(f, "CSS color component: Value not in range between 00 - FF: \"{}\"", e),
             FloatValueParseErr(e) => write!(f, "CSS color component: Value cannot be parsed as floating point number: \"{}\"", e),
             FloatValueOutOfRange(v) => write!(f, "CSS color component: Value not in range between 0.0 - 1.0: \"{}\"", v),
-            MissingColorComponent(c) => write!(f, "CSS color is missing {} component", c),
+            MissingColorComponent(c) => write!(f, "CSS color is missing {:?} component", c),
             ExtraArguments(a) => write!(f, "Extra argument to CSS color: \"{}\"", a),
             UnclosedColor(i) => write!(f, "Unclosed color: \"{}\"", i),
         }
@@ -948,9 +956,9 @@ fn parse_color_rgba<'a>(input: &'a str)
 {
     let mut components = input.split(',').map(|c| c.trim());
     let rgb_color = parse_color_rgb_components(&mut components)?;
-    let a = components.next().ok_or(CssColorParseError::MissingColorComponent("alpha"))?;
-    if a == "" {
-        return Err(CssColorParseError::MissingColorComponent("alpha"));
+    let a = components.next().ok_or(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha))?;
+    if a.is_empty() {
+        return Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha));
     }
     let a = a.parse::<f32>()?;
     if a < 0. || a > 1. {
@@ -968,11 +976,11 @@ fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     #[inline]
-    fn component_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: &'a str)
+    fn component_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: CssColorComponent)
     -> Result<u8, CssColorParseError<'a>>
     {
         let c = components.next().ok_or(CssColorParseError::MissingColorComponent(which))?;
-        if c == "" {
+        if c.is_empty() {
             return Err(CssColorParseError::MissingColorComponent(which));
         }
         let c = c.parse::<u8>()?;
@@ -980,9 +988,9 @@ fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
     }
 
     Ok(ColorU {
-        r: component_from_str(components, "red")?,
-        g: component_from_str(components, "green")?,
-        b: component_from_str(components, "blue")?,
+        r: component_from_str(components, CssColorComponent::Red)?,
+        g: component_from_str(components, CssColorComponent::Green)?,
+        b: component_from_str(components, CssColorComponent::Blue)?,
         a: 255
     })
 }
@@ -3063,32 +3071,32 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_color_12() {
-        assert_eq!(parse_css_color("rgb()"), Err(CssColorParseError::MissingColorComponent("red")));
+        assert_eq!(parse_css_color("rgb()"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Red)));
     }
 
     #[test]
     fn test_parse_css_color_13() {
-        assert_eq!(parse_css_color("rgb(10)"), Err(CssColorParseError::MissingColorComponent("green")));
+        assert_eq!(parse_css_color("rgb(10)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Green)));
     }
 
     #[test]
     fn test_parse_css_color_14() {
-        assert_eq!(parse_css_color("rgb(20, 30)"), Err(CssColorParseError::MissingColorComponent("blue")));
+        assert_eq!(parse_css_color("rgb(20, 30)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Blue)));
     }
 
     #[test]
     fn test_parse_css_color_15() {
-        assert_eq!(parse_css_color("rgb(30, 40,)"), Err(CssColorParseError::MissingColorComponent("blue")));
+        assert_eq!(parse_css_color("rgb(30, 40,)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Blue)));
     }
 
     #[test]
     fn test_parse_css_color_16() {
-        assert_eq!(parse_css_color("rgba(40, 50, 60)"), Err(CssColorParseError::MissingColorComponent("alpha")));
+        assert_eq!(parse_css_color("rgba(40, 50, 60)"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
     }
 
     #[test]
     fn test_parse_css_color_17() {
-        assert_eq!(parse_css_color("rgba(50, 60, 70, )"), Err(CssColorParseError::MissingColorComponent("alpha")));
+        assert_eq!(parse_css_color("rgba(50, 60, 70, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
     }
 
     #[test]
