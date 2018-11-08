@@ -928,7 +928,7 @@ fn parse_color_rgb<'a>(input: &'a str)
     })
 }
 
-/// Parse a color of the form 'rgba([0-255], [0-255], [0-255], [0-255])', without the leading
+/// Parse a color of the form 'rgba([0-255], [0-255], [0-255], [0.0-1.0])', without the leading
 /// 'rgba(' or trailing ')'.
 fn parse_color_rgba<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
@@ -954,7 +954,7 @@ fn parse_color_rgba<'a>(input: &'a str)
             if num < 0. || num > 1. {
                 return Err(CssColorParseError::InvalidColor(input));
             } else {
-                (num * 256.) as u8
+                (num * 256.).min(255.) as u8
             }
         }
         Err(_) => return Err(CssColorParseError::InvalidColor(input)),
@@ -3019,6 +3019,11 @@ mod css_tests {
     #[test]
     fn test_parse_css_color_7() {
         assert_eq!(parse_css_color("rgba( 0,127,     255   , 0.25  )"), Ok(ColorU { r: 0, g: 127, b: 255, a: 64 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_8() {
+        assert_eq!(parse_css_color("rgba( 1 ,2,3, 1.0)"), Ok(ColorU { r: 1, g: 2, b: 3, a: 255 }));
     }
 
     #[test]
