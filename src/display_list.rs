@@ -330,15 +330,14 @@ impl ZOrderedRectangles {
 
 // Returns how many children a node has (including grandchildren, grand-grandchildren, etc.)
 fn get_total_num_children_of_node<T>(id: NodeId, arena: &Arena<T>) -> usize {
-    let first_child = match arena[id].first_child {
+    let mut last_child = match arena[id].last_child {
         None => return 0,
         Some(id) => id,
     };
-    let mut last_child = arena[id].last_child.unwrap();
     while let Some(last) = arena[last_child].last_child {
         last_child = last;
     }
-    last_child.index() - first_child.index()
+    last_child.index() - id.index()
 }
 
 use glium::glutin::dpi::LogicalPosition;
