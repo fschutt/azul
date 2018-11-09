@@ -713,10 +713,9 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
                 hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
                 ui_state: &ui_state_cache[window_id.id],
                 hit_test_result: &hit_test_results,
-                cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
+                cursor_relative_to_item: (item.point_relative_to_item.x, item.point_relative_to_item.y),
                 cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
             };
-
             // Invoke On::MouseOver callback - TODO: duplicated code (due to borrowing issues)!
             if let Some(callback_id) = callback_id_list.get(&On::MouseOver) {
 
@@ -763,7 +762,7 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
             hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
             ui_state: &ui_state_cache[window_id.id],
             hit_test_result: &hit_test_results,
-            cursor_relative_to_item: (item.point_in_viewport.x, item.point_in_viewport.y),
+            cursor_relative_to_item: (item.point_relative_to_item.x, item.point_relative_to_item.y),
             cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
         };
 
