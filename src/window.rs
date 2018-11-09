@@ -256,6 +256,8 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
 
     /// For any node ID, returns what the position in its parent it is, plus the parent itself.
     /// Returns `None` on the root ID (because the root has no parent, therefore it's the 1st item)
+    ///
+    /// Note: Index is 0-based (first item has the index of 0)
     pub fn get_index_in_parent(&self, node_id: NodeId) -> Option<(usize, NodeId)> {
         let ui_state = self.ui_state;
         let arena = ui_state.dom.arena.borrow();
@@ -265,7 +267,7 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
         }
 
         let parent = arena[node_id].parent()?;
-        Some((node_id.preceding_siblings(&arena).count(), parent))
+        Some((node_id.preceding_siblings(&arena).count() - 1, parent))
     }
 }
 
