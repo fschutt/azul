@@ -2081,8 +2081,8 @@ fn parse_direction<'a>(input: &'a str)
 
     let angle = {
         if first_input.ends_with("deg") { Some(AngleType::Deg) }
-        else if first_input.ends_with("rad") { Some(AngleType::Rad) }
         else if first_input.ends_with("grad") { Some(AngleType::Gon) }
+        else if first_input.ends_with("rad") { Some(AngleType::Rad) }
         else { None }
     };
 
@@ -2095,7 +2095,7 @@ fn parse_direction<'a>(input: &'a str)
             },
             AngleType::Rad => {
                 return Ok(Direction::Angle(FloatValue::new(
-                    first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 * PI
+                    first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 / PI
                 )));
             },
             AngleType::Gon => {
@@ -2961,6 +2961,40 @@ mod css_tests {
                     color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                 }],
             })));
+    }
+
+    #[test]
+    fn test_parse_linear_gradient_5() {
+        assert_eq!(parse_css_background("linear-gradient(0.42rad, red, yellow)"),
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::Angle(FloatValue::new(24.0642)),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(PercentageValue::new(0.0)),
+                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(100.0)),
+                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                }],
+        })));
+    }
+
+    #[test]
+    fn test_parse_linear_gradient_6() {
+        assert_eq!(parse_css_background("linear-gradient(12.93grad, red, yellow)"),
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::Angle(FloatValue::new(11.637)),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(PercentageValue::new(0.0)),
+                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(100.0)),
+                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                }],
+        })));
     }
 
     #[test]
