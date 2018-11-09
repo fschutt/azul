@@ -813,6 +813,11 @@ impl SampledBezierCurve {
         let line = [self.sampled_bezier_points.iter().map(|b| (b.x, b.y)).collect()];
         quick_lines(&line, stroke_color, None)
     }
+
+    /// Returns the sampled points from this bezier curve
+    pub fn get_sampled_points<'a>(&'a self) -> &'a [BezierControlPoint;BEZIER_SAMPLE_RATE + 1] {
+        &self.sampled_bezier_points
+    }
 }
 
 /// Joins multiple SvgVert buffers to one and calculates the indices
