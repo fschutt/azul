@@ -2095,7 +2095,7 @@ fn parse_direction<'a>(input: &'a str)
             },
             AngleType::Rad => {
                 return Ok(Direction::Angle(FloatValue::new(
-                    first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 * PI
+                    first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 / PI
                 )));
             },
             AngleType::Gon => {
@@ -2967,7 +2967,7 @@ mod css_tests {
     fn test_parse_linear_gradient_5() {
         assert_eq!(parse_css_background("linear-gradient(0.42rad, red, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
-                direction: Direction::Angle(FloatValue { number: 2375044 }),
+                direction: Direction::Angle(FloatValue::new(24.0642)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
                     offset: Some(PercentageValue::new(0.0)),
@@ -2984,7 +2984,7 @@ mod css_tests {
     fn test_parse_linear_gradient_6() {
         assert_eq!(parse_css_background("linear-gradient(12.93grad, red, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
-                direction: Direction::Angle(FloatValue { number: 116370 }),
+                direction: Direction::Angle(FloatValue::new(11.637)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
                     offset: Some(PercentageValue::new(0.0)),
