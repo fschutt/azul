@@ -960,7 +960,7 @@ fn parse_color_builtin<'a>(input: &'a str)
 }
 
 /// Parse a color of the form 'rgb([0-255], [0-255], [0-255])', or 'rgba([0-255], [0-255], [0-255],
-/// [0.-1.])' without the leading 'rgb[a](' or trailing ')'. Alpha defaults to 255.
+/// [0.0-1.0])' without the leading 'rgb[a](' or trailing ')'. Alpha defaults to 255.
 fn parse_color_rgb<'a>(input: &'a str, parse_alpha: bool)
 -> Result<ColorU, CssColorParseError<'a>>
 {
@@ -1001,7 +1001,7 @@ fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
     })
 }
 
-/// Parse a color of the form 'hsl([0.-360.]deg, [0-100]%, [0-100]%)', or 'hsla([0.-360.]deg, [0-100]%, [0-100]%, [0.-1.])' without the leading 'hsl[a](' or trailing ')'. Alpha defaults to 255.
+/// Parse a color of the form 'hsl([0.0-360.0]deg, [0-100]%, [0-100]%)', or 'hsla([0.0-360.0]deg, [0-100]%, [0-100]%, [0.0-1.0])' without the leading 'hsl[a](' or trailing ')'. Alpha defaults to 255.
 fn parse_color_hsl<'a>(input: &'a str, parse_alpha: bool)
 -> Result<ColorU, CssColorParseError<'a>>
 {
@@ -1054,28 +1054,28 @@ fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
     /// Adapted from [https://en.wikipedia.org/wiki/HSL_and_HSV#Converting_to_RGB]
     #[inline]
     fn hsl_to_rgb<'a>(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
-        let s = s / 100.;
-        let l = l / 100.;
-        let c = (1. - (2. * l - 1.).abs()) * s;
-        let h = h / 60.;
-        let x = c * (1. - ((h % 2.) - 1.).abs());
+        let s = s / 100.0;
+        let l = l / 100.0;
+        let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+        let h = h / 60.0;
+        let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
         let (r1, g1, b1) = match h as u8 {
-            0 => (c, x, 0.),
-            1 => (x, c, 0.),
-            2 => (0., c, x),
-            3 => (0., x, c),
-            4 => (x, 0., c),
-            5 => (c, 0., x),
+            0 => (c, x, 0.0),
+            1 => (x, c, 0.0),
+            2 => (0.0, c, x),
+            3 => (0.0, x, c),
+            4 => (x, 0.0, c),
+            5 => (c, 0.0, x),
             _ => {
                 println!("h is {}", h);
                 unreachable!();
             }
         };
-        let m = l - c / 2.;
+        let m = l - c / 2.0;
         (
-            ((r1 + m) * 256.).min(255.) as u8,
-            ((g1 + m) * 256.).min(255.) as u8,
-            ((b1 + m) * 256.).min(255.) as u8,
+            ((r1 + m) * 256.0).min(255.0) as u8,
+            ((g1 + m) * 256.0).min(255.0) as u8,
+            ((b1 + m) * 256.0).min(255.0) as u8,
         )
     }
 
@@ -1097,10 +1097,10 @@ fn parse_alpha_component<'a>(components: &mut Iterator<Item=&'a str>) -> Result<
         return Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha));
     }
     let a = a.parse::<f32>()?;
-    if a < 0. || a > 1. {
+    if a < 0.0 || a > 1.0 {
         return Err(CssColorParseError::FloatValueOutOfRange(a));
     }
-    let a = (a * 256.).min(255.) as u8;
+    let a = (a * 256.0).min(255.0) as u8;
     Ok(a)
 }
 
@@ -3181,7 +3181,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_color_6() {
-        assert_eq!(parse_css_color("rgba(192, 14, 12, 80)"), Err(CssColorParseError::FloatValueOutOfRange(80.)));
+        assert_eq!(parse_css_color("rgba(192, 14, 12, 80)"), Err(CssColorParseError::FloatValueOutOfRange(80.0)));
     }
 
     #[test]
