@@ -29,7 +29,7 @@ use {
     images::ImageId,
     text_cache::TextInfo,
     compositor::new_opengl_texture_id,
-    window::{WindowInfo, FakeWindow, HidpiAdjustedBounds},
+    window::{Window, WindowInfo, FakeWindow, HidpiAdjustedBounds},
 };
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -209,12 +209,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     pub(crate) fn into_display_list_builder(
         &self,
         app_data: Arc<Mutex<T>>,
-        pipeline_id: PipelineId,
-        current_epoch: Epoch,
+        window: &mut Window<T>,
         window_size_has_changed: bool,
-        render_api: &RenderApi,
-        parsed_css: &Css,
-        window_size: &WindowSize,
         fake_window: &mut FakeWindow<T>,
         app_resources: &mut AppResources)
     -> DisplayListBuilder
@@ -228,18 +224,27 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             &self,
             &mut resource_updates,
             app_resources,
-            render_api,
-            window_size.dimensions,
+            &window.internal.api,
+            window.state.size.dimensions,
             LogicalPosition::new(0.0, 0.0)
         );
 
         let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
 
-        let LogicalSize { width, height } = window_size.dimensions;
-        let mut builder = DisplayListBuilder::with_capacity(pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
+        // Create a new scroll state for each node that is not present in the scroll states already.
+        // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we can use the NodeIds from the layouted rectangles
+        // to access the NodeData corresponding to each Rectangle in the NodeData arena.
+        let arena = self.ui_descr.ui_descr_arena.borrow();
+        // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
+        scrollable_nodes.iter().for_each(|node| window.ensure_initialized_scroll_state(arena.get(node.0).unwrap().data.calculate_node_data_hash()));
+        // Make sure unused scroll states are garbage collected.
+        window.remove_unused_scroll_states();
+
+        let LogicalSize { width, height } = window.state.size.dimensions;
+        let mut builder = DisplayListBuilder::with_capacity(window.internal.pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
 
         // Upload image and font resources
-        Self::update_resources(render_api, app_resources, &mut resource_updates);
+        Self::update_resources(&window.internal.api, app_resources, &mut resource_updates);
 
         let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles, &node_depths);
 
@@ -247,14 +252,14 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
-            current_epoch,
+            window.internal.epoch,
             rects_in_rendering_order,
             &scrollable_nodes,
             &DisplayListParametersRef {
                 ui_description: self.ui_descr,
-                render_api,
+                render_api: &window.internal.api,
                 display_rectangle_arena: &self.rectangles,
-                parsed_css,
+                parsed_css: &window.css,
                 word_cache: &word_cache,
             },
             &mut DisplayListParametersMut {
@@ -266,7 +271,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             },
         );
 
-        render_api.update_resources(resource_updates);
+        &window.internal.api.update_resources(resource_updates);
         builder
     }
 }

@@ -563,7 +563,8 @@ pub struct AnimationState { }
 #[derive(Debug, Copy, Clone)]
 pub struct ScrollState {
     /// Amount in pixel that the current node is scrolled
-    scroll_amount: f32,
+    scroll_amount_x: f32,
+    scroll_amount_y: f32,
     /// Was the scroll amount used in this frame?
     used_this_frame: bool,
 }
@@ -571,7 +572,8 @@ pub struct ScrollState {
 impl Default for ScrollState {
     fn default() -> Self {
         ScrollState {
-            scroll_amount: 0.0,
+            scroll_amount_x: 0.0,
+            scroll_amount_y: 0.0,
             used_this_frame: true,
         }
     }
@@ -888,24 +890,27 @@ impl<T: Layout> Window<T> {
 
     /// NOTE: This has to be a getter, because we need to update
     #[must_use]
-    pub(crate) fn get_scroll_amount(&mut self, dom_hash: &DomHash) -> Option<f32> {
+    pub(crate) fn get_scroll_amount(&mut self, dom_hash: &DomHash) -> Option<(f32, f32)> {
         let entry = self.scroll_states.get_mut(&dom_hash)?;
         entry.used_this_frame = true;
-        Some(entry.scroll_amount)
+        Some((entry.scroll_amount_x, entry.scroll_amount_y))
     }
 
     /// Note: currently scrolling is only done in the vertical direction
     ///
     /// Updating the scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub(crate) fn scroll_node(&mut self, dom_hash: &DomHash, scroll_by: f32) {
+    pub(crate) fn scroll_node(&mut self, dom_hash: &DomHash, scroll_by_x: f32, scroll_by_y: f32) {
         if let Some(entry) = self.scroll_states.get_mut(dom_hash) {
-            entry.scroll_amount += scroll_by;
+            entry.scroll_amount_x += scroll_by_x;
+            entry.scroll_amount_y += scroll_by_y;
         }
     }
 
-    pub(crate) fn create_new_scroll(&mut self, dom_hash: DomHash) {
-        self.scroll_states.insert(dom_hash, ScrollState::default());
+    pub(crate) fn ensure_initialized_scroll_state(&mut self, dom_hash: DomHash) {
+        if !self.scroll_states.contains_key(&dom_hash) {
+            self.scroll_states.insert(dom_hash, ScrollState::default());
+        }
     }
 
     /// Removes all scroll states that weren't used in the last frame
