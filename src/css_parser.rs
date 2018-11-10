@@ -447,6 +447,9 @@ pub enum CssColorComponent {
     Red,
     Green,
     Blue,
+    Hue,
+    Saturation,
+    Lightness,
     Alpha,
 }
 
@@ -460,6 +463,9 @@ pub enum CssColorParseError<'a> {
     MissingColorComponent(CssColorComponent),
     ExtraArguments(&'a str),
     UnclosedColor(&'a str),
+    DirectionParseError(String),
+    UnsupportedDirection(&'a str),
+    InvalidPercentage(&'a str),
 }
 
 impl<'a> fmt::Display for CssColorParseError<'a> {
@@ -474,6 +480,9 @@ impl<'a> fmt::Display for CssColorParseError<'a> {
             MissingColorComponent(c) => write!(f, "CSS color is missing {:?} component", c),
             ExtraArguments(a) => write!(f, "Extra argument to CSS color: \"{}\"", a),
             UnclosedColor(i) => write!(f, "Unclosed color: \"{}\"", i),
+            DirectionParseError(e) => write!(f, "Could not parse direction argument for CSS color: \"{}\"", e),
+            UnsupportedDirection(d) => write!(f, "Unsupported direction type for CSS color: \"{}\"", d),
+            InvalidPercentage(p) => write!(f, "Invalid percentage when parsing CSS color: \"{}\"", p),
         }
     }
 }
@@ -487,6 +496,12 @@ impl<'a> From<ParseIntError> for CssColorParseError<'a> {
 impl<'a> From<ParseFloatError> for CssColorParseError<'a> {
     fn from(e: ParseFloatError) -> Self {
         CssColorParseError::FloatValueParseErr(e)
+    }
+}
+
+impl<'a> From<CssDirectionParseError<'a>> for CssColorParseError<'a> {
+    fn from(e: CssDirectionParseError) -> Self {
+        CssColorParseError::DirectionParseError(format!("{:?}", e))
     }
 }
 
@@ -698,6 +713,18 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
     } else if input.starts_with("rgb(") {
         if input.ends_with(")") {
             parse_color_rgb(&input[4..input.len()-1])
+        } else {
+            Err(CssColorParseError::UnclosedColor(input))
+        }
+    } else if input.starts_with("hsla(") {
+        if input.ends_with(")") {
+            parse_color_hsla(&input[5..input.len()-1])
+        } else {
+            Err(CssColorParseError::UnclosedColor(input))
+        }
+    } else if input.starts_with("hsl(") {
+        if input.ends_with(")") {
+            parse_color_hsl(&input[4..input.len()-1])
         } else {
             Err(CssColorParseError::UnclosedColor(input))
         }
@@ -956,15 +983,7 @@ fn parse_color_rgba<'a>(input: &'a str)
 {
     let mut components = input.split(',').map(|c| c.trim());
     let rgb_color = parse_color_rgb_components(&mut components)?;
-    let a = components.next().ok_or(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha))?;
-    if a.is_empty() {
-        return Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha));
-    }
-    let a = a.parse::<f32>()?;
-    if a < 0. || a > 1. {
-        return Err(CssColorParseError::FloatValueOutOfRange(a));
-    }
-    let a = (a * 256.).min(255.) as u8;
+    let a = parse_alpha_component(&mut components)?;
     if let Some(arg) = components.next() {
         return Err(CssColorParseError::ExtraArguments(arg));
     }
@@ -994,6 +1013,120 @@ fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
         a: 255
     })
 }
+
+/// Parse a color of the form 'hsl([0.-360.]deg, [0-100]%, [0-100]%)', without the leading 'hsl(' or
+/// trailing ')'. Alpha defaults to 255.
+fn parse_color_hsl<'a>(input: &'a str)
+-> Result<ColorU, CssColorParseError<'a>>
+{
+    let mut components = input.split(',').map(|c| c.trim());
+    let color = parse_color_hsl_components(&mut components)?;
+    if let Some(arg) = components.next() {
+        return Err(CssColorParseError::ExtraArguments(arg));
+    }
+    Ok(color)
+}
+
+/// Parse a color of the form 'hsla([0.-360.]deg, [0-100]%, [0-100]%, [0.0-1.0])', without the leading
+/// 'hsla(' or trailing ')'.
+fn parse_color_hsla<'a>(input: &'a str)
+-> Result<ColorU, CssColorParseError<'a>>
+{
+    let mut components = input.split(',').map(|c| c.trim());
+    let rgb_color = parse_color_hsl_components(&mut components)?;
+    let a = parse_alpha_component(&mut components)?;
+    if let Some(arg) = components.next() {
+        return Err(CssColorParseError::ExtraArguments(arg));
+    }
+    Ok(ColorU { a, ..rgb_color })
+}
+
+/// Parse the color components passed as arguments to an hsl(...) CSS color.
+fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
+-> Result<ColorU, CssColorParseError<'a>>
+{
+    #[inline]
+    fn angle_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: CssColorComponent)
+    -> Result<f32, CssColorParseError<'a>>
+    {
+        let c = components.next().ok_or(CssColorParseError::MissingColorComponent(which))?;
+        if c.is_empty() {
+            return Err(CssColorParseError::MissingColorComponent(which));
+        }
+        let dir = parse_direction(c)?;
+        match dir {
+            Direction::Angle(deg) => Ok(deg.get()),
+            Direction::FromTo(_, _) => return Err(CssColorParseError::UnsupportedDirection(c)),
+        }
+    }
+
+    #[inline]
+    fn percent_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: CssColorComponent)
+    -> Result<f32, CssColorParseError<'a>>
+    {
+        let c = components.next().ok_or(CssColorParseError::MissingColorComponent(which))?;
+        if c.is_empty() {
+            return Err(CssColorParseError::MissingColorComponent(which));
+        }
+        match parse_percentage(c) {
+            Some(percentage) => Ok(percentage.get()),
+            None => Err(CssColorParseError::InvalidPercentage(c)),
+        }
+    }
+
+    /// Adapted from [https://en.wikipedia.org/wiki/HSL_and_HSV#Converting_to_RGB]
+    #[inline]
+    fn hsl_to_rgb<'a>(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+        let s = s / 100.;
+        let l = l / 100.;
+        let c = (1. - (2. * l - 1.).abs()) * s;
+        let h = h / 60.;
+        let x = c * (1. - ((h % 2.) - 1.).abs());
+        let (r1, g1, b1) = match h as u8 {
+            0 => (c, x, 0.),
+            1 => (x, c, 0.),
+            2 => (0., c, x),
+            3 => (0., x, c),
+            4 => (x, 0., c),
+            5 => (c, 0., x),
+            _ => {
+                println!("h is {}", h);
+                unreachable!();
+            }
+        };
+        let m = l - c / 2.;
+        (
+            ((r1 + m) * 256.).min(255.) as u8,
+            ((g1 + m) * 256.).min(255.) as u8,
+            ((b1 + m) * 256.).min(255.) as u8,
+        )
+    }
+
+    let (h, s, l) = (
+        angle_from_str(components, CssColorComponent::Hue)?,
+        percent_from_str(components, CssColorComponent::Saturation)?,
+        percent_from_str(components, CssColorComponent::Lightness)?,
+    );
+
+    let (r, g, b) = hsl_to_rgb(h, s, l);
+
+    Ok(ColorU { r, g, b, a: 255 })
+}
+
+#[inline]
+fn parse_alpha_component<'a>(components: &mut Iterator<Item=&'a str>) -> Result<u8, CssColorParseError<'a>> {
+    let a = components.next().ok_or(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha))?;
+    if a.is_empty() {
+        return Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha));
+    }
+    let a = a.parse::<f32>()?;
+    if a < 0. || a > 1. {
+        return Err(CssColorParseError::FloatValueOutOfRange(a));
+    }
+    let a = (a * 256.).min(255.) as u8;
+    Ok(a)
+}
+
 
 /// Parse a background color, WITHOUT THE HASH
 ///
@@ -1623,15 +1756,6 @@ impl Direction {
                 // hypotenuse_len is the length of the center of the rect to the corners
                 let hypotenuse_len = (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
 
-                // clamp the degree to 360 (so 410deg = 50deg)
-                let mut deg = deg % 360.0;
-                if deg < 0.0 {
-                    deg = 360.0 + deg;
-                }
-
-                // now deg is in the range of +0..+360
-                debug_assert!(deg >= 0.0 && deg <= 360.0);
-
                 // The corner also serves to determine what quadrant we're in
                 // Get the quadrant (corner) the angle is in and get the degree associated
                 // with that corner.
@@ -2087,23 +2211,28 @@ fn parse_direction<'a>(input: &'a str)
     };
 
     if let Some(angle_type) = angle {
-        match angle_type {
+        let deg = match angle_type {
             AngleType::Deg => {
-                return Ok(Direction::Angle(FloatValue::new(
-                    first_input.split("deg").next().unwrap().parse::<f32>()?
-                )));
+                first_input.split("deg").next().unwrap().parse::<f32>()?
             },
             AngleType::Rad => {
-                return Ok(Direction::Angle(FloatValue::new(
-                    first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 / PI
-                )));
+                first_input.split("rad").next().unwrap().parse::<f32>()? * 180.0 / PI
             },
             AngleType::Gon => {
-                return Ok(Direction::Angle(FloatValue::new(
-                    first_input.split("grad").next().unwrap().parse::<f32>()? / 400.0 * 360.0
-                )));
+                first_input.split("grad").next().unwrap().parse::<f32>()? / 400.0 * 360.0
             },
+        };
+
+        // clamp the degree to 360 (so 410deg = 50deg)
+        let mut deg = deg % 360.0;
+        if deg < 0.0 {
+            deg = 360.0 + deg;
         }
+
+        // now deg is in the range of +0..+360
+        debug_assert!(deg >= 0.0 && deg <= 360.0);
+
+        return Ok(Direction::Angle(FloatValue::new(deg)));
     }
 
     // if we get here, the input is definitely not an angle
@@ -3131,6 +3260,109 @@ mod css_tests {
     #[test]
     fn test_parse_css_color_17() {
         assert_eq!(parse_css_color("rgba(50, 60, 70, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
+    }
+
+    #[test]
+    fn test_parse_css_color_18() {
+        assert_eq!(parse_css_color("hsl(0deg, 100%, 100%)"), Ok(ColorU { r: 255, g: 255, b: 255, a: 255 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_19() {
+        assert_eq!(parse_css_color("hsl(0deg, 100%, 50%)"), Ok(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_20() {
+        assert_eq!(parse_css_color("hsl(170deg, 50%, 75%)"), Ok(ColorU { r: 160, g: 224, b: 213, a: 255 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_21() {
+        assert_eq!(parse_css_color("hsla(190deg, 50%, 75%, 1.0)"), Ok(ColorU { r: 160, g: 213, b: 224, a: 255 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_22() {
+        assert_eq!(parse_css_color("hsla(120deg, 0%, 25%, 0.25)"), Ok(ColorU { r: 64, g: 64, b: 64, a: 64 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_23() {
+        assert_eq!(parse_css_color("hsla(120deg, 0%, 0%, 0.5)"), Ok(ColorU { r: 0, g: 0, b: 0, a: 128 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_24() {
+        assert_eq!(parse_css_color("hsla(60.9deg, 80.3%, 40%, 0.5)"), Ok(ColorU { r: 182, g: 184, b: 20, a: 128 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_25() {
+        assert_eq!(parse_css_color("hsla(60.9rad, 80.3%, 40%, 0.5)"), Ok(ColorU { r: 45, g: 20, b: 184, a: 128 }));
+    }
+
+    #[test]
+    fn test_parse_css_color_26() {
+        assert_eq!(parse_css_color("hsla(60.9grad, 80.3%, 40%, 0.5)"), Ok(ColorU { r: 184, g: 170, b: 20, a: 128 }));
+    }
+
+    #[test]
+    fn test_parse_direction() {
+        let first_input = "60.9grad";
+        let e = FloatValue::new(first_input.split("grad").next().unwrap().parse::<f32>().expect("Parseable float") / 400.0 * 360.0);
+        assert_eq!(e, FloatValue::new(60.9 / 400.0 * 360.0));
+        assert_eq!(parse_direction("60.9grad"), Ok(Direction::Angle(FloatValue::new(60.9 / 400.0 * 360.0))));
+    }
+
+    #[test]
+    fn test_parse_float_value() {
+        assert_eq!(parse_float_value("60.9"), Ok(FloatValue::new(60.9)));
+    }
+
+    #[test]
+    fn test_parse_css_color_27() {
+        assert_eq!(parse_css_color("hsla(240, 0%, 0%, 0.5)"), Err(CssColorParseError::DirectionParseError("InvalidArguments(\"240\")".to_owned())));
+    }
+
+    #[test]
+    fn test_parse_css_color_28() {
+        assert_eq!(parse_css_color("hsla(240deg, 0, 0%, 0.5)"), Err(CssColorParseError::InvalidPercentage("0")));
+    }
+
+    #[test]
+    fn test_parse_css_color_29() {
+        assert_eq!(parse_css_color("hsla(240deg, 0%, 0, 0.5)"), Err(CssColorParseError::InvalidPercentage("0")));
+    }
+
+    #[test]
+    fn test_parse_css_color_30() {
+        assert_eq!(parse_css_color("hsla(240deg, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)))
+    }
+
+    #[test]
+    fn test_parse_css_color_31() {
+        assert_eq!(parse_css_color("hsl(, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Hue)))
+    }
+
+    #[test]
+    fn test_parse_css_color_32() {
+        assert_eq!(parse_css_color("hsl(240deg ,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Saturation)))
+    }
+
+    #[test]
+    fn test_parse_css_color_33() {
+        assert_eq!(parse_css_color("hsl(240deg, 0%,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Lightness)))
+    }
+
+    #[test]
+    fn test_parse_css_color_34() {
+        assert_eq!(parse_css_color("hsl(240deg, 0%, 0%,  )"), Err(CssColorParseError::ExtraArguments("")))
+    }
+
+    #[test]
+    fn test_parse_css_color_35() {
+        assert_eq!(parse_css_color("hsla(240deg, 0%, 0%  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)))
     }
 
     #[test]
