@@ -702,25 +702,25 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
         parse_color_no_hash(&input[1..])
     } else if input.starts_with("rgba(") {
         if input.ends_with(")") {
-            parse_color_rgba(&input[5..input.len()-1])
+            parse_color_rgb(&input[5..input.len()-1], true)
         } else {
             Err(CssColorParseError::UnclosedColor(input))
         }
     } else if input.starts_with("rgb(") {
         if input.ends_with(")") {
-            parse_color_rgb(&input[4..input.len()-1])
+            parse_color_rgb(&input[4..input.len()-1], false)
         } else {
             Err(CssColorParseError::UnclosedColor(input))
         }
     } else if input.starts_with("hsla(") {
         if input.ends_with(")") {
-            parse_color_hsla(&input[5..input.len()-1])
+            parse_color_hsl(&input[5..input.len()-1], true)
         } else {
             Err(CssColorParseError::UnclosedColor(input))
         }
     } else if input.starts_with("hsl(") {
         if input.ends_with(")") {
-            parse_color_hsl(&input[4..input.len()-1])
+            parse_color_hsl(&input[4..input.len()-1], false)
         } else {
             Err(CssColorParseError::UnclosedColor(input))
         }
@@ -959,27 +959,18 @@ fn parse_color_builtin<'a>(input: &'a str)
     parse_color_no_hash(color)
 }
 
-/// Parse a color of the form 'rgb([0-255], [0-255], [0-255])', without the leading 'rgb(' or
-/// trailing ')'. Alpha defaults to 255.
-fn parse_color_rgb<'a>(input: &'a str)
--> Result<ColorU, CssColorParseError<'a>>
-{
-    let mut components = input.split(',').map(|c| c.trim());
-    let color = parse_color_rgb_components(&mut components)?;
-    if let Some(arg) = components.next() {
-        return Err(CssColorParseError::ExtraArguments(arg));
-    }
-    Ok(color)
-}
-
-/// Parse a color of the form 'rgba([0-255], [0-255], [0-255], [0.0-1.0])', without the leading
-/// 'rgba(' or trailing ')'.
-fn parse_color_rgba<'a>(input: &'a str)
+/// Parse a color of the form 'rgb([0-255], [0-255], [0-255])', or 'rgba([0-255], [0-255], [0-255],
+/// [0.-1.])' without the leading 'rgb[a](' or trailing ')'. Alpha defaults to 255.
+fn parse_color_rgb<'a>(input: &'a str, parse_alpha: bool)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     let mut components = input.split(',').map(|c| c.trim());
     let rgb_color = parse_color_rgb_components(&mut components)?;
-    let a = parse_alpha_component(&mut components)?;
+    let a = if parse_alpha {
+        parse_alpha_component(&mut components)?
+    } else {
+        255
+    };
     if let Some(arg) = components.next() {
         return Err(CssColorParseError::ExtraArguments(arg));
     }
@@ -1010,27 +1001,17 @@ fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
     })
 }
 
-/// Parse a color of the form 'hsl([0.-360.]deg, [0-100]%, [0-100]%)', without the leading 'hsl(' or
-/// trailing ')'. Alpha defaults to 255.
-fn parse_color_hsl<'a>(input: &'a str)
--> Result<ColorU, CssColorParseError<'a>>
-{
-    let mut components = input.split(',').map(|c| c.trim());
-    let color = parse_color_hsl_components(&mut components)?;
-    if let Some(arg) = components.next() {
-        return Err(CssColorParseError::ExtraArguments(arg));
-    }
-    Ok(color)
-}
-
-/// Parse a color of the form 'hsla([0.-360.]deg, [0-100]%, [0-100]%, [0.0-1.0])', without the leading
-/// 'hsla(' or trailing ')'.
-fn parse_color_hsla<'a>(input: &'a str)
+/// Parse a color of the form 'hsl([0.-360.]deg, [0-100]%, [0-100]%)', or 'hsla([0.-360.]deg, [0-100]%, [0-100]%, [0.-1.])' without the leading 'hsl[a](' or trailing ')'. Alpha defaults to 255.
+fn parse_color_hsl<'a>(input: &'a str, parse_alpha: bool)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     let mut components = input.split(',').map(|c| c.trim());
     let rgb_color = parse_color_hsl_components(&mut components)?;
-    let a = parse_alpha_component(&mut components)?;
+    let a = if parse_alpha {
+        parse_alpha_component(&mut components)?
+    } else {
+        255
+    };
     if let Some(arg) = components.next() {
         return Err(CssColorParseError::ExtraArguments(arg));
     }
