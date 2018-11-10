@@ -463,7 +463,7 @@ pub enum CssColorParseError<'a> {
     MissingColorComponent(CssColorComponent),
     ExtraArguments(&'a str),
     UnclosedColor(&'a str),
-    DirectionParseError(String),
+    DirectionParseError(CssDirectionParseError<'a>),
     UnsupportedDirection(&'a str),
     InvalidPercentage(&'a str),
 }
@@ -499,11 +499,7 @@ impl<'a> From<ParseFloatError> for CssColorParseError<'a> {
     }
 }
 
-impl<'a> From<CssDirectionParseError<'a>> for CssColorParseError<'a> {
-    fn from(e: CssDirectionParseError) -> Self {
-        CssColorParseError::DirectionParseError(format!("{:?}", e))
-    }
-}
+impl_from!(CssDirectionParseError<'a>, CssColorParseError::DirectionParseError);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CssImageParseError<'a> {
@@ -3322,7 +3318,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_color_27() {
-        assert_eq!(parse_css_color("hsla(240, 0%, 0%, 0.5)"), Err(CssColorParseError::DirectionParseError("InvalidArguments(\"240\")".to_owned())));
+        assert_eq!(parse_css_color("hsla(240, 0%, 0%, 0.5)"), Err(CssColorParseError::DirectionParseError(parse_direction("240").err().unwrap())));
     }
 
     #[test]
