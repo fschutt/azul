@@ -1323,6 +1323,11 @@ impl StyleBorder {
                 let border_style_left = left.and_then(|left| Some(left.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
                 let border_style_right = right.and_then(|right| Some(right.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
 
+                // Webrender crashes if AA is disabled and the border isn't pure-solid
+                let is_not_solid = [border_style_top, border_style_bottom, border_style_left, border_style_right].iter().any(|style| {
+                    *style != BorderStyle::Solid
+                });
+
                 let border_widths = LayoutSideOffsets::new(border_width_top, border_width_right, border_width_bottom, border_width_left);
                 let border_details = BorderDetails::Normal(NormalBorder {
                     top: BorderSide { color:  border_color_top.into(), style: border_style_top },
@@ -1330,7 +1335,7 @@ impl StyleBorder {
                     right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
                     bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
                     radius: border_radius.and_then(|b| Some(b.into())).unwrap_or(BorderRadius::zero()),
-                    do_aa: border_radius.is_some(),
+                    do_aa: border_radius.is_some() || is_not_solid,
                 });
 
                 Some((border_widths, border_details))
