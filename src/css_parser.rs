@@ -1045,10 +1045,9 @@ fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
         if c.is_empty() {
             return Err(CssColorParseError::MissingColorComponent(which));
         }
-        match parse_percentage(c) {
-            Some(percentage) => Ok(percentage.get()),
-            None => Err(CssColorParseError::InvalidPercentage(c)),
-        }
+        parse_percentage(c)
+            .ok_or(CssColorParseError::InvalidPercentage(c))
+            .and_then(|p| Ok(p.get()))
     }
 
     /// Adapted from [https://en.wikipedia.org/wiki/HSL_and_HSV#Converting_to_RGB]
