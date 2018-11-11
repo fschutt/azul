@@ -2705,6 +2705,18 @@ impl CssColor {
     }
 }
 
+impl From<ColorU> for CssColor {
+    fn from(color: ColorU) -> Self {
+        CssColor { internal: color }
+    }
+}
+
+impl From<ColorF> for CssColor {
+    fn from(color: ColorF) -> Self {
+        CssColor { internal: color.into() }
+    }
+}
+
 impl Into<ColorF> for CssColor {
     fn into(self) -> ColorF {
         self.to_color_f()
