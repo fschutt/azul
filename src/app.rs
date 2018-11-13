@@ -261,12 +261,11 @@ impl<T: Layout> App<T> {
 
                     // Scroll for the scrolled amount for each node that registered a scroll state.
                     let MouseState { scroll_x, scroll_y, .. } = window.state.mouse_state;
-                    //println!("{:?}", window.state.mouse_state);
                     if scroll_x + scroll_y != 0.0 {
-                        let keys = window.scroll_states.keys().map(|k| *k).collect::<Vec<_>>();
+                        let keys = window.scroll_states.0.keys().map(|k| *k).collect::<Vec<_>>();
                         for key in &keys {
                             println!("Scroll");
-                            window.scroll_node(key, scroll_x as f32, scroll_y as f32);
+                            window.scroll_states.scroll_node(key, scroll_x as f32, scroll_y as f32);
                         }
                     }
                 }
@@ -834,21 +833,28 @@ fn render<T: Layout>(
 
     txn.set_root_pipeline(window.internal.pipeline_id);
 
-    if let Some(cursor_position) = window.state.mouse_state.cursor_pos {
-        txn.scroll(
-            ScrollLocation::Delta(LayoutVector2D::new(10.0, -10.0)),
-            // TODO: change this line as soon as the scroll events are triggering the rerender.
-            //ScrollLocation::Delta(LayoutVector2D::new(window.state.mouse_state.scroll_x as f32, window.state.mouse_state.scroll_y as f32)),
-            TypedPoint2D::new(cursor_position.x as f32, cursor_position.y as f32),
-        );
-        println!(
-            "{}, {}, {}, {}",
-            cursor_position.x as f32,
-            cursor_position.y as f32,
-            window.state.mouse_state.scroll_x as f32,
-            window.state.mouse_state.scroll_y as f32
-        );
+    let keys = window.scroll_states.0.keys().map(|k| *k).collect::<Vec<_>>();
+    for (key, value) in window.scroll_states.0.iter_mut() {
+        println!("Scroll set");
+        let (x, y) = value.get();
+        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::NoClamping);
     }
+
+    // if let Some(cursor_position) = window.state.mouse_state.cursor_pos {
+    //     txn.scroll(
+    //         ScrollLocation::Delta(LayoutVector2D::new(10.0, -10.0)),
+    //         // TODO: change this line as soon as the scroll events are triggering the rerender.
+    //         //ScrollLocation::Delta(LayoutVector2D::new(window.state.mouse_state.scroll_x as f32, window.state.mouse_state.scroll_y as f32)),
+    //         TypedPoint2D::new(cursor_position.x as f32, cursor_position.y as f32),
+    //     );
+    //     println!(
+    //         "{}, {}, {}, {}",
+    //         cursor_position.x as f32,
+    //         cursor_position.y as f32,
+    //         window.state.mouse_state.scroll_x as f32,
+    //         window.state.mouse_state.scroll_y as f32
+    //     );
+    // }
     txn.generate_frame();
 
     window.internal.api.send_transaction(window.internal.document_id, txn);

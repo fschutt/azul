@@ -29,7 +29,7 @@ use {
     images::ImageId,
     text_cache::TextInfo,
     compositor::new_opengl_texture_id,
-    window::{Window, WindowInfo, FakeWindow, HidpiAdjustedBounds},
+    window::{Window, WindowInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
 };
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -231,14 +231,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
 
-        // Create a new scroll state for each node that is not present in the scroll states already.
-        // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we can use the NodeIds from the layouted rectangles
-        // to access the NodeData corresponding to each Rectangle in the NodeData arena.
-        let arena = self.ui_descr.ui_descr_arena.borrow();
-        // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
-        scrollable_nodes.iter().for_each(|node| window.ensure_initialized_scroll_state(arena.get(node.0).unwrap().data.calculate_node_data_hash()));
         // Make sure unused scroll states are garbage collected.
-        window.remove_unused_scroll_states();
+        window.scroll_states.remove_unused_scroll_states();
 
         let LogicalSize { width, height } = window.state.size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(window.internal.pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
@@ -255,6 +249,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             window.internal.epoch,
             rects_in_rendering_order,
             &scrollable_nodes,
+            &mut window.scroll_states,
             &DisplayListParametersRef {
                 ui_description: self.ui_descr,
                 render_api: &window.internal.api,
@@ -268,6 +263,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 fake_window,
                 builder: &mut builder,
                 resource_updates: &mut resource_updates,
+                pipeline_id: window.internal.pipeline_id,
             },
         );
 
@@ -457,6 +453,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     epoch: Epoch,
     z_ordered_rectangles: ZOrderedRectangles,
     scrollable_nodes: &BTreeMap<NodeId, (TypedRect<f32, LayoutPixel>, TypedRect<f32, LayoutPixel>)>,
+    scroll_states: &mut ScrollStates,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
 {
@@ -481,9 +478,17 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
             if let Some(&(outer_rect, inner_rect)) = scrollable_nodes.get(&rect_idx) {
                 // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
                 stack.push(rect_idx.children(&arena).last().unwrap());
+                let hash = arena.get(&rect_idx).unwrap().data.calculate_node_data_hash();
+                // Create an external scroll id. This id is required to preserve scroll state accross multiple frames.
+                let external_id  = ExternalScrollId(hash.0, referenced_mutable_content.pipeline_id);
+                // Create a new scroll state for each node that is not present in the scroll states already.
+                // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we can use the NodeIds from the layouted rectangles
+                // to access the NodeData corresponding to each Rectangle in the NodeData arena.
+                // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
+                scroll_states.ensure_initialized_scroll_state(external_id);
                 // set the scrolling clip
                 let clip_id = referenced_mutable_content.builder.define_scroll_frame(
-                    None,
+                    Some(external_id),
                     inner_rect,
                     outer_rect,
                     vec![],
@@ -839,8 +844,10 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         rectangle.epoch,
         z_ordered_rectangles,
         &scrollable_nodes,
+        &mut ScrollStates::new(),
         &referenced_content,
-        referenced_mutable_content);
+        referenced_mutable_content
+    );
 
     None
 }
@@ -882,6 +889,7 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
     pub resource_updates: &'a mut Vec<ResourceUpdate>,
     /// Window access, so that sub-items can register OpenGL textures
     pub fake_window: &'a mut FakeWindow<T>,
+    pub pipeline_id: PipelineId,
 }
 
 #[inline]

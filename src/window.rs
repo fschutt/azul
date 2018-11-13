@@ -537,7 +537,7 @@ pub struct Window<T: Layout> {
     /// Currently running animations / transitions
     pub(crate) animations: FastHashMap<DaemonId, Daemon<AnimationState>>,
     /// States of scrolling animations, updated every frame
-    pub(crate) scroll_states: FastHashMap<DomHash, ScrollState>,
+    pub(crate) scroll_states: ScrollStates,
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The css (how the current window is styled)
@@ -560,6 +560,41 @@ pub struct Window<T: Layout> {
 #[derive(Debug, Copy, Clone)]
 pub struct AnimationState { }
 
+pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
+
+impl ScrollStates {
+    pub fn new() -> ScrollStates {
+        ScrollStates(FastHashMap::default())
+    }
+
+    /// NOTE: This has to be a getter, because we need to update
+    #[must_use]
+    pub(crate) fn get_scroll_amount(&mut self, scroll_id: &ExternalScrollId) -> Option<(f32, f32)> {
+        let entry = self.0.get_mut(&scroll_id)?;
+        Some(entry.get())
+    }
+
+    /// Updating the scroll amount does not update the `entry.used_this_frame`,
+    /// since that is only relevant when we are actually querying the renderer.
+    pub(crate) fn scroll_node(&mut self, scroll_id: &ExternalScrollId, scroll_by_x: f32, scroll_by_y: f32) {
+        if let Some(entry) = self.0.get_mut(scroll_id) {
+            entry.scroll_amount_x += scroll_by_x;
+            entry.scroll_amount_y += scroll_by_y;
+        }
+    }
+
+    pub(crate) fn ensure_initialized_scroll_state(&mut self, scroll_id: ExternalScrollId) {
+        if !self.0.contains_key(&scroll_id) {
+            self.0.insert(scroll_id, ScrollState::default());
+        }
+    }
+
+    /// Removes all scroll states that weren't used in the last frame
+    pub(crate) fn remove_unused_scroll_states(&mut self) {
+        self.0.retain(|_, state| state.used_this_frame);
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct ScrollState {
     /// Amount in pixel that the current node is scrolled
@@ -567,6 +602,13 @@ pub struct ScrollState {
     scroll_amount_y: f32,
     /// Was the scroll amount used in this frame?
     used_this_frame: bool,
+}
+
+impl ScrollState {
+    pub fn get(&mut self) -> (f32, f32) {
+        self.used_this_frame = true;
+        (self.scroll_amount_x, self.scroll_amount_y)
+    }
 }
 
 impl Default for ScrollState {
@@ -782,7 +824,7 @@ impl<T: Layout> Window<T> {
             display: Rc::new(display),
             css: css,
             animations: FastHashMap::default(),
-            scroll_states: FastHashMap::default(),
+            scroll_states: ScrollStates::new(),
             internal: WindowInternal {
                 api: api,
                 epoch: epoch,
@@ -886,36 +928,6 @@ impl<T: Layout> Window<T> {
     pub(crate) fn clear_scroll_state(&mut self) {
         self.state.mouse_state.scroll_x = 0.0;
         self.state.mouse_state.scroll_y = 0.0;
-    }
-
-    /// NOTE: This has to be a getter, because we need to update
-    #[must_use]
-    pub(crate) fn get_scroll_amount(&mut self, dom_hash: &DomHash) -> Option<(f32, f32)> {
-        let entry = self.scroll_states.get_mut(&dom_hash)?;
-        entry.used_this_frame = true;
-        Some((entry.scroll_amount_x, entry.scroll_amount_y))
-    }
-
-    /// Note: currently scrolling is only done in the vertical direction
-    ///
-    /// Updating the scroll amount does not update the `entry.used_this_frame`,
-    /// since that is only relevant when we are actually querying the renderer.
-    pub(crate) fn scroll_node(&mut self, dom_hash: &DomHash, scroll_by_x: f32, scroll_by_y: f32) {
-        if let Some(entry) = self.scroll_states.get_mut(dom_hash) {
-            entry.scroll_amount_x += scroll_by_x;
-            entry.scroll_amount_y += scroll_by_y;
-        }
-    }
-
-    pub(crate) fn ensure_initialized_scroll_state(&mut self, dom_hash: DomHash) {
-        if !self.scroll_states.contains_key(&dom_hash) {
-            self.scroll_states.insert(dom_hash, ScrollState::default());
-        }
-    }
-
-    /// Removes all scroll states that weren't used in the last frame
-    pub(crate) fn remove_unused_scroll_states(&mut self) {
-        self.scroll_states.retain(|_, state| state.used_this_frame);
     }
 }
 
