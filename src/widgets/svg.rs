@@ -1359,6 +1359,12 @@ pub struct VectorizedFontCache {
     vectorized_fonts: Mutex<FastHashMap<FontId, Arc<VectorizedFont>>>,
 }
 
+impl Default for VectorizedFontCache {
+    fn default() -> Self {
+        VectorizedFontCache::new()
+    }
+}
+
 #[test]
 fn test_vectorized_font_cache_is_send() {
     fn is_send<T: Send>() {}
