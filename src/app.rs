@@ -837,7 +837,7 @@ fn render<T: Layout>(
     for (key, value) in window.scroll_states.0.iter_mut() {
         println!("Scroll set");
         let (x, y) = value.get();
-        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::NoClamping);
+        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
     }
 
     // if let Some(cursor_position) = window.state.mouse_state.cursor_pos {
