@@ -244,6 +244,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         // println!("{:?}", rects_in_rendering_order);
 
+        println!("Creating {:?} scrollable nodes.", scrollable_nodes.len());
+
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
             window.internal.epoch,
