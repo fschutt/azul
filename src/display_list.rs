@@ -293,28 +293,17 @@ impl ZOrderedRectangles {
             for child_id in parent_id.children(rectangles) {
                 let child_position = rectangles[child_id].data.layout.position.unwrap_or_default();
 
-                // if we have an absolute item, go to the nearest relative item, calculate the number
+                // If we have an absolute item, go to the nearest relative item, calculate the number
                 // of children of that node, then add it to the self.z_index
-                // TODO: sort out all relative nodes when calculating the depth?
-                let z_offset_self = if child_position == LayoutPosition::Absolute {
+                if child_position == LayoutPosition::Absolute {
                     let root_id = NodeId::new(0);
-                    let last_positioned_node = if positioned_node_stack.is_empty() {
-                        &root_id
-                    } else {
-                        positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&root_id)
-                    };
-
+                    let last_positioned_node = positioned_node_stack.last().unwrap_or(&root_id);
                     let z_off = get_total_num_children_of_node(*last_positioned_node, rectangles);
-
                     node_depths_of_absolute_nodes.insert(child_id, z_off);
-                    z_off
-                } else {
-                    0
-                };
+                }
 
-                let new_node_depth = node_depth + z_offset_parent + z_offset_self + 1;
                 rects_in_rendering_order
-                    .entry(new_node_depth)
+                    .entry(node_depth + z_offset_parent + 1)
                     .or_insert_with(|| Vec::new())
                     .push(child_id);
             }
