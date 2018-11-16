@@ -23,10 +23,10 @@ use lyon::{
         },
     },
     path::{
-        default::{Builder},
+        default::{Builder, Path},
         builder::{PathBuilder, FlatPathBuilder},
     },
-    geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D},
+    geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D, UnknownUnit},
 };
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError, ViewBox, Transform};
@@ -405,10 +405,14 @@ impl<T: Layout> SvgCache<T> {
         // TODO: set tolerance based on zoom
         let new_svg_id = new_svg_layer_id();
 
-        let ((vertex_buf, index_buf), opt_stroke) =
-            tesselate_layer_data(&layer.data, DEFAULT_GLYPH_TOLERANCE, layer.style.stroke.and_then(|s| Some(s.1.clone())));
+        let stroke_present = layer.style.stroke.and_then(|s| Some(s.1.clone()));
+        let fill_present = layer.style.fill.is_some();
 
-        self.gpu_ready_to_upload_cache.insert(new_svg_id, (vertex_buf, index_buf));
+        let (opt_fill, opt_stroke) = tesselate_layer_data(&layer.data, DEFAULT_GLYPH_TOLERANCE, fill_present, stroke_present);
+
+        if let Some((fill_vertex_buf, fill_index_buf)) = opt_fill {
+            self.gpu_ready_to_upload_cache.insert(new_svg_id, (fill_vertex_buf, fill_index_buf));
+        }
 
         if let Some((stroke_vertex_buf, stroke_index_buf)) = opt_stroke {
             self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, (stroke_vertex_buf, stroke_index_buf));
@@ -473,12 +477,13 @@ impl<T: Layout> fmt::Debug for SvgCache<T> {
 
 const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
-fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: Option<SvgStrokeOptions>)
--> ((Vec<SvgVert>, Vec<u32>), Option<(Vec<SvgVert>, Vec<u32>)>)
+/// Returns the (fill, stroke) vertices of a layer
+fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, fill: bool, stroke_options: Option<SvgStrokeOptions>)
+-> (Option<(Vec<SvgVert>, Vec<u32>)>, Option<(Vec<SvgVert>, Vec<u32>)>)
 {
     let mut last_index = 0;
-    let mut vertex_buf = Vec::<SvgVert>::new();
-    let mut index_buf = Vec::<u32>::new();
+    let mut fill_vertex_buf = Vec::<SvgVert>::new();
+    let mut fill_index_buf = Vec::<u32>::new();
 
     let mut last_stroke_index = 0;
     let mut stroke_vertex_buf = Vec::<SvgVert>::new();
@@ -486,15 +491,19 @@ fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: 
 
     for layer in layer_data.get() {
 
-        let (VertexBuffers { vertices, indices }, stroke_vertices) = layer.tesselate(tolerance, stroke_options);
+        let mut path = None;
 
-        let vertices_len = vertices.len();
-        vertex_buf.extend(vertices.into_iter());
-        index_buf.extend(indices.into_iter().map(|i| i as u32 + last_index as u32));
-        index_buf.push(GL_RESTART_INDEX);
-        last_index += vertices_len;
+        if fill {
+            let VertexBuffers { vertices, indices } = layer.tesselate_fill(tolerance, &mut path);
+            let fill_vertices_len = vertices.len();
+            fill_vertex_buf.extend(vertices.into_iter());
+            fill_index_buf.extend(indices.into_iter().map(|i| i as u32 + last_index as u32));
+            fill_index_buf.push(GL_RESTART_INDEX);
+            last_index += fill_vertices_len;
+        }
 
-        if let Some(VertexBuffers { vertices, indices }) = stroke_vertices {
+        if let Some(stroke_options) = &stroke_options {
+            let VertexBuffers { vertices, indices } = layer.tesselate_stroke(tolerance, &mut path, *stroke_options);
             let stroke_vertices_len = vertices.len();
             stroke_vertex_buf.extend(vertices.into_iter());
             stroke_index_buf.extend(indices.into_iter().map(|i| i as u32 + last_stroke_index as u32));
@@ -503,33 +512,54 @@ fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, stroke_options: 
         }
     }
 
-    if stroke_options.is_some() {
-        ((vertex_buf, index_buf), Some((stroke_vertex_buf, stroke_index_buf)))
+    let fill_verts = if fill {
+        Some((fill_vertex_buf, fill_index_buf))
     } else {
-        ((vertex_buf, index_buf), None)
-    }
+        None
+    };
+
+    let stroke_verts = if stroke_options.is_some() {
+        Some((stroke_vertex_buf, stroke_index_buf))
+    } else {
+        None
+    };
+
+    (fill_verts, stroke_verts)
 }
 
 /// Quick helper function to generate the vertices for a black circle at runtime
 pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResource {
-    let (fill, _) = tesselate_layer_data(&LayerType::from_single_layer(SvgLayerType::Circle(circle)), 0.01, None);
+
+    let should_fill = true;
+    let should_stroke = None;
+    let tolerance = 0.01;
+
+    let (fill, stroke) = tesselate_layer_data(&LayerType::from_single_layer(SvgLayerType::Circle(circle)), tolerance, should_fill, should_stroke);
     let style = SvgStyle::filled(fill_color);
+
     SvgLayerResource::Direct {
         style: style,
-        fill: Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 }),
-        stroke: None,
+        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
+        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
     }
 }
 
 /// Quick helper function to generate the layer for **multiple** circles (in one draw call)
 pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResource {
+
     let circles = circles.iter().map(|c| SvgLayerType::Circle(*c)).collect();
-    let (fill, _) = tesselate_layer_data(&LayerType::from_polygons(circles), 0.01, None);
+
+    let should_fill = true;
+    let should_stroke = None;
+    let tolerance = 0.01;
+
+    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(circles), tolerance, should_fill, should_stroke);
     let style = SvgStyle::filled(fill_color);
+
     SvgLayerResource::Direct {
         style: style,
-        fill: Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 }),
-        stroke: None,
+        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
+        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
     }
 }
 
@@ -561,15 +591,16 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
             SvgLayerType::Polygon(poly_events)
         }).collect();
 
-    let (_, stroke) = tesselate_layer_data(&LayerType::from_polygons(polygons), 0.01, Some(stroke_options));
+    let should_fill = false; // important!
+    let should_stroke = Some(stroke_options);
+    let tolerance = 0.01;
 
-    // Safe unwrap, since we passed Some(stroke_options) into tesselate_layer_data
-    let stroke = stroke.unwrap();
+    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(polygons), tolerance, should_fill, should_stroke);
 
     SvgLayerResource::Direct {
         style: style,
-        fill: None,
-        stroke: Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 }),
+        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
+        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
     }
 }
 
@@ -581,13 +612,17 @@ pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: 
         fill: fill_color,
     };
 
+    let should_fill = style.fill.is_some();
+    let should_stroke = style.stroke.and_then(|(_, options)| Some(options));
+    let tolerance = 0.01;
+
     let rects = rects.iter().map(|r| SvgLayerType::Rect(*r)).collect();
-    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(rects), 0.01, style.stroke.and_then(|(_, options)| Some(options)));
+    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(rects), tolerance, should_fill, should_stroke);
 
     SvgLayerResource::Direct {
         style: style,
-        fill: fill_color.and_then(|_| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
-        stroke: stroke.and_then(|stroke_vertices| Some(VerticesIndicesBuffer { vertices: stroke_vertices.0, indices: stroke_vertices.1 })),
+        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
+        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
     }
 }
 
@@ -1216,42 +1251,19 @@ impl VectorizedFont {
     pub fn from_font(font: &Font) -> Self {
 
         let mut glyph_polygon_map = FastHashMap::default();
-        let mut glyph_stroke_map = FastHashMap::default();
-
-        let stroke_options = SvgStrokeOptions::default();
 
         // TODO: In a regular font (4000 characters), this is pretty slow!
         // Pre-load the "A..Z | a..z" characters
-        for g in (65..122).filter_map(|i| {
-            let g = font.glyph(GlyphId(i));
-            if g.id() == GlyphId(0) {
-                None
-            } else {
-                Some(g)
+        for glyph_id in 65..122 {
+            if let Some(poly) = glyph_to_svg_layer_type(font.glyph(GlyphId(glyph_id))) {
+                let mut path = None;
+                let fill_verts = poly.tesselate_fill(DEFAULT_GLYPH_TOLERANCE, &mut path);
+                glyph_polygon_map.insert(GlyphId(glyph_id), fill_verts);
             }
-        }) {
-            // Tesselate all the font vertices and store them in the glyph map
-            let glyph_id = g.id();
-            if let Some((polygon_verts, stroke_verts)) =
-                glyph_to_svg_layer_type(g)
-                .and_then(|poly| Some(poly.tesselate(DEFAULT_GLYPH_TOLERANCE, Some(stroke_options))))
-            {
-                // safe unwrap, since we set the stroke_options to Some()
-                glyph_polygon_map.insert(glyph_id, polygon_verts);
-                glyph_stroke_map.insert(glyph_id, stroke_verts.unwrap());
-            }
-        }
-
-        if let Some((polygon_verts_zero, stroke_verts_zero)) =
-            glyph_to_svg_layer_type(font.glyph(GlyphId(0)))
-            .and_then(|poly| Some(poly.tesselate(DEFAULT_GLYPH_TOLERANCE, Some(stroke_options))))
-        {
-            glyph_polygon_map.insert(GlyphId(0), polygon_verts_zero);
-            glyph_stroke_map.insert(GlyphId(0), stroke_verts_zero.unwrap());
         }
 
         Self {
-            glyph_polygon_map: Arc::new(Mutex::new(FastHashMap::default())),
+            glyph_polygon_map: Arc::new(Mutex::new(glyph_polygon_map)),
             glyph_stroke_map: Arc::new(Mutex::new(FastHashMap::default())),
         }
     }
@@ -1272,9 +1284,6 @@ impl VectorizedFont {
 pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance])
 -> Vec<VertexBuffers<SvgVert, u32>>
 {
-    let svg_stroke_opts = Some(SvgStrokeOptions::default());
-
-    let mut glyph_stroke_lock = vectorized_font.glyph_stroke_map.lock().unwrap();
     let mut glyph_polygon_lock = vectorized_font.glyph_polygon_map.lock().unwrap();
 
     ids.iter().filter_map(|id| {
@@ -1284,9 +1293,9 @@ pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font,
             Vacant(v) => {
                 let g = original_font.glyph(id);
                 let poly = glyph_to_svg_layer_type(g)?;
-                let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
+                let mut path = None;
+                let polygon_verts = poly.tesselate_fill(DEFAULT_GLYPH_TOLERANCE, &mut path);
                 v.insert(polygon_verts.clone());
-                glyph_stroke_lock.insert(id, stroke_verts.unwrap());
                 Some(polygon_verts)
             }
         }
@@ -1295,13 +1304,10 @@ pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font,
 
 /// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
 /// stroke vertices for all the characters at once
-pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance])
+pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance], stroke_options: &SvgStrokeOptions)
 -> Vec<VertexBuffers<SvgVert, u32>>
 {
-    let svg_stroke_opts = Some(SvgStrokeOptions::default());
-
     let mut glyph_stroke_lock = vectorized_font.glyph_stroke_map.lock().unwrap();
-    let mut glyph_polygon_lock = vectorized_font.glyph_polygon_map.lock().unwrap();
 
     ids.iter().filter_map(|id| {
         let id = GlyphId(id.index);
@@ -1310,10 +1316,9 @@ pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Fon
             Vacant(v) => {
                 let g = original_font.glyph(id);
                 let poly = glyph_to_svg_layer_type(g)?;
-                let (polygon_verts, stroke_verts) = poly.tesselate(DEFAULT_GLYPH_TOLERANCE, svg_stroke_opts);
-                let stroke_verts = stroke_verts.unwrap();
+                let mut path = None;
+                let stroke_verts = poly.tesselate_stroke(DEFAULT_GLYPH_TOLERANCE, &mut path, *stroke_options);
                 v.insert(stroke_verts.clone());
-                glyph_polygon_lock.insert(id, polygon_verts);
                 Some(stroke_verts)
             }
         }
@@ -1404,23 +1409,18 @@ impl VectorizedFontCache {
 }
 
 impl SvgLayerType {
-    pub fn tesselate(&self, tolerance: f32, stroke: Option<SvgStrokeOptions>)
-    -> (VertexBuffers<SvgVert, u32>, Option<VertexBuffers<SvgVert, u32>>)
+    pub fn tesselate_fill(&self, tolerance: f32, polygon: &mut Option<Path>)
+    -> VertexBuffers<SvgVert, u32>
     {
         let mut geometry = VertexBuffers::new();
-        let mut stroke_geometry = VertexBuffers::new();
-        let stroke = stroke.and_then(|s| {
-            let s: StrokeOptions = s.into();
-            Some(s.with_tolerance(tolerance))
-        });
 
         match self {
             SvgLayerType::Polygon(p) => {
-                let mut builder = Builder::with_capacity(p.len()).flattened(tolerance);
-                for event in p {
-                    builder.path_event(*event);
+                if polygon.is_none() {
+                    *polygon = Some(build_path_from_polygon(&p, tolerance));
                 }
-                let path = builder.with_svg().build();
+
+                let path = polygon.as_ref().unwrap();
 
                 let mut tessellator = FillTessellator::new();
                 tessellator.tessellate_path(
@@ -1433,25 +1433,10 @@ impl SvgLayerType {
                         }
                     }),
                 ).unwrap();
-
-                if let Some(ref stroke_options) = stroke {
-                    let mut stroke_tess = StrokeTessellator::new();
-                    stroke_tess.tessellate_path(
-                        path.path_iter(),
-                        stroke_options,
-                        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
-                            SvgVert {
-                                xy: (vertex.position.x, vertex.position.y),
-                                normal: (vertex.normal.x, vertex.position.y),
-                            }
-                        }),
-                    );
-                }
             },
             SvgLayerType::Circle(c) => {
                 let center = TypedPoint2D::new(c.center_x, c.center_y);
-                let radius = c.radius;
-                fill_circle(center, radius, &FillOptions::default(),
+                fill_circle(center, c.radius, &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
                             xy: (vertex.position.x, vertex.position.y),
@@ -1459,28 +1444,9 @@ impl SvgLayerType {
                         }
                     }
                 ));
-
-                if let Some(ref stroke_options) = stroke {
-                    stroke_circle(center, radius, stroke_options,
-                        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
-                            SvgVert {
-                                xy: (vertex.position.x, vertex.position.y),
-                                normal: (vertex.normal.x, vertex.position.y),
-                            }
-                        }
-                    ));
-                }
             },
             SvgLayerType::Rect(r) => {
-                let size = TypedSize2D::new(r.width, r.height);
-                let rect = TypedRect::new(TypedPoint2D::new(r.x, r.y), size);
-                let radii = BorderRadii {
-                    top_left: r.rx,
-                    top_right: r.rx,
-                    bottom_left: r.rx,
-                    bottom_right: r.rx,
-                };
-
+                let (rect, radii) = get_radii(&r);
                 fill_rounded_rectangle(&rect, &radii, &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
@@ -1489,26 +1455,84 @@ impl SvgLayerType {
                         }
                     }
                 ));
-
-                if let Some(ref stroke_options) = stroke {
-                    stroke_rounded_rectangle(&rect, &radii, stroke_options,
-                        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
-                            SvgVert {
-                                xy: (vertex.position.x, vertex.position.y),
-                                normal: (vertex.normal.x, vertex.position.y),
-                            }
-                        }
-                    ));
-                }
             }
         }
 
-        if stroke.is_some() {
-            (geometry, Some(stroke_geometry))
-        } else {
-            (geometry, None)
-        }
+        geometry
     }
+
+    pub fn tesselate_stroke(&self, tolerance: f32, polygon: &mut Option<Path>, stroke: SvgStrokeOptions)
+    -> VertexBuffers<SvgVert, u32>
+    {
+        let mut stroke_geometry = VertexBuffers::new();
+        let stroke_options: StrokeOptions = stroke.into();
+        let stroke_options = stroke_options.with_tolerance(tolerance);
+
+        match self {
+            SvgLayerType::Polygon(p) => {
+                if polygon.is_none() {
+                    *polygon = Some(build_path_from_polygon(&p, tolerance));
+                }
+
+                let path = polygon.as_ref().unwrap();
+
+                let mut stroke_tess = StrokeTessellator::new();
+                stroke_tess.tessellate_path(
+                    path.path_iter(),
+                    &stroke_options,
+                    &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+                        SvgVert {
+                            xy: (vertex.position.x, vertex.position.y),
+                            normal: (vertex.normal.x, vertex.position.y),
+                        }
+                    }),
+                );
+            },
+            SvgLayerType::Circle(c) => {
+                let center = TypedPoint2D::new(c.center_x, c.center_y);
+                stroke_circle(center, c.radius, &stroke_options,
+                    &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+                        SvgVert {
+                            xy: (vertex.position.x, vertex.position.y),
+                            normal: (vertex.normal.x, vertex.position.y),
+                        }
+                    }
+                ));
+            },
+            SvgLayerType::Rect(r) => {
+                let (rect, radii) = get_radii(&r);
+                stroke_rounded_rectangle(&rect, &radii, &stroke_options,
+                    &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+                        SvgVert {
+                            xy: (vertex.position.x, vertex.position.y),
+                            normal: (vertex.normal.x, vertex.position.y),
+                        }
+                    }
+                ));
+            },
+        }
+
+        stroke_geometry
+    }
+}
+
+fn get_radii(r: &SvgRect) -> (TypedRect<f32, UnknownUnit>, BorderRadii) {
+    let rect = TypedRect::new(TypedPoint2D::new(r.x, r.y), TypedSize2D::new(r.width, r.height));
+    let radii = BorderRadii {
+        top_left: r.rx,
+        top_right: r.rx,
+        bottom_left: r.rx,
+        bottom_right: r.rx,
+    };
+    (rect, radii)
+}
+
+fn build_path_from_polygon(polygon: &[PathEvent], tolerance: f32) -> Path {
+    let mut builder = Builder::with_capacity(polygon.len()).flattened(tolerance);
+    for event in polygon {
+        builder.path_event(*event);
+    }
+    builder.with_svg().build()
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -2057,11 +2081,13 @@ fn normal_text(
 -> SvgLayerResource
 {
     let fill_vertices = text_style.fill.and_then(|_| {
-        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, font_metrics, get_fill_vertices))
+        let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
+        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, font_metrics, fill_verts))
     });
 
-    let stroke_vertices = text_style.stroke.and_then(|_| {
-        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, font_metrics, get_stroke_vertices))
+    let stroke_vertices = text_style.stroke.and_then(|stroke| {
+        let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
+        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, font_metrics, stroke_verts))
     });
 
     SvgLayerResource::Direct {
@@ -2087,14 +2113,10 @@ fn normal_text_to_vertices(
     font_size: &StyleFontSize,
     position: &SvgPosition,
     glyph_ids: &[GlyphInstance],
-    vectorized_font: &VectorizedFont,
-    original_font: &Font,
     font_metrics: &FontMetrics,
-    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
+    mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
 ) -> VerticesIndicesBuffer
 {
-    let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
-
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
         scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
         transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x + position.x, gid.point.y + position.y);
@@ -2115,11 +2137,13 @@ fn rotated_text(
 -> SvgLayerResource
 {
     let fill_vertices = text_style.fill.and_then(|_| {
-        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, rotation_degrees, font_metrics, get_fill_vertices))
+        let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
+        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, rotation_degrees, font_metrics, fill_verts))
     });
 
-    let stroke_vertices = text_style.stroke.and_then(|_| {
-        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, vectorized_font, font, rotation_degrees, font_metrics, get_stroke_vertices))
+    let stroke_vertices = text_style.stroke.and_then(|stroke| {
+        let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
+        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, rotation_degrees, font_metrics, stroke_verts))
     });
 
     SvgLayerResource::Direct {
@@ -2133,17 +2157,13 @@ fn rotated_text_to_vertices(
     font_size: &StyleFontSize,
     position: &SvgPosition,
     glyph_ids: &[GlyphInstance],
-    vectorized_font: &VectorizedFont,
-    original_font: &Font,
     rotation_degrees: f32,
     font_metrics: &FontMetrics,
-    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
+    mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
 ) -> VerticesIndicesBuffer
 {
     let rotation_rad = rotation_degrees.to_radians();
     let (char_sin, char_cos) = (rotation_rad.sin(), rotation_rad.cos());
-
-    let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
 
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
         scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
@@ -2169,11 +2189,13 @@ fn text_on_curve(
     let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0);
 
     let fill_vertices = text_style.fill.and_then(|_| {
-        Some(curved_vector_text_to_vertices(font_size, position, &layout.layouted_glyphs, vectorized_font, font, &char_offsets, &char_rotations, font_metrics, get_fill_vertices))
+        let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
+        Some(curved_vector_text_to_vertices(font_size, position, &char_offsets, &char_rotations, font_metrics, fill_verts))
     });
 
-    let stroke_vertices = text_style.stroke.and_then(|_| {
-        Some(curved_vector_text_to_vertices(font_size, position, &layout.layouted_glyphs, vectorized_font, font, &char_offsets, &char_rotations, font_metrics, get_stroke_vertices))
+    let stroke_vertices = text_style.stroke.and_then(|stroke| {
+        let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
+        Some(curved_vector_text_to_vertices(font_size, position, &char_offsets, &char_rotations, font_metrics, stroke_verts))
     });
 
     SvgLayerResource::Direct {
@@ -2187,17 +2209,12 @@ fn text_on_curve(
 fn curved_vector_text_to_vertices(
     font_size: &StyleFontSize,
     position: &SvgPosition,
-    glyph_ids: &[GlyphInstance],
-    vectorized_font: &VectorizedFont,
-    original_font: &Font,
     char_offsets: &[(f32, f32)],
     char_rotations: &[BezierCharacterRotation],
     font_metrics: &FontMetrics,
-    transform_func: fn(&VectorizedFont, &Font, &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>>
+    mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
 ) -> VerticesIndicesBuffer
 {
-    let mut vertex_buffers = transform_func(vectorized_font, original_font, glyph_ids);
-
     vertex_buffers.iter_mut()
     .zip(char_rotations.into_iter())
     .zip(char_offsets.iter())
