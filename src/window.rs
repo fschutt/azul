@@ -578,14 +578,13 @@ impl ScrollStates {
     /// since that is only relevant when we are actually querying the renderer.
     pub(crate) fn scroll_node(&mut self, scroll_id: &ExternalScrollId, scroll_by_x: f32, scroll_by_y: f32) {
         if let Some(entry) = self.0.get_mut(scroll_id) {
-            entry.scroll_amount_x += scroll_by_x;
-            entry.scroll_amount_y += scroll_by_y;
+            entry.add(scroll_by_x, scroll_by_y);
         }
     }
 
-    pub(crate) fn ensure_initialized_scroll_state(&mut self, scroll_id: ExternalScrollId) {
+    pub(crate) fn ensure_initialized_scroll_state(&mut self, scroll_id: ExternalScrollId, overflow_x: f32, overflow_y: f32) {
         if !self.0.contains_key(&scroll_id) {
-            self.0.insert(scroll_id, ScrollState::default());
+            self.0.insert(scroll_id, ScrollState::new(overflow_x, overflow_y));
         }
     }
 
@@ -600,14 +599,31 @@ pub struct ScrollState {
     /// Amount in pixel that the current node is scrolled
     scroll_amount_x: f32,
     scroll_amount_y: f32,
+    overflow_x: f32,
+    overflow_y: f32,
     /// Was the scroll amount used in this frame?
     used_this_frame: bool,
 }
 
 impl ScrollState {
+    fn new(overflow_x: f32, overflow_y: f32) -> Self {
+        ScrollState {
+            scroll_amount_x: 0.0,
+            scroll_amount_y: 0.0,
+            overflow_x: overflow_x,
+            overflow_y: overflow_y,
+            used_this_frame: true,
+        }
+    }
+
     pub fn get(&mut self) -> (f32, f32) {
         self.used_this_frame = true;
         (self.scroll_amount_x, self.scroll_amount_y)
+    }
+
+    pub fn add(&mut self, x: f32, y: f32) {
+        self.scroll_amount_x = self.overflow_x.min(self.scroll_amount_x + x).max(0.0);
+        self.scroll_amount_y = self.overflow_y.min(self.scroll_amount_y + y).max(0.0);
     }
 }
 
@@ -616,6 +632,8 @@ impl Default for ScrollState {
         ScrollState {
             scroll_amount_x: 0.0,
             scroll_amount_y: 0.0,
+            overflow_x: 0.0,
+            overflow_y: 0.0,
             used_this_frame: true,
         }
     }
