@@ -11,7 +11,7 @@ use glium::{
         dpi::{LogicalPosition, LogicalSize}
     },
 };
-use webrender::{PipelineInfo, api::{HitTestFlags, DevicePixel}};
+use webrender::{PipelineInfo, api::{HitTestFlags, DevicePixel, WorldPoint}};
 use euclid::{TypedSize2D, TypedPoint2D};
 #[cfg(feature = "image_loading")]
 use image::ImageError;
@@ -256,18 +256,35 @@ impl<T: Layout> App<T> {
                             window_id,
                             &mut frame_event_info,
                             &ui_state_cache,
-                            &mut self.app_state);
+                            &mut self.app_state
+                        );
                     }
+                }
 
-                    // Scroll for the scrolled amount for each node that registered a scroll state.
-                    let MouseState { scroll_x, scroll_y, .. } = window.state.mouse_state;
+                // Scroll for the scrolled amount for each node that registered a scroll state.
+                if let MouseState { cursor_pos: Some(pos), scroll_x, scroll_y, .. } = window.state.mouse_state {
                     if scroll_x + scroll_y != 0.0 {
+                        let hit_test_results = window.internal.api.hit_test(
+                            window.internal.document_id,
+                            Some(window.internal.pipeline_id),
+                            WorldPoint::new(pos.x as f32, pos.y as f32),
+                            HitTestFlags::FIND_ALL,
+                        );
+
+                        // TODO: only scroll element hovered by mouse
+                        for node_id in hit_test_results.items.iter().filter_map(|item|
+                            ui_state_cache[window_id.id].tag_ids_to_node_ids
+                            .get(&item.tag.0)
+                        ) {
+                            
+                        }
+
                         let keys = window.scroll_states.0.keys().map(|k| *k).collect::<Vec<_>>();
                         for key in &keys {
-
-                            println!("Scroll");
-                            window.scroll_states.scroll_node(key, scroll_x as f32, scroll_y as f32);
+                            // TODO: make scroll speed configurable (system setting?)
+                            window.scroll_states.scroll_node(key, scroll_x as f32 * 3.0, scroll_y as f32 * 3.0);
                         }
+                        frame_event_info.should_redraw_window = true;
                     }
                 }
 
@@ -655,7 +672,6 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     app_state: &mut AppState<T>)
 {
     use dom::UpdateScreen;
-    use webrender::api::WorldPoint;
     use window::WindowEvent;
     use dom::Callback;
     use window_state::{KeyboardState, MouseState};
@@ -834,12 +850,9 @@ fn render<T: Layout>(
 
     txn.set_root_pipeline(window.internal.pipeline_id);
 
-    println!("Restoring scroll states.");
-
     let keys = window.scroll_states.0.keys().map(|k| *k).collect::<Vec<_>>();
     for (key, value) in window.scroll_states.0.iter_mut() {
         let (x, y) = value.get();
-        println!("Scroll set {}, {}", x, y);
         txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
     }
 

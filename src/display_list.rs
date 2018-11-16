@@ -244,8 +244,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         // println!("{:?}", rects_in_rendering_order);
 
-        println!("Creating {:?} scrollable nodes.", scrollable_nodes.len());
-
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
             window.internal.epoch,
@@ -487,7 +485,11 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we can use the NodeIds from the layouted rectangles
                 // to access the NodeData corresponding to each Rectangle in the NodeData arena.
                 // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
-                scroll_states.ensure_initialized_scroll_state(external_id);
+                scroll_states.ensure_initialized_scroll_state(
+                    external_id,
+                    inner_rect.size.width - outer_rect.size.width,
+                    inner_rect.size.height - outer_rect.size.height
+                );
                 // set the scrolling clip
                 let clip_id = referenced_mutable_content.builder.define_scroll_frame(
                     Some(external_id),
