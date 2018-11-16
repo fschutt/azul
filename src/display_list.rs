@@ -297,8 +297,8 @@ impl ZOrderedRectangles {
                 // of children of that node, then add it to the self.z_index
                 if child_position == LayoutPosition::Absolute {
                     let root_id = NodeId::new(0);
-                    let last_positioned_node = positioned_node_stack.last().unwrap_or(&root_id);
-                    let z_off = get_total_num_children_of_node(*last_positioned_node, rectangles);
+                    let last_positioned_node = positioned_node_stack.last().and_then(|last| rectangles[*last].parent()).unwrap_or(root_id);
+                    let z_off = get_total_num_children_of_node(last_positioned_node, rectangles);
                     node_depths_of_absolute_nodes.insert(child_id, z_off);
                 }
 
