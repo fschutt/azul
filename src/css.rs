@@ -4,6 +4,7 @@
 use std::io::Error as IoError;
 use std::{
     collections::BTreeMap,
+    num::ParseIntError,
 };
 use {
     css_parser::{ParsedCssProperty, CssParsingError},
@@ -203,6 +204,123 @@ impl_display! { HotReloadError, {
     Io(e, file) => format!("Failed to hot-reload CSS file: Io error: {} when loading file: \"{}\"", e, file),
     FailedToReload => "Failed to hot-reload CSS file",
 }}
+
+/// Represents a full CSS path
+pub struct CssPath {
+    selectors: Vec<CssPathSelector>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CssPathSelector {
+    /// Represents the `*` selector
+    Global,
+    /// `div`, `p`, etc.
+    Type(String),
+    /// `.something`
+    Class(String),
+    /// `#something`
+    Id(String),
+    /// `:something`
+    PseudoSelector(CssPathPseudoSelector),
+    /// Represents the `>` selector
+    LimitChildren,
+}
+
+impl Default for CssPathSelector { fn default() -> Self { CssPathSelector::Global } }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum CssPathPseudoSelector {
+    /// `:first`
+    First,
+    /// `:last`
+    Last,
+    /// `:nth-child`
+    NthChild(usize),
+    /// `:hover` - mouse is over element
+    Hover,
+    /// `:active` - mouse is pressed and over element
+    Active,
+    /// `:focus` - element has received focus
+    Focus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CssPseudoSelectorParseError<'a> {
+    UnknownSelector(&'a str),
+    InvalidNthChild(ParseIntError),
+    UnclosedBracesNthChild(&'a str),
+}
+
+impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
+    fn from(e: ParseIntError) -> Self { CssPseudoSelectorParseError::InvalidNthChild(e) }
+}
+
+impl_display! { CssPseudoSelectorParseError<'a>, {
+    UnknownSelector(e) => format!("Invalid CSS pseudo-selector: ':{}'", e),
+    InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
+    UnclosedBracesNthChild(e) => format!(":nth-child has unclosed braces: ':{}'", e),
+}}
+
+impl CssPathPseudoSelector {
+    pub fn from_str<'a>(data: &'a str) -> Result<Self, CssPseudoSelectorParseError<'a>> {
+        match data {
+            "first" => Ok(CssPathPseudoSelector::First),
+            "last" => Ok(CssPathPseudoSelector::Last),
+            "hover" => Ok(CssPathPseudoSelector::Hover),
+            "active" => Ok(CssPathPseudoSelector::Active),
+            "focus" => Ok(CssPathPseudoSelector::Focus),
+            other => {
+                // TODO: move this into a seperate function
+                if other.starts_with("nth-child") {
+                    let mut nth_child = other.split("nth-child");
+                    nth_child.next();
+                    let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(other))?;
+                    nth_child_string.trim();
+                    if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
+                        return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(other));
+                    }
+
+                    // Should the string be empty, then the `starts_with` and `ends_with` won't succeed
+                    let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
+                    nth_child_string.trim();
+                    let parsed = nth_child_string.parse::<usize>()?;
+                    Ok(CssPathPseudoSelector::NthChild(parsed))
+                } else {
+                    Err(CssPseudoSelectorParseError::UnknownSelector(other))
+                }
+            },
+        }
+    }
+}
+
+#[test]
+fn test_css_pseudo_selector_parse() {
+    let ok_res = [
+        ("first", CssPathPseudoSelector::First),
+        ("last", CssPathPseudoSelector::Last),
+        ("nth-child(4)", CssPathPseudoSelector::NthChild(4)),
+        ("hover", CssPathPseudoSelector::Hover),
+        ("active", CssPathPseudoSelector::Active),
+        ("focus", CssPathPseudoSelector::Focus),
+    ];
+
+    let err = [
+        ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf")),
+        ("", CssPseudoSelectorParseError::UnknownSelector("")),
+        ("nth-child(", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child(")),
+        ("nth-child)", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child)")),
+        // Can't test for ParseIntError because the fields are private.
+        // This is an example on why you shouldn't use std::error::Error!
+    ];
+
+    for (s, a) in &ok_res {
+        assert_eq!(CssPathPseudoSelector::from_str(s), Ok(*a));
+    }
+
+    for (s, e) in &err {
+        assert_eq!(CssPathPseudoSelector::from_str(s), Err(e.clone()));
+    }
+}
 
 impl Css {
 
