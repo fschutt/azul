@@ -197,11 +197,27 @@ pub struct CssPath {
 impl CssPath {
     /// Returns if the CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
     pub fn matches_html_element<'a, T: Layout>(&self, html_node: &HtmlCascadeInfo<'a, T>) -> bool {
+        use self::CssPathSelector::*;
+
         let html_node_type = html_node.node_data.node_type.get_path();
         let html_classes = &html_node.node_data.classes;
         let html_ids = &html_node.node_data.ids;
 
-        true
+        // TODO: Later on, we'll need the full path of all selectors of all parents of this node,
+        // but for now just match the current selector
+        let mut should_apply = true;
+
+        for selector in &self.selectors {
+            match selector {
+                Global => should_apply = true,
+                Type(t) => should_apply = html_node_type == *t,
+                Class(c) => should_apply = html_classes.contains(c),
+                Id(c) => should_apply = html_ids.contains(c),
+                LimitChildren | PseudoSelector(_) => { },
+            }
+        }
+
+        should_apply
     }
 }
 
