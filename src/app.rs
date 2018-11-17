@@ -26,7 +26,6 @@ use {
     text_cache::TextId,
     dom::UpdateScreen,
     window::FakeWindow,
-    css::ParsedCss,
     app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
@@ -219,7 +218,6 @@ impl<T: Layout> App<T> {
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &mut self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
         let mut force_redraw_cache = vec![1_usize; self.windows.len()];
-        let mut parsed_css_cache = vec![None; self.windows.len()];
         let mut awakened_task = vec![false; self.windows.len()];
 
         #[cfg(debug_assertions)]
@@ -292,22 +290,6 @@ impl<T: Layout> App<T> {
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
 
-                    let should_update_parsed_css = {
-                        // In debug mode, if hot-reloading is active, we want to always update the ParsedCss
-                        #[cfg(not(debug_assertions))] {
-                            parsed_css_cache[idx].is_none()
-                        }
-                        #[cfg(debug_assertions)] {
-                            parsed_css_cache[idx].is_none() || window.css.hot_reload_path.is_some()
-                        }
-                    };
-
-                    if should_update_parsed_css {
-                        parsed_css_cache[idx] = Some(ParsedCss::from_css(&window.css));
-                    }
-
-                    let parsed_css = parsed_css_cache[idx].as_ref().unwrap();
-
                     // Call the Layout::layout() fn, get the DOM
                     let window_id = WindowId { id: idx };
                     ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
@@ -315,7 +297,7 @@ impl<T: Layout> App<T> {
                     // Style the DOM
                     ui_description_cache[idx] = UiDescription::from_dom(
                         &ui_state_cache[idx],
-                        &parsed_css,
+                        &window.css,
                     );
 
                     // Send webrender the size and buffer of the display
@@ -330,7 +312,6 @@ impl<T: Layout> App<T> {
 
                         &ui_description_cache[idx],
                         &ui_state_cache[idx],
-                        &parsed_css,
 
                         &mut *window,
                         &mut self.app_state.windows[idx],
@@ -358,7 +339,6 @@ impl<T: Layout> App<T> {
                 ui_state_cache.remove(closed_window_id);
                 ui_description_cache.remove(closed_window_id);
                 force_redraw_cache.remove(closed_window_id);
-                parsed_css_cache.remove(closed_window_id);
                 self.windows.remove(closed_window_id);
             });
 
@@ -797,7 +777,6 @@ fn render<T: Layout>(
 
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
-    parsed_css: &ParsedCss,
 
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
@@ -817,7 +796,7 @@ fn render<T: Layout>(
         has_window_size_changed,
 
         &window.internal.api,
-        &parsed_css,
+        &window.css,
         &window.state.size,
 
         &mut *fake_window,

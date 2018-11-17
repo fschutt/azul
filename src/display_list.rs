@@ -19,12 +19,12 @@ use {
     ui_description::{UiDescription, StyledNode},
     window_state::WindowSize,
     id_tree::{Arena, NodeId},
+    css::Css,
     css_parser::*,
     dom::{
         IFrameCallback, GlTextureCallback, NodeData,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
-    css::ParsedCss,
     text_layout::{TextOverflowPass2, ScrollbarInfo},
     images::ImageId,
     text_cache::TextInfo,
@@ -80,8 +80,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     /// This only looks at the user-facing styles of the `UiDescription`, not the actual
     /// layout. The layout is done only in the `into_display_list_builder` step.
     pub(crate) fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
-
         let arena = ui_description.ui_descr_arena.borrow();
+
         let display_rect_arena = arena.transform(|node, node_id| {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
@@ -213,7 +213,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         current_epoch: Epoch,
         window_size_has_changed: bool,
         render_api: &RenderApi,
-        parsed_css: &ParsedCss,
+        parsed_css: &Css,
         window_size: &WindowSize,
         fake_window: &mut FakeWindow<T>,
         app_resources: &mut AppResources)
@@ -794,7 +794,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a + Layout> {
     pub ui_description: &'a UiDescription<T>,
     /// The CSS that should be applied to the DOM
-    pub parsed_css: &'b ParsedCss,
+    pub parsed_css: &'b Css,
     /// Necessary to push
     pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
