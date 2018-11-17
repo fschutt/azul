@@ -9,11 +9,11 @@ use std::{
 use {
     css_parser::{ParsedCssProperty, CssParsingError},
     error::CssSyntaxError,
-    id_tree::NodeId,
     traits::Layout,
     ui_description::{UiDescription, StyledNode},
-    dom::{NodeTypePath, NodeTypePathParseError},
+    dom::{NodeTypePath, NodeData, NodeTypePathParseError},
     ui_state::UiState,
+    id_tree::NodeId,
 };
 
 /// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
@@ -196,17 +196,18 @@ pub struct CssPath {
 
 impl CssPath {
     /// Returns if the CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
-    pub fn matches_html_element(&self, other: &HtmlCascadeInfo) -> bool {
-        // TODO
+    pub fn matches_html_element<'a, T: Layout>(&self, html_node: &HtmlCascadeInfo<'a, T>) -> bool {
+        let html_node_type = html_node.node_data.node_type.get_path();
+        let html_classes = &html_node.node_data.classes;
+        let html_ids = &html_node.node_data.ids;
+
         true
     }
 }
 
 /// Has all the necessary information about the CSS path
-pub struct HtmlCascadeInfo {
-    node_type: NodeTypePath,
-    classes: Vec<String>,
-    ids: Vec<String>,
+pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
+    node_data: &'a NodeData<T>,
     index_in_parent: usize,
     is_mouse_over: bool,
     is_mouse_pressed: bool,
@@ -681,32 +682,56 @@ impl Default for ZIndex { fn default() -> Self { ZIndex(0) }}
 
 pub(crate) fn match_dom_css_selectors<T: Layout>(
     ui_state: &UiState<T>,
-    parsed_css: &Css,
-    parent_z_level: ZIndex)
+    css: &Css)
 -> UiDescription<T>
 {
+    use ui_solver::get_non_leaf_nodes_sorted_by_depth;
+
     let root = ui_state.dom.root;
     let arena_borrow = &*ui_state.dom.arena.borrow();
-
+/*
     let mut root_constraints = CssConstraintList::default();
+*/
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
-    // TODO
-/*
-    for global_rule in &parsed_css.pure_global_rules {
-        root_constraints.push_rule(global_rule);
+    let non_leaf_nodes = get_non_leaf_nodes_sorted_by_depth(&arena_borrow);
+
+    for (_depth, parent) in non_leaf_nodes {
+        let parent_node = &arena_borrow[parent];
+        /*
+            let parent = arena[node_id].parent()?;
+            Some((node_id.preceding_siblings(&arena).count() - 1, parent))
+        */
+        let html_matcher = HtmlCascadeInfo {
+            node_data: &parent_node.data,
+            index_in_parent: 0, // TODO: necessary for nth-child
+            is_mouse_over: false, // TODO
+            is_mouse_pressed: false, // TODO
+        };
+
+        let mut parent_rules = styled_nodes.get(&parent).cloned().unwrap_or_default();
+
+        // Iterate through all rules in the CSS style sheet, test if the
+        // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
+        // so the cost of this should be insignificant.
+        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&html_matcher)) {
+            parent_rules.css_constraints.list.extend(applying_rule.declarations.clone());
+        }
+
+        let inheritable_rules = CssConstraintList {
+            list: parent_rules.css_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
+        };
+
+        // For children: inherit from parents!
+        for child in parent.children(arena_borrow) {
+            styled_nodes.insert(child, StyledNode { css_constraints: inheritable_rules.clone() });
+        }
+
+        styled_nodes.insert(parent, parent_rules);
     }
 
-    let sibling_iterator = root.following_siblings(arena_borrow);
-    // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
-    // sibling_iterator.next().unwrap();
-
-    for sibling in sibling_iterator {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, &root_constraints, parent_z_level));
-    }
-*/
     UiDescription {
-        // note: this clone is necessary, otherwise,
+        // Note: this clone is necessary, otherwise,
         // we wouldn't be able to update the UiState
         //
         // WARNING: The UIState can modify the `arena` with its copy of the Rc !
@@ -724,92 +749,6 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
 pub(crate) struct CssConstraintList {
     pub(crate) list: Vec<CssDeclaration>
 }
-
-/*
-fn match_dom_css_selectors_inner<T: Layout>(
-    root: NodeId,
-    arena: &Arena<NodeData<T>>,
-    parsed_css: &ParsedCss,
-    parent_constraints: &CssConstraintList,
-    parent_z_level: ZIndex)
--> BTreeMap<NodeId, StyledNode>
-{
-    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
-
-    let mut current_constraints = CssConstraintList {
-        list: parent_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
-    };
-
-    cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css);
-
-    let current_node = StyledNode {
-        z_level: parent_z_level,
-        css_constraints: current_constraints,
-    };
-
-    // DFS tree
-    for child in root.children(arena) {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, &current_node.css_constraints, ZIndex(parent_z_level.0 + 1)));
-    }
-
-    styled_nodes.insert(root, current_node);
-    styled_nodes
-}
-
-/// Cascade the rules, put them into the list
-#[allow(unused_variables)]
-fn cascade_constraints<T: Layout>(
-    node: &NodeData<T>,
-    list: &mut CssConstraintList,
-    parsed_css: &ParsedCss)
-{
-    for div_rule in &parsed_css.pure_div_rules {
-        if node.node_type.get_path() == div_rule.html_type {
-            list.push_rule(div_rule);
-        }
-    }
-
-    let mut node_classes: Vec<&String> = node.classes.iter().map(|x| x).collect();
-    node_classes.sort();
-    node_classes.dedup_by(|a, b| *a == *b);
-
-    // for all classes that this node has
-    for class_rule in &parsed_css.pure_class_rules {
-        // NOTE: class_rule is sorted and de-duplicated
-        // If the selector matches, the node classes must be identical
-        let mut should_insert_rule = true;
-        if class_rule.classes.len() != node_classes.len() {
-            should_insert_rule = false;
-        } else {
-            for i in 0..class_rule.classes.len() {
-                // we verified that the length of the two classes is the same
-                if *node_classes[i] != class_rule.classes[i] {
-                    should_insert_rule = false;
-                    break;
-                }
-            }
-        }
-
-        if should_insert_rule {
-            list.push_rule(class_rule);
-        }
-    }
-
-    // first attribute for "id = something"
-    let node_id = &node.id;
-
-    if let Some(ref node_id) = *node_id {
-        // if the node has an ID
-        for id_rule in &parsed_css.pure_id_rules {
-            if *id_rule.id.as_ref().unwrap() == *node_id {
-                list.push_rule(id_rule);
-            }
-        }
-    }
-
-    // TODO: all the mixed rules
-}
-*/
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
