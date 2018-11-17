@@ -269,20 +269,68 @@ impl<T: Layout> PartialEq for NodeType<T> {
 
 impl<T: Layout> Eq for NodeType<T> { }
 
+/// Like the node type, but only signifies the type (i.e. the discriminant value)
+/// of the `NodeType`, without the actual data
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NodeTypePath {
+    Div,
+    P,
+    Img,
+    Texture,
+    IFrame,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NodeTypePathParseError<'a> {
+    Invalid(&'a str),
+}
+
+impl_display!{ NodeTypePathParseError<'a>, {
+    Invalid(e) => format!("Invalid node type: {}", e),
+}}
+
+impl NodeTypePath {
+
+    /// Return the CSS ID, such as `"p"`, for CSS matching
+    pub(crate) fn get_css_id(&self) -> &'static str {
+        use self::NodeTypePath::*;
+        match self {
+            Div => "div",
+            P => "p",
+            Img => "img",
+            Texture => "texture",
+            IFrame => "iframe",
+        }
+    }
+
+    /// Parses the node type from a CSS string such as `"div"` => `NodeTypePath::Div`
+    pub fn from_str(data: &str) -> Result<Self, NodeTypePathParseError> {
+        use self::NodeTypePath::*;
+        match data {
+            "div" => Ok(Div),
+            "p" => Ok(P),
+            "img" => Ok(Img),
+            "texture" => Ok(Texture),
+            "iframe" => Ok(IFrame),
+            other => Err(NodeTypePathParseError::Invalid(other)),
+        }
+    }
+}
+
 impl<T: Layout> NodeType<T> {
 
     pub fn label<S: Into<String>>(value: S) -> Self {
         NodeType::Label(value.into())
     }
 
-    pub(crate) fn get_css_id(&self) -> &'static str {
+    pub(crate) fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
         match self {
-            Div => "div",
-            Label(_) | Text(_) => "p",
-            Image(_) => "image",
-            GlTexture(_) => "texture",
-            IFrame(_) => "iframe",
+            Div => NodeTypePath::Div,
+            Label(_) | Text(_) => NodeTypePath::P,
+            Image(_) => NodeTypePath::Img,
+            GlTexture(_) => NodeTypePath::Texture,
+            IFrame(_) => NodeTypePath::IFrame,
         }
     }
 
@@ -478,7 +526,7 @@ impl<T: Layout> fmt::Display for NodeData<T> {
             Some(s) => s,
             None => DEFAULT,
         };
-        write!(f, "[{} #{} .{:?}]", self.node_type.get_css_id(), id, self.classes)
+        write!(f, "[{} #{} .{:?}]", self.node_type.get_path().get_css_id(), id, self.classes)
     }
 }
 

@@ -187,7 +187,7 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use cache::DomHash;
-    pub use css::{Css, NATIVE_CSS, CssRule, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
+    pub use css::{Css, NATIVE_CSS, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,

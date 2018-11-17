@@ -10,7 +10,7 @@ use {
     traits::Layout,
     dom::Dom,
     css_parser::ParsedCssProperty,
-    css::{Css, ParsedCss, CssRule, ZIndex, CssDeclaration},
+    css::{Css, CssConstraintList, ZIndex},
     dom::NodeData,
     ui_state::UiState,
 };
@@ -65,10 +65,7 @@ impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
-        let default_css = Css::empty();
-        let parsed_css = ParsedCss::from_css(&default_css);
-        let default_ui_state = UiState::from_dom(default_dom);
-        Self::from_dom(&default_ui_state, &parsed_css)
+        Self::from_dom(&UiState::from_dom(default_dom), &Css::default())
     }
 }
 
@@ -76,7 +73,7 @@ impl<T: Layout> UiDescription<T> {
     /// Applies the CSS styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn from_dom(ui_state: &UiState<T>, css: &ParsedCss) -> Self
+    pub fn from_dom(ui_state: &UiState<T>, css: &Css) -> Self
     {
         ::css::match_dom_css_selectors(ui_state, &css, ZIndex(0))
     }
@@ -84,20 +81,6 @@ impl<T: Layout> UiDescription<T> {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct StyledNode {
-    /// The z-index level that we are currently on, 0 by default
-    pub(crate) z_level: ZIndex,
     /// The CSS constraints, after the cascading step
     pub(crate) css_constraints: CssConstraintList
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct CssConstraintList {
-    pub(crate) list: Vec<CssDeclaration>
-}
-
-impl CssConstraintList {
-    #[inline]
-    pub(crate) fn push_rule(&mut self, rule: &CssRule) {
-        self.list.push(rule.declaration.1.clone());
-    }
 }
