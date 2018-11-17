@@ -426,8 +426,8 @@ pub enum On {
 pub struct NodeData<T: Layout> {
     /// `div`
     pub node_type: NodeType<T>,
-    /// `#main`
-    pub id: Option<String>,
+    /// `#main #something`
+    pub ids: Vec<String>,
     /// `.myclass .otherclass`
     pub classes: Vec<String>,
     /// `onclick` -> `my_button_click_handler`
@@ -462,7 +462,7 @@ pub struct NodeData<T: Layout> {
 impl<T: Layout> PartialEq for NodeData<T> {
     fn eq(&self, other: &Self) -> bool {
         self.node_type == other.node_type &&
-        self.id == other.id &&
+        self.ids == other.ids &&
         self.classes == other.classes &&
         self.events == other.events &&
         self.default_callback_ids == other.default_callback_ids &&
@@ -477,7 +477,7 @@ impl<T: Layout> Default for NodeData<T> {
     fn default() -> Self {
         NodeData {
             node_type: NodeType::Div,
-            id: None,
+            ids: Vec::new(),
             classes: Vec::new(),
             events: CallbackList::default(),
             default_callback_ids: Vec::new(),
@@ -490,7 +490,9 @@ impl<T: Layout> Default for NodeData<T> {
 impl<T: Layout> Hash for NodeData<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
-        self.id.hash(state);
+        for id in &self.ids {
+            id.hash(state);
+        }
         for class in &self.classes {
             class.hash(state);
         }
@@ -509,7 +511,7 @@ impl<T: Layout> Clone for NodeData<T> {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.clone(),
-            id: self.id.clone(),
+            ids: self.ids.clone(),
             classes: self.classes.clone(),
             events: self.events.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
@@ -521,12 +523,22 @@ impl<T: Layout> Clone for NodeData<T> {
 
 impl<T: Layout> fmt::Display for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        const DEFAULT: &str = "";
-        let id = match &self.id {
-            Some(s) => s,
-            None => DEFAULT,
+
+        let html_type = self.node_type.get_path().get_css_id();
+
+        let id_string = if self.ids.is_empty() {
+            String::new()
+        } else {
+            self.ids.iter().map(|x| format!("#{}", x)).collect::<Vec<String>>().join(" ")
         };
-        write!(f, "[{} #{} .{:?}]", self.node_type.get_path().get_css_id(), id, self.classes)
+
+        let class_string = if self.classes.is_empty() {
+            String::new()
+        } else {
+            self.ids.iter().map(|x| format!("#{}", x)).collect::<Vec<String>>().join(" ")
+        };
+
+        write!(f, "[{} {} {}]", html_type, id_string, class_string)
     }
 }
 
@@ -535,7 +547,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
         write!(f,
             "NodeData {{ \
                 \tnode_type: {:?}, \
-                \tid: {:?}, \
+                \tids: {:?}, \
                 \tclasses: {:?}, \
                 \tevents: {:?}, \
                 \tdefault_callback_ids: {:?}, \
@@ -543,7 +555,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tdynamic_css_overrides: {:?}, \
             }}",
         self.node_type,
-        self.id,
+        self.ids,
         self.classes,
         self.events,
         self.default_callback_ids,
@@ -809,7 +821,7 @@ impl<T: Layout> Dom<T> {
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_id<S: Into<String>>(mut self, id: S) -> Self {
-        self.set_id(id);
+        self.add_id(id);
         self
     }
 
@@ -848,8 +860,8 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn set_id<S: Into<String>>(&mut self, id: S) {
-        self.arena.borrow_mut()[self.head].data.id = Some(id.into());
+    pub fn add_id<S: Into<String>>(&mut self, id: S) {
+        self.arena.borrow_mut()[self.head].data.ids.push(id.into());
     }
 
     #[inline]

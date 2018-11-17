@@ -10,7 +10,7 @@ use {
     traits::Layout,
     dom::Dom,
     css_parser::ParsedCssProperty,
-    css::{Css, CssConstraintList, ZIndex},
+    css::{Css, CssConstraintList},
     dom::NodeData,
     ui_state::UiState,
 };
@@ -75,7 +75,7 @@ impl<T: Layout> UiDescription<T> {
     /// renderer.
     pub fn from_dom(ui_state: &UiState<T>, css: &Css) -> Self
     {
-        ::css::match_dom_css_selectors(ui_state, &css, ZIndex(0))
+        ::css::match_dom_css_selectors(ui_state, &css)
     }
 }
 
