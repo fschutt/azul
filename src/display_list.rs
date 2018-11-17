@@ -224,7 +224,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let mut app_data_access = AppDataAccess(app_data);
         let mut resource_updates = Vec::<ResourceUpdate>::new();
 
-        let (laid_out_rectangles, node_depths) = do_the_layout(
+        let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
             &self,
             &mut resource_updates,
             app_resources,
@@ -250,6 +250,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 render_api,
                 display_rectangle_arena: &self.rectangles,
                 parsed_css,
+                word_cache: &word_cache,
             },
             &mut DisplayListParametersMut {
                 app_data: &mut app_data_access,
@@ -330,6 +331,10 @@ fn get_total_num_children_of_node<T>(id: NodeId, arena: &Arena<T>) -> usize {
 }
 
 use glium::glutin::dpi::LogicalPosition;
+use text_layout::{Words, FontMetrics};
+
+#[derive(Debug, Clone)]
+pub struct WordCache(BTreeMap<NodeId, (Words, FontMetrics)>);
 
 fn do_the_layout<'a, 'b, T: Layout>(
     display_list: &DisplayList<'a, T>,
@@ -338,9 +343,9 @@ fn do_the_layout<'a, 'b, T: Layout>(
     render_api: &RenderApi,
     rect_size: LogicalSize,
     rect_offset: LogicalPosition)
--> (Arena<LayoutRect>, Vec<(usize, NodeId)>)
+-> (Arena<LayoutRect>, Vec<(usize, NodeId)>, WordCache)
 {
-    use text_layout::{split_text_into_words, get_words_cached, Words, FontMetrics};
+    use text_layout::{split_text_into_words, get_words_cached};
     use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
 
     let arena = display_list.ui_descr.ui_descr_arena.borrow();
@@ -410,12 +415,14 @@ fn do_the_layout<'a, 'b, T: Layout>(
     let x_positions = get_x_positions(&solved_widths, rect_offset);
     let y_positions = get_y_positions(&solved_heights, &solved_widths, rect_offset);
 
-    (arena.transform(|node, node_id| {
+    let layouted_arena = arena.transform(|node, node_id| {
         LayoutRect::new(
             TypedPoint2D::new(x_positions[node_id].data.0, y_positions[node_id].data.0),
             TypedSize2D::new(solved_widths.solved_widths[node_id].data.total(), solved_heights.solved_heights[node_id].data.total())
         )
-    }), solved_widths.non_leaf_nodes_sorted_by_depth)
+    });
+
+    (layouted_arena, solved_widths.non_leaf_nodes_sorted_by_depth, WordCache(word_cache))
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
@@ -468,7 +475,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     use webrender::api::BorderRadius;
 
     let DisplayListParametersRef {
-        render_api, parsed_css, ui_description, display_rectangle_arena
+        render_api, parsed_css, ui_description, display_rectangle_arena, word_cache
     } = referenced_content;
 
     let DisplayListRectParams {
@@ -505,13 +512,25 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_mutable_content.builder.push_clip_id(id);
     }
 
-    // We always have to push the rect, otherwise the hit-testing gets confused
-    push_rect(&info,
-              referenced_mutable_content.builder,
-              &rect.style.background_color.unwrap_or_default(),
-              webrender_gamma_hack_necessary);
+    // If the rect is hit-testing relevant, we need to push a rect anyway. Otherwise the hit-testing gets confused
+    if let Some(bg_col) = &rect.style.background_color {
+        // The background color won't be seen anyway, so don't push a
+        // background color if we do have a background already
+        if rect.style.background.is_none() {
+            push_rect(&info,
+                      referenced_mutable_content.builder,
+                      bg_col,
+                      webrender_gamma_hack_necessary);
+        }
+    } else if info.tag.is_some() {
+        const TRANSPARENT_BG: StyleBackgroundColor = StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 0 });
+        push_rect(&info,
+                  referenced_mutable_content.builder,
+                  &TRANSPARENT_BG,
+                  webrender_gamma_hack_necessary);
+    }
 
-    if let Some(ref bg) = rect.style.background {
+    if let Some(bg) = &rect.style.background {
         push_background(
             &info,
             &bounds,
@@ -519,7 +538,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             bg,
             &referenced_mutable_content.app_resources,
             webrender_gamma_hack_necessary);
-    };
+    }
 
     if let Some(ref border) = rect.style.border {
         push_border(
@@ -549,6 +568,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         resource_updates: &mut Vec<ResourceUpdate>,
         webrender_gamma_hack_necessary: bool|
     {
+        let words = word_cache.0.get(&rect_idx)?;
+
         // Adjust the bounds by the padding
         let mut text_bounds = rect.layout.padding.as_ref().and_then(|padding| {
             Some(subtract_padding(&bounds, padding))
@@ -581,6 +602,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             horz_alignment,
             vert_alignment,
             &scrollbar_style,
+            &words.0,
             webrender_gamma_hack_necessary);
 
         if text_clip_region_id.is_some() {
@@ -623,8 +645,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         BoxShadowClipMode::Inset,
         webrender_gamma_hack_necessary);
 
+    // Push scrollbars if necessary
     if let Some(overflow) = &overflow_result {
-        // push scrollbars if necessary
         // If the rectangle should have a scrollbar, push a scrollbar onto the display list
         if rect.style.overflow.unwrap_or_default().allows_vertical_scrollbar() {
             if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
@@ -735,7 +757,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     let rect_size = LogicalSize::new(info.rect.size.width as f64, info.rect.size.height as f64);
     let rect_origin = LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64);
 
-    let (laid_out_rectangles, node_depths) = do_the_layout(
+    let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
         &display_list,
         &mut referenced_mutable_content.resource_updates,
         &mut referenced_mutable_content.app_resources,
@@ -748,6 +770,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         // Important: Need to update the ui description, otherwise this function would be endlessly recursive
         ui_description: &ui_description,
         display_rectangle_arena: &display_list.rectangles,
+        word_cache: &word_cache,
         .. *referenced_content
     };
 
@@ -776,6 +799,9 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a + Layout> {
     pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
     pub display_rectangle_arena: &'d Arena<DisplayRectangle<'d>>,
+    /// Reference to the word cache (left over from the layout,
+    /// to re-use the text layout from there)
+    pub word_cache: &'c WordCache,
 }
 
 /// Same as `DisplayListParametersRef`, but for `&mut Something`
@@ -826,6 +852,7 @@ fn push_text(
     horz_alignment: StyleTextAlignmentHorz,
     vert_alignment: StyleTextAlignmentVert,
     scrollbar_info: &ScrollbarInfo,
+    words: &Words,
     webrender_gamma_correction_hack_necessary: bool)
 -> Option<OverflowInfo>
 {
@@ -849,6 +876,7 @@ fn push_text(
     };
 
     let (positioned_glyphs, text_overflow) = text_layout::get_glyphs(
+        words,
         app_resources,
         bounds,
         &font_id,
