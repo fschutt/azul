@@ -28,7 +28,7 @@ pub const NATIVE_CSS: &str = include_str!("styles/native_macos.css");
 
 /// Wrapper for a `Vec<CssRule>` - the CSS is immutable at runtime, it can only be
 /// created once. Animations / conditional styling is implemented using dynamic fields
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Css {
     /// Path to hot-reload the CSS file from
     #[cfg(debug_assertions)]
@@ -174,10 +174,7 @@ impl_display! { HotReloadError, {
 
 /// One block of rules that applies a bunch of rules to a "path" in the CSS, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
-///
-/// Note that `PartialEq` and `Eq` are ommitted on purpose, so that nobody
-/// can ccidentally match CSS paths directly, without constructing a `HtmlCascadeInfo` first.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CssRuleBlock {
     /// The path (full selector) of the CSS block
     pub path: CssPath,
@@ -189,9 +186,9 @@ pub struct CssRuleBlock {
 /// Represents a full CSS path:
 /// `#div > .my_class:focus` =>
 /// `[CssPathSelector::Type(NodeTypePath::Div), LimitChildren, CssPathSelector::Class("my_class"), CssPathSelector::PseudoSelector]`
-#[derive(Debug, Clone, Hash, Default)]
+#[derive(Debug, Clone, Hash, Default, PartialEq)]
 pub struct CssPath {
-    selectors: Vec<CssPathSelector>,
+    pub selectors: Vec<CssPathSelector>,
 }
 
 impl CssPath {
@@ -836,4 +833,41 @@ fn test_detect_static_or_dynamic_property() {
         determine_static_or_dynamic_css_property("text-align", "[[ |  ]]"),
         Err(DynamicCssParseError::EmptyBraces)
     );
+}
+
+#[test]
+fn test_css_parse_1() {
+
+    use prelude::{ColorU, StyleBackgroundColor};
+
+    let parsed_css = Css::new_from_str("
+        div#my_id .my_class:first {
+            background-color: red;
+        }
+    ").unwrap();
+
+    let expected_css = Css {
+        rules: vec![
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![
+                        CssPathSelector::Type(NodeTypePath::Div),
+                        CssPathSelector::Id(String::from("my_id")),
+                        // NOTE: This is technically wrong, the space between "#my_id"
+                        // and ".my_class" is important, but gets ignored for now
+                        CssPathSelector::Class(String::from("my_class")),
+                        CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
+                    ],
+                },
+                declarations: vec![CssDeclaration::Static(ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
+            }
+        ],
+        needs_relayout: true,
+        #[cfg(debug_assertions)]
+        hot_reload_path: None,
+        #[cfg(debug_assertions)]
+        hot_reload_override_native: false,
+    };
+
+    assert_eq!(parsed_css, expected_css);
 }
