@@ -191,7 +191,17 @@ pub struct CssPath {
     pub selectors: Vec<CssPathSelector>,
 }
 
+/// Has all the necessary information about the CSS path
+pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
+    node_data: &'a NodeData<T>,
+    index_in_parent: usize,
+    is_mouse_over: bool,
+    is_mouse_pressed: bool,
+    // parent node item count, is_hovered, is_focused, is_active
+}
+
 impl CssPath {
+
     /// Returns if the CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
     pub fn matches_html_element<'a, T: Layout>(&self, html_node: &HtmlCascadeInfo<'a, T>) -> bool {
         use self::CssPathSelector::*;
@@ -199,31 +209,45 @@ impl CssPath {
         let html_node_type = html_node.node_data.node_type.get_path();
         let html_classes = &html_node.node_data.classes;
         let html_ids = &html_node.node_data.ids;
+        let index_in_parent = html_node.index_in_parent;
 
         // TODO: Later on, we'll need the full path of all selectors of all parents of this node,
         // but for now just match the current selector
-        let mut should_apply = true;
 
         for selector in &self.selectors {
             match selector {
-                Global => should_apply = true,
-                Type(t) => should_apply = html_node_type == *t,
-                Class(c) => should_apply = html_classes.contains(c),
-                Id(c) => should_apply = html_ids.contains(c),
-                LimitChildren | PseudoSelector(_) => { },
+                Global => { },
+                Type(t) => {
+                    if html_node_type != *t {
+                        return false;
+                    }
+                },
+                Class(c) => {
+                    if !html_classes.contains(c) {
+                        return false;
+                    }
+                },
+                Id(id) => {
+                    if !html_ids.contains(id) {
+                      return false;
+                    }
+                },
+                PseudoSelector(CssPathPseudoSelector::First) => {
+                    // Notice: index_in_parent is 1-indexed
+                    if index_in_parent != 1 { return false; }
+                },
+                PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
+                    if index_in_parent != *x { return false; }
+                },
+                LimitChildren | PseudoSelector(_) => {
+                    // TODO: for now
+                    return false;
+                },
             }
         }
 
-        should_apply
+        true
     }
-}
-
-/// Has all the necessary information about the CSS path
-pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
-    node_data: &'a NodeData<T>,
-    index_in_parent: usize,
-    is_mouse_over: bool,
-    is_mouse_pressed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -458,7 +482,7 @@ impl Css {
             return Err(CssParseError::UnclosedBlock);
         }
 
-        Ok(Self {
+        let mut css = Self {
             #[cfg(debug_assertions)]
             hot_reload_path: None,
             #[cfg(debug_assertions)]
@@ -466,7 +490,16 @@ impl Css {
             rules: css_blocks,
             // force re-layout for the first frame
             needs_relayout: true,
-        })
+        };
+
+        css.sort_by_specificity();
+
+        Ok(css)
+    }
+
+    /// Sort the CSS rules by their weight, so that the rules are applied in the correct order
+    pub fn sort_by_specificity(&mut self) {
+        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
     }
 
     /// Returns the native style for the OS
@@ -571,6 +604,14 @@ impl Css {
 
         *self = css;
     }
+}
+
+fn get_specificity(path: &CssPath) -> (usize, usize, usize) {
+    // http://www.w3.org/TR/selectors/#specificity
+    let id_count = path.selectors.iter().filter(|x|     if let CssPathSelector::Id(_) = x {     true } else { false }).count();
+    let class_count = path.selectors.iter().filter(|x|  if let CssPathSelector::Class(_) = x {  true } else { false }).count();
+    let div_count = path.selectors.iter().filter(|x|    if let CssPathSelector::Type(_) = x {   true } else { false }).count();
+    (id_count, class_count, div_count)
 }
 
 /// Error that can happen during `ParsedCssProperty::from_kv`
@@ -687,12 +728,6 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
     })
 }
 
-/// Represents the z-index as defined by the stacking order
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct ZIndex(pub u32);
-
-impl Default for ZIndex { fn default() -> Self { ZIndex(0) }}
-
 pub(crate) fn match_dom_css_selectors<T: Layout>(
     ui_state: &UiState<T>,
     css: &Css)
@@ -702,22 +737,19 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
 
     let root = ui_state.dom.root;
     let arena_borrow = &*ui_state.dom.arena.borrow();
-/*
-    let mut root_constraints = CssConstraintList::default();
-*/
-    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
-
     let non_leaf_nodes = get_non_leaf_nodes_sorted_by_depth(&arena_borrow);
+
+    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
     for (_depth, parent) in non_leaf_nodes {
         let parent_node = &arena_borrow[parent];
-        /*
-            let parent = arena[node_id].parent()?;
-            Some((node_id.preceding_siblings(&arena).count() - 1, parent))
-        */
+
+        // TODO: Currently very slow! Also, starts at 1 instead of 0
+        let index_in_parent = parent.preceding_siblings(arena_borrow).count();
+
         let html_matcher = HtmlCascadeInfo {
             node_data: &parent_node.data,
-            index_in_parent: 0, // TODO: necessary for nth-child
+            index_in_parent: index_in_parent, // necessary for nth-child
             is_mouse_over: false, // TODO
             is_mouse_pressed: false, // TODO
         };
@@ -861,6 +893,125 @@ fn test_css_parse_1() {
                 },
                 declarations: vec![CssDeclaration::Static(ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
             }
+        ],
+        needs_relayout: true,
+        #[cfg(debug_assertions)]
+        hot_reload_path: None,
+        #[cfg(debug_assertions)]
+        hot_reload_override_native: false,
+    };
+
+    assert_eq!(parsed_css, expected_css);
+}
+
+#[cfg(test)]
+mod cascade_tests {
+
+    use prelude::*;
+    use super::*;
+
+    fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<ParsedCssProperty>) {
+
+        // Unimportant boilerplate
+        struct Data { }
+
+        impl Layout for Data { fn layout(&self) -> Dom<Self> { Dom::new(NodeType::Div) } }
+
+        let css = Css::new_from_str(css).unwrap();
+        let ids_str = ids.into_iter().map(|x| x.to_string()).collect();
+        let class_str = classes.into_iter().map(|x| x.to_string()).collect();
+        let node_data: NodeData<Data> = NodeData {
+            node_type: NodeType::Div,
+            ids: ids_str,
+            classes: class_str,
+            .. Default::default()
+        };
+
+        let test_node = HtmlCascadeInfo {
+            node_data: &node_data,
+            index_in_parent: 0,
+            is_mouse_over: false,
+            is_mouse_pressed: false,
+        };
+
+        let mut test_node_rules = Vec::new();
+        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&test_node)) {
+            test_node_rules.extend(applying_rule.declarations.clone());
+        }
+
+        let expected_rules: Vec<CssDeclaration> = expected.into_iter().map(|x| CssDeclaration::Static(x)).collect();
+        assert_eq!(test_node_rules, expected_rules);
+
+    }
+
+    // Tests that an element with a single class always gets the CSS element applied properly
+    #[test]
+    fn test_apply_css_pure_class() {
+        let red = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+        let blue = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
+        let black = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+
+        // Test that single elements are applied properly
+        {
+            let css_1 = ".my_class { background-color: red; }";
+            test_css(css_1, vec![], vec!["my_class"], vec![red.clone()]);
+            test_css(css_1, vec!["my_id"], vec!["my_class"], vec![red.clone()]);
+            test_css(css_1, vec!["my_id"], vec![], vec![]);
+        }
+
+        // Test that the ID overwrites the class (higher specificy)
+        {
+            let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
+            test_css(css_2, vec![], vec![], vec![]);
+            test_css(css_2, vec!["my_id"], vec![], vec![red.clone()]);
+            test_css(css_2, vec!["my_id"], vec!["my_class"], vec![blue.clone(), red.clone()]); // red will overwrite blue later on
+            test_css(css_2, vec![], vec!["my_class"], vec![blue.clone()]);
+        }
+
+        // Global tests
+        {
+            let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
+            test_css(css_3, vec![], vec![], vec![black.clone()]);
+            test_css(css_3, vec!["my_id"], vec![], vec![black.clone()]); // note: .my_class#my_id
+            test_css(css_3, vec![], vec!["my_class"], vec![black.clone(), blue.clone()]);
+            test_css(css_3, vec!["my_id"], vec!["my_class"], vec![black.clone(), blue.clone(), red.clone()]);
+            test_css(css_3, vec![], vec!["my_class"], vec![black.clone(), blue.clone()]);
+        }
+    }
+}
+
+#[test]
+fn test_specificity() {
+    use self::CssPathSelector::*;
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".into())] }), (0, 1, 0));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)] }), (1, 0, 1));
+}
+
+// Assert that order of the CSS items is correct (in order of specificity, lowest-to-highest)
+#[test]
+fn test_specificity_sort() {
+    use prelude::*;
+    use self::CssPathSelector::*;
+    use dom::NodeTypePath::*;
+
+    let parsed_css = Css::new_from_str("
+        * { }
+        * div.my_class#my_id { }
+        * div#my_id { }
+        * #my_id { }
+        div.my_class.specific#my_id { }
+    ").unwrap();
+
+    let expected_css = Css {
+        rules: vec![
+            // Rules are sorted from lowest-specificity to highest specificity
+            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
         needs_relayout: true,
         #[cfg(debug_assertions)]
