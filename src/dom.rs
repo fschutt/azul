@@ -1024,29 +1024,29 @@ fn test_dom_sibling_1() {
 
     assert_eq!(NodeId::new(0), dom.root);
 
-    assert_eq!(Some(String::from("sibling-1")),
+    assert_eq!(vec![String::from("sibling-1")],
         arena[
             arena[dom.root]
             .first_child().expect("root has no first child")
-        ].data.id);
+        ].data.ids);
 
-    assert_eq!(Some(String::from("sibling-2")),
+    assert_eq!(vec![String::from("sibling-2")],
         arena[
             arena[
                 arena[dom.root]
                 .first_child().expect("root has no first child")
             ].next_sibling().expect("root has no second sibling")
-        ].data.id);
+        ].data.ids);
 
-    assert_eq!(Some(String::from("sibling-1-child-1")),
+    assert_eq!(vec![String::from("sibling-1-child-1")],
         arena[
             arena[
                 arena[dom.root]
                 .first_child().expect("root has no first child")
             ].first_child().expect("first child has no first child")
-        ].data.id);
+        ].data.ids);
 
-    assert_eq!(Some(String::from("sibling-2-child-1")),
+    assert_eq!(vec![String::from("sibling-2-child-1")],
         arena[
             arena[
                 arena[
@@ -1054,7 +1054,7 @@ fn test_dom_sibling_1() {
                     .first_child().expect("root has no first child")
                 ].next_sibling().expect("first child has no second sibling")
             ].first_child().expect("second sibling has no first child")
-        ].data.id);
+        ].data.ids);
 }
 
 #[test]
@@ -1127,5 +1127,5 @@ fn test_zero_size_dom() {
     assert!(null_dom.arena.borrow().nodes_len() == 1);
 
     null_dom.add_class("hello"); // should not panic
-    null_dom.set_id("id-hello"); // should not panic
+    null_dom.add_id("id-hello"); // should not panic
 }
