@@ -762,31 +762,37 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
             parent_rules.css_constraints.list.extend(applying_rule.declarations.clone());
         }
 
-        let inheritable_rules = CssConstraintList {
-            list: parent_rules.css_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
-        };
+        let inheritable_rules: Vec<CssDeclaration> = parent_rules.css_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
 
-        // For children: inherit from parents - filter children that themselves are parents!
-        for (child_idx, child_id) in parent_id.children(arena_borrow).enumerate().filter(|(_, child_id)| arena_borrow[*child_id].first_child().is_none()) {
+        // For children: inherit from parents - filter children that themselves are not parents!
+        for (child_idx, child_id) in parent_id.children(arena_borrow).enumerate() {
+            let child_node = &arena_borrow[child_id];
+            match child_node.first_child() {
+                None => {
+                    // Style children that themselves aren't parents
+                    let mut child_rules = inheritable_rules.clone();
 
-            // Style children that themselves aren't parents
-            let child_html_matcher = HtmlCascadeInfo {
-                node_data: &arena_borrow[child_id].data,
-                index_in_parent: child_idx, // necessary for nth-child
-                is_mouse_over: false, // TODO
-                is_mouse_pressed: false, // TODO
-            };
+                    let child_html_matcher = HtmlCascadeInfo {
+                        node_data: &child_node.data,
+                        index_in_parent: child_idx + 1, // necessary for nth-child
+                        is_mouse_over: false, // TODO
+                        is_mouse_pressed: false, // TODO
+                    };
 
-            let mut child_rules = inheritable_rules.clone();
+                    // Iterate through all rules in the CSS style sheet, test if the
+                    // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
+                    // so the cost of this should be insignificant.
+                    for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&child_html_matcher)) {
+                        child_rules.extend(applying_rule.declarations.clone());
+                    }
 
-            // Iterate through all rules in the CSS style sheet, test if the
-            // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
-            // so the cost of this should be insignificant.
-            for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&child_html_matcher)) {
-                child_rules.list.extend(applying_rule.declarations.clone());
+                    styled_nodes.insert(child_id, StyledNode { css_constraints:  CssConstraintList { list: child_rules }});
+                },
+                Some(_) => {
+                    // For all children that themselves are parents, simply copy the inheritable rules
+                    styled_nodes.insert(child_id, StyledNode { css_constraints:  CssConstraintList { list: inheritable_rules.clone() } });
+                },
             }
-
-            styled_nodes.insert(child_id, StyledNode { css_constraints: child_rules });
         }
 
         styled_nodes.insert(parent_id, parent_rules);

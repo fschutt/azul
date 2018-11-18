@@ -1,11 +1,13 @@
 * {
     font-size: 12px;
     font-family: sans-serif;
-    color: #4c4c4c;
-    background-color: #e7e7e7;
 }
 
 .__azul-native-button {
+    /*
+        color: #4c4c4c;
+        background-color: #e7e7e7;
+    */
     border: 1px solid #b7b7b7;
     border-radius: 4px;
     box-shadow: 0px 0px 3px #c5c5c5ad;

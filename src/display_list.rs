@@ -512,6 +512,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_mutable_content.builder.push_clip_id(id);
     }
 
+
     // If the rect is hit-testing relevant, we need to push a rect anyway. Otherwise the hit-testing gets confused
     if let Some(bg_col) = &rect.style.background_color {
         // The background color won't be seen anyway, so don't push a

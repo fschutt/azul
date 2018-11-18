@@ -1,8 +1,9 @@
 * {
     font-size: 14.66px;
     font-family: sans-serif;
+    /*
     color: #000;
-    background-color: #f0f0f0; /* Windows Background color, rgb(240, 240, 240) */
+    background-color: #f0f0f0; Windows Background color, rgb(240, 240, 240) */
 }
 
 .__azul-native-button {
