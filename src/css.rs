@@ -741,25 +741,24 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
 
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
-    for (_depth, parent) in non_leaf_nodes {
-        let parent_node = &arena_borrow[parent];
+    for (_depth, parent_id) in non_leaf_nodes {
 
-        // TODO: Currently very slow! Also, starts at 1 instead of 0
-        let index_in_parent = parent.preceding_siblings(arena_borrow).count();
+        // Note: starts at 1 instead of 0
+        let index_in_parent = parent_id.preceding_siblings(arena_borrow).count();
 
-        let html_matcher = HtmlCascadeInfo {
-            node_data: &parent_node.data,
+        let parent_html_matcher = HtmlCascadeInfo {
+            node_data: &arena_borrow[parent_id].data,
             index_in_parent: index_in_parent, // necessary for nth-child
             is_mouse_over: false, // TODO
             is_mouse_pressed: false, // TODO
         };
 
-        let mut parent_rules = styled_nodes.get(&parent).cloned().unwrap_or_default();
+        let mut parent_rules = styled_nodes.get(&parent_id).cloned().unwrap_or_default();
 
         // Iterate through all rules in the CSS style sheet, test if the
         // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
         // so the cost of this should be insignificant.
-        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&html_matcher)) {
+        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&parent_html_matcher)) {
             parent_rules.css_constraints.list.extend(applying_rule.declarations.clone());
         }
 
@@ -767,12 +766,30 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
             list: parent_rules.css_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
         };
 
-        // For children: inherit from parents!
-        for child in parent.children(arena_borrow) {
-            styled_nodes.insert(child, StyledNode { css_constraints: inheritable_rules.clone() });
+        // For children: inherit from parents - filter children that themselves are parents!
+        for (child_idx, child_id) in parent_id.children(arena_borrow).enumerate().filter(|(_, child_id)| arena_borrow[*child_id].first_child().is_none()) {
+
+            // Style children that themselves aren't parents
+            let child_html_matcher = HtmlCascadeInfo {
+                node_data: &arena_borrow[child_id].data,
+                index_in_parent: child_idx, // necessary for nth-child
+                is_mouse_over: false, // TODO
+                is_mouse_pressed: false, // TODO
+            };
+
+            let mut child_rules = inheritable_rules.clone();
+
+            // Iterate through all rules in the CSS style sheet, test if the
+            // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
+            // so the cost of this should be insignificant.
+            for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&child_html_matcher)) {
+                child_rules.list.extend(applying_rule.declarations.clone());
+            }
+
+            styled_nodes.insert(child_id, StyledNode { css_constraints: child_rules });
         }
 
-        styled_nodes.insert(parent, parent_rules);
+        styled_nodes.insert(parent_id, parent_rules);
     }
 
     UiDescription {
@@ -941,7 +958,6 @@ mod cascade_tests {
 
         let expected_rules: Vec<CssDeclaration> = expected.into_iter().map(|x| CssDeclaration::Static(x)).collect();
         assert_eq!(test_node_rules, expected_rules);
-
     }
 
     // Tests that an element with a single class always gets the CSS element applied properly
