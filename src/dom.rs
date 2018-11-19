@@ -409,18 +409,18 @@ pub enum On {
     MouseLeave,
     /// Mousewheel / touchpad scrolling
     Scroll,
-    /// A key was pressed. Check `window.get_keyboard_state().current_chars` for
-    /// getting the actual key / virtual key / scancode.
+    /// The window received a unicode character (also respects the system locale).
+    /// Check `keyboard_state.current_char` to get the current pressed character.
+    TextInput,
+    /// A **virtual keycode** was pressed. Note: This is only the virtual keycode,
+    /// not the actual char. If you want to get the character, use `TextInput` instead.
+    /// A virtual key does not have to map to a printable character.
     ///
-    /// Warning: key repeat is on. When a key is held down, this event fires
-    /// multiple times, the delay between events depends on the operating system.
-    KeyDown,
-    /// A key was released. Check `window.get_keyboard_state().current_chars` for
-    /// getting the actual key / virtual key / scancode
-    ///
-    /// Warning: key repeat is on. When a key is held down, this event fires
-    /// multiple times, the delay between events depends on the operating system.
-    KeyUp,
+    /// You can get all currently pressed virtual keycodes in the `keyboard_state.current_virtual_keycodes`
+    /// and / or just the last keycode in the `keyboard_state.latest_virtual_keycode`.
+    VirtualKeyDown,
+    /// A **virtual keycode** was release. See `VirtualKeyDown` for more info.
+    VirtualKeyUp,
 }
 
 pub struct NodeData<T: Layout> {

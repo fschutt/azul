@@ -595,9 +595,6 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
     match event {
         Event::WindowEvent { event, .. } => {
             match event {
-                WindowEvent::MouseInput { .. } => {
-                    frame_event_info.should_hittest = true;
-                },
                 WindowEvent::CursorMoved { position, .. } => {
                     frame_event_info.should_hittest = true;
                     frame_event_info.cur_cursor_pos = *position;
@@ -614,15 +611,15 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
                     frame_event_info.new_dpi_factor = Some(*dpi);
                     frame_event_info.should_redraw_window = true;
                 },
-                WindowEvent::MouseWheel { .. } => {
-                    frame_event_info.should_hittest = true;
-                },
                 WindowEvent::CloseRequested => {
                     return WindowCloseEvent::AboutToClose;
                 },
-                WindowEvent::KeyboardInput { .. } => {
+                WindowEvent::KeyboardInput { .. } |
+                WindowEvent::ReceivedCharacter(_) |
+                WindowEvent::MouseWheel { .. } |
+                WindowEvent::MouseInput { .. } => {
                     frame_event_info.should_hittest = true;
-                }
+                },
                 _ => { },
             }
         },

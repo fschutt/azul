@@ -920,7 +920,7 @@ fn align_text_horz(
 
     // Same for right-aligned text, but without the "divide by 2 step"
 
-    if line_breaks.is_empty() {
+    if line_breaks.is_empty() || glyphs.is_empty() {
         return; // ??? maybe a 0-height rectangle?
     }
 
@@ -974,7 +974,10 @@ fn align_text_vert(
 {
     use self::TextOverflow::*;
     use self::StyleTextAlignmentVert::*;
-    // use css_parser::PT_TO_PX;
+
+    if line_breaks.is_empty() || glyphs.is_empty() {
+        return;
+    }
 
     // Die if we have a line break at a position bigger than the position of the last glyph, because something went horribly wrong!
     // The next unwrap is always safe as line_breaks will have a minimum of one entry!
