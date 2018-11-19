@@ -32,8 +32,8 @@ pub struct KeyboardState
     pub alt_down: bool,
     /// `Super / Windows / Command` key
     pub super_down: bool,
-    /// Currently pressed keys, already converted to characters
-    pub current_keys: HashSet<char>,
+    /// Currently pressed key, already converted to characters
+    pub current_char: Option<char>,
     /// Holds the key that was pressed last if there is Some. Holds None otherwise.
     pub latest_virtual_keycode: Option<VirtualKeyCode>,
     /// Currently pressed virtual keycodes - this is essentially an "extension"
@@ -318,10 +318,15 @@ impl WindowState
                 events_vec.insert(On::Scroll);
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(On::KeyDown);
+                events_vec.insert(On::VirtualKeyDown);
+            },
+            WindowEvent::ReceivedCharacter(c) => {
+                if !c.is_control() {
+                    events_vec.insert(On::TextInput);
+                }
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(On::KeyUp);
+                events_vec.insert(On::VirtualKeyUp);
             },
             _ => { }
         }
@@ -384,26 +389,25 @@ impl WindowState
                 match event {
                     WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, .. } => {
                         if let Some(vk) = virtual_keycode {
-                            if let Some(ch) = virtual_key_code_to_char(*vk) {
-                                self.keyboard_state.current_keys.insert(ch);
-                            }
                             self.keyboard_state.current_virtual_keycodes.insert(*vk);
                             self.keyboard_state.latest_virtual_keycode = Some(*vk);
                         }
                         self.keyboard_state.current_scancodes.insert(*scancode);
                     },
+                    // The char event is sliced inbetween a keydown and a keyup event
+                    // so the keyup has to clear the character again
+                    WindowEvent::ReceivedCharacter(c) => {
+                        self.keyboard_state.current_char = Some(*c);
+                    },
                     WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, .. } => {
                         if let Some(vk) = virtual_keycode {
-                            if let Some(ch) = virtual_key_code_to_char(*vk) {
-                                self.keyboard_state.current_keys.remove(&ch);
-                            }
                             self.keyboard_state.current_virtual_keycodes.remove(vk);
                             self.keyboard_state.latest_virtual_keycode = None;
                         }
                         self.keyboard_state.current_scancodes.remove(scancode);
                     },
                     WindowEvent::Focused(false) => {
-                        self.keyboard_state.current_keys.clear();
+                        self.keyboard_state.current_char = None;
                         self.keyboard_state.current_virtual_keycodes.clear();
                         self.keyboard_state.latest_virtual_keycode = None;
                         self.keyboard_state.current_scancodes.clear();
@@ -420,62 +424,5 @@ impl WindowState
 fn update_mouse_cursor(window: &Window, old: &MouseCursor, new: &MouseCursor) {
     if *old != *new {
         window.set_cursor(*new);
-    }
-}
-
-pub(crate) fn virtual_key_code_to_char(code: VirtualKeyCode) -> Option<char> {
-    use glium::glutin::VirtualKeyCode::*;
-    match code {
-        Key1 => Some('1'),
-        Key2 => Some('2'),
-        Key3 => Some('3'),
-        Key4 => Some('4'),
-        Key5 => Some('5'),
-        Key6 => Some('6'),
-        Key7 => Some('7'),
-        Key8 => Some('8'),
-        Key9 => Some('9'),
-        Key0 => Some('0'),
-        A => Some('a'),
-        B => Some('b'),
-        C => Some('c'),
-        D => Some('d'),
-        E => Some('e'),
-        F => Some('f'),
-        G => Some('g'),
-        H => Some('h'),
-        I => Some('i'),
-        J => Some('j'),
-        K => Some('k'),
-        L => Some('l'),
-        M => Some('m'),
-        N => Some('n'),
-        O => Some('o'),
-        P => Some('p'),
-        Q => Some('q'),
-        R => Some('r'),
-        S => Some('s'),
-        T => Some('t'),
-        U => Some('u'),
-        V => Some('v'),
-        W => Some('w'),
-        X => Some('x'),
-        Y => Some('y'),
-        Z => Some('z'),
-        Return | NumpadEnter => Some('\n'),
-        Space => Some(' '),
-        Caret => Some('^'),
-        Apostrophe => Some('\''),
-        Backslash => Some('\\'),
-        Colon | Period=> Some('.'),
-        Comma | NumpadComma => Some(','),
-        Divide | Slash => Some('/'),
-        Equals | NumpadEquals => Some('='),
-        Grave => Some('´'),
-        Minus | Subtract => Some('-'),
-        Multiply => Some('*'),
-        Semicolon => Some(':'),
-        Tab => Some('\t'),
-        _ => None
     }
 }
