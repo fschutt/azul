@@ -9,6 +9,7 @@ struct List {
 
 impl Layout for List {
     fn layout(&self, _: WindowInfo<Self>) -> Dom<Self> {
+
         let child_nodes = self.items.iter().enumerate().map(|(idx, item)| {
             NodeData {
                 node_type: NodeType::Label(item.to_string()),
