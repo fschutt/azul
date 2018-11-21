@@ -2,20 +2,12 @@
     font-size: 14.66px;
     font-family: sans-serif;
     color: #000;
-    background-color: #f0f0f0; /* Windows Background color, rgb(240, 240, 240) */
 }
 
-.__azul-native-label {
-    text-align: center;
-    flex-direction: column;
-    justify-content: center;
-}
-
-.selected {
-    background-color: black;
-    color: white;
-    width: 300px;
-    height: 170px;
+#container {
+    background-color: red;
+    height: 200px;
+    width: 800px;
 }
 
 .item {
@@ -23,10 +15,12 @@
     color: black;
     width: 300px;
     height: 170px;
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
 }
 
-#container {
-    height: 200px;
-    width: 400px;
-    background-color: red;
+#selected {
+    background-color: black;
+    color: white;
 }

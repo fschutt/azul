@@ -276,15 +276,22 @@ impl<T: Layout> App<T> {
                             ui_state_cache[window_id.id].tag_ids_to_node_ids
                             .get(&item.tag.0)
                         ) {
-                            
+
                         }
 
                         let keys = window.scroll_states.0.keys().map(|k| *k).collect::<Vec<_>>();
+
                         for key in &keys {
                             // TODO: make scroll speed configurable (system setting?)
-                            window.scroll_states.scroll_node(key, scroll_x as f32 * 3.0, scroll_y as f32 * 3.0);
+                            // window.scroll_states.scroll_node(key, scroll_x as f32 * 3.0, scroll_y as f32 * 3.0);
+                            window.scroll_states.scroll_node(key, scroll_x as f32, scroll_y as f32);
                         }
-                        frame_event_info.should_redraw_window = true;
+
+                        // If there is already a layout construction in progress, prevent re-rendering on layout,
+                        // otherwise this leads to jankiness during scrolling
+                        if !frame_event_info.should_redraw_window {
+                            render_on_scroll_no_layout(window);
+                        }
                     }
                 }
 
@@ -372,6 +379,7 @@ impl<T: Layout> App<T> {
 
             let should_redraw_daemons = self.app_state.run_all_daemons();
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
+
 
             if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
                 self.windows.iter().for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
@@ -850,7 +858,6 @@ fn render<T: Layout>(
 
     txn.set_root_pipeline(window.internal.pipeline_id);
 
-    let keys = window.scroll_states.0.keys().map(|k| *k).collect::<Vec<_>>();
     for (key, value) in window.scroll_states.0.iter_mut() {
         let (x, y) = value.get();
         txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
@@ -871,11 +878,33 @@ fn render<T: Layout>(
     //         window.state.mouse_state.scroll_y as f32
     //     );
     // }
+
     txn.generate_frame();
 
     window.internal.api.send_transaction(window.internal.document_id, txn);
     window.renderer.as_mut().unwrap().update();
     render_inner(window, framebuffer_size);
+}
+
+fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
+
+    use webrender::api::*;
+
+    let mut txn = Transaction::new();
+
+    for (key, value) in window.scroll_states.0.iter_mut() {
+        let (x, y) = value.get();
+        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
+    }
+
+    txn.generate_frame();
+
+    let framebuffer_size_physical = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
+    let framebuffer_size = TypedSize2D::new(framebuffer_size_physical.width as u32, framebuffer_size_physical.height as u32);
+
+    window.internal.api.send_transaction(window.internal.document_id, txn);
+    window.renderer.as_mut().unwrap().update();
+    window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
