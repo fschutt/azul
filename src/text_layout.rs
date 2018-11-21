@@ -276,6 +276,7 @@ pub struct FontMetrics {
 ///   it is necessary for drawing the scrollbars later on, to determine the height of the bar. Contains
 ///   info about if the text has overflown the rectangle, and if yes, by how many pixels
 pub(crate) fn get_glyphs(
+    words: &Words,
     app_resources: &mut AppResources,
     bounds: &TypedRect<f32, LayoutPixel>,
     target_font_id: &FontId,
@@ -301,29 +302,6 @@ pub(crate) fn get_glyphs(
     };
 
     let font_metrics = FontMetrics::new(&target_font.0, target_font_size, text_layout_options);
-
-    // (1) Split the text into semantic items (word, tab or newline) OR get the cached
-    // text and scale it accordingly.
-    //
-    // This function also normalizes the unicode characters and calculates kerning.
-    //
-    // NOTE: This should be revisited, the caching does unnecessary cloning.
-    let words_owned;
-    let words = match text {
-        TextInfo::Cached(text_id) => {
-            get_words_cached(text_id,
-                             &target_font.0,
-                             target_font_id,
-                             target_font_size,
-                             font_metrics.font_size_no_line_height,
-                             font_metrics.letter_spacing,
-                             &mut app_resources.text_cache)
-        },
-        TextInfo::Uncached(s) => {
-            words_owned = split_text_into_words(s, &target_font.0, font_metrics.font_size_no_line_height, font_metrics.letter_spacing);
-            &words_owned
-        },
-    };
 
     // Prevent negative width / rect height or a too small rectangle -
     // the rect must be at least wide enough for the longest word
@@ -942,7 +920,7 @@ fn align_text_horz(
 
     // Same for right-aligned text, but without the "divide by 2 step"
 
-    if line_breaks.is_empty() {
+    if line_breaks.is_empty() || glyphs.is_empty() {
         return; // ??? maybe a 0-height rectangle?
     }
 
@@ -996,7 +974,10 @@ fn align_text_vert(
 {
     use self::TextOverflow::*;
     use self::StyleTextAlignmentVert::*;
-    // use css_parser::PT_TO_PX;
+
+    if line_breaks.is_empty() || glyphs.is_empty() {
+        return;
+    }
 
     // Die if we have a line break at a position bigger than the position of the last glyph, because something went horribly wrong!
     // The next unwrap is always safe as line_breaks will have a minimum of one entry!

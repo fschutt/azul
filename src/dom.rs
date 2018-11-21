@@ -269,20 +269,68 @@ impl<T: Layout> PartialEq for NodeType<T> {
 
 impl<T: Layout> Eq for NodeType<T> { }
 
+/// Like the node type, but only signifies the type (i.e. the discriminant value)
+/// of the `NodeType`, without the actual data
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NodeTypePath {
+    Div,
+    P,
+    Img,
+    Texture,
+    IFrame,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NodeTypePathParseError<'a> {
+    Invalid(&'a str),
+}
+
+impl_display!{ NodeTypePathParseError<'a>, {
+    Invalid(e) => format!("Invalid node type: {}", e),
+}}
+
+impl NodeTypePath {
+
+    /// Return the CSS ID, such as `"p"`, for CSS matching
+    pub(crate) fn get_css_id(&self) -> &'static str {
+        use self::NodeTypePath::*;
+        match self {
+            Div => "div",
+            P => "p",
+            Img => "img",
+            Texture => "texture",
+            IFrame => "iframe",
+        }
+    }
+
+    /// Parses the node type from a CSS string such as `"div"` => `NodeTypePath::Div`
+    pub fn from_str(data: &str) -> Result<Self, NodeTypePathParseError> {
+        use self::NodeTypePath::*;
+        match data {
+            "div" => Ok(Div),
+            "p" => Ok(P),
+            "img" => Ok(Img),
+            "texture" => Ok(Texture),
+            "iframe" => Ok(IFrame),
+            other => Err(NodeTypePathParseError::Invalid(other)),
+        }
+    }
+}
+
 impl<T: Layout> NodeType<T> {
 
     pub fn label<S: Into<String>>(value: S) -> Self {
         NodeType::Label(value.into())
     }
 
-    pub(crate) fn get_css_id(&self) -> &'static str {
+    pub(crate) fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
         match self {
-            Div => "div",
-            Label(_) | Text(_) => "p",
-            Image(_) => "image",
-            GlTexture(_) => "texture",
-            IFrame(_) => "iframe",
+            Div => NodeTypePath::Div,
+            Label(_) | Text(_) => NodeTypePath::P,
+            Image(_) => NodeTypePath::Img,
+            GlTexture(_) => NodeTypePath::Texture,
+            IFrame(_) => NodeTypePath::IFrame,
         }
     }
 
@@ -361,25 +409,25 @@ pub enum On {
     MouseLeave,
     /// Mousewheel / touchpad scrolling
     Scroll,
-    /// A key was pressed. Check `window.get_keyboard_state().current_chars` for
-    /// getting the actual key / virtual key / scancode.
+    /// The window received a unicode character (also respects the system locale).
+    /// Check `keyboard_state.current_char` to get the current pressed character.
+    TextInput,
+    /// A **virtual keycode** was pressed. Note: This is only the virtual keycode,
+    /// not the actual char. If you want to get the character, use `TextInput` instead.
+    /// A virtual key does not have to map to a printable character.
     ///
-    /// Warning: key repeat is on. When a key is held down, this event fires
-    /// multiple times, the delay between events depends on the operating system.
-    KeyDown,
-    /// A key was released. Check `window.get_keyboard_state().current_chars` for
-    /// getting the actual key / virtual key / scancode
-    ///
-    /// Warning: key repeat is on. When a key is held down, this event fires
-    /// multiple times, the delay between events depends on the operating system.
-    KeyUp,
+    /// You can get all currently pressed virtual keycodes in the `keyboard_state.current_virtual_keycodes`
+    /// and / or just the last keycode in the `keyboard_state.latest_virtual_keycode`.
+    VirtualKeyDown,
+    /// A **virtual keycode** was release. See `VirtualKeyDown` for more info.
+    VirtualKeyUp,
 }
 
 pub struct NodeData<T: Layout> {
     /// `div`
     pub node_type: NodeType<T>,
-    /// `#main`
-    pub id: Option<String>,
+    /// `#main #something`
+    pub ids: Vec<String>,
     /// `.myclass .otherclass`
     pub classes: Vec<String>,
     /// `onclick` -> `my_button_click_handler`
@@ -414,7 +462,7 @@ pub struct NodeData<T: Layout> {
 impl<T: Layout> PartialEq for NodeData<T> {
     fn eq(&self, other: &Self) -> bool {
         self.node_type == other.node_type &&
-        self.id == other.id &&
+        self.ids == other.ids &&
         self.classes == other.classes &&
         self.events == other.events &&
         self.default_callback_ids == other.default_callback_ids &&
@@ -429,7 +477,7 @@ impl<T: Layout> Default for NodeData<T> {
     fn default() -> Self {
         NodeData {
             node_type: NodeType::Div,
-            id: None,
+            ids: Vec::new(),
             classes: Vec::new(),
             events: CallbackList::default(),
             default_callback_ids: Vec::new(),
@@ -442,7 +490,9 @@ impl<T: Layout> Default for NodeData<T> {
 impl<T: Layout> Hash for NodeData<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
-        self.id.hash(state);
+        for id in &self.ids {
+            id.hash(state);
+        }
         for class in &self.classes {
             class.hash(state);
         }
@@ -461,7 +511,7 @@ impl<T: Layout> Clone for NodeData<T> {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.clone(),
-            id: self.id.clone(),
+            ids: self.ids.clone(),
             classes: self.classes.clone(),
             events: self.events.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
@@ -473,12 +523,22 @@ impl<T: Layout> Clone for NodeData<T> {
 
 impl<T: Layout> fmt::Display for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        const DEFAULT: &str = "";
-        let id = match &self.id {
-            Some(s) => s,
-            None => DEFAULT,
+
+        let html_type = self.node_type.get_path().get_css_id();
+
+        let id_string = if self.ids.is_empty() {
+            String::new()
+        } else {
+            self.ids.iter().map(|x| format!("#{}", x)).collect::<Vec<String>>().join(" ")
         };
-        write!(f, "[{} #{} .{:?}]", self.node_type.get_css_id(), id, self.classes)
+
+        let class_string = if self.classes.is_empty() {
+            String::new()
+        } else {
+            self.ids.iter().map(|x| format!("#{}", x)).collect::<Vec<String>>().join(" ")
+        };
+
+        write!(f, "[{} {} {}]", html_type, id_string, class_string)
     }
 }
 
@@ -487,7 +547,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
         write!(f,
             "NodeData {{ \
                 \tnode_type: {:?}, \
-                \tid: {:?}, \
+                \tids: {:?}, \
                 \tclasses: {:?}, \
                 \tevents: {:?}, \
                 \tdefault_callback_ids: {:?}, \
@@ -495,7 +555,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tdynamic_css_overrides: {:?}, \
             }}",
         self.node_type,
-        self.id,
+        self.ids,
         self.classes,
         self.events,
         self.default_callback_ids,
@@ -761,7 +821,7 @@ impl<T: Layout> Dom<T> {
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_id<S: Into<String>>(mut self, id: S) -> Self {
-        self.set_id(id);
+        self.add_id(id);
         self
     }
 
@@ -800,8 +860,8 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn set_id<S: Into<String>>(&mut self, id: S) {
-        self.arena.borrow_mut()[self.head].data.id = Some(id.into());
+    pub fn add_id<S: Into<String>>(&mut self, id: S) {
+        self.arena.borrow_mut()[self.head].data.ids.push(id.into());
     }
 
     #[inline]
@@ -964,29 +1024,29 @@ fn test_dom_sibling_1() {
 
     assert_eq!(NodeId::new(0), dom.root);
 
-    assert_eq!(Some(String::from("sibling-1")),
+    assert_eq!(vec![String::from("sibling-1")],
         arena[
             arena[dom.root]
             .first_child().expect("root has no first child")
-        ].data.id);
+        ].data.ids);
 
-    assert_eq!(Some(String::from("sibling-2")),
+    assert_eq!(vec![String::from("sibling-2")],
         arena[
             arena[
                 arena[dom.root]
                 .first_child().expect("root has no first child")
             ].next_sibling().expect("root has no second sibling")
-        ].data.id);
+        ].data.ids);
 
-    assert_eq!(Some(String::from("sibling-1-child-1")),
+    assert_eq!(vec![String::from("sibling-1-child-1")],
         arena[
             arena[
                 arena[dom.root]
                 .first_child().expect("root has no first child")
             ].first_child().expect("first child has no first child")
-        ].data.id);
+        ].data.ids);
 
-    assert_eq!(Some(String::from("sibling-2-child-1")),
+    assert_eq!(vec![String::from("sibling-2-child-1")],
         arena[
             arena[
                 arena[
@@ -994,7 +1054,7 @@ fn test_dom_sibling_1() {
                     .first_child().expect("root has no first child")
                 ].next_sibling().expect("first child has no second sibling")
             ].first_child().expect("second sibling has no first child")
-        ].data.id);
+        ].data.ids);
 }
 
 #[test]
@@ -1067,5 +1127,5 @@ fn test_zero_size_dom() {
     assert!(null_dom.arena.borrow().nodes_len() == 1);
 
     null_dom.add_class("hello"); // should not panic
-    null_dom.set_id("id-hello"); // should not panic
+    null_dom.add_id("id-hello"); // should not panic
 }

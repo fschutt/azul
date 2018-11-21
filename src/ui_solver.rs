@@ -704,7 +704,7 @@ pub(crate) fn solve_flex_layout_height(
 /// the first element.
 ///
 /// Runtime: O(n) max
-fn get_non_leaf_nodes_sorted_by_depth<T>(arena: &Arena<T>) -> Vec<(usize, NodeId)> {
+pub(crate) fn get_non_leaf_nodes_sorted_by_depth<T>(arena: &Arena<T>) -> Vec<(usize, NodeId)> {
 
     let mut non_leaf_nodes = Vec::new();
     let mut current_children = vec![(0, NodeId::new(0))];
