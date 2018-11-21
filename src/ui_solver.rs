@@ -569,7 +569,15 @@ impl Arena<$struct_name> {
         // Usually `top_level_flex_basis` is NOT 0.0, rather it's the sum of all widths in the DOM,
         // i.e. the sum of the whole DOM tree
         let top_level_flex_basis = self[NodeId::new(0)].data.min_inner_size_px;
-        self[NodeId::new(0)].data.flex_grow_px = root_width - top_level_flex_basis;
+
+        // The root node can still have some sort of max-width attached, so we need to check for that
+        let root_preferred_width = if let Some(max_width) = self[NodeId::new(0)].data.$preferred_field.max_available_space() {
+            if root_width > max_width { max_width } else { root_width }
+        } else {
+            root_width
+        };
+
+        self[NodeId::new(0)].data.flex_grow_px = root_preferred_width - top_level_flex_basis;
 
         // Keep track of the nearest relative or absolute positioned element
         let mut positioned_node_stack = vec![NodeId::new(0)];
