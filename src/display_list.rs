@@ -433,13 +433,13 @@ fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usi
 {
     let mut nodes = BTreeMap::new();
     for (_, parent) in parents {
-        let mut inner_rect = TypedRect::zero();
+        let parent_rect = &arena.get(&parent).unwrap().data;
+        let mut children_sum_rect = TypedRect::zero();
         for child in parent.children(&arena) {
-            inner_rect = inner_rect.union(&arena.get(&child).unwrap().data);
+            children_sum_rect = children_sum_rect.union(&arena.get(&child).unwrap().data);
         }
-        let outer_rect = &arena.get(&parent).unwrap().data;
-        if !inner_rect.contains_rect(outer_rect) {
-            nodes.insert(parent.clone(), (outer_rect.clone(), inner_rect));
+        if !children_sum_rect.contains_rect(parent_rect) {
+            nodes.insert(parent.clone(), (parent_rect.clone(), children_sum_rect));
         }
     }
 
@@ -471,7 +471,10 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 html_node: &arena[rect_idx].data.node_type,
             };
 
-            if let Some(&(outer_rect, inner_rect)) = scrollable_nodes.get(&rect_idx) {
+            displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
+
+            if let Some(&(parent_rect, children_rect)) = scrollable_nodes.get(&rect_idx) {
+
                 // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
                 stack.push(rect_idx.children(&arena).last().unwrap());
                 let hash = arena.get(&rect_idx).unwrap().data.calculate_node_data_hash();
@@ -487,15 +490,15 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
                 scroll_states.ensure_initialized_scroll_state(
                     external_id,
-                    inner_rect.size.width - outer_rect.size.width,
-                    inner_rect.size.height - outer_rect.size.height
+                    children_rect.size.width - parent_rect.size.width,
+                    children_rect.size.height - parent_rect.size.height
                 );
 
                 // Set the scrolling clip
                 let clip_id = referenced_mutable_content.builder.define_scroll_frame(
                     Some(external_id),
-                    inner_rect,
-                    outer_rect,
+                    children_rect,
+                    parent_rect,
                     vec![],
                     None,
                     ScrollSensitivity::ScriptAndInputEvents,
@@ -503,8 +506,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
 
                 referenced_mutable_content.builder.push_clip_id(clip_id);
             }
-
-            displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
 
             if let Some(&child_idx) = stack.last() {
                 if child_idx == rect_idx {
