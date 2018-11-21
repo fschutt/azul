@@ -17,7 +17,6 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
-    window_state::WindowSize,
     id_tree::{Arena, NodeId},
     css::Css,
     css_parser::*,
@@ -242,8 +241,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles, &node_depths);
 
-        // println!("{:?}", rects_in_rendering_order);
-
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
             window.internal.epoch,
@@ -431,7 +428,9 @@ fn do_the_layout<'a, 'b, T: Layout>(
     (layouted_arena, solved_widths.non_leaf_nodes_sorted_by_depth, WordCache(word_cache))
 }
 
-fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usize, NodeId)>) -> BTreeMap<NodeId, (TypedRect<f32, LayoutPixel>, TypedRect<f32, LayoutPixel>)> {
+fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usize, NodeId)>)
+-> BTreeMap<NodeId, (TypedRect<f32, LayoutPixel>, TypedRect<f32, LayoutPixel>)>
+{
     let mut nodes = BTreeMap::new();
     for (_, parent) in parents {
         let mut inner_rect = TypedRect::zero();
@@ -440,11 +439,10 @@ fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usi
         }
         let outer_rect = &arena.get(&parent).unwrap().data;
         if !inner_rect.contains_rect(outer_rect) {
-            // let x = inner_rect.max_x() - outer_rect.max_x();
-            // let y = inner_rect.max_y() - outer_rect.max_y();
             nodes.insert(parent.clone(), (outer_rect.clone(), inner_rect));
         }
     }
+
     nodes
 }
 
@@ -467,30 +465,33 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
 
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
         for rect_idx in rects {
-            // println!("{:?}", arena[rect_idx].data);
             let rectangle = DisplayListRectParams {
                 epoch,
                 rect_idx,
                 html_node: &arena[rect_idx].data.node_type,
             };
 
-            // println!("Push {:?}", rect_idx);
             if let Some(&(outer_rect, inner_rect)) = scrollable_nodes.get(&rect_idx) {
                 // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
                 stack.push(rect_idx.children(&arena).last().unwrap());
                 let hash = arena.get(&rect_idx).unwrap().data.calculate_node_data_hash();
+
                 // Create an external scroll id. This id is required to preserve scroll state accross multiple frames.
                 let external_id  = ExternalScrollId(hash.0, referenced_mutable_content.pipeline_id);
+
                 // Create a new scroll state for each node that is not present in the scroll states already.
-                // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we can use the NodeIds from the layouted rectangles
-                // to access the NodeData corresponding to each Rectangle in the NodeData arena.
+                // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we
+                // can use the NodeIds from the layouted rectangles to access the NodeData corresponding
+                // to each Rectangle in the NodeData arena.
+                //
                 // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
                 scroll_states.ensure_initialized_scroll_state(
                     external_id,
                     inner_rect.size.width - outer_rect.size.width,
                     inner_rect.size.height - outer_rect.size.height
                 );
-                // set the scrolling clip
+
+                // Set the scrolling clip
                 let clip_id = referenced_mutable_content.builder.define_scroll_frame(
                     Some(external_id),
                     inner_rect,
@@ -499,17 +500,16 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                     None,
                     ScrollSensitivity::ScriptAndInputEvents,
                 );
+
                 referenced_mutable_content.builder.push_clip_id(clip_id);
-                // println!("Push clip")
             }
 
             displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
-            
+
             if let Some(&child_idx) = stack.last() {
                 if child_idx == rect_idx {
                     stack.pop();
                     referenced_mutable_content.builder.pop_clip_id();
-                    // println!("Pop clip");
                 }
             }
         }

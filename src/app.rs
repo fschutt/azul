@@ -893,6 +893,7 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
     let mut txn = Transaction::new();
 
     for (key, value) in window.scroll_states.0.iter_mut() {
+        println!("scrolling node {:?}", key);
         let (x, y) = value.get();
         txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
     }
