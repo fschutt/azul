@@ -12,13 +12,16 @@ impl Layout for List {
         let child_nodes = self.items.iter().enumerate().map(|(idx, item)| {
             NodeData {
                 node_type: NodeType::Label(item.to_string()),
-                classes: if self.selected == Some(idx) { vec!["selected".into()] } else { vec!["item".into()] },
+                classes: vec!["item".into()],
+                ids: if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] },
                 force_enable_hit_test: vec![On::MouseDown],
                 .. Default::default()
             }
         }).collect::<Dom<Self>>()
         .with_callback(On::MouseDown, Callback(print_which_item_was_selected));
+
         Dom::new(NodeType::Div).with_id("container").with_child(child_nodes)
+
     }
 }
 
