@@ -72,7 +72,7 @@ macro_rules! impl_pixel_value {($struct:ident) => (
 )}
 
 /// A successfully parsed CSS property
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ParsedCssProperty {
     BorderRadius(StyleBorderRadius),
     BackgroundColor(StyleBackgroundColor),
@@ -1182,7 +1182,7 @@ fn parse_color_no_hash<'a>(input: &'a str)
 }
 
 /// Represents a parsed CSS `padding` attribute
-#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct LayoutPadding {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,
@@ -1306,7 +1306,7 @@ fn parse_layout_padding<'a>(input: &'a str)
 }
 
 /// Represents a parsed CSS `padding` attribute
-#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct LayoutMargin {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,
@@ -1348,7 +1348,7 @@ fn parse_layout_margin<'a>(input: &'a str)
 }
 
 /// Wrapper for the `overflow-{x,y}` + `overflow` property
-#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct LayoutOverflow {
     pub horizontal: TextOverflowBehaviour,
     pub vertical: TextOverflowBehaviour,
@@ -1392,7 +1392,7 @@ impl LayoutOverflow {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBorder {
     pub top: Option<StyleBorderSide>,
     pub left: Option<StyleBorderSide>,
@@ -1432,6 +1432,11 @@ impl StyleBorder {
                 let border_style_left = left.and_then(|left| Some(left.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
                 let border_style_right = right.and_then(|right| Some(right.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
 
+                // Webrender crashes if AA is disabled and the border isn't pure-solid
+                let is_not_solid = [border_style_top, border_style_bottom, border_style_left, border_style_right].iter().any(|style| {
+                    *style != BorderStyle::Solid
+                });
+
                 let border_widths = LayoutSideOffsets::new(border_width_top, border_width_right, border_width_bottom, border_width_left);
                 let border_details = BorderDetails::Normal(NormalBorder {
                     top: BorderSide { color:  border_color_top.into(), style: border_style_top },
@@ -1439,7 +1444,7 @@ impl StyleBorder {
                     right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
                     bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
                     radius: border_radius.and_then(|b| Some(b.into())).unwrap_or(BorderRadius::zero()),
-                    do_aa: border_radius.is_some(),
+                    do_aa: border_radius.is_some() || is_not_solid,
                 });
 
                 Some((border_widths, border_details))
@@ -1451,7 +1456,7 @@ impl StyleBorder {
 const DEFAULT_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
 const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBorderSide {
     pub border_width: PixelValue,
     pub border_style: BorderStyle,
@@ -1513,7 +1518,7 @@ multi_type_parser!(parse_border_style, BorderStyle,
     ["inset", Inset],
     ["outset", Outset]);
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBoxShadow {
     pub top: Option<Option<BoxShadowPreDisplayItem>>,
     pub left: Option<Option<BoxShadowPreDisplayItem>>,
@@ -1526,7 +1531,7 @@ parse_tblr!(StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
 struct_all!(StyleBoxShadow, Option<BoxShadowPreDisplayItem>);
 
 // missing StyleBorderRadius & LayoutRect
-#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct BoxShadowPreDisplayItem {
     pub offset: [PixelValue;2],
     pub color: ColorU,
@@ -1677,7 +1682,7 @@ impl_from!(CssGradientStopParseError<'a>, CssBackgroundParseError::GradientParse
 impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StyleBackground {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
@@ -1691,21 +1696,21 @@ impl<'a> From<CssImageId> for StyleBackground {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LinearGradientPreInfo {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RadialGradientPreInfo {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Direction {
     Angle(FloatValue),
     FromTo(DirectionCorner, DirectionCorner),
@@ -2100,7 +2105,7 @@ impl_display!{ CssGradientStopParseError<'a>, {
     ColorParseError(e) => format!("{}", e),
 }}
 
-#[derive(Debug, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GradientStopPre {
     pub offset: Option<PercentageValue>, // this is set to None if there was no offset that could be parsed
     pub color: ColorU,
@@ -2656,7 +2661,7 @@ impl StyleFontSize {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Hash)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct StyleFontFamily {
     // parsed fonts, in order, i.e. "Webly Sleeky UI", "monospace", etc.
     pub(crate) fonts: Vec<FontId>
@@ -2802,6 +2807,18 @@ impl CssColor {
         let prefix = if prefix_hash { "#" } else { "" };
         let alpha = if self.internal.a == 255 { String::new() } else { format!("{:02x}", self.internal.a) };
         format!("{}{:02x}{:02x}{:02x}{}", prefix, self.internal.r, self.internal.g, self.internal.b, alpha)
+    }
+}
+
+impl From<ColorU> for CssColor {
+    fn from(color: ColorU) -> Self {
+        CssColor { internal: color }
+    }
+}
+
+impl From<ColorF> for CssColor {
+    fn from(color: ColorF) -> Self {
+        CssColor { internal: color.into() }
     }
 }
 

@@ -4,15 +4,16 @@
 use std::io::Error as IoError;
 use std::{
     collections::BTreeMap,
+    num::ParseIntError,
 };
 use {
     css_parser::{ParsedCssProperty, CssParsingError},
     error::CssSyntaxError,
-    id_tree::{NodeId, Arena},
     traits::Layout,
-    ui_description::{UiDescription, StyledNode, CssConstraintList},
-    dom::NodeData,
+    ui_description::{UiDescription, StyledNode},
+    dom::{NodeTypePath, NodeData, NodeTypePathParseError},
     ui_state::UiState,
+    id_tree::NodeId,
 };
 
 /// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
@@ -25,16 +26,9 @@ pub const NATIVE_CSS: &str = include_str!("styles/native_linux.css");
 #[cfg(target_os="macos")]
 pub const NATIVE_CSS: &str = include_str!("styles/native_macos.css");
 
-/// All the keys that, when changed, can trigger a re-layout
-const RELAYOUT_RULES: [&str; 13] = [
-    "border", "width", "height", "min-width", "min-height", "max-width", "max-height",
-    "direction", "wrap", "justify-content", "align-items", "align-content",
-    "order"
-];
-
 /// Wrapper for a `Vec<CssRule>` - the CSS is immutable at runtime, it can only be
 /// created once. Animations / conditional styling is implemented using dynamic fields
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Css {
     /// Path to hot-reload the CSS file from
     #[cfg(debug_assertions)]
@@ -43,8 +37,8 @@ pub struct Css {
     /// (equivalent to `NATIVE_CSS + include_str!(hot_reload_path)`)? Default: false
     #[cfg(debug_assertions)]
     pub hot_reload_override_native: bool,
-    /// The CSS rules making up the document
-    pub rules: Vec<CssRule>,
+    /// The CSS rules making up the document - i.e the rules of the CSS sheet de-duplicated
+    pub rules: Vec<CssRuleBlock>,
     /// Has the CSS changed in a way where it needs a re-layout? - default:
     /// `true` in order to force a re-layout on the first frame
     ///
@@ -69,6 +63,10 @@ pub enum CssParseError<'a> {
     /// (Css is parsed eagerly, directly converted to strongly typed values
     /// as soon as possible)
     UnexpectedValue(CssParsingError<'a>),
+    /// Error while parsing a pseudo selector (like `:aldkfja`)
+    PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
+    /// The path has to be either `*`, `div`, `p` or something like that
+    NodeTypePath(NodeTypePathParseError<'a>),
 }
 
 impl_display!{ CssParseError<'a>, {
@@ -77,39 +75,17 @@ impl_display!{ CssParseError<'a>, {
     MalformedCss => "Malformed Css",
     DynamicCssParseError(e) => format!("Dynamic parsing error: {}", e),
     UnexpectedValue(e) => format!("Unexpected value: {}", e),
+    PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
+    NodeTypePath(e) => format!("Failed to parse CSS selector path: {}", e),
 }}
 
-impl<'a> From<CssParsingError<'a>> for CssParseError<'a> {
-    fn from(e: CssParsingError<'a>) -> Self {
-        CssParseError::UnexpectedValue(e)
-    }
-}
-
-impl<'a> From<DynamicCssParseError<'a>> for CssParseError<'a> {
-    fn from(e: DynamicCssParseError<'a>) -> Self {
-        CssParseError::DynamicCssParseError(e)
-    }
-}
-
-/// Rule that applies to some "path" in the CSS, i.e.
-/// `div#myid.myclass -> ("justify-content", "center")`
-///
-/// The CSS rule is currently not cascaded, use `Css::new_from_str()`
-/// to do the cascading.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CssRule {
-    /// `div` (`*` by default)
-    pub html_type: String,
-    /// `#myid` (`None` by default)
-    pub id: Option<String>,
-    /// `.myclass .myotherclass` (vec![] by default)
-    pub classes: Vec<String>,
-    /// `("justify-content", "center")`
-    pub declaration: (String, CssDeclaration),
-}
+impl_from! { CssParsingError<'a>, CssParseError::UnexpectedValue }
+impl_from! { DynamicCssParseError<'a>, CssParseError::DynamicCssParseError }
+impl_from! { CssPseudoSelectorParseError<'a>, CssParseError::PseudoSelectorParseError }
+impl_from! { NodeTypePathParseError<'a>, CssParseError::NodeTypePath }
 
 /// Contains one parsed `key: value` pair, static or dynamic
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
     Static(ParsedCssProperty),
@@ -149,7 +125,7 @@ impl CssDeclaration {
 /// Dynamic CSS properties can also be used for animations and conditional CSS
 /// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
 /// special cases now use one single API.
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DynamicCssProperty {
     /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
     pub dynamic_id: String,
@@ -168,7 +144,7 @@ pub struct DynamicCssProperty {
 /// that, meaning that if you don't override the property, then you'd set it to 0px - which is
 /// different from `auto`, since `auto` has its width determined by how much space there is
 /// available in the parent.
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DynamicCssPropertyDefault  {
     Exact(ParsedCssProperty),
     Auto,
@@ -180,14 +156,6 @@ impl DynamicCssProperty {
         // since that could lead to bugs - you set a property in Rust, suddenly
         // the wrong UI component starts to react because it was inherited.
         false
-    }
-}
-
-impl CssRule {
-    pub fn needs_relayout(&self) -> bool {
-        // RELAYOUT_RULES.iter().any(|r| self.declaration.0 == *r)
-        // TODO
-        true
     }
 }
 
@@ -204,109 +172,303 @@ impl_display! { HotReloadError, {
     FailedToReload => "Failed to hot-reload CSS file",
 }}
 
-impl Css {
+/// One block of rules that applies a bunch of rules to a "path" in the CSS, i.e.
+/// `div#myid.myclass -> { ("justify-content", "center") }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct CssRuleBlock {
+    /// The path (full selector) of the CSS block
+    pub path: CssPath,
+    /// `"justify-content: center"` =>
+    /// `CssDeclaration::Static(ParsedCssProperty::JustifyContent(LayoutJustifyContent::Center))`
+    pub declarations: Vec<CssDeclaration>,
+}
 
-    /// Creates an empty set of CSS rules
-    pub fn empty() -> Self {
-        Self {
-            #[cfg(debug_assertions)]
-            hot_reload_path: None,
-            #[cfg(debug_assertions)]
-            hot_reload_override_native: false,
-            rules: Vec::new(),
-            needs_relayout: false,
+/// Represents a full CSS path:
+/// `#div > .my_class:focus` =>
+/// `[CssPathSelector::Type(NodeTypePath::Div), LimitChildren, CssPathSelector::Class("my_class"), CssPathSelector::PseudoSelector]`
+#[derive(Debug, Clone, Hash, Default, PartialEq)]
+pub struct CssPath {
+    pub selectors: Vec<CssPathSelector>,
+}
+
+/// Has all the necessary information about the CSS path
+pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
+    node_data: &'a NodeData<T>,
+    index_in_parent: usize,
+    is_mouse_over: bool,
+    is_mouse_pressed: bool,
+    // parent node item count, is_hovered, is_focused, is_active
+}
+
+impl CssPath {
+
+    /// Returns if the CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
+    pub fn matches_html_element<'a, T: Layout>(&self, html_node: &HtmlCascadeInfo<'a, T>) -> bool {
+        use self::CssPathSelector::*;
+
+        let html_node_type = html_node.node_data.node_type.get_path();
+        let html_classes = &html_node.node_data.classes;
+        let html_ids = &html_node.node_data.ids;
+        let index_in_parent = html_node.index_in_parent;
+
+        // TODO: Later on, we'll need the full path of all selectors of all parents of this node,
+        // but for now just match the current selector
+
+        for selector in &self.selectors {
+            match selector {
+                Global => { },
+                Type(t) => {
+                    if html_node_type != *t {
+                        return false;
+                    }
+                },
+                Class(c) => {
+                    if !html_classes.contains(c) {
+                        return false;
+                    }
+                },
+                Id(id) => {
+                    if !html_ids.contains(id) {
+                      return false;
+                    }
+                },
+                PseudoSelector(CssPathPseudoSelector::First) => {
+                    // Notice: index_in_parent is 1-indexed
+                    if index_in_parent != 1 { return false; }
+                },
+                PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
+                    if index_in_parent != *x { return false; }
+                },
+                LimitChildren | PseudoSelector(_) => {
+                    // TODO: for now
+                    return false;
+                },
+            }
+        }
+
+        true
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CssPathSelector {
+    /// Represents the `*` selector
+    Global,
+    /// `div`, `p`, etc.
+    Type(NodeTypePath),
+    /// `.something`
+    Class(String),
+    /// `#something`
+    Id(String),
+    /// `:something`
+    PseudoSelector(CssPathPseudoSelector),
+    /// Represents the `>` selector
+    LimitChildren,
+}
+
+impl Default for CssPathSelector { fn default() -> Self { CssPathSelector::Global } }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum CssPathPseudoSelector {
+    /// `:first`
+    First,
+    /// `:last`
+    Last,
+    /// `:nth-child`
+    NthChild(usize),
+    /// `:hover` - mouse is over element
+    Hover,
+    /// `:active` - mouse is pressed and over element
+    Active,
+    /// `:focus` - element has received focus
+    Focus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CssPseudoSelectorParseError<'a> {
+    UnknownSelector(&'a str),
+    InvalidNthChild(ParseIntError),
+    UnclosedBracesNthChild(&'a str),
+}
+
+impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
+    fn from(e: ParseIntError) -> Self { CssPseudoSelectorParseError::InvalidNthChild(e) }
+}
+
+impl_display! { CssPseudoSelectorParseError<'a>, {
+    UnknownSelector(e) => format!("Invalid CSS pseudo-selector: ':{}'", e),
+    InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
+    UnclosedBracesNthChild(e) => format!(":nth-child has unclosed braces: ':{}'", e),
+}}
+
+impl CssPathPseudoSelector {
+    pub fn from_str<'a>(data: &'a str) -> Result<Self, CssPseudoSelectorParseError<'a>> {
+        match data {
+            "first" => Ok(CssPathPseudoSelector::First),
+            "last" => Ok(CssPathPseudoSelector::Last),
+            "hover" => Ok(CssPathPseudoSelector::Hover),
+            "active" => Ok(CssPathPseudoSelector::Active),
+            "focus" => Ok(CssPathPseudoSelector::Focus),
+            other => {
+                // TODO: move this into a seperate function
+                if other.starts_with("nth-child") {
+                    let mut nth_child = other.split("nth-child");
+                    nth_child.next();
+                    let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(other))?;
+                    nth_child_string.trim();
+                    if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
+                        return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(other));
+                    }
+
+                    // Should the string be empty, then the `starts_with` and `ends_with` won't succeed
+                    let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
+                    nth_child_string.trim();
+                    let parsed = nth_child_string.parse::<usize>()?;
+                    Ok(CssPathPseudoSelector::NthChild(parsed))
+                } else {
+                    Err(CssPseudoSelectorParseError::UnknownSelector(other))
+                }
+            },
         }
     }
+}
 
-    /// Parses a CSS string (single-threaded) and returns the parsed rules
+#[test]
+fn test_css_pseudo_selector_parse() {
+    let ok_res = [
+        ("first", CssPathPseudoSelector::First),
+        ("last", CssPathPseudoSelector::Last),
+        ("nth-child(4)", CssPathPseudoSelector::NthChild(4)),
+        ("hover", CssPathPseudoSelector::Hover),
+        ("active", CssPathPseudoSelector::Active),
+        ("focus", CssPathPseudoSelector::Focus),
+    ];
+
+    let err = [
+        ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf")),
+        ("", CssPseudoSelectorParseError::UnknownSelector("")),
+        ("nth-child(", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child(")),
+        ("nth-child)", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child)")),
+        // Can't test for ParseIntError because the fields are private.
+        // This is an example on why you shouldn't use std::error::Error!
+    ];
+
+    for (s, a) in &ok_res {
+        assert_eq!(CssPathPseudoSelector::from_str(s), Ok(*a));
+    }
+
+    for (s, e) in &err {
+        assert_eq!(CssPathPseudoSelector::from_str(s), Err(e.clone()));
+    }
+}
+
+impl Css {
+
+    /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
     pub fn new_from_str<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
-        use simplecss::{Tokenizer, Token};
-        use std::collections::HashSet;
+        use simplecss::{Tokenizer, Token, Combinator};
 
         let mut tokenizer = Tokenizer::new(css_string);
 
-        let mut block_nesting = 0_usize;
-        let mut css_rules = Vec::<CssRule>::new();
+        let mut css_blocks = Vec::new();
 
-        // TODO: For now, rules may not be nested, otherwise, this won't work
-        // TODO: This could be more efficient. We don't even need to clone the
-        // strings, but this is just a quick-n-dirty CSS parser
-        // This will also use up a lot of memory, since the strings get duplicated
-
+        // Used for error checking / checking for closed braces
         let mut parser_in_block = false;
-        let mut current_type = "*";
-        let mut current_id = None;
-        let mut current_classes = HashSet::<&str>::new();
-        let mut current_pseudo_selector = None;
+        let mut block_nesting = 0_usize;
+
+        // Current css paths (i.e. `div#id, .class, p` are stored here -
+        // when the block is finished, all `current_rules` gets duplicated with
+        // one path corresponding to one set of rules each).
+        let mut current_paths = Vec::new();
+        // Current CSS declarations
+        let mut current_rules = Vec::new();
+        // Keep track of the current path during parsing
+        let mut last_path = Vec::new();
 
         loop {
             let tokenize_result = tokenizer.parse_next();
             match tokenize_result {
                 Ok(token) => {
                     match token {
-                        Token::EndOfStream => {
-                            break;
-                        },
                         Token::BlockStart => {
+                            if parser_in_block {
+                                // multi-nested CSS blocks are currently not supported
+                                return Err(CssParseError::MalformedCss);
+                            }
                             parser_in_block = true;
                             block_nesting += 1;
+                            current_paths.push(last_path.clone());
+                            last_path.clear();
+                        },
+                        Token::Comma => {
+                            current_paths.push(last_path.clone());
+                            last_path.clear();
                         },
                         Token::BlockEnd => {
                             block_nesting -= 1;
+                            if !parser_in_block {
+                                return Err(CssParseError::MalformedCss);
+                            }
                             parser_in_block = false;
-                            current_type = "*";
-                            current_id = None;
-                            current_classes = HashSet::<&str>::new();
-                            current_pseudo_selector = None;
+                            for path in current_paths.drain(..) {
+                                css_blocks.push(CssRuleBlock {
+                                    path: CssPath { selectors: path },
+                                    declarations: current_rules.clone(),
+                                })
+                            }
+                            current_rules.clear();
+                            last_path.clear(); // technically unnecessary, but just to be sure
+                        },
+
+                        // tokens that adjust the last_path
+                        Token::UniversalSelector => {
+                            if parser_in_block {
+                                return Err(CssParseError::MalformedCss);
+                            }
+                            last_path.push(CssPathSelector::Global);
                         },
                         Token::TypeSelector(div_type) => {
                             if parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
-                            current_type = div_type;
+                            last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
                         },
                         Token::IdSelector(id) => {
                             if parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
-                            current_id = Some(id.to_string());
-                        }
+                            last_path.push(CssPathSelector::Id(id.to_string()));
+                        },
                         Token::ClassSelector(class) => {
                             if parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
-                            current_classes.insert(class);
-                        }
-                        Token::Declaration(key, val) => {
-                            if !parser_in_block {
+                            last_path.push(CssPathSelector::Class(class.to_string()));
+                        },
+                        Token::Combinator(Combinator::GreaterThan) => {
+                            if parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
-                            // ignore any :hover, :focus, etc. for now
-                            if current_pseudo_selector.is_some() {
-                                continue;
-                            }
-
-                            // see if the Declaration is static or dynamic
-                            //
-                            // css_val = "center" | "{{ my_dynamic_id | center }}"
-                            let css_decl = determine_static_or_dynamic_css_property(key, val)?;
-                            let mut css_rule = CssRule {
-                                html_type: current_type.to_string(),
-                                id: current_id.clone(),
-                                classes: current_classes.iter().map(|e| e.to_string()).collect::<Vec<String>>(),
-                                declaration: (key.to_string(), css_decl),
-                            };
-                            // IMPORTANT!
-                            css_rule.classes.sort();
-                            css_rules.push(css_rule);
+                            last_path.push(CssPathSelector::LimitChildren);
                         },
                         Token::PseudoClass(pseudo_class) => {
                             if parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
-                            current_pseudo_selector = Some(pseudo_class);
+                            last_path.push(CssPathSelector::PseudoSelector(CssPathPseudoSelector::from_str(pseudo_class)?));
                         },
-                        _ => { }
+                        Token::Declaration(key, val) => {
+                            if !parser_in_block {
+                                return Err(CssParseError::MalformedCss);
+                            }
+                            current_rules.push(determine_static_or_dynamic_css_property(key, val)?);
+                        },
+                        Token::EndOfStream => {
+                            break;
+                        },
+                        _ => {
+                            // attributes, lang-attributes and @keyframes are not supported
+                        }
                     }
                 },
                 Err(e) => {
@@ -320,15 +482,24 @@ impl Css {
             return Err(CssParseError::UnclosedBlock);
         }
 
-        Ok(Self {
+        let mut css = Self {
             #[cfg(debug_assertions)]
             hot_reload_path: None,
             #[cfg(debug_assertions)]
             hot_reload_override_native: false,
-            rules: css_rules,
+            rules: css_blocks,
             // force re-layout for the first frame
             needs_relayout: true,
-        })
+        };
+
+        css.sort_by_specificity();
+
+        Ok(css)
+    }
+
+    /// Sort the CSS rules by their weight, so that the rules are applied in the correct order
+    pub fn sort_by_specificity(&mut self) {
+        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
     }
 
     /// Returns the native style for the OS
@@ -418,7 +589,7 @@ impl Css {
             reloaded_css
         };
 
-        let mut parsed_css = match Self::new_from_str(&target_css) {
+        let mut css = match Self::new_from_str(&target_css) {
             Ok(o) => o,
             Err(e) => {
                 #[cfg(feature = "logging")] {
@@ -428,11 +599,19 @@ impl Css {
             },
         };
 
-        parsed_css.hot_reload_path = self.hot_reload_path.clone();
-        parsed_css.hot_reload_override_native = self.hot_reload_override_native;
+        css.hot_reload_path = self.hot_reload_path.clone();
+        css.hot_reload_override_native = self.hot_reload_override_native;
 
-        *self = parsed_css;
+        *self = css;
     }
+}
+
+fn get_specificity(path: &CssPath) -> (usize, usize, usize) {
+    // http://www.w3.org/TR/selectors/#specificity
+    let id_count = path.selectors.iter().filter(|x|     if let CssPathSelector::Id(_) = x {     true } else { false }).count();
+    let class_count = path.selectors.iter().filter(|x|  if let CssPathSelector::Class(_) = x {  true } else { false }).count();
+    let div_count = path.selectors.iter().filter(|x|    if let CssPathSelector::Type(_) = x {   true } else { false }).count();
+    (id_count, class_count, div_count)
 }
 
 /// Error that can happen during `ParsedCssProperty::from_kv`
@@ -549,109 +728,78 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
     })
 }
 
-/// CSS rules, sorted and grouped by priority
-#[derive(Debug, Default, Clone)]
-pub struct ParsedCss {
-    pub(crate) pure_global_rules: Vec<CssRule>,
-    pub(crate) pure_div_rules: Vec<CssRule>,
-    pub(crate) pure_class_rules: Vec<CssRule>,
-    pub(crate) pure_id_rules: Vec<CssRule>,
-}
-
-impl ParsedCss {
-    /// Takes a `Css` struct and groups the types by their priority.
-    pub fn from_css(css: &Css) -> Self {
-
-        // Parse the CSS nodes cascading by their importance
-        // 1. global rules
-        // 2. div-type ("html { }") specific rules
-        // 3. class-based rules
-        // 4. ID-based rules
-
-        /*
-            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("direction", "row") }
-            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("justify-content", "center") }
-            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("align-items", "center") }
-            CssRule { html_type: "div", id: Some("main"), classes: [], declaration: ("align-content", "center") }
-        */
-
-        // note: the following passes can be done in parallel ...
-
-        // Global rules
-        // * {
-        //    background-color: blue;
-        // }
-        let pure_global_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
-            rule.html_type == "*" && rule.id.is_none() && rule.classes.is_empty()
-        ).collect();
-
-        // Pure-div-type specific rules
-        // button {
-        //    justify-content: center;
-        // }
-        let pure_div_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
-            rule.html_type != "*" && rule.id.is_none() && rule.classes.is_empty()
-        ).collect();
-
-        // Pure-class rules
-        // NOTE: These classes are sorted alphabetically and are not duplicated
-        //
-        // .something .otherclass {
-        //    text-color: red;
-        // }
-        let pure_class_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
-            rule.id.is_none() && !rule.classes.is_empty()
-        ).collect();
-
-        // Pure-id rules
-        // #something {
-        //    background-color: red;
-        // }
-        let pure_id_rules: Vec<CssRule> = css.rules.iter().cloned().filter(|rule|
-            rule.id.is_some() && rule.classes.is_empty()
-        ).collect();
-
-        Self {
-            pure_global_rules: pure_global_rules,
-            pure_div_rules: pure_div_rules,
-            pure_class_rules: pure_class_rules,
-            pure_id_rules: pure_id_rules,
-        }
-    }
-}
-
-/// Represents the z-index as defined by the stacking order
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct ZIndex(pub u32);
-
-impl Default for ZIndex { fn default() -> Self { ZIndex(0) }}
-
 pub(crate) fn match_dom_css_selectors<T: Layout>(
     ui_state: &UiState<T>,
-    parsed_css: &ParsedCss,
-    parent_z_level: ZIndex)
+    css: &Css)
 -> UiDescription<T>
 {
+    use ui_solver::get_non_leaf_nodes_sorted_by_depth;
+
     let root = ui_state.dom.root;
     let arena_borrow = &*ui_state.dom.arena.borrow();
+    let non_leaf_nodes = get_non_leaf_nodes_sorted_by_depth(&arena_borrow);
 
-    let mut root_constraints = CssConstraintList::default();
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
-    for global_rule in &parsed_css.pure_global_rules {
-        root_constraints.push_rule(global_rule);
-    }
+    for (_depth, parent_id) in non_leaf_nodes {
 
-    let sibling_iterator = root.following_siblings(arena_borrow);
-    // skip the root node itself, see documentation for `following_siblings` in id_tree.rs
-    // sibling_iterator.next().unwrap();
+        // Note: starts at 1 instead of 0
+        let index_in_parent = parent_id.preceding_siblings(arena_borrow).count();
 
-    for sibling in sibling_iterator {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(sibling, arena_borrow, parsed_css, &root_constraints, parent_z_level));
+        let parent_html_matcher = HtmlCascadeInfo {
+            node_data: &arena_borrow[parent_id].data,
+            index_in_parent: index_in_parent, // necessary for nth-child
+            is_mouse_over: false, // TODO
+            is_mouse_pressed: false, // TODO
+        };
+
+        let mut parent_rules = styled_nodes.get(&parent_id).cloned().unwrap_or_default();
+
+        // Iterate through all rules in the CSS style sheet, test if the
+        // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
+        // so the cost of this should be insignificant.
+        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&parent_html_matcher)) {
+            parent_rules.css_constraints.list.extend(applying_rule.declarations.clone());
+        }
+
+        let inheritable_rules: Vec<CssDeclaration> = parent_rules.css_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
+
+        // For children: inherit from parents - filter children that themselves are not parents!
+        for (child_idx, child_id) in parent_id.children(arena_borrow).enumerate() {
+            let child_node = &arena_borrow[child_id];
+            match child_node.first_child() {
+                None => {
+                    // Style children that themselves aren't parents
+                    let mut child_rules = inheritable_rules.clone();
+
+                    let child_html_matcher = HtmlCascadeInfo {
+                        node_data: &child_node.data,
+                        index_in_parent: child_idx + 1, // necessary for nth-child
+                        is_mouse_over: false, // TODO
+                        is_mouse_pressed: false, // TODO
+                    };
+
+                    // Iterate through all rules in the CSS style sheet, test if the
+                    // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
+                    // so the cost of this should be insignificant.
+                    for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&child_html_matcher)) {
+                        child_rules.extend(applying_rule.declarations.clone());
+                    }
+
+                    styled_nodes.insert(child_id, StyledNode { css_constraints:  CssConstraintList { list: child_rules }});
+                },
+                Some(_) => {
+                    // For all children that themselves are parents, simply copy the inheritable rules
+                    styled_nodes.insert(child_id, StyledNode { css_constraints:  CssConstraintList { list: inheritable_rules.clone() } });
+                },
+            }
+        }
+
+        styled_nodes.insert(parent_id, parent_rules);
     }
 
     UiDescription {
-        // note: this clone is necessary, otherwise,
+        // Note: this clone is necessary, otherwise,
         // we wouldn't be able to update the UiState
         //
         // WARNING: The UIState can modify the `arena` with its copy of the Rc !
@@ -665,88 +813,9 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
     }
 }
 
-fn match_dom_css_selectors_inner<T: Layout>(
-    root: NodeId,
-    arena: &Arena<NodeData<T>>,
-    parsed_css: &ParsedCss,
-    parent_constraints: &CssConstraintList,
-    parent_z_level: ZIndex)
--> BTreeMap<NodeId, StyledNode>
-{
-    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
-
-    let mut current_constraints = CssConstraintList {
-        list: parent_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect(),
-    };
-
-    cascade_constraints(&arena[root].data, &mut current_constraints, parsed_css);
-
-    let current_node = StyledNode {
-        z_level: parent_z_level,
-        css_constraints: current_constraints,
-    };
-
-    // DFS tree
-    for child in root.children(arena) {
-        styled_nodes.append(&mut match_dom_css_selectors_inner(child, arena, parsed_css, &current_node.css_constraints, ZIndex(parent_z_level.0 + 1)));
-    }
-
-    styled_nodes.insert(root, current_node);
-    styled_nodes
-}
-
-/// Cascade the rules, put them into the list
-#[allow(unused_variables)]
-fn cascade_constraints<T: Layout>(
-    node: &NodeData<T>,
-    list: &mut CssConstraintList,
-    parsed_css: &ParsedCss)
-{
-    for div_rule in &parsed_css.pure_div_rules {
-        if *node.node_type.get_css_id() == div_rule.html_type {
-            list.push_rule(div_rule);
-        }
-    }
-
-    let mut node_classes: Vec<&String> = node.classes.iter().map(|x| x).collect();
-    node_classes.sort();
-    node_classes.dedup_by(|a, b| *a == *b);
-
-    // for all classes that this node has
-    for class_rule in &parsed_css.pure_class_rules {
-        // NOTE: class_rule is sorted and de-duplicated
-        // If the selector matches, the node classes must be identical
-        let mut should_insert_rule = true;
-        if class_rule.classes.len() != node_classes.len() {
-            should_insert_rule = false;
-        } else {
-            for i in 0..class_rule.classes.len() {
-                // we verified that the length of the two classes is the same
-                if *node_classes[i] != class_rule.classes[i] {
-                    should_insert_rule = false;
-                    break;
-                }
-            }
-        }
-
-        if should_insert_rule {
-            list.push_rule(class_rule);
-        }
-    }
-
-    // first attribute for "id = something"
-    let node_id = &node.id;
-
-    if let Some(ref node_id) = *node_id {
-        // if the node has an ID
-        for id_rule in &parsed_css.pure_id_rules {
-            if *id_rule.id.as_ref().unwrap() == *node_id {
-                list.push_rule(id_rule);
-            }
-        }
-    }
-
-    // TODO: all the mixed rules
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct CssConstraintList {
+    pub(crate) list: Vec<CssDeclaration>
 }
 
 #[test]
@@ -819,4 +888,159 @@ fn test_detect_static_or_dynamic_property() {
         determine_static_or_dynamic_css_property("text-align", "[[ |  ]]"),
         Err(DynamicCssParseError::EmptyBraces)
     );
+}
+
+#[test]
+fn test_css_parse_1() {
+
+    use prelude::{ColorU, StyleBackgroundColor};
+
+    let parsed_css = Css::new_from_str("
+        div#my_id .my_class:first {
+            background-color: red;
+        }
+    ").unwrap();
+
+    let expected_css = Css {
+        rules: vec![
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![
+                        CssPathSelector::Type(NodeTypePath::Div),
+                        CssPathSelector::Id(String::from("my_id")),
+                        // NOTE: This is technically wrong, the space between "#my_id"
+                        // and ".my_class" is important, but gets ignored for now
+                        CssPathSelector::Class(String::from("my_class")),
+                        CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
+                    ],
+                },
+                declarations: vec![CssDeclaration::Static(ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
+            }
+        ],
+        needs_relayout: true,
+        #[cfg(debug_assertions)]
+        hot_reload_path: None,
+        #[cfg(debug_assertions)]
+        hot_reload_override_native: false,
+    };
+
+    assert_eq!(parsed_css, expected_css);
+}
+
+#[cfg(test)]
+mod cascade_tests {
+
+    use prelude::*;
+    use super::*;
+
+    fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<ParsedCssProperty>) {
+
+        // Unimportant boilerplate
+        struct Data { }
+
+        impl Layout for Data { fn layout(&self) -> Dom<Self> { Dom::new(NodeType::Div) } }
+
+        let css = Css::new_from_str(css).unwrap();
+        let ids_str = ids.into_iter().map(|x| x.to_string()).collect();
+        let class_str = classes.into_iter().map(|x| x.to_string()).collect();
+        let node_data: NodeData<Data> = NodeData {
+            node_type: NodeType::Div,
+            ids: ids_str,
+            classes: class_str,
+            .. Default::default()
+        };
+
+        let test_node = HtmlCascadeInfo {
+            node_data: &node_data,
+            index_in_parent: 0,
+            is_mouse_over: false,
+            is_mouse_pressed: false,
+        };
+
+        let mut test_node_rules = Vec::new();
+        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&test_node)) {
+            test_node_rules.extend(applying_rule.declarations.clone());
+        }
+
+        let expected_rules: Vec<CssDeclaration> = expected.into_iter().map(|x| CssDeclaration::Static(x)).collect();
+        assert_eq!(test_node_rules, expected_rules);
+    }
+
+    // Tests that an element with a single class always gets the CSS element applied properly
+    #[test]
+    fn test_apply_css_pure_class() {
+        let red = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+        let blue = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
+        let black = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+
+        // Test that single elements are applied properly
+        {
+            let css_1 = ".my_class { background-color: red; }";
+            test_css(css_1, vec![], vec!["my_class"], vec![red.clone()]);
+            test_css(css_1, vec!["my_id"], vec!["my_class"], vec![red.clone()]);
+            test_css(css_1, vec!["my_id"], vec![], vec![]);
+        }
+
+        // Test that the ID overwrites the class (higher specificy)
+        {
+            let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
+            test_css(css_2, vec![], vec![], vec![]);
+            test_css(css_2, vec!["my_id"], vec![], vec![red.clone()]);
+            test_css(css_2, vec!["my_id"], vec!["my_class"], vec![blue.clone(), red.clone()]); // red will overwrite blue later on
+            test_css(css_2, vec![], vec!["my_class"], vec![blue.clone()]);
+        }
+
+        // Global tests
+        {
+            let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
+            test_css(css_3, vec![], vec![], vec![black.clone()]);
+            test_css(css_3, vec!["my_id"], vec![], vec![black.clone()]); // note: .my_class#my_id
+            test_css(css_3, vec![], vec!["my_class"], vec![black.clone(), blue.clone()]);
+            test_css(css_3, vec!["my_id"], vec!["my_class"], vec![black.clone(), blue.clone(), red.clone()]);
+            test_css(css_3, vec![], vec!["my_class"], vec![black.clone(), blue.clone()]);
+        }
+    }
+}
+
+#[test]
+fn test_specificity() {
+    use self::CssPathSelector::*;
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".into())] }), (0, 1, 0));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)] }), (1, 0, 1));
+}
+
+// Assert that order of the CSS items is correct (in order of specificity, lowest-to-highest)
+#[test]
+fn test_specificity_sort() {
+    use prelude::*;
+    use self::CssPathSelector::*;
+    use dom::NodeTypePath::*;
+
+    let parsed_css = Css::new_from_str("
+        * { }
+        * div.my_class#my_id { }
+        * div#my_id { }
+        * #my_id { }
+        div.my_class.specific#my_id { }
+    ").unwrap();
+
+    let expected_css = Css {
+        rules: vec![
+            // Rules are sorted from lowest-specificity to highest specificity
+            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        ],
+        needs_relayout: true,
+        #[cfg(debug_assertions)]
+        hot_reload_path: None,
+        #[cfg(debug_assertions)]
+        hot_reload_override_native: false,
+    };
+
+    assert_eq!(parsed_css, expected_css);
 }
