@@ -3120,6 +3120,40 @@ mod css_tests {
     }
 
     #[test]
+    fn test_parse_linear_gradient_7() {
+        assert_eq!(parse_css_background("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::Angle(FloatValue::new(10.0)),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(PercentageValue::new(0.0)),
+                    color: ColorU { r: 10, g: 30, b: 20, a: 255 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(100.0)),
+                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                }],
+        })));
+    }
+
+    #[test]
+    fn test_parse_linear_gradient_8() {
+        assert_eq!(parse_css_background("linear-gradient(50deg, rgb(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
+            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+                direction: Direction::Angle(FloatValue::new(40.0)),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(PercentageValue::new(0.0)),
+                    color: ColorU { r: 10, g: 30, b: 20, a: 238 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(100.0)),
+                    color: ColorU { r: 138, g: 97, b: 15, a: 25 },
+                }],
+        })));
+    }
+
+    #[test]
     fn test_parse_radial_gradient_1() {
         assert_eq!(parse_css_background("radial-gradient(circle, lime, blue, yellow)"),
             Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
