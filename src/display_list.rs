@@ -21,7 +21,7 @@ use {
     css::Css,
     css_parser::*,
     dom::{
-        IFrameCallback, GlTextureCallback, NodeData,
+        IFrameCallback, GlTextureCallback, NodeData, ScrollTagId, DomHash, new_scroll_tag_id,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
     text_layout::{TextOverflowPass2, ScrollbarInfo},
@@ -212,7 +212,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         window_size_has_changed: bool,
         fake_window: &mut FakeWindow<T>,
         app_resources: &mut AppResources)
-    -> DisplayListBuilder
+    -> (DisplayListBuilder, ScrolledNodes)
     {
         use glium::glutin::dpi::LogicalSize;
 
@@ -228,7 +228,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             LogicalPosition::new(0.0, 0.0)
         );
 
-        let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
+        let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &self, &node_depths, window.internal.pipeline_id);
 
         // Make sure unused scroll states are garbage collected.
         window.scroll_states.remove_unused_scroll_states();
@@ -248,6 +248,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             &scrollable_nodes,
             &mut window.scroll_states,
             &DisplayListParametersRef {
+                pipeline_id: window.internal.pipeline_id,
                 ui_description: self.ui_descr,
                 render_api: &window.internal.api,
                 display_rectangle_arena: &self.rectangles,
@@ -265,7 +266,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         );
 
         &window.internal.api.update_resources(resource_updates);
-        builder
+
+        (builder, scrollable_nodes)
     }
 }
 
@@ -428,29 +430,81 @@ fn do_the_layout<'a, 'b, T: Layout>(
     (layouted_arena, solved_widths.non_leaf_nodes_sorted_by_depth, WordCache(word_cache))
 }
 
-fn get_nodes_that_need_scroll_clip(arena: &Arena<LayoutRect>, parents: &Vec<(usize, NodeId)>)
--> BTreeMap<NodeId, (TypedRect<f32, LayoutPixel>, TypedRect<f32, LayoutPixel>)>
-{
+#[derive(Default, Debug, Clone)]
+pub(crate)  struct ScrolledNodes {
+    pub(crate) overflowing_nodes: BTreeMap<NodeId, OverflowingScrollNode>,
+    pub(crate) tags_to_node_ids: BTreeMap<ScrollTagId, NodeId>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OverflowingScrollNode {
+    pub(crate) parent_rect: LayoutRect,
+    pub(crate) child_rect: LayoutRect,
+    pub(crate) parent_external_scroll_id: ExternalScrollId,
+    pub(crate) parent_dom_hash: DomHash,
+    pub(crate) scroll_tag_id: ScrollTagId,
+}
+
+/// Returns all node IDs where the children overflow the parent, together with the
+/// `(parent_rect, child_rect)` - the child rect is the sum of the children.
+///
+/// TODO: The performance of this function can be theoretically improved:
+///
+/// - Unioning the rectangles is heavier than just looping through the children and
+/// summing up their width / height / padding + margin.
+/// - Scroll nodes only need to be inserted if the parent doesn't have `overflow: hidden`
+/// activated
+/// - Overflow for X and Y needs to be tracked seperately (for overflow-x / overflow-y separation),
+/// so there we'd need to track in which direction the inner_rect is overflowing.
+fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
+    layouted_rects: &Arena<LayoutRect>,
+    display_list: &DisplayList<'a, T>,
+    parents: &Vec<(usize, NodeId)>,
+    pipeline_id: PipelineId,
+) -> ScrolledNodes {
+
+    let arena = &display_list.ui_descr.ui_descr_arena.borrow();
     let mut nodes = BTreeMap::new();
+    let mut tags_to_node_ids = BTreeMap::new();
+
     for (_, parent) in parents {
-        let parent_rect = &arena.get(&parent).unwrap().data;
+        let parent_rect = &layouted_rects.get(&parent).unwrap().data;
         let mut children_sum_rect = TypedRect::zero();
-        for child in parent.children(&arena) {
-            children_sum_rect = children_sum_rect.union(&arena.get(&child).unwrap().data);
+
+        for child in parent.children(&layouted_rects) {
+            children_sum_rect = children_sum_rect.union(&layouted_rects.get(&child).unwrap().data);
         }
+
         if !children_sum_rect.contains_rect(parent_rect) {
-            nodes.insert(parent.clone(), (parent_rect.clone(), children_sum_rect));
+            let dom_hash = arena[*parent].data.calculate_node_data_hash();
+            // Create an external scroll id. This id is required to preserve scroll state accross multiple frames.
+            let external_scroll_id  = ExternalScrollId(dom_hash.0, pipeline_id);
+
+            // Create a unique scroll tag for hit-testing
+            let scroll_tag = match display_list.rectangles.get(parent).and_then(|node| node.data.tag) {
+                Some(existing_tag) => ScrollTagId(existing_tag),
+                None => new_scroll_tag_id(),
+            };
+
+            tags_to_node_ids.insert(scroll_tag, *parent);
+            nodes.insert(*parent, OverflowingScrollNode {
+                parent_rect: parent_rect.clone(),
+                child_rect: children_sum_rect,
+                parent_external_scroll_id: external_scroll_id,
+                parent_dom_hash: dom_hash,
+                scroll_tag_id: scroll_tag,
+            });
         }
     }
 
-    nodes
+    ScrolledNodes { overflowing_nodes: nodes, tags_to_node_ids }
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     solved_rects: &Arena<LayoutRect>,
     epoch: Epoch,
     z_ordered_rectangles: ZOrderedRectangles,
-    scrollable_nodes: &BTreeMap<NodeId, (TypedRect<f32, LayoutPixel>, TypedRect<f32, LayoutPixel>)>,
+    scrollable_nodes: &ScrolledNodes,
     scroll_states: &mut ScrollStates,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
@@ -471,16 +525,12 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 html_node: &arena[rect_idx].data.node_type,
             };
 
-            displaylist_handle_rect(solved_rects[rect_idx].data, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
+            displaylist_handle_rect(solved_rects[rect_idx].data, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
 
-            if let Some(&(parent_rect, children_rect)) = scrollable_nodes.get(&rect_idx) {
+            if let Some(OverflowingScrollNode { parent_external_scroll_id, parent_rect, child_rect, .. }) = scrollable_nodes.overflowing_nodes.get(&rect_idx) {
 
                 // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
                 stack.push(rect_idx.children(&arena).last().unwrap());
-                let hash = arena.get(&rect_idx).unwrap().data.calculate_node_data_hash();
-
-                // Create an external scroll id. This id is required to preserve scroll state accross multiple frames.
-                let external_id  = ExternalScrollId(hash.0, referenced_mutable_content.pipeline_id);
 
                 // Create a new scroll state for each node that is not present in the scroll states already.
                 // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we
@@ -489,16 +539,16 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                 //
                 // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
                 scroll_states.ensure_initialized_scroll_state(
-                    external_id,
-                    children_rect.size.width - parent_rect.size.width,
-                    children_rect.size.height - parent_rect.size.height
+                    *parent_external_scroll_id,
+                    child_rect.size.width - parent_rect.size.width,
+                    child_rect.size.height - parent_rect.size.height
                 );
 
                 // Set the scrolling clip
                 let clip_id = referenced_mutable_content.builder.define_scroll_frame(
-                    Some(external_id),
-                    children_rect,
-                    parent_rect,
+                    Some(*parent_external_scroll_id),
+                    *child_rect,
+                    *parent_rect,
                     vec![],
                     None,
                     ScrollSensitivity::ScriptAndInputEvents,
@@ -533,6 +583,7 @@ pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
 #[inline]
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     bounds: LayoutRect,
+    scrollable_nodes: &ScrolledNodes,
     rectangle: DisplayListRectParams<'c, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
@@ -542,7 +593,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
     use webrender::api::BorderRadius;
 
     let DisplayListParametersRef {
-        render_api, parsed_css, ui_description, display_rectangle_arena, word_cache
+        render_api, parsed_css, ui_description, display_rectangle_arena, word_cache, pipeline_id
     } = referenced_content;
 
     let DisplayListRectParams {
@@ -555,7 +606,9 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         rect: bounds,
         clip_rect: bounds,
         is_backface_visible: false,
-        tag: rect.tag.and_then(|tag| Some((tag, 0))),
+        tag: rect.tag.and_then(|tag| Some((tag, 0))).or({
+            scrollable_nodes.overflowing_nodes.get(&rect_idx).and_then(|scrolled| Some((scrolled.scroll_tag_id.0, 0)))
+        }),
     };
 
     let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
@@ -833,7 +886,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         rect_size,
         rect_origin);
 
-    let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &node_depths);
+    let scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &display_list, &node_depths, referenced_content.pipeline_id);
 
     let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles, &node_depths);
     let referenced_content = DisplayListParametersRef {
@@ -865,6 +918,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Copy, Clone)]
 struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a + Layout> {
+    pub pipeline_id: PipelineId,
     pub ui_description: &'a UiDescription<T>,
     /// The CSS that should be applied to the DOM
     pub parsed_css: &'b Css,

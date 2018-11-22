@@ -159,7 +159,7 @@ mod id_tree;
 /// State handling for user interfaces
 mod ui_state;
 /// Dom / CSS caching
-mod cache;
+// mod cache;
 /// Image handling
 mod images;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
@@ -186,7 +186,7 @@ type FastHashSet<T> = ::std::collections::HashSet<T>;
 pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
-    pub use cache::DomHash;
+    pub use dom::DomHash;
     pub use css::{Css, NATIVE_CSS, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,

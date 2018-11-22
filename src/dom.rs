@@ -12,7 +12,6 @@ use {
     FastHashMap,
     window::{WindowEvent, WindowInfo},
     images::{ImageId, ImageState},
-    cache::DomHash,
     text_cache::TextId,
     traits::Layout,
     app_state::AppState,
@@ -27,9 +26,21 @@ static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
 pub(crate) type TagId = u64;
 
+/// Same as the `TagId`, but only for scrollable nodes
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub(crate) struct ScrollTagId(pub TagId);
+
 fn new_tag_id() -> TagId {
     TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
 }
+
+pub(crate) fn new_scroll_tag_id() -> ScrollTagId {
+    ScrollTagId(new_tag_id())
+}
+
+/// Calculated hash of a DOM node, used for querying attributes of the DOM node
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
+pub struct DomHash(pub u64);
 
 /// A callback function has to return if the screen should
 /// be updated after the function has run.PartialEq
@@ -906,6 +917,9 @@ impl<T: Layout> Dom<T> {
         tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>,
         dynamic_css_overrides: &mut BTreeMap<NodeId, FastHashMap<String, ParsedCssProperty>>)
     {
+        // Reset the tag
+        TAG_ID.swap(1, Ordering::SeqCst);
+
         let arena = self.arena.borrow();
 
         for node_id in arena.linear_iter() {
@@ -944,8 +958,6 @@ impl<T: Layout> Dom<T> {
                 dynamic_css_overrides.insert(node_id, item.data.dynamic_css_overrides.iter().cloned().collect());
             }
         }
-
-        TAG_ID.swap(1, Ordering::SeqCst);
     }
 }
 
