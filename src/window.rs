@@ -560,7 +560,7 @@ pub struct Window<T: Layout> {
 #[derive(Debug, Copy, Clone)]
 pub struct AnimationState { }
 
-pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
+pub(crate) struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
     pub fn new() -> ScrollStates {
@@ -583,9 +583,7 @@ impl ScrollStates {
     }
 
     pub(crate) fn ensure_initialized_scroll_state(&mut self, scroll_id: ExternalScrollId, overflow_x: f32, overflow_y: f32) {
-        if !self.0.contains_key(&scroll_id) {
-            self.0.insert(scroll_id, ScrollState::new(overflow_x, overflow_y));
-        }
+        self.0.entry(scroll_id).or_insert_with(|| ScrollState::new(overflow_x, overflow_y));
     }
 
     /// Removes all scroll states that weren't used in the last frame
