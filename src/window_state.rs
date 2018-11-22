@@ -244,7 +244,6 @@ impl WindowState
         use glium::glutin::{
             Event, WindowEvent, KeyboardInput,
             MouseButton::*,
-            dpi::LogicalPosition,
         };
 
         let event = if let Event::WindowEvent { event, .. } = event { event } else { return Vec::new(); };
@@ -308,13 +307,7 @@ impl WindowState
                     _ => { }
                 }
             },
-            WindowEvent::MouseWheel { delta, .. } => {
-                let (scroll_x_px, scroll_y_px) = match delta {
-                    MouseScrollDelta::PixelDelta(LogicalPosition { x, y }) => (*x, *y),
-                    MouseScrollDelta::LineDelta(x, y) => (*x as f64 * 100.0, *y as f64 * 100.0),
-                };
-                self.mouse_state.scroll_x = -scroll_x_px;
-                self.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
+            WindowEvent::MouseWheel { .. } => {
                 events_vec.insert(On::Scroll);
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
@@ -375,6 +368,22 @@ impl WindowState
                     },
                     _ => { }
                 }
+            },
+            _ => { },
+        }
+    }
+
+    pub(crate) fn update_scroll_state(&mut self, event: &Event) {
+        match event {
+            Event::WindowEvent { event: WindowEvent::MouseWheel { delta, .. }, .. } => {
+                const LINE_DELTA: f64 = 38.0;
+
+                let (scroll_x_px, scroll_y_px) = match delta {
+                    MouseScrollDelta::PixelDelta(LogicalPosition { x, y }) => (*x, *y),
+                    MouseScrollDelta::LineDelta(x, y) => (*x as f64 * LINE_DELTA, *y as f64 * LINE_DELTA),
+                };
+                self.mouse_state.scroll_x = -scroll_x_px;
+                self.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
             },
             _ => { },
         }

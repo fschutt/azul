@@ -11,8 +11,8 @@ use glium::{
         dpi::{LogicalPosition, LogicalSize}
     },
 };
-use webrender::{PipelineInfo, api::{HitTestFlags, DevicePixel, WorldPoint}};
-use euclid::{TypedSize2D, TypedPoint2D};
+use webrender::{PipelineInfo, api::{HitTestResult, HitTestFlags, DevicePixel, WorldPoint}};
+use euclid::TypedSize2D;
 #[cfg(feature = "image_loading")]
 use image::ImageError;
 #[cfg(feature = "logging")]
@@ -24,8 +24,7 @@ use {
     window::{Window, WindowId, FakeWindow},
     css_parser::{FontId, PixelValue, StyleLetterSpacing},
     text_cache::TextId,
-    dom::UpdateScreen,
-    window_state::MouseState,
+    dom::{ScrollTagId, UpdateScreen},
     app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
@@ -244,13 +243,18 @@ impl<T: Layout> App<T> {
                         continue 'window_loop;
                     }
                     window.state.update_mouse_cursor_position(event);
+                    window.state.update_scroll_state(event);
                     window.state.update_keyboard_modifiers(event);
                     window.state.update_keyboard_pressed_chars(event);
                 }
 
+                let mut hit_test_results = None;
+
                 if frame_event_info.should_hittest {
                     for event in &events {
-                        do_hit_test_and_call_callbacks(
+                        hit_test_results = do_hit_test(&window);
+                        call_callbacks(
+                            hit_test_results.as_ref(),
                             event,
                             window,
                             window_id,
@@ -262,38 +266,7 @@ impl<T: Layout> App<T> {
                 }
 
                 // Scroll for the scrolled amount for each node that registered a scroll state.
-                if let MouseState { cursor_pos: Some(pos), scroll_x, scroll_y, .. } = window.state.mouse_state {
-                    if scroll_x + scroll_y != 0.0 {
-                        let hit_test_results = window.internal.api.hit_test(
-                            window.internal.document_id,
-                            Some(window.internal.pipeline_id),
-                            WorldPoint::new(pos.x as f32, pos.y as f32),
-                            HitTestFlags::FIND_ALL,
-                        );
-
-                        // TODO: only scroll element hovered by mouse
-                        for node_id in hit_test_results.items.iter().filter_map(|item|
-                            ui_state_cache[window_id.id].tag_ids_to_node_ids
-                            .get(&item.tag.0)
-                        ) {
-
-                        }
-
-                        let keys = window.scroll_states.0.keys().map(|k| *k).collect::<Vec<_>>();
-
-                        for key in &keys {
-                            // TODO: make scroll speed configurable (system setting?)
-                            // window.scroll_states.scroll_node(key, scroll_x as f32 * 3.0, scroll_y as f32 * 3.0);
-                            window.scroll_states.scroll_node(key, scroll_x as f32, scroll_y as f32);
-                        }
-
-                        // If there is already a layout construction in progress, prevent re-rendering on layout,
-                        // otherwise this leads to jankiness during scrolling
-                        if !frame_event_info.should_redraw_window {
-                            render_on_scroll_no_layout(window);
-                        }
-                    }
-                }
+                render_on_scroll(window, hit_test_results, &frame_event_info);
 
                 if frame_event_info.should_swap_window || frame_event_info.is_resize_event || force_redraw_cache[idx] > 0 {
                     window.display.swap_buffers()?;
@@ -671,7 +644,29 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
     WindowCloseEvent::NoCloseEvent
 }
 
-fn do_hit_test_and_call_callbacks<T: Layout>(
+/// Returns the currently hit-tested results, in back-to-front order
+fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
+
+    let cursor_location = window.state.mouse_state.cursor_pos.and_then(|pos| Some(WorldPoint::new(pos.x as f32, pos.y as f32)))?;
+
+    let mut hit_test_results = window.internal.api.hit_test(
+        window.internal.document_id,
+        Some(window.internal.pipeline_id),
+        cursor_location,
+        HitTestFlags::FIND_ALL);
+
+    if hit_test_results.items.is_empty() {
+        return None;
+    }
+
+    // Execute callbacks back-to-front, not front-to-back
+    hit_test_results.items.reverse();
+
+    Some(hit_test_results)
+}
+
+fn call_callbacks<T: Layout>(
+    hit_test_results: Option<&HitTestResult>,
     event: &Event,
     window: &mut Window<T>,
     window_id: WindowId,
@@ -684,19 +679,10 @@ fn do_hit_test_and_call_callbacks<T: Layout>(
     use dom::Callback;
     use window_state::{KeyboardState, MouseState};
 
-    let cursor_location = match window.state.mouse_state.cursor_pos {
-        Some(pos) => WorldPoint::new(pos.x as f32, pos.y as f32),
+    let hit_test_results = match hit_test_results {
         None => return,
+        Some(s) => s,
     };
-
-    let mut hit_test_results = window.internal.api.hit_test(
-        window.internal.document_id,
-        Some(window.internal.pipeline_id),
-        cursor_location,
-        HitTestFlags::FIND_ALL);
-
-    // Execute callbacks back-to-front, not front-to-back
-    hit_test_results.items.reverse();
 
     let mut should_update_screen = UpdateScreen::DontRedraw;
 
@@ -821,7 +807,7 @@ fn render<T: Layout>(
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
-    let builder = display_list.into_display_list_builder(
+    let (builder, scrolled_nodes) = display_list.into_display_list_builder(
         app_data,
         window,
         has_window_size_changed,
@@ -832,6 +818,7 @@ fn render<T: Layout>(
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     window.internal.last_display_list_builder = builder.finalize().2;
+    window.internal.last_scrolled_nodes = scrolled_nodes;
 
     let mut txn = Transaction::new();
 
@@ -870,6 +857,57 @@ fn render<T: Layout>(
     render_inner(window, framebuffer_size);
 }
 
+fn render_on_scroll<T: Layout>(
+    window: &mut Window<T>,
+    hit_test_results: Option<HitTestResult>,
+    frame_event_info: &FrameEventInfo)
+{
+
+    const SCROLL_THRESHOLD: f64 = 0.5; // px
+
+    let hit_test_results = match hit_test_results {
+        Some(s) => s,
+        None => match do_hit_test(&window) {
+            Some(s) => s,
+            None => return,
+        }
+    };
+
+    let scroll_x = window.state.mouse_state.scroll_x;
+    let scroll_y = window.state.mouse_state.scroll_y;
+
+    if scroll_x.abs() < SCROLL_THRESHOLD && scroll_y.abs() < SCROLL_THRESHOLD {
+        return;
+    }
+
+    let mut should_scroll_render = false;
+
+    {
+        let scrolled_nodes = &window.internal.last_scrolled_nodes;
+        let scroll_states = &mut window.scroll_states;
+
+        for scroll_node in hit_test_results.items.iter()
+            .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag.0)))
+            .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id)) {
+
+            // The external scroll ID is constructed from the DOM hash
+            let scroll_id = scroll_node.parent_external_scroll_id;
+
+            if scroll_states.0.contains_key(&scroll_id) {
+                // TODO: make scroll speed configurable (system setting?)
+                scroll_states.scroll_node(&scroll_id, scroll_x as f32, scroll_y as f32);
+                should_scroll_render = true;
+            }
+        }
+    }
+
+    // If there is already a layout construction in progress, prevent re-rendering on layout,
+    // otherwise this leads to jankiness during scrolling
+    if !frame_event_info.should_redraw_window && should_scroll_render {
+        render_on_scroll_no_layout(window);
+    }
+}
+
 fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
 
     use webrender::api::*;
@@ -888,7 +926,7 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
 
     window.internal.api.send_transaction(window.internal.document_id, txn);
     window.renderer.as_mut().unwrap().update();
-    window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
+    render_inner(window, framebuffer_size);
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {

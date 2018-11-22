@@ -131,10 +131,6 @@ pub(crate) struct HashedDomTree {
     pub(crate) root: Option<NodeId>,
 }
 
-/// Calculated hash of a DOM node, used for querying attributes of the DOM node
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
-pub struct DomHash(pub u64);
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub(crate) struct DomNodeHash {
     /// The hash of the node itself

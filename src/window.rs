@@ -24,7 +24,6 @@ use glium::{
 };
 use gleam::gl::{self, Gl};
 use {
-    cache::DomHash,
     FastHashMap,
     dom::{Texture, On, Callback},
     daemon::{Daemon, DaemonId},
@@ -37,6 +36,7 @@ use {
     id_tree::NodeId,
     default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
     ui_state::UiState,
+    display_list::ScrolledNodes,
 };
 
 /// azul-internal ID for a window
@@ -560,7 +560,7 @@ pub struct Window<T: Layout> {
 #[derive(Debug, Copy, Clone)]
 pub struct AnimationState { }
 
-pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
+pub(crate) struct ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
     pub fn new() -> ScrollStates {
@@ -583,9 +583,7 @@ impl ScrollStates {
     }
 
     pub(crate) fn ensure_initialized_scroll_state(&mut self, scroll_id: ExternalScrollId, overflow_x: f32, overflow_y: f32) {
-        if !self.0.contains_key(&scroll_id) {
-            self.0.insert(scroll_id, ScrollState::new(overflow_x, overflow_y));
-        }
+        self.0.entry(scroll_id).or_insert_with(|| ScrollState::new(overflow_x, overflow_y));
     }
 
     /// Removes all scroll states that weren't used in the last frame
@@ -641,6 +639,7 @@ impl Default for ScrollState {
 
 pub(crate) struct WindowInternal {
     pub(crate) last_display_list_builder: BuiltDisplayList,
+    pub(crate) last_scrolled_nodes: ScrolledNodes,
     pub(crate) api: RenderApi,
     pub(crate) epoch: Epoch,
     pub(crate) pipeline_id: PipelineId,
@@ -849,6 +848,7 @@ impl<T: Layout> Window<T> {
                 pipeline_id: pipeline_id,
                 document_id: document_id,
                 last_display_list_builder: BuiltDisplayList::default(),
+                last_scrolled_nodes: ScrolledNodes::default(),
             },
             marker: PhantomData,
         };
