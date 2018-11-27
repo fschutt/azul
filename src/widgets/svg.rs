@@ -478,7 +478,7 @@ impl<T: Layout> fmt::Debug for SvgCache<T> {
 const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
 /// Returns the (fill, stroke) vertices of a layer
-fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, fill: bool, stroke_options: Option<SvgStrokeOptions>)
+pub fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, fill: bool, stroke_options: Option<SvgStrokeOptions>)
 -> (Option<(Vec<SvgVert>, Vec<u32>)>, Option<(Vec<SvgVert>, Vec<u32>)>)
 {
     let mut last_index = 0;
