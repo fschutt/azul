@@ -28,6 +28,16 @@ pub enum Selection {
     FromTo(Range<usize>),
 }
 
+impl Default for TextInputState {
+    fn default() -> Self {
+        TextInputState {
+            text: String::new(),
+            selection: None,
+            cursor: 0,
+        }
+    }
+}
+
 impl TextInputState {
     pub fn new<S: Into<String>>(input: S) -> Self {
         let input_str: String = input.into();

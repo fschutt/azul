@@ -546,7 +546,7 @@ impl<T: Layout> fmt::Display for NodeData<T> {
         let class_string = if self.classes.is_empty() {
             String::new()
         } else {
-            self.ids.iter().map(|x| format!("#{}", x)).collect::<Vec<String>>().join(" ")
+            self.classes.iter().map(|x| format!(".{}", x)).collect::<Vec<String>>().join(" ")
         };
 
         write!(f, "[{} {} {}]", html_type, id_string, class_string)
