@@ -1,0 +1,133 @@
+[package]
+name = "azul"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+description = '''
+    Azul GUI is a free, functional, MVVM-oriented GUI framework
+    for rapid development of desktop applications written in Rust,
+    supported by the Mozilla WebRender rendering engine
+'''
+documentation = "https://docs.rs/azul"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user interface", "svg", "graphics" ]
+categories = ["gui"]
+license = "MIT"
+repository = "https://github.com/maps4print/azul"
+readme = "README.md"
+exclude = ["assets/*", "doc/*", "examples/*"]
+autoexamples = false
+
+[dependencies]
+simplecss               = { version = "0.1.0",  default-features = false }
+azul_glium              = { version = "0.22.0", default-features = false, features = ["glutin"] }
+gleam                   = { version = "0.6",    default-features = false }
+euclid                  = { version = "0.19",   default-features = false }
+rusttype                = { version = "0.7.3",  default-features = false }
+app_units               = { version = "0.7",    default-features = false } # TODO: Remove once webrender PR is merged
+unicode-normalization   = { version = "0.1.5",  default-features = false }
+lazy_static             = { version = "1",      default-features = false }
+tinyfiledialogs         = { version = "3.3.5",  default-features = false }
+clipboard2              = { version = "0.1.0",  default-features = false }
+font-loader             = { version = "0.7.0",  default-features = false }
+log                     = { version = "0.4.1",  default-features = false, optional = true }
+stb_truetype            = { version = "0.2.2",  default-features = false, optional = true }
+fern                    = { version = "0.5.5",  default-features = false, optional = true }
+backtrace               = { version = "0.3.9",  default-features = false, optional = true }
+lyon                    = { version = "0.11.0", default-features = false, optional = true }
+serde                   = { version = "1",      default-features = false, optional = true }
+twox-hash               = { version = "1.1.0",  default-features = false, optional = true }
+usvg                    = { version = "0.3.0",  default-features = false, optional = true }
+image                   = { version = "0.20",   default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "pnm", "tiff", "bmp"] }
+
+# Windows: Use nativefiledialog because of better Unicode support for file browsers
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+nfd = { version = "0.0.4", default-features = false }
+webrender = { git = "https://github.com/servo/webrender", rev = "92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5", default-features = false }
+
+# Linux: Use webrender with freetype feature enabled
+[target.'cfg(target_os = "linux")'.dependencies]
+webrender = { git = "https://github.com/servo/webrender", rev = "92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5" }
+
+[features]
+# The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
+# (which needs the `svg_parsing` feature).
+default = ["logging", "svg", "image_loading"]
+# The reason we do this is because doctests don't get cfg(test)
+# See: https://github.com/rust-lang/cargo/issues/4669
+doc-test = []
+# Some test have to be disabled for Travis, since Travis does not
+# use OpenGL 3.2, so the tests will fail.
+#
+# To actually test the library, run `cargo --test --features=doc-test`
+no-opengl-tests = []
+# Enable this feature to enable crash logging & reporting.
+# Azul will insert custom panic handlers to pop up a message and log
+# crashes to an "error.log" file, see AppConfig for more details
+logging = ["fern", "backtrace", "log"]
+# The SVG rendering module is pretty huge since it needs lyon - if you don't use
+# SVG rendering in your app, you can turn this off to increase compilation
+# speed and decrease your binary size
+svg = ["lyon", "stb_truetype"]
+# This is for activating **parsing** of SVG files. If you, for example, just
+# want to draw shapes on the screen, you do not need to activate this feature,
+# this is just for parsing the SVG from a file.
+svg_parsing = ["svg", "usvg"]
+# If you want an application icon, you can either load it via the raw
+# RGBA bytes or use the icon_loading feature to decode it from a PNG / JPG /
+# whatever image format on startup. Note that this will import the image
+# dependency and use a bit of extra runtime.
+icon_loading = ["azul_glium/icon_loading"]
+# For serializing / deserializing CSS colors using serde
+serde_serialization = ["serde"]
+# twox-hash imports the rand crate, which takes a long time to compile
+# If azul isn't using XXHash, it uses the std-library provided hash algorithm
+#
+# The performance hit should be negligible, so this feature is turned off by
+# default. Maybe turn it on in release builds.
+faster-hashing = ["twox-hash"]
+# On some applications you might not want to load any images. For these purposes
+# the image crate can be disabled, to speed up compile times
+image_loading = ["image"]
+# Features to load extra image formats
+ico = ["image/ico"]
+tga = ["image/tga"]
+hdr = ["image/hdr"]
+jpeg_rayon = ["image/jpeg_rayon"]
+dxt = ["image/dxt"]
+webp = ["image/webp"]
+
+[[example]]
+name = "debug"
+required-features = ["svg_parsing"]
+
+[[example]]
+name = "async"
+required-features = []
+
+[[example]]
+name = "hot_reload"
+required-features = ["image_loading"]
+
+[[example]]
+name = "table"
+required-features = []
+
+[[example]]
+name = "text_input"
+required-features = []
+
+[[example]]
+name = "list"
+required-features = []
+
+[[example]]
+name = "calculator"
+required-features = []
+
+[[example]]
+name = "dragger"
+required-features = []
+
+[[example]]
+name = "scroll_list"
+required-features = []
