@@ -1,6 +1,5 @@
 pub use app::RuntimeError;
 #[cfg(debug_assertions)]
-pub use style::HotReloadError;
 pub use css_parser::{
     CssMetric, InvalidValueErr,
 };
@@ -22,8 +21,6 @@ pub enum Error {
     Image(ImageError),
     Clipboard(ClipboardError),
     WindowCreate(WindowCreateError),
-    #[cfg(debug_assertions)]
-    HotReload(HotReloadError),
 }
 
 impl From<FontError> for Error {
@@ -51,13 +48,6 @@ impl From<WindowCreateError> for Error {
     }
 }
 
-#[cfg(debug_assertions)]
-impl From<HotReloadError> for Error {
-    fn from(e: HotReloadError) -> Error {
-        Error::HotReload(e)
-    }
-}
-
 use std::fmt;
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -67,8 +57,6 @@ impl fmt::Display for Error {
             Error::Image(e) => write!(f, "[Image error] {}", e),
             Error::Clipboard(e) => write!(f, "[Clipboard error] {}", e),
             Error::WindowCreate(e) => write!(f, "[Window creation error] {}", e),
-            #[cfg(debug_assertions)]
-            Error::HotReload(e) => write!(f, "[Hot-reload error] {}", e),
         }
     }
 }

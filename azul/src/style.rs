@@ -1,7 +1,6 @@
 //! CSS parsing and styling
 
 #[cfg(debug_assertions)]
-use std::io::Error as IoError;
 use std::collections::BTreeMap;
 use {
     css_parser::StyleProperty,
@@ -16,13 +15,6 @@ use {
 /// created once. Animations / conditional styling is implemented using dynamic fields
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct AppStyle {
-    /// Path to hot-reload the CSS file from
-    #[cfg(debug_assertions)]
-    pub hot_reload_path: Option<String>,
-    /// When hot-reloading, should the CSS file be appended to the built-in, native styles
-    /// (equivalent to `NATIVE_CSS + include_str!(hot_reload_path)`)? Default: false
-    #[cfg(debug_assertions)]
-    pub hot_reload_override_native: bool,
     /// The CSS rules making up the document - i.e the rules of the CSS sheet de-duplicated
     pub rules: Vec<CssRuleBlock>,
     /// Has the CSS changed in a way where it needs a re-layout? - default:
@@ -107,19 +99,6 @@ impl DynamicCssProperty {
         false
     }
 }
-
-#[cfg(debug_assertions)]
-#[derive(Debug)]
-pub enum HotReloadError {
-    Io(IoError, String),
-    FailedToReload,
-}
-
-#[cfg(debug_assertions)]
-impl_display! { HotReloadError, {
-    Io(e, file) => format!("Failed to hot-reload CSS file: Io error: {} when loading file: \"{}\"", e, file),
-    FailedToReload => "Failed to hot-reload CSS file",
-}}
 
 /// One block of rules that applies a bunch of rules to a "path" in the CSS, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
@@ -464,94 +443,10 @@ impl AppStyle {
     }
 
     // Combines two parsed stylesheets into one, appending the rules of
-    // `other` after the rules of `self`. Overrides `self.hot_reload_path` with
-    // `other.hot_reload_path`
+    // `other` after the rules of `self`.
     pub fn merge(&mut self, mut other: Self) {
         self.rules.append(&mut other.rules);
         self.needs_relayout = self.needs_relayout || other.needs_relayout;
-
-        #[cfg(debug_assertions)] {
-            self.hot_reload_path = other.hot_reload_path;
-            self.hot_reload_override_native = other.hot_reload_override_native;
-        }
-    }
-/*
-    /// **NOTE**: Only available in debug mode, can crash if the file isn't found
-    #[cfg(debug_assertions)]
-    pub fn hot_reload(file_path: &str) -> Result<Self, HotReloadError>  {
-        use std::fs;
-        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
-        let mut css = match Self::new_from_str(&initial_css) {
-            Ok(o) => o,
-            Err(e) => panic!("Hot reload CSS: Parsing error in file {}:\n{}\n", file_path, e),
-        };
-        css.hot_reload_path = Some(file_path.into());
-
-        Ok(css)
-    }*/
-/*
-    /// Same as `hot_reload`, but applies the OS-native styles first, before
-    /// applying the user styles on top.
-    #[cfg(debug_assertions)]
-    pub fn hot_reload_override_native(file_path: &str) -> Result<Self, HotReloadError> {
-        use std::fs;
-        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
-        let mut css = match Self::override_native(&initial_css) {
-            Ok(o) => o,
-            Err(e) => panic!("Hot reload CSS: Parsing error in file {}:\n{}\n", file_path, e),
-        };
-        css.hot_reload_path = Some(file_path.into());
-        css.hot_reload_override_native = true;
-
-        Ok(css)
-    }*/
-
-    #[cfg(debug_assertions)]
-    pub(crate) fn reload_css(&mut self) {
-/*
-        use std::fs;
-
-        let file_path = if let Some(f) = &self.hot_reload_path {
-            f.clone()
-        } else {
-            #[cfg(feature = "logging")] {
-               error!("No file to hot-reload the CSS from!");
-            }
-            return;
-        };
-
-        #[allow(unused_variables)]
-        let reloaded_css = match fs::read_to_string(&file_path) {
-            Ok(o) => o,
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    error!("Failed to hot-reload \"{}\":\r\n{}\n", file_path, e);
-                }
-                return;
-            },
-        };
-
-        let target_css = if self.hot_reload_override_native {
-            format!("{}\r\n{}\n", NATIVE_CSS, reloaded_css)
-        } else {
-            reloaded_css
-        };
-
-        #[allow(unused_variables)]
-        let mut css = match Self::new_from_str(&target_css) {
-            Ok(o) => o,
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
-                }
-                return;
-            },
-        };
-
-        css.hot_reload_path = self.hot_reload_path.clone();
-        css.hot_reload_override_native = self.hot_reload_override_native;
-
-        *self = css;*/
     }
 }
 
@@ -665,10 +560,6 @@ fn test_specificity_sort() {
             CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
         needs_relayout: true,
-        #[cfg(debug_assertions)]
-        hot_reload_path: None,
-        #[cfg(debug_assertions)]
-        hot_reload_override_native: false,
     };
 
     input_style.sort_by_specificity();
@@ -683,10 +574,6 @@ fn test_specificity_sort() {
             CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
         needs_relayout: true,
-        #[cfg(debug_assertions)]
-        hot_reload_path: None,
-        #[cfg(debug_assertions)]
-        hot_reload_override_native: false,
     };
 
     assert_eq!(input_style, expected_style);
