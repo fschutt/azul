@@ -55,10 +55,12 @@ pub mod ParsedCssProperty {
     /// returns the parsed value or an error
     ///
     /// ```rust
+    /// # extern crate azul;
     /// # use azul::prelude::*;
+    /// # use azul_css::from_kv;
     /// assert_eq!(
-    ///     ParsedCssProperty::from_kv("width", "500px"),
-    ///     Ok(ParsedCssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
+    ///     from_kv("width", "500px"),
+    ///     Ok(StyleProperty::Width(LayoutWidth(PixelValue::px(500.0))))
     /// )
     /// ```
     pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<StyleProperty, CssParsingError<'a>> {

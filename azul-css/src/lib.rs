@@ -24,5 +24,6 @@ mod dom;
 pub use css::{
     new_from_str,
     native,
-    override_native
+    override_native,
+    ParsedCssProperty::from_kv,
 };
