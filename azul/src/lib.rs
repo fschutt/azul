@@ -204,18 +204,19 @@ pub mod prelude {
         StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
         StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
         StyleBoxShadow, BoxShadowPreDisplayItem, StyleLineHeight, StyleLetterSpacing,
-        StyleBorder, StyleBorderSide,
+        StyleBorder, StyleBorderSide, BackgroundType, Direction, DirectionCorner, Shape,
 
         LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, CssMetric,
         LayoutMaxHeight, LayoutWrap, LayoutDirection, LayoutJustifyContent, LayoutAlignItems,
         LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft, LayoutPadding, LayoutMargin,
+        LayoutFlexGrow, LayoutFlexShrink, LayoutOverflow, LayoutPosition,
 
-        LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
+        LinearGradientPreInfo, RadialGradientPreInfo, GradientStopPre, CssImageId, FontId, CssColor,
         TextOverflowBehaviour, TextOverflowBehaviourInner, StyleProperty,
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
         Gradient, RadialGradient, LayoutPoint, LayoutSize, Au, BorderDetails,
         ExtendMode, PixelValue, PercentageValue, SideOffsets2D, NormalBorder,
-        LayoutSideOffsets, TypedPoint2D,
+        LayoutSideOffsets, TypedPoint2D, FloatValue,
     };
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
