@@ -2,16 +2,12 @@
 
 #[cfg(debug_assertions)]
 use std::io::Error as IoError;
-use std::{
-    collections::BTreeMap,
-    num::ParseIntError,
-};
+use std::collections::BTreeMap;
 use {
-    css_parser::{StyleProperty, CssParsingError},
-    error::CssSyntaxError,
+    css_parser::StyleProperty,
     traits::Layout,
     ui_description::{UiDescription, StyledNode},
-    dom::{NodeTypePath, NodeData, NodeTypePathParseError},
+    dom::{NodeTypePath, NodeData},
     ui_state::UiState,
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
 };
@@ -36,43 +32,6 @@ pub struct AppStyle {
     /// don't need to re-layout the frame.
     pub needs_relayout: bool,
 }
-
-/// Error that can happen during the parsing of a CSS value
-#[derive(Debug, Clone, PartialEq)]
-pub enum CssParseError<'a> {
-    /// A hard error in the CSS syntax
-    ParseError(CssSyntaxError),
-    /// Braces are not balanced properly
-    UnclosedBlock,
-    /// Invalid syntax, such as `#div { #div: "my-value" }`
-    MalformedCss,
-    /// Error parsing dynamic CSS property, such as
-    /// `#div { width: {{ my_id }} /* no default case */ }`
-    DynamicCssParseError(DynamicCssParseError<'a>),
-    /// Error during parsing the value of a field
-    /// (Css is parsed eagerly, directly converted to strongly typed values
-    /// as soon as possible)
-    UnexpectedValue(CssParsingError<'a>),
-    /// Error while parsing a pseudo selector (like `:aldkfja`)
-    PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
-    /// The path has to be either `*`, `div`, `p` or something like that
-    NodeTypePath(NodeTypePathParseError<'a>),
-}
-
-impl_display!{ CssParseError<'a>, {
-    ParseError(e) => format!("Parse Error: {:?}", e),
-    UnclosedBlock => "Unclosed block",
-    MalformedCss => "Malformed Css",
-    DynamicCssParseError(e) => format!("Dynamic parsing error: {}", e),
-    UnexpectedValue(e) => format!("Unexpected value: {}", e),
-    PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
-    NodeTypePath(e) => format!("Failed to parse CSS selector path: {}", e),
-}}
-
-impl_from! { CssParsingError<'a>, CssParseError::UnexpectedValue }
-impl_from! { DynamicCssParseError<'a>, CssParseError::DynamicCssParseError }
-impl_from! { CssPseudoSelectorParseError<'a>, CssParseError::PseudoSelectorParseError }
-impl_from! { NodeTypePathParseError<'a>, CssParseError::NodeTypePath }
 
 /// Contains one parsed `key: value` pair, static or dynamic
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -498,84 +457,6 @@ pub enum CssPathPseudoSelector {
     Focus,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CssPseudoSelectorParseError<'a> {
-    UnknownSelector(&'a str),
-    InvalidNthChild(ParseIntError),
-    UnclosedBracesNthChild(&'a str),
-}
-
-impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
-    fn from(e: ParseIntError) -> Self { CssPseudoSelectorParseError::InvalidNthChild(e) }
-}
-
-impl_display! { CssPseudoSelectorParseError<'a>, {
-    UnknownSelector(e) => format!("Invalid CSS pseudo-selector: ':{}'", e),
-    InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
-    UnclosedBracesNthChild(e) => format!(":nth-child has unclosed braces: ':{}'", e),
-}}
-
-impl CssPathPseudoSelector {
-    pub fn from_str<'a>(data: &'a str) -> Result<Self, CssPseudoSelectorParseError<'a>> {
-        match data {
-            "first" => Ok(CssPathPseudoSelector::First),
-            "last" => Ok(CssPathPseudoSelector::Last),
-            "hover" => Ok(CssPathPseudoSelector::Hover),
-            "active" => Ok(CssPathPseudoSelector::Active),
-            "focus" => Ok(CssPathPseudoSelector::Focus),
-            other => {
-                // TODO: move this into a seperate function
-                if other.starts_with("nth-child") {
-                    let mut nth_child = other.split("nth-child");
-                    nth_child.next();
-                    let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(other))?;
-                    nth_child_string.trim();
-                    if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
-                        return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(other));
-                    }
-
-                    // Should the string be empty, then the `starts_with` and `ends_with` won't succeed
-                    let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
-                    nth_child_string.trim();
-                    let parsed = nth_child_string.parse::<usize>()?;
-                    Ok(CssPathPseudoSelector::NthChild(parsed))
-                } else {
-                    Err(CssPseudoSelectorParseError::UnknownSelector(other))
-                }
-            },
-        }
-    }
-}
-
-#[test]
-fn test_css_pseudo_selector_parse() {
-    let ok_res = [
-        ("first", CssPathPseudoSelector::First),
-        ("last", CssPathPseudoSelector::Last),
-        ("nth-child(4)", CssPathPseudoSelector::NthChild(4)),
-        ("hover", CssPathPseudoSelector::Hover),
-        ("active", CssPathPseudoSelector::Active),
-        ("focus", CssPathPseudoSelector::Focus),
-    ];
-
-    let err = [
-        ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf")),
-        ("", CssPseudoSelectorParseError::UnknownSelector("")),
-        ("nth-child(", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child(")),
-        ("nth-child)", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child)")),
-        // Can't test for ParseIntError because the fields are private.
-        // This is an example on why you shouldn't use std::error::Error!
-    ];
-
-    for (s, a) in &ok_res {
-        assert_eq!(CssPathPseudoSelector::from_str(s), Ok(*a));
-    }
-
-    for (s, e) in &err {
-        assert_eq!(CssPathPseudoSelector::from_str(s), Err(e.clone()));
-    }
-}
-
 impl AppStyle {
     /// Sort the CSS rules by their weight, so that the rules are applied in the correct order
     pub fn sort_by_specificity(&mut self) {
@@ -680,120 +561,6 @@ fn get_specificity(path: &CssPath) -> (usize, usize, usize) {
     let class_count = path.selectors.iter().filter(|x|  if let CssPathSelector::Class(_) = x {  true } else { false }).count();
     let div_count = path.selectors.iter().filter(|x|    if let CssPathSelector::Type(_) = x {   true } else { false }).count();
     (id_count, class_count, div_count)
-}
-
-/// Error that can happen during `StyleProperty::from_kv`
-#[derive(Debug, Clone, PartialEq)]
-pub enum DynamicCssParseError<'a> {
-    /// The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `
-    UnclosedBraces,
-    /// There is a valid dynamic css property, but no default case
-    NoDefaultCase,
-    /// The dynamic CSS property has no ID, i.e. `[[ 400px ]]`
-    NoId,
-    /// The ID may not start with a number or be a CSS property itself
-    InvalidId,
-    /// Dynamic css property braces are empty, i.e. `[[ ]]`
-    EmptyBraces,
-    /// Unexpected value when parsing the string
-    UnexpectedValue(CssParsingError<'a>),
-}
-
-impl_display!{ DynamicCssParseError<'a>, {
-    UnclosedBraces => "The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `",
-    NoDefaultCase => "There is a valid dynamic css property, but no default case",
-    NoId => "The dynamic CSS property has no ID, i.e. [[ 400px ]]",
-    InvalidId => "The ID may not start with a number or be a CSS property itself",
-    EmptyBraces => "Dynamic css property braces are empty, i.e. `[[ ]]`",
-    UnexpectedValue(e) => format!("Unexpected value: {}", e),
-}}
-
-impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
-    fn from(e: CssParsingError<'a>) -> Self {
-        DynamicCssParseError::UnexpectedValue(e)
-    }
-}
-
-const START_BRACE: &str = "[[";
-const END_BRACE: &str = "]]";
-
-/// Determine if a style property is static (immutable) or if it can change
-/// during the runtime of the program
-fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
--> Result<CssDeclaration, DynamicCssParseError<'a>>
-{
-    let key = key.trim();
-    let value = value.trim();
-
-    let is_starting_with_braces = value.starts_with(START_BRACE);
-    let is_ending_with_braces = value.ends_with(END_BRACE);
-
-    match (is_starting_with_braces, is_ending_with_braces) {
-        (true, false) | (false, true) => {
-            Err(DynamicCssParseError::UnclosedBraces)
-        },
-        (true, true) => {
-            parse_dynamic_css_property(key, value).and_then(|val| Ok(CssDeclaration::Dynamic(val)))
-        },
-        (false, false) => {
-            Ok(CssDeclaration::Static(StyleProperty::from_kv(key, value)?))
-        }
-    }
-}
-
-fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
-
-    use std::char;
-
-    // "[[ id | 400px ]]" => "id | 400px"
-    let value = value.trim_left_matches(START_BRACE);
-    let value = value.trim_right_matches(END_BRACE);
-    let value = value.trim();
-
-    let mut pipe_split = value.splitn(2, "|");
-    let dynamic_id = pipe_split.next();
-    let default_case = pipe_split.next();
-
-    // note: dynamic_id will always be Some(), which is why the
-    let (default_case, dynamic_id) = match (default_case, dynamic_id) {
-        (Some(default), Some(id)) => (default, id),
-        (None, Some(id)) => {
-            if id.trim().is_empty() {
-                return Err(DynamicCssParseError::EmptyBraces);
-            } else if StyleProperty::from_kv(key, id).is_ok() {
-                // if there is an ID, but the ID is a CSS value
-                return Err(DynamicCssParseError::NoId);
-            } else {
-                return Err(DynamicCssParseError::NoDefaultCase);
-            }
-        },
-        (None, None) | (Some(_), None) => unreachable!(), // iterator would be broken if this happened
-    };
-
-    let dynamic_id = dynamic_id.trim();
-    let default_case = default_case.trim();
-
-    match (dynamic_id.is_empty(), default_case.is_empty()) {
-        (true, true) => return Err(DynamicCssParseError::EmptyBraces),
-        (true, false) => return Err(DynamicCssParseError::NoId),
-        (false, true) => return Err(DynamicCssParseError::NoDefaultCase),
-        (false, false) => { /* everything OK */ }
-    }
-
-    if dynamic_id.starts_with(char::is_numeric) ||
-       StyleProperty::from_kv(key, dynamic_id).is_ok() {
-        return Err(DynamicCssParseError::InvalidId);
-    }
-
-    let default_case_parsed = match default_case {
-        "auto" => DynamicCssPropertyDefault::Auto,
-        other => DynamicCssPropertyDefault::Exact(StyleProperty::from_kv(key, other)?),
-    };
-
-    Ok(DynamicCssProperty {
-        dynamic_id: dynamic_id.to_string(),
-        default: default_case_parsed,
-    })
 }
 
 pub(crate) fn match_dom_css_selectors<T: Layout>(
