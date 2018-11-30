@@ -20,3 +20,9 @@ mod macros;
 mod css_parser;
 mod css;
 mod dom;
+
+pub use css::{
+    new_from_str,
+    native,
+    override_native
+};
