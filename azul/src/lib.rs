@@ -194,7 +194,8 @@ pub mod prelude {
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
-                     WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
+                     WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow,
+                     HotReloadable};
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};

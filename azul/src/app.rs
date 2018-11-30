@@ -348,7 +348,7 @@ impl<'a, T: Layout> App<'a, T> {
                 for (window_idx, window) in self.windows.iter_mut().enumerate() {
                     // Hot-reload a style if necessary
                     if let Some(ref mut hot_reloader) = window.style_loader {
-                        if Instant::now() - last_style_reload > Duration::from_millis(500) {
+                        if Instant::now() - last_style_reload > Duration::from_millis(window.reload_interval) {
                             if let Some(style) = hot_reloader.reload_style() {
                                 window.style = style;
                                 window.style.needs_relayout = true;
