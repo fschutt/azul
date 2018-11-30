@@ -20,7 +20,7 @@ pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
 // this will be substituted as the default font size
 pub(crate) const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
     metric: CssMetric::Px,
-    number: 100_000,
+    number: FloatValue { number: (100.0 * SCALE_FACTOR) as isize },
 });
 
 /// Creates `pt`, `px` and `em` constructors for any struct that has a
@@ -142,10 +142,8 @@ const SCALE_FACTOR: f32 = 10000.0;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PixelValue {
-    metric: CssMetric,
-    /// Has to be divided by 1000.0 - PixelValue needs to implement Hash,
-    /// but Hash is not possible for floating-point values
-    number: isize,
+    pub metric: CssMetric,
+    pub number: FloatValue,
 }
 
 impl PixelValue {
@@ -168,16 +166,16 @@ impl PixelValue {
     pub fn from_metric(metric: CssMetric, value: f32) -> Self {
         Self {
             metric: metric,
-            number: (value * SCALE_FACTOR) as isize,
+            number: value.into(),
         }
     }
 
     #[inline]
     pub fn to_pixels(&self) -> f32 {
         match self.metric {
-            CssMetric::Px => { self.number as f32 / SCALE_FACTOR },
-            CssMetric::Pt => { (self.number as f32 / SCALE_FACTOR) * PT_TO_PX },
-            CssMetric::Em => { (self.number as f32 / SCALE_FACTOR) * EM_HEIGHT },
+            CssMetric::Px => { self.number.get() },
+            CssMetric::Pt => { (self.number.get()) * PT_TO_PX },
+            CssMetric::Em => { (self.number.get()) * EM_HEIGHT },
         }
     }
 }
@@ -250,7 +248,7 @@ pub struct StyleBorderRadius {
 impl StyleBorderRadius {
 
     pub fn zero() -> Self {
-        const ZERO_PX: PixelValue = PixelValue { number: 0, metric: CssMetric::Px };
+        const ZERO_PX: PixelValue = PixelValue { number: FloatValue { number: (0.0 * SCALE_FACTOR) as isize }, metric: CssMetric::Px };
         Self::uniform(ZERO_PX)
     }
 
@@ -317,7 +315,7 @@ impl $struct_name {
 macro_rules! struct_all {($struct_name:ident, $field_type:ty) => (
 impl $struct_name {
     /// Sets all of the fields (top, left, right, bottom) to `Some(field)`
-    fn all(field: $field_type) -> Self {
+    pub fn all(field: $field_type) -> Self {
         Self {
             top: Some(field),
             right: Some(field),
@@ -641,7 +639,7 @@ impl DirectionCorner {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-enum BackgroundType {
+pub enum BackgroundType {
     LinearGradient,
     RepeatingLinearGradient,
     RadialGradient,
@@ -658,7 +656,7 @@ enum BackgroundType {
 /// of the original source text, i.e. the original CSS string
 /// can be deallocated after successfully parsing it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CssImageId(pub(crate) String);
+pub struct CssImageId(pub String);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GradientStopPre {
@@ -1018,7 +1016,7 @@ impl StyleFontSize {
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct StyleFontFamily {
     // fonts in order of precedence, i.e. "Webly Sleeky UI", "monospace", etc.
-    pub(crate) fonts: Vec<FontId>
+    pub fonts: Vec<FontId>
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
