@@ -640,249 +640,6 @@ pub(crate) struct CssConstraintList {
 }
 
 #[test]
-fn test_detect_static_or_dynamic_property() {
-    use css_parser::{StyleTextAlignmentHorz, InvalidValueErr};
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", " center   "),
-        Ok(CssDeclaration::Static(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[    400px ]]"),
-        Err(DynamicCssParseError::NoDefaultCase)
-    );
-
-    assert_eq!(determine_static_or_dynamic_css_property("text-align", "[[  400px"),
-        Err(DynamicCssParseError::UnclosedBraces)
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  400px | center ]]"),
-        Err(DynamicCssParseError::InvalidId)
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
-        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            default: DynamicCssPropertyDefault::Exact(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)),
-            dynamic_id: String::from("hello"),
-        }))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  hello | auto ]]"),
-        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            default: DynamicCssPropertyDefault::Auto,
-            dynamic_id: String::from("hello"),
-        }))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  abc | hello ]]"),
-        Err(DynamicCssParseError::UnexpectedValue(
-            CssParsingError::InvalidValueErr(InvalidValueErr("hello"))
-        ))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ ]]"),
-        Err(DynamicCssParseError::EmptyBraces)
-    );
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[]]"),
-        Err(DynamicCssParseError::EmptyBraces)
-    );
-
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ center ]]"),
-        Err(DynamicCssParseError::NoId)
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ hello |  ]]"),
-        Err(DynamicCssParseError::NoDefaultCase)
-    );
-
-    // debatable if this is a suitable error for this case:
-    assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ |  ]]"),
-        Err(DynamicCssParseError::EmptyBraces)
-    );
-}
-
-#[test]
-fn test_css_parse_1() {
-
-    use prelude::{ColorU, StyleBackgroundColor};
-
-    let parsed_css = AppStyle::new_from_str("
-        div#my_id .my_class:first {
-            background-color: red;
-        }
-    ").unwrap();
-
-    let expected_css = AppStyle {
-        rules: vec![
-            CssRuleBlock {
-                path: CssPath {
-                    selectors: vec![
-                        CssPathSelector::Type(NodeTypePath::Div),
-                        CssPathSelector::Id(String::from("my_id")),
-                        // NOTE: This is technically wrong, the space between "#my_id"
-                        // and ".my_class" is important, but gets ignored for now
-                        CssPathSelector::Children,
-                        CssPathSelector::Class(String::from("my_class")),
-                        CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
-                    ],
-                },
-                declarations: vec![CssDeclaration::Static(StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
-            }
-        ],
-        needs_relayout: true,
-        #[cfg(debug_assertions)]
-        hot_reload_path: None,
-        #[cfg(debug_assertions)]
-        hot_reload_override_native: false,
-    };
-
-    assert_eq!(parsed_css, expected_css);
-}
-
-#[test]
-fn test_css_simple_selector_parse() {
-    use self::CssPathSelector::*;
-    let css = "div#id.my_class > p .new { }";
-    let parsed = vec![
-        Type(NodeTypePath::Div),
-        Id("id".into()),
-        Class("my_class".into()),
-        DirectChildren,
-        Type(NodeTypePath::P),
-        Children,
-        Class("new".into())
-    ];
-    assert_eq!(Css::new_from_str(css).unwrap(), Css {
-        rules: vec![CssRuleBlock {
-            path: CssPath { selectors: parsed },
-            declarations: Vec::new(),
-        }],
-        needs_relayout: true,
-        #[cfg(debug_assertions)]
-        hot_reload_path: None,
-        #[cfg(debug_assertions)]
-        hot_reload_override_native: false,
-    });
-}
-
-#[cfg(test)]
-mod cascade_tests {
-
-    use prelude::*;
-    use super::*;
-
-    const RED: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-    const BLUE: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
-    const BLACK: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
-
-    fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<StyleProperty>) {
-
-        use id_tree::Node;
-
-        // Unimportant boilerplate
-        struct Data { }
-
-        impl Layout for Data { fn layout(&self) -> Dom<Self> { Dom::new(NodeType::Div) } }
-
-        let css = AppStyle::new_from_str(css).unwrap();
-        let ids_str = ids.into_iter().map(|x| x.to_string()).collect();
-        let class_str = classes.into_iter().map(|x| x.to_string()).collect();
-        let node_data: NodeData<Data> = NodeData {
-            node_type: NodeType::Div,
-            ids: ids_str,
-            classes: class_str,
-            .. Default::default()
-        };
-
-        let test_node = NodeDataContainer { internal: vec![HtmlCascadeInfo {
-            node_data: &node_data,
-            index_in_parent: 0,
-            is_hovered_over: false,
-            is_focused: false,
-            is_last_child: false,
-            is_active: false,
-        }] };
-
-        let mut test_node_rules = Vec::new();
-        let node_layout = NodeHierarchy { internal: vec![Node::default()]};
-
-        for applying_rule in css.rules.iter().filter(|rule| {
-            rule.path.matches_html_element(NodeId::new(0), &node_layout, &test_node)
-        }) {
-            test_node_rules.extend(applying_rule.declarations.clone());
-        }
-
-        let expected_rules: Vec<CssDeclaration> = expected.into_iter().map(|x| CssDeclaration::Static(x)).collect();
-        assert_eq!(test_node_rules, expected_rules);
-    }
-
-    // Tests that an element with a single class always gets the CSS element applied properly
-    #[test]
-    fn test_apply_css_pure_class() {
-        // Test that single elements are applied properly
-        let css_1 = "
-            .my_class { background-color: red; }
-        ";
-
-        // .my_class = red
-        test_css(css_1, vec![], vec!["my_class"], vec![RED.clone()]);
-        // .my_class#my_id = still red, my_id doesn't do anything
-        test_css(css_1, vec!["my_id"], vec!["my_class"], vec![RED.clone()]);
-        // #my_id = no color (unmatched)
-        test_css(css_1, vec!["my_id"], vec![], vec![]);
-    }
-
-    // Test that the ID overwrites the class (higher specificy)
-    #[test]
-    fn test_id_overrides_class() {
-        let css_2 = "
-            #my_id { background-color: red; }
-            .my_class { background-color: blue; }
-        ";
-
-        // "" = no color
-        test_css(css_2, vec![], vec![], vec![]);
-        // "#my_id" = red
-        test_css(css_2, vec!["my_id"], vec![], vec![RED.clone()]);
-        // ".my_class#my_id" = red (will overwrite blue later on)
-        test_css(css_2, vec!["my_id"], vec!["my_class"], vec![BLUE.clone(), RED.clone()]);
-        // ".my_class" = blue
-        test_css(css_2, vec![], vec!["my_class"], vec![BLUE.clone()]);
-    }
-
-    // Test that the global * operator is respected as a fallback if no selector matches
-    #[test]
-    fn test_global_operator_as_fallback() {
-        let css_3 = "
-            * { background-color: black; }
-            .my_class#my_id { background-color: red; }
-            .my_class { background-color: blue; }
-        ";
-
-        // "" = black, since * operator is present
-        test_css(css_3, vec![], vec![], vec![BLACK.clone()]);
-        // "#my_id" alone doesn't match anything, only ".my_class#my_id" should match
-        test_css(css_3, vec!["my_id"], vec![], vec![BLACK.clone()]);
-        // ".my_class" = black (because of global operator), then blue
-        test_css(css_3, vec![], vec!["my_class"], vec![BLACK.clone(), BLUE.clone()]);
-        // ".my_class#my_id" = red (because .my_class#my_id = red)
-        test_css(css_3, vec!["my_id"], vec!["my_class"], vec![BLACK.clone(), BLUE.clone(), RED.clone()]);
-        // ".my_class" = blue (because .my_class = blue)
-        test_css(css_3, vec![], vec!["my_class"], vec![BLACK.clone(), BLUE.clone()]);
-    }
-}
-
-#[test]
 fn test_specificity() {
     use self::CssPathSelector::*;
     assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
@@ -898,15 +655,25 @@ fn test_specificity_sort() {
     use self::CssPathSelector::*;
     use dom::NodeTypePath::*;
 
-    let parsed_css = AppStyle::new_from_str("
-        * { }
-        * div.my_class#my_id { }
-        * div#my_id { }
-        * #my_id { }
-        div.my_class.specific#my_id { }
-    ").unwrap();
+    let mut input_style = AppStyle {
+        rules: vec![
+            // Rules are sorted from lowest-specificity to highest specificity
+            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        ],
+        needs_relayout: true,
+        #[cfg(debug_assertions)]
+        hot_reload_path: None,
+        #[cfg(debug_assertions)]
+        hot_reload_override_native: false,
+    };
 
-    let expected_css = AppStyle {
+    input_style.sort_by_specificity();
+
+    let expected_style = AppStyle {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
             CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
@@ -922,5 +689,5 @@ fn test_specificity_sort() {
         hot_reload_override_native: false,
     };
 
-    assert_eq!(parsed_css, expected_css);
+    assert_eq!(input_style, expected_style);
 }

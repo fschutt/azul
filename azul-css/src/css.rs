@@ -858,6 +858,32 @@ fn test_css_parse_1() {
     assert_eq!(parsed_css, expected_css);
 }
 
+#[test]
+fn test_css_simple_selector_parse() {
+    use self::CssPathSelector::*;
+    let css = "div#id.my_class > p .new { }";
+    let parsed = vec![
+        Type(NodeTypePath::Div),
+        Id("id".into()),
+        Class("my_class".into()),
+        DirectChildren,
+        Type(NodeTypePath::P),
+        Children,
+        Class("new".into())
+    ];
+    assert_eq!(Css::new_from_str(css).unwrap(), Css {
+        rules: vec![CssRuleBlock {
+            path: CssPath { selectors: parsed },
+            declarations: Vec::new(),
+        }],
+        needs_relayout: true,
+        #[cfg(debug_assertions)]
+        hot_reload_path: None,
+        #[cfg(debug_assertions)]
+        hot_reload_override_native: false,
+    });
+}
+
 #[cfg(test)]
 mod cascade_tests {
 
