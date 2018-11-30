@@ -9,8 +9,8 @@ use {
     id_tree::{Arena, NodeId},
     traits::Layout,
     dom::Dom,
-    css_parser::ParsedCssProperty,
-    css::{Css, CssConstraintList},
+    css_parser::StyleProperty,
+    css::{AppStyle, CssConstraintList},
     dom::NodeData,
     ui_state::UiState,
 };
@@ -27,8 +27,8 @@ pub struct UiDescription<T: Layout> {
     /// and the reference to that style has to live as least as long as the `self.styled_nodes`
     /// This is why we need this field here
     pub(crate) default_style_of_node: StyledNode,
-    /// The CSS properties that should be overridden for this frame, cloned from the `Css`
-    pub(crate) dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, ParsedCssProperty>>,
+    /// The style properties that should be overridden for this frame, cloned from the `AppStyle`
+    pub(crate) dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiDescription<T> {
@@ -65,17 +65,17 @@ impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
-        Self::from_dom(&UiState::from_dom(default_dom), &Css::default())
+        Self::from_dom(&UiState::from_dom(default_dom), &AppStyle::default())
     }
 }
 
 impl<T: Layout> UiDescription<T> {
-    /// Applies the CSS styles to the nodes calculated from the `layout_screen`
+    /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn from_dom(ui_state: &UiState<T>, css: &Css) -> Self
+    pub fn from_dom(ui_state: &UiState<T>, style: &AppStyle) -> Self
     {
-        ::css::match_dom_css_selectors(ui_state, &css)
+        ::css::match_dom_css_selectors(ui_state, &style)
     }
 }
 

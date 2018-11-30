@@ -30,7 +30,7 @@ use {
     FastHashMap,
     dom::{Texture, On, Callback},
     daemon::{Daemon, DaemonId},
-    css::Css,
+    css::AppStyle,
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
     compositor::Compositor,
@@ -549,19 +549,19 @@ pub struct Window<T: Layout> {
     pub(crate) scroll_states: ScrollStates,
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
-    /// The css (how the current window is styled)
-    pub(crate) css: Css,
+    /// The style applied to the current window
+    pub(crate) style: AppStyle,
     /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`
     /// of the `WindowCreateOptions`, so that we can write:
     ///
     /// ```rust,ignore
-    /// app.run(Window::new(WindowCreateOptions::new(), Css::native()).unwrap());
+    /// app.run(Window::new(WindowCreateOptions::new(), AppStyle::native()).unwrap());
     /// ```
     ///
     /// instead of having to annotate the type:
     ///
     /// ```rust,ignore
-    /// app.run(Window::new(WindowCreateOptions::<MyAppData>::new(), Css::native()).unwrap());
+    /// app.run(Window::new(WindowCreateOptions::<MyAppData>::new(), AppStyle::native()).unwrap());
     /// ```
     marker: PhantomData<T>,
 }
@@ -658,7 +658,7 @@ pub(crate) struct WindowInternal {
 impl<T: Layout> Window<T> {
 
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, css: Css) -> Result<Self, WindowCreateError>  {
+    pub fn new(mut options: WindowCreateOptions<T>, style: AppStyle) -> Result<Self, WindowCreateError>  {
 
         use self::RendererType::*;
         use webrender::WrShaders;
@@ -848,7 +848,7 @@ impl<T: Layout> Window<T> {
             state: options.state,
             renderer: Some(renderer),
             display: Rc::new(display),
-            css: css,
+            style: style,
             animations: FastHashMap::default(),
             scroll_states: ScrollStates::new(),
             internal: WindowInternal {

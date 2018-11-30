@@ -71,9 +71,9 @@ macro_rules! impl_pixel_value {($struct:ident) => (
     }
 )}
 
-/// A successfully parsed CSS property
+/// A property that can be used to style DOM nodes
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ParsedCssProperty {
+pub enum StyleProperty {
     BorderRadius(StyleBorderRadius),
     BackgroundColor(StyleBackgroundColor),
     TextColor(StyleTextColor),
@@ -109,10 +109,10 @@ pub enum ParsedCssProperty {
     Overflow(LayoutOverflow),
 }
 
-impl ParsedCssProperty {
+impl StyleProperty {
     /// Returns whether this property will be inherited during cascading
     pub fn is_inheritable(&self) -> bool {
-        use self::ParsedCssProperty::*;
+        use self::StyleProperty::*;
         match self {
             | TextColor(_)
             | FontFamily(_)
@@ -124,44 +124,44 @@ impl ParsedCssProperty {
     }
 }
 
-impl_from!(StyleBorderRadius, ParsedCssProperty::BorderRadius);
-impl_from!(StyleBackground, ParsedCssProperty::Background);
-impl_from!(StyleBoxShadow, ParsedCssProperty::BoxShadow);
-impl_from!(StyleBorder, ParsedCssProperty::Border);
-impl_from!(StyleFontSize, ParsedCssProperty::FontSize);
-impl_from!(StyleFontFamily, ParsedCssProperty::FontFamily);
-impl_from!(StyleTextAlignmentHorz, ParsedCssProperty::TextAlign);
-impl_from!(StyleLineHeight, ParsedCssProperty::LineHeight);
-impl_from!(StyleLetterSpacing, ParsedCssProperty::LetterSpacing);
-impl_from!(StyleBackgroundColor, ParsedCssProperty::BackgroundColor);
-impl_from!(StyleTextColor, ParsedCssProperty::TextColor);
+impl_from!(StyleBorderRadius, StyleProperty::BorderRadius);
+impl_from!(StyleBackground, StyleProperty::Background);
+impl_from!(StyleBoxShadow, StyleProperty::BoxShadow);
+impl_from!(StyleBorder, StyleProperty::Border);
+impl_from!(StyleFontSize, StyleProperty::FontSize);
+impl_from!(StyleFontFamily, StyleProperty::FontFamily);
+impl_from!(StyleTextAlignmentHorz, StyleProperty::TextAlign);
+impl_from!(StyleLineHeight, StyleProperty::LineHeight);
+impl_from!(StyleLetterSpacing, StyleProperty::LetterSpacing);
+impl_from!(StyleBackgroundColor, StyleProperty::BackgroundColor);
+impl_from!(StyleTextColor, StyleProperty::TextColor);
 
-impl_from!(LayoutOverflow, ParsedCssProperty::Overflow);
-impl_from!(LayoutWidth, ParsedCssProperty::Width);
-impl_from!(LayoutHeight, ParsedCssProperty::Height);
-impl_from!(LayoutMinWidth, ParsedCssProperty::MinWidth);
-impl_from!(LayoutMinHeight, ParsedCssProperty::MinHeight);
-impl_from!(LayoutMaxWidth, ParsedCssProperty::MaxWidth);
-impl_from!(LayoutMaxHeight, ParsedCssProperty::MaxHeight);
+impl_from!(LayoutOverflow, StyleProperty::Overflow);
+impl_from!(LayoutWidth, StyleProperty::Width);
+impl_from!(LayoutHeight, StyleProperty::Height);
+impl_from!(LayoutMinWidth, StyleProperty::MinWidth);
+impl_from!(LayoutMinHeight, StyleProperty::MinHeight);
+impl_from!(LayoutMaxWidth, StyleProperty::MaxWidth);
+impl_from!(LayoutMaxHeight, StyleProperty::MaxHeight);
 
-impl_from!(LayoutPosition, ParsedCssProperty::Position);
-impl_from!(LayoutTop, ParsedCssProperty::Top);
-impl_from!(LayoutBottom, ParsedCssProperty::Bottom);
-impl_from!(LayoutRight, ParsedCssProperty::Right);
-impl_from!(LayoutLeft, ParsedCssProperty::Left);
+impl_from!(LayoutPosition, StyleProperty::Position);
+impl_from!(LayoutTop, StyleProperty::Top);
+impl_from!(LayoutBottom, StyleProperty::Bottom);
+impl_from!(LayoutRight, StyleProperty::Right);
+impl_from!(LayoutLeft, StyleProperty::Left);
 
-impl_from!(LayoutPadding, ParsedCssProperty::Padding);
-impl_from!(LayoutMargin, ParsedCssProperty::Margin);
+impl_from!(LayoutPadding, StyleProperty::Padding);
+impl_from!(LayoutMargin, StyleProperty::Margin);
 
-impl_from!(LayoutWrap, ParsedCssProperty::FlexWrap);
-impl_from!(LayoutDirection, ParsedCssProperty::FlexDirection);
-impl_from!(LayoutFlexGrow, ParsedCssProperty::FlexGrow);
-impl_from!(LayoutFlexShrink, ParsedCssProperty::FlexShrink);
-impl_from!(LayoutJustifyContent, ParsedCssProperty::JustifyContent);
-impl_from!(LayoutAlignItems, ParsedCssProperty::AlignItems);
-impl_from!(LayoutAlignContent, ParsedCssProperty::AlignContent);
+impl_from!(LayoutWrap, StyleProperty::FlexWrap);
+impl_from!(LayoutDirection, StyleProperty::FlexDirection);
+impl_from!(LayoutFlexGrow, StyleProperty::FlexGrow);
+impl_from!(LayoutFlexShrink, StyleProperty::FlexShrink);
+impl_from!(LayoutJustifyContent, StyleProperty::JustifyContent);
+impl_from!(LayoutAlignItems, StyleProperty::AlignItems);
+impl_from!(LayoutAlignContent, StyleProperty::AlignContent);
 
-impl ParsedCssProperty {
+impl StyleProperty {
 
     /// Main parsing function, takes a stringified key / value pair and either
     /// returns the parsed value or an error
@@ -169,8 +169,8 @@ impl ParsedCssProperty {
     /// ```rust
     /// # use azul::prelude::*;
     /// assert_eq!(
-    ///     ParsedCssProperty::from_kv("width", "500px"),
-    ///     Ok(ParsedCssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
+    ///     StyleProperty::from_kv("width", "500px"),
+    ///     Ok(StyleProperty::Width(LayoutWidth(PixelValue::px(500.0))))
     /// )
     /// ```
     pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<Self, CssParsingError<'a>> {

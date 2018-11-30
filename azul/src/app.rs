@@ -326,7 +326,7 @@ impl<T: Layout> App<T> {
                     // Style the DOM
                     ui_description_cache[idx] = UiDescription::from_dom(
                         &ui_state_cache[idx],
-                        &window.css,
+                        &window.style,
                     );
 
                     // render the window (webrender will send an Awakened event when the frame is done)
@@ -347,9 +347,9 @@ impl<T: Layout> App<T> {
             #[cfg(debug_assertions)] {
                 for (window_idx, window) in self.windows.iter_mut().enumerate() {
                     // Hot-reload CSS if necessary
-                    if window.css.hot_reload_path.is_some() && (Instant::now() - last_css_reload) > Duration::from_millis(500) {
-                        window.css.reload_css();
-                        window.css.needs_relayout = true;
+                    if window.style.hot_reload_path.is_some() && (Instant::now() - last_css_reload) > Duration::from_millis(500) {
+                        window.style.reload_css();
+                        window.style.needs_relayout = true;
                         last_css_reload = Instant::now();
                         window.events_loop.create_proxy().wakeup().unwrap_or(());
                         awakened_task[window_idx] = true;

@@ -7,7 +7,7 @@ use std::{
     num::ParseIntError,
 };
 use {
-    css_parser::{ParsedCssProperty, CssParsingError},
+    css_parser::{StyleProperty, CssParsingError},
     error::CssSyntaxError,
     traits::Layout,
     ui_description::{UiDescription, StyledNode},
@@ -19,7 +19,7 @@ use {
 /// Wrapper for a `Vec<CssRule>` - the CSS is immutable at runtime, it can only be
 /// created once. Animations / conditional styling is implemented using dynamic fields
 #[derive(Debug, Default, PartialEq, Clone)]
-pub struct Css {
+pub struct AppStyle {
     /// Path to hot-reload the CSS file from
     #[cfg(debug_assertions)]
     pub hot_reload_path: Option<String>,
@@ -78,7 +78,7 @@ impl_from! { NodeTypePathParseError<'a>, CssParseError::NodeTypePath }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
-    Static(ParsedCssProperty),
+    Static(StyleProperty),
     /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
     Dynamic(DynamicCssProperty),
 }
@@ -136,7 +136,7 @@ pub struct DynamicCssProperty {
 /// available in the parent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DynamicCssPropertyDefault  {
-    Exact(ParsedCssProperty),
+    Exact(StyleProperty),
     Auto,
 }
 
@@ -169,7 +169,7 @@ pub struct CssRuleBlock {
     /// The path (full selector) of the CSS block
     pub path: CssPath,
     /// `"justify-content: center"` =>
-    /// `CssDeclaration::Static(ParsedCssProperty::JustifyContent(LayoutJustifyContent::Center))`
+    /// `CssDeclaration::Static(StyleProperty::JustifyContent(LayoutJustifyContent::Center))`
     pub declarations: Vec<CssDeclaration>,
 }
 
@@ -576,7 +576,7 @@ fn test_css_pseudo_selector_parse() {
     }
 }
 
-impl Css {
+impl AppStyle {
     /// Sort the CSS rules by their weight, so that the rules are applied in the correct order
     pub fn sort_by_specificity(&mut self) {
         self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
@@ -682,7 +682,7 @@ fn get_specificity(path: &CssPath) -> (usize, usize, usize) {
     (id_count, class_count, div_count)
 }
 
-/// Error that can happen during `ParsedCssProperty::from_kv`
+/// Error that can happen during `StyleProperty::from_kv`
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynamicCssParseError<'a> {
     /// The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `
@@ -717,7 +717,7 @@ impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
 const START_BRACE: &str = "[[";
 const END_BRACE: &str = "]]";
 
-/// Determine if a Css property is static (immutable) or if it can change
+/// Determine if a style property is static (immutable) or if it can change
 /// during the runtime of the program
 fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 -> Result<CssDeclaration, DynamicCssParseError<'a>>
@@ -736,7 +736,7 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
             parse_dynamic_css_property(key, value).and_then(|val| Ok(CssDeclaration::Dynamic(val)))
         },
         (false, false) => {
-            Ok(CssDeclaration::Static(ParsedCssProperty::from_kv(key, value)?))
+            Ok(CssDeclaration::Static(StyleProperty::from_kv(key, value)?))
         }
     }
 }
@@ -760,7 +760,7 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
         (None, Some(id)) => {
             if id.trim().is_empty() {
                 return Err(DynamicCssParseError::EmptyBraces);
-            } else if ParsedCssProperty::from_kv(key, id).is_ok() {
+            } else if StyleProperty::from_kv(key, id).is_ok() {
                 // if there is an ID, but the ID is a CSS value
                 return Err(DynamicCssParseError::NoId);
             } else {
@@ -781,13 +781,13 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
     }
 
     if dynamic_id.starts_with(char::is_numeric) ||
-       ParsedCssProperty::from_kv(key, dynamic_id).is_ok() {
+       StyleProperty::from_kv(key, dynamic_id).is_ok() {
         return Err(DynamicCssParseError::InvalidId);
     }
 
     let default_case_parsed = match default_case {
         "auto" => DynamicCssPropertyDefault::Auto,
-        other => DynamicCssPropertyDefault::Exact(ParsedCssProperty::from_kv(key, other)?),
+        other => DynamicCssPropertyDefault::Exact(StyleProperty::from_kv(key, other)?),
     };
 
     Ok(DynamicCssProperty {
@@ -798,7 +798,7 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
 
 pub(crate) fn match_dom_css_selectors<T: Layout>(
     ui_state: &UiState<T>,
-    css: &Css)
+    css: &AppStyle)
 -> UiDescription<T>
 {
     use ui_solver::get_non_leaf_nodes_sorted_by_depth;
@@ -877,7 +877,7 @@ fn test_detect_static_or_dynamic_property() {
     use css_parser::{StyleTextAlignmentHorz, InvalidValueErr};
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
-        Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center)))
+        Ok(CssDeclaration::Static(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)))
     );
 
     assert_eq!(
@@ -897,7 +897,7 @@ fn test_detect_static_or_dynamic_property() {
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            default: DynamicCssPropertyDefault::Exact(ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
+            default: DynamicCssPropertyDefault::Exact(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)),
             dynamic_id: String::from("hello"),
         }))
     );
@@ -949,13 +949,13 @@ fn test_css_parse_1() {
 
     use prelude::{ColorU, StyleBackgroundColor};
 
-    let parsed_css = Css::new_from_str("
+    let parsed_css = AppStyle::new_from_str("
         div#my_id .my_class:first {
             background-color: red;
         }
     ").unwrap();
 
-    let expected_css = Css {
+    let expected_css = AppStyle {
         rules: vec![
             CssRuleBlock {
                 path: CssPath {
@@ -969,7 +969,7 @@ fn test_css_parse_1() {
                         CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
                     ],
                 },
-                declarations: vec![CssDeclaration::Static(ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
+                declarations: vec![CssDeclaration::Static(StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
             }
         ],
         needs_relayout: true,
@@ -1018,7 +1018,7 @@ mod cascade_tests {
     const BLUE: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
     const BLACK: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
 
-    fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<ParsedCssProperty>) {
+    fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<StyleProperty>) {
 
         use id_tree::Node;
 
@@ -1027,7 +1027,7 @@ mod cascade_tests {
 
         impl Layout for Data { fn layout(&self) -> Dom<Self> { Dom::new(NodeType::Div) } }
 
-        let css = Css::new_from_str(css).unwrap();
+        let css = AppStyle::new_from_str(css).unwrap();
         let ids_str = ids.into_iter().map(|x| x.to_string()).collect();
         let class_str = classes.into_iter().map(|x| x.to_string()).collect();
         let node_data: NodeData<Data> = NodeData {
@@ -1131,7 +1131,7 @@ fn test_specificity_sort() {
     use self::CssPathSelector::*;
     use dom::NodeTypePath::*;
 
-    let parsed_css = Css::new_from_str("
+    let parsed_css = AppStyle::new_from_str("
         * { }
         * div.my_class#my_id { }
         * div#my_id { }
@@ -1139,7 +1139,7 @@ fn test_specificity_sort() {
         div.my_class.specific#my_id { }
     ").unwrap();
 
-    let expected_css = Css {
+    let expected_css = AppStyle {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
             CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
