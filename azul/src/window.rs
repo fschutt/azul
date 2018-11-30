@@ -673,7 +673,7 @@ pub(crate) struct WindowInternal {
 
 impl<'a, T: Layout> Window<'a, T> {
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, style: AppStyle) -> Result<Self, WindowCreateError> {
+    pub fn new(mut options: WindowCreateOptions<T>, mut style: AppStyle) -> Result<Self, WindowCreateError> {
 
         use self::RendererType::*;
         use webrender::WrShaders;
@@ -857,6 +857,8 @@ impl<'a, T: Layout> Window<'a, T> {
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
         set_webrender_debug_flags(&mut renderer, &DebugState::default(), &options.state.debug_state);
+
+        style.sort_by_specificity();
 
         let window = Window {
             events_loop: events_loop,

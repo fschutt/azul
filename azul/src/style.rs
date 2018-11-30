@@ -442,16 +442,17 @@ impl AppStyle {
         Default::default()
     }
 
-    /// Sort the CSS rules by their weight, so that the rules are applied in the correct order
-    pub fn sort_by_specificity(&mut self) {
-        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
-    }
-
     // Combines two parsed stylesheets into one, appending the rules of
     // `other` after the rules of `self`.
     pub fn merge(&mut self, mut other: Self) {
         self.rules.append(&mut other.rules);
         self.needs_relayout = self.needs_relayout || other.needs_relayout;
+    }
+
+    /// Sort the style rules by their weight, so that the rules are applied in the correct order.
+    /// Should always be called when a new style is loaded from an external source.
+    pub(crate) fn sort_by_specificity(&mut self) {
+        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
     }
 }
 
