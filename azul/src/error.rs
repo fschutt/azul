@@ -1,7 +1,7 @@
 pub use app::RuntimeError;
-pub use css::{CssParseError, DynamicCssParseError};
+pub use style::{CssParseError, DynamicCssParseError};
 #[cfg(debug_assertions)]
-pub use css::HotReloadError;
+pub use style::HotReloadError;
 pub use css_parser::{
     CssBackgroundParseError, CssBorderParseError, CssStyleBorderRadiusParseError, CssColorParseError,
     CssDirectionParseError, CssStyleFontFamilyParseError, CssGradientStopParseError, CssImageParseError,

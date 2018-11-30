@@ -18,7 +18,7 @@ use {
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
-    css::AppStyle,
+    style::AppStyle,
     css_parser::*,
     dom::{
         IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
@@ -1914,12 +1914,12 @@ fn populate_css_properties(
         }
     }
 
-    use css::DynamicCssPropertyDefault;
+    use style::DynamicCssPropertyDefault;
 
     // Assert that the types of two properties matches
     fn property_type_matches(a: &StyleProperty, b: &DynamicCssPropertyDefault) -> bool {
         use std::mem::discriminant;
-        use css::DynamicCssPropertyDefault::*;
+        use style::DynamicCssPropertyDefault::*;
         match b {
             Exact(e) => discriminant(a) == discriminant(e),
             Auto => true, // "auto" always matches
@@ -1928,7 +1928,7 @@ fn populate_css_properties(
 
     // Apply / static / dynamic properties
     for constraint in &rect.styled_node.css_constraints.list {
-        use css::CssDeclaration::*;
+        use style::CssDeclaration::*;
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {

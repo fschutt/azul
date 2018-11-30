@@ -10,7 +10,7 @@ use {
     traits::Layout,
     dom::Dom,
     css_parser::StyleProperty,
-    css::{AppStyle, CssConstraintList},
+    style::{AppStyle, CssConstraintList},
     dom::NodeData,
     ui_state::UiState,
 };
@@ -75,7 +75,7 @@ impl<T: Layout> UiDescription<T> {
     /// renderer.
     pub fn from_dom(ui_state: &UiState<T>, style: &AppStyle) -> Self
     {
-        ::css::match_dom_css_selectors(ui_state, &style)
+        ::style::match_dom_css_selectors(ui_state, &style)
     }
 }
 

@@ -30,7 +30,7 @@ use {
     FastHashMap,
     dom::{Texture, On, Callback},
     daemon::{Daemon, DaemonId},
-    css::AppStyle,
+    style::AppStyle,
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
     compositor::Compositor,
