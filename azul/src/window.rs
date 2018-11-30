@@ -525,7 +525,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window<T: Layout> {
+pub struct Window<'a, T: Layout> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     /// Current state of the window, stores the keyboard / mouse state,
@@ -551,6 +551,10 @@ pub struct Window<T: Layout> {
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The style applied to the current window
     pub(crate) style: AppStyle,
+    /// An optional style hot-reloader for the current window, only available with debug_assertions
+    /// enabled
+    #[cfg(debug_assertions)]
+    pub(crate) style_loader: Option<&'a mut dyn HotReloadable>,
     /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`
     /// of the `WindowCreateOptions`, so that we can write:
     ///
@@ -564,6 +568,16 @@ pub struct Window<T: Layout> {
     /// app.run(Window::new(WindowCreateOptions::<MyAppData>::new(), AppStyle::native()).unwrap());
     /// ```
     marker: PhantomData<T>,
+}
+
+/// Public interface that can be used to reload an AppStyle while an application is running. This
+/// is useful for quickly iterating over different styles during development -- you can load from
+/// a file, from an online source, or perhaps even from an AI style generator!
+///
+/// This trait is only available when debug_assertions are enabled.
+#[cfg(debug_assertions)]
+pub trait HotReloadable {
+    fn reload_style(&mut self) -> Option<AppStyle>;
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -655,10 +669,9 @@ pub(crate) struct WindowInternal {
     pub(crate) document_id: DocumentId,
 }
 
-impl<T: Layout> Window<T> {
-
+impl<'a, T: Layout> Window<'a, T> {
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, style: AppStyle) -> Result<Self, WindowCreateError>  {
+    pub fn new(mut options: WindowCreateOptions<T>, style: AppStyle) -> Result<Self, WindowCreateError> {
 
         use self::RendererType::*;
         use webrender::WrShaders;
@@ -849,6 +862,8 @@ impl<T: Layout> Window<T> {
             renderer: Some(renderer),
             display: Rc::new(display),
             style: style,
+            #[cfg(debug_assertions)]
+            style_loader: None,
             animations: FastHashMap::default(),
             scroll_states: ScrollStates::new(),
             internal: WindowInternal {
@@ -862,6 +877,17 @@ impl<T: Layout> Window<T> {
             marker: PhantomData,
         };
 
+        Ok(window)
+    }
+
+    /// Creates a new window that will automatically load a new style from a HotReloadable source
+    /// at regular intervals.
+    ///
+    /// Only available with debug_assertions enabled.
+    #[cfg(debug_assertions)]
+    pub fn new_hot_reload(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: &'a mut dyn HotReloadable) -> Result<Self, WindowCreateError>  {
+        let mut window = Window::new(options, base_style)?;
+        window.style_loader = Some(style_loader);
         Ok(window)
     }
 
@@ -970,7 +996,7 @@ pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateEr
     }
 }
 
-impl<T: Layout> Drop for Window<T> {
+impl<'a, T: Layout> Drop for Window<'a, T> {
     fn drop(&mut self) {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();
