@@ -437,6 +437,11 @@ pub enum CssPathPseudoSelector {
 }
 
 impl AppStyle {
+    /// Creates a new AppStyle with no style rules.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     /// Sort the CSS rules by their weight, so that the rules are applied in the correct order
     pub fn sort_by_specificity(&mut self) {
         self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));

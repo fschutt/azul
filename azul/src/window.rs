@@ -555,6 +555,8 @@ pub struct Window<'a, T: Layout> {
     /// enabled
     #[cfg(debug_assertions)]
     pub(crate) style_loader: Option<&'a mut dyn HotReloadable>,
+    #[cfg(debug_assertions)]
+    pub(crate) reload_interval: u64,
     /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`
     /// of the `WindowCreateOptions`, so that we can write:
     ///
@@ -864,6 +866,8 @@ impl<'a, T: Layout> Window<'a, T> {
             style: style,
             #[cfg(debug_assertions)]
             style_loader: None,
+            #[cfg(debug_assertions)]
+            reload_interval: 500,
             animations: FastHashMap::default(),
             scroll_states: ScrollStates::new(),
             internal: WindowInternal {
@@ -881,13 +885,24 @@ impl<'a, T: Layout> Window<'a, T> {
     }
 
     /// Creates a new window that will automatically load a new style from a HotReloadable source
-    /// at regular intervals.
+    /// every 500ms.
     ///
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
     pub fn new_hot_reload(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: &'a mut dyn HotReloadable) -> Result<Self, WindowCreateError>  {
         let mut window = Window::new(options, base_style)?;
         window.style_loader = Some(style_loader);
+        Ok(window)
+    }
+
+    /// Creates a new window that will automatically load a new style from a HotReloadable source
+    /// at the specified interval.
+    ///
+    /// Only available with debug_assertions enabled.
+    #[cfg(debug_assertions)]
+    pub fn new_hot_reload_interval(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: &'a mut dyn HotReloadable, interval_millis: u64) -> Result<Self, WindowCreateError>  {
+        let mut window = Window::new_hot_reload(options, base_style, style_loader)?;
+        window.reload_interval = interval_millis;
         Ok(window)
     }
 
