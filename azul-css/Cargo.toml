@@ -1,0 +1,31 @@
+[package]
+name = "azul-css"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+description = '''
+    CSS-compatible parser for the Azul GUI framework
+'''
+documentation = "https://docs.rs/azul"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user interface", "svg", "graphics", "css" ]
+categories = ["gui"]
+license = "MIT"
+repository = "https://github.com/maps4print/azul"
+readme = "README.md"
+exclude = ["assets/*", "doc/*", "examples/*"]
+autoexamples = false
+
+[dependencies]
+azul                    = { path = "../azul",   default-features = false }
+simplecss               = { version = "0.1.0",  default-features = false }
+euclid                  = { version = "0.19",   default-features = false }
+app_units               = { version = "0.7",    default-features = false } # TODO: Remove once webrender PR is merged
+
+# Windows: Use nativefiledialog because of better Unicode support for file browsers
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+nfd = { version = "0.0.4", default-features = false }
+webrender = { git = "https://github.com/servo/webrender", rev = "92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5", default-features = false }
+
+# Linux: Use webrender with freetype feature enabled
+[target.'cfg(target_os = "linux")'.dependencies]
+webrender = { git = "https://github.com/servo/webrender", rev = "92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5" }

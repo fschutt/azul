@@ -2,4 +2,5 @@
 
 members = [
     "azul",
+    "azul-css",
 ]
