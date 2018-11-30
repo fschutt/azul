@@ -10,7 +10,7 @@ use {
     app_state::AppState,
     id_tree::NodeId,
     dom::TagId,
-    css_parser::ParsedCssProperty,
+    css_parser::StyleProperty,
     default_callbacks::DefaultCallbackId,
 };
 
@@ -22,7 +22,7 @@ pub struct UiState<T: Layout> {
     pub node_ids_to_tag_ids: BTreeMap<NodeId, TagId>,
     pub tag_ids_to_node_ids: BTreeMap<TagId, NodeId>,
     /// The CSS properties that should be overridden for this frame, cloned from the `Css`
-    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, ParsedCssProperty>>,
+    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {

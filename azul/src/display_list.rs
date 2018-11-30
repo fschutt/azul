@@ -18,7 +18,7 @@ use {
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
-    css::Css,
+    css::AppStyle,
     css_parser::*,
     dom::{
         IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
@@ -259,7 +259,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 node_data: node_data,
                 render_api: &window.internal.api,
                 display_rectangle_arena: &self.rectangles,
-                parsed_css: &window.css,
+                app_style: &window.style,
                 word_cache: &word_cache,
             },
             &mut DisplayListParametersMut {
@@ -831,7 +831,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     use webrender::api::BorderRadius;
 
     let DisplayListParametersRef {
-        render_api, parsed_css,
+        render_api, app_style,
         display_rectangle_arena, word_cache, pipeline_id,
         node_hierarchy, node_data,
     } = referenced_content;
@@ -1102,7 +1102,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     }
 
     let ui_state = UiState::from_dom(new_dom);
-    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.parsed_css);
+    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.app_style);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     let arena = ui_description.ui_descr_arena.borrow();
@@ -1166,7 +1166,7 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
     pub node_hierarchy: &'e NodeHierarchy,
     pub node_data: &'a NodeDataContainer<NodeData<T>>,
     /// The CSS that should be applied to the DOM
-    pub parsed_css: &'b Css,
+    pub app_style: &'b AppStyle,
     /// Necessary to push
     pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
@@ -1869,11 +1869,11 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
 fn populate_css_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
-    css_overrides: &BTreeMap<NodeId, FastHashMap<String, ParsedCssProperty>>)
+    css_overrides: &BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
 {
-    use css_parser::ParsedCssProperty::{self, *};
+    use css_parser::StyleProperty::{self, *};
 
-    fn apply_parsed_css_property(rect: &mut DisplayRectangle, property: &ParsedCssProperty) {
+    fn apply_style_property(rect: &mut DisplayRectangle, property: &StyleProperty) {
         match property {
             BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
             BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
@@ -1917,7 +1917,7 @@ fn populate_css_properties(
     use css::DynamicCssPropertyDefault;
 
     // Assert that the types of two properties matches
-    fn property_type_matches(a: &ParsedCssProperty, b: &DynamicCssPropertyDefault) -> bool {
+    fn property_type_matches(a: &StyleProperty, b: &DynamicCssPropertyDefault) -> bool {
         use std::mem::discriminant;
         use css::DynamicCssPropertyDefault::*;
         match b {
@@ -1930,12 +1930,12 @@ fn populate_css_properties(
     for constraint in &rect.styled_node.css_constraints.list {
         use css::CssDeclaration::*;
         match constraint {
-            Static(static_property) => apply_parsed_css_property(rect, static_property),
+            Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {
                 if let Some(overridden_property) = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
                     // Only apply the dynamic CSS property default, if it isn't set to auto
                     if property_type_matches(overridden_property, &dynamic_property.default) {
-                        apply_parsed_css_property(rect, overridden_property);
+                        apply_style_property(rect, overridden_property);
                     } else {
                         #[cfg(feature = "logging")] {
                             error!(
@@ -1946,7 +1946,7 @@ fn populate_css_properties(
                         }
                     }
                 } else if let DynamicCssPropertyDefault::Exact(default) = &dynamic_property.default {
-                    apply_parsed_css_property(rect, default);
+                    apply_style_property(rect, default);
                 }
             }
         }

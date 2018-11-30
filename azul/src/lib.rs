@@ -185,7 +185,7 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use dom::DomHash;
-    pub use css::{Css, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
+    pub use css::{AppStyle, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,
@@ -210,7 +210,7 @@ pub mod prelude {
         LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft, LayoutPadding, LayoutMargin,
 
         LinearGradientPreInfo, RadialGradientPreInfo, CssImageId, FontId, CssColor,
-        TextOverflowBehaviour, TextOverflowBehaviourInner, ParsedCssProperty,
+        TextOverflowBehaviour, TextOverflowBehaviourInner, StyleProperty,
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
         Gradient, RadialGradient, LayoutPoint, LayoutSize, Au, BorderDetails,
         ExtendMode, PixelValue, PercentageValue, SideOffsets2D, NormalBorder,
