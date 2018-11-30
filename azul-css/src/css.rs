@@ -10,6 +10,7 @@ pub use simplecss::Error as CssSyntaxError;
 pub use css_parser::{ParsedCssProperty, CssParsingError};
 use dom::{node_type_path_from_str, NodeTypePathParseError};
 use azul::prelude::{
+    StyleProperty,
     NodeData,
     Layout,
     CssPath,
@@ -100,7 +101,7 @@ impl_from! { NodeTypePathParseError<'a>, CssParseError::NodeTypePath }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
-    Static(ParsedCssProperty),
+    Static(StyleProperty),
     /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
     Dynamic(DynamicCssProperty),
 }
@@ -158,7 +159,7 @@ pub struct DynamicCssProperty {
 /// available in the parent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DynamicCssPropertyDefault  {
-    Exact(ParsedCssProperty),
+    Exact(StyleProperty),
     Auto,
 }
 
@@ -191,7 +192,7 @@ pub struct CssRuleBlock {
     /// The path (full selector) of the CSS block
     pub path: CssPath,
     /// `"justify-content: center"` =>
-    /// `CssDeclaration::Static(ParsedCssProperty::JustifyContent(LayoutJustifyContent::Center))`
+    /// `CssDeclaration::Static(StyleProperty::JustifyContent(LayoutJustifyContent::Center))`
     pub declarations: Vec<CssDeclaration>,
 }
 /*
@@ -364,11 +365,11 @@ fn test_css_pseudo_selector_parse() {
     ];
 
     for (s, a) in &ok_res {
-        assert_eq!(CssPathPseudoSelector::from_str(s), Ok(*a));
+        assert_eq!(pseudo_selector_from_str(s), Ok(*a));
     }
 
     for (s, e) in &err {
-        assert_eq!(CssPathPseudoSelector::from_str(s), Err(e.clone()));
+        assert_eq!(pseudo_selector_from_str(s), Err(e.clone()));
     }
 }
 
@@ -754,7 +755,7 @@ fn test_detect_static_or_dynamic_property() {
     use css_parser::{StyleTextAlignmentHorz, InvalidValueErr};
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
-        Ok(CssDeclaration::Static(ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center)))
+        Ok(CssDeclaration::Static(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)))
     );
 
     assert_eq!(
@@ -774,7 +775,7 @@ fn test_detect_static_or_dynamic_property() {
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            default: DynamicCssPropertyDefault::Exact(ParsedCssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
+            default: DynamicCssPropertyDefault::Exact(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)),
             dynamic_id: String::from("hello"),
         }))
     );
@@ -845,7 +846,7 @@ fn test_css_parse_1() {
                         CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
                     ],
                 },
-                declarations: vec![CssDeclaration::Static(ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
+                declarations: vec![CssDeclaration::Static(StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
             }
         ],
         needs_relayout: true,
@@ -890,7 +891,7 @@ mod cascade_tests {
     use prelude::*;
     use super::*;
 
-    fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<ParsedCssProperty>) {
+    fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<StyleProperty>) {
 
         // Unimportant boilerplate
         struct Data { }
@@ -926,9 +927,9 @@ mod cascade_tests {
     // Tests that an element with a single class always gets the CSS element applied properly
     #[test]
     fn test_apply_css_pure_class() {
-        let red = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-        let blue = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
-        let black = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+        let red = StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+        let blue = StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
+        let black = StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
 
         // Test that single elements are applied properly
         {
