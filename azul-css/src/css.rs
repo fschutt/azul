@@ -291,13 +291,11 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'
         return Err(CssParseError::UnclosedBlock);
     }
 
-    let mut style = AppStyle {
+    let style = AppStyle {
         rules: css_blocks,
         // force re-layout for the first frame
         needs_relayout: true,
     };
-
-    style.sort_by_specificity();
 
     Ok(style)
 }
