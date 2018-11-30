@@ -10,9 +10,11 @@ pub use simplecss::Error as CssSyntaxError;
 pub use css_parser::{ParsedCssProperty, CssParsingError};
 use dom::{node_type_path_from_str, NodeTypePathParseError};
 use azul::prelude::{
-    StyleProperty,
-    NodeData,
-    Layout,
+    AppStyle,
+    CssDeclaration,
+    DynamicCssProperty,
+    DynamicCssPropertyDefault,
+    CssRuleBlock,
     CssPath,
     CssPathSelector,
     CssPathPseudoSelector,
@@ -38,27 +40,6 @@ pub const NATIVE_CSS: &str = concat!(
     include_str!("styles/native_macos.css"),
     include_str!("styles/shared/table.css"),
 );
-
-/// Wrapper for a `Vec<CssRule>` - the CSS is immutable at runtime, it can only be
-/// created once. Animations / conditional styling is implemented using dynamic fields
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct Css {
-    /// Path to hot-reload the CSS file from
-    #[cfg(debug_assertions)]
-    pub hot_reload_path: Option<String>,
-    /// When hot-reloading, should the CSS file be appended to the built-in, native styles
-    /// (equivalent to `NATIVE_CSS + include_str!(hot_reload_path)`)? Default: false
-    #[cfg(debug_assertions)]
-    pub hot_reload_override_native: bool,
-    /// The CSS rules making up the document - i.e the rules of the CSS sheet de-duplicated
-    pub rules: Vec<CssRuleBlock>,
-    /// Has the CSS changed in a way where it needs a re-layout? - default:
-    /// `true` in order to force a re-layout on the first frame
-    ///
-    /// Ex. if only a background color has changed, we need to redraw, but we
-    /// don't need to re-layout the frame.
-    pub needs_relayout: bool,
-}
 
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]
@@ -97,81 +78,6 @@ impl_from! { DynamicCssParseError<'a>, CssParseError::DynamicCssParseError }
 impl_from! { CssPseudoSelectorParseError<'a>, CssParseError::PseudoSelectorParseError }
 impl_from! { NodeTypePathParseError<'a>, CssParseError::NodeTypePath }
 
-/// Contains one parsed `key: value` pair, static or dynamic
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CssDeclaration {
-    /// Static key-value pair, such as `width: 500px`
-    Static(StyleProperty),
-    /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
-    Dynamic(DynamicCssProperty),
-}
-
-impl CssDeclaration {
-    /// Determines if the property will be inherited (applied to the children)
-    /// during the recursive application of the CSS on the DOM tree
-    pub fn is_inheritable(&self) -> bool {
-        use self::CssDeclaration::*;
-        match self {
-            Static(s) => s.is_inheritable(),
-            Dynamic(d) => d.is_inheritable(),
-        }
-    }
-}
-
-/// A `DynamicCssProperty` is a type of CSS rule that can be changed on possibly
-/// every frame by the Rust code - for example to implement an `On::Hover` behaviour.
-///
-/// The syntax for such a property looks like this:
-///
-/// ```no_run,ignore
-/// #my_div {
-///    padding: [[ my_dynamic_property_id | 400px ]];
-/// }
-/// ```
-///
-/// Azul will register a dynamic property with the key "my_dynamic_property_id"
-/// and the default value of 400px. If the property gets overridden during one frame,
-/// the overridden property takes precedence.
-///
-/// At runtime the CSS is immutable (which is a performance optimization - if we
-/// can assume that the CSS never changes at runtime), we can do some optimizations on it.
-/// Dynamic CSS properties can also be used for animations and conditional CSS
-/// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
-/// special cases now use one single API.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DynamicCssProperty {
-    /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
-    pub dynamic_id: String,
-    /// Default value, used if the CSS property isn't overridden in this frame
-    /// i.e. the `500px` in `width: [[ my_id | 500px ]]`.
-    pub default: DynamicCssPropertyDefault,
-}
-
-/// If this value is set to default, the CSS property will not exist if it isn't overriden.
-/// An example where this is useful is when you want to say something like this:
-///
-/// `width: [[ 400px | auto ]];`
-///
-/// "If I set this property to width: 400px, then use exactly 400px. Otherwise use whatever the default width is."
-/// If this property wouldn't exist, you could only set the default to "0px" or something like
-/// that, meaning that if you don't override the property, then you'd set it to 0px - which is
-/// different from `auto`, since `auto` has its width determined by how much space there is
-/// available in the parent.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DynamicCssPropertyDefault  {
-    Exact(StyleProperty),
-    Auto,
-}
-
-impl DynamicCssProperty {
-    pub fn is_inheritable(&self) -> bool {
-        // Dynamic CSS properties should not be inheritable,
-        // since that could lead to bugs - you set a property in Rust, suddenly
-        // the wrong UI component starts to react because it was inherited.
-        false
-    }
-}
-
 #[cfg(debug_assertions)]
 #[derive(Debug)]
 pub enum HotReloadError {
@@ -184,118 +90,6 @@ impl_display! { HotReloadError, {
     Io(e, file) => format!("Failed to hot-reload CSS file: Io error: {} when loading file: \"{}\"", e, file),
     FailedToReload => "Failed to hot-reload CSS file",
 }}
-
-/// One block of rules that applies a bunch of rules to a "path" in the CSS, i.e.
-/// `div#myid.myclass -> { ("justify-content", "center") }`
-#[derive(Debug, Clone, PartialEq)]
-pub struct CssRuleBlock {
-    /// The path (full selector) of the CSS block
-    pub path: CssPath,
-    /// `"justify-content: center"` =>
-    /// `CssDeclaration::Static(StyleProperty::JustifyContent(LayoutJustifyContent::Center))`
-    pub declarations: Vec<CssDeclaration>,
-}
-/*
-/// Represents a full CSS path:
-/// `#div > .my_class:focus` =>
-/// `[CssPathSelector::Type(NodeTypePath::Div), LimitChildren, CssPathSelector::Class("my_class"), CssPathSelector::PseudoSelector]`
-#[derive(Debug, Clone, Hash, Default, PartialEq)]
-pub struct CssPath {
-    pub selectors: Vec<CssPathSelector>,
-}*/
-
-/// Has all the necessary information about the CSS path
-pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
-    node_data: &'a NodeData<T>,
-    index_in_parent: usize,
-    is_mouse_over: bool,
-    is_mouse_pressed: bool,
-    // parent node item count, is_hovered, is_focused, is_active
-}
-/*
-impl CssPath {
-
-    /// Returns if the CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
-    pub fn matches_html_element<'a, T: Layout>(&self, html_node: &HtmlCascadeInfo<'a, T>) -> bool {
-        use self::CssPathSelector::*;
-
-        let html_node_type = html_node.node_data.node_type.get_path();
-        let html_classes = &html_node.node_data.classes;
-        let html_ids = &html_node.node_data.ids;
-        let index_in_parent = html_node.index_in_parent;
-
-        // TODO: Later on, we'll need the full path of all selectors of all parents of this node,
-        // but for now just match the current selector
-
-        for selector in &self.selectors {
-            match selector {
-                Global => { },
-                Type(t) => {
-                    if html_node_type != *t {
-                        return false;
-                    }
-                },
-                Class(c) => {
-                    if !html_classes.contains(c) {
-                        return false;
-                    }
-                },
-                Id(id) => {
-                    if !html_ids.contains(id) {
-                      return false;
-                    }
-                },
-                PseudoSelector(CssPathPseudoSelector::First) => {
-                    // Notice: index_in_parent is 1-indexed
-                    if index_in_parent != 1 { return false; }
-                },
-                PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
-                    if index_in_parent != *x { return false; }
-                },
-                LimitChildren | PseudoSelector(_) => {
-                    // TODO: for now
-                    return false;
-                },
-            }
-        }
-
-        true
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CssPathSelector {
-    /// Represents the `*` selector
-    Global,
-    /// `div`, `p`, etc.
-    Type(NodeTypePath),
-    /// `.something`
-    Class(String),
-    /// `#something`
-    Id(String),
-    /// `:something`
-    PseudoSelector(CssPathPseudoSelector),
-    /// Represents the `>` selector
-    LimitChildren,
-}
-
-impl Default for CssPathSelector { fn default() -> Self { CssPathSelector::Global } }*/
-/*
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum CssPathPseudoSelector {
-    /// `:first`
-    First,
-    /// `:last`
-    Last,
-    /// `:nth-child`
-    NthChild(usize),
-    /// `:hover` - mouse is over element
-    Hover,
-    /// `:active` - mouse is pressed and over element
-    Active,
-    /// `:focus` - element has received focus
-    Focus,
-}*/
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssPseudoSelectorParseError<'a> {
@@ -373,179 +167,155 @@ fn test_css_pseudo_selector_parse() {
     }
 }
 
-impl Css {
+/// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
+pub fn new_from_str<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'a>> {
+    use simplecss::{Tokenizer, Token, Combinator};
 
-    /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
-    pub fn new_from_str<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
-        use simplecss::{Tokenizer, Token, Combinator};
+    let mut tokenizer = Tokenizer::new(css_string);
 
-        let mut tokenizer = Tokenizer::new(css_string);
+    let mut css_blocks = Vec::new();
 
-        let mut css_blocks = Vec::new();
+    // Used for error checking / checking for closed braces
+    let mut parser_in_block = false;
+    let mut block_nesting = 0_usize;
 
-        // Used for error checking / checking for closed braces
-        let mut parser_in_block = false;
-        let mut block_nesting = 0_usize;
+    // Current css paths (i.e. `div#id, .class, p` are stored here -
+    // when the block is finished, all `current_rules` gets duplicated with
+    // one path corresponding to one set of rules each).
+    let mut current_paths = Vec::new();
+    // Current CSS declarations
+    let mut current_rules = Vec::new();
+    // Keep track of the current path during parsing
+    let mut last_path = Vec::new();
 
-        // Current css paths (i.e. `div#id, .class, p` are stored here -
-        // when the block is finished, all `current_rules` gets duplicated with
-        // one path corresponding to one set of rules each).
-        let mut current_paths = Vec::new();
-        // Current CSS declarations
-        let mut current_rules = Vec::new();
-        // Keep track of the current path during parsing
-        let mut last_path = Vec::new();
-
-        loop {
-            let tokenize_result = tokenizer.parse_next();
-            match tokenize_result {
-                Ok(token) => {
-                    match token {
-                        Token::BlockStart => {
-                            if parser_in_block {
-                                // multi-nested CSS blocks are currently not supported
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            parser_in_block = true;
-                            block_nesting += 1;
-                            current_paths.push(last_path.clone());
-                            last_path.clear();
-                        },
-                        Token::Comma => {
-                            current_paths.push(last_path.clone());
-                            last_path.clear();
-                        },
-                        Token::BlockEnd => {
-                            block_nesting -= 1;
-                            if !parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            parser_in_block = false;
-                            for path in current_paths.drain(..) {
-                                css_blocks.push(CssRuleBlock {
-                                    path: CssPath { selectors: path },
-                                    declarations: current_rules.clone(),
-                                })
-                            }
-                            current_rules.clear();
-                            last_path.clear(); // technically unnecessary, but just to be sure
-                        },
-
-                        // tokens that adjust the last_path
-                        Token::UniversalSelector => {
-                            if parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            last_path.push(CssPathSelector::Global);
-                        },
-                        Token::TypeSelector(div_type) => {
-                            if parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            last_path.push(CssPathSelector::Type(node_type_path_from_str(div_type)?));
-                        },
-                        Token::IdSelector(id) => {
-                            if parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            last_path.push(CssPathSelector::Id(id.to_string()));
-                        },
-                        Token::ClassSelector(class) => {
-                            if parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            last_path.push(CssPathSelector::Class(class.to_string()));
-                        },
-                        Token::Combinator(Combinator::GreaterThan) => {
-                            if parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            last_path.push(CssPathSelector::DirectChildren);
-                        },
-                        Token::Combinator(Combinator::Space) => {
-                            if parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            last_path.push(CssPathSelector::Children);
-                        },
-                        Token::PseudoClass(pseudo_class) => {
-                            if parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(pseudo_class)?));
-                        },
-                        Token::Declaration(key, val) => {
-                            if !parser_in_block {
-                                return Err(CssParseError::MalformedCss);
-                            }
-                            current_rules.push(determine_static_or_dynamic_css_property(key, val)?);
-                        },
-                        Token::EndOfStream => {
-                            break;
-                        },
-                        _ => {
-                            // attributes, lang-attributes and @keyframes are not supported
+    loop {
+        let tokenize_result = tokenizer.parse_next();
+        match tokenize_result {
+            Ok(token) => {
+                match token {
+                    Token::BlockStart => {
+                        if parser_in_block {
+                            // multi-nested CSS blocks are currently not supported
+                            return Err(CssParseError::MalformedCss);
                         }
+                        parser_in_block = true;
+                        block_nesting += 1;
+                        current_paths.push(last_path.clone());
+                        last_path.clear();
+                    },
+                    Token::Comma => {
+                        current_paths.push(last_path.clone());
+                        last_path.clear();
+                    },
+                    Token::BlockEnd => {
+                        block_nesting -= 1;
+                        if !parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        parser_in_block = false;
+                        for path in current_paths.drain(..) {
+                            css_blocks.push(CssRuleBlock {
+                                path: CssPath { selectors: path },
+                                declarations: current_rules.clone(),
+                            })
+                        }
+                        current_rules.clear();
+                        last_path.clear(); // technically unnecessary, but just to be sure
+                    },
+
+                    // tokens that adjust the last_path
+                    Token::UniversalSelector => {
+                        if parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::Global);
+                    },
+                    Token::TypeSelector(div_type) => {
+                        if parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::Type(node_type_path_from_str(div_type)?));
+                    },
+                    Token::IdSelector(id) => {
+                        if parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::Id(id.to_string()));
+                    },
+                    Token::ClassSelector(class) => {
+                        if parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::Class(class.to_string()));
+                    },
+                    Token::Combinator(Combinator::GreaterThan) => {
+                        if parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::DirectChildren);
+                    },
+                    Token::Combinator(Combinator::Space) => {
+                        if parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::Children);
+                    },
+                    Token::PseudoClass(pseudo_class) => {
+                        if parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(pseudo_class)?));
+                    },
+                    Token::Declaration(key, val) => {
+                        if !parser_in_block {
+                            return Err(CssParseError::MalformedCss);
+                        }
+                        current_rules.push(determine_static_or_dynamic_css_property(key, val)?);
+                    },
+                    Token::EndOfStream => {
+                        break;
+                    },
+                    _ => {
+                        // attributes, lang-attributes and @keyframes are not supported
                     }
-                },
-                Err(e) => {
-                    return Err(CssParseError::ParseError(e));
                 }
+            },
+            Err(e) => {
+                return Err(CssParseError::ParseError(e));
             }
         }
-
-        // non-even number of blocks
-        if block_nesting != 0 {
-            return Err(CssParseError::UnclosedBlock);
-        }
-
-        let mut css = Self {
-            #[cfg(debug_assertions)]
-            hot_reload_path: None,
-            #[cfg(debug_assertions)]
-            hot_reload_override_native: false,
-            rules: css_blocks,
-            // force re-layout for the first frame
-            needs_relayout: true,
-        };
-
-        css.sort_by_specificity();
-
-        Ok(css)
     }
 
-    /// Sort the CSS rules by their weight, so that the rules are applied in the correct order
-    pub fn sort_by_specificity(&mut self) {
-        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
+    // non-even number of blocks
+    if block_nesting != 0 {
+        return Err(CssParseError::UnclosedBlock);
     }
 
-    /// Returns the native style for the OS
-    pub fn native() -> Self {
-        Self::new_from_str(NATIVE_CSS).unwrap()
-    }
+    let mut style = AppStyle {
+        rules: css_blocks,
+        // force re-layout for the first frame
+        needs_relayout: true,
+    };
 
-    /// Same as `new_from_str`, but applies the OS-native styles first, before
-    /// applying the user styles on top.
-    pub fn override_native<'a>(css_string: &'a str) -> Result<Self, CssParseError<'a>> {
-        let parsed = Self::new_from_str(css_string)?;
-        let mut native = Self::native();
-        native.merge(parsed);
-        Ok(native)
-    }
+    style.sort_by_specificity();
 
-    // Combines two parsed stylesheets into one, appending the rules of
-    // `other` after the rules of `self`. Overrides `self.hot_reload_path` with
-    // `other.hot_reload_path`
-    pub fn merge(&mut self, mut other: Self) {
-        self.rules.append(&mut other.rules);
-        self.needs_relayout = self.needs_relayout || other.needs_relayout;
+    Ok(style)
+}
 
-        #[cfg(debug_assertions)] {
-            self.hot_reload_path = other.hot_reload_path;
-            self.hot_reload_override_native = other.hot_reload_override_native;
-        }
-    }
+/// Returns the native style for the OS
+pub fn native() -> AppStyle {
+    new_from_str(NATIVE_CSS).unwrap()
+}
 
+/// Same as `new_from_str`, but applies the OS-native styles first, before
+/// applying the user styles on top.
+pub fn override_native<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'a>> {
+    let parsed = new_from_str(css_string)?;
+    let mut native = native();
+    native.merge(parsed);
+    Ok(native)
+}
+/*
     /// **NOTE**: Only available in debug mode, can crash if the file isn't found
     #[cfg(debug_assertions)]
     pub fn hot_reload(file_path: &str) -> Result<Self, HotReloadError>  {
@@ -621,15 +391,7 @@ impl Css {
 
         *self = css;
     }
-}
-
-fn get_specificity(path: &CssPath) -> (usize, usize, usize) {
-    // http://www.w3.org/TR/selectors/#specificity
-    let id_count = path.selectors.iter().filter(|x|     if let CssPathSelector::Id(_) = x {     true } else { false }).count();
-    let class_count = path.selectors.iter().filter(|x|  if let CssPathSelector::Class(_) = x {  true } else { false }).count();
-    let div_count = path.selectors.iter().filter(|x|    if let CssPathSelector::Type(_) = x {   true } else { false }).count();
-    (id_count, class_count, div_count)
-}
+*/
 
 /// Error that can happen during `ParsedCssProperty::from_kv`
 #[derive(Debug, Clone, PartialEq)]
@@ -691,7 +453,6 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 }
 
 fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
-
     use std::char;
 
     // "[[ id | 400px ]]" => "id | 400px"
@@ -752,7 +513,8 @@ pub(crate) struct CssConstraintList {
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
-    use css_parser::{StyleTextAlignmentHorz, InvalidValueErr};
+    use azul::prelude::{StyleProperty, StyleTextAlignmentHorz};
+    use css_parser::InvalidValueErr;
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
         Ok(CssDeclaration::Static(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)))
@@ -825,7 +587,7 @@ fn test_detect_static_or_dynamic_property() {
 #[test]
 fn test_css_parse_1() {
 
-    use prelude::{ColorU, StyleBackgroundColor};
+    use azul::prelude::{ColorU, StyleBackgroundColor, NodeTypePath, StyleProperty};
 
     let parsed_css = Css::new_from_str("
         div#my_id .my_class:first {
@@ -888,7 +650,7 @@ fn test_css_simple_selector_parse() {
 #[cfg(test)]
 mod cascade_tests {
 
-    use prelude::*;
+    use azul::prelude::*;
     use super::*;
 
     fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<StyleProperty>) {
@@ -958,15 +720,6 @@ mod cascade_tests {
             test_css(css_3, vec![], vec!["my_class"], vec![black.clone(), blue.clone()]);
         }
     }
-}
-
-#[test]
-fn test_specificity() {
-    use self::CssPathSelector::*;
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".into())] }), (0, 1, 0));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)] }), (1, 0, 1));
 }
 
 // Assert that order of the CSS items is correct (in order of specificity, lowest-to-highest)

@@ -22,17 +22,6 @@ use azul::prelude::{
 };
 use webrender::api::{BorderStyle, BorderRadius, BorderSide, LayoutRect};
 
-pub(crate) const EM_HEIGHT: f32 = 16.0;
-/// WebRender measures in points, not in pixels!
-pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
-
-// In case no font size is specified for a node,
-// this will be substituted as the default font size
-pub(crate) const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
-    metric: CssMetric::Px,
-    number: 100_000,
-});
-
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
     ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => (
@@ -59,60 +48,8 @@ macro_rules! typed_pixel_value_parser {
     )
 }
 
-/// A successfully parsed CSS property
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ParsedCssProperty {
-    BorderRadius(StyleBorderRadius),
-    BackgroundColor(StyleBackgroundColor),
-    TextColor(StyleTextColor),
-    Border(StyleBorder),
-    Background(StyleBackground),
-    FontSize(StyleFontSize),
-    FontFamily(StyleFontFamily),
-    TextAlign(StyleTextAlignmentHorz),
-    LetterSpacing(StyleLetterSpacing),
-    BoxShadow(StyleBoxShadow),
-    LineHeight(StyleLineHeight),
-
-    Width(LayoutWidth),
-    Height(LayoutHeight),
-    MinWidth(LayoutMinWidth),
-    MinHeight(LayoutMinHeight),
-    MaxWidth(LayoutMaxWidth),
-    MaxHeight(LayoutMaxHeight),
-    Position(LayoutPosition),
-    Top(LayoutTop),
-    Right(LayoutRight),
-    Left(LayoutLeft),
-    Bottom(LayoutBottom),
-    Padding(LayoutPadding),
-    Margin(LayoutMargin),
-    FlexWrap(LayoutWrap),
-    FlexDirection(LayoutDirection),
-    FlexGrow(LayoutFlexGrow),
-    FlexShrink(LayoutFlexShrink),
-    JustifyContent(LayoutJustifyContent),
-    AlignItems(LayoutAlignItems),
-    AlignContent(LayoutAlignContent),
-    Overflow(LayoutOverflow),
-}
-
-impl ParsedCssProperty {
-    /// Returns whether this property will be inherited during cascading
-    pub fn is_inheritable(&self) -> bool {
-        use self::ParsedCssProperty::*;
-        match self {
-            | TextColor(_)
-            | FontFamily(_)
-            | FontSize(_)
-            | LineHeight(_)
-            | TextAlign(_) => true,
-            _ => false,
-        }
-    }
-}
-
-impl ParsedCssProperty {
+pub mod ParsedCssProperty {
+    use super::*;
 
     /// Main parsing function, takes a stringified key / value pair and either
     /// returns the parsed value or an error
