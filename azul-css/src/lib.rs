@@ -6,6 +6,7 @@
 #![deny(unused_must_use)]
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
+#![allow(unused_variables)]
 
 extern crate azul;
 
