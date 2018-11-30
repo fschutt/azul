@@ -144,8 +144,8 @@ pub mod widgets;
 pub mod window;
 /// Window state handling, event filtering
 pub mod window_state;
-/// CSS parsing and styling module
-pub mod css;
+/// DOM styling module
+pub mod style;
 
 /// UI Description & display list handling (webrender)
 mod ui_description;
@@ -185,7 +185,7 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use dom::DomHash;
-    pub use css::{AppStyle, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
+    pub use style::{AppStyle, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,
@@ -198,7 +198,7 @@ pub mod prelude {
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
-    pub use css::{CssPath, CssPathSelector, CssPathPseudoSelector};
+    pub use style::{CssPath, CssPathSelector, CssPathPseudoSelector};
     pub use css_parser::{
         StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
         StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
