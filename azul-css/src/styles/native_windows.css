@@ -1,0 +1,39 @@
+* {
+    font-size: 14.66px;
+    font-family: sans-serif;
+    color: #000;
+}
+
+.__azul-native-button {
+    border: 1px solid #3399ff; /* inactive: #acacac */
+    background: linear-gradient(#f0f0f0, #e5e5e5);
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.__azul-native-label {
+    text-align: center;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.__azul-native-input-text {
+    background-color: white;
+    height: 24px;
+    border: 1px solid #9b9b9b;
+    padding: 1px;
+    overflow: hidden;
+    text-align: left;
+    flex-direction: row;
+    align-content: flex-end;
+    justify-content: flex-end;
+}
+
+.__azul-native-input-text:hover {
+    border: 1px solid #4286f4;
+}
+
+.__azul-native-input-text-label {
+
+}

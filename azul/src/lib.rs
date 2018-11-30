@@ -185,11 +185,11 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use dom::DomHash;
-    pub use css::{Css, NATIVE_CSS, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
+    pub use css::{Css, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,
-        IFrameCallback
+        IFrameCallback, NodeTypePath,
     };
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
@@ -198,6 +198,7 @@ pub mod prelude {
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
+    pub use css::{CssPath, CssPathSelector, CssPathPseudoSelector};
     pub use css_parser::{
         StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
         StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
@@ -212,7 +213,8 @@ pub mod prelude {
         TextOverflowBehaviour, TextOverflowBehaviourInner, ParsedCssProperty,
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
         Gradient, RadialGradient, LayoutPoint, LayoutSize, Au, BorderDetails,
-        ExtendMode, PixelValue, PercentageValue, SideOffsets2D,
+        ExtendMode, PixelValue, PercentageValue, SideOffsets2D, NormalBorder,
+        LayoutSideOffsets, TypedPoint2D,
     };
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},

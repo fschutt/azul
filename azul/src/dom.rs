@@ -291,6 +291,21 @@ pub enum NodeTypePath {
     IFrame,
 }
 
+impl std::fmt::Display for NodeTypePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        use self::NodeTypePath::*;
+        let css_id = match self {
+            Div => "div",
+            P => "p",
+            Img => "img",
+            Texture => "texture",
+            IFrame => "iframe",
+        };
+        write!(f, "{}", css_id)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum NodeTypePathParseError<'a> {
     Invalid(&'a str),
@@ -299,34 +314,6 @@ pub enum NodeTypePathParseError<'a> {
 impl_display!{ NodeTypePathParseError<'a>, {
     Invalid(e) => format!("Invalid node type: {}", e),
 }}
-
-impl NodeTypePath {
-
-    /// Return the CSS ID, such as `"p"`, for CSS matching
-    pub(crate) fn get_css_id(&self) -> &'static str {
-        use self::NodeTypePath::*;
-        match self {
-            Div => "div",
-            P => "p",
-            Img => "img",
-            Texture => "texture",
-            IFrame => "iframe",
-        }
-    }
-
-    /// Parses the node type from a CSS string such as `"div"` => `NodeTypePath::Div`
-    pub fn from_str(data: &str) -> Result<Self, NodeTypePathParseError> {
-        use self::NodeTypePath::*;
-        match data {
-            "div" => Ok(Div),
-            "p" => Ok(P),
-            "img" => Ok(Img),
-            "texture" => Ok(Texture),
-            "iframe" => Ok(IFrame),
-            other => Err(NodeTypePathParseError::Invalid(other)),
-        }
-    }
-}
 
 impl<T: Layout> NodeType<T> {
 
@@ -537,7 +524,7 @@ impl<T: Layout> Clone for NodeData<T> {
 impl<T: Layout> fmt::Display for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
-        let html_type = self.node_type.get_path().get_css_id();
+        let html_type = self.node_type.get_path();
 
         let id_string = if self.ids.is_empty() {
             String::new()
