@@ -2462,6 +2462,19 @@ impl TextOverflowBehaviour {
             NotModified => false,
         }
     }
+
+    pub fn clips_children(&self) -> bool {
+        use self::TextOverflowBehaviour::*;
+        use self::TextOverflowBehaviourInner::*;
+        match self {
+            Modified(m) => match m {
+                Scroll | Auto | Hidden => true,
+                Visible => false,
+            },
+            // default: allow horizontal overflow
+            NotModified => false,
+        }
+    }
 }
 
 impl Default for TextOverflowBehaviour {

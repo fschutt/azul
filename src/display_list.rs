@@ -4,7 +4,7 @@
 use std::{
     fmt,
     sync::{Arc, Mutex},
-    collections::BTreeMap
+    collections::BTreeMap,
 };
 use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
@@ -459,7 +459,7 @@ pub(crate) struct OverflowingScrollNode {
 fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
     layouted_rects: &Arena<LayoutRect>,
     display_list: &DisplayList<'a, T>,
-    parents: &Vec<(usize, NodeId)>,
+    parents: &[(usize, NodeId)],
     pipeline_id: PipelineId,
 ) -> ScrolledNodes {
 
@@ -503,6 +503,36 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
     ScrolledNodes { overflowing_nodes: nodes, tags_to_node_ids }
 }
 
+fn node_needs_to_clip_children(style: &RectStyle) -> bool {
+    let overflow = style.overflow.unwrap_or_default();
+    overflow.horizontal.clips_children() ||
+    overflow.vertical.clips_children()
+}
+
+#[test]
+fn test_overflow_parsing() {
+    let style1 = RectStyle::default();
+    assert!(!node_needs_to_clip_children(&style1));
+
+    let style2 = RectStyle {
+        overflow: Some(LayoutOverflow {
+            horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Visible),
+            vertical: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Visible),
+        }),
+        .. Default::default()
+    };
+    assert!(!node_needs_to_clip_children(&style2));
+
+    let style3 = RectStyle {
+        overflow: Some(LayoutOverflow {
+            horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Hidden),
+            vertical: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Visible),
+        }),
+        .. Default::default()
+    };
+    assert!(node_needs_to_clip_children(&style3));
+
+}
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     solved_rects: &Arena<LayoutRect>,
     epoch: Epoch,
@@ -517,15 +547,42 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     // A stack containing all the nodes which have a scroll clip pushed to the builder.
     let mut stack: Vec<NodeId> = vec![];
 */
+    // let mut clip_stack = Vec::new();
+
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
         for rect_idx in rects {
+            let html_node = &arena[rect_idx];
             let rectangle = DisplayListRectParams {
                 epoch,
                 rect_idx,
-                html_node: &arena[rect_idx].data.node_type,
+                html_node: &html_node.data.node_type,
             };
 
-            displaylist_handle_rect(solved_rects[rect_idx].data, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
+            let styled_node = &referenced_content.display_rectangle_arena[rect_idx];
+            let solved_rect = solved_rects[rect_idx].data;
+
+            displaylist_handle_rect(solved_rect, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
+/*
+            // If the current node is a parent that has overflow:hidden set, push
+            // the clip ID and the last child into the stack
+            if html_node.last_child.is_some() {
+                if node_needs_to_clip_children(&styled_node.data.style) {
+                    let clip = get_clip_region(solved_rect, &styled_node.data)
+                        .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
+                    let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
+                    referenced_mutable_content.builder.push_clip_id(clip_id);
+                    println!("pushing: {:?}", rect_idx);
+                    clip_stack.push(rect_idx);
+                }
+            }
+
+            // If the current node is the last child of the parent and the parent has
+            // overflow:hidden set, pop the last clip id
+            if clip_stack.last().cloned() == Some(rect_idx) {
+                referenced_mutable_content.builder.pop_clip_id();
+                clip_stack.pop();
+            }
+*/
 /* -- disabled scrolling temporarily due to z-indexing problems
             if let Some(OverflowingScrollNode { parent_external_scroll_id, parent_rect, child_rect, .. }) = scrollable_nodes.overflowing_nodes.get(&rect_idx) {
 
@@ -580,6 +637,16 @@ pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
     pub html_node: &'a NodeType<T>,
 }
 
+fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Option<ComplexClipRegion> {
+    rect.style.border_radius.and_then(|border_radius| {
+        Some(ComplexClipRegion {
+            rect: bounds,
+            radii: border_radius.into(),
+            mode: ClipMode::Clip,
+        })
+    })
+}
+
 /// Push a single rectangle into the display list builder
 #[inline]
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
@@ -611,13 +678,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
         }),
     };
 
-    let clip_region_id = rect.style.border_radius.and_then(|border_radius| {
-        let region = ComplexClipRegion {
-            rect: bounds,
-            radii: border_radius.into(),
-            mode: ClipMode::Clip,
-        };
-        Some(referenced_mutable_content.builder.define_clip(bounds, vec![region], None))
+    let clip_region_id = get_clip_region(bounds, &rect).and_then(|clip| {
+        Some(referenced_mutable_content.builder.define_clip(bounds, vec![clip], None))
     });
 
     // Push the "outset" box shadow, before the clip is active
@@ -885,6 +947,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     let mut scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &display_list, &node_depths, referenced_content.pipeline_id);
 
     let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles, &node_depths);
+
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description, otherwise this function would be endlessly recursive
         ui_description: &ui_description,
