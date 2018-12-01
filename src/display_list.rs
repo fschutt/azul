@@ -513,10 +513,10 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
 {
     let arena = referenced_content.ui_description.ui_descr_arena.borrow();
-
+/* -- disabled scrolling temporarily due to z-indexing problems
     // A stack containing all the nodes which have a scroll clip pushed to the builder.
     let mut stack: Vec<NodeId> = vec![];
-
+*/
     // Workaround for https://github.com/servo/webrender/issues/3262
     let webrender_gamma_hack_necessary = needs_webrender_gamma_correction_hack(&arena);
 
@@ -529,7 +529,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
             };
 
             displaylist_handle_rect(solved_rects[rect_idx].data, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content, webrender_gamma_hack_necessary);
-
+/* -- disabled scrolling temporarily due to z-indexing problems
             if let Some(OverflowingScrollNode { parent_external_scroll_id, parent_rect, child_rect, .. }) = scrollable_nodes.overflowing_nodes.get(&rect_idx) {
 
                 // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
@@ -566,6 +566,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
                     referenced_mutable_content.builder.pop_clip_id();
                 }
             }
+*/
         }
     }
 }
