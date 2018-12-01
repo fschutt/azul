@@ -20,10 +20,15 @@ mod macros;
 mod css_parser;
 mod css;
 mod dom;
+mod hot_reloader;
 
 pub use css::{
     new_from_str,
     native,
     override_native,
     ParsedCssProperty::from_kv,
+};
+
+pub use hot_reloader::{
+    HotReloader,
 };
