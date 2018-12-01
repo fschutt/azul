@@ -10,8 +10,6 @@
 
 extern crate azul;
 
-extern crate webrender;
-
 extern crate simplecss;
 
 #[macro_use]
