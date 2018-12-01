@@ -1,5 +1,6 @@
 extern crate azul;
 extern crate azul_css;
+extern crate azul_native_style;
 
 use azul::prelude::*;
 
@@ -250,7 +251,7 @@ fn handle_mouseclick_numpad(app_state: &mut AppState<Calculator>, event: WindowE
 fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/calculator.css")) }
 
-    let native_css = azul_css::native();
+    let native_style = azul_native_style::native();
 
     #[cfg(debug_assertions)]
     let mut hot_reloader = azul_css::HotReloader::new(CSS_PATH!().to_string());
@@ -259,7 +260,7 @@ fn main() {
     app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
 
     #[cfg(debug_assertions)]
-    app.run(Window::new_hot_reload(WindowCreateOptions::default(), native_css, &mut hot_reloader).unwrap()).unwrap();
+    app.run(Window::new_hot_reload(WindowCreateOptions::default(), native_style, &mut hot_reloader).unwrap()).unwrap();
     #[cfg(not(debug_assertions))]
     app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
 }

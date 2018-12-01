@@ -1,5 +1,6 @@
 extern crate azul;
 extern crate azul_css;
+extern crate azul_native_style;
 
 use azul::prelude::*;
 
@@ -62,7 +63,7 @@ fn main() {
 
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/scroll_list.css")) }
 
-    let native_style = azul_css::native();
+    let native_style = azul_native_style::native();
 
     #[cfg(debug_assertions)]
     let mut hot_reloader = azul_css::HotReloader::new(CSS_PATH!().to_string());
