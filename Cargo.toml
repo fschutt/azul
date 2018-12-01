@@ -3,4 +3,5 @@
 members = [
     "azul",
     "azul-css",
+    "azul-native-style",
 ]

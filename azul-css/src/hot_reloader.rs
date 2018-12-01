@@ -28,22 +28,14 @@ impl HotReloadable for HotReloader {
             },
         };
 
-        let target_css = if true {
-            format!("{}\r\n{}\n", ::css::NATIVE_CSS, reloaded_css)
-        } else {
-            reloaded_css
-        };
-
-        let css = match ::css::new_from_str(&target_css) {
-            Ok(o) => o,
+        match ::css::new_from_str(&reloaded_css) {
+            Ok(style) => Some(style),
             Err(e) => {
                 #[cfg(feature = "logging")] {
-                    error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
+                    error!("Failed to hot-reload CSS file: - parse error \"{}\":\r\n{}\n", file_path, e);
                 }
-                return None;
+                None
             },
-        };
-
-        Some(css)
+        }
     }
 }

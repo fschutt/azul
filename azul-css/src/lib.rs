@@ -22,8 +22,6 @@ mod hot_reloader;
 
 pub use css::{
     new_from_str,
-    native,
-    override_native,
     ParsedCssProperty::from_kv,
 };
 
