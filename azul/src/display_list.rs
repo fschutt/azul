@@ -19,7 +19,7 @@ use {
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     style::AppStyle,
-    css_parser::*,
+    style_properties::*,
     dom::{
         IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
@@ -160,7 +160,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontState;
-        use css_parser::FontId;
+        use style_properties::FontId;
 
         let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
         let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
@@ -1653,10 +1653,10 @@ fn push_background(
     background: &StyleBackground,
     app_resources: &AppResources)
 {
-    use css_parser::StyleBackground::*;
+    use style_properties::StyleBackground::*;
     match background {
         RadialGradient(gradient) => {
-            use css_parser::Shape;
+            use style_properties::Shape;
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
@@ -1817,7 +1817,7 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
 
     if let Some(align_items) = rect.layout.align_items {
         // Vertical text alignment
-        use css_parser::LayoutAlignItems;
+        use style_properties::LayoutAlignItems;
         match align_items {
             LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
             LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
@@ -1827,7 +1827,7 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
     }
 
     if let Some(justify_content) = rect.layout.justify_content {
-        use css_parser::LayoutJustifyContent;
+        use style_properties::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
             LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
@@ -1871,7 +1871,7 @@ fn populate_css_properties(
     node_id: NodeId,
     css_overrides: &BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
 {
-    use css_parser::StyleProperty::{self, *};
+    use style_properties::StyleProperty::{self, *};
 
     fn apply_style_property(rect: &mut DisplayRectangle, property: &StyleProperty) {
         match property {

@@ -152,7 +152,7 @@ mod ui_description;
 /// to an actual display list (+ layout)
 mod display_list;
 /// CSS parser
-mod css_parser;
+mod style_properties;
 /// Slab allocator for nodes, based on IDs (replaces kuchiki + markup5ever)
 mod id_tree;
 /// State handling for user interfaces
@@ -199,7 +199,7 @@ pub mod prelude {
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
     pub use style::{CssPath, CssPathSelector, CssPathPseudoSelector};
-    pub use css_parser::{
+    pub use style_properties::{
         StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
         StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
         StyleBoxShadow, BoxShadowPreDisplayItem, StyleLineHeight, StyleLetterSpacing,

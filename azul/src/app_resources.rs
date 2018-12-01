@@ -18,7 +18,7 @@ use {
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
     images::{ImageId, ImageState},
-    css_parser::{StyleFontSize, FontId, StyleLetterSpacing},
+    style_properties::{StyleFontSize, FontId, StyleLetterSpacing},
 };
 
 /// Stores the resources for the application, souch as fonts, images and cached

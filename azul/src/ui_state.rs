@@ -10,7 +10,7 @@ use {
     app_state::AppState,
     id_tree::NodeId,
     dom::TagId,
-    css_parser::StyleProperty,
+    style_properties::StyleProperty,
     default_callbacks::DefaultCallbackId,
 };
 

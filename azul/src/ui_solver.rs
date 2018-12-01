@@ -2,9 +2,13 @@ use std::f32;
 use glium::glutin::dpi::LogicalPosition;
 use {
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
-    css_parser::{LayoutPosition, RectLayout},
+    style_properties::{
+        LayoutPosition,
+        LayoutMargin,
+        LayoutPadding,
+        RectLayout
+    },
     display_list::DisplayRectangle,
-    css_parser::{LayoutMargin, LayoutPadding},
 };
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
@@ -590,7 +594,7 @@ impl NodeDataContainer<$struct_name> {
 
         for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
 
-            use css_parser::{LayoutAxis, LayoutPosition};
+            use style_properties::{LayoutAxis, LayoutPosition};
 
             let parent_is_positioned = arena_data[*parent_id].position.unwrap_or_default() != LayoutPosition::Static;
             if parent_is_positioned {
@@ -827,7 +831,7 @@ fn $fn_name(
         sum_x_of_children_so_far: &mut f32,
         positioned_node_stack: &[NodeId],
     ) {
-        use css_parser::LayoutJustifyContent::*;
+        use style_properties::LayoutJustifyContent::*;
 
         let child_width_with_padding = {
             let child_node = &solved_widths.$solved_widths_field[child_id];
@@ -895,7 +899,7 @@ fn $fn_name(
         }
     }
 
-    use css_parser::{LayoutAxis, LayoutJustifyContent};
+    use style_properties::{LayoutAxis, LayoutJustifyContent};
 
     let mut arena_solved_data = NodeDataContainer::new(vec![$height_solved_position(0.0); node_data.len()]);
 
@@ -1051,7 +1055,7 @@ pub(crate) fn get_y_positions(
 #[cfg(test)]
 mod layout_tests {
 
-    use css_parser::RectLayout;
+    use style_properties::RectLayout;
     use id_tree::{Node, NodeId};
     use super::*;
 
@@ -1134,7 +1138,7 @@ mod layout_tests {
 
     #[test]
     fn test_determine_preferred_width() {
-        use css_parser::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
+        use style_properties::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
 
         let layout = RectLayout {
             width: None,
@@ -1213,7 +1217,7 @@ mod layout_tests {
     #[test]
     fn test_fill_out_preferred_width() {
 
-        use css_parser::*;
+        use style_properties::*;
 
         let (node_hierarchy, node_data) = get_display_rectangle_arena(&[
             (0, RectLayout {

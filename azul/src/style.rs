@@ -3,7 +3,7 @@
 #[cfg(debug_assertions)]
 use std::collections::BTreeMap;
 use {
-    css_parser::StyleProperty,
+    style_properties::StyleProperty,
     traits::Layout,
     ui_description::{UiDescription, StyledNode},
     dom::{NodeTypePath, NodeData},
@@ -466,7 +466,7 @@ fn get_specificity(path: &CssPath) -> (usize, usize, usize) {
 
 pub(crate) fn match_dom_css_selectors<T: Layout>(
     ui_state: &UiState<T>,
-    css: &AppStyle)
+    style: &AppStyle)
 -> UiDescription<T>
 {
     use ui_solver::get_non_leaf_nodes_sorted_by_depth;
@@ -486,7 +486,7 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
         // Iterate through all rules in the CSS style sheet, test if the
         // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
         // so the cost of this should be insignificant.
-        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(parent_id, &arena_borrow.node_layout, &html_tree)) {
+        for applying_rule in style.rules.iter().filter(|rule| rule.path.matches_html_element(parent_id, &arena_borrow.node_layout, &html_tree)) {
             parent_rules.css_constraints.list.extend(applying_rule.declarations.clone());
         }
 
@@ -504,7 +504,7 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
                     // Iterate through all rules in the CSS style sheet, test if the
                     // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
                     // so the cost of this should be insignificant.
-                    for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(child_id, &arena_borrow.node_layout, &html_tree)) {
+                    for applying_rule in style.rules.iter().filter(|rule| rule.path.matches_html_element(child_id, &arena_borrow.node_layout, &html_tree)) {
                         child_rules.extend(applying_rule.declarations.clone());
                     }
 

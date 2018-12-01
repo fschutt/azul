@@ -37,7 +37,7 @@ use {
     dom::{Callback, Texture},
     traits::Layout,
     window::ReadOnlyWindow,
-    css_parser::{FontId, StyleFontSize},
+    style_properties::{FontId, StyleFontSize},
     app_resources::AppResources,
     text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
 };
