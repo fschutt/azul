@@ -1,12 +1,8 @@
 pub use app::RuntimeError;
 #[cfg(debug_assertions)]
-pub use css_parser::{
-    CssMetric, InvalidValueErr,
-};
 pub use font::FontError;
 #[cfg(feature = "image_loading")]
 pub use image::ImageError;
-pub use simplecss::Error as CssSyntaxError;
 
 // TODO: re-export the sub-types of ClipboardError!
 pub use clipboard2::ClipboardError;

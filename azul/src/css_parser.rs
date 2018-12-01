@@ -134,10 +134,6 @@ impl_from!(LayoutJustifyContent, StyleProperty::JustifyContent);
 impl_from!(LayoutAlignItems, StyleProperty::AlignItems);
 impl_from!(LayoutAlignContent, StyleProperty::AlignContent);
 
-/// Simple "invalid value" error, used for
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct InvalidValueErr<'a>(pub &'a str);
-
 const SCALE_FACTOR: f32 = 10000.0;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

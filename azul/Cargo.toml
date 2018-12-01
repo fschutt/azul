@@ -18,7 +18,6 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
-simplecss               = { version = "0.1.0",  default-features = false }
 azul_glium              = { version = "0.22.0", default-features = false, features = ["glutin"] }
 gleam                   = { version = "0.6",    default-features = false }
 euclid                  = { version = "0.19",   default-features = false }

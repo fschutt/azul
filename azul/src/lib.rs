@@ -77,7 +77,6 @@ pub extern crate gleam;
 extern crate lazy_static;
 extern crate euclid;
 extern crate webrender;
-extern crate simplecss;
 extern crate rusttype;
 extern crate app_units;
 extern crate unicode_normalization;
