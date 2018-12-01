@@ -1,4 +1,5 @@
 extern crate azul;
+extern crate azul_css;
 
 use azul::prelude::*;
 
@@ -54,7 +55,8 @@ fn main() {
     };
 
     let app = App::new(data, AppConfig::default());
-    let css = Css::override_native(CUSTOM_CSS).unwrap();
-    let window = Window::new(WindowCreateOptions::default(), css).unwrap();
+    let mut style = azul_css::native();
+    style.merge(azul_css::new_from_str(CUSTOM_CSS).unwrap());
+    let window = Window::new(WindowCreateOptions::default(), style).unwrap();
     app.run(window).unwrap();
 }
