@@ -525,7 +525,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window<'a, T: Layout> {
+pub struct Window<T: Layout> {
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     /// Current state of the window, stores the keyboard / mouse state,
@@ -554,7 +554,7 @@ pub struct Window<'a, T: Layout> {
     /// An optional style hot-reloader for the current window, only available with debug_assertions
     /// enabled
     #[cfg(debug_assertions)]
-    pub(crate) style_loader: Option<&'a mut dyn HotReloadable>,
+    pub(crate) style_loader: Option<Box<dyn HotReloadHandler>>,
     /// The base style to merge onto when hot-reloading; useful for starting from a native look and
     /// feel.
     #[cfg(debug_assertions)]
@@ -583,8 +583,8 @@ pub struct Window<'a, T: Layout> {
 ///
 /// This trait is only available when debug_assertions are enabled.
 #[cfg(debug_assertions)]
-pub trait HotReloadable {
-    fn reload_style(&mut self) -> Option<AppStyle>;
+pub trait HotReloadHandler {
+    fn reload_style(&mut self) -> Option<Result<AppStyle, String>>;
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -676,7 +676,7 @@ pub(crate) struct WindowInternal {
     pub(crate) document_id: DocumentId,
 }
 
-impl<'a, T: Layout> Window<'a, T> {
+impl<'a, T: Layout> Window<T> {
     /// Creates a new window
     pub fn new(mut options: WindowCreateOptions<T>, mut style: AppStyle) -> Result<Self, WindowCreateError> {
 
@@ -893,23 +893,23 @@ impl<'a, T: Layout> Window<'a, T> {
         Ok(window)
     }
 
-    /// Creates a new window that will automatically load a new style from a HotReloadable source
+    /// Creates a new window that will automatically load a new style from a HotReloadHandler source
     /// every 500ms.
     ///
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
-    pub fn new_hot_reload(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: &'a mut dyn HotReloadable) -> Result<Self, WindowCreateError>  {
+    pub fn new_hot_reload(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: Box<dyn HotReloadHandler>) -> Result<Self, WindowCreateError>  {
         let mut window = Window::new(options, base_style)?;
         window.style_loader = Some(style_loader);
         Ok(window)
     }
 
-    /// Creates a new window that will automatically load a new style from a HotReloadable source
+    /// Creates a new window that will automatically load a new style from a HotReloadHandler source
     /// at the specified interval.
     ///
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
-    pub fn new_hot_reload_interval(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: &'a mut dyn HotReloadable, interval_millis: u64) -> Result<Self, WindowCreateError>  {
+    pub fn new_hot_reload_interval(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: Box<dyn HotReloadHandler>, interval_millis: u64) -> Result<Self, WindowCreateError>  {
         let mut window = Window::new_hot_reload(options, base_style, style_loader)?;
         window.reload_interval = interval_millis;
         Ok(window)
@@ -1020,7 +1020,7 @@ pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateEr
     }
 }
 
-impl<'a, T: Layout> Drop for Window<'a, T> {
+impl<T: Layout> Drop for Window<T> {
     fn drop(&mut self) {
         // self.background_thread.take().unwrap().join();
         let renderer = self.renderer.take().unwrap();

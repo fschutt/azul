@@ -63,15 +63,14 @@ fn update_drag(state: &mut State, event: Event) -> UpdateScreen {
 fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/dragger.css")) }
 
-    #[cfg(debug_assertions)]
-    let mut hot_reloader = azul_css::HotReloader::new(CSS_PATH!().to_string());
-
-    #[cfg(not(debug_assertions))]
-    let css = AppStyle::new_from_str(include_str!(CSS_PATH!())).unwrap();
-
     let app = App::new(DragMeApp::default(), AppConfig::default());
-    #[cfg(debug_assertions)]
-    app.run(Window::new_hot_reload(WindowCreateOptions::default(), AppStyle::new(), &mut hot_reloader).unwrap()).unwrap();
-    #[cfg(not(debug_assertions))]
-    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
+
+    #[cfg(debug_assertions)] {
+        let hot_reloader = Box::new(azul_css::HotReloader::new(CSS_PATH!().to_string()));
+        app.run(Window::new_hot_reload(WindowCreateOptions::default(), AppStyle::new(), hot_reloader).unwrap()).unwrap();
+    }
+    #[cfg(not(debug_assertions))] {
+        let css = AppStyle::new_from_str(include_str!(CSS_PATH!())).unwrap();
+        app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
+    }
 }
