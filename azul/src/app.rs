@@ -353,7 +353,6 @@ impl<'a, T: Layout> App<'a, T> {
                                 let mut new_style = window.base_style.clone();
                                 new_style.merge(style);
                                 new_style.sort_by_specificity();
-                                new_style.needs_relayout = true;
                                 window.style = new_style;
                                 last_style_reload = Instant::now();
                                 window.events_loop.create_proxy().wakeup().unwrap_or(());
