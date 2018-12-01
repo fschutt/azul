@@ -8,7 +8,10 @@ use std::{
     io::Error as IoError,
 };
 use webrender::{
-    api::*,
+    api::{
+        LayoutRect, PipelineId, Epoch, ColorF, BuiltDisplayList, DocumentId,
+        RenderApi, ExternalScrollId, RenderNotifier, HitTestResult, DeviceIntSize,
+    },
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags,
     // renderer::RendererError; -- not currently public in WebRender
 };
@@ -786,8 +789,8 @@ impl<T: Layout> Window<T> {
         }
 
         let framebuffer_size = {
-            let (width, height) = display.gl_window().get_inner_size().unwrap().to_physical(hidpi_factor).into();
-            DeviceUintSize::new(width, height)
+            let (width, height): (u32, u32) = display.gl_window().get_inner_size().unwrap().to_physical(hidpi_factor).into();
+            DeviceIntSize::new(width as i32, height as i32)
         };
 
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
