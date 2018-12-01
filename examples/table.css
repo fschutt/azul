@@ -41,7 +41,6 @@
 
 .__azul-native-table-row {
     font-size: 14px;
-    overflow: hidden;
     flex-direction: row;
     justify-content: center;
     align-items: center;
@@ -76,6 +75,7 @@
     position: absolute;
     /* border-bottom gets cut off by 1px? */
     border: 2px solid #407c40;
+    overflow: hidden;
 }
 
 .__azul-native-table-selection-handle {
