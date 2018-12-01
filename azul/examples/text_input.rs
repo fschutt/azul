@@ -1,4 +1,5 @@
 extern crate azul;
+extern crate azul_css;
 
 use azul::prelude::*;
 use azul::widgets::text_input::*;
@@ -25,5 +26,5 @@ impl Layout for TestCrudApp {
 
 fn main() {
     let app = App::new(TestCrudApp::default(), AppConfig::default());
-    app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), azul_css::native()).unwrap()).unwrap();
 }

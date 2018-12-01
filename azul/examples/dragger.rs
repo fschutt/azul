@@ -1,4 +1,5 @@
 extern crate azul;
+extern crate azul_css;
 
 use azul::prelude::*;
 
@@ -18,7 +19,7 @@ impl Layout for DragMeApp {
 
         // Set the width of the dragger on the red element
         if let Some(w) = self.width {
-            left.add_css_override("drag_width", ParsedCssProperty::Width(LayoutWidth::px(w)));
+            left.add_css_override("drag_width", StyleProperty::Width(LayoutWidth::px(w)));
         }
 
         let right = Dom::new(NodeType::Div).with_id("orange");
@@ -63,10 +64,14 @@ fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/dragger.css")) }
 
     #[cfg(debug_assertions)]
-    let css = Css::hot_reload(CSS_PATH!()).unwrap();
+    let mut hot_reloader = azul_css::HotReloader::new(CSS_PATH!().to_string());
+
     #[cfg(not(debug_assertions))]
-    let css = Css::new_from_str(include_str!(CSS_PATH!())).unwrap();
+    let css = AppStyle::new_from_str(include_str!(CSS_PATH!())).unwrap();
 
     let app = App::new(DragMeApp::default(), AppConfig::default());
+    #[cfg(debug_assertions)]
+    app.run(Window::new_hot_reload(WindowCreateOptions::default(), AppStyle::new(), &mut hot_reloader).unwrap()).unwrap();
+    #[cfg(not(debug_assertions))]
     app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
 }

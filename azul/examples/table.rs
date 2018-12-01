@@ -1,6 +1,9 @@
 #![windows_subsystem = "windows"]
+// Non-lexical lifetimes are required to build a HotReloadable after the main App
+#![feature(nll)]
 
 extern crate azul;
+extern crate azul_css;
 
 use azul::{prelude::*, widgets::table_view::*};
 
@@ -23,5 +26,5 @@ fn main() {
         table_state,
     }, AppConfig::default());
 
-    app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), azul_css::native()).unwrap());
 }

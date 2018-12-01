@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 extern crate azul;
+extern crate azul_css;
 
 use azul::prelude::*;
 
@@ -27,12 +28,13 @@ fn main() {
 
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/hot_reload.css")) }
 
-    #[cfg(debug_assertions)]
-    let css = Css::hot_reload(CSS_PATH!()).unwrap();
-    #[cfg(not(debug_assertions))]
-    let css = Css::new_from_str(include_str!(CSS_PATH!())).unwrap();
+    let mut style_loader = azul_css::HotReloader::new(CSS_PATH!().to_string());
+    let style = AppStyle::new();
 
     let mut app = App::new(MyDataModel, AppConfig::default());
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
-    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
+    #[cfg(debug_assertions)]
+    app.run(Window::new_hot_reload_interval(WindowCreateOptions::default(), style, &mut style_loader, 3000).unwrap()).unwrap();
+    #[cfg(not(debug_assertions))]
+    app.run(Window::new(WindowCreateOptions::default(), style).unwrap()).unwrap();
 }

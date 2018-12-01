@@ -1,4 +1,5 @@
 extern crate azul;
+extern crate azul_css;
 
 use azul::prelude::*;
 
@@ -59,15 +60,18 @@ fn main() {
         selected: None,
     };
 
-    let app = App::new(data, AppConfig::default());
-
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/scroll_list.css")) }
 
-    #[cfg(debug_assertions)]
-    let css = Css::hot_reload_override_native(CSS_PATH!()).unwrap();
-    #[cfg(not(debug_assertions))]
-    let css = Css::new_from_str(include_str!(CSS_PATH!())).unwrap();
+    let native_style = azul_css::native();
 
-    let window = Window::new(WindowCreateOptions::default(), css).unwrap();
+    #[cfg(debug_assertions)]
+    let mut hot_reloader = azul_css::HotReloader::new(CSS_PATH!().to_string());
+
+    let app = App::new(data, AppConfig::default());
+
+    #[cfg(debug_assertions)]
+    let window = Window::new_hot_reload(WindowCreateOptions::default(), native_style, &mut hot_reloader).unwrap();
+    #[cfg(not(debug_assertions))]
+    let window = Window::new(WindowCreateOptions::default(), native_style).unwrap();
     app.run(window).unwrap();
 }
