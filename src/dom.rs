@@ -973,7 +973,8 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub(crate) fn new(tex: Texture2d) -> Self {
+    /// Note: You can initialize this texture from an existing (external texture).
+    pub fn new(tex: Texture2d) -> Self {
         Self {
             inner: Rc::new(tex),
         }
