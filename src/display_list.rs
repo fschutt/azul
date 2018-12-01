@@ -314,7 +314,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 struct ContentGroup {
     /// The parent of the current node group, i.e. either the root node (0)
     /// or the last positioned node ()
-    root: NodeId,
+    root: RenderableNodeId,
     /// Depth of the root node in the DOM hierarchy
     root_depth: usize,
     /// Node ids in order of drawing
@@ -360,7 +360,11 @@ fn determine_rendering_order_inner<'a>(
     use id_tree::NodeEdge;
 
     let mut root_group = ContentGroup {
-        root: root_id,
+        root: RenderableNodeId {
+            node_id: root_id,
+            clip_children: node_needs_to_clip_children(&rectangles[root_id].data.style),
+            scrolls_children: false, // TODO
+        },
         root_depth,
         node_ids: Vec::new(),
     };
@@ -652,38 +656,69 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     // A stack containing all the nodes which have a scroll clip pushed to the builder.
     let mut stack: Vec<NodeId> = vec![];
 */
-    // let mut clip_stack = Vec::new();
+
+    let mut clip_stack = Vec::new();
 
     for content_group in content_grouped_rectangles.groups {
         // Push the root of the node
         fn push_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
-            idx: NodeId,
+            item: RenderableNodeId,
             solved_rects: &Arena<LayoutRect>,
             arena: &Arena<NodeData<T>>,
             epoch: Epoch,
             scrollable_nodes: &mut ScrolledNodes,
             referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
-            referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
+            referenced_mutable_content: &mut DisplayListParametersMut<'e, T>,
+            clip_stack: &mut Vec<NodeId>)
         {
-            let html_node = &arena[idx];
+            let html_node = &arena[item.node_id];
             let rectangle = DisplayListRectParams {
                 epoch,
-                rect_idx: idx,
+                rect_idx: item.node_id,
                 html_node: &html_node.data.node_type,
             };
 
-            let styled_node = &referenced_content.display_rectangle_arena[idx];
-            let solved_rect = solved_rects[idx].data;
+            let styled_node = &referenced_content.display_rectangle_arena[item.node_id];
+            let solved_rect = solved_rects[item.node_id].data;
 
             displaylist_handle_rect(solved_rect, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
+
+            if item.clip_children {
+                if let Some(last_child) = arena[item.node_id].last_child {
+                    let styled_node = &referenced_content.display_rectangle_arena[item.node_id];
+                    let solved_rect = solved_rects[item.node_id].data;
+                    let clip = get_clip_region(solved_rect, &styled_node.data)
+                        .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
+                    let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
+                    referenced_mutable_content.builder.push_clip_id(clip_id);
+                    clip_stack.push(last_child);
+                }
+            }
+
+            if clip_stack.last().cloned() == Some(item.node_id) {
+                referenced_mutable_content.builder.pop_clip_id();
+                clip_stack.pop();
+            }
         }
 
-        push_rect(content_group.root, solved_rects, arena, epoch, scrollable_nodes, referenced_content, referenced_mutable_content);
+        push_rect(content_group.root,
+                  solved_rects,
+                  arena,
+                  epoch,
+                  scrollable_nodes,
+                  referenced_content,
+                  referenced_mutable_content,
+                  &mut clip_stack);
 
         for item in content_group.node_ids {
-            // if item.should_clip
-            // if item.should_scroll
-            push_rect(item.node_id, solved_rects, arena, epoch, scrollable_nodes, referenced_content, referenced_mutable_content);
+            push_rect(item,
+                      solved_rects,
+                      arena,
+                      epoch,
+                      scrollable_nodes,
+                      referenced_content,
+                      referenced_mutable_content,
+                      &mut clip_stack);
         }
     }
 /*
@@ -705,12 +740,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
             // the clip ID and the last child into the stack
             if html_node.last_child.is_some() {
                 if node_needs_to_clip_children(&styled_node.data.style) {
-                    let clip = get_clip_region(solved_rect, &styled_node.data)
-                        .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
-                    let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
-                    referenced_mutable_content.builder.push_clip_id(clip_id);
-                    println!("pushing: {:?}", rect_idx);
-                    clip_stack.push(rect_idx);
+
                 }
             }
 
