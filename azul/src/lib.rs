@@ -49,7 +49,7 @@
 //!
 //! fn main() {
 //!     let app = App::new(MyDataModel { }, AppConfig::default());
-//!     let window = Window::new(WindowCreateOptions::default(), Css::native()).unwrap();
+//!     let window = Window::new(WindowCreateOptions::default(), AppStyle::new()).unwrap();
 //!     app.run(window).unwrap();
 //! }
 //! ```
