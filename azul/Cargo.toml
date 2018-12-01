@@ -132,4 +132,5 @@ name = "scroll_list"
 required-features = []
 
 [dev-dependencies]
-azul-css                = { path = "../azul-css",  default-features = false }
+azul-css                            = { path = "../azul-css",                         default-features = false }
+azul-native-style                   = { path = "../azul-native-style",                default-features = false }

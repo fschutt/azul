@@ -4,6 +4,7 @@
 
 extern crate azul;
 extern crate azul_css;
+extern crate azul_native_style;
 
 use azul::{prelude::*, widgets::table_view::*};
 
@@ -26,5 +27,5 @@ fn main() {
         table_state,
     }, AppConfig::default());
 
-    app.run(Window::new(WindowCreateOptions::default(), azul_css::native()).unwrap());
+    app.run(Window::new(WindowCreateOptions::default(), azul_native_style::native()).unwrap());
 }
