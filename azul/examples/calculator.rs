@@ -251,7 +251,7 @@ fn handle_mouseclick_numpad(app_state: &mut AppState<Calculator>, event: WindowE
 fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/calculator.css")) }
 
-    let native_style = azul_native_style::native();
+    let mut native_style = azul_native_style::native();
 
     #[cfg(debug_assertions)]
     let mut hot_reloader = azul_css::HotReloader::new(CSS_PATH!().to_string());
@@ -259,8 +259,12 @@ fn main() {
     let mut app = App::new(Calculator::default(), AppConfig::default());
     app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
 
-    #[cfg(debug_assertions)]
-    app.run(Window::new_hot_reload(WindowCreateOptions::default(), native_style, &mut hot_reloader).unwrap()).unwrap();
-    #[cfg(not(debug_assertions))]
-    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
+    let window = if cfg!(debug_assertions) {
+        Window::new_hot_reload(WindowCreateOptions::default(), native_style, &mut hot_reloader).unwrap()
+    } else {
+        native_style.merge(azul_css::new_from_str(CSS_PATH!()).unwrap());
+        Window::new(WindowCreateOptions::default(), native_style).unwrap()
+    };
+
+    app.run(window).unwrap();
 }
