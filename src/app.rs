@@ -372,13 +372,13 @@ impl<T: Layout> App<T> {
 
     fn update_display(window: &Window<T>)
     {
-        use webrender::api::{Transaction, DeviceUintRect, DeviceUintPoint};
+        use webrender::api::{Transaction, DeviceIntRect, DeviceIntPoint};
         use euclid::TypedSize2D;
 
         let mut txn = Transaction::new();
         let physical_fb_dimensions = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
-        let framebuffer_size = TypedSize2D::new(physical_fb_dimensions.width as u32, physical_fb_dimensions.height as u32);
-        let bounds = DeviceUintRect::new(DeviceUintPoint::new(0, 0), framebuffer_size);
+        let framebuffer_size = TypedSize2D::new(physical_fb_dimensions.width as i32, physical_fb_dimensions.height as i32);
+        let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size);
 
         txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor as f32);
         window.internal.api.send_transaction(window.internal.document_id, txn);
@@ -966,6 +966,10 @@ fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D
 
     use gleam::gl;
     use window::get_gl_context;
+
+    // For some reason, webrender allows rendering negative width / height,
+    // although that doesn't make sense
+    let framebuffer_size = TypedSize2D::new(framebuffer_size.width as i32, framebuffer_size.height as i32);
 
     // use glium::glutin::GlContext;
     // unsafe { window.display.gl_window().make_current().unwrap(); }

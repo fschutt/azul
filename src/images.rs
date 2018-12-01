@@ -11,7 +11,7 @@ use webrender::api::{
 #[cfg(feature = "image_loading")]
 use image::{
     self, ImageResult, ImageFormat,
-    ImageError, DynamicImage, GenericImage,
+    ImageError, DynamicImage, GenericImageView,
 };
 
 static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -137,47 +137,77 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
 
     // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
     let (format, bytes) = match image_decoded {
-        image::ImageLuma8(_) => {
-            (WebrenderImageFormat::R8, image_decoded.raw_pixels())
+        image::ImageLuma8(bytes) => {
+            let pixels = bytes.into_raw();
+            (WebrenderImageFormat::R8, pixels)
         },
-        image::ImageLumaA8(_) => {
-            let bytes = image_decoded.raw_pixels();
+        image::ImageLumaA8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
             for greyscale_alpha in bytes.chunks(2) {
+                let grey = greyscale_alpha[0];
+                let alpha = greyscale_alpha[1];
                 pixels.extend_from_slice(&[
-                    greyscale_alpha[0],
-                    greyscale_alpha[0],
-                    greyscale_alpha[0],
-                    greyscale_alpha[1]
+                    grey,
+                    grey,
+                    grey,
+                    alpha,
                 ]);
             }
             // TODO: necessary for greyscale?
             premultiply(pixels.as_mut_slice());
             (WebrenderImageFormat::BGRA8, pixels)
         },
-        image::ImageRgba8(_) => {
-            let mut pixels = image_decoded.raw_pixels();
+        image::ImageRgba8(mut bytes) => {
+            let mut pixels = bytes.into_raw();
+            // no extra allocation necessary, but swizzling
+            for rgba in pixels.chunks_mut(3) {
+                let r = rgba[0];
+                let g = rgba[1];
+                let b = rgba[2];
+                let a = rgba[3];
+                rgba[0] = b;
+                rgba[1] = r;
+                rgba[2] = g;
+                rgba[3] = a;
+            }
             premultiply(pixels.as_mut_slice());
             (WebrenderImageFormat::BGRA8, pixels)
         },
-        image::ImageRgb8(_) => {
-            let bytes = image_decoded.raw_pixels();
+        image::ImageRgb8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
-            for bgr in bytes.chunks(3) {
+            for rgb in bytes.chunks(3) {
                 pixels.extend_from_slice(&[
-                    bgr[2],
-                    bgr[1],
-                    bgr[0],
-                    0xff
+                    rgb[2], // b
+                    rgb[1], // g
+                    rgb[0], // r
+                    0xff    // a
                 ]);
             }
             (WebrenderImageFormat::BGRA8, pixels)
-        }
+        },
+        image::ImageBgr8(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for bgr in bytes.chunks(3) {
+                pixels.extend_from_slice(&[
+                    bgr[0], // b
+                    bgr[1], // g
+                    bgr[2], // r
+                    0xff    // a
+                ]);
+            }
+            (WebrenderImageFormat::BGRA8, pixels)
+        },
+        image::ImageBgra8(bytes) => {
+            // Already in the correct format
+            let mut pixels = bytes.into_raw();
+            premultiply(pixels.as_mut_slice());
+            (WebrenderImageFormat::BGRA8, pixels)
+        },
     };
 
     let opaque = is_image_opaque(format, &bytes[..]);
     let allow_mipmaps = true;
-    let descriptor = ImageDescriptor::new(image_dims.0, image_dims.1, format, opaque, allow_mipmaps);
+    let descriptor = ImageDescriptor::new(image_dims.0 as i32, image_dims.1 as i32, format, opaque, allow_mipmaps);
     let data = ImageData::new(bytes);
     Ok((data, descriptor))
 }

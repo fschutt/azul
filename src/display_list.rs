@@ -819,7 +819,7 @@ fn push_opengl_texture<'a, 'b, 'c, 'd, 'e,'f, T: Layout>(
 
     let opaque = false;
     let allow_mipmaps = true;
-    let descriptor = ImageDescriptor::new(info.rect.size.width as u32, info.rect.size.height as u32, ImageFormat::BGRA8, opaque, allow_mipmaps);
+    let descriptor = ImageDescriptor::new(info.rect.size.width as i32, info.rect.size.height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
     let key = referenced_content.render_api.generate_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
