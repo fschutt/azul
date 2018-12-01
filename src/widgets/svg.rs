@@ -114,6 +114,13 @@ const SVG_FRAGMENT_SHADER: &str = "
     uniform vec4 color;
     out vec4 out_color;
 
+    vec4 linear_to_srgb(vec4 input) {
+        return vec4(pow(input.xyz, vec3(2.2)), input.w);
+    }
+
+    // The shader output is in SRGB color space,
+    // and the shader assumes that the input colors are in SRGB, too.
+
     void main() {
         out_color = color;
     }
@@ -279,12 +286,30 @@ pub struct SvgShader {
 
 impl SvgShader {
     pub fn new<F: Facade + ?Sized>(display: &F) -> Self {
+        use glium::program::ProgramCreationInput;
+
         let current_gl_api = display.get_context().get_opengl_version().0;
         let vertex_source_prefixed = prefix_gl_version(SVG_VERTEX_SHADER, current_gl_api);
         let fragment_source_prefixed = prefix_gl_version(SVG_FRAGMENT_SHADER, current_gl_api);
 
+        let program_creation_input = ProgramCreationInput::SourceCode {
+            vertex_shader: &vertex_source_prefixed,
+            fragment_shader: &fragment_source_prefixed,
+            geometry_shader: None,
+            tessellation_control_shader: None,
+            tessellation_evaluation_shader: None,
+            transform_feedback_varyings: None,
+
+            // Important: Disable automatic gl::GL_FRAMEBUFFER_SRGB -
+            // webrender expects SRGB textures and will handle this conversion for us
+            // See https://github.com/servo/webrender/issues/3262
+
+            outputs_srgb: true,
+            uses_point_size: false,
+        };
+
         Self {
-            program: Rc::new(Program::from_source(display, &vertex_source_prefixed, &fragment_source_prefixed, None).unwrap()),
+            program: Rc::new(Program::new(display, program_creation_input).unwrap()),
         }
     }
 }
@@ -2399,8 +2424,6 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
         pan: (f32, f32),
         zoom: f32)
 {
-    let color = srgba_to_linear(color);
-
     let uniforms = uniform! {
         bbox_size: (bbox_size.width / 2.0, bbox_size.height / 2.0),
         z_index: z_index,
@@ -2415,46 +2438,4 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
     };
 
     surface.draw(vertices, indices, shader, &uniforms, draw_options).unwrap();
-}
-
-/// Taken from the `palette` crate - I wouldn't want to
-/// import the entire crate just for one function (due to added compile time)
-///
-/// The MIT License (MIT)
-///
-/// Copyright (c) 2015 Erik Hedvall
-///
-/// Permission is hereby granted, free of charge, to any person obtaining a copy
-/// of this software and associated documentation files (the "Software"), to deal
-/// in the Software without restriction, including without limitation the rights
-/// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-/// copies of the Software, and to permit persons to whom the Software is
-/// furnished to do so, subject to the following conditions:
-///
-/// The above copyright notice and this permission notice shall be included in all
-/// copies or substantial portions of the Software.
-///
-/// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-/// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-/// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-/// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-/// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-/// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-/// SOFTWARE.
-fn srgba_to_linear(color: ColorF) -> ColorF {
-
-    fn into_linear(x: f32) -> f32 {
-        if x <= 0.04045 {
-            x / 12.92
-        } else {
-            ((x + 0.055) / 1.055).powf(2.4)
-        }
-    }
-
-    ColorF {
-        r: into_linear(color.r),
-        g: into_linear(color.g),
-        b: into_linear(color.b),
-        a: color.a,
-    }
 }

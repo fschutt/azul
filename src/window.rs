@@ -121,7 +121,7 @@ impl<T: Layout> FakeWindow<T> {
 /// custom OpenGL texture during the `.layout()` phase
 #[derive(Clone)]
 pub struct ReadOnlyWindow {
-    pub(crate) inner: Rc<Display>,
+    pub inner: Rc<Display>,
 }
 
 impl Facade for ReadOnlyWindow {
@@ -167,6 +167,12 @@ impl ReadOnlyWindow {
         let gl = get_gl_context(&*self.inner).unwrap();
 
         gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    }
+
+    pub fn get_gl_context(&self) -> Rc<Gl> {
+        // Can only fail when the API was initialized from WebGL,
+        // which can't happen, since that would already crash on startup
+        get_gl_context(&*self.inner).unwrap()
     }
 }
 
