@@ -1,6 +1,8 @@
 #![windows_subsystem = "windows"]
 
 extern crate azul;
+extern crate azul_css;
+extern crate azul_native_style;
 
 use azul::{
     prelude::*,
@@ -227,14 +229,8 @@ fn main() {
 
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/debug.css")) }
 
-    #[cfg(debug_assertions)]
-    let css = Css::hot_reload_override_native(CSS_PATH!()).unwrap();
-
-    #[cfg(not(debug_assertions))]
-    let css = {
-        let css_str = format!("{}\r\n{}", NATIVE_CSS, include_str!(CSS_PATH!()));
-        Css::new_from_str(&css_str).unwrap()
-    };
+    let mut css = azul_native_style::native();
+    css.merge(azul_css::new_from_str(CSS_PATH!()).unwrap());
 
     let app = App::new(MyAppData { map: None }, AppConfig::default());
     app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();

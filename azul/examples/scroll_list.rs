@@ -63,16 +63,16 @@ fn main() {
 
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/scroll_list.css")) }
 
-    let native_style = azul_native_style::native();
-
-    #[cfg(debug_assertions)]
-    let mut hot_reloader = azul_css::HotReloader::new(CSS_PATH!().to_string());
-
     let app = App::new(data, AppConfig::default());
 
-    #[cfg(debug_assertions)]
-    let window = Window::new_hot_reload(WindowCreateOptions::default(), native_style, &mut hot_reloader).unwrap();
-    #[cfg(not(debug_assertions))]
-    let window = Window::new(WindowCreateOptions::default(), native_style).unwrap();
+    let native_style = azul_native_style::native();
+
+    let window = if cfg!(debug_assertions) {
+        let hot_reloader = Box::new(azul_css::HotReloader::new(CSS_PATH!().to_string()));
+        Window::new_hot_reload(WindowCreateOptions::default(), native_style, hot_reloader).unwrap()
+    } else {
+        Window::new(WindowCreateOptions::default(), native_style).unwrap()
+    };
+
     app.run(window).unwrap();
 }

@@ -44,9 +44,9 @@ type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
 /// Graphical application that maintains some kind of application state
-pub struct App<'a, T: Layout> {
+pub struct App<T: Layout> {
     /// The graphical windows, indexed by ID
-    windows: Vec<Window<'a, T>>,
+    windows: Vec<Window<T>>,
     /// The global application state
     pub app_state: AppState<T>,
 }
@@ -146,7 +146,7 @@ impl Default for AppConfig {
     }
 }
 
-impl<'a, T: Layout> App<'a, T> {
+impl<T: Layout> App<T> {
 
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
@@ -175,7 +175,7 @@ impl<'a, T: Layout> App<'a, T> {
     /// Spawn a new window on the screen. Note that this should only be used to
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
-    pub fn push_window(&mut self, window: Window<'a, T>) {
+    pub fn push_window(&mut self, window: Window<T>) {
         use default_callbacks::DefaultCallbackSystem;
 
         // TODO: push_window doesn't work dynamically!
@@ -211,7 +211,7 @@ impl<'a, T: Layout> App<'a, T> {
     /// // continue the rest of the program here...
     /// println!("username: {:?}, password: {:?}", username, password);
     /// ```
-    pub fn run(mut self, window: Window<'a, T>) -> Result<T, RuntimeError<T>>
+    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>>
     {
         // Apps need to have at least one window open
         self.push_window(window);
@@ -349,15 +349,23 @@ impl<'a, T: Layout> App<'a, T> {
                     // Hot-reload a style if necessary
                     if let Some(ref mut hot_reloader) = window.style_loader {
                         if Instant::now() - last_style_reload > Duration::from_millis(window.reload_interval) {
-                            if let Some(mut style) = hot_reloader.reload_style() {
-                                let mut new_style = window.base_style.clone();
-                                new_style.merge(style);
-                                new_style.sort_by_specificity();
-                                window.style = new_style;
-                                last_style_reload = Instant::now();
-                                window.events_loop.create_proxy().wakeup().unwrap_or(());
-                                awakened_task[window_idx] = true;
-                            }
+                            match hot_reloader.reload_style() {
+                                Some(Ok(style)) => {
+                                    let mut new_style = window.base_style.clone();
+                                    new_style.merge(style);
+                                    new_style.sort_by_specificity();
+                                    window.style = new_style;
+                                    last_style_reload = Instant::now();
+                                    window.events_loop.create_proxy().wakeup().unwrap_or(());
+                                    awakened_task[window_idx] = true;
+                                }
+                                Some(Err(why)) => {
+                                    #[cfg(feature = "logging")] {
+                                        format!("Failed to hot-reload style: {}", why);
+                                    }
+                                }
+                                None => (),
+                            };
                         }
                     }
                 }
@@ -583,7 +591,7 @@ impl<'a, T: Layout> App<'a, T> {
     }
 }
 
-impl<'a, T: Layout + Send + 'static> App<'a, T> {
+impl<T: Layout + Send + 'static> App<T> {
     /// See `AppState::add_ask`.
     pub fn add_task(
         &mut self,

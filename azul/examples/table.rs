@@ -1,9 +1,6 @@
 #![windows_subsystem = "windows"]
-// Non-lexical lifetimes are required to build a HotReloadable after the main App
-#![feature(nll)]
 
 extern crate azul;
-extern crate azul_css;
 extern crate azul_native_style;
 
 use azul::{prelude::*, widgets::table_view::*};

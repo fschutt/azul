@@ -28,13 +28,15 @@ fn main() {
 
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/hot_reload.css")) }
 
-    let mut style_loader = azul_css::HotReloader::new(CSS_PATH!().to_string());
-    let style = AppStyle::new();
-
     let mut app = App::new(MyDataModel, AppConfig::default());
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
-    #[cfg(debug_assertions)]
-    app.run(Window::new_hot_reload_interval(WindowCreateOptions::default(), style, &mut style_loader, 3000).unwrap()).unwrap();
+
+    let style = AppStyle::new();
+
+    #[cfg(debug_assertions)] {
+        let style_loader = Box::new(azul_css::HotReloader::new(CSS_PATH!().to_string()));
+        app.run(Window::new_hot_reload_interval(WindowCreateOptions::default(), style, style_loader, 3000).unwrap()).unwrap();
+    }
     #[cfg(not(debug_assertions))]
     app.run(Window::new(WindowCreateOptions::default(), style).unwrap()).unwrap();
 }
