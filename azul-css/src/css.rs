@@ -17,27 +17,6 @@ use azul::prelude::{
     CssPathPseudoSelector,
 };
 
-/// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
-#[cfg(target_os="windows")]
-pub const NATIVE_CSS: &str = concat!(
-    include_str!("styles/native_windows.css"),
-    include_str!("styles/shared/table.css"),
-);
-
-/// CSS mimicking the OS-native look - Linux: `styles/native_linux.css`
-#[cfg(target_os="linux")]
-pub const NATIVE_CSS: &str = concat!(
-    include_str!("styles/native_linux.css"),
-    include_str!("styles/shared/table.css"),
-);
-
-/// CSS mimicking the OS-native look - Mac: `styles/native_macos.css`
-#[cfg(target_os="macos")]
-pub const NATIVE_CSS: &str = concat!(
-    include_str!("styles/native_macos.css"),
-    include_str!("styles/shared/table.css"),
-);
-
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssParseError<'a> {
@@ -282,20 +261,6 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'
     };
 
     Ok(style)
-}
-
-/// Returns the native style for the OS
-pub fn native() -> AppStyle {
-    new_from_str(NATIVE_CSS).unwrap()
-}
-
-/// Same as `new_from_str`, but applies the OS-native styles first, before
-/// applying the user styles on top.
-pub fn override_native<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'a>> {
-    let parsed = new_from_str(css_string)?;
-    let mut native = native();
-    native.merge(parsed);
-    Ok(native)
 }
 
 /// Error that can happen during `ParsedCssProperty::from_kv`
