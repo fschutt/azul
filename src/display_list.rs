@@ -9,7 +9,7 @@ use std::{
 use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
-use glium::glutin::dpi::LogicalSize;
+use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 use {
     FastHashMap,
     app_resources::AppResources,
@@ -24,7 +24,7 @@ use {
         IFrameCallback, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
-    text_layout::{TextOverflowPass2, ScrollbarInfo},
+    text_layout::{TextOverflowPass2, ScrollbarInfo, Words, FontMetrics},
     images::ImageId,
     text_cache::TextInfo,
     compositor::new_opengl_texture_id,
@@ -40,8 +40,7 @@ pub(crate) struct DisplayList<'a, T: Layout + 'a> {
 
 impl<'a, T: Layout + 'a> fmt::Debug for DisplayList<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-            "DisplayList {{ ui_descr: {:?}, rectangles: {:?} }}", self.ui_descr, self.rectangles)
+        write!(f, "DisplayList {{ ui_descr: {:?}, rectangles: {:?} }}", self.ui_descr, self.rectangles)
     }
 }
 
@@ -239,7 +238,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         // Upload image and font resources
         Self::update_resources(&window.internal.api, app_resources, &mut resource_updates);
 
-        let rects_in_rendering_order = ZOrderedRectangles::new(&self.rectangles, &node_depths);
+        let rects_in_rendering_order = determine_rendering_order(&self.rectangles, &laid_out_rectangles);
 
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
@@ -271,72 +270,175 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     }
 }
 
-/// Rectangles in rendering order instead of stacking order
-#[derive(Debug, Clone)]
-struct ZOrderedRectangles(pub BTreeMap<usize, Vec<NodeId>>);
+/// In order to render rectangles in the correct order, we have to group them together:
+/// As long as there are no position:absolute items, items are inserted in a parents-then-child order
+///
+/// ```no_run,ignore
+/// a
+/// |- b
+/// |- c
+/// |  |- d
+/// e
+/// |- f
+/// g
+/// ```
+/// is rendered in the order `a, b, c, d, e, f, g`. This is necessary for clipping and scrolling,
+/// meaning that if there is an overflow:scroll element, all children of that element are clipped
+/// within that group. This means, that the z-order is completely determined by the DOM hierarchy.
+///
+/// Trees with elements with `position:absolute` are more complex: The absolute items need
+/// to be rendered completely on top of all other items, however, they still need to clip
+/// and scroll properly.
+///
+/// ```no_run,ignore
+/// a:relative
+/// |- b
+/// |- c:absolute
+/// |  |- d
+/// e
+/// |- f
+/// g
+/// ```
+///
+/// will be rendered as: `a,b,e,f,g,c,d`, so that the `c,d` sub-DOM is on top of the rest
+/// of the content. To support this, the content needs to be grouped: Whenever there is a
+/// `position:absolute` encountered, the children are grouped into a new `ContentGroup`:
+///
+/// ```no_run,ignore
+/// Group 1: [a, b, c, e, f, g]
+/// Group 2: [c, d]
+/// ```
+/// Then the groups are simply rendered in-order: if there are multiple position:absolute
+/// groups, this has the side effect of later groups drawing on top of earlier groups.
+#[derive(Debug, Clone, PartialEq)]
+struct ContentGroup {
+    /// The parent of the current node group, i.e. either the root node (0)
+    /// or the last positioned node ()
+    root: NodeId,
+    /// Depth of the root node in the DOM hierarchy
+    root_depth: usize,
+    /// Node ids in order of drawing
+    node_ids: Vec<RenderableNodeId>,
+}
 
-impl ZOrderedRectangles {
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct RenderableNodeId {
+    /// Whether the (hierarchical) children of this group need to be clipped (usually
+    /// because the parent has an `overflow:hidden` property set).
+    clip_children: bool,
+    /// Whether the children overflow the parent (see `O`)
+    scrolls_children: bool,
+    /// The actual node ID of the content
+    node_id: NodeId,
+}
 
-    /// Determine the correct implicit z-index rendering order of every rectangle
-    pub fn new<'a>(rectangles: &Arena<DisplayRectangle<'a>>, node_depths: &[(usize, NodeId)]) -> ZOrderedRectangles {
+#[derive(Debug, Clone, PartialEq)]
+struct ContentGroupOrder {
+    groups: Vec<ContentGroup>,
+}
 
-        let mut rects_in_rendering_order = BTreeMap::new();
-        rects_in_rendering_order.insert(0, vec![NodeId::new(0)]);
 
-        let mut positioned_node_stack = Vec::new();
-        let mut node_depths_of_absolute_nodes = BTreeMap::new();
+fn determine_rendering_order<'a>(
+    rectangles: &Arena<DisplayRectangle<'a>>,
+    layouted_rects: &Arena<LayoutRect>,
+) -> ContentGroupOrder
+{
+    let mut content_groups = Vec::new();
+    determine_rendering_order_inner(rectangles, layouted_rects, 0, NodeId::new(0), &mut content_groups);
+    ContentGroupOrder { groups: content_groups }
+}
 
-        for (node_depth, parent_id) in node_depths {
+fn determine_rendering_order_inner<'a>(
+    rectangles: &Arena<DisplayRectangle<'a>>,
+    layouted_rects: &Arena<LayoutRect>,
+    // recursive parameters
+    root_depth: usize,
+    root_id: NodeId,
+    content_groups: &mut Vec<ContentGroup>,
+)
+{
+    use id_tree::NodeEdge;
 
-            let parent_position = rectangles[*parent_id].data.layout.position.unwrap_or_default();
+    let mut root_group = ContentGroup {
+        root: root_id,
+        root_depth,
+        node_ids: Vec::new(),
+    };
 
-            if parent_position != LayoutPosition::Static {
-                positioned_node_stack.push(*parent_id);
-            }
+    let mut absolute_node_ids = Vec::new();
+    let mut depth = root_depth + 1;
 
-            let z_offset_parent = *(node_depths_of_absolute_nodes.get(parent_id).unwrap_or(&0));
-
-            for child_id in parent_id.children(rectangles) {
-                let child_position = rectangles[child_id].data.layout.position.unwrap_or_default();
-
-                // If we have an absolute item, go to the nearest relative item, calculate the number
-                // of children of that node, then add it to the self.z_index
-                if child_position == LayoutPosition::Absolute {
-                    let root_id = NodeId::new(0);
-                    let last_positioned_node = positioned_node_stack.last().and_then(|last| rectangles[*last].parent()).unwrap_or(root_id);
-                    let z_off = get_total_num_children_of_node(last_positioned_node, rectangles);
-                    node_depths_of_absolute_nodes.insert(child_id, z_off);
+    // Same as the traverse function, but allows us to skip items, returns the next element
+    fn traverse_simple<T>(root_id: NodeId, current_node: NodeEdge<NodeId>, arena: &Arena<T>) -> Option<NodeEdge<NodeId>> {
+        // returns the next item
+        match current_node {
+            NodeEdge::Start(current_node) => {
+                match arena[current_node].first_child {
+                    Some(first_child) => Some(NodeEdge::Start(first_child)),
+                    None => Some(NodeEdge::End(current_node.clone()))
                 }
-
-                rects_in_rendering_order
-                    .entry(node_depth + z_offset_parent + 1)
-                    .or_insert_with(|| Vec::new())
-                    .push(child_id);
             }
+            NodeEdge::End(current_node) => {
+                if current_node == root_id {
+                    None
+                } else {
+                    match arena[current_node].next_sibling {
+                        Some(next_sibling) => Some(NodeEdge::Start(next_sibling)),
+                        None => arena[current_node].parent.and_then(|parent| Some(NodeEdge::End(parent))),
+                    }
+                }
+            }
+        }
+    }
 
-            if parent_position != LayoutPosition::Static {
-                positioned_node_stack.pop();
+    let mut current_node_edge = NodeEdge::Start(root_id);
+    while let Some(next_node_id) = traverse_simple(root_id, current_node_edge.clone(), rectangles) {
+        let mut should_continue_loop = true;
+
+        if next_node_id.clone().inner_value() != root_id {
+            match next_node_id {
+                NodeEdge::Start(start_tag) => {
+                    let rect_node = &rectangles[start_tag].data;
+                    let position = rect_node.layout.position.unwrap_or_default();
+                    if position == LayoutPosition::Absolute {
+                        // For now, ignore the node and put it aside for later
+                        absolute_node_ids.push((depth, start_tag));
+                        // Skip this sub-tree and go straight to the next sibling
+                        // Since the tree is positioned absolute, we'll worry about it later
+                        current_node_edge = NodeEdge::End(start_tag);
+                        should_continue_loop = false;
+                    } else {
+                        // TODO: Overflow hidden in horizontal / vertical direction
+                        let node_is_overflow_hidden = node_needs_to_clip_children(&rect_node.style);
+                        let node_needs_to_scroll_children = false; // TODO
+                        root_group.node_ids.push(RenderableNodeId {
+                            node_id: start_tag,
+                            clip_children: node_is_overflow_hidden,
+                            scrolls_children: node_needs_to_scroll_children,
+                        });
+                    }
+
+                    depth += 1;
+                },
+                NodeEdge::End(node_id) => {
+                    depth -= 1;
+                },
             }
         }
 
-        ZOrderedRectangles(rects_in_rendering_order)
+        if should_continue_loop {
+            current_node_edge = next_node_id;
+        }
+    }
+
+    content_groups.push(root_group);
+
+    // Note: Currently reversed order, so that earlier absolute items are drawn
+    // on top of later absolute items
+    for (absolute_depth, absolute_node_id) in absolute_node_ids.into_iter().rev() {
+        determine_rendering_order_inner(rectangles, layouted_rects, absolute_depth, absolute_node_id, content_groups);
     }
 }
-
-// Returns how many children a node has (including grandchildren, grand-grandchildren, etc.)
-fn get_total_num_children_of_node<T>(id: NodeId, arena: &Arena<T>) -> usize {
-    let mut last_child = match arena[id].last_child {
-        None => return 0,
-        Some(id) => id,
-    };
-    while let Some(last) = arena[last_child].last_child {
-        last_child = last;
-    }
-    last_child.index() - id.index()
-}
-
-use glium::glutin::dpi::LogicalPosition;
-use text_layout::{Words, FontMetrics};
 
 #[derive(Debug, Clone)]
 pub struct WordCache(BTreeMap<NodeId, (Words, FontMetrics)>);
@@ -533,22 +635,58 @@ fn test_overflow_parsing() {
     assert!(node_needs_to_clip_children(&style3));
 
 }
+
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
     solved_rects: &Arena<LayoutRect>,
     epoch: Epoch,
-    z_ordered_rectangles: ZOrderedRectangles,
+    content_grouped_rectangles: ContentGroupOrder,
     scrollable_nodes: &mut ScrolledNodes,
     scroll_states: &mut ScrollStates,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
 {
-    let arena = referenced_content.ui_description.ui_descr_arena.borrow();
+    use dom::NodeData;
+
+    let arena = &*referenced_content.ui_description.ui_descr_arena.borrow();
 /* -- disabled scrolling temporarily due to z-indexing problems
     // A stack containing all the nodes which have a scroll clip pushed to the builder.
     let mut stack: Vec<NodeId> = vec![];
 */
     // let mut clip_stack = Vec::new();
 
+    for content_group in content_grouped_rectangles.groups {
+        // Push the root of the node
+        fn push_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
+            idx: NodeId,
+            solved_rects: &Arena<LayoutRect>,
+            arena: &Arena<NodeData<T>>,
+            epoch: Epoch,
+            scrollable_nodes: &mut ScrolledNodes,
+            referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
+            referenced_mutable_content: &mut DisplayListParametersMut<'e, T>)
+        {
+            let html_node = &arena[idx];
+            let rectangle = DisplayListRectParams {
+                epoch,
+                rect_idx: idx,
+                html_node: &html_node.data.node_type,
+            };
+
+            let styled_node = &referenced_content.display_rectangle_arena[idx];
+            let solved_rect = solved_rects[idx].data;
+
+            displaylist_handle_rect(solved_rect, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
+        }
+
+        push_rect(content_group.root, solved_rects, arena, epoch, scrollable_nodes, referenced_content, referenced_mutable_content);
+
+        for item in content_group.node_ids {
+            // if item.should_clip
+            // if item.should_scroll
+            push_rect(item.node_id, solved_rects, arena, epoch, scrollable_nodes, referenced_content, referenced_mutable_content);
+        }
+    }
+/*
     for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
         for rect_idx in rects {
             let html_node = &arena[rect_idx];
@@ -623,6 +761,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
 */
         }
     }
+*/
 }
 
 /// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
@@ -946,7 +1085,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 
     let mut scrollable_nodes = get_nodes_that_need_scroll_clip(&laid_out_rectangles, &display_list, &node_depths, referenced_content.pipeline_id);
 
-    let z_ordered_rectangles = ZOrderedRectangles::new(&display_list.rectangles, &node_depths);
+    let rects_in_rendering_order = determine_rendering_order(&display_list.rectangles, &laid_out_rectangles);
 
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description, otherwise this function would be endlessly recursive
@@ -959,7 +1098,7 @@ fn push_iframe<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     push_rectangles_into_displaylist(
         &laid_out_rectangles,
         rectangle.epoch,
-        z_ordered_rectangles,
+        rects_in_rendering_order,
         &mut scrollable_nodes,
         &mut ScrollStates::new(),
         &referenced_content,
