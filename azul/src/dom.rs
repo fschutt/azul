@@ -19,7 +19,7 @@ use {
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
     text_layout::{Words, FontMetrics, TextSizePx},
-    css_parser::StyleProperty,
+    style_properties::StyleProperty,
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -349,7 +349,7 @@ impl<T: Layout> NodeType<T> {
     ) -> Option<TextSizePx>
     {
         use self::NodeType::*;
-        use css_parser::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
+        use style_properties::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
 
         match self {
             Image(i) => image_cache.get(i).and_then(|image_state| {

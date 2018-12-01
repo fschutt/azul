@@ -29,7 +29,7 @@ use {
     error::{FontError, ClipboardError},
     window::{Window, WindowId, FakeWindow, ScrollStates},
     window_state::WindowSize,
-    css_parser::{FontId, PixelValue, StyleLetterSpacing},
+    style_properties::{FontId, PixelValue, StyleLetterSpacing},
     text_cache::TextId,
     dom::{ScrollTagId, UpdateScreen},
     app_resources::AppResources,

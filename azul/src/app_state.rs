@@ -18,7 +18,7 @@ use {
     traits::Layout,
     app_resources::AppResources,
     font::FontError,
-    css_parser::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing},
+    style_properties::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing},
     error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
 };
@@ -51,7 +51,7 @@ pub struct AppState<T: Layout> {
     /// ```no_run,ignore
     /// let window_state = &mut app_state.windows[event.window];
     /// // For one frame, set the dynamic CSS value with `my_id` to `color: orange`
-    /// window_state.css.set_dynamic_property("my_id", ("color", "orange")).unwrap();
+    /// window_state.style.set_dynamic_property("my_id", ("color", "orange")).unwrap();
     /// // Update the title
     /// window_state.state.title = "Hello";
     /// ```

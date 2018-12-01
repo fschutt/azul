@@ -1,7 +1,7 @@
 use std::sync::atomic::{Ordering, AtomicUsize};
 use {
     FastHashMap,
-    css_parser::{FontId, StyleFontSize},
+    style_properties::{FontId, StyleFontSize},
     text_layout::Words,
     app_resources::AppResources,
 };

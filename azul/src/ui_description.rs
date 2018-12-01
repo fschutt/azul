@@ -9,7 +9,7 @@ use {
     id_tree::{Arena, NodeId},
     traits::Layout,
     dom::Dom,
-    css_parser::StyleProperty,
+    style_properties::StyleProperty,
     style::{AppStyle, CssConstraintList},
     dom::NodeData,
     ui_state::UiState,

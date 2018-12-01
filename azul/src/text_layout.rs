@@ -6,7 +6,7 @@ use rusttype::{Font, Scale, GlyphId};
 use {
     app_resources::AppResources,
     text_cache::TextInfo,
-    css_parser::{
+    style_properties::{
         StyleTextAlignmentHorz, StyleFontSize, StyleBackgroundColor, StyleLetterSpacing,
         FontId, StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow
     },
@@ -802,7 +802,7 @@ fn words_to_left_aligned_glyphs<'a>(
                 }
 
                 for glyph in &word.glyphs {
-                    use css_parser::PT_TO_PX;
+                    use style_properties::PT_TO_PX;
 
                     // vertical_advance is in px
                     let mut new_glyph = *glyph;
@@ -891,7 +891,7 @@ fn align_text_horz(
     glyphs: &mut [GlyphInstance],
     line_breaks: &[(usize, f32)]
 ) {
-    use css_parser::StyleTextAlignmentHorz::*;
+    use style_properties::StyleTextAlignmentHorz::*;
 
     // Text alignment is theoretically very simple:
     //
