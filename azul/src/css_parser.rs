@@ -7,10 +7,10 @@ pub use {
         BorderDetails, NormalBorder,
         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
         ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
-        LayoutSize, ExtendMode, LayoutSideOffsets,
+        LayoutSize, ExtendMode, LayoutSideOffsets, BorderStyle,
+        BorderRadius, BorderSide, LayoutRect,
     },
 };
-use webrender::api::{BorderStyle, BorderRadius, BorderSide, LayoutRect};
 
 pub(crate) const EM_HEIGHT: f32 = 16.0;
 /// WebRender measures in points, not in pixels!

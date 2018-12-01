@@ -3,7 +3,7 @@
 use std::{fmt, num::{ParseIntError, ParseFloatError}};
 use azul::prelude::{
     StyleProperty,
-    BorderDetails, NormalBorder, LayoutPixel,
+    BorderDetails, BorderStyle, NormalBorder, LayoutPixel,
     BoxShadowClipMode, ColorU, ColorF, LayoutPoint,
     LayoutSize, ExtendMode, LayoutSideOffsets,
     TypedPoint2D, PixelValue, CssMetric, PercentageValue,
@@ -20,7 +20,6 @@ use azul::prelude::{
     LayoutDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
     LayoutAlignItems, LayoutAlignContent,
 };
-use webrender::api::{BorderStyle, BorderRadius, BorderSide, LayoutRect};
 
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
@@ -1049,7 +1048,6 @@ fn parse_layout_margin<'a>(input: &'a str)
 
 parse_tblr!(StyleBorderParser, StyleBorder, CssBorderParseError, parse_css_border);
 
-const DEFAULT_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
 const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
 /// Parse a CSS border such as
