@@ -254,13 +254,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'
         return Err(CssParseError::UnclosedBlock);
     }
 
-    let style = AppStyle {
-        rules: css_blocks,
-        // force re-layout for the first frame
-        needs_relayout: true,
-    };
-
-    Ok(style)
+    Ok(css_blocks.into())
 }
 
 /// Error that can happen during `ParsedCssProperty::from_kv`
@@ -465,27 +459,24 @@ fn test_css_parse_1() {
         }
     ").unwrap();
 
-    let expected_css = AppStyle {
-        rules: vec![
-            StyleRuleSet {
-                path: XPath {
-                    selectors: vec![
-                        XPathSelector::Type(NodeTypePath::Div),
-                        XPathSelector::Id(String::from("my_id")),
-                        XPathSelector::Children,
-                        // NOTE: This is technically wrong, the space between "#my_id"
-                        // and ".my_class" is important, but gets ignored for now
-                        XPathSelector::Class(String::from("my_class")),
-                        XPathSelector::PseudoSelector(XPathPseudoSelector::First),
-                    ],
-                },
-                declarations: vec![StyleDeclaration::Static(StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
-            }
-        ],
-        needs_relayout: true,
-    };
+    let expected_css_rules = vec![
+        StyleRuleSet {
+            path: XPath {
+                selectors: vec![
+                    XPathSelector::Type(NodeTypePath::Div),
+                    XPathSelector::Id(String::from("my_id")),
+                    XPathSelector::Children,
+                    // NOTE: This is technically wrong, the space between "#my_id"
+                    // and ".my_class" is important, but gets ignored for now
+                    XPathSelector::Class(String::from("my_class")),
+                    XPathSelector::PseudoSelector(XPathPseudoSelector::First),
+                ],
+            },
+            declarations: vec![StyleDeclaration::Static(StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
+        }
+    ];
 
-    assert_eq!(parsed_css, expected_css);
+    assert_eq!(parsed_css, expected_css_rules.into());
 }
 
 #[test]
@@ -507,7 +498,6 @@ fn test_css_simple_selector_parse() {
             path: XPath { selectors: parsed },
             declarations: Vec::new(),
         }],
-        needs_relayout: true,
     });
 }
 
@@ -517,9 +507,9 @@ mod stylesheet_parse {
     use azul::prelude::*;
     use super::*;
 
-    fn test_css(css: &str, expected: AppStyle ) {
+    fn test_css(css: &str, expected: Vec<StyleRuleSet>) {
         let css = new_from_str(css).unwrap();
-        assert_eq!(css, expected);
+        assert_eq!(css, expected.into());
     }
 
     // Tests that an element with a single class always gets the CSS element applied properly
@@ -532,60 +522,51 @@ mod stylesheet_parse {
         // Simple example
         {
             let css_1 = ".my_class { background-color: red; }";
-            let expected = AppStyle {
-                rules: vec![
-                    StyleRuleSet {
-                        path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
-                        declarations: vec![
-                            StyleDeclaration::Static(red.clone())
-                        ],
-                    },
-                ],
-                needs_relayout: true,
-            };
-            test_css(css_1, expected);
+            let expected_rules = vec![
+                StyleRuleSet {
+                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
+                    declarations: vec![
+                        StyleDeclaration::Static(red.clone())
+                    ],
+                },
+            ];
+            test_css(css_1, expected_rules);
         }
 
         // Slightly more complex example
         {
             let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
-            let expected = AppStyle {
-                rules: vec![
-                    StyleRuleSet {
-                        path: XPath { selectors: vec![XPathSelector::Id("my_id".into())] },
-                        declarations: vec![StyleDeclaration::Static(red.clone())]
-                    },
-                    StyleRuleSet {
-                        path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
-                        declarations: vec![StyleDeclaration::Static(blue.clone())]
-                    },
-                ],
-                needs_relayout: true,
-            };
-            test_css(css_2, expected);
+            let expected_rules = vec![
+                StyleRuleSet {
+                    path: XPath { selectors: vec![XPathSelector::Id("my_id".into())] },
+                    declarations: vec![StyleDeclaration::Static(red.clone())]
+                },
+                StyleRuleSet {
+                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
+                    declarations: vec![StyleDeclaration::Static(blue.clone())]
+                },
+            ];
+            test_css(css_2, expected_rules);
         }
 
         // Even more complex example
         {
             let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
-            let expected = AppStyle {
-                rules: vec![
-                    StyleRuleSet {
-                        path: XPath { selectors: vec![XPathSelector::Global] },
-                        declarations: vec![StyleDeclaration::Static(black.clone())]
-                    },
-                    StyleRuleSet {
-                        path: XPath { selectors: vec![XPathSelector::Class("my_class".into()), XPathSelector::Id("my_id".into())] },
-                        declarations: vec![StyleDeclaration::Static(red.clone())]
-                    },
-                    StyleRuleSet {
-                        path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
-                        declarations: vec![StyleDeclaration::Static(blue.clone())]
-                    },
-                ],
-                needs_relayout: true,
-            };
-            test_css(css_3, expected);
+            let expected_rules = vec![
+                StyleRuleSet {
+                    path: XPath { selectors: vec![XPathSelector::Global] },
+                    declarations: vec![StyleDeclaration::Static(black.clone())]
+                },
+                StyleRuleSet {
+                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into()), XPathSelector::Id("my_id".into())] },
+                    declarations: vec![StyleDeclaration::Static(red.clone())]
+                },
+                StyleRuleSet {
+                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
+                    declarations: vec![StyleDeclaration::Static(blue.clone())]
+                },
+            ];
+            test_css(css_3, expected_rules);
         }
     }
 }
@@ -604,17 +585,14 @@ fn test_multiple_rules() {
         div.my_class.specific#my_id { }
     ").unwrap();
 
-    let expected_css = AppStyle {
-        rules: vec![
-            // Rules are sorted from lowest-specificity to highest specificity
-            StyleRuleSet { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
-        ],
-        needs_relayout: true,
-    };
+    let expected_rules = vec![
+        // Rules are sorted by order of appearance in source string
+        StyleRuleSet { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
+        StyleRuleSet { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        StyleRuleSet { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".into())] }, declarations: Vec::new() },
+        StyleRuleSet { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+        StyleRuleSet { path: XPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+    ];
 
-    assert_eq!(parsed_css, expected_css);
+    assert_eq!(parsed_css, expected_rules.into());
 }

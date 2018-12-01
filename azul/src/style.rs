@@ -17,12 +17,12 @@ use {
 pub struct AppStyle {
     /// The style rules making up the document - for example, de-duplicated CSS rules
     pub rules: Vec<StyleRuleSet>,
-    /// Has the style changed in a way where it needs a re-layout? - default:
-    /// `true` in order to force a re-layout on the first frame
-    ///
-    /// Ex. if only a background color has changed, we need to redraw, but we
-    /// don't need to re-layout the frame.
-    pub needs_relayout: bool,
+}
+
+impl std::convert::From<Vec<StyleRuleSet>> for AppStyle {
+    fn from(rules: Vec<StyleRuleSet>) -> Self {
+        Self { rules }
+    }
 }
 
 /// Contains one parsed `key: value` pair, static or dynamic
@@ -446,7 +446,6 @@ impl AppStyle {
     // `other` after the rules of `self`.
     pub fn merge(&mut self, mut other: Self) {
         self.rules.append(&mut other.rules);
-        self.needs_relayout = self.needs_relayout || other.needs_relayout;
     }
 
     /// Sort the style rules by their weight, so that the rules are applied in the correct order.
@@ -566,7 +565,6 @@ fn test_specificity_sort() {
             StyleRuleSet { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
             StyleRuleSet { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
-        needs_relayout: true,
     };
 
     input_style.sort_by_specificity();
@@ -580,7 +578,6 @@ fn test_specificity_sort() {
             StyleRuleSet { path: XPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
             StyleRuleSet { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
-        needs_relayout: true,
     };
 
     assert_eq!(input_style, expected_style);
