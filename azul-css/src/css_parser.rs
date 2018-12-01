@@ -6,9 +6,9 @@ use azul::prelude::{
     BorderDetails, BorderStyle, NormalBorder, LayoutPixel,
     BoxShadowClipMode, ColorU, ColorF, LayoutPoint,
     LayoutSize, ExtendMode, LayoutSideOffsets,
-    TypedPoint2D, PixelValue, CssMetric, PercentageValue,
+    TypedPoint2D, PixelValue, SizeMetric, PercentageValue,
     FloatValue, FontId, TextOverflowBehaviour, TextOverflowBehaviourInner,
-    BoxShadowPreDisplayItem, StyleBorderSide, CssImageId,
+    BoxShadowPreDisplayItem, StyleBorderSide, StyleImageId,
     BackgroundType, Direction, Shape, DirectionCorner,
     LinearGradientPreInfo, RadialGradientPreInfo, GradientStopPre,
     StyleBorderRadius, StyleBackground, StyleBoxShadow, StyleBorder,
@@ -447,9 +447,9 @@ fn parse_pixel_value<'a>(input: &'a str)
 
     let unit = &input[split_pos..];
     let unit = match unit {
-        "px" => CssMetric::Px,
-        "em" => CssMetric::Em,
-        "pt" => CssMetric::Pt,
+        "px" => SizeMetric::Px,
+        "em" => SizeMetric::Em,
+        "pt" => SizeMetric::Pt,
         _ => { return Err(PixelParseError::InvalidComponent(&input[(split_pos - 1)..])); }
     };
 
@@ -1430,16 +1430,16 @@ fn parse_css_background<'a>(input: &'a str)
     }
 }
 
-impl<'a> From<QuoteStripped<'a>> for CssImageId {
+impl<'a> From<QuoteStripped<'a>> for StyleImageId {
     fn from(input: QuoteStripped<'a>) -> Self {
-        CssImageId(input.0.to_string())
+        StyleImageId(input.0.to_string())
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str);
 
-fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
+fn parse_image<'a>(input: &'a str) -> Result<StyleImageId, CssImageParseError<'a>> {
     Ok(strip_quotes(input)?.into())
 }
 
@@ -2568,7 +2568,7 @@ mod css_tests {
     #[test]
     fn test_parse_background_image() {
         assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(StyleBackground::Image(
-            CssImageId(String::from("Cat 01"))
+            StyleImageId(String::from("Cat 01"))
         )));
     }
 

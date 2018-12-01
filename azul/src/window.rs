@@ -559,7 +559,7 @@ pub struct Window<'a, T: Layout> {
     /// feel.
     #[cfg(debug_assertions)]
     pub(crate) base_style: AppStyle,
-    /// A configurable interval for hot-reloading of CSS from the style_loader, defaults to 500ms
+    /// A configurable interval for hot-reloading of styles from the style_loader, defaults to 500ms
     #[cfg(debug_assertions)]
     pub(crate) reload_interval: u64,
     /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`

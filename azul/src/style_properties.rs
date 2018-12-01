@@ -1,4 +1,4 @@
-//! Contains utilities to convert strings (CSS strings) to servo types
+//! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
 pub use {
     app_units::Au,
@@ -19,7 +19,7 @@ pub(crate) const PT_TO_PX: f32 = 96.0 / 72.0;
 // In case no font size is specified for a node,
 // this will be substituted as the default font size
 pub(crate) const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
-    metric: CssMetric::Px,
+    metric: SizeMetric::Px,
     number: FloatValue { number: (100.0 * SCALE_FACTOR) as isize },
 });
 
@@ -138,28 +138,28 @@ const SCALE_FACTOR: f32 = 10000.0;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct PixelValue {
-    pub metric: CssMetric,
+    pub metric: SizeMetric,
     pub number: FloatValue,
 }
 
 impl PixelValue {
     #[inline]
     pub fn px(value: f32) -> Self {
-        Self::from_metric(CssMetric::Px, value)
+        Self::from_metric(SizeMetric::Px, value)
     }
 
     #[inline]
     pub fn em(value: f32) -> Self {
-        Self::from_metric(CssMetric::Em, value)
+        Self::from_metric(SizeMetric::Em, value)
     }
 
     #[inline]
     pub fn pt(value: f32) -> Self {
-        Self::from_metric(CssMetric::Pt, value)
+        Self::from_metric(SizeMetric::Pt, value)
     }
 
     #[inline]
-    pub fn from_metric(metric: CssMetric, value: f32) -> Self {
+    pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
         Self {
             metric: metric,
             number: value.into(),
@@ -169,9 +169,9 @@ impl PixelValue {
     #[inline]
     pub fn to_pixels(&self) -> f32 {
         match self.metric {
-            CssMetric::Px => { self.number.get() },
-            CssMetric::Pt => { (self.number.get()) * PT_TO_PX },
-            CssMetric::Em => { (self.number.get()) * EM_HEIGHT },
+            SizeMetric::Px => { self.number.get() },
+            SizeMetric::Pt => { (self.number.get()) * PT_TO_PX },
+            SizeMetric::Em => { (self.number.get()) * EM_HEIGHT },
         }
     }
 }
@@ -216,21 +216,10 @@ impl From<f32> for FloatValue {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
-pub enum CssMetric {
+pub enum SizeMetric {
     Px,
     Pt,
     Em,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum CssColorComponent {
-    Red,
-    Green,
-    Blue,
-    Hue,
-    Saturation,
-    Lightness,
-    Alpha,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -244,7 +233,7 @@ pub struct StyleBorderRadius {
 impl StyleBorderRadius {
 
     pub fn zero() -> Self {
-        const ZERO_PX: PixelValue = PixelValue { number: FloatValue { number: (0.0 * SCALE_FACTOR) as isize }, metric: CssMetric::Px };
+        const ZERO_PX: PixelValue = PixelValue { number: FloatValue { number: (0.0 * SCALE_FACTOR) as isize }, metric: SizeMetric::Px };
         Self::uniform(ZERO_PX)
     }
 
@@ -269,7 +258,7 @@ impl From<StyleBorderRadius> for BorderRadius {
     }
 }
 
-/// Represents a parsed CSS `background-color` attribute
+/// Represents a `background-color` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBackgroundColor(pub ColorU);
 
@@ -280,11 +269,11 @@ impl Default for StyleBackgroundColor {
     }
 }
 
-/// Represents a parsed CSS `color` attribute
+/// Represents a `color` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleTextColor(pub ColorU);
 
-/// Represents a parsed CSS `padding` attribute
+/// Represents a `padding` attribute
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct LayoutPadding {
     pub top: Option<PixelValue>,
@@ -326,7 +315,7 @@ merge_struct!(LayoutMargin);
 struct_all!(LayoutPadding, PixelValue);
 struct_all!(LayoutMargin, PixelValue);
 
-/// Represents a parsed CSS `padding` attribute
+/// Represents a parsed `padding` attribute
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct LayoutMargin {
     pub top: Option<PixelValue>,
@@ -475,12 +464,12 @@ pub struct BoxShadowPreDisplayItem {
 pub enum StyleBackground {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
-    Image(CssImageId),
+    Image(StyleImageId),
     NoBackground,
 }
 
-impl<'a> From<CssImageId> for StyleBackground {
-    fn from(id: CssImageId) -> Self {
+impl<'a> From<StyleImageId> for StyleBackground {
+    fn from(id: StyleImageId) -> Self {
         StyleBackground::Image(id)
     }
 }
@@ -643,16 +632,14 @@ pub enum BackgroundType {
     Image,
 }
 
-/// Note: In theory, we could take a String here,
-/// but this leads to horrible lifetime issues. Also
-/// since we only parse the CSS once (at startup),
-/// the performance is absolutely negligible.
+/// Note: In theory, we could take a reference here,
+/// but this leads to horrible lifetime issues.
 ///
-/// However, this allows the `Css` struct to be independent
-/// of the original source text, i.e. the original CSS string
-/// can be deallocated after successfully parsing it.
+/// Ownership allows the `AppStyle` struct to be independent
+/// of the original source text. For example, when parsing a style
+/// from CSS, the original string can be deallocated afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CssImageId(pub String);
+pub struct StyleImageId(pub String);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GradientStopPre {
@@ -660,46 +647,46 @@ pub struct GradientStopPre {
     pub color: ColorU,
 }
 
-/// Represents a parsed CSS `width` attribute
+/// Represents a `width` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutWidth(pub PixelValue);
-/// Represents a parsed CSS `min-width` attribute
+/// Represents a `min-width` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMinWidth(pub PixelValue);
-/// Represents a parsed CSS `max-width` attribute
+/// Represents a `max-width` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMaxWidth(pub PixelValue);
-/// Represents a parsed CSS `height` attribute
+/// Represents a `height` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutHeight(pub PixelValue);
-/// Represents a parsed CSS `min-height` attribute
+/// Represents a `min-height` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMinHeight(pub PixelValue);
-/// Represents a parsed CSS `max-height` attribute
+/// Represents a `max-height` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutMaxHeight(pub PixelValue);
 
-/// Represents a parsed CSS `top` attribute
+/// Represents a `top` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutTop(pub PixelValue);
-/// Represents a parsed CSS `left` attribute
+/// Represents a `left` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutLeft(pub PixelValue);
-/// Represents a parsed CSS `right` attribute
+/// Represents a `right` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutRight(pub PixelValue);
-/// Represents a parsed CSS `bottom` attribute
+/// Represents a `bottom` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutBottom(pub PixelValue);
 
-/// Represents a parsed CSS `flex-grow` attribute
+/// Represents a `flex-grow` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutFlexGrow(pub FloatValue);
-/// Represents a parsed CSS `flex-shrink` attribute
+/// Represents a `flex-shrink` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct LayoutFlexShrink(pub FloatValue);
 
-/// Represents a parsed CSS `flex-direction` attribute - default: `Column`
+/// Represents a `flex-direction` attribute - default: `Column`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutDirection {
     Row,
@@ -708,10 +695,10 @@ pub enum LayoutDirection {
     ColumnReverse,
 }
 
-/// Represents a parsed CSS `line-height` attribute
+/// Represents a `line-height` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct StyleLineHeight(pub PercentageValue);
-/// Represents a parsed CSS `letter-spacing` attribute
+/// Represents a `letter-spacing` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct StyleLetterSpacing(pub PixelValue);
 
@@ -739,7 +726,7 @@ impl LayoutDirection {
     }
 }
 
-/// Represents a parsed CSS `position` attribute - default: `Static`
+/// Represents a `position` attribute - default: `Static`
 ///
 /// NOTE: No inline positioning is supported.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -761,7 +748,7 @@ impl Default for LayoutDirection {
     }
 }
 
-/// Represents a parsed CSS `flex-wrap` attribute - default: `Wrap`
+/// Represents a `flex-wrap` attribute - default: `Wrap`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutWrap {
     Wrap,
@@ -774,7 +761,7 @@ impl Default for LayoutWrap {
     }
 }
 
-/// Represents a parsed CSS `justify-content` attribute
+/// Represents a `justify-content` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutJustifyContent {
     /// Default value. Items are positioned at the beginning of the container
@@ -795,7 +782,7 @@ impl Default for LayoutJustifyContent {
     }
 }
 
-/// Represents a parsed CSS `align-items` attribute
+/// Represents a `align-items` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutAlignItems {
     /// Items are stretched to fit the container
@@ -814,7 +801,7 @@ impl Default for LayoutAlignItems {
     }
 }
 
-/// Represents a parsed CSS `align-content` attribute
+/// Represents a `align-content` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum LayoutAlignContent {
     /// Default value. Lines stretch to take up the remaining space
@@ -831,7 +818,7 @@ pub enum LayoutAlignContent {
     SpaceAround,
 }
 
-/// Represents a parsed CSS `overflow` attribute
+/// Represents a `overflow` attribute
 ///
 /// NOTE: This is split into `NotModified` and `Modified`
 /// in order to be able to "merge" `overflow-x` and `overflow-y`
@@ -876,7 +863,7 @@ impl Default for TextOverflowBehaviour {
     }
 }
 
-/// Represents a parsed CSS `overflow-x` or `overflow-y` property, see
+/// Represents a `overflow-x` or `overflow-y` property, see
 /// [`TextOverflowBehaviour`](./struct.TextOverflowBehaviour.html) - default: `Auto`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TextOverflowBehaviourInner {
@@ -1019,88 +1006,4 @@ pub struct StyleFontFamily {
 pub enum FontId {
     BuiltinFont(String),
     ExternalFont(String),
-}
-
-/// CssColor is simply a wrapper around the internal CSS color parsing methods.
-///
-/// Sometimes you'd want to load and parse a CSS color, but you don't want to
-/// write your own parser for that. Since Azul already has a parser for CSS colors,
-/// this API exposes
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct CssColor {
-    internal: ColorU,
-}
-
-impl CssColor {
-    /// Returns the internal parsed color, but in a `0.0 - 1.0` range instead of `0 - 255`
-    pub fn to_color_f(&self) -> ColorF {
-        self.internal.into()
-    }
-
-    /// Returns the internal parsed color
-    pub fn to_color_u(&self) -> ColorU {
-        self.internal
-    }
-
-    /// If `prefix_hash` is set to false, you only get the string, without a hash, in lowercase
-    ///
-    /// If `self.alpha` is `FF`, it will be omitted from the final result (since `FF` is the default for CSS colors)
-    pub fn to_string(&self, prefix_hash: bool) -> String {
-        let prefix = if prefix_hash { "#" } else { "" };
-        let alpha = if self.internal.a == 255 { String::new() } else { format!("{:02x}", self.internal.a) };
-        format!("{}{:02x}{:02x}{:02x}{}", prefix, self.internal.r, self.internal.g, self.internal.b, alpha)
-    }
-}
-
-impl From<ColorU> for CssColor {
-    fn from(color: ColorU) -> Self {
-        CssColor { internal: color }
-    }
-}
-
-impl From<ColorF> for CssColor {
-    fn from(color: ColorF) -> Self {
-        CssColor { internal: color.into() }
-    }
-}
-
-impl Into<ColorF> for CssColor {
-    fn into(self) -> ColorF {
-        self.to_color_f()
-    }
-}
-
-impl Into<ColorU> for CssColor {
-    fn into(self) -> ColorU {
-        self.to_color_u()
-    }
-}
-
-impl Into<String> for CssColor {
-    fn into(self) -> String {
-        self.to_string(false)
-    }
-}
-
-#[cfg(feature = "serde_serialization")]
-use serde::{de, Serialize, Deserialize, Serializer, Deserializer};
-
-#[cfg(feature = "serde_serialization")]
-impl Serialize for CssColor {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer,
-    {
-        let prefix_css_color_with_hash = true;
-        serializer.serialize_str(&self.to_string(prefix_css_color_with_hash))
-    }
-}
-
-#[cfg(feature = "serde_serialization")]
-impl<'de> Deserialize<'de> for CssColor {
-    fn deserialize<D>(deserializer: D) -> Result<CssColor, D::Error>
-    where D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        CssColor::from_str(&s).map_err(de::Error::custom)
-    }
 }

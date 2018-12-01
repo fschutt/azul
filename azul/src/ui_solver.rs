@@ -86,8 +86,8 @@ macro_rules! determine_preferred {
             }
         };
 
-        // We only need to correct the width if the preferred width is in
-        // the range between min & max and the width isn't already specified in CSS
+        // We only need to correct the width if the preferred width is in the range
+        // between min & max and the width isn't already specified as a style
         if let Some(preferred_width) = preferred_inner_width {
             if width.is_none() &&
                preferred_width > absolute_min.unwrap_or(0.0) &&

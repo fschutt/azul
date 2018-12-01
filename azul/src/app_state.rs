@@ -41,16 +41,16 @@ pub struct AppState<T: Layout> {
     /// state - if the API would directly modify the window itself, these changes
     /// wouldn't be recorded anywhere, so there wouldn't be a way to unit-test certain APIs.
     ///
-    /// This also allows you to dynamically override CSS values (to conditionally
+    /// This also allows you to dynamically override style properties (to conditionally
     /// style your elements at runtime, for example on a `On::Hover` event).
     ///
     /// The state of these `FakeWindow`s gets deleted and recreated on each frame, especially
-    /// the CSS. This should force a user to design his code in a functional way,
+    /// the app's style. This should force a user to design his code in a functional way,
     /// without relying on state-based conditions. Example:
     ///
     /// ```no_run,ignore
     /// let window_state = &mut app_state.windows[event.window];
-    /// // For one frame, set the dynamic CSS value with `my_id` to `color: orange`
+    /// // For one frame, set the dynamic style value with `my_id` to `color: orange`
     /// window_state.style.set_dynamic_property("my_id", ("color", "orange")).unwrap();
     /// // Update the title
     /// window_state.state.title = "Hello";

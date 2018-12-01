@@ -203,7 +203,7 @@ impl<'a, T: Layout> App<'a, T> {
     ///
     /// ```no_run,ignore
     /// let app = App::new(MyData { username: None, password: None });
-    /// app.create_window(WindowCreateOptions::default(), Css::native());
+    /// app.create_window(WindowCreateOptions::default(), azul_native_style::native());
     ///
     /// // pop open a window that asks the user for his username and password...
     /// let MyData { username, password } = app.run();
@@ -565,7 +565,7 @@ impl<'a, T: Layout> App<'a, T> {
             renderer_type: RendererType::Software,
             .. Default::default()
         };
-        self.push_window(Window::new(hidden_create_options, Css::native()).unwrap());
+        self.push_window(Window::new(hidden_create_options, AppStyle::new()).unwrap());
         // TODO: do_first_redraw shouldn't exist, need to find a better way to update the resources
         // This will make App::delete_font doc-test fail if run without `no-opengl-tests`.
         //
