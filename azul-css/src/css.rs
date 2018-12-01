@@ -1,7 +1,4 @@
 //! CSS parsing and styling
-
-#[cfg(debug_assertions)]
-use std::io::Error as IoError;
 use std::{
     num::ParseIntError,
 };
@@ -77,19 +74,6 @@ impl_from! { CssParsingError<'a>, CssParseError::UnexpectedValue }
 impl_from! { DynamicCssParseError<'a>, CssParseError::DynamicCssParseError }
 impl_from! { CssPseudoSelectorParseError<'a>, CssParseError::PseudoSelectorParseError }
 impl_from! { NodeTypePathParseError<'a>, CssParseError::NodeTypePath }
-
-#[cfg(debug_assertions)]
-#[derive(Debug)]
-pub enum HotReloadError {
-    Io(IoError, String),
-    FailedToReload,
-}
-
-#[cfg(debug_assertions)]
-impl_display! { HotReloadError, {
-    Io(e, file) => format!("Failed to hot-reload CSS file: Io error: {} when loading file: \"{}\"", e, file),
-    FailedToReload => "Failed to hot-reload CSS file",
-}}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssPseudoSelectorParseError<'a> {
@@ -313,83 +297,6 @@ pub fn override_native<'a>(css_string: &'a str) -> Result<AppStyle, CssParseErro
     native.merge(parsed);
     Ok(native)
 }
-/*
-    /// **NOTE**: Only available in debug mode, can crash if the file isn't found
-    #[cfg(debug_assertions)]
-    pub fn hot_reload(file_path: &str) -> Result<Self, HotReloadError>  {
-        use std::fs;
-        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
-        let mut css = match Self::new_from_str(&initial_css) {
-            Ok(o) => o,
-            Err(e) => panic!("Hot reload CSS: Parsing error in file {}:\n{}\n", file_path, e),
-        };
-        css.hot_reload_path = Some(file_path.into());
-
-        Ok(css)
-    }
-
-    /// Same as `hot_reload`, but applies the OS-native styles first, before
-    /// applying the user styles on top.
-    #[cfg(debug_assertions)]
-    pub fn hot_reload_override_native(file_path: &str) -> Result<Self, HotReloadError> {
-        use std::fs;
-        let initial_css = fs::read_to_string(&file_path).map_err(|e| HotReloadError::Io(e, file_path.to_string()))?;
-        let mut css = match Self::override_native(&initial_css) {
-            Ok(o) => o,
-            Err(e) => panic!("Hot reload CSS: Parsing error in file {}:\n{}\n", file_path, e),
-        };
-        css.hot_reload_path = Some(file_path.into());
-        css.hot_reload_override_native = true;
-
-        Ok(css)
-    }
-
-    #[cfg(debug_assertions)]
-    pub(crate) fn reload_css(&mut self) {
-
-        use std::fs;
-
-        let file_path = if let Some(f) = &self.hot_reload_path {
-            f.clone()
-        } else {
-            #[cfg(feature = "logging")] {
-               error!("No file to hot-reload the CSS from!");
-            }
-            return;
-        };
-
-        let reloaded_css = match fs::read_to_string(&file_path) {
-            Ok(o) => o,
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    error!("Failed to hot-reload \"{}\":\r\n{}\n", file_path, e);
-                }
-                return;
-            },
-        };
-
-        let target_css = if self.hot_reload_override_native {
-            format!("{}\r\n{}\n", NATIVE_CSS, reloaded_css)
-        } else {
-            reloaded_css
-        };
-
-        let mut css = match Self::new_from_str(&target_css) {
-            Ok(o) => o,
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    error!("Failed to reload - parse error \"{}\":\r\n{}\n", file_path, e);
-                }
-                return;
-            },
-        };
-
-        css.hot_reload_path = self.hot_reload_path.clone();
-        css.hot_reload_override_native = self.hot_reload_override_native;
-
-        *self = css;
-    }
-*/
 
 /// Error that can happen during `ParsedCssProperty::from_kv`
 #[derive(Debug, Clone, PartialEq)]

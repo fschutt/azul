@@ -350,9 +350,11 @@ impl<'a, T: Layout> App<'a, T> {
                     if let Some(ref mut hot_reloader) = window.style_loader {
                         if Instant::now() - last_style_reload > Duration::from_millis(window.reload_interval) {
                             if let Some(mut style) = hot_reloader.reload_style() {
-                                style.sort_by_specificity();
-                                style.needs_relayout = true;
-                                window.style = style;
+                                let mut new_style = window.base_style.clone();
+                                new_style.merge(style);
+                                new_style.sort_by_specificity();
+                                new_style.needs_relayout = true;
+                                window.style = new_style;
                                 last_style_reload = Instant::now();
                                 window.events_loop.create_proxy().wakeup().unwrap_or(());
                                 awakened_task[window_idx] = true;

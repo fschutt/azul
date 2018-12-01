@@ -555,6 +555,11 @@ pub struct Window<'a, T: Layout> {
     /// enabled
     #[cfg(debug_assertions)]
     pub(crate) style_loader: Option<&'a mut dyn HotReloadable>,
+    /// The base style to merge onto when hot-reloading; useful for starting from a native look and
+    /// feel.
+    #[cfg(debug_assertions)]
+    pub(crate) base_style: AppStyle,
+    /// A configurable interval for hot-reloading of CSS from the style_loader, defaults to 500ms
     #[cfg(debug_assertions)]
     pub(crate) reload_interval: u64,
     /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`
@@ -865,9 +870,11 @@ impl<'a, T: Layout> Window<'a, T> {
             state: options.state,
             renderer: Some(renderer),
             display: Rc::new(display),
-            style: style,
+            style: style.clone(),
             #[cfg(debug_assertions)]
             style_loader: None,
+            #[cfg(debug_assertions)]
+            base_style: style,
             #[cfg(debug_assertions)]
             reload_interval: 500,
             animations: FastHashMap::default(),
