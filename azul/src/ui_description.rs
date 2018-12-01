@@ -10,7 +10,7 @@ use {
     traits::Layout,
     dom::Dom,
     style_properties::StyleProperty,
-    style::{AppStyle, CssConstraintList},
+    style::{AppStyle, StyleConstraintList},
     dom::NodeData,
     ui_state::UiState,
 };
@@ -19,7 +19,7 @@ pub struct UiDescription<T: Layout> {
     pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,
     /// ID of the root node of the arena (usually NodeId(0))
     pub(crate) ui_descr_root: NodeId,
-    /// This field is created from the Css parser
+    /// This field is created from the AppStyle
     pub(crate) styled_nodes: BTreeMap<NodeId, StyledNode>,
     /// In the display list, we take references to the `UiDescription.styled_nodes`
     ///
@@ -28,7 +28,7 @@ pub struct UiDescription<T: Layout> {
     /// This is why we need this field here
     pub(crate) default_style_of_node: StyledNode,
     /// The style properties that should be overridden for this frame, cloned from the `AppStyle`
-    pub(crate) dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
+    pub(crate) dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiDescription<T> {
@@ -38,13 +38,13 @@ impl<T: Layout> fmt::Debug for UiDescription<T> {
             ui_descr_root: {:?},
             styled_nodes: {:?},
             default_style_of_node: {:?},
-            dynamic_css_overrides: {:?},
+            dynamic_style_overrides: {:?},
         }}",
             self.ui_descr_arena,
             self.ui_descr_root,
             self.styled_nodes,
             self.default_style_of_node,
-            self.dynamic_css_overrides,
+            self.dynamic_style_overrides,
         )
     }
 }
@@ -56,7 +56,7 @@ impl<T: Layout> Clone for UiDescription<T> {
             ui_descr_root: self.ui_descr_root,
             styled_nodes: self.styled_nodes.clone(),
             default_style_of_node: self.default_style_of_node.clone(),
-            dynamic_css_overrides: self.dynamic_css_overrides.clone(),
+            dynamic_style_overrides: self.dynamic_style_overrides.clone(),
         }
     }
 }
@@ -75,12 +75,12 @@ impl<T: Layout> UiDescription<T> {
     /// renderer.
     pub fn from_dom(ui_state: &UiState<T>, style: &AppStyle) -> Self
     {
-        ::style::match_dom_css_selectors(ui_state, &style)
+        ::style::match_dom_selectors(ui_state, &style)
     }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct StyledNode {
-    /// The CSS constraints, after the cascading step
-    pub(crate) css_constraints: CssConstraintList
+    /// The style constraints, after the cascading step
+    pub(crate) style_constraints: StyleConstraintList
 }

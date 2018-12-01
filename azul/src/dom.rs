@@ -83,9 +83,9 @@ impl<T, E> From<Result<T, E>> for UpdateScreen {
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
 /// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
-/// The CSS is not affected by this, so if you push to the windows' CSS inside the
-/// function, the screen will not be automatically redrawn, unless you return an
-/// `UpdateScreen::Redraw` from the function
+/// The style is not affected by this, so if you make changes to the window's style
+/// inside the function, the screen will not be automatically redrawn, unless you return
+/// an `UpdateScreen::Redraw` from the function
 pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, WindowEvent<T>) -> UpdateScreen);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for Callback<T>
@@ -294,14 +294,14 @@ pub enum NodeTypePath {
 impl std::fmt::Display for NodeTypePath {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         use self::NodeTypePath::*;
-        let css_id = match self {
+        let path = match self {
             Div => "div",
             P => "p",
             Img => "img",
             Texture => "texture",
             IFrame => "iframe",
         };
-        write!(f, "{}", css_id)?;
+        write!(f, "{}", path)?;
         Ok(())
     }
 }
@@ -453,10 +453,10 @@ pub struct NodeData<T: Layout> {
     /// ```rust,ignore
     /// let node = NodeData {
     ///     id: Some("my_item".into()),
-    ///     dynamic_css_overrides: vec![("my_custom_width".into(), StyleProperty::Width(LayoutWidth::px(500.0)))]
+    ///     dynamic_style_overrides: vec![("my_custom_width".into(), StyleProperty::Width(LayoutWidth::px(500.0)))]
     /// }
     /// ```
-    pub dynamic_css_overrides: Vec<(String, StyleProperty)>
+    pub dynamic_style_overrides: Vec<(String, StyleProperty)>
 }
 
 impl<T: Layout> PartialEq for NodeData<T> {
@@ -467,7 +467,7 @@ impl<T: Layout> PartialEq for NodeData<T> {
         self.events == other.events &&
         self.default_callback_ids == other.default_callback_ids &&
         self.force_enable_hit_test == other.force_enable_hit_test &&
-        self.dynamic_css_overrides == other.dynamic_css_overrides
+        self.dynamic_style_overrides == other.dynamic_style_overrides
     }
 }
 
@@ -482,7 +482,7 @@ impl<T: Layout> Default for NodeData<T> {
             events: CallbackList::default(),
             default_callback_ids: Vec::new(),
             force_enable_hit_test: Vec::new(),
-            dynamic_css_overrides: Vec::new(),
+            dynamic_style_overrides: Vec::new(),
         }
     }
 }
@@ -501,7 +501,7 @@ impl<T: Layout> Hash for NodeData<T> {
         }
         self.events.hash(state);
         self.force_enable_hit_test.hash(state);
-        for override_property in &self.dynamic_css_overrides {
+        for override_property in &self.dynamic_style_overrides {
             override_property.hash(state);
         }
     }
@@ -516,7 +516,7 @@ impl<T: Layout> Clone for NodeData<T> {
             events: self.events.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
             force_enable_hit_test: self.force_enable_hit_test.clone(),
-            dynamic_css_overrides: self.dynamic_css_overrides.clone(),
+            dynamic_style_overrides: self.dynamic_style_overrides.clone(),
         }
     }
 }
@@ -552,7 +552,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tevents: {:?}, \
                 \tdefault_callback_ids: {:?}, \
                 \tforce_enable_hit_test: {:?}, \
-                \tdynamic_css_overrides: {:?}, \
+                \tdynamic_style_overrides: {:?}, \
             }}",
         self.node_type,
         self.ids,
@@ -560,7 +560,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
         self.events,
         self.default_callback_ids,
         self.force_enable_hit_test,
-        self.dynamic_css_overrides)
+        self.dynamic_style_overrides)
     }
 }
 
@@ -897,8 +897,8 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn with_css_override<S: Into<String>>(mut self, id: S, property: StyleProperty) -> Self {
-        self.add_css_override(id, property);
+    pub fn with_style_override<S: Into<String>>(mut self, id: S, property: StyleProperty) -> Self {
+        self.add_style_override(id, property);
         self
     }
 
@@ -923,8 +923,8 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: StyleProperty) {
-        self.arena.borrow_mut().node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
+    pub fn add_style_override<S: Into<String>>(&mut self, override_id: S, property: StyleProperty) {
+        self.arena.borrow_mut().node_data[self.head].dynamic_style_overrides.push((override_id.into(), property));
     }
 
     /// Prints a debug formatted version of the DOM for easier debugging
@@ -947,7 +947,7 @@ impl<T: Layout> Dom<T> {
         tag_ids_to_noop_callbacks: &mut BTreeMap<TagId, BTreeSet<On>>,
         node_ids_to_tag_ids: &mut BTreeMap<NodeId, TagId>,
         tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>,
-        dynamic_css_overrides: &mut BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
+        dynamic_style_overrides: &mut BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
     {
         // Reset the tag
         TAG_ID.swap(1, Ordering::SeqCst);
@@ -986,8 +986,8 @@ impl<T: Layout> Dom<T> {
             }
 
             // Collect all the styling overrides into one hash map
-            if !data.dynamic_css_overrides.is_empty() {
-                dynamic_css_overrides.insert(node_id, data.dynamic_css_overrides.iter().cloned().collect());
+            if !data.dynamic_style_overrides.is_empty() {
+                dynamic_style_overrides.insert(node_id, data.dynamic_style_overrides.iter().cloned().collect());
             }
         }
     }

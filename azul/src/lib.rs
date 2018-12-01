@@ -13,7 +13,7 @@
 //! certain field if it is checked.
 //!
 //! Azul also has a standard library of widgets to use, see the [widgets] module.
-//! Further, it provides primitives for CSS parsing and handling (which takes care
+//! Further, it provides a library for CSS parsing and handling (which takes care
 //! of the layouting part) as well as DOM handling.
 //!
 //! ## Documentation
@@ -151,7 +151,7 @@ mod ui_description;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;
-/// CSS parser
+/// Primitives describing discrete style properties
 mod style_properties;
 /// Slab allocator for nodes, based on IDs (replaces kuchiki + markup5ever)
 mod id_tree;
@@ -184,7 +184,7 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use dom::DomHash;
-    pub use style::{AppStyle, CssRuleBlock, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault};
+    pub use style::{AppStyle, StyleRuleSet, StyleDeclaration, DynamicStyleProperty, DynamicStylePropertyDefault};
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,
@@ -198,7 +198,7 @@ pub mod prelude {
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
-    pub use style::{CssPath, CssPathSelector, CssPathPseudoSelector};
+    pub use style::{XPath, XPathSelector, XPathPseudoSelector};
     pub use style_properties::{
         StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
         StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
@@ -206,12 +206,12 @@ pub mod prelude {
         StyleBorder, StyleBorderSide, BackgroundType, Direction, DirectionCorner, Shape,
         BorderStyle,
 
-        LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, CssMetric,
+        LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, SizeMetric,
         LayoutMaxHeight, LayoutWrap, LayoutDirection, LayoutJustifyContent, LayoutAlignItems,
-        LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft, LayoutPadding, LayoutMargin,
-        LayoutFlexGrow, LayoutFlexShrink, LayoutOverflow, LayoutPosition,
+        LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft, LayoutPadding,
+        LayoutMargin, LayoutFlexGrow, LayoutFlexShrink, LayoutOverflow, LayoutPosition,
 
-        LinearGradientPreInfo, RadialGradientPreInfo, GradientStopPre, CssImageId, FontId, CssColor,
+        LinearGradientPreInfo, RadialGradientPreInfo, GradientStopPre, StyleImageId, FontId,
         TextOverflowBehaviour, TextOverflowBehaviourInner, StyleProperty,
         LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
         Gradient, RadialGradient, LayoutPoint, LayoutSize, Au, BorderDetails,

@@ -21,8 +21,8 @@ pub struct UiState<T: Layout> {
     pub tag_ids_to_noop_callbacks: BTreeMap<TagId, BTreeSet<On>>,
     pub node_ids_to_tag_ids: BTreeMap<NodeId, TagId>,
     pub tag_ids_to_node_ids: BTreeMap<TagId, NodeId>,
-    /// The CSS properties that should be overridden for this frame, cloned from the `Css`
-    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
+    /// The style properties that should be overridden for this frame, cloned from the `AppStyle`
+    pub dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {
@@ -95,7 +95,7 @@ impl<T: Layout> UiState<T> {
         let mut tag_ids_to_noop_callbacks = BTreeMap::new();
         let mut node_ids_to_tag_ids = BTreeMap::new();
         let mut tag_ids_to_node_ids = BTreeMap::new();
-        let mut dynamic_css_overrides = BTreeMap::new();
+        let mut dynamic_style_overrides = BTreeMap::new();
 
         dom.collect_callbacks(
             &mut tag_ids_to_callbacks,
@@ -103,7 +103,7 @@ impl<T: Layout> UiState<T> {
             &mut tag_ids_to_noop_callbacks,
             &mut node_ids_to_tag_ids,
             &mut tag_ids_to_node_ids,
-            &mut dynamic_css_overrides);
+            &mut dynamic_style_overrides);
 
         Self {
             dom,
@@ -112,7 +112,7 @@ impl<T: Layout> UiState<T> {
             tag_ids_to_noop_callbacks,
             node_ids_to_tag_ids,
             tag_ids_to_node_ids,
-            dynamic_css_overrides,
+            dynamic_style_overrides,
         }
     }
 }

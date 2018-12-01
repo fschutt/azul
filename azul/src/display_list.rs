@@ -84,7 +84,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
             let mut rect = DisplayRectangle::new(tag, style);
-            populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
+            populate_style_properties(&mut rect, node_id, &ui_description.dynamic_style_overrides);
             rect
         });
 
@@ -1165,7 +1165,7 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
     pub pipeline_id: PipelineId,
     pub node_hierarchy: &'e NodeHierarchy,
     pub node_data: &'a NodeDataContainer<NodeData<T>>,
-    /// The CSS that should be applied to the DOM
+    /// The style that should be applied to the DOM
     pub app_style: &'b AppStyle,
     /// Necessary to push
     pub render_api: &'c RenderApi,
@@ -1689,9 +1689,9 @@ fn push_background(
             let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
-        Image(css_image_id) => {
+        Image(style_image_id) => {
             // TODO: background-origin, background-position, background-repeat
-            if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&css_image_id.0) {
+            if let Some(image_id) = app_resources.style_ids_to_image_ids.get(&style_image_id.0) {
                 let bounds = info.rect;
                 let image_dimensions = app_resources.images.get(image_id).and_then(|i| Some(i.get_dimensions()))
                     .unwrap_or((bounds.size.width, bounds.size.height)); // better than crashing...
@@ -1865,11 +1865,11 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
     new_bounds
 }
 
-/// Populate the CSS style properties of the `DisplayRectangle`
-fn populate_css_properties(
+/// Populate the style properties of the `DisplayRectangle`
+fn populate_style_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
-    css_overrides: &BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
+    style_overrides: &BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
 {
     use style_properties::StyleProperty::{self, *};
 
@@ -1914,12 +1914,12 @@ fn populate_css_properties(
         }
     }
 
-    use style::DynamicCssPropertyDefault;
+    use style::DynamicStylePropertyDefault;
 
     // Assert that the types of two properties matches
-    fn property_type_matches(a: &StyleProperty, b: &DynamicCssPropertyDefault) -> bool {
+    fn property_type_matches(a: &StyleProperty, b: &DynamicStylePropertyDefault) -> bool {
         use std::mem::discriminant;
-        use style::DynamicCssPropertyDefault::*;
+        use style::DynamicStylePropertyDefault::*;
         match b {
             Exact(e) => discriminant(a) == discriminant(e),
             Auto => true, // "auto" always matches
@@ -1927,25 +1927,25 @@ fn populate_css_properties(
     }
 
     // Apply / static / dynamic properties
-    for constraint in &rect.styled_node.css_constraints.list {
-        use style::CssDeclaration::*;
+    for constraint in &rect.styled_node.style_constraints.list {
+        use style::StyleDeclaration::*;
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {
-                if let Some(overridden_property) = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
-                    // Only apply the dynamic CSS property default, if it isn't set to auto
+                if let Some(overridden_property) = style_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
+                    // Only apply the dynamic style property default, if it isn't set to auto
                     if property_type_matches(overridden_property, &dynamic_property.default) {
                         apply_style_property(rect, overridden_property);
                     } else {
                         #[cfg(feature = "logging")] {
                             error!(
-                                "Dynamic CSS property on rect {:?} don't have the same discriminant type,\r\n
+                                "Dynamic style property on rect {:?} don't have the same discriminant type,\r\n
                                 cannot override {:?} with {:?} - enum discriminant mismatch",
                                 rect, dynamic_property.default, overridden_property
                             )
                         }
                     }
-                } else if let DynamicCssPropertyDefault::Exact(default) = &dynamic_property.default {
+                } else if let DynamicStylePropertyDefault::Exact(default) = &dynamic_property.default {
                     apply_style_property(rect, default);
                 }
             }

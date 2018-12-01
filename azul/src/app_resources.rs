@@ -28,9 +28,9 @@ use {
 /// but should work).
 pub struct AppResources {
     /// When looking up images, there are two sources: Either the indirect way via using a
-    /// CssId (which is a String) or a direct ImageId. The indirect way requires one extra
-    /// lookup (to map from the stringified ID to the actual image ID).
-    pub(crate) css_ids_to_image_ids: FastHashMap<String, ImageId>,
+    /// StyleImageId (which is a String) or a direct ImageId. The indirect way requires one
+    /// extra lookup (to map from the stringified ID to the actual image ID).
+    pub(crate) style_ids_to_image_ids: FastHashMap<String, ImageId>,
     /// The actual image cache, does NOT store the image data, only stores it temporarily
     /// while it is being uploaded to the GPU via webrender.
     pub(crate) images: FastHashMap<ImageId, ImageState>,
@@ -53,7 +53,7 @@ pub struct AppResources {
 impl Default for AppResources {
     fn default() -> Self {
         Self {
-            css_ids_to_image_ids: FastHashMap::default(),
+            style_ids_to_image_ids: FastHashMap::default(),
             fonts: FastHashMap::default(),
             font_data: RefCell::new(FastHashMap::default()),
             images: FastHashMap::default(),
@@ -79,7 +79,7 @@ impl AppResources {
 
         // TODO: Handle image decoding failure better!
 
-        let image_id = match self.css_ids_to_image_ids.entry(id.into()) {
+        let image_id = match self.style_ids_to_image_ids.entry(id.into()) {
             Occupied(_) => return Ok(None),
             Vacant(v) => {
                 let new_id = images::new_image_id();
@@ -104,7 +104,7 @@ impl AppResources {
     pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
         -> Option<()>
     {
-        let image_id = self.css_ids_to_image_ids.remove(id.as_ref())?;
+        let image_id = self.style_ids_to_image_ids.remove(id.as_ref())?;
 
         match self.images.get_mut(&image_id) {
             None => None,
@@ -139,7 +139,7 @@ impl AppResources {
     pub fn get_image<S: AsRef<str>>(&self, id: S)
         -> Option<ImageId>
     {
-        self.css_ids_to_image_ids.get(id.as_ref()).and_then(|id| Some(*id))
+        self.style_ids_to_image_ids.get(id.as_ref()).and_then(|id| Some(*id))
     }
 
     /// See [`AppState::add_font()`](./struct.AppState.html#method.add_font)
