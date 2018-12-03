@@ -19,7 +19,7 @@ autoexamples = false
 
 [dependencies]
 simplecss               = { version = "0.1.0",  default-features = false }
-glium                   = { version = "0.22.0", default-features = false, features = ["glutin"] }
+azul_glium              = { version = "0.22.0", default-features = false, features = ["glutin"] }
 gleam                   = { version = "0.6",    default-features = false }
 euclid                  = { version = "0.19",   default-features = false }
 rusttype                = { version = "0.7.3",  default-features = false }
@@ -76,7 +76,7 @@ svg_parsing = ["svg", "usvg"]
 # RGBA bytes or use the icon_loading feature to decode it from a PNG / JPG /
 # whatever image format on startup. Note that this will import the image
 # dependency and use a bit of extra runtime.
-icon_loading = ["glium/icon_loading"]
+icon_loading = ["azul_glium/icon_loading"]
 # For serializing / deserializing CSS colors using serde
 serde_serialization = ["serde"]
 # twox-hash imports the rand crate, which takes a long time to compile
