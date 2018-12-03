@@ -16,7 +16,7 @@ const DEFAULT_WIDTH: f64 = 800.0;
 const DEFAULT_HEIGHT: f64 = 600.0;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
-#[derive(Debug, Default, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct KeyboardState
 {
     // Modifier keys that are currently actively pressed during this frame
@@ -86,7 +86,7 @@ impl Default for MouseState {
     fn default() -> Self {
         Self {
             mouse_cursor_type: MouseCursor::Default,
-            cursor_pos: Some(LogicalPosition::new(0.0, 0.0)),
+            cursor_pos: None,
             left_down: false,
             right_down: false,
             middle_down: false,
