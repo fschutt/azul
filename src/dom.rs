@@ -330,10 +330,6 @@ impl NodeTypePath {
 
 impl<T: Layout> NodeType<T> {
 
-    pub fn label<S: Into<String>>(value: S) -> Self {
-        NodeType::Label(value.into())
-    }
-
     pub(crate) fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
         match self {
@@ -734,6 +730,41 @@ impl<T: Layout> Dom<T> {
     #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
         Self::with_capacity(node_type, 0)
+    }
+
+    /// Shorthand for `Dom::new(NodeType::Div)`.
+    #[inline]
+    pub fn div() -> Self {
+        Self::new(NodeType::Div)
+    }
+
+    /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
+    pub fn label<S: Into<String>>(value: S) -> Self {
+        Self::new(NodeType::Label(value.into()))
+    }
+
+    /// Shorthand for `Dom::new(NodeType::Text(text_id))`
+    #[inline]
+    pub fn text_id(text_id: TextId) -> Self {
+        Self::new(NodeType::Text(text_id))
+    }
+
+    /// Shorthand for `Dom::new(NodeType::Image(image_id))`
+    #[inline]
+    pub fn image(image: ImageId) -> Self {
+        Self::new(NodeType::Image(image))
+    }
+
+    /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
+    #[inline]
+    pub fn gl_texture(callback: GlTextureCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
+        Self::new(NodeType::GlTexture((callback, ptr)))
+    }
+
+    /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
+    #[inline]
+    pub fn iframe(callback: IFrameCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
+        Self::new(NodeType::IFrame((callback, ptr)))
     }
 
     /// Returns the number of nodes in this DOM
