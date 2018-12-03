@@ -22,7 +22,7 @@ simplecss               = { version = "0.1.0",  default-features = false }
 glium                   = { version = "0.22.0", default-features = false, features = ["glutin"] }
 gleam                   = { version = "0.6",    default-features = false }
 euclid                  = { version = "0.19",   default-features = false }
-rusttype                = { version = "0.6.4",  default-features = false }
+rusttype                = { version = "0.7.3",  default-features = false }
 app_units               = { version = "0.7",    default-features = false } # TODO: Remove once webrender PR is merged
 unicode-normalization   = { version = "0.1.5",  default-features = false }
 lazy_static             = { version = "1",      default-features = false }
@@ -130,4 +130,8 @@ required-features = []
 
 [[example]]
 name = "scroll_list"
+required-features = []
+
+[[example]]
+name = "game_of_life"
 required-features = []
