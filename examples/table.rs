@@ -23,12 +23,5 @@ fn main() {
         table_state,
     }, AppConfig::default());
 
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/table.css")) }
-
-    #[cfg(debug_assertions)]
-    let css = Css::hot_reload(CSS_PATH!()).unwrap();
-    #[cfg(not(debug_assertions))]
-    let css = Css::new_from_str(include_str!(CSS_PATH!())).unwrap();
-
-    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), Css::native()).unwrap()).unwrap();
 }

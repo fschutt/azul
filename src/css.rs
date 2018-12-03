@@ -18,13 +18,24 @@ use {
 
 /// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
 #[cfg(target_os="windows")]
-pub const NATIVE_CSS: &str = include_str!("styles/native_windows.css");
+pub const NATIVE_CSS: &str = concat!(
+    include_str!("styles/native_windows.css"),
+    include_str!("styles/shared/table.css"),
+);
+
 /// CSS mimicking the OS-native look - Linux: `styles/native_windows.css`
 #[cfg(target_os="linux")]
-pub const NATIVE_CSS: &str = include_str!("styles/native_linux.css");
+pub const NATIVE_CSS: &str = concat!(
+    include_str!("styles/native_linux.css"),
+    include_str!("styles/shared/table.css"),
+);
+
 /// CSS mimicking the OS-native look - Mac: `styles/native_macos.css`
 #[cfg(target_os="macos")]
-pub const NATIVE_CSS: &str = include_str!("styles/native_macos.css");
+pub const NATIVE_CSS: &str = concat!(
+    include_str!("styles/native_macos.css"),
+    include_str!("styles/shared/table.css"),
+);
 
 /// Wrapper for a `Vec<CssRule>` - the CSS is immutable at runtime, it can only be
 /// created once. Animations / conditional styling is implemented using dynamic fields
