@@ -208,7 +208,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         &self,
         app_data: Arc<Mutex<T>>,
         window: &mut Window<T>,
-        window_size_has_changed: bool,
         fake_window: &mut FakeWindow<T>,
         app_resources: &mut AppResources)
     -> (DisplayListBuilder, ScrolledNodes)
