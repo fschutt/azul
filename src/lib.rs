@@ -70,7 +70,7 @@
 #![allow(dead_code)]
 
 #[cfg_attr(feature = "svg", macro_use)]
-pub extern crate glium;
+pub extern crate azul_glium as glium;
 pub extern crate gleam;
 
 #[macro_use]
