@@ -11,8 +11,14 @@ use glium::{
         dpi::{LogicalPosition, LogicalSize}
     },
 };
-use webrender::{PipelineInfo, api::{HitTestResult, HitTestFlags, DevicePixel, WorldPoint}};
-use euclid::TypedSize2D;
+use webrender::{
+    PipelineInfo,
+    api::{
+        HitTestResult, HitTestFlags, DevicePixel,
+        WorldPoint, LayoutSize, LayoutPoint,
+        Epoch, Transaction,
+    },
+};
 #[cfg(feature = "image_loading")]
 use image::ImageError;
 #[cfg(feature = "logging")]
@@ -21,7 +27,8 @@ use log::LevelFilter;
 use images::ImageType;
 use {
     error::{FontError, ClipboardError},
-    window::{Window, WindowId, FakeWindow},
+    window::{Window, WindowId, FakeWindow, ScrollStates},
+    window_state::WindowSize,
     css_parser::{FontId, PixelValue, StyleLetterSpacing},
     text_cache::TextId,
     dom::{ScrollTagId, UpdateScreen},
@@ -32,6 +39,9 @@ use {
     ui_description::UiDescription,
     daemon::Daemon,
 };
+
+type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
+type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: Layout> {
@@ -203,9 +213,16 @@ impl<T: Layout> App<T> {
     /// ```
     pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>>
     {
+        // Apps need to have at least one window open
         self.push_window(window);
         self.run_inner()?;
+
+        // NOTE: This is necessary because otherwise, the Arc::try_unwrap would fail,
+        // since one Arc is still owned by the app_state.tasks structure
+        //
+        // See https://github.com/maps4print/azul/issues/24#issuecomment-429737273
         mem::drop(self.app_state.tasks);
+
         let unique_arc = Arc::try_unwrap(self.app_state.data).map_err(|_| RuntimeError::ArcUnlockError)?;
         unique_arc.into_inner().map_err(|e| e.into())
     }
@@ -229,7 +246,7 @@ impl<T: Layout> App<T> {
 
             let mut frame_was_resize = false;
 
-            'window_loop: for (idx, ref mut window) in self.windows.iter_mut().enumerate() {
+            'window_loop: for (idx, window) in self.windows.iter_mut().enumerate() {
 
                 let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
@@ -316,11 +333,8 @@ impl<T: Layout> App<T> {
 
                     render(
                         arc_mutex_t_clone,
-                        true, /* has_window_size_changed */
-
                         &ui_description_cache[idx],
                         &ui_state_cache[idx],
-
                         &mut *window,
                         &mut self.app_state.windows[idx],
                         &mut self.app_state.resources);
@@ -373,14 +387,12 @@ impl<T: Layout> App<T> {
     fn update_display(window: &Window<T>)
     {
         use webrender::api::{Transaction, DeviceIntRect, DeviceIntPoint};
-        use euclid::TypedSize2D;
+
+        let (_, physical_size) = convert_window_size(&window.state.size);
+        let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), physical_size);
 
         let mut txn = Transaction::new();
-        let physical_fb_dimensions = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
-        let framebuffer_size = TypedSize2D::new(physical_fb_dimensions.width as i32, physical_fb_dimensions.height as i32);
-        let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size);
-
-        txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor as f32);
+        txn.set_window_parameters(physical_size, bounds, window.state.size.hidpi_factor as f32);
         window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
@@ -791,72 +803,77 @@ fn call_callbacks<T: Layout>(
 
 fn render<T: Layout>(
     app_data: Arc<Mutex<T>>,
-    has_window_size_changed: bool,
-
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
-
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
     app_resources: &mut AppResources)
 {
-    use webrender::api::*;
     use display_list::DisplayList;
-    use euclid::TypedSize2D;
-    use std::u32;
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
     let (builder, scrolled_nodes) = display_list.into_display_list_builder(
         app_data,
         window,
-        has_window_size_changed,
-
-        &mut *fake_window,
-        &mut *app_resources
+        fake_window,
+        app_resources,
     );
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     window.internal.last_display_list_builder = builder.finalize().2;
     window.internal.last_scrolled_nodes = scrolled_nodes;
 
-    let mut txn = Transaction::new();
+    let (logical_size, framebuffer_size) = convert_window_size(&window.state.size);
 
-    let LogicalSize { width, height } = window.state.size.dimensions;
-    let layout_size = TypedSize2D::new(width as f32, height as f32);
-    let framebuffer_size_physical = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
-    let framebuffer_size = TypedSize2D::new(framebuffer_size_physical.width as u32, framebuffer_size_physical.height as u32);
+    let webrender_transaction = {
+        let mut txn = Transaction::new();
+        txn.set_display_list(
+            window.internal.epoch,
+            None,
+            logical_size,
+            (window.internal.pipeline_id, logical_size, window.internal.last_display_list_builder.clone()),
+            true,
+        );
+        txn.set_root_pipeline(window.internal.pipeline_id);
+        scroll_all_nodes(&mut window.scroll_states, &mut txn);
+        txn.generate_frame();
+        txn
+    };
 
-    txn.set_display_list(
-        window.internal.epoch,
-        None,
-        layout_size,
-        (window.internal.pipeline_id, layout_size, window.internal.last_display_list_builder.clone()),
-        true,
-    );
-
-    // We don't want the epoch to increase to u32::MAX, since u32::MAX represents
-    // an invalid epoch, which could confuse webrender
-    window.internal.epoch = Epoch(if window.internal.epoch.0 == (u32::MAX - 1) {
-        0
-    } else {
-        window.internal.epoch.0 + 1
-    });
-
-    txn.set_root_pipeline(window.internal.pipeline_id);
-
-    for (key, value) in window.scroll_states.0.iter_mut() {
-        let (x, y) = value.get();
-        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
-    }
-
-    txn.generate_frame();
-
-    window.internal.api.send_transaction(window.internal.document_id, txn);
+    window.internal.epoch = increase_epoch(window.internal.epoch);
+    window.internal.api.send_transaction(window.internal.document_id, webrender_transaction);
     window.renderer.as_mut().unwrap().update();
     render_inner(window, framebuffer_size);
 }
 
+/// Scroll all nodes in the ScrollStates to their correct position and insert
+/// the positions into the transaction
+///
+/// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
+/// indicate whether it was used during the current frame or not.
+fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
+    use webrender::api::ScrollClamping;
+    for (key, value) in scroll_states.0.iter_mut() {
+        let (x, y) = value.get();
+        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
+    }
+}
+
+/// Returns the (logical_size, physical_size) as LayoutSizes, which can then be passed to webrender
+fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
+    let logical_size = LayoutSize::new(size.dimensions.width as f32, size.dimensions.height as f32);
+    let physical_size = size.dimensions.to_physical(size.hidpi_factor);
+    let physical_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+    (logical_size, physical_size)
+}
+
+/// Special rendering function that skips building a layout and only does
+/// hit-testing and rendering - called on pure scroll events, since it's
+/// significantly less CPU-intensive to just render the last display list instead of
+/// re-layouting on every single scroll event.
+///
+/// If `hit_test_results`
 fn render_on_scroll<T: Layout>(
     window: &mut Window<T>,
     hit_test_results: Option<HitTestResult>,
@@ -901,8 +918,8 @@ fn render_on_scroll<T: Layout>(
         }
     }
 
-    // If there is already a layout construction in progress, prevent re-rendering on layout,
-    // otherwise this leads to jankiness during scrolling
+    // If there is already a layout construction in progress, prevent
+    // re-rendering on layout, otherwise this leads to jankiness during scrolling
     if !frame_event_info.should_redraw_window && should_scroll_render {
         render_on_scroll_no_layout(window);
     }
@@ -914,19 +931,15 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
 
     let mut txn = Transaction::new();
 
-    for (key, value) in window.scroll_states.0.iter_mut() {
-        let (x, y) = value.get();
-        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
-    }
+    scroll_all_nodes(&mut window.scroll_states, &mut txn);
 
     txn.generate_frame();
 
-    let framebuffer_size_physical = window.state.size.dimensions.to_physical(window.state.size.hidpi_factor);
-    let framebuffer_size = TypedSize2D::new(framebuffer_size_physical.width as u32, framebuffer_size_physical.height as u32);
-
     window.internal.api.send_transaction(window.internal.document_id, txn);
     window.renderer.as_mut().unwrap().update();
-    render_inner(window, framebuffer_size);
+
+    let (_, physical_size) = convert_window_size(&window.state.size);
+    render_inner(window, physical_size);
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
@@ -959,17 +972,26 @@ fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
     active_textures_lock.retain(|key, _| key > oldest_to_remove_epoch);
 }
 
+// We don't want the epoch to increase to u32::MAX, since
+// u32::MAX represents an invalid epoch, which could confuse webrender
+fn increase_epoch(old: Epoch) -> Epoch {
+    use std::u32;
+    const MAX_ID: u32 = u32::MAX - 1;
+    match old.0 {
+        MAX_ID => Epoch(0),
+        other => Epoch(other + 1),
+    }
+}
+
 // See: https://github.com/servo/webrender/pull/2880
 // webrender doesn't reset the active shader back to what it was, but rather sets it
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
-fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: TypedSize2D<u32, DevicePixel>) {
+//
+// For some reason, webrender allows rendering negative width / height, although that doesn't make sense
+fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: DeviceIntSize) {
 
     use gleam::gl;
     use window::get_gl_context;
-
-    // For some reason, webrender allows rendering negative width / height,
-    // although that doesn't make sense
-    let framebuffer_size = TypedSize2D::new(framebuffer_size.width as i32, framebuffer_size.height as i32);
 
     // use glium::glutin::GlContext;
     // unsafe { window.display.gl_window().make_current().unwrap(); }

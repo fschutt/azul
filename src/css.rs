@@ -573,6 +573,7 @@ impl Css {
             return;
         };
 
+        #[allow(unused_variables)]
         let reloaded_css = match fs::read_to_string(&file_path) {
             Ok(o) => o,
             Err(e) => {
@@ -589,6 +590,7 @@ impl Css {
             reloaded_css
         };
 
+        #[allow(unused_variables)]
         let mut css = match Self::new_from_str(&target_css) {
             Ok(o) => o,
             Err(e) => {
