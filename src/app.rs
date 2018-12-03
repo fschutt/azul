@@ -253,6 +253,9 @@ impl<T: Layout> App<T> {
 
                 let mut events = Vec::new();
                 window.events_loop.poll_events(|e| events.push(e));
+                if events.is_empty() {
+                    continue 'window_loop;
+                }
 
                 for event in &events {
                     if preprocess_event(event, &mut frame_event_info, awakened_task[idx]) == WindowCloseEvent::AboutToClose {
@@ -263,6 +266,7 @@ impl<T: Layout> App<T> {
                     window.state.update_scroll_state(event);
                     window.state.update_keyboard_modifiers(event);
                     window.state.update_keyboard_pressed_chars(event);
+                    window.state.update_misc_events(event);
                 }
 
                 let mut hit_test_results = None;
@@ -325,9 +329,6 @@ impl<T: Layout> App<T> {
                         &window.css,
                     );
 
-                    // Send webrender the size and buffer of the display
-                    Self::update_display(&window);
-
                     // render the window (webrender will send an Awakened event when the frame is done)
                     let arc_mutex_t_clone = self.app_state.data.clone();
 
@@ -382,18 +383,6 @@ impl<T: Layout> App<T> {
         }
 
         Ok(())
-    }
-
-    fn update_display(window: &Window<T>)
-    {
-        use webrender::api::{Transaction, DeviceIntRect, DeviceIntPoint};
-
-        let (_, physical_size) = convert_window_size(&window.state.size);
-        let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), physical_size);
-
-        let mut txn = Transaction::new();
-        txn.set_window_parameters(physical_size, bounds, window.state.size.hidpi_factor as f32);
-        window.internal.api.send_transaction(window.internal.document_id, txn);
     }
 
     fn initialize_ui_state(windows: &[Window<T>], app_state: &mut AppState<T>)
@@ -635,10 +624,14 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
                 WindowEvent::CloseRequested => {
                     return WindowCloseEvent::AboutToClose;
                 },
+                WindowEvent::Destroyed => {
+                    return WindowCloseEvent::AboutToClose;
+                },
                 WindowEvent::KeyboardInput { .. } |
                 WindowEvent::ReceivedCharacter(_) |
                 WindowEvent::MouseWheel { .. } |
-                WindowEvent::MouseInput { .. } => {
+                WindowEvent::MouseInput { .. } |
+                WindowEvent::Touch(_) => {
                     frame_event_info.should_hittest = true;
                 },
                 _ => { },
@@ -811,6 +804,8 @@ fn render<T: Layout>(
 {
     use display_list::DisplayList;
 
+    use webrender::api::{Transaction, DeviceIntRect, DeviceIntPoint};
+
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
     let (builder, scrolled_nodes) = display_list.into_display_list_builder(
@@ -828,6 +823,11 @@ fn render<T: Layout>(
 
     let webrender_transaction = {
         let mut txn = Transaction::new();
+
+        // Send webrender the size and buffer of the display
+        let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size);
+        txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor as f32);
+
         txn.set_display_list(
             window.internal.epoch,
             None,
@@ -835,6 +835,7 @@ fn render<T: Layout>(
             (window.internal.pipeline_id, logical_size, window.internal.last_display_list_builder.clone()),
             true,
         );
+
         txn.set_root_pipeline(window.internal.pipeline_id);
         scroll_all_nodes(&mut window.scroll_states, &mut txn);
         txn.generate_frame();

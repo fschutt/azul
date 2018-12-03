@@ -1,7 +1,10 @@
 //! Contains methods related to event filtering (i.e. detecting whether a
 //! click was a mouseover, mouseout, and so on and calling the correct callbacks)
 
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+};
 use glium::glutin::{
     Window, Event, WindowEvent, KeyboardInput, ScanCode, ElementState,
     MouseCursor, VirtualKeyCode, MouseScrollDelta,
@@ -153,13 +156,15 @@ impl Default for DebugState {
 pub struct WindowState {
     /// The state of the keyboard for this frame
     pub(crate) keyboard_state: KeyboardState,
-    /// The state of the mouse
+    /// The state of the mouse, read-only
     pub(crate) mouse_state: MouseState,
+    /// Whether there is a file currently hovering over the window
+    pub(crate) hovered_file: Option<PathBuf>,
+    /// Previous window state, used for determining mouseout, etc. events
+    pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
     /// Used for performance monitoring and displaying frame times (rendering-only).
     pub debug_state: DebugState,
-    /// Previous window state, used for determining mouseout, etc. events
-    pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// Current title of the window
@@ -207,10 +212,11 @@ impl Default for WindowSize {
 impl Default for WindowState {
     fn default() -> Self {
         Self {
-            previous_window_state: None,
-            title: DEFAULT_TITLE.into(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
+            hovered_file: None,
+            previous_window_state: None,
+            title: DEFAULT_TITLE.into(),
             position: None,
             size: WindowSize::default(),
             is_maximized: false,
@@ -226,12 +232,16 @@ impl Default for WindowState {
 
 impl WindowState
 {
-    pub fn get_mouse_state<'a>(&'a self) -> &MouseState {
+    pub fn get_mouse_state(&self) -> &MouseState {
         &self.mouse_state
     }
 
-    pub fn get_keyboard_state<'a>(&'a self) -> &KeyboardState {
+    pub fn get_keyboard_state(&self) -> &KeyboardState {
         &self.keyboard_state
+    }
+
+    pub fn get_hovered_file(&self) -> Option<&PathBuf> {
+        self.hovered_file.as_ref()
     }
 
     // Determine which event / which callback(s) should be called and in which order
@@ -320,6 +330,15 @@ impl WindowState
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
                 events_vec.insert(On::VirtualKeyUp);
+            },
+            WindowEvent::HoveredFile(_) => {
+                events_vec.insert(On::HoveredFile);
+            },
+            WindowEvent::DroppedFile(_) => {
+                events_vec.insert(On::DroppedFile);
+            },
+            WindowEvent::HoveredFileCancelled => {
+                events_vec.insert(On::HoveredFileCancelled);
             },
             _ => { }
         }
@@ -427,6 +446,26 @@ impl WindowState
             _ => { }
         }
 
+    }
+
+    pub(crate) fn update_misc_events(&mut self, event: &Event) {
+        match event {
+            Event::WindowEvent { event, .. } => {
+                match event {
+                    WindowEvent::HoveredFile(path) => {
+                        self.hovered_file = Some(path.clone());
+                    },
+                    WindowEvent::DroppedFile(path) => {
+                        self.hovered_file = Some(path.clone());
+                    },
+                    WindowEvent::HoveredFileCancelled => {
+                        self.hovered_file = None;
+                    },
+                    _ => { },
+                }
+            },
+            _ => { },
+        }
     }
 }
 
