@@ -428,6 +428,12 @@ pub enum On {
     VirtualKeyDown,
     /// A **virtual keycode** was release. See `VirtualKeyDown` for more info.
     VirtualKeyUp,
+    /// A file has been dropped on the element
+    HoveredFile,
+    /// A file is being hovered on the element
+    DroppedFile,
+    /// A file was hovered, but has exited the window
+    HoveredFileCancelled,
 }
 
 pub struct NodeData<T: Layout> {
