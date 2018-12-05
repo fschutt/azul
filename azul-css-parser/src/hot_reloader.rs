@@ -1,4 +1,4 @@
-use azul::prelude::{HotReloadHandler, AppStyle};
+use azul_style::{HotReloadHandler, AppStyle};
 
 #[cfg(debug_assertions)]
 pub struct HotReloader {

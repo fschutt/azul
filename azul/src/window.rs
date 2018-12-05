@@ -26,14 +26,15 @@ use glium::{
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
+use azul_style::{ AppStyle, HotReloadHandler };
 use {
     FastHashMap,
     dom::{Texture, On, Callback},
     daemon::{Daemon, DaemonId},
-    style::AppStyle,
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
     compositor::Compositor,
+    style::sort_by_specificity,
     app::FrameEventInfo,
     app_resources::AppResources,
     id_tree::NodeId,
@@ -577,16 +578,6 @@ pub struct Window<T: Layout> {
     marker: PhantomData<T>,
 }
 
-/// Public interface that can be used to reload an AppStyle while an application is running. This
-/// is useful for quickly iterating over different styles during development -- you can load from
-/// a file, from an online source, or perhaps even from an AI style generator!
-///
-/// This trait is only available when debug_assertions are enabled.
-#[cfg(debug_assertions)]
-pub trait HotReloadHandler {
-    fn reload_style(&mut self) -> Option<Result<AppStyle, String>>;
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct AnimationState { }
 
@@ -678,7 +669,7 @@ pub(crate) struct WindowInternal {
 
 impl<'a, T: Layout> Window<T> {
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, mut style: AppStyle) -> Result<Self, WindowCreateError> {
+    pub fn new(mut options: WindowCreateOptions<T>, style: AppStyle) -> Result<Self, WindowCreateError> {
 
         use self::RendererType::*;
         use webrender::WrShaders;
@@ -863,18 +854,16 @@ impl<'a, T: Layout> Window<T> {
 
         set_webrender_debug_flags(&mut renderer, &DebugState::default(), &options.state.debug_state);
 
-        style.sort_by_specificity();
-
         let window = Window {
             events_loop: events_loop,
             state: options.state,
             renderer: Some(renderer),
             display: Rc::new(display),
-            style: style.clone(),
+            #[cfg(debug_assertions)]
+            base_style: style.clone(),
+            style: sort_by_specificity(style),
             #[cfg(debug_assertions)]
             style_loader: None,
-            #[cfg(debug_assertions)]
-            base_style: style,
             #[cfg(debug_assertions)]
             reload_interval: 500,
             animations: FastHashMap::default(),

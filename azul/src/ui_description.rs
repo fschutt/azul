@@ -4,13 +4,12 @@ use std::{
     rc::Rc,
     collections::BTreeMap,
 };
+use azul_style::{ AppStyle, StyleConstraintList, StyleProperty };
 use {
     FastHashMap,
     id_tree::{Arena, NodeId},
     traits::Layout,
     dom::Dom,
-    style_properties::StyleProperty,
-    style::{AppStyle, StyleConstraintList},
     dom::NodeData,
     ui_state::UiState,
 };

@@ -108,6 +108,8 @@ extern crate twox_hash;
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
+extern crate azul_style;
+
 #[macro_use]
 mod macros;
 
@@ -184,40 +186,18 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use dom::DomHash;
-    pub use style::{AppStyle, StyleRuleSet, StyleDeclaration, DynamicStyleProperty, DynamicStylePropertyDefault};
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,
-        IFrameCallback, NodeTypePath,
+        IFrameCallback,
     };
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
-                     WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow,
-                     HotReloadHandler};
+                     WindowMonitorTarget, RendererType, WindowEvent, WindowInfo, ReadOnlyWindow};
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
-    pub use style::{XPath, XPathSelector, XPathPseudoSelector};
-    pub use style_properties::{
-        StyleBackgroundColor, StyleTextColor, StyleBackground, StyleFontSize,
-        StyleFontFamily, StyleTextAlignmentHorz, StyleTextAlignmentVert, StyleBorderRadius,
-        StyleBoxShadow, BoxShadowPreDisplayItem, StyleLineHeight, StyleLetterSpacing,
-        StyleBorder, StyleBorderSide, BackgroundType, Direction, DirectionCorner, Shape,
-        BorderStyle,
-
-        LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, SizeMetric,
-        LayoutMaxHeight, LayoutWrap, LayoutDirection, LayoutJustifyContent, LayoutAlignItems,
-        LayoutAlignContent, LayoutTop, LayoutBottom, LayoutRight, LayoutLeft, LayoutPadding,
-        LayoutMargin, LayoutFlexGrow, LayoutFlexShrink, LayoutOverflow, LayoutPosition,
-
-        LinearGradientPreInfo, RadialGradientPreInfo, GradientStopPre, StyleImageId, FontId,
-        TextOverflowBehaviour, TextOverflowBehaviourInner, StyleProperty,
-        LayoutPixel, TypedSize2D, BoxShadowClipMode, ColorU, ColorF, LayoutVector2D,
-        Gradient, RadialGradient, LayoutPoint, LayoutSize, Au, BorderDetails,
-        ExtendMode, PixelValue, PercentageValue, SideOffsets2D, NormalBorder,
-        LayoutSideOffsets, TypedPoint2D, FloatValue,
-    };
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
         VirtualKeyCode, ScanCode, Icon,

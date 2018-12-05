@@ -32,12 +32,12 @@ use lyon::{
 use usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF, GlyphInstance};
 use rusttype::{Font, Glyph};
+use azul_style::{FontId, StyleFontSize};
 use {
     FastHashMap,
     dom::{Callback, Texture},
     traits::Layout,
     window::ReadOnlyWindow,
-    style_properties::{FontId, StyleFontSize},
     app_resources::AppResources,
     text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
 };

@@ -1,13 +1,13 @@
 use std::f32;
 use glium::glutin::dpi::LogicalPosition;
+use azul_style::{
+    LayoutPosition,
+    LayoutMargin,
+    LayoutPadding,
+    RectLayout,
+};
 use {
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
-    style_properties::{
-        LayoutPosition,
-        LayoutMargin,
-        LayoutPadding,
-        RectLayout
-    },
     display_list::DisplayRectangle,
 };
 
@@ -594,7 +594,7 @@ impl NodeDataContainer<$struct_name> {
 
         for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
 
-            use style_properties::{LayoutAxis, LayoutPosition};
+            use azul_style::{LayoutAxis, LayoutPosition};
 
             let parent_is_positioned = arena_data[*parent_id].position.unwrap_or_default() != LayoutPosition::Static;
             if parent_is_positioned {
@@ -831,7 +831,7 @@ fn $fn_name(
         sum_x_of_children_so_far: &mut f32,
         positioned_node_stack: &[NodeId],
     ) {
-        use style_properties::LayoutJustifyContent::*;
+        use azul_style::LayoutJustifyContent::*;
 
         let child_width_with_padding = {
             let child_node = &solved_widths.$solved_widths_field[child_id];
@@ -899,7 +899,7 @@ fn $fn_name(
         }
     }
 
-    use style_properties::{LayoutAxis, LayoutJustifyContent};
+    use azul_style::{LayoutAxis, LayoutJustifyContent};
 
     let mut arena_solved_data = NodeDataContainer::new(vec![$height_solved_position(0.0); node_data.len()]);
 
@@ -1055,7 +1055,7 @@ pub(crate) fn get_y_positions(
 #[cfg(test)]
 mod layout_tests {
 
-    use style_properties::RectLayout;
+    use azul_style::RectLayout;
     use id_tree::{Node, NodeId};
     use super::*;
 
@@ -1138,7 +1138,7 @@ mod layout_tests {
 
     #[test]
     fn test_determine_preferred_width() {
-        use style_properties::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
+        use azul_style::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
 
         let layout = RectLayout {
             width: None,
@@ -1217,7 +1217,7 @@ mod layout_tests {
     #[test]
     fn test_fill_out_preferred_width() {
 
-        use style_properties::*;
+        use azul_style::*;
 
         let (node_hierarchy, node_data) = get_display_rectangle_arena(&[
             (0, RectLayout {
