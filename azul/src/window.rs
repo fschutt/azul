@@ -556,10 +556,6 @@ pub struct Window<T: Layout> {
     /// enabled
     #[cfg(debug_assertions)]
     pub(crate) style_loader: Option<Box<dyn HotReloadHandler>>,
-    /// The base style to merge onto when hot-reloading; useful for starting from a native look and
-    /// feel.
-    #[cfg(debug_assertions)]
-    pub(crate) base_style: AppStyle,
     /// A configurable interval for hot-reloading of styles from the style_loader, defaults to 500ms
     #[cfg(debug_assertions)]
     pub(crate) reload_interval: u64,
@@ -859,8 +855,6 @@ impl<'a, T: Layout> Window<T> {
             state: options.state,
             renderer: Some(renderer),
             display: Rc::new(display),
-            #[cfg(debug_assertions)]
-            base_style: style.clone(),
             style: sort_by_specificity(style),
             #[cfg(debug_assertions)]
             style_loader: None,
@@ -887,8 +881,8 @@ impl<'a, T: Layout> Window<T> {
     ///
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
-    pub fn new_hot_reload(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: Box<dyn HotReloadHandler>) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new(options, base_style)?;
+    pub fn new_hot_reload(options: WindowCreateOptions<T>, style_loader: Box<dyn HotReloadHandler>) -> Result<Self, WindowCreateError>  {
+        let mut window = Window::new(options, AppStyle::default())?;
         window.style_loader = Some(style_loader);
         Ok(window)
     }
@@ -898,8 +892,8 @@ impl<'a, T: Layout> Window<T> {
     ///
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
-    pub fn new_hot_reload_interval(options: WindowCreateOptions<T>, base_style: AppStyle, style_loader: Box<dyn HotReloadHandler>, interval_millis: u64) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new_hot_reload(options, base_style, style_loader)?;
+    pub fn new_hot_reload_interval(options: WindowCreateOptions<T>, style_loader: Box<dyn HotReloadHandler>, interval_millis: u64) -> Result<Self, WindowCreateError>  {
+        let mut window = Window::new_hot_reload(options, style_loader)?;
         window.reload_interval = interval_millis;
         Ok(window)
     }

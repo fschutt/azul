@@ -54,8 +54,8 @@ fn main() {
     };
 
     let app = App::new(data, AppConfig::default());
-    let mut style = native();
-    style.merge(new_from_str(CUSTOM_CSS).unwrap());
+    let mut style = css::native();
+    style.merge(css::from_str(CUSTOM_CSS).unwrap());
     let window = Window::new(WindowCreateOptions::default(), style).unwrap();
     app.run(window).unwrap();
 }

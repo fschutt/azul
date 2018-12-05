@@ -186,8 +186,8 @@ fn main() {
     let mut window_options = WindowCreateOptions::default();
     window_options.state.title = "Game of Life".into();
 
-    let mut style = native();
-    style.merge(new_from_str(CSS).unwrap());
+    let mut style = css::native();
+    style.merge(css::from_str(CSS).unwrap());
 
     app.run(Window::new(window_options, style).unwrap()).unwrap();
 }

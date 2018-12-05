@@ -23,5 +23,5 @@ fn main() {
         table_state,
     }, AppConfig::default());
 
-    app.run(Window::new(WindowCreateOptions::default(), native()).unwrap());
+    app.run(Window::new(WindowCreateOptions::default(), css::native()).unwrap()).unwrap();
 }

@@ -65,8 +65,8 @@ fn main() {
     let app = App::new(DragMeApp::default(), AppConfig::default());
 
     #[cfg(debug_assertions)] {
-        let hot_reloader = Box::new(HotReloader::new(CSS_PATH!().to_string()));
-        app.run(Window::new_hot_reload(WindowCreateOptions::default(), AppStyle::new(), hot_reloader).unwrap()).unwrap();
+        let hot_reloader = css::hot_reload(CSS_PATH!(), false);
+        app.run(Window::new_hot_reload(WindowCreateOptions::default(), hot_reloader).unwrap()).unwrap();
     }
     #[cfg(not(debug_assertions))] {
         let css = AppStyle::new_from_str(include_str!(CSS_PATH!())).unwrap();

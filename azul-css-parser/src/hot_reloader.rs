@@ -1,18 +1,18 @@
 use azul_style::{HotReloadHandler, AppStyle};
 
-#[cfg(debug_assertions)]
+/// Allows dynamic reloading of a CSS file at application runtime.
 pub struct HotReloader {
     file_path: String,
 }
 
-#[cfg(debug_assertions)]
 impl HotReloader {
-    pub fn new(file_path: String) -> Self {
-        HotReloader { file_path }
+    /// Creates a HotReloader that will load a style directly from the CSS file
+    /// at the given path.
+    pub fn new(file_path: String) -> Box<dyn HotReloadHandler> {
+        Box::new(HotReloader { file_path })
     }
 }
 
-#[cfg(debug_assertions)]
 impl HotReloadHandler for HotReloader {
     fn reload_style(&mut self) -> Option<Result<AppStyle, String>> {
         use std::fs;

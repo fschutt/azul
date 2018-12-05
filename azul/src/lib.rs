@@ -121,6 +121,8 @@ pub mod app;
 pub mod app_state;
 /// Font & image resource handling, lookup and caching
 pub mod app_resources;
+#[cfg(any(feature = "css_parser", feature = "native-style"))]
+pub mod css;
 /// Daemon / timer system
 pub mod daemon;
 /// Handles default callbacks (such as an automatic text field update) via unsafe code
@@ -211,11 +213,9 @@ pub mod prelude {
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::TextLayoutOptions;
 
-    #[cfg(feature = "native_style")]
-    pub use azul_native_style::*;
-    #[cfg(feature = "css_parser")]
-    pub use azul_css_parser::*;
+    pub use css;
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
 }
+

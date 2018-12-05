@@ -352,9 +352,7 @@ impl<T: Layout> App<T> {
                         if Instant::now() - last_style_reload > Duration::from_millis(window.reload_interval) {
                             match hot_reloader.reload_style() {
                                 Some(Ok(style)) => {
-                                    let mut new_style = window.base_style.clone();
-                                    new_style.merge(style);
-                                    window.style = sort_by_specificity(new_style);
+                                    window.style = sort_by_specificity(style);
                                     last_style_reload = Instant::now();
                                     window.events_loop.create_proxy().wakeup().unwrap_or(());
                                     awakened_task[window_idx] = true;

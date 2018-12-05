@@ -1,7 +1,6 @@
 #![windows_subsystem = "windows"]
 
 extern crate azul;
-extern crate azul_native_style;
 
 use azul::{
     prelude::*,
@@ -89,5 +88,5 @@ fn connect_to_db_async(app_data: Arc<Mutex<MyDataModel>>, _: Arc<()>) {
 fn main() {
     let model = MyDataModel { connection_status: ConnectionStatus::NotConnected };
     let app = App::new(model, AppConfig::default());
-    app.run(Window::new(WindowCreateOptions::default(), azul_native_style::native()).unwrap()).unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), css::native()).unwrap()).unwrap();
 }

@@ -8,3 +8,30 @@ use style::AppStyle;
 pub trait HotReloadHandler {
     fn reload_style(&mut self) -> Option<Result<AppStyle, String>>;
 }
+
+pub struct HotReloadOverride {
+    base_style: AppStyle,
+    hot_reloader: Box<dyn HotReloadHandler>,
+}
+
+impl HotReloadOverride {
+    pub fn new(base_style: AppStyle, hot_reloader: Box<dyn HotReloadHandler>) -> Box<dyn HotReloadHandler> {
+        Box::new(Self {
+            base_style,
+            hot_reloader,
+        })
+    }
+}
+
+impl HotReloadHandler for HotReloadOverride {
+    fn reload_style(&mut self) -> Option<Result<AppStyle, String>> {
+        match self.hot_reloader.reload_style() {
+            Some(Ok(style)) => {
+                let mut base = self.base_style.clone();
+                base.merge(style);
+                Some(Ok(base))
+            },
+            other => other,
+        }
+    }
+}
