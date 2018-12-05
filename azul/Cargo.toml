@@ -147,7 +147,3 @@ required-features = []
 [[example]]
 name = "game_of_life"
 required-features = []
-
-[dev-dependencies]
-azul-css-parser                     = { path = "../azul-css-parser",                  default-features = false }
-azul-native-style                   = { path = "../azul-native-style",                default-features = false }
