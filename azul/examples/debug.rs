@@ -89,8 +89,8 @@ fn build_layers(
 {
     let mut layers: Vec<SvgLayerResource> = existing_layers.iter().map(|e| SvgLayerResource::Reference(*e)).collect();
 
-    layers.extend(texts.values().map(|text| text.to_svg_layer(vector_font_cache, resources)));
-    layers.extend(texts.values().map(|text| text.get_bbox().draw_lines(ColorU { r: 0, g: 0, b: 0, a: 255 }, 1.0)));
+    layers.extend(texts.values().map(|text| SvgLayerResource::Direct(text.to_svg_layer(vector_font_cache, resources))));
+    layers.extend(texts.values().map(|text| SvgLayerResource::Direct(text.get_bbox().draw_lines(ColorU { r: 0, g: 0, b: 0, a: 255 }, 1.0))));
 /*
     if let Some(active) = hovered_text {
         layers.push(texts[active].get_bbox().draw_lines());
@@ -159,36 +159,42 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
         .. Default::default()
     };
 
+    let text_style = SvgStyle {
+        fill: Some(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+        transform: SvgTransform {
+            translation: Some(SvgTranslation { x: 50.0, y: 50.0 }),
+            .. Default::default()
+        },
+        .. Default::default()
+    };
+
     // Texts only for testing
     let texts = [
         SvgText {
             font_size: font_size,
             font_id: font_id.clone(),
             text_layout: SvgTextLayout::from_str("On Curve!!!!", &font, &font_size, &TextLayoutOptions::default()),
-            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            style: text_style,
             placement: SvgTextPlacement::OnCubicBezierCurve(SampledBezierCurve::from_curve(&[
                 BezierControlPoint { x: 0.0, y: 0.0 },
                 BezierControlPoint { x: 40.0, y: 120.0 },
                 BezierControlPoint { x: 80.0, y: 120.0 },
                 BezierControlPoint { x: 120.0, y: 0.0 },
             ])),
-            position: SvgPosition { x: 50.0, y: 50.0 },
         },
         SvgText {
             font_size: font_size,
             font_id: font_id.clone(),
             text_layout: SvgTextLayout::from_str("Rotated", &font, &font_size, &TextLayoutOptions::default()),
-            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            style: text_style,
             placement: SvgTextPlacement::Rotated(-30.0),
-            position: SvgPosition { x: 50.0, y: 50.0 },
         },
         SvgText {
             font_size: font_size,
             font_id: font_id.clone(),
             text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size, &aligned),
-            style: SvgStyle::filled(ColorU { r: 0, g: 0, b: 0, a: 255 }),
+            style: text_style,
             placement: SvgTextPlacement::Unmodified,
-            position: SvgPosition { x: 50.0, y: 50.0 },
         },
     ];
 
