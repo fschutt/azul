@@ -202,6 +202,7 @@ pub mod prelude {
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
         VirtualKeyCode, ScanCode, Icon,
     };
+    pub use azul_style::*;
     pub use rusttype::Font;
     pub use app_resources::AppResources;
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
