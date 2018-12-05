@@ -1,6 +1,4 @@
 extern crate azul;
-extern crate azul_css;
-extern crate azul_native_style;
 
 use azul::prelude::*;
 
@@ -65,10 +63,10 @@ fn main() {
 
     let app = App::new(data, AppConfig::default());
 
-    let native_style = azul_native_style::native();
+    let native_style = native();
 
     let window = if cfg!(debug_assertions) {
-        let hot_reloader = Box::new(azul_css::HotReloader::new(CSS_PATH!().to_string()));
+        let hot_reloader = Box::new(azul_css_parser::HotReloader::new(CSS_PATH!().to_string()));
         Window::new_hot_reload(WindowCreateOptions::default(), native_style, hot_reloader).unwrap()
     } else {
         Window::new(WindowCreateOptions::default(), native_style).unwrap()

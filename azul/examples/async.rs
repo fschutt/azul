@@ -1,7 +1,6 @@
 #![windows_subsystem = "windows"]
 
 extern crate azul;
-extern crate azul_css;
 extern crate azul_native_style;
 
 use azul::{

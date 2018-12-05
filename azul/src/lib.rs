@@ -109,6 +109,8 @@ extern crate twox_hash;
 extern crate nfd;
 
 extern crate azul_style;
+extern crate azul_native_style;
+extern crate azul_css_parser;
 
 #[macro_use]
 mod macros;
@@ -208,6 +210,11 @@ pub mod prelude {
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::TextLayoutOptions;
+
+    #[cfg(feature = "native_style")]
+    pub use azul_native_style::*;
+    #[cfg(feature = "css_parser")]
+    pub use azul_css_parser::*;
 
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
