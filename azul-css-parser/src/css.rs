@@ -1,10 +1,11 @@
-//! CSS parsing and styling
+//! High-level types and functions related to CSS parsing
 use std::{
     num::ParseIntError,
 };
 pub use simplecss::Error as CssSyntaxError;
 
-pub use css_parser::{ParsedCssProperty, CssParsingError};
+use css_parser;
+pub use css_parser::CssParsingError;
 use dom::{node_type_path_from_str, NodeTypePathParseError};
 use azul_style::{
     AppStyle,
@@ -257,7 +258,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'
     Ok(css_blocks.into())
 }
 
-/// Error that can happen during `ParsedCssProperty::from_kv`
+/// Error that can happen during `css_parser::from_kv`
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynamicCssParseError<'a> {
     /// The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `
@@ -311,7 +312,7 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
             parse_dynamic_css_property(key, value).and_then(|val| Ok(StyleDeclaration::Dynamic(val)))
         },
         (false, false) => {
-            Ok(StyleDeclaration::Static(ParsedCssProperty::from_kv(key, value)?))
+            Ok(StyleDeclaration::Static(css_parser::from_kv(key, value)?))
         }
     }
 }
@@ -334,7 +335,7 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
         (None, Some(id)) => {
             if id.trim().is_empty() {
                 return Err(DynamicCssParseError::EmptyBraces);
-            } else if ParsedCssProperty::from_kv(key, id).is_ok() {
+            } else if css_parser::from_kv(key, id).is_ok() {
                 // if there is an ID, but the ID is a CSS value
                 return Err(DynamicCssParseError::NoId);
             } else {
@@ -355,13 +356,13 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
     }
 
     if dynamic_id.starts_with(char::is_numeric) ||
-       ParsedCssProperty::from_kv(key, dynamic_id).is_ok() {
+       css_parser::from_kv(key, dynamic_id).is_ok() {
         return Err(DynamicCssParseError::InvalidId);
     }
 
     let default_case_parsed = match default_case {
         "auto" => DynamicStylePropertyDefault::Auto,
-        other => DynamicStylePropertyDefault::Exact(ParsedCssProperty::from_kv(key, other)?),
+        other => DynamicStylePropertyDefault::Exact(css_parser::from_kv(key, other)?),
     };
 
     Ok(DynamicStyleProperty {

@@ -1,7 +1,7 @@
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
 pub use {
-    euclid::{TypedSize2D, SideOffsets2D, TypedPoint2D},
+    euclid::{TypedPoint2D},
     webrender::api::{
         BorderDetails, NormalBorder,
         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,

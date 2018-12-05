@@ -102,7 +102,6 @@ name = "azul-style"
 version = "0.1.0"
 dependencies = [
  "euclid 0.19.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "nfd 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.57.2 (git+https://github.com/servo/webrender?rev=92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5)",
 ]
 

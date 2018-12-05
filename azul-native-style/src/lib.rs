@@ -1,3 +1,5 @@
+//! Provides azul-compatible approximations of OS-native styles.
+
 extern crate azul_style;
 use azul_style::AppStyle;
 

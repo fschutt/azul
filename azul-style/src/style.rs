@@ -1,6 +1,5 @@
 //! Types and methods used to describe the style of an application
 use style_properties::StyleProperty;
-use dom::NodeTypePath;
 
 /// Wrapper for a `Vec<StyleRuleSet>` - the style is immutable at runtime, it can only be
 /// created once. Animations / conditional styling is implemented using dynamic fields.
@@ -103,6 +102,32 @@ pub struct StyleRuleSet {
 }
 
 pub type CssContentGroup<'a> = Vec<&'a XPathSelector>;
+
+/// Signifies the type (i.e. the discriminant value) of a DOM node without any of its associated
+/// data
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NodeTypePath {
+    Div,
+    P,
+    Img,
+    Texture,
+    IFrame,
+}
+
+impl std::fmt::Display for NodeTypePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        use self::NodeTypePath::*;
+        let path = match self {
+            Div => "div",
+            P => "p",
+            Img => "img",
+            Texture => "texture",
+            IFrame => "iframe",
+        };
+        write!(f, "{}", path)?;
+        Ok(())
+    }
+}
 
 /// Represents a full style xpath:
 /// `#div > .my_class:focus` =>

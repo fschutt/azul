@@ -1,25 +1,7 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
 use std::{fmt, num::{ParseIntError, ParseFloatError}};
-use azul_style::{
-    StyleProperty,
-    BorderDetails, BorderStyle, NormalBorder, LayoutPixel,
-    BoxShadowClipMode, ColorU, ColorF, LayoutPoint,
-    LayoutSize, ExtendMode, LayoutSideOffsets,
-    TypedPoint2D, PixelValue, SizeMetric, PercentageValue,
-    FloatValue, FontId, TextOverflowBehaviour, TextOverflowBehaviourInner,
-    BoxShadowPreDisplayItem, StyleBorderSide, StyleImageId,
-    BackgroundType, Direction, Shape, DirectionCorner,
-    LinearGradientPreInfo, RadialGradientPreInfo, GradientStopPre,
-    StyleBorderRadius, StyleBackground, StyleBoxShadow, StyleBorder,
-    StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz, StyleLineHeight,
-    StyleLetterSpacing, StyleBackgroundColor, StyleTextColor,
-    LayoutOverflow, LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight,
-    LayoutMaxWidth, LayoutMaxHeight, LayoutPosition, LayoutTop, LayoutBottom,
-    LayoutRight, LayoutLeft, LayoutPadding, LayoutMargin, LayoutWrap,
-    LayoutDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
-    LayoutAlignItems, LayoutAlignContent,
-};
+use azul_style::*;
 
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
@@ -47,112 +29,108 @@ macro_rules! typed_pixel_value_parser {
     )
 }
 
-pub mod ParsedCssProperty {
-    use super::*;
+/// Main parsing function, takes a stringified key / value pair and either
+/// returns the parsed value or an error
+///
+/// ```rust
+/// # extern crate azul_style;
+/// # use azul_style::*;
+/// # use azul_css_parser::from_kv;
+/// assert_eq!(
+///     from_kv("width", "500px"),
+///     Ok(StyleProperty::Width(LayoutWidth(PixelValue::px(500.0))))
+/// )
+/// ```
+pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<StyleProperty, CssParsingError<'a>> {
+    let key = key.trim();
+    let value = value.trim();
+    match key {
+        "border-radius"     => Ok(parse_css_border_radius(value)?.into()),
+        "background-color"  => Ok(parse_css_background_color(value)?.into()),
+        "font-color" |
+        "color"             => Ok(parse_css_text_color(value)?.into()),
+        "background"        => Ok(parse_css_background(value)?.into()),
+        "font-size"         => Ok(parse_css_font_size(value)?.into()),
+        "font-family"       => Ok(parse_css_font_family(value)?.into()),
+        "letter-spacing"    => Ok(parse_css_letter_spacing(value)?.into()),
+        "line-height"       => Ok(parse_css_line_height(value)?.into()),
 
-    /// Main parsing function, takes a stringified key / value pair and either
-    /// returns the parsed value or an error
-    ///
-    /// ```rust
-    /// # extern crate azul_style;
-    /// # use azul_style::*;
-    /// # use azul_css_parser::from_kv;
-    /// assert_eq!(
-    ///     from_kv("width", "500px"),
-    ///     Ok(StyleProperty::Width(LayoutWidth(PixelValue::px(500.0))))
-    /// )
-    /// ```
-    pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<StyleProperty, CssParsingError<'a>> {
-        let key = key.trim();
-        let value = value.trim();
-        match key {
-            "border-radius"     => Ok(parse_css_border_radius(value)?.into()),
-            "background-color"  => Ok(parse_css_background_color(value)?.into()),
-            "font-color" |
-            "color"             => Ok(parse_css_text_color(value)?.into()),
-            "background"        => Ok(parse_css_background(value)?.into()),
-            "font-size"         => Ok(parse_css_font_size(value)?.into()),
-            "font-family"       => Ok(parse_css_font_family(value)?.into()),
-            "letter-spacing"    => Ok(parse_css_letter_spacing(value)?.into()),
-            "line-height"       => Ok(parse_css_line_height(value)?.into()),
+        "border"            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
+        "border-top"        => Ok(border_parser::parse_top(value)?.into()),
+        "border-bottom"     => Ok(border_parser::parse_bottom(value)?.into()),
+        "border-left"       => Ok(border_parser::parse_left(value)?.into()),
+        "border-right"      => Ok(border_parser::parse_right(value)?.into()),
 
-            "border"            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
-            "border-top"        => Ok(StyleBorderParser::parse_top(value)?.into()),
-            "border-bottom"     => Ok(StyleBorderParser::parse_bottom(value)?.into()),
-            "border-left"       => Ok(StyleBorderParser::parse_left(value)?.into()),
-            "border-right"      => Ok(StyleBorderParser::parse_right(value)?.into()),
+        "box-shadow"        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
+        "box-shadow-top"    => Ok(box_shadow_parser::parse_top(value)?.into()),
+        "box-shadow-bottom" => Ok(box_shadow_parser::parse_bottom(value)?.into()),
+        "box-shadow-left"   => Ok(box_shadow_parser::parse_left(value)?.into()),
+        "box-shadow-right"  => Ok(box_shadow_parser::parse_right(value)?.into()),
 
-            "box-shadow"        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
-            "box-shadow-top"    => Ok(StyleBoxShadowParser::parse_top(value)?.into()),
-            "box-shadow-bottom" => Ok(StyleBoxShadowParser::parse_bottom(value)?.into()),
-            "box-shadow-left"   => Ok(StyleBoxShadowParser::parse_left(value)?.into()),
-            "box-shadow-right"  => Ok(StyleBoxShadowParser::parse_right(value)?.into()),
+        "width"             => Ok(parse_layout_width(value)?.into()),
+        "height"            => Ok(parse_layout_height(value)?.into()),
+        "min-width"         => Ok(parse_layout_min_width(value)?.into()),
+        "min-height"        => Ok(parse_layout_min_height(value)?.into()),
+        "max-width"         => Ok(parse_layout_max_width(value)?.into()),
+        "max-height"        => Ok(parse_layout_max_height(value)?.into()),
 
-            "width"             => Ok(parse_layout_width(value)?.into()),
-            "height"            => Ok(parse_layout_height(value)?.into()),
-            "min-width"         => Ok(parse_layout_min_width(value)?.into()),
-            "min-height"        => Ok(parse_layout_min_height(value)?.into()),
-            "max-width"         => Ok(parse_layout_max_width(value)?.into()),
-            "max-height"        => Ok(parse_layout_max_height(value)?.into()),
+        "position"          => Ok(parse_layout_position(value)?.into()),
+        "top"               => Ok(parse_layout_top(value)?.into()),
+        "right"             => Ok(parse_layout_right(value)?.into()),
+        "left"              => Ok(parse_layout_left(value)?.into()),
+        "bottom"            => Ok(parse_layout_bottom(value)?.into()),
+        "text-align"        => Ok(parse_layout_text_align(value)?.into()),
 
-            "position"          => Ok(parse_layout_position(value)?.into()),
-            "top"               => Ok(parse_layout_top(value)?.into()),
-            "right"             => Ok(parse_layout_right(value)?.into()),
-            "left"              => Ok(parse_layout_left(value)?.into()),
-            "bottom"            => Ok(parse_layout_bottom(value)?.into()),
-            "text-align"        => Ok(parse_layout_text_align(value)?.into()),
+        "padding"           => Ok(parse_layout_padding(value)?.into()),
+        "padding-top"       => Ok(layout_padding_parser::parse_top(value)?.into()),
+        "padding-bottom"    => Ok(layout_padding_parser::parse_bottom(value)?.into()),
+        "padding-left"      => Ok(layout_padding_parser::parse_left(value)?.into()),
+        "padding-right"     => Ok(layout_padding_parser::parse_right(value)?.into()),
 
-            "padding"           => Ok(parse_layout_padding(value)?.into()),
-            "padding-top"       => Ok(LayoutPaddingParser::parse_top(value)?.into()),
-            "padding-bottom"    => Ok(LayoutPaddingParser::parse_bottom(value)?.into()),
-            "padding-left"      => Ok(LayoutPaddingParser::parse_left(value)?.into()),
-            "padding-right"     => Ok(LayoutPaddingParser::parse_right(value)?.into()),
+        "margin"            => Ok(parse_layout_margin(value)?.into()),
+        "margin-top"       => Ok(layout_margin_parser::parse_top(value)?.into()),
+        "margin-bottom"    => Ok(layout_margin_parser::parse_bottom(value)?.into()),
+        "margin-left"      => Ok(layout_margin_parser::parse_left(value)?.into()),
+        "margin-right"     => Ok(layout_margin_parser::parse_right(value)?.into()),
 
-            "margin"            => Ok(parse_layout_margin(value)?.into()),
-            "margin-top"       => Ok(LayoutMarginParser::parse_top(value)?.into()),
-            "margin-bottom"    => Ok(LayoutMarginParser::parse_bottom(value)?.into()),
-            "margin-left"      => Ok(LayoutMarginParser::parse_left(value)?.into()),
-            "margin-right"     => Ok(LayoutMarginParser::parse_right(value)?.into()),
+        "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
+        "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
+        "flex-grow"         => Ok(parse_layout_flex_grow(value)?.into()),
+        "flex-shrink"       => Ok(parse_layout_flex_shrink(value)?.into()),
 
-            "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
-            "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
-            "flex-grow"         => Ok(parse_layout_flex_grow(value)?.into()),
-            "flex-shrink"       => Ok(parse_layout_flex_shrink(value)?.into()),
+        "align-main-axis" |
+        "justify-content"   => Ok(parse_layout_justify_content(value)?.into()),
 
-            "align-main-axis" |
-            "justify-content"   => Ok(parse_layout_justify_content(value)?.into()),
+        "align-cross-axis" |
+        "align-items"       => Ok(parse_layout_align_items(value)?.into()),
 
-            "align-cross-axis" |
-            "align-items"       => Ok(parse_layout_align_items(value)?.into()),
+        "align-cross-axis-multiline" |
+        "align-content"     => Ok(parse_layout_align_content(value)?.into()),
 
-            "align-cross-axis-multiline" |
-            "align-content"     => Ok(parse_layout_align_content(value)?.into()),
-
-            "overflow"          => {
-                let overflow_both_directions = parse_layout_text_overflow(value)?;
-                Ok(LayoutOverflow {
-                    horizontal: TextOverflowBehaviour::Modified(overflow_both_directions),
-                    vertical: TextOverflowBehaviour::Modified(overflow_both_directions),
-                }.into())
-            },
-            "overflow-x"        => {
-                let overflow_x = parse_layout_text_overflow(value)?;
-                Ok(LayoutOverflow {
-                    horizontal: TextOverflowBehaviour::Modified(overflow_x),
-                    vertical: TextOverflowBehaviour::default(),
-                }.into())
-            },
-            "overflow-y"        => {
-                let overflow_y = parse_layout_text_overflow(value)?;
-                Ok(LayoutOverflow {
-                    horizontal: TextOverflowBehaviour::default(),
-                    vertical: TextOverflowBehaviour::Modified(overflow_y),
-                }.into())
-            },
+        "overflow"          => {
+            let overflow_both_directions = parse_layout_text_overflow(value)?;
+            Ok(LayoutOverflow {
+                horizontal: TextOverflowBehaviour::Modified(overflow_both_directions),
+                vertical: TextOverflowBehaviour::Modified(overflow_both_directions),
+            }.into())
+        },
+        "overflow-x"        => {
+            let overflow_x = parse_layout_text_overflow(value)?;
+            Ok(LayoutOverflow {
+                horizontal: TextOverflowBehaviour::Modified(overflow_x),
+                vertical: TextOverflowBehaviour::default(),
+            }.into())
+        },
+        "overflow-y"        => {
+            let overflow_y = parse_layout_text_overflow(value)?;
+            Ok(LayoutOverflow {
+                horizontal: TextOverflowBehaviour::default(),
+                vertical: TextOverflowBehaviour::Modified(overflow_y),
+            }.into())
+        },
 
 
-            _ => Err((key, value).into())
-        }
+        _ => Err((key, value).into())
     }
 }
 
@@ -947,8 +925,8 @@ mod $mod_name {
     parse_x!($struct_name, $error_name, parse_top, top, $parse_fn);
 })}
 
-parse_tblr!(LayoutPaddingParser, LayoutPadding, LayoutPaddingParseError, parse_pixel_value);
-parse_tblr!(LayoutMarginParser, LayoutMargin, LayoutMarginParseError, parse_pixel_value);
+parse_tblr!(layout_padding_parser, LayoutPadding, LayoutPaddingParseError, parse_pixel_value);
+parse_tblr!(layout_margin_parser, LayoutMargin, LayoutMarginParseError, parse_pixel_value);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutPaddingParseError<'a> {
@@ -1046,7 +1024,7 @@ fn parse_layout_margin<'a>(input: &'a str)
     }
 }
 
-parse_tblr!(StyleBorderParser, StyleBorder, CssBorderParseError, parse_css_border);
+parse_tblr!(border_parser, StyleBorder, CssBorderParseError, parse_css_border);
 
 const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
@@ -1105,7 +1083,7 @@ multi_type_parser!(parse_border_style, BorderStyle,
     ["inset", Inset],
     ["outset", Outset]);
 
-parse_tblr!(StyleBoxShadowParser, StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
+parse_tblr!(box_shadow_parser, StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
 
 /// Parses a CSS box-shadow
 fn parse_css_box_shadow<'a>(input: &'a str)
@@ -1556,12 +1534,6 @@ fn parse_direction<'a>(input: &'a str)
     // "50deg" | "to" | "right"
     let first_input = first_input_iter.next().ok_or(CssDirectionParseError::Error(input))?;
 
-    enum AngleType {
-        Deg,
-        Rad,
-        Gon,
-    }
-
     let deg = {
         if first_input.ends_with("grad") {
             first_input.split("grad").next().unwrap().parse::<f32>()? / 400.0 * 360.0
@@ -1866,99 +1838,6 @@ multi_type_parser!(parse_layout_text_align, StyleTextAlignmentHorz,
                     ["left", Left],
                     ["right", Right]);
 
-/// CssColor is simply a wrapper around the internal CSS color parsing methods.
-///
-/// Sometimes you'd want to load and parse a CSS color, but you don't want to
-/// write your own parser for that. Since Azul already has a parser for CSS colors,
-/// this API exposes
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct CssColor {
-    internal: ColorU,
-}
-
-impl CssColor {
-    /// Can parse a CSS color with or without prefixed hash or capitalization, i.e. `#aabbcc`
-    pub fn from_str<'a>(input: &'a str) -> Result<Self, CssColorParseError<'a>> {
-        let color = parse_css_color(input)?;
-        Ok(Self {
-            internal: color,
-        })
-    }
-
-    /// Returns the internal parsed color, but in a `0.0 - 1.0` range instead of `0 - 255`
-    pub fn to_color_f(&self) -> ColorF {
-        self.internal.into()
-    }
-
-    /// Returns the internal parsed color
-    pub fn to_color_u(&self) -> ColorU {
-        self.internal
-    }
-
-    /// If `prefix_hash` is set to false, you only get the string, without a hash, in lowercase
-    ///
-    /// If `self.alpha` is `FF`, it will be omitted from the final result (since `FF` is the default for CSS colors)
-    pub fn to_string(&self, prefix_hash: bool) -> String {
-        let prefix = if prefix_hash { "#" } else { "" };
-        let alpha = if self.internal.a == 255 { String::new() } else { format!("{:02x}", self.internal.a) };
-        format!("{}{:02x}{:02x}{:02x}{}", prefix, self.internal.r, self.internal.g, self.internal.b, alpha)
-    }
-}
-
-impl From<ColorU> for CssColor {
-    fn from(color: ColorU) -> Self {
-        CssColor { internal: color }
-    }
-}
-
-impl From<ColorF> for CssColor {
-    fn from(color: ColorF) -> Self {
-        CssColor { internal: color.into() }
-    }
-}
-
-impl Into<ColorF> for CssColor {
-    fn into(self) -> ColorF {
-        self.to_color_f()
-    }
-}
-
-impl Into<ColorU> for CssColor {
-    fn into(self) -> ColorU {
-        self.to_color_u()
-    }
-}
-
-impl Into<String> for CssColor {
-    fn into(self) -> String {
-        self.to_string(false)
-    }
-}
-
-#[cfg(feature = "serde_serialization")]
-use serde::{de, Serialize, Deserialize, Serializer, Deserializer};
-
-#[cfg(feature = "serde_serialization")]
-impl Serialize for CssColor {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer,
-    {
-        let prefix_css_color_with_hash = true;
-        serializer.serialize_str(&self.to_string(prefix_css_color_with_hash))
-    }
-}
-
-#[cfg(feature = "serde_serialization")]
-impl<'de> Deserialize<'de> for CssColor {
-    fn deserialize<D>(deserializer: D) -> Result<CssColor, D::Error>
-    where D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        CssColor::from_str(&s).map_err(de::Error::custom)
-    }
-}
-
-
 #[cfg(test)]
 mod css_tests {
     use super::*;
@@ -1966,14 +1845,6 @@ mod css_tests {
     #[test]
     fn test_parse_box_shadow_1() {
         assert_eq!(parse_css_box_shadow("none"), Ok(None));
-    }
-
-    #[test]
-    fn test_css_color_convert() {
-        let color = "#FFD700";
-        let parsed = CssColor::from_str(color).unwrap();
-        assert_eq!(parsed.to_string(true).to_uppercase(), color.to_string());
-        assert_eq!(parsed.to_color_u(), ColorU { r: 255, g: 215, b: 0, a: 255 });
     }
 
     #[test]

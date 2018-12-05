@@ -157,8 +157,6 @@ mod ui_description;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;
-/// Primitives describing discrete style properties
-mod style_properties;
 /// Slab allocator for nodes, based on IDs (replaces kuchiki + markup5ever)
 mod id_tree;
 /// State handling for user interfaces
