@@ -1,123 +1,21 @@
-//! Types and methods used to describe the style of an application
-
 #[cfg(debug_assertions)]
 use std::collections::BTreeMap;
+use azul_style::{
+    AppStyle,
+    CssContentGroup,
+    StyleConstraintList,
+    StyleDeclaration,
+    XPath,
+    XPathSelector,
+    XPathPseudoSelector
+};
 use {
-    style_properties::StyleProperty,
     traits::Layout,
     ui_description::{UiDescription, StyledNode},
-    dom::{NodeTypePath, NodeData},
+    dom::NodeData,
     ui_state::UiState,
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
 };
-
-/// Wrapper for a `Vec<StyleRuleSet>` - the style is immutable at runtime, it can only be
-/// created once. Animations / conditional styling is implemented using dynamic fields.
-#[derive(Debug, Default, PartialEq, Clone)]
-pub struct AppStyle {
-    /// The style rules making up the document - for example, de-duplicated CSS rules
-    pub rules: Vec<StyleRuleSet>,
-}
-
-impl std::convert::From<Vec<StyleRuleSet>> for AppStyle {
-    fn from(rules: Vec<StyleRuleSet>) -> Self {
-        Self { rules }
-    }
-}
-
-/// Contains one parsed `key: value` pair, static or dynamic
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StyleDeclaration {
-    /// Static key-value pair, such as `width: 500px`
-    Static(StyleProperty),
-    /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
-    Dynamic(DynamicStyleProperty),
-}
-
-impl StyleDeclaration {
-    /// Determines if the property will be inherited (applied to the children)
-    /// during the recursive application of the style on the DOM tree
-    pub fn is_inheritable(&self) -> bool {
-        use self::StyleDeclaration::*;
-        match self {
-            Static(s) => s.is_inheritable(),
-            Dynamic(d) => d.is_inheritable(),
-        }
-    }
-}
-
-/// A `DynamicStyleProperty` is a type of style property that can be changed on possibly
-/// every frame by the Rust code - for example to implement an `On::Hover` behaviour.
-///
-/// The syntax for such a property looks like this:
-///
-/// ```no_run,ignore
-/// #my_div {
-///    padding: [[ my_dynamic_property_id | 400px ]];
-/// }
-/// ```
-///
-/// Azul will register a dynamic property with the key "my_dynamic_property_id"
-/// and the default value of 400px. If the property gets overridden during one frame,
-/// the overridden property takes precedence.
-///
-/// At runtime the style is immutable (which is a performance optimization - if we
-/// can assume that the property never changes at runtime), we can do some optimizations on it.
-/// Dynamic style properties can also be used for animations and conditional styles
-/// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
-/// special cases now use one single API.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DynamicStyleProperty {
-    /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
-    pub dynamic_id: String,
-    /// Default value, used if the style property isn't overridden in this frame
-    /// i.e. the `500px` in `width: [[ my_id | 500px ]]`.
-    pub default: DynamicStylePropertyDefault,
-}
-
-/// If this value is set to default, the style property will not exist if it isn't overriden.
-/// An example where this is useful is when you want to say something like this:
-///
-/// `width: [[ 400px | auto ]];`
-///
-/// "If I set this property to width: 400px, then use exactly 400px. Otherwise use whatever the default width is."
-/// If this property wouldn't exist, you could only set the default to "0px" or something like
-/// that, meaning that if you don't override the property, then you'd set it to 0px - which is
-/// different from `auto`, since `auto` has its width determined by how much space there is
-/// available in the parent.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DynamicStylePropertyDefault  {
-    Exact(StyleProperty),
-    Auto,
-}
-
-impl DynamicStyleProperty {
-    pub fn is_inheritable(&self) -> bool {
-        // Dynamic style properties should not be inheritable,
-        // since that could lead to bugs - you set a property in Rust, suddenly
-        // the wrong UI component starts to react because it was inherited.
-        false
-    }
-}
-
-/// One block of rules that applies a bunch of rules to an "xpath" in the style, i.e.
-/// `div#myid.myclass -> { ("justify-content", "center") }`
-#[derive(Debug, Clone, PartialEq)]
-pub struct StyleRuleSet {
-    /// The xpath (full selector) of the style ruleset
-    pub path: XPath,
-    /// `"justify-content: center"` =>
-    /// `StyleDeclaration::Static(StyleProperty::JustifyContent(LayoutJustifyContent::Center))`
-    pub declarations: Vec<StyleDeclaration>,
-}
-
-/// Represents a full style xpath:
-/// `#div > .my_class:focus` =>
-/// `[XPathSelector::Type(NodeTypePath::Div), DirectChildren, XPathSelector::Class("my_class"), XPathSelector::PseudoSelector]`
-#[derive(Debug, Clone, Hash, Default, PartialEq)]
-pub struct XPath {
-    pub selectors: Vec<XPathSelector>,
-}
 
 /// Has all the necessary information about the style xpath
 pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
@@ -129,53 +27,49 @@ pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
     is_active: bool,
 }
 
-impl XPath {
+/// Returns if the style xpath matches the DOM node (i.e. if the DOM node should be styled by that element)
+pub fn matches_html_element<'a, T: Layout>(
+    xpath: &XPath,
+    node_id: NodeId,
+    node_hierarchy: &NodeHierarchy,
+    html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>)
+-> bool
+{
+    use self::CssGroupSplitReason::*;
 
-    /// Returns if the style xpath matches the DOM node (i.e. if the DOM node should be styled by that element)
-    pub fn matches_html_element<'a, T: Layout>(
-        &self,
-        node_id: NodeId,
-        node_hierarchy: &NodeHierarchy,
-        html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>)
-    -> bool
-    {
-        use self::CssGroupSplitReason::*;
-        if self.selectors.is_empty() {
-            return false;
-        }
-
-        let mut current_node = Some(node_id);
-        let mut direct_parent_has_to_match = false;
-        let mut last_selector_matched = false;
-
-        for (content_group, reason) in CssGroupIterator::new(&self.selectors) {
-            let cur_node_id = match current_node {
-                Some(c) => c,
-                None => {
-                    // The node has no parent, but the CSS path
-                    // still has an extra limitation - only valid if the
-                    // next content group is a "*" element
-                    return *content_group == [&XPathSelector::Global];
-                },
-            };
-            let current_selector_matches = selector_group_matches(&content_group, &html_node_tree[cur_node_id]);
-            if direct_parent_has_to_match && !current_selector_matches {
-                // If the element was a ">" element and the current,
-                // direct parent does not match, return false
-                return false; // not executed (maybe this is the bug)
-            }
-            // Important: Set if the current selector has matched the element
-            last_selector_matched = current_selector_matches;
-            // Select if the next content group has to exactly match or if it can potentially be skipped
-            direct_parent_has_to_match = reason == DirectChildren;
-            current_node = node_hierarchy[cur_node_id].parent;
-        }
-
-        last_selector_matched
+    if xpath.selectors.is_empty() {
+        return false;
     }
-}
 
-type CssContentGroup<'a> = Vec<&'a XPathSelector>;
+    let mut current_node = Some(node_id);
+    let mut direct_parent_has_to_match = false;
+    let mut last_selector_matched = false;
+
+    for (content_group, reason) in CssGroupIterator::new(&xpath.selectors) {
+        let cur_node_id = match current_node {
+            Some(c) => c,
+            None => {
+                // The node has no parent, but the CSS path
+                // still has an extra limitation - only valid if the
+                // next content group is a "*" element
+                return *content_group == [&XPathSelector::Global];
+            },
+        };
+        let current_selector_matches = selector_group_matches(&content_group, &html_node_tree[cur_node_id]);
+        if direct_parent_has_to_match && !current_selector_matches {
+            // If the element was a ">" element and the current,
+            // direct parent does not match, return false
+            return false; // not executed (maybe this is the bug)
+        }
+        // Important: Set if the current selector has matched the element
+        last_selector_matched = current_selector_matches;
+        // Select if the next content group has to exactly match or if it can potentially be skipped
+        direct_parent_has_to_match = reason == DirectChildren;
+        current_node = node_hierarchy[cur_node_id].parent;
+    }
+
+    last_selector_matched
+}
 
 struct CssGroupIterator<'a> {
     pub css_path: &'a Vec<XPathSelector>,
@@ -247,11 +141,11 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-
 #[test]
 fn test_css_group_iterator() {
 
     use self::XPathSelector::*;
+    use azul_style::NodeTypePath;
 
     // ".hello > #id_text.new_class div.content"
     // -> ["div.content", "#id_text.new_class", ".hello"]
@@ -296,7 +190,6 @@ fn test_css_group_iterator() {
 
     assert_eq!(it.next(), None);
 }
-
 
 fn construct_html_cascade_tree<'a, T: Layout>(
     input: &'a NodeDataContainer<NodeData<T>>,
@@ -400,70 +293,6 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&XPathSelector], html_node
     true
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum XPathSelector {
-    /// Represents the `*` selector
-    Global,
-    /// `div`, `p`, etc.
-    Type(NodeTypePath),
-    /// `.something`
-    Class(String),
-    /// `#something`
-    Id(String),
-    /// `:something`
-    PseudoSelector(XPathPseudoSelector),
-    /// Represents the `>` selector
-    DirectChildren,
-    /// Represents the ` ` selector
-    Children
-}
-
-impl Default for XPathSelector { fn default() -> Self { XPathSelector::Global } }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum XPathPseudoSelector {
-    /// `:first`
-    First,
-    /// `:last`
-    Last,
-    /// `:nth-child`
-    NthChild(usize),
-    /// `:hover` - mouse is over element
-    Hover,
-    /// `:active` - mouse is pressed and over element
-    Active,
-    /// `:focus` - element has received focus
-    Focus,
-}
-
-impl AppStyle {
-    /// Creates a new AppStyle with no style rules.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    // Combines two parsed stylesheets into one, appending the rules of
-    // `other` after the rules of `self`.
-    pub fn merge(&mut self, mut other: Self) {
-        self.rules.append(&mut other.rules);
-    }
-
-    /// Sort the style rules by their weight, so that the rules are applied in the correct order.
-    /// Should always be called when a new style is loaded from an external source.
-    pub(crate) fn sort_by_specificity(&mut self) {
-        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
-    }
-}
-
-/// Returns specificity of the given style path. Further information can be found on
-/// [the w3 website](http://www.w3.org/TR/selectors/#specificity).
-fn get_specificity(path: &XPath) -> (usize, usize, usize) {
-    let id_count = path.selectors.iter().filter(|x|     if let XPathSelector::Id(_) = x {     true } else { false }).count();
-    let class_count = path.selectors.iter().filter(|x|  if let XPathSelector::Class(_) = x {  true } else { false }).count();
-    let div_count = path.selectors.iter().filter(|x|    if let XPathSelector::Type(_) = x {   true } else { false }).count();
-    (id_count, class_count, div_count)
-}
-
 pub(crate) fn match_dom_selectors<T: Layout>(
     ui_state: &UiState<T>,
     style: &AppStyle)
@@ -486,7 +315,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         // Iterate through all style rules, test if they match
         // This is technically O(n ^ 2), however, there are usually not that many style blocks,
         // so the cost of this should be insignificant.
-        for applying_rule in style.rules.iter().filter(|rule| rule.path.matches_html_element(parent_id, &arena_borrow.node_layout, &html_tree)) {
+        for applying_rule in style.rules.iter().filter(|rule| matches_html_element(&rule.path, parent_id, &arena_borrow.node_layout, &html_tree)) {
             parent_rules.style_constraints.list.extend(applying_rule.declarations.clone());
         }
 
@@ -504,7 +333,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
                     // Iterate through all style rules, test if they match
                     // This is technically O(n ^ 2), however, there are usually not that many style blocks,
                     // so the cost of this should be insignificant.
-                    for applying_rule in style.rules.iter().filter(|rule| rule.path.matches_html_element(child_id, &arena_borrow.node_layout, &html_tree)) {
+                    for applying_rule in style.rules.iter().filter(|rule| matches_html_element(&rule.path, child_id, &arena_borrow.node_layout, &html_tree)) {
                         child_rules.extend(applying_rule.declarations.clone());
                     }
 
@@ -535,14 +364,26 @@ pub(crate) fn match_dom_selectors<T: Layout>(
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct StyleConstraintList {
-    pub(crate) list: Vec<StyleDeclaration>
+/// Sort the style rules by their weight, so that the rules are applied in the correct order.
+/// Should always be called when a new style is loaded from an external source.
+pub(crate) fn sort_by_specificity(mut style: AppStyle) -> AppStyle {
+    style.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
+    style
+}
+
+/// Returns specificity of the given style path. Further information can be found on
+/// [the w3 website](http://www.w3.org/TR/selectors/#specificity).
+fn get_specificity(path: &XPath) -> (usize, usize, usize) {
+    let id_count = path.selectors.iter().filter(|x|     if let XPathSelector::Id(_) = x {     true } else { false }).count();
+    let class_count = path.selectors.iter().filter(|x|  if let XPathSelector::Class(_) = x {  true } else { false }).count();
+    let div_count = path.selectors.iter().filter(|x|    if let XPathSelector::Type(_) = x {   true } else { false }).count();
+    (id_count, class_count, div_count)
 }
 
 #[test]
 fn test_specificity() {
     use self::XPathSelector::*;
+    use azul_style::NodeTypePath;
     assert_eq!(get_specificity(&XPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
     assert_eq!(get_specificity(&XPath { selectors: vec![Class("hello".into())] }), (0, 1, 0));
     assert_eq!(get_specificity(&XPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1));
@@ -552,11 +393,11 @@ fn test_specificity() {
 // Assert that order of the style items is correct (in order of xpath specificity, lowest-to-highest)
 #[test]
 fn test_specificity_sort() {
-    use prelude::*;
+    use azul_style::*;
     use self::XPathSelector::*;
-    use dom::NodeTypePath::*;
+    use azul_style::NodeTypePath::*;
 
-    let mut input_style = AppStyle {
+    let input_style = AppStyle {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
             StyleRuleSet { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
@@ -567,7 +408,7 @@ fn test_specificity_sort() {
         ],
     };
 
-    input_style.sort_by_specificity();
+    let sorted_style = sort_by_specificity(input_style);
 
     let expected_style = AppStyle {
         rules: vec![
@@ -580,5 +421,5 @@ fn test_specificity_sort() {
         ],
     };
 
-    assert_eq!(input_style, expected_style);
+    assert_eq!(sorted_style, expected_style);
 }

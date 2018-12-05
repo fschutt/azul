@@ -13,12 +13,12 @@ use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use rusttype::Font;
+use azul_style::{StyleFontSize, FontId, StyleLetterSpacing};
 use {
     text_layout::{split_text_into_words, TextSizePx},
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
     images::{ImageId, ImageState},
-    style_properties::{StyleFontSize, FontId, StyleLetterSpacing},
 };
 
 /// Stores the resources for the application, souch as fonts, images and cached

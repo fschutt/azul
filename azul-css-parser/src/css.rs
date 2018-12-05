@@ -6,7 +6,7 @@ pub use simplecss::Error as CssSyntaxError;
 
 pub use css_parser::{ParsedCssProperty, CssParsingError};
 use dom::{node_type_path_from_str, NodeTypePathParseError};
-use azul::prelude::{
+use azul_style::{
     AppStyle,
     StyleDeclaration,
     DynamicStyleProperty,
@@ -377,7 +377,7 @@ pub(crate) struct CssConstraintList {
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
-    use azul::prelude::{StyleProperty, StyleTextAlignmentHorz};
+    use azul_style::{StyleProperty, StyleTextAlignmentHorz};
     use css_parser::InvalidValueErr;
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
@@ -451,7 +451,7 @@ fn test_detect_static_or_dynamic_property() {
 #[test]
 fn test_css_parse_1() {
 
-    use azul::prelude::{ColorU, StyleBackgroundColor, NodeTypePath, StyleProperty};
+    use azul_style::{ColorU, StyleBackgroundColor, NodeTypePath, StyleProperty};
 
     let parsed_css = new_from_str("
         div#my_id .my_class:first {
@@ -482,7 +482,7 @@ fn test_css_parse_1() {
 #[test]
 fn test_css_simple_selector_parse() {
     use self::XPathSelector::*;
-    use azul::prelude::NodeTypePath;
+    use azul_style::NodeTypePath;
     let css = "div#id.my_class > p .new { }";
     let parsed = vec![
         Type(NodeTypePath::Div),
@@ -504,7 +504,7 @@ fn test_css_simple_selector_parse() {
 #[cfg(test)]
 mod stylesheet_parse {
 
-    use azul::prelude::*;
+    use azul_style::*;
     use super::*;
 
     fn test_css(css: &str, expected: Vec<StyleRuleSet>) {
@@ -574,7 +574,7 @@ mod stylesheet_parse {
 // Assert that order of the style rules is correct (in same order as provided in CSS form)
 #[test]
 fn test_multiple_rules() {
-    use azul::prelude::*;
+    use azul_style::*;
     use self::XPathSelector::*;
 
     let parsed_css = new_from_str("

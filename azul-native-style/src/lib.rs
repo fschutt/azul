@@ -1,7 +1,7 @@
-extern crate azul;
-use azul::prelude::AppStyle;
+extern crate azul_style;
+use azul_style::AppStyle;
 
-extern crate azul_css;
+extern crate azul_css_parser;
 
 /// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
 #[cfg(target_os="windows")]
@@ -26,5 +26,5 @@ pub const NATIVE_CSS: &str = concat!(
 
 /// Returns the native style for the OS
 pub fn native() -> AppStyle {
-    azul_css::new_from_str(NATIVE_CSS).unwrap()
+    azul_css_parser::new_from_str(NATIVE_CSS).unwrap()
 }

@@ -8,7 +8,7 @@
 #![deny(missing_copy_implementations)]
 #![allow(unused_variables)]
 
-extern crate azul;
+extern crate azul_style;
 
 extern crate simplecss;
 

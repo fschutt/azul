@@ -10,6 +10,7 @@ use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
 use glium::glutin::dpi::{LogicalPosition, LogicalSize};
+use azul_style::*;
 use {
     FastHashMap,
     app_resources::AppResources,
@@ -18,8 +19,6 @@ use {
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
-    style::AppStyle,
-    style_properties::*,
     dom::{
         IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
@@ -32,6 +31,15 @@ use {
 };
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
+
+// In case no font size is specified for a node,
+// this will be substituted as the default font size
+lazy_static! {
+    pub static ref DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
+        metric: SizeMetric::Px,
+        number: FloatValue::new(100.0),
+    });
+}
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -160,7 +168,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontState;
-        use style_properties::FontId;
+        use azul_style::FontId;
 
         let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
         let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
@@ -481,7 +489,7 @@ fn do_the_layout<'a,'b, T: Layout>(
                 let rect = &display_rects[id];
                 let style = &rect.style;
                 let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
-                let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+                let font_size = style.font_size.unwrap_or(*DEFAULT_FONT_SIZE);
                 let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
                 let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
                 let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
@@ -1234,7 +1242,7 @@ fn push_text(
     }
 
     let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
-    let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
+    let font_size = style.font_size.unwrap_or(*DEFAULT_FONT_SIZE);
     let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
     let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
     let overflow_behaviour = style.overflow.unwrap_or_default();
@@ -1653,10 +1661,10 @@ fn push_background(
     background: &StyleBackground,
     app_resources: &AppResources)
 {
-    use style_properties::StyleBackground::*;
+    use azul_style::StyleBackground::*;
     match background {
         RadialGradient(gradient) => {
-            use style_properties::Shape;
+            use azul_style::Shape;
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
@@ -1817,7 +1825,7 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
 
     if let Some(align_items) = rect.layout.align_items {
         // Vertical text alignment
-        use style_properties::LayoutAlignItems;
+        use azul_style::LayoutAlignItems;
         match align_items {
             LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
             LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
@@ -1827,7 +1835,7 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
     }
 
     if let Some(justify_content) = rect.layout.justify_content {
-        use style_properties::LayoutJustifyContent;
+        use azul_style::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
             LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
@@ -1871,7 +1879,7 @@ fn populate_style_properties(
     node_id: NodeId,
     style_overrides: &BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
 {
-    use style_properties::StyleProperty::{self, *};
+    use azul_style::StyleProperty::{self, *};
 
     fn apply_style_property(rect: &mut DisplayRectangle, property: &StyleProperty) {
         match property {
@@ -1914,12 +1922,12 @@ fn populate_style_properties(
         }
     }
 
-    use style::DynamicStylePropertyDefault;
+    use azul_style::DynamicStylePropertyDefault;
 
     // Assert that the types of two properties matches
     fn property_type_matches(a: &StyleProperty, b: &DynamicStylePropertyDefault) -> bool {
         use std::mem::discriminant;
-        use style::DynamicStylePropertyDefault::*;
+        use azul_style::DynamicStylePropertyDefault::*;
         match b {
             Exact(e) => discriminant(a) == discriminant(e),
             Auto => true, // "auto" always matches
@@ -1928,7 +1936,7 @@ fn populate_style_properties(
 
     // Apply / static / dynamic properties
     for constraint in &rect.styled_node.style_constraints.list {
-        use style::StyleDeclaration::*;
+        use azul_style::StyleDeclaration::*;
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {

@@ -8,6 +8,7 @@ use std::{
     iter::FromIterator,
 };
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
+use azul_style::{ NodeTypePath, StyleProperty };
 use {
     FastHashMap,
     window::{WindowEvent, WindowInfo},
@@ -19,7 +20,6 @@ use {
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
     text_layout::{Words, FontMetrics, TextSizePx},
-    style_properties::StyleProperty,
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -280,41 +280,6 @@ impl<T: Layout> PartialEq for NodeType<T> {
 
 impl<T: Layout> Eq for NodeType<T> { }
 
-/// Like the node type, but only signifies the type (i.e. the discriminant value)
-/// of the `NodeType`, without the actual data
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum NodeTypePath {
-    Div,
-    P,
-    Img,
-    Texture,
-    IFrame,
-}
-
-impl std::fmt::Display for NodeTypePath {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        use self::NodeTypePath::*;
-        let path = match self {
-            Div => "div",
-            P => "p",
-            Img => "img",
-            Texture => "texture",
-            IFrame => "iframe",
-        };
-        write!(f, "{}", path)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum NodeTypePathParseError<'a> {
-    Invalid(&'a str),
-}
-
-impl_display!{ NodeTypePathParseError<'a>, {
-    Invalid(e) => format!("Invalid node type: {}", e),
-}}
-
 impl<T: Layout> NodeType<T> {
 
     pub(crate) fn get_path(&self) -> NodeTypePath {
@@ -349,7 +314,7 @@ impl<T: Layout> NodeType<T> {
     ) -> Option<TextSizePx>
     {
         use self::NodeType::*;
-        use style_properties::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
+        use azul_style::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
 
         match self {
             Image(i) => image_cache.get(i).and_then(|image_state| {

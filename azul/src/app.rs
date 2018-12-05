@@ -25,13 +25,14 @@ use image::ImageError;
 use log::LevelFilter;
 #[cfg(feature = "image_loading")]
 use images::ImageType;
+use azul_style::{FontId, PixelValue, StyleLetterSpacing};
 use {
     error::{FontError, ClipboardError},
     window::{Window, WindowId, FakeWindow, ScrollStates},
     window_state::WindowSize,
-    style_properties::{FontId, PixelValue, StyleLetterSpacing},
     text_cache::TextId,
     dom::{ScrollTagId, UpdateScreen},
+    style::sort_by_specificity,
     app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
@@ -353,8 +354,7 @@ impl<T: Layout> App<T> {
                                 Some(Ok(style)) => {
                                     let mut new_style = window.base_style.clone();
                                     new_style.merge(style);
-                                    new_style.sort_by_specificity();
-                                    window.style = new_style;
+                                    window.style = sort_by_specificity(new_style);
                                     last_style_reload = Instant::now();
                                     window.events_loop.create_proxy().wakeup().unwrap_or(());
                                     awakened_task[window_idx] = true;

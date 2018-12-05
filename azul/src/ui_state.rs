@@ -2,6 +2,7 @@ use std::{
     fmt,
     collections::{BTreeMap, BTreeSet},
 };
+use azul_style::StyleProperty;
 use {
     FastHashMap,
     window::{WindowInfo, WindowId},
@@ -10,7 +11,6 @@ use {
     app_state::AppState,
     id_tree::NodeId,
     dom::TagId,
-    style_properties::StyleProperty,
     default_callbacks::DefaultCallbackId,
 };
 

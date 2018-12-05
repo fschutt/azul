@@ -1,7 +1,7 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
 use std::{fmt, num::{ParseIntError, ParseFloatError}};
-use azul::prelude::{
+use azul_style::{
     StyleProperty,
     BorderDetails, BorderStyle, NormalBorder, LayoutPixel,
     BoxShadowClipMode, ColorU, ColorF, LayoutPoint,
@@ -54,9 +54,10 @@ pub mod ParsedCssProperty {
     /// returns the parsed value or an error
     ///
     /// ```rust
-    /// # extern crate azul;
-    /// # use azul::prelude::*;
-    /// # use azul_css::from_kv;
+    /// # extern crate azul_style;
+    /// # extern crate azul_css_parser;
+    /// # use azul_style::*;
+    /// # use azul_css_parser::from_kv;
     /// assert_eq!(
     ///     from_kv("width", "500px"),
     ///     Ok(StyleProperty::Width(LayoutWidth(PixelValue::px(500.0))))
@@ -1253,7 +1254,7 @@ impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 fn parse_css_background<'a>(input: &'a str)
 -> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
-    use azul::prelude::BackgroundType::*;
+    use azul_style::BackgroundType::*;
 
     let mut input_iter = input.splitn(2, "(");
     let first_item = input_iter.next();
