@@ -1,7 +1,6 @@
 #![windows_subsystem = "windows"]
 
 extern crate azul;
-extern crate azul_css;
 
 use azul::prelude::*;
 
@@ -34,7 +33,7 @@ fn main() {
     let style = AppStyle::new();
 
     #[cfg(debug_assertions)] {
-        let style_loader = Box::new(azul_css::HotReloader::new(CSS_PATH!().to_string()));
+        let style_loader = Box::new(HotReloader::new(CSS_PATH!().to_string()));
         app.run(Window::new_hot_reload_interval(WindowCreateOptions::default(), style, style_loader, 3000).unwrap()).unwrap();
     }
     #[cfg(not(debug_assertions))]

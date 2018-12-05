@@ -1,5 +1,4 @@
 extern crate azul;
-extern crate azul_css;
 
 use azul::prelude::*;
 
@@ -66,7 +65,7 @@ fn main() {
     let app = App::new(DragMeApp::default(), AppConfig::default());
 
     #[cfg(debug_assertions)] {
-        let hot_reloader = Box::new(azul_css::HotReloader::new(CSS_PATH!().to_string()));
+        let hot_reloader = Box::new(HotReloader::new(CSS_PATH!().to_string()));
         app.run(Window::new_hot_reload(WindowCreateOptions::default(), AppStyle::new(), hot_reloader).unwrap()).unwrap();
     }
     #[cfg(not(debug_assertions))] {

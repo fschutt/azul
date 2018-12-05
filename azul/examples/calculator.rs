@@ -1,6 +1,4 @@
 extern crate azul;
-extern crate azul_css;
-extern crate azul_native_style;
 
 use azul::prelude::*;
 
@@ -254,13 +252,13 @@ fn main() {
     let mut app = App::new(Calculator::default(), AppConfig::default());
     app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
 
-    let mut native_style = azul_native_style::native();
+    let mut native_style = native();
 
     let window = if cfg!(debug_assertions) {
-        let hot_reloader = Box::new(azul_css::HotReloader::new(CSS_PATH!().to_string()));
+        let hot_reloader = Box::new(azul_css_parser::HotReloader::new(CSS_PATH!().to_string()));
         Window::new_hot_reload(WindowCreateOptions::default(), native_style, hot_reloader).unwrap()
     } else {
-        native_style.merge(azul_css::new_from_str(CSS_PATH!()).unwrap());
+        native_style.merge(azul_css_parser::new_from_str(CSS_PATH!()).unwrap());
         Window::new(WindowCreateOptions::default(), native_style).unwrap()
     };
 

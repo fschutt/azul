@@ -18,26 +18,28 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
-azul-style              = { path = "../azul-style",    default_features = false }
-azul_glium              = { version = "0.22.0",        default-features = false, features = ["glutin"] }
-gleam                   = { version = "0.6",           default-features = false }
-euclid                  = { version = "0.19",          default-features = false }
-rusttype                = { version = "0.7.3",         default-features = false }
-app_units               = { version = "0.7",           default-features = false } # TODO: Remove once webrender PR is merged
-unicode-normalization   = { version = "0.1.5",         default-features = false }
-lazy_static             = { version = "1",             default-features = false }
-tinyfiledialogs         = { version = "3.3.5",         default-features = false }
-clipboard2              = { version = "0.1.0",         default-features = false }
-font-loader             = { version = "0.7.0",         default-features = false }
-log                     = { version = "0.4.1",         default-features = false, optional = true }
-stb_truetype            = { version = "0.2.2",         default-features = false, optional = true }
-fern                    = { version = "0.5.5",         default-features = false, optional = true }
-backtrace               = { version = "0.3.9",         default-features = false, optional = true }
-lyon                    = { version = "0.11.0",        default-features = false, optional = true }
-serde                   = { version = "1",             default-features = false, optional = true }
-twox-hash               = { version = "1.1.0",         default-features = false, optional = true }
-usvg                    = { version = "0.3.0",         default-features = false, optional = true }
-image                   = { version = "0.20",          default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "pnm", "tiff", "bmp"] }
+azul-style              = { path = "../azul-style",           default_features = false }
+azul-native-style       = { path = "../azul-native-style",    default_features = false }
+azul-css-parser         = { path = "../azul-css-parser",      default_features = false }
+azul_glium              = { version = "0.22.0",               default-features = false, features = ["glutin"] }
+gleam                   = { version = "0.6",                  default-features = false }
+euclid                  = { version = "0.19",                 default-features = false }
+rusttype                = { version = "0.7.3",                default-features = false }
+app_units               = { version = "0.7",                  default-features = false } # TODO: Remove once webrender PR is merged
+unicode-normalization   = { version = "0.1.5",                default-features = false }
+lazy_static             = { version = "1",                    default-features = false }
+tinyfiledialogs         = { version = "3.3.5",                default-features = false }
+clipboard2              = { version = "0.1.0",                default-features = false }
+font-loader             = { version = "0.7.0",                default-features = false }
+log                     = { version = "0.4.1",                default-features = false, optional = true }
+stb_truetype            = { version = "0.2.2",                default-features = false, optional = true }
+fern                    = { version = "0.5.5",                default-features = false, optional = true }
+backtrace               = { version = "0.3.9",                default-features = false, optional = true }
+lyon                    = { version = "0.11.0",               default-features = false, optional = true }
+serde                   = { version = "1",                    default-features = false, optional = true }
+twox-hash               = { version = "1.1.0",                default-features = false, optional = true }
+usvg                    = { version = "0.3.0",                default-features = false, optional = true }
+image                   = { version = "0.20",                 default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "pnm", "tiff", "bmp"] }
 
 # Windows: Use nativefiledialog because of better Unicode support for file browsers
 [target.'cfg(not(target_os = "linux"))'.dependencies]
@@ -51,7 +53,17 @@ webrender = { git = "https://github.com/servo/webrender", rev = "92235d1fc4ff4c4
 [features]
 # The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
 # (which needs the `svg_parsing` feature).
-default = ["logging", "svg", "image_loading"]
+default = [
+    "logging",
+    "svg",
+    "image_loading",
+    "native_style",
+    "css_parser",
+]
+# Exports the azul-native-style crate in the prelude
+native_style = []
+# Exports the azul-css-parser crate in the prelude
+css_parser = []
 # The reason we do this is because doctests don't get cfg(test)
 # See: https://github.com/rust-lang/cargo/issues/4669
 doc-test = []
