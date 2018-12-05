@@ -1,3 +1,5 @@
+//! Main utilities for high-level datatypes from the `azul_style` crate.
+
 #[cfg(debug_assertions)]
 use std::collections::BTreeMap;
 use azul_style::{

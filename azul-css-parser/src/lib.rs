@@ -1,3 +1,6 @@
+//! Provides a reference implementation of a style parser for Azul, capable of parsing CSS
+//! stylesheets into their respective `AppStyle` counterparts.
+
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
@@ -22,8 +25,11 @@ mod hot_reloader;
 
 pub use css::{
     new_from_str,
-    ParsedCssProperty::from_kv,
     CssParseError,
+};
+
+pub use css_parser::{
+    from_kv,
 };
 
 pub use hot_reloader::{

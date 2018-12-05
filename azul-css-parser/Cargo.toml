@@ -16,8 +16,5 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
-#azul                    = { path = "../azul",   default-features = false }
 azul-style              = { path = "../azul-style", default-features = false }
 simplecss               = { version = "0.1.0",      default-features = false }
-#euclid                  = { version = "0.19",   default-features = false }
-#app_units               = { version = "0.7",    default-features = false } # TODO: Remove once webrender PR is merged

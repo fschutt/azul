@@ -1,3 +1,6 @@
+//! Provides an implementation of the HotReloadHandler from the `azul_style` crate, allowing CSS
+//! files to be dynamically reloaded at runtime.
+
 use azul_style::{HotReloadHandler, AppStyle};
 
 /// Allows dynamic reloading of a CSS file at application runtime.

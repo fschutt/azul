@@ -1,3 +1,5 @@
+//! Logic for parsing DOM node selectors.
+
 use azul_style::NodeTypePath;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
