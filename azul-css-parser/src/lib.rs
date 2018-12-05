@@ -23,6 +23,7 @@ mod hot_reloader;
 pub use css::{
     new_from_str,
     ParsedCssProperty::from_kv,
+    CssParseError,
 };
 
 pub use hot_reloader::{

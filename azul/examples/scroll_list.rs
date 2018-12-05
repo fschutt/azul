@@ -1,6 +1,6 @@
 extern crate azul;
 
-use azul::prelude::*;
+use azul::{prelude::*};
 
 struct List {
     items: Vec<&'static str>,
@@ -63,11 +63,10 @@ fn main() {
 
     let app = App::new(data, AppConfig::default());
 
-    let native_style = native();
+    let native_style = css::native();
 
     let window = if cfg!(debug_assertions) {
-        let hot_reloader = Box::new(azul_css_parser::HotReloader::new(CSS_PATH!().to_string()));
-        Window::new_hot_reload(WindowCreateOptions::default(), native_style, hot_reloader).unwrap()
+        Window::new_hot_reload(WindowCreateOptions::default(), css::hot_reload(CSS_PATH!(), true)).unwrap()
     } else {
         Window::new(WindowCreateOptions::default(), native_style).unwrap()
     };

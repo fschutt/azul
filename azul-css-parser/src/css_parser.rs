@@ -55,7 +55,6 @@ pub mod ParsedCssProperty {
     ///
     /// ```rust
     /// # extern crate azul_style;
-    /// # extern crate azul_css_parser;
     /// # use azul_style::*;
     /// # use azul_css_parser::from_kv;
     /// assert_eq!(

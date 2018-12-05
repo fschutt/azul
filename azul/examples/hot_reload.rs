@@ -30,12 +30,10 @@ fn main() {
     let mut app = App::new(MyDataModel, AppConfig::default());
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
 
-    let style = AppStyle::new();
-
     #[cfg(debug_assertions)] {
-        let style_loader = Box::new(HotReloader::new(CSS_PATH!().to_string()));
-        app.run(Window::new_hot_reload_interval(WindowCreateOptions::default(), style, style_loader, 3000).unwrap()).unwrap();
+        let style_loader = css::hot_reload(CSS_PATH!(), false);
+        app.run(Window::new_hot_reload_interval(WindowCreateOptions::default(), style_loader, 3000).unwrap()).unwrap();
     }
     #[cfg(not(debug_assertions))]
-    app.run(Window::new(WindowCreateOptions::default(), style).unwrap()).unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), AppStyle::new()).unwrap()).unwrap();
 }
