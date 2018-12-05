@@ -90,9 +90,22 @@ const SVG_VERTEX_SHADER: &str = "
     uniform vec2 offset;
     uniform float z_index;
     uniform float zoom;
+    uniform vec2 rotation_center;
+    uniform float rotation_sin;
+    uniform float rotation_cos;
+    uniform vec2 scale_factor;
+    uniform vec2 translate_px;
 
     void main() {
-        vec2 position_centered = xy / bbox_size;
+        // Rotation first, then scale, then translation -- all in pixel space
+        vec2 rotation_center_xy = xy - rotation_center;
+        float new_x = (rotation_center_xy.x * rotation_cos) - (rotation_center_xy.y * rotation_sin);
+        float new_y = (xy.x * rotation_sin) + (xy.y * rotation_cos);
+        vec2 rotated_xy = vec2(new_x, new_y);
+        vec2 scaled_xy = rotated_xy * scale_factor;
+        vec2 translated_xy = scaled_xy + translate_px + rotation_center;
+
+        vec2 position_centered = translated_xy / bbox_size;
         vec2 position_zoomed = position_centered * vec2(zoom);
         gl_Position = vec4(vec2(-1.0) + position_zoomed + (offset / bbox_size), z_index, 1.0);
     }";
@@ -105,6 +118,7 @@ const SVG_FRAGMENT_SHADER: &str = "
     #define varying out
 
     uniform vec4 color;
+
     out vec4 out_color;
 
     vec4 linear_to_srgb(vec4 input) {
@@ -400,7 +414,7 @@ pub fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, fill: bool, 
 }
 
 /// Quick helper function to generate the vertices for a black circle at runtime
-pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResource {
+pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResourceDirect {
 
     let should_fill = true;
     let should_stroke = None;
@@ -409,7 +423,7 @@ pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResource {
     let (fill, stroke) = tesselate_layer_data(&LayerType::from_single_layer(SvgLayerType::Circle(circle)), tolerance, should_fill, should_stroke);
     let style = SvgStyle::filled(fill_color);
 
-    SvgLayerResource::Direct {
+    SvgLayerResourceDirect {
         style: style,
         fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
         stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
@@ -417,7 +431,7 @@ pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResource {
 }
 
 /// Quick helper function to generate the layer for **multiple** circles (in one draw call)
-pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResource {
+pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResourceDirect {
 
     let circles = circles.iter().map(|c| SvgLayerType::Circle(*c)).collect();
 
@@ -428,7 +442,7 @@ pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResou
     let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(circles), tolerance, should_fill, should_stroke);
     let style = SvgStyle::filled(fill_color);
 
-    SvgLayerResource::Direct {
+    SvgLayerResourceDirect {
         style: style,
         fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
         stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
@@ -444,7 +458,7 @@ pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResou
 /// - `stroke_color`: The color of the line
 /// - `stroke_options`: If the line should be round, square, etc.
 pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_options: Option<SvgStrokeOptions>)
--> SvgLayerResource
+-> SvgLayerResourceDirect
 {
     let stroke_options = stroke_options.unwrap_or_default();
     let style = SvgStyle::stroked(stroke_color, stroke_options);
@@ -469,7 +483,7 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
 
     let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(polygons), tolerance, should_fill, should_stroke);
 
-    SvgLayerResource::Direct {
+    SvgLayerResourceDirect {
         style: style,
         fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
         stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
@@ -477,11 +491,12 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
 }
 
 pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: Option<ColorU>, stroke_options: Option<SvgStrokeOptions>)
--> SvgLayerResource
+-> SvgLayerResourceDirect
 {
     let style = SvgStyle {
         stroke: stroke_color.and_then(|col| Some((col, stroke_options.unwrap_or_default()))),
         fill: fill_color,
+        .. Default::default()
     };
 
     let should_fill = style.fill.is_some();
@@ -491,7 +506,7 @@ pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: 
     let rects = rects.iter().map(|r| SvgLayerType::Rect(*r)).collect();
     let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(rects), tolerance, should_fill, should_stroke);
 
-    SvgLayerResource::Direct {
+    SvgLayerResourceDirect {
         style: style,
         fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
         stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
@@ -696,7 +711,7 @@ impl SampledBezierCurve {
 
     /// Returns the geometry necessary for drawing the points from `self.sampled_bezier_points`.
     /// Usually only good for debugging
-    pub fn draw_circles(&self, color: ColorU) -> SvgLayerResource {
+    pub fn draw_circles(&self, color: ColorU) -> SvgLayerResourceDirect {
         quick_circles(
             &self.sampled_bezier_points
             .iter()
@@ -706,7 +721,7 @@ impl SampledBezierCurve {
     }
 
     /// Returns the geometry necessary to draw the control handles of this curve
-    pub fn draw_control_handles(&self, color: ColorU) -> SvgLayerResource {
+    pub fn draw_control_handles(&self, color: ColorU) -> SvgLayerResourceDirect {
         quick_circles(
             &self.original_curve
             .iter()
@@ -716,7 +731,7 @@ impl SampledBezierCurve {
     }
 
     /// Returns the geometry necessary to draw the bezier curve (the actual line)
-    pub fn draw_lines(&self, stroke_color: ColorU) -> SvgLayerResource {
+    pub fn draw_lines(&self, stroke_color: ColorU) -> SvgLayerResourceDirect {
         let line = [self.sampled_bezier_points.iter().map(|b| (b.x, b.y)).collect()];
         quick_lines(&line, stroke_color, None)
     }
@@ -745,15 +760,6 @@ pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert, u32>]) -> VerticesInd
     }
 
     VerticesIndicesBuffer { vertices: vertex_buf, indices: index_buf }
-}
-
-pub fn scale_vertex_buffer(input: &mut [SvgVert], scale: &StyleFontSize, height_for_1px: f32) {
-    let real_size = scale.to_pixels();
-    let scale_factor = real_size * height_for_1px;
-    for vert in input {
-        vert.xy.0 *= scale_factor;
-        vert.xy.1 *= scale_factor;
-    }
 }
 
 pub fn transform_vertex_buffer(input: &mut [SvgVert], x: f32, y: f32) {
@@ -928,14 +934,63 @@ impl<T: Layout> PartialEq for SvgCallbacks<T> {
 
 impl<T: Layout> Eq for SvgCallbacks<T> { }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct SvgStyle {
     /// Stroke color
     pub stroke: Option<(ColorU, SvgStrokeOptions)>,
     /// Fill color
     pub fill: Option<ColorU>,
+    /// Stores rotation, translation
+    pub transform: SvgTransform,
     // TODO: stroke-dasharray
 }
+
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct SvgTransform {
+    /// Rotation of this SVG layer in degrees, around the point specified in the SvgRotationPoint
+    pub rotation: Option<(SvgRotationPoint, SvgRotation)>,
+    /// Translates the individual layer additionally to the whole SVG
+    pub translation: Option<SvgTranslation>,
+    /// Scaling factor of this shape
+    pub scale: Option<SvgScaleFactor>,
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct SvgRotation { degrees: f32 }
+
+impl SvgRotation {
+    /// Note: Assumes that the input is in degrees, not radians!
+    pub fn degrees(degrees: f32) -> Self { Self { degrees } }
+
+    pub fn to_degrees(&self) -> f32 { self.degrees }
+
+    // Returns the (sin, cos) in radians
+    fn to_rotation(&self) -> (f32, f32) {
+        let rad = self.degrees.to_radians();
+        (rad.sin(), rad.cos())
+    }
+}
+
+/// Rotation point, local to the current SVG layer, i.e. (0.0, 0.0) will
+/// rotate the shape on the top left corner
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct SvgRotationPoint { pub x: f32, pub y: f32 }
+
+/// Scale factor (1.0, 1.0) by default. Unit is in normalized percent.
+/// Shapes can be stretched and squished.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct SvgScaleFactor { pub x: f32, pub y: f32 }
+
+impl Default for SvgScaleFactor {
+    fn default() -> Self {
+        SvgScaleFactor { x: 1.0, y: 1.0 }
+    }
+}
+
+/// Translation **in pixels** (or whatever the source unit for rendered SVG data
+/// is, but usually this will be pixels)
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct SvgTranslation { pub x: f32, pub y: f32 }
 
 impl SvgStyle {
     pub fn stroked(color: ColorU, stroke_opts: SvgStrokeOptions) -> Self {
@@ -1612,11 +1667,14 @@ impl Default for Svg {
 #[derive(Debug, Clone)]
 pub enum SvgLayerResource {
     Reference(SvgLayerId),
-    Direct {
-        style: SvgStyle,
-        fill: Option<VerticesIndicesBuffer>,
-        stroke: Option<VerticesIndicesBuffer>,
-    },
+    Direct(SvgLayerResourceDirect),
+}
+
+#[derive(Debug, Clone)]
+pub struct SvgLayerResourceDirect {
+    pub style: SvgStyle,
+    pub fill: Option<VerticesIndicesBuffer>,
+    pub stroke: Option<VerticesIndicesBuffer>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1772,8 +1830,6 @@ pub struct SvgText {
     pub style: SvgStyle,
     /// Is the text rotated or on a curve?
     pub placement: SvgTextPlacement,
-    /// X and Y displacement of the font in the drawing, measured from the top left
-    pub position: SvgPosition,
 }
 
 #[derive(Debug, Clone)]
@@ -1785,7 +1841,7 @@ pub struct SvgBbox(pub TypedRect<f32, SvgWorldPixel>);
 
 impl SvgBbox {
     /// Simple function for drawing a single bounding box
-    pub fn draw_lines(&self, color: ColorU, line_width: f32) -> SvgLayerResource {
+    pub fn draw_lines(&self, color: ColorU, line_width: f32) -> SvgLayerResourceDirect {
         quick_rects(&[SvgRect {
             width: self.0.size.width,
             height: self.0.size.height,
@@ -1917,160 +1973,99 @@ impl SvgTextLayout {
 
 impl SvgText {
     pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache, resources: &AppResources)
-    -> SvgLayerResource
+    -> SvgLayerResourceDirect
     {
         let font = resources.get_font(&self.font_id).unwrap().0;
         let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
         let font_metrics = FontMetrics::new(&font, &self.font_size, &TextLayoutOptions::default());
         match self.placement {
             SvgTextPlacement::Unmodified => {
-                normal_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics)
+                normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics)
             },
             SvgTextPlacement::Rotated(degrees) => {
-                rotated_text(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics, degrees)
+                let mut text = normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics);
+                text.style.transform.rotation = Some((SvgRotationPoint::default(), SvgRotation::degrees(degrees)));
+                text
             },
             SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                text_on_curve(&self.text_layout.0, &self.position, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics, &curve)
+                text_on_curve(&self.text_layout.0, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics, &curve)
             }
         }
     }
 
     pub fn get_bbox(&self) -> SvgBbox {
-        let mut bbox = self.text_layout.get_bbox(&self.placement);
-        bbox.translate(self.position.x, self.position.y);
-        bbox
+        self.text_layout.get_bbox(&self.placement)
     }
 }
 
-fn normal_text(
+pub fn normal_text(
     layout: &LayoutTextResult,
-    position: &SvgPosition,
-    text_style: SvgStyle,
+    mut text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
     font_size: &StyleFontSize,
     font_metrics: &FontMetrics)
--> SvgLayerResource
+-> SvgLayerResourceDirect
 {
     let fill_vertices = text_style.fill.and_then(|_| {
         let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
-        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, font_metrics, fill_verts))
+        Some(normal_text_to_vertices(&layout.layouted_glyphs, fill_verts))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
         let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
-        Some(normal_text_to_vertices(&font_size, position, &layout.layouted_glyphs, font_metrics, stroke_verts))
+        Some(normal_text_to_vertices(&layout.layouted_glyphs, stroke_verts))
     });
 
-    SvgLayerResource::Direct {
+    let scale_factor = font_size.to_pixels() * font_metrics.height_for_1px;
+    let new_scale = match text_style.transform.scale {
+        Some(SvgScaleFactor { x, y }) => SvgScaleFactor{ x: x * scale_factor, y: y * scale_factor },
+        None => SvgScaleFactor { x: scale_factor, y: scale_factor },
+    };
+    text_style.transform.scale = Some(new_scale);
+
+    SvgLayerResourceDirect {
         style: text_style,
         fill: fill_vertices,
         stroke: stroke_vertices,
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct SvgPosition {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Default for SvgPosition {
-    fn default() -> Self {
-        SvgPosition { x: 0.0, y: 0.0 }
-    }
-}
-
-fn normal_text_to_vertices(
-    font_size: &StyleFontSize,
-    position: &SvgPosition,
+pub fn normal_text_to_vertices(
     glyph_ids: &[GlyphInstance],
-    font_metrics: &FontMetrics,
     mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
 ) -> VerticesIndicesBuffer
 {
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
-        scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
-        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x + position.x, gid.point.y + position.y);
-    });
-
-    join_vertex_buffers(&vertex_buffers)
-}
-
-fn rotated_text(
-    layout: &LayoutTextResult,
-    position: &SvgPosition,
-    text_style: SvgStyle,
-    font: &Font,
-    vectorized_font: &VectorizedFont,
-    font_size: &StyleFontSize,
-    font_metrics: &FontMetrics,
-    rotation_degrees: f32)
--> SvgLayerResource
-{
-    let fill_vertices = text_style.fill.and_then(|_| {
-        let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
-        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, rotation_degrees, font_metrics, fill_verts))
-    });
-
-    let stroke_vertices = text_style.stroke.and_then(|stroke| {
-        let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
-        Some(rotated_text_to_vertices(&font_size, position, &layout.layouted_glyphs, rotation_degrees, font_metrics, stroke_verts))
-    });
-
-    SvgLayerResource::Direct {
-        style: text_style,
-        fill: fill_vertices,
-        stroke: stroke_vertices,
-    }
-}
-
-fn rotated_text_to_vertices(
-    font_size: &StyleFontSize,
-    position: &SvgPosition,
-    glyph_ids: &[GlyphInstance],
-    rotation_degrees: f32,
-    font_metrics: &FontMetrics,
-    mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
-) -> VerticesIndicesBuffer
-{
-    let rotation_rad = rotation_degrees.to_radians();
-    let (char_sin, char_cos) = (rotation_rad.sin(), rotation_rad.cos());
-
-    vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
-        scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
         transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x, gid.point.y);
-        rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
-        transform_vertex_buffer(&mut vertex_buf.vertices, position.x, position.y);
     });
 
     join_vertex_buffers(&vertex_buffers)
 }
 
-fn text_on_curve(
+pub fn text_on_curve(
     layout: &LayoutTextResult,
-    position: &SvgPosition,
     text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
     font_size: &StyleFontSize,
     font_metrics: &FontMetrics,
     curve: &SampledBezierCurve)
--> SvgLayerResource
+-> SvgLayerResourceDirect
 {
     let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0);
 
     let fill_vertices = text_style.fill.and_then(|_| {
         let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
-        Some(curved_vector_text_to_vertices(font_size, position, &char_offsets, &char_rotations, font_metrics, fill_verts))
+        Some(curved_vector_text_to_vertices(font_size, &char_offsets, &char_rotations, font_metrics, fill_verts))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
         let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
-        Some(curved_vector_text_to_vertices(font_size, position, &char_offsets, &char_rotations, font_metrics, stroke_verts))
+        Some(curved_vector_text_to_vertices(font_size, &char_offsets, &char_rotations, font_metrics, stroke_verts))
     });
 
-    SvgLayerResource::Direct {
+    SvgLayerResourceDirect {
         style: text_style,
         fill: fill_vertices,
         stroke: stroke_vertices,
@@ -2078,15 +2073,24 @@ fn text_on_curve(
 }
 
 // Calculates the layout for one word block
-fn curved_vector_text_to_vertices(
+pub fn curved_vector_text_to_vertices(
     font_size: &StyleFontSize,
-    position: &SvgPosition,
     char_offsets: &[(f32, f32)],
     char_rotations: &[BezierCharacterRotation],
     font_metrics: &FontMetrics,
     mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
 ) -> VerticesIndicesBuffer
 {
+    // Only allowed here because the curved text needs to scale before the characters are rotated
+    fn scale_vertex_buffer(input: &mut [SvgVert], scale: &StyleFontSize, height_for_1px: f32) {
+        let real_size = scale.to_pixels();
+        let scale_factor = real_size * height_for_1px;
+        for vert in input {
+            vert.xy.0 *= scale_factor;
+            vert.xy.1 *= scale_factor;
+        }
+    }
+
     vertex_buffers.iter_mut()
     .zip(char_rotations.into_iter())
     .zip(char_offsets.iter())
@@ -2098,7 +2102,7 @@ fn curved_vector_text_to_vertices(
         let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
         rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
         // 4. Transform characters to their respective positions
-        transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x + position.x, *char_offset_y + position.y);
+        transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x, *char_offset_y);
     });
 
     join_vertex_buffers(&vertex_buffers)
@@ -2165,14 +2169,13 @@ impl Svg {
     {
         let texture_width = (width as f32 * self.multisampling_factor) as u32;
         let texture_height = (height as f32 * self.multisampling_factor) as u32;
-        let tex = window.create_texture(texture_width, texture_height);
 
         // let (window_width, window_height) = window.get_physical_size();
 
         // TODO: This currently doesn't work - only the first draw call is drawn
         // This is probably because either webrender or glium messes with the texture
         // in some way. Need to investigate.
-        let background_color: ColorF = self.background_color.into();
+        let bg_col: ColorF = self.background_color.into();
 
         let z_index: f32 = 0.5;
         // let bbox_size = TypedSize2D::new(window_width as f32, window_height as f32);
@@ -2188,72 +2191,54 @@ impl Svg {
             .. Default::default()
         };
 
+        let tex = window.create_texture(texture_width, texture_height);
+
         {
-            let mut surface = tex.as_surface();
-            surface.clear_color(
-            background_color.r,
-            background_color.g,
-            background_color.b,
-            background_color.a);
+        let mut surface = tex.as_surface();
+        surface.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
 
-            for layer in &self.layers {
+        for layer in &self.layers {
 
-                let style = match layer {
-                    SvgLayerResource::Reference(layer_id) => { svg_cache.get_style(layer_id) },
-                    SvgLayerResource::Direct { style, .. } => *style,
-                };
+            let style = match &layer {
+                SvgLayerResource::Reference(layer_id) => { svg_cache.get_style(layer_id) },
+                SvgLayerResource::Direct(d) => d.style,
+            };
 
-                if let Some(color) = style.fill {
-                    if let Some(fill_vi) = match &layer {
-                        SvgLayerResource::Reference(layer_id) => svg_cache.get_vertices_and_indices(window, layer_id),
-                        SvgLayerResource::Direct { fill, .. } => fill.as_ref().and_then(|f| {
-                            let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
-                            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                            Some(Rc::new((vertex_buffer, index_buffer)))
-                    })} {
-                        let (ref fill_vertices, ref fill_indices) = *fill_vi;
-                        draw_vertex_buffer_to_surface(
-                            &mut surface,
-                            &shader.program,
-                            &fill_vertices,
-                            &fill_indices,
-                            &draw_options,
-                            &bbox_size,
-                            color.into(),
-                            z_index,
-                            pan,
-                            zoom);
-                    }
-                }
+            let fill_vi = match &layer {
+                SvgLayerResource::Reference(layer_id) => svg_cache.get_vertices_and_indices(window, layer_id),
+                SvgLayerResource::Direct(d) => d.fill.as_ref().and_then(|f| {
+                    let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
+                    let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
+                    Some(Rc::new((vertex_buffer, index_buffer)))
+                }),
+            };
 
-                if let Some((stroke_color, _)) = style.stroke {
-                    if let Some(stroke_vi) = match &layer {
-                        SvgLayerResource::Reference(layer_id) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
-                        SvgLayerResource::Direct { stroke, .. } => stroke.as_ref().and_then(|f| {
-                            let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
-                            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                            Some(Rc::new((vertex_buffer, index_buffer)))
-                        })} {
-                        let (ref stroke_vertices, ref stroke_indices) = *stroke_vi;
-                        draw_vertex_buffer_to_surface(
-                            &mut surface,
-                            &shader.program,
-                            &stroke_vertices,
-                            &stroke_indices,
-                            &draw_options,
-                            &bbox_size,
-                            stroke_color.into(),
-                            z_index,
-                            pan,
-                            zoom);
-                    }
-                }
+            let stroke_vi = match &layer {
+                SvgLayerResource::Reference(layer_id) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
+                SvgLayerResource::Direct(d) => d.stroke.as_ref().and_then(|f| {
+                    let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
+                    let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
+                    Some(Rc::new((vertex_buffer, index_buffer)))
+                }),
+            };
+
+            if let (Some(fill_color), Some(fill_vi))  = (style.fill, fill_vi) {
+                let (fill_vertices, fill_indices) = &*fill_vi;
+                draw_vertex_buffer_to_surface(
+                    &mut surface, &shader.program, &fill_vertices, &fill_indices,
+                    &draw_options, &bbox_size, fill_color.into(), z_index, pan, zoom, &style.transform);
+            }
+
+            if let (Some(stroke_color), Some(stroke_vi))  = (style.stroke, stroke_vi) {
+                let (stroke_vertices, stroke_indices) = &*stroke_vi;
+                draw_vertex_buffer_to_surface(&mut surface, &shader.program, &stroke_vertices, &stroke_indices,
+                    &draw_options, &bbox_size, stroke_color.0.into(), z_index, pan, zoom, &style.transform);
             }
         }
 
-        if self.enable_fxaa {
-            // TODO: apply FXAA shader
-        }
+        // TODO: apply FXAA shader
+
+        } // unbind surface framebuffer
 
         tex
     }
@@ -2269,19 +2254,33 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
         color: ColorF,
         z_index: f32,
         pan: (f32, f32),
-        zoom: f32)
+        zoom: f32,
+        layer_transform: &SvgTransform)
 {
+    let (layer_rotation_center, layer_rotation_degrees) = layer_transform.rotation.unwrap_or_default();
+    let layer_translation = layer_transform.translation.unwrap_or_default();
+    let layer_scale_factor = layer_transform.scale.unwrap_or_default();
+    let (rotation_sin, rotation_cos) = layer_rotation_degrees.to_rotation();
+
     let uniforms = uniform! {
+        // vertex shader
         bbox_size: (bbox_size.width / 2.0, bbox_size.height / 2.0),
+        offset: (pan.0, pan.1),
         z_index: z_index,
+        zoom: zoom,
+        rotation_center: (layer_rotation_center.x, layer_rotation_center.y),
+        rotation_sin: rotation_sin,
+        rotation_cos: rotation_cos,
+        scale_factor: (layer_scale_factor.x, layer_scale_factor.y),
+        translate_px: (layer_translation.x, layer_translation.y),
+
+        // fragment shader
         color: (
             color.r as f32,
             color.g as f32,
             color.b as f32,
             color.a as f32
         ),
-        offset: (pan.0, pan.1),
-        zoom: zoom,
     };
 
     surface.draw(vertices, indices, shader, &uniforms, draw_options).unwrap();
