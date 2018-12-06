@@ -244,7 +244,7 @@ impl NodeDataContainer<$struct_name> {
             let id = NodeId::new(node_id);
             $struct_name {
                 // TODO: get the initial width of the rect content
-                $preferred_field: $determine_preferred_fn(&node, widths[id]),
+                $preferred_field: $determine_preferred_fn(&node_data, widths[id]),
                 margin: node_data.margin.unwrap_or_default(),
                 padding: node_data.padding.unwrap_or_default(),
                 flex_grow_px: 0.0,
@@ -271,7 +271,7 @@ impl NodeDataContainer<$struct_name> {
             use self::WhConstraint::*;
 
             // Sum of the direct children's flex-basis = the parents preferred width
-            let children_flex_basis = self.sum_children_flex_basis(*non_leaf_id, node_hierarchy, arena);
+            let children_flex_basis = self.sum_children_flex_basis(*non_leaf_id, node_hierarchy, arena_data);
 
             // Calculate the new flex-basis width
             let parent_width_metrics = self[*non_leaf_id];
@@ -376,7 +376,7 @@ impl NodeDataContainer<$struct_name> {
 
             for variable_child_id in &variable_width_childs {
 
-                if arena[*variable_child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
+                if arena_data[*variable_child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
 
                     let min_width = width_calculated_arena[*variable_child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
 
@@ -518,7 +518,7 @@ impl NodeDataContainer<$struct_name> {
         fn distribute_space_along_cross_axis(
             node_id: &NodeId,
             node_hierarchy: &NodeHierarchy,
-            arena: &NodeDataContainer<RectLayout>,
+            arena_data: &NodeDataContainer<RectLayout>,
             width_calculated_arena: &mut NodeDataContainer<$struct_name>,
             positioned_node_stack: &[NodeId])
         {
@@ -674,7 +674,7 @@ impl HeightSolvedResult {
 #[derive(Debug, Clone)]
 pub(crate) struct SolvedWidthLayout {
     pub solved_widths: NodeDataContainer<WidthSolvedResult>,
-    pub layout_only_arena: Arena<RectLayout>,
+    pub layout_only_arena: NodeDataContainer<RectLayout>,
     pub non_leaf_nodes_sorted_by_depth: Vec<(usize, NodeId)>,
 }
 
@@ -702,6 +702,7 @@ pub(crate) fn solve_flex_layout_width<'a>(
 
 /// Returns the solved height of the items in a BTree form
 pub(crate) fn solve_flex_layout_height(
+    node_hierarchy: &NodeHierarchy,
     solved_widths: &SolvedWidthLayout,
     preferred_heights: NodeDataContainer<Option<f32>>,
     window_height: f32)
@@ -709,7 +710,7 @@ pub(crate) fn solve_flex_layout_height(
 {
     let SolvedWidthLayout { layout_only_arena, .. } = solved_widths;
     let mut height_calculated_arena = NodeDataContainer::<HeightCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_heights);
-    height_calculated_arena.bubble_preferred_heights_to_parents(&layout_only_arena, &node_hierarchy, &solved_widths.non_leaf_nodes_sorted_by_depth);
+    height_calculated_arena.bubble_preferred_heights_to_parents(node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth);
     height_calculated_arena.apply_flex_grow(node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, window_height);
     let solved_heights = height_calculated_arena.transform(|node, _| node.solved_result());
     SolvedHeightLayout { solved_heights }
@@ -776,7 +777,7 @@ fn $fn_name(
         child_id: NodeId,
         positioned_node_stack: &[NodeId],
         arena_data: &NodeDataContainer<RectLayout>,
-        arena_solved_data: &NodeDataContainer<$height_solved_position>,
+        arena_solved_data: &mut NodeDataContainer<$height_solved_position>,
         solved_widths: &$width_layout,
     ) {
         let child_width_with_padding = {

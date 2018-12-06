@@ -750,17 +750,17 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
 
     let root = ui_state.dom.root;
     let arena_borrow = &*ui_state.dom.arena.borrow();
-    let non_leaf_nodes = get_non_leaf_nodes_sorted_by_depth(&arena_borrow);
+    let non_leaf_nodes = get_non_leaf_nodes_sorted_by_depth(&arena_borrow.node_layout);
 
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
     for (_depth, parent_id) in non_leaf_nodes {
 
         // Note: starts at 1 instead of 0
-        let index_in_parent = parent_id.preceding_siblings(arena_borrow).count();
+        let index_in_parent = parent_id.preceding_siblings(&arena_borrow.node_layout).count();
 
         let parent_html_matcher = HtmlCascadeInfo {
-            node_data: &arena_borrow[parent_id].data,
+            node_data: &arena_borrow.node_data[parent_id],
             index_in_parent: index_in_parent, // necessary for nth-child
             is_mouse_over: false, // TODO
             is_mouse_pressed: false, // TODO
@@ -778,15 +778,15 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
         let inheritable_rules: Vec<CssDeclaration> = parent_rules.css_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
 
         // For children: inherit from parents - filter children that themselves are not parents!
-        for (child_idx, child_id) in parent_id.children(arena_borrow).enumerate() {
-            let child_node = &arena_borrow[child_id];
-            match child_node.first_child() {
+        for (child_idx, child_id) in parent_id.children(&arena_borrow.node_layout).enumerate() {
+            let child_node = &arena_borrow.node_layout[child_id];
+            match child_node.first_child {
                 None => {
                     // Style children that themselves aren't parents
                     let mut child_rules = inheritable_rules.clone();
 
                     let child_html_matcher = HtmlCascadeInfo {
-                        node_data: &child_node.data,
+                        node_data: &arena_borrow.node_data[child_id],
                         index_in_parent: child_idx + 1, // necessary for nth-child
                         is_mouse_over: false, // TODO
                         is_mouse_pressed: false, // TODO

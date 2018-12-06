@@ -2,7 +2,6 @@
 
 use std::{
     ops::{Index, IndexMut},
-    hash::Hasher,
     collections::BTreeMap,
 };
 
@@ -111,7 +110,16 @@ impl NodeHierarchy {
         }
     }
 
-    pub fn len(&self) -> usize { self.internal.len() }
+    pub fn len(&self) -> usize {
+        self.internal.len()
+    }
+
+    pub fn linear_iter(&self) -> LinearIterator {
+        LinearIterator {
+            arena_len: self.len(),
+            position: 0,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
@@ -150,12 +158,21 @@ impl<T> NodeDataContainer<T> {
 
     pub fn len(&self) -> usize { self.internal.len() }
 
-    pub(crate) fn transform<U, F>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(T, NodeId) -> U {
+    pub fn transform<U, F>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(&T, NodeId) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
-        Self {
-            internal: self.node_data.into_iter().enumerate().map(|(node_id, node)| {
-                closure(node_data, NodeId::new(node_id))
-            }).collect(),
+        NodeDataContainer {
+            internal: self.internal.iter().enumerate().map(|(node_id, node)| closure(node, NodeId::new(node_id))).collect(),
+        }
+    }
+
+    pub fn get(&self, id: NodeId) -> Option<&T> {
+        self.internal.get(id.index())
+    }
+
+    pub fn linear_iter(&self) -> LinearIterator {
+        LinearIterator {
+            arena_len: self.len(),
+            position: 0,
         }
     }
 }
@@ -185,49 +202,27 @@ impl<T> IndexMut<NodeId> for NodeDataContainer<T> {
 impl<T> Arena<T> {
 
     pub fn new() -> Arena<T> {
-        Self::default()
+        Self::with_capacity(0)
     }
 
     pub fn with_capacity(cap: usize) -> Arena<T> {
         Arena {
-            node_layout: Vec::with_capacity(cap),
-            node_data: Vec::with_capacity(cap),
+            node_layout: NodeHierarchy { internal: Vec::with_capacity(cap) },
+            node_data: NodeDataContainer { internal: Vec::<T>::with_capacity(cap) },
         }
     }
-/*
-    /// Append a new child to this node, after existing children.
-    pub fn append_node<T>(&mut self, new_child: NodeId, arena: &mut Arena<T>) {
-        new_child.detach(arena);
-        let last_child_opt;
-        {
-            let (self_borrow, new_child_borrow) = arena.nodes.get_pair_mut(
-                self.index(), new_child.index(), "Can not append a node to itself");
-            new_child_borrow.parent = Some(self);
-            last_child_opt = mem::replace(&mut self_borrow.last_child, Some(new_child));
-            if let Some(last_child) = last_child_opt {
-                new_child_borrow.previous_sibling = Some(last_child);
-            } else {
-                debug_assert!(self_borrow.first_child.is_none());
-                self_borrow.first_child = Some(new_child);
-            }
-        }
-        if let Some(last_child) = last_child_opt {
-            debug_assert!(arena[last_child].next_sibling.is_none());
-            arena[last_child].next_sibling = Some(new_child);
-        }
-    }
-*/
+
     /// Create a new node from its associated data.
     pub(crate) fn new_node(&mut self, data: T) -> NodeId {
         let next_index = self.node_layout.len();
-        self.node_layout.push(Node {
+        self.node_layout.internal.push(Node {
             parent: None,
             first_child: None,
             last_child: None,
             previous_sibling: None,
             next_sibling: None,
         });
-        self.node_data.push(data);
+        self.node_data.internal.push(data);
         NodeId::new(next_index)
     }
 
@@ -260,10 +255,10 @@ impl<T> Arena<T> {
     /// Transform keeps the relative order of parents / children
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
-    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(T, NodeId) -> U {
+    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
-            node_layout: self.node_layout,
+            node_layout: self.node_layout.clone(),
             node_data: self.node_data.transform(closure),
         }
     }
@@ -325,49 +320,6 @@ impl<T: Copy> Arena<T> {
         ))
     }
 }
-
-/*
-trait GetPairMut<T> {
-    /// Get mutable references to two distinct nodes
-    ///
-    /// ## Panic
-    ///
-    /// Panics if the two given IDs are the same.
-    fn get_pair_mut(&mut self, a: usize, b: usize, same_index_error_message: &'static str)
-                    -> (&mut T, &mut T);
-}
-
-impl<T> GetPairMut<T> for Vec<T> {
-    #[allow(unused_variables)]
-    fn get_pair_mut(&mut self, a: usize, b: usize, same_index_error_message: &'static str)
-    -> (&mut T, &mut T)
-    {
-        #[cfg(debug_assertions)] {
-            if a == b {
-                panic!(same_index_error_message)
-            }
-        }
-
-        let a_is_lower;
-
-        let min = if a < b {
-            a_is_lower = true;
-            a
-        } else {
-            a_is_lower = false;
-            b
-        };
-
-        let (low, high) = self.split_at_mut(min + 1);
-
-        if a_is_lower {
-            (&mut low[a], &mut high[b - (min + 1)])
-        } else {
-            (&mut high[a - (min + 1)], &mut low[b])
-        }
-    }
-}
-*/
 
 impl NodeId {
 
