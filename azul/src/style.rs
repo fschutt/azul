@@ -1,12 +1,12 @@
-//! Main utilities for high-level datatypes from the `azul_style` crate.
+//! Main utilities for high-level datatypes from the `azul_css` crate.
 
 #[cfg(debug_assertions)]
 use std::collections::BTreeMap;
-use azul_style::{
-    AppStyle,
+use azul_css::{
+    Css,
     CssContentGroup,
-    StyleConstraintList,
-    StyleDeclaration,
+    CssConstraintList,
+    CssDeclaration,
     XPath,
     XPathSelector,
     XPathPseudoSelector
@@ -147,7 +147,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
 fn test_css_group_iterator() {
 
     use self::XPathSelector::*;
-    use azul_style::NodeTypePath;
+    use azul_css::NodeTypePath;
 
     // ".hello > #id_text.new_class div.content"
     // -> ["div.content", "#id_text.new_class", ".hello"]
@@ -297,7 +297,7 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&XPathSelector], html_node
 
 pub(crate) fn match_dom_selectors<T: Layout>(
     ui_state: &UiState<T>,
-    style: &AppStyle)
+    style: &Css)
 -> UiDescription<T>
 {
     use ui_solver::get_non_leaf_nodes_sorted_by_depth;
@@ -321,7 +321,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
             parent_rules.style_constraints.list.extend(applying_rule.declarations.clone());
         }
 
-        let inheritable_rules: Vec<StyleDeclaration> = parent_rules.style_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
+        let inheritable_rules: Vec<CssDeclaration> = parent_rules.style_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
 
         // For children: inherit from parents - filter children that themselves are not parents!
         for child_id in parent_id.children(&arena_borrow.node_layout) {
@@ -339,11 +339,11 @@ pub(crate) fn match_dom_selectors<T: Layout>(
                         child_rules.extend(applying_rule.declarations.clone());
                     }
 
-                    styled_nodes.insert(child_id, StyledNode { style_constraints: StyleConstraintList { list: child_rules }});
+                    styled_nodes.insert(child_id, StyledNode { style_constraints: CssConstraintList { list: child_rules }});
                 },
                 Some(_) => {
                     // For all children that themselves are parents, simply copy the inheritable rules
-                    styled_nodes.insert(child_id, StyledNode { style_constraints: StyleConstraintList { list: inheritable_rules.clone() } });
+                    styled_nodes.insert(child_id, StyledNode { style_constraints: CssConstraintList { list: inheritable_rules.clone() } });
                 },
             }
         }
@@ -368,7 +368,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
 
 /// Sort the style rules by their weight, so that the rules are applied in the correct order.
 /// Should always be called when a new style is loaded from an external source.
-pub(crate) fn sort_by_specificity(mut style: AppStyle) -> AppStyle {
+pub(crate) fn sort_by_specificity(mut style: Css) -> Css {
     style.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
     style
 }
@@ -385,7 +385,7 @@ fn get_specificity(path: &XPath) -> (usize, usize, usize) {
 #[test]
 fn test_specificity() {
     use self::XPathSelector::*;
-    use azul_style::NodeTypePath;
+    use azul_css::NodeTypePath;
     assert_eq!(get_specificity(&XPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
     assert_eq!(get_specificity(&XPath { selectors: vec![Class("hello".into())] }), (0, 1, 0));
     assert_eq!(get_specificity(&XPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1));
@@ -395,31 +395,31 @@ fn test_specificity() {
 // Assert that order of the style items is correct (in order of xpath specificity, lowest-to-highest)
 #[test]
 fn test_specificity_sort() {
-    use azul_style::*;
+    use azul_css::*;
     use self::XPathSelector::*;
-    use azul_style::NodeTypePath::*;
+    use azul_css::NodeTypePath::*;
 
-    let input_style = AppStyle {
+    let input_style = Css {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            StyleRuleSet { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
     };
 
     let sorted_style = sort_by_specificity(input_style);
 
-    let expected_style = AppStyle {
+    let expected_style = Css {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            StyleRuleSet { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            StyleRuleSet { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
     };
 

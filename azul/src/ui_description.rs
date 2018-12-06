@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
     collections::BTreeMap,
 };
-use azul_style::{ AppStyle, StyleConstraintList, StyleProperty };
+use azul_css::{ Css, CssConstraintList, CssProperty };
 use {
     FastHashMap,
     id_tree::{Arena, NodeId},
@@ -18,7 +18,7 @@ pub struct UiDescription<T: Layout> {
     pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,
     /// ID of the root node of the arena (usually NodeId(0))
     pub(crate) ui_descr_root: NodeId,
-    /// This field is created from the AppStyle
+    /// This field is created from the Css
     pub(crate) styled_nodes: BTreeMap<NodeId, StyledNode>,
     /// In the display list, we take references to the `UiDescription.styled_nodes`
     ///
@@ -26,8 +26,8 @@ pub struct UiDescription<T: Layout> {
     /// and the reference to that style has to live as least as long as the `self.styled_nodes`
     /// This is why we need this field here
     pub(crate) default_style_of_node: StyledNode,
-    /// The style properties that should be overridden for this frame, cloned from the `AppStyle`
-    pub(crate) dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
+    /// The style properties that should be overridden for this frame, cloned from the `Css`
+    pub(crate) dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiDescription<T> {
@@ -64,7 +64,7 @@ impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
-        Self::from_dom(&UiState::from_dom(default_dom), &AppStyle::default())
+        Self::from_dom(&UiState::from_dom(default_dom), &Css::default())
     }
 }
 
@@ -72,7 +72,7 @@ impl<T: Layout> UiDescription<T> {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn from_dom(ui_state: &UiState<T>, style: &AppStyle) -> Self
+    pub fn from_dom(ui_state: &UiState<T>, style: &Css) -> Self
     {
         ::style::match_dom_selectors(ui_state, &style)
     }
@@ -80,6 +80,6 @@ impl<T: Layout> UiDescription<T> {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct StyledNode {
-    /// The style constraints, after the cascading step
-    pub(crate) style_constraints: StyleConstraintList
+    /// The CSS constraints, after the cascading step
+    pub(crate) style_constraints: CssConstraintList
 }

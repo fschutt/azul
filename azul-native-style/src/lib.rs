@@ -1,7 +1,7 @@
 //! Provides azul-compatible approximations of OS-native styles.
 
-extern crate azul_style;
-use azul_style::AppStyle;
+extern crate azul_css;
+use azul_css::Css;
 
 extern crate azul_css_parser;
 
@@ -27,6 +27,6 @@ pub const NATIVE_CSS: &str = concat!(
 );
 
 /// Returns the native style for the OS
-pub fn native() -> AppStyle {
+pub fn native() -> Css {
     azul_css_parser::new_from_str(NATIVE_CSS).unwrap()
 }

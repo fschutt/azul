@@ -18,7 +18,7 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
-azul-style              = { path = "../azul-style",           default_features = false }
+azul-css                = { path = "../azul-css",             default_features = false }
 azul-native-style       = { path = "../azul-native-style",    default_features = false }
 azul-css-parser         = { path = "../azul-css-parser",      default_features = false }
 azul_glium              = { version = "0.22.0",               default-features = false, features = ["glutin"] }

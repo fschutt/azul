@@ -1,6 +1,6 @@
 //! Logic for parsing DOM node selectors.
 
-use azul_style::NodeTypePath;
+use azul_css::NodeTypePath;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum NodeTypePathParseError<'a> {
@@ -13,7 +13,7 @@ impl_display!{ NodeTypePathParseError<'a>, {
 
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypePath::Div`
 pub fn node_type_path_from_str(data: &str) -> Result<NodeTypePath, NodeTypePathParseError> {
-    use azul_style::NodeTypePath::*;
+    use azul_css::NodeTypePath::*;
     match data {
         "div" => Ok(Div),
         "p" => Ok(P),

@@ -26,7 +26,7 @@ use glium::{
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
-use azul_style::{ AppStyle, HotReloadHandler };
+use azul_css::{ Css, HotReloadHandler };
 use {
     FastHashMap,
     dom::{Texture, On, Callback},
@@ -551,7 +551,7 @@ pub struct Window<T: Layout> {
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The style applied to the current window
-    pub(crate) style: AppStyle,
+    pub(crate) style: Css,
     /// An optional style hot-reloader for the current window, only available with debug_assertions
     /// enabled
     #[cfg(debug_assertions)]
@@ -563,13 +563,13 @@ pub struct Window<T: Layout> {
     /// of the `WindowCreateOptions`, so that we can write:
     ///
     /// ```rust,ignore
-    /// app.run(Window::new(WindowCreateOptions::new(), AppStyle::native()).unwrap());
+    /// app.run(Window::new(WindowCreateOptions::new(), Css::default()).unwrap());
     /// ```
     ///
     /// instead of having to annotate the type:
     ///
     /// ```rust,ignore
-    /// app.run(Window::new(WindowCreateOptions::<MyAppData>::new(), AppStyle::native()).unwrap());
+    /// app.run(Window::new(WindowCreateOptions::<MyAppData>::new(), Css::default()).unwrap());
     /// ```
     marker: PhantomData<T>,
 }
@@ -665,7 +665,7 @@ pub(crate) struct WindowInternal {
 
 impl<'a, T: Layout> Window<T> {
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, style: AppStyle) -> Result<Self, WindowCreateError> {
+    pub fn new(mut options: WindowCreateOptions<T>, style: Css) -> Result<Self, WindowCreateError> {
 
         use self::RendererType::*;
         use webrender::WrShaders;
@@ -882,7 +882,7 @@ impl<'a, T: Layout> Window<T> {
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
     pub fn new_hot_reload(options: WindowCreateOptions<T>, style_loader: Box<dyn HotReloadHandler>) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new(options, AppStyle::default())?;
+        let mut window = Window::new(options, Css::default())?;
         window.style_loader = Some(style_loader);
         Ok(window)
     }

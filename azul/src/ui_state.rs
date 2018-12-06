@@ -2,7 +2,7 @@ use std::{
     fmt,
     collections::{BTreeMap, BTreeSet},
 };
-use azul_style::StyleProperty;
+use azul_css::CssProperty;
 use {
     FastHashMap,
     window::{WindowInfo, WindowId},
@@ -21,8 +21,8 @@ pub struct UiState<T: Layout> {
     pub tag_ids_to_noop_callbacks: BTreeMap<TagId, BTreeSet<On>>,
     pub node_ids_to_tag_ids: BTreeMap<NodeId, TagId>,
     pub tag_ids_to_node_ids: BTreeMap<TagId, NodeId>,
-    /// The style properties that should be overridden for this frame, cloned from the `AppStyle`
-    pub dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, StyleProperty>>,
+    /// The style properties that should be overridden for this frame, cloned from the `Css`
+    pub dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {

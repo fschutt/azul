@@ -25,7 +25,7 @@ use image::ImageError;
 use log::LevelFilter;
 #[cfg(feature = "image_loading")]
 use images::ImageType;
-use azul_style::{FontId, PixelValue, StyleLetterSpacing};
+use azul_css::{FontId, PixelValue, StyleLetterSpacing};
 use {
     error::{FontError, ClipboardError},
     window::{Window, WindowId, FakeWindow, ScrollStates},
@@ -570,7 +570,7 @@ impl<T: Layout> App<T> {
             renderer_type: RendererType::Software,
             .. Default::default()
         };
-        self.push_window(Window::new(hidden_create_options, AppStyle::new()).unwrap());
+        self.push_window(Window::new(hidden_create_options, Css::new()).unwrap());
         // TODO: do_first_redraw shouldn't exist, need to find a better way to update the resources
         // This will make App::delete_font doc-test fail if run without `no-opengl-tests`.
         //

@@ -7,12 +7,12 @@ pub use simplecss::Error as CssSyntaxError;
 use css_parser;
 pub use css_parser::CssParsingError;
 use dom::{node_type_path_from_str, NodeTypePathParseError};
-use azul_style::{
-    AppStyle,
-    StyleDeclaration,
-    DynamicStyleProperty,
-    DynamicStylePropertyDefault,
-    StyleRuleSet,
+use azul_css::{
+    Css,
+    CssDeclaration,
+    DynamicCssProperty,
+    DynamicCssPropertyDefault,
+    CssRuleBlock,
     XPath,
     XPathSelector,
     XPathPseudoSelector,
@@ -132,7 +132,7 @@ fn test_css_pseudo_selector_parse() {
 }
 
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
-pub fn new_from_str<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'a>> {
+pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     use simplecss::{Tokenizer, Token, Combinator};
 
     let mut tokenizer = Tokenizer::new(css_string);
@@ -178,7 +178,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<AppStyle, CssParseError<'
                         }
                         parser_in_block = false;
                         for path in current_paths.drain(..) {
-                            css_blocks.push(StyleRuleSet {
+                            css_blocks.push(CssRuleBlock {
                                 path: XPath { selectors: path },
                                 declarations: current_rules.clone(),
                             })
@@ -296,7 +296,7 @@ const END_BRACE: &str = "]]";
 /// Determine if a Css property is static (immutable) or if it can change
 /// during the runtime of the program
 fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
--> Result<StyleDeclaration, DynamicCssParseError<'a>>
+-> Result<CssDeclaration, DynamicCssParseError<'a>>
 {
     let key = key.trim();
     let value = value.trim();
@@ -309,15 +309,15 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
             Err(DynamicCssParseError::UnclosedBraces)
         },
         (true, true) => {
-            parse_dynamic_css_property(key, value).and_then(|val| Ok(StyleDeclaration::Dynamic(val)))
+            parse_dynamic_css_property(key, value).and_then(|val| Ok(CssDeclaration::Dynamic(val)))
         },
         (false, false) => {
-            Ok(StyleDeclaration::Static(css_parser::from_kv(key, value)?))
+            Ok(CssDeclaration::Static(css_parser::from_kv(key, value)?))
         }
     }
 }
 
-fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicStyleProperty, DynamicCssParseError<'a>> {
+fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
     use std::char;
 
     // "[[ id | 400px ]]" => "id | 400px"
@@ -361,11 +361,11 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
     }
 
     let default_case_parsed = match default_case {
-        "auto" => DynamicStylePropertyDefault::Auto,
-        other => DynamicStylePropertyDefault::Exact(css_parser::from_kv(key, other)?),
+        "auto" => DynamicCssPropertyDefault::Auto,
+        other => DynamicCssPropertyDefault::Exact(css_parser::from_kv(key, other)?),
     };
 
-    Ok(DynamicStyleProperty {
+    Ok(DynamicCssProperty {
         dynamic_id: dynamic_id.to_string(),
         default: default_case_parsed,
     })
@@ -373,16 +373,16 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct CssConstraintList {
-    pub(crate) list: Vec<StyleDeclaration>
+    pub(crate) list: Vec<CssDeclaration>
 }
 
 #[test]
 fn test_detect_static_or_dynamic_property() {
-    use azul_style::{StyleProperty, StyleTextAlignmentHorz};
+    use azul_css::{CssProperty, StyleTextAlignmentHorz};
     use css_parser::InvalidValueErr;
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", " center   "),
-        Ok(StyleDeclaration::Static(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)))
+        Ok(CssDeclaration::Static(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)))
     );
 
     assert_eq!(
@@ -401,16 +401,16 @@ fn test_detect_static_or_dynamic_property() {
 
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
-        Ok(StyleDeclaration::Dynamic(DynamicStyleProperty {
-            default: DynamicStylePropertyDefault::Exact(StyleProperty::TextAlign(StyleTextAlignmentHorz::Center)),
+        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+            default: DynamicCssPropertyDefault::Exact(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
             dynamic_id: String::from("hello"),
         }))
     );
 
     assert_eq!(
         determine_static_or_dynamic_css_property("text-align", "[[  hello | auto ]]"),
-        Ok(StyleDeclaration::Dynamic(DynamicStyleProperty {
-            default: DynamicStylePropertyDefault::Auto,
+        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+            default: DynamicCssPropertyDefault::Auto,
             dynamic_id: String::from("hello"),
         }))
     );
@@ -452,7 +452,7 @@ fn test_detect_static_or_dynamic_property() {
 #[test]
 fn test_css_parse_1() {
 
-    use azul_style::{ColorU, StyleBackgroundColor, NodeTypePath, StyleProperty};
+    use azul_css::{ColorU, StyleBackgroundColor, NodeTypePath, CssProperty};
 
     let parsed_css = new_from_str("
         div#my_id .my_class:first {
@@ -461,7 +461,7 @@ fn test_css_parse_1() {
     ").unwrap();
 
     let expected_css_rules = vec![
-        StyleRuleSet {
+        CssRuleBlock {
             path: XPath {
                 selectors: vec![
                     XPathSelector::Type(NodeTypePath::Div),
@@ -473,7 +473,7 @@ fn test_css_parse_1() {
                     XPathSelector::PseudoSelector(XPathPseudoSelector::First),
                 ],
             },
-            declarations: vec![StyleDeclaration::Static(StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
+            declarations: vec![CssDeclaration::Static(CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
         }
     ];
 
@@ -483,7 +483,7 @@ fn test_css_parse_1() {
 #[test]
 fn test_css_simple_selector_parse() {
     use self::XPathSelector::*;
-    use azul_style::NodeTypePath;
+    use azul_css::NodeTypePath;
     let css = "div#id.my_class > p .new { }";
     let parsed = vec![
         Type(NodeTypePath::Div),
@@ -494,8 +494,8 @@ fn test_css_simple_selector_parse() {
         Children,
         Class("new".into())
     ];
-    assert_eq!(new_from_str(css).unwrap(), AppStyle {
-        rules: vec![StyleRuleSet {
+    assert_eq!(new_from_str(css).unwrap(), Css {
+        rules: vec![CssRuleBlock {
             path: XPath { selectors: parsed },
             declarations: Vec::new(),
         }],
@@ -505,10 +505,10 @@ fn test_css_simple_selector_parse() {
 #[cfg(test)]
 mod stylesheet_parse {
 
-    use azul_style::*;
+    use azul_css::*;
     use super::*;
 
-    fn test_css(css: &str, expected: Vec<StyleRuleSet>) {
+    fn test_css(css: &str, expected: Vec<CssRuleBlock>) {
         let css = new_from_str(css).unwrap();
         assert_eq!(css, expected.into());
     }
@@ -516,18 +516,18 @@ mod stylesheet_parse {
     // Tests that an element with a single class always gets the CSS element applied properly
     #[test]
     fn test_apply_css_pure_class() {
-        let red = StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-        let blue = StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
-        let black = StyleProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+        let red = CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+        let blue = CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
+        let black = CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
 
         // Simple example
         {
             let css_1 = ".my_class { background-color: red; }";
             let expected_rules = vec![
-                StyleRuleSet {
+                CssRuleBlock {
                     path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
                     declarations: vec![
-                        StyleDeclaration::Static(red.clone())
+                        CssDeclaration::Static(red.clone())
                     ],
                 },
             ];
@@ -538,13 +538,13 @@ mod stylesheet_parse {
         {
             let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
             let expected_rules = vec![
-                StyleRuleSet {
+                CssRuleBlock {
                     path: XPath { selectors: vec![XPathSelector::Id("my_id".into())] },
-                    declarations: vec![StyleDeclaration::Static(red.clone())]
+                    declarations: vec![CssDeclaration::Static(red.clone())]
                 },
-                StyleRuleSet {
+                CssRuleBlock {
                     path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
-                    declarations: vec![StyleDeclaration::Static(blue.clone())]
+                    declarations: vec![CssDeclaration::Static(blue.clone())]
                 },
             ];
             test_css(css_2, expected_rules);
@@ -554,17 +554,17 @@ mod stylesheet_parse {
         {
             let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
             let expected_rules = vec![
-                StyleRuleSet {
+                CssRuleBlock {
                     path: XPath { selectors: vec![XPathSelector::Global] },
-                    declarations: vec![StyleDeclaration::Static(black.clone())]
+                    declarations: vec![CssDeclaration::Static(black.clone())]
                 },
-                StyleRuleSet {
+                CssRuleBlock {
                     path: XPath { selectors: vec![XPathSelector::Class("my_class".into()), XPathSelector::Id("my_id".into())] },
-                    declarations: vec![StyleDeclaration::Static(red.clone())]
+                    declarations: vec![CssDeclaration::Static(red.clone())]
                 },
-                StyleRuleSet {
+                CssRuleBlock {
                     path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
-                    declarations: vec![StyleDeclaration::Static(blue.clone())]
+                    declarations: vec![CssDeclaration::Static(blue.clone())]
                 },
             ];
             test_css(css_3, expected_rules);
@@ -575,7 +575,7 @@ mod stylesheet_parse {
 // Assert that order of the style rules is correct (in same order as provided in CSS form)
 #[test]
 fn test_multiple_rules() {
-    use azul_style::*;
+    use azul_css::*;
     use self::XPathSelector::*;
 
     let parsed_css = new_from_str("
@@ -588,11 +588,11 @@ fn test_multiple_rules() {
 
     let expected_rules = vec![
         // Rules are sorted by order of appearance in source string
-        StyleRuleSet { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
-        StyleRuleSet { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-        StyleRuleSet { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".into())] }, declarations: Vec::new() },
-        StyleRuleSet { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-        StyleRuleSet { path: XPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
+        CssRuleBlock { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: XPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
     ];
 
     assert_eq!(parsed_css, expected_rules.into());

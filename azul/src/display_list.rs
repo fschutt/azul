@@ -10,7 +10,7 @@ use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
 use glium::glutin::dpi::{LogicalPosition, LogicalSize};
-use azul_style::*;
+use azul_css::*;
 use {
     FastHashMap,
     app_resources::AppResources,
@@ -168,7 +168,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontState;
-        use azul_style::FontId;
+        use azul_css::FontId;
 
         let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
         let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
@@ -1174,7 +1174,7 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
     pub node_hierarchy: &'e NodeHierarchy,
     pub node_data: &'a NodeDataContainer<NodeData<T>>,
     /// The style that should be applied to the DOM
-    pub app_style: &'b AppStyle,
+    pub app_style: &'b Css,
     /// Necessary to push
     pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
@@ -1661,10 +1661,10 @@ fn push_background(
     background: &StyleBackground,
     app_resources: &AppResources)
 {
-    use azul_style::StyleBackground::*;
+    use azul_css::StyleBackground::*;
     match background {
         RadialGradient(gradient) => {
-            use azul_style::Shape;
+            use azul_css::Shape;
 
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
@@ -1825,7 +1825,7 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
 
     if let Some(align_items) = rect.layout.align_items {
         // Vertical text alignment
-        use azul_style::LayoutAlignItems;
+        use azul_css::LayoutAlignItems;
         match align_items {
             LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
             LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
@@ -1835,7 +1835,7 @@ fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
     }
 
     if let Some(justify_content) = rect.layout.justify_content {
-        use azul_style::LayoutJustifyContent;
+        use azul_css::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
             LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
@@ -1877,11 +1877,11 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
 fn populate_style_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
-    style_overrides: &BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
+    style_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
 {
-    use azul_style::StyleProperty::{self, *};
+    use azul_css::CssProperty::{self, *};
 
-    fn apply_style_property(rect: &mut DisplayRectangle, property: &StyleProperty) {
+    fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
         match property {
             BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
             BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
@@ -1922,12 +1922,12 @@ fn populate_style_properties(
         }
     }
 
-    use azul_style::DynamicStylePropertyDefault;
+    use azul_css::DynamicCssPropertyDefault;
 
     // Assert that the types of two properties matches
-    fn property_type_matches(a: &StyleProperty, b: &DynamicStylePropertyDefault) -> bool {
+    fn property_type_matches(a: &CssProperty, b: &DynamicCssPropertyDefault) -> bool {
         use std::mem::discriminant;
-        use azul_style::DynamicStylePropertyDefault::*;
+        use azul_css::DynamicCssPropertyDefault::*;
         match b {
             Exact(e) => discriminant(a) == discriminant(e),
             Auto => true, // "auto" always matches
@@ -1936,7 +1936,7 @@ fn populate_style_properties(
 
     // Apply / static / dynamic properties
     for constraint in &rect.styled_node.style_constraints.list {
-        use azul_style::StyleDeclaration::*;
+        use azul_css::CssDeclaration::*;
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {
@@ -1953,7 +1953,7 @@ fn populate_style_properties(
                             )
                         }
                     }
-                } else if let DynamicStylePropertyDefault::Exact(default) = &dynamic_property.default {
+                } else if let DynamicCssPropertyDefault::Exact(default) = &dynamic_property.default {
                     apply_style_property(rect, default);
                 }
             }

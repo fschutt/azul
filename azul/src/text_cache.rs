@@ -1,5 +1,5 @@
 use std::sync::atomic::{Ordering, AtomicUsize};
-use azul_style::{FontId, StyleFontSize};
+use azul_css::{FontId, StyleFontSize};
 use {
     FastHashMap,
     text_layout::Words,

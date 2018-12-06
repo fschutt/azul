@@ -8,7 +8,7 @@ use std::{
     iter::FromIterator,
 };
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
-use azul_style::{ NodeTypePath, StyleProperty };
+use azul_css::{ NodeTypePath, CssProperty };
 use {
     FastHashMap,
     window::{WindowEvent, WindowInfo},
@@ -314,7 +314,7 @@ impl<T: Layout> NodeType<T> {
     ) -> Option<TextSizePx>
     {
         use self::NodeType::*;
-        use azul_style::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
+        use azul_css::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
 
         match self {
             Image(i) => image_cache.get(i).and_then(|image_state| {
@@ -418,10 +418,10 @@ pub struct NodeData<T: Layout> {
     /// ```rust,ignore
     /// let node = NodeData {
     ///     id: Some("my_item".into()),
-    ///     dynamic_style_overrides: vec![("my_custom_width".into(), StyleProperty::Width(LayoutWidth::px(500.0)))]
+    ///     dynamic_style_overrides: vec![("my_custom_width".into(), CssProperty::Width(LayoutWidth::px(500.0)))]
     /// }
     /// ```
-    pub dynamic_style_overrides: Vec<(String, StyleProperty)>
+    pub dynamic_style_overrides: Vec<(String, CssProperty)>
 }
 
 impl<T: Layout> PartialEq for NodeData<T> {
@@ -862,7 +862,7 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn with_style_override<S: Into<String>>(mut self, id: S, property: StyleProperty) -> Self {
+    pub fn with_style_override<S: Into<String>>(mut self, id: S, property: CssProperty) -> Self {
         self.add_style_override(id, property);
         self
     }
@@ -888,7 +888,7 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn add_style_override<S: Into<String>>(&mut self, override_id: S, property: StyleProperty) {
+    pub fn add_style_override<S: Into<String>>(&mut self, override_id: S, property: CssProperty) {
         self.arena.borrow_mut().node_data[self.head].dynamic_style_overrides.push((override_id.into(), property));
     }
 
@@ -912,7 +912,7 @@ impl<T: Layout> Dom<T> {
         tag_ids_to_noop_callbacks: &mut BTreeMap<TagId, BTreeSet<On>>,
         node_ids_to_tag_ids: &mut BTreeMap<NodeId, TagId>,
         tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>,
-        dynamic_style_overrides: &mut BTreeMap<NodeId, FastHashMap<String, StyleProperty>>)
+        dynamic_style_overrides: &mut BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
     {
         // Reset the tag
         TAG_ID.swap(1, Ordering::SeqCst);

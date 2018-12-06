@@ -1,34 +1,34 @@
 //! Types and methods used to describe the style of an application
-use style_properties::StyleProperty;
+use css_properties::CssProperty;
 
-/// Wrapper for a `Vec<StyleRuleSet>` - the style is immutable at runtime, it can only be
+/// Wrapper for a `Vec<CssRuleBlock>` - the style is immutable at runtime, it can only be
 /// created once. Animations / conditional styling is implemented using dynamic fields.
 #[derive(Debug, Default, PartialEq, Clone)]
-pub struct AppStyle {
+pub struct Css {
     /// The style rules making up the document - for example, de-duplicated CSS rules
-    pub rules: Vec<StyleRuleSet>,
+    pub rules: Vec<CssRuleBlock>,
 }
 
-impl std::convert::From<Vec<StyleRuleSet>> for AppStyle {
-    fn from(rules: Vec<StyleRuleSet>) -> Self {
+impl std::convert::From<Vec<CssRuleBlock>> for Css {
+    fn from(rules: Vec<CssRuleBlock>) -> Self {
         Self { rules }
     }
 }
 
 /// Contains one parsed `key: value` pair, static or dynamic
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StyleDeclaration {
+pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
-    Static(StyleProperty),
+    Static(CssProperty),
     /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
-    Dynamic(DynamicStyleProperty),
+    Dynamic(DynamicCssProperty),
 }
 
-impl StyleDeclaration {
+impl CssDeclaration {
     /// Determines if the property will be inherited (applied to the children)
     /// during the recursive application of the style on the DOM tree
     pub fn is_inheritable(&self) -> bool {
-        use self::StyleDeclaration::*;
+        use self::CssDeclaration::*;
         match self {
             Static(s) => s.is_inheritable(),
             Dynamic(d) => d.is_inheritable(),
@@ -36,7 +36,7 @@ impl StyleDeclaration {
     }
 }
 
-/// A `DynamicStyleProperty` is a type of style property that can be changed on possibly
+/// A `DynamicCssProperty` is a type of css property that can be changed on possibly
 /// every frame by the Rust code - for example to implement an `On::Hover` behaviour.
 ///
 /// The syntax for such a property looks like this:
@@ -57,15 +57,15 @@ impl StyleDeclaration {
 /// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
 /// special cases now use one single API.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DynamicStyleProperty {
+pub struct DynamicCssProperty {
     /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
     pub dynamic_id: String,
-    /// Default value, used if the style property isn't overridden in this frame
+    /// Default value, used if the css property isn't overridden in this frame
     /// i.e. the `500px` in `width: [[ my_id | 500px ]]`.
-    pub default: DynamicStylePropertyDefault,
+    pub default: DynamicCssPropertyDefault,
 }
 
-/// If this value is set to default, the style property will not exist if it isn't overriden.
+/// If this value is set to default, the css property will not exist if it isn't overriden.
 /// An example where this is useful is when you want to say something like this:
 ///
 /// `width: [[ 400px | auto ]];`
@@ -76,12 +76,12 @@ pub struct DynamicStyleProperty {
 /// different from `auto`, since `auto` has its width determined by how much space there is
 /// available in the parent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DynamicStylePropertyDefault  {
-    Exact(StyleProperty),
+pub enum DynamicCssPropertyDefault  {
+    Exact(CssProperty),
     Auto,
 }
 
-impl DynamicStyleProperty {
+impl DynamicCssProperty {
     pub fn is_inheritable(&self) -> bool {
         // Dynamic style properties should not be inheritable,
         // since that could lead to bugs - you set a property in Rust, suddenly
@@ -93,12 +93,12 @@ impl DynamicStyleProperty {
 /// One block of rules that applies a bunch of rules to an "xpath" in the style, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
 #[derive(Debug, Clone, PartialEq)]
-pub struct StyleRuleSet {
+pub struct CssRuleBlock {
     /// The xpath (full selector) of the style ruleset
     pub path: XPath,
     /// `"justify-content: center"` =>
-    /// `StyleDeclaration::Static(StyleProperty::JustifyContent(LayoutJustifyContent::Center))`
-    pub declarations: Vec<StyleDeclaration>,
+    /// `CssDeclaration::Static(CssProperty::JustifyContent(LayoutJustifyContent::Center))`
+    pub declarations: Vec<CssDeclaration>,
 }
 
 pub type CssContentGroup<'a> = Vec<&'a XPathSelector>;
@@ -171,8 +171,8 @@ pub enum XPathPseudoSelector {
     Focus,
 }
 
-impl AppStyle {
-    /// Creates a new AppStyle with no style rules.
+impl Css {
+    /// Creates a new stylesheet with no style rules.
     pub fn new() -> Self {
         Default::default()
     }
@@ -185,6 +185,6 @@ impl AppStyle {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
-pub struct StyleConstraintList {
-    pub list: Vec<StyleDeclaration>
+pub struct CssConstraintList {
+    pub list: Vec<CssDeclaration>
 }

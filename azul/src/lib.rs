@@ -49,7 +49,7 @@
 //!
 //! fn main() {
 //!     let app = App::new(MyDataModel { }, AppConfig::default());
-//!     let window = Window::new(WindowCreateOptions::default(), AppStyle::new()).unwrap();
+//!     let window = Window::new(WindowCreateOptions::default(), Css::new()).unwrap();
 //!     app.run(window).unwrap();
 //! }
 //! ```
@@ -108,7 +108,7 @@ extern crate twox_hash;
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
-extern crate azul_style;
+extern crate azul_css;
 extern crate azul_native_style;
 extern crate azul_css_parser;
 
@@ -204,7 +204,7 @@ pub mod prelude {
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
         VirtualKeyCode, ScanCode, Icon,
     };
-    pub use azul_style::*;
+    pub use azul_css::*;
     pub use rusttype::Font;
     pub use app_resources::AppResources;
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};

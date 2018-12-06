@@ -9,7 +9,7 @@ use image::ImageError;
 #[cfg(feature = "image_loading")]
 use images::ImageType;
 use rusttype::Font;
-use azul_style::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing};
+use azul_css::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing};
 use {
     FastHashMap,
     text_cache::TextId,
