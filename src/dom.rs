@@ -684,8 +684,8 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
         // the iterator executes 0 times (and therefore pushes 0 nodes)
 
         // "Root" node of this DOM
-        let mut nodes = vec![Node {
-            data: NodeData::new(NodeType::Div),
+        let mut node_data = vec![NodeData::new(NodeType::Div)];
+        let mut node_layout = vec![Node {
             parent: None,
             previous_sibling: None,
             next_sibling: None,
@@ -695,32 +695,36 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
 
         let mut idx = 0;
 
-        for i in iter {
+        for item in iter {
             let node = Node {
-                data: i,
                 parent: Some(NodeId::new(0)),
                 previous_sibling: if idx == 0 { None } else { Some(NodeId::new(idx)) },
                 next_sibling: Some(NodeId::new(idx + 2)),
                 last_child: None,
                 first_child: None,
             };
-            nodes.push(node);
+            node_layout.push(node);
+            node_data.push(item);
+
             idx += 1;
         }
 
-        let nodes_len = nodes.len();
+        let nodes_len = node_layout.len();
 
         // nodes_len is always at least 1, since we pushed the original root node
         // Check if there is a child DOM
         if nodes_len > 1 {
-            if let Some(last) = nodes.get_mut(nodes_len - 1) {
+            if let Some(last) = node_layout.get_mut(nodes_len - 1) {
                 last.next_sibling = None;
             }
-            nodes[0].last_child = Some(NodeId::new(nodes_len - 1));
-            nodes[0].first_child = Some(NodeId::new(1));
+            node_layout[0].last_child = Some(NodeId::new(nodes_len - 1));
+            node_layout[0].first_child = Some(NodeId::new(1));
         }
 
-        Dom { head: NodeId::new(0), root: NodeId::new(0), arena: Rc::new(RefCell::new(Arena { nodes })) }
+        Dom {
+            head: NodeId::new(0),
+            root: NodeId::new(0),
+            arena: Rc::new(RefCell::new(Arena { node_data, node_layout })) }
     }
 }
 
@@ -776,7 +780,7 @@ impl<T: Layout> Dom<T> {
     /// Returns the number of nodes in this DOM
     #[inline]
     pub fn len(&self) -> usize {
-        self.arena.borrow().nodes_len()
+        self.arena.borrow().len()
     }
 
     /// Creates an empty DOM with space reserved for `cap` nodes
@@ -797,8 +801,8 @@ impl<T: Layout> Dom<T> {
         // Note: for a more readable Python version of this algorithm,
         // see: https://gist.github.com/fschutt/4b3bd9a2654b548a6eb0b6a8623bdc8a#file-dow_new_2-py-L65-L107
 
-        let self_len = self.arena.borrow().nodes_len();
-        let child_len = child.arena.borrow().nodes_len();
+        let self_len = self.arena.borrow().len();
+        let child_len = child.arena.borrow().len();
 
         if child_len == 0 {
             // No nodes to append, nothing to do
@@ -1132,7 +1136,7 @@ fn test_dom_from_iter_1() {
     //   |-> 4              NodeId(4)
     //   '-> 5              NodeId(5)
 
-    assert_eq!(arena.nodes_len(), 6);
+    assert_eq!(arena.len(), 6);
 
     // Check root node
     assert_eq!(arena.nodes.first(), Some(&Node {
@@ -1174,7 +1178,7 @@ fn test_zero_size_dom() {
         .map(|_| NodeData { node_type: NodeType::Div, .. Default::default() })
         .collect::<Dom<TestLayout>>();
 
-    assert!(null_dom.arena.borrow().nodes_len() == 1);
+    assert!(null_dom.arena.borrow().len() == 1);
 
     null_dom.add_class("hello"); // should not panic
     null_dom.add_id("id-hello"); // should not panic

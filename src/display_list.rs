@@ -232,7 +232,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         window.scroll_states.remove_unused_scroll_states();
 
         let LogicalSize { width, height } = window.state.size.dimensions;
-        let mut builder = DisplayListBuilder::with_capacity(window.internal.pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.nodes_len());
+        let mut builder = DisplayListBuilder::with_capacity(window.internal.pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.len());
 
         // Upload image and font resources
         Self::update_resources(&window.internal.api, app_resources, &mut resource_updates);
