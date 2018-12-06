@@ -88,7 +88,7 @@ impl<T: Layout> UiState<T> {
         // It is assumed that the DOM returned by the user has exactly one root node
         // with no further siblings and that the root node is the Node with the ID 0.
 
-        debug_assert!(dom.arena.borrow()[NodeId::new(0)].next_sibling.is_none());
+        debug_assert!(dom.arena.borrow().node_layout[NodeId::new(0)].next_sibling.is_none());
 
         let mut tag_ids_to_callbacks = BTreeMap::new();
         let mut tag_ids_to_default_callbacks = BTreeMap::new();

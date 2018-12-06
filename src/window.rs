@@ -235,14 +235,14 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
     pub fn get_first_hit_child(&self, node_id: NodeId, searched_event_type: On) -> Option<(usize, NodeId)> {
 
         let ui_state = self.ui_state;
-        let arena = ui_state.dom.arena.borrow();
+        let node_layout = &ui_state.dom.arena.borrow().node_layout;
 
-        if node_id.index() > arena.len() {
+        if node_id.index() > node_layout.len() {
             return None; // node_id out of range
         }
 
         node_id
-            .children(&arena)
+            .children(&node_layout)
             .enumerate()
             .filter_map(|(idx, child_id)| {
                 ui_state.node_ids_to_tag_ids.get(&child_id).and_then(|tag| Some((*tag, idx, child_id)))
@@ -269,14 +269,14 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
     /// Note: Index is 0-based (first item has the index of 0)
     pub fn get_index_in_parent(&self, node_id: NodeId) -> Option<(usize, NodeId)> {
         let ui_state = self.ui_state;
-        let arena = ui_state.dom.arena.borrow();
+        let node_layout = ui_state.dom.arena.borrow().node_layout;
 
-        if node_id.index() > arena.len() {
+        if node_id.index() > node_layout.len() {
             return None; // node_id out of range
         }
 
-        let parent = arena[node_id].parent()?;
-        Some((node_id.preceding_siblings(&arena).count() - 1, parent))
+        let parent = node_layout[node_id].parent()?;
+        Some((node_id.preceding_siblings(&node_layout).count() - 1, parent))
     }
 }
 

@@ -1,7 +1,6 @@
 //! ID-based node tree
 
 use std::{
-    mem,
     ops::{Index, IndexMut},
     hash::Hasher,
     collections::BTreeMap,
@@ -96,16 +95,31 @@ pub struct Node {
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct Arena<T> {
-    pub(crate) node_layout: NodeLayout,
-    pub(crate) node_data: Vec<T>,
+    pub(crate) node_layout: NodeHierarchy,
+    pub(crate) node_data: NodeDataContainer<T>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
-pub struct NodeLayout {
+pub struct NodeHierarchy {
     pub internal: Vec<Node>,
 }
 
-impl Index<NodeId> for NodeLayout {
+impl NodeHierarchy {
+    pub fn new(data: Vec<Node>) -> Self {
+        Self {
+            internal: data,
+        }
+    }
+
+    pub fn len(&self) -> usize { self.internal.len() }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
+pub struct NodeDataContainer<T> {
+    pub internal: Vec<T>,
+}
+
+impl Index<NodeId> for NodeHierarchy {
     type Output = Node;
 
     fn index(&self, node_id: NodeId) -> &Node {
@@ -117,8 +131,49 @@ impl Index<NodeId> for NodeLayout {
     }
 }
 
-impl IndexMut<NodeId> for NodeLayout {
+impl IndexMut<NodeId> for NodeHierarchy {
     fn index_mut(&mut self, node_id: NodeId) -> &mut Node {
+        #[cfg(debug_assertions)] {
+            self.internal.get_mut(node_id.index()).unwrap()
+        } #[cfg(not(debug_assertions))] {
+            unsafe { self.internal.get_unchecked_mut(node_id.index()) }
+        }
+    }
+}
+
+impl<T> NodeDataContainer<T> {
+    pub fn new(data: Vec<T>) -> Self {
+        Self {
+            internal: data,
+        }
+    }
+
+    pub fn len(&self) -> usize { self.internal.len() }
+
+    pub(crate) fn transform<U, F>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(T, NodeId) -> U {
+        // TODO if T: Send (which is usually the case), then we could use rayon here!
+        Self {
+            internal: self.node_data.into_iter().enumerate().map(|(node_id, node)| {
+                closure(node_data, NodeId::new(node_id))
+            }).collect(),
+        }
+    }
+}
+
+impl<T> Index<NodeId> for NodeDataContainer<T> {
+    type Output = T;
+
+    fn index(&self, node_id: NodeId) -> &T {
+        #[cfg(debug_assertions)] {
+            self.internal.get(node_id.index()).unwrap()
+        } #[cfg(not(debug_assertions))] {
+            unsafe { self.internal.get_unchecked(node_id.index()) }
+        }
+    }
+}
+
+impl<T> IndexMut<NodeId> for NodeDataContainer<T> {
+    fn index_mut(&mut self, node_id: NodeId) -> &mut T {
         #[cfg(debug_assertions)] {
             self.internal.get_mut(node_id.index()).unwrap()
         } #[cfg(not(debug_assertions))] {
@@ -198,75 +253,49 @@ impl<T> Arena<T> {
     /// Can potentially mess up internal IDs, only use this if you
     /// know what you're doing
     pub fn append_arena(&mut self, other: &mut Arena<T>) {
-        self.node_layout.append(&mut other.node_layout);
-        self.node_data.append(&mut other.node_data);
+        self.node_layout.internal.append(&mut other.node_layout.internal);
+        self.node_data.internal.append(&mut other.node_data.internal);
     }
 
     /// Transform keeps the relative order of parents / children
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
-    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
+    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(NodeId, T) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
             node_layout: self.node_layout,
-            node_data: self.node_data.into_iter().enumerate().map(|(node_id, node)| {
-                closure(&node.data, NodeId::new(node_id))
-            }).collect(),
+            node_data: self.node_data.transform(closure),
         }
     }
 
     pub(crate) fn node_info_ref(&self, node_id: &NodeId) -> Option<&Node> {
-        self.node_layout.get(node_id.index())
+        self.node_layout.internal.get(node_id.index())
     }
 
     pub(crate) fn node_data_ref(&self, node_id: &NodeId) -> Option<&T> {
-        self.node_data.get(node_id.index())
+        self.node_data.internal.get(node_id.index())
     }
 
     pub(crate) fn node_info_mut(&self, node_id: &NodeId) -> Option<&Node> {
-        self.node_layout.get(node_id.index())
+        self.node_layout.internal.get(node_id.index())
     }
 
     pub(crate) fn node_data_mut(&self, node_id: &NodeId) -> Option<&T> {
-        self.node_data.get(node_id.index())
+        self.node_data.internal.get(node_id.index())
     }
 
-    pub(crate) fn index_node_info(&self, node_id: &NodeId) -> &Node {
-        &self.node_layout[node_id]
-    }
-
-    pub(crate) fn index_node_info_mut(&self, node_id: &NodeId) -> &mut Node {
-        &mut self.node_layout[node_id]
-    }
-
-    pub(crate) fn index_node_data(&self, node_id: &NodeId) -> &T {
-        #[cfg(debug_assertions)] {
-            self.node_data.get(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
-            unsafe { self.node_data.get_unchecked(node_id.index()) }
-        }
-    }
-
-    pub(crate) fn index_node_data_mut(&self, node_id: &NodeId) -> &mut T {
-        #[cfg(debug_assertions)] {
-            self.node_data.get_mut(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
-            unsafe { self.node_data.get_unchecked_mut(node_id.index()) }
-        }
-    }
-
-    pub(crate) fn get_node_layout(&self) -> &NodeLayout {
+    pub(crate) fn get_node_hierarchy(&self) -> &NodeHierarchy {
         &self.node_layout
     }
 
-    pub(crate) fn get_node_data(&self) -> &[T] {
+    pub(crate) fn get_node_data(&self) -> &NodeDataContainer<T> {
         &self.node_data
     }
 
     /// Prints the debug version of the arena, without printing the actual arena
     pub(crate) fn print_tree<F: Fn(&T) -> String + Copy>(&self, format_cb: F) -> String {
         let mut s = String::new();
-        if self.nodes_len() > 0 {
+        if self.len() > 0 {
             self.print_tree_recursive(format_cb, &mut s, NodeId::new(0), 0);
         }
         s
@@ -275,7 +304,7 @@ impl<T> Arena<T> {
     fn print_tree_recursive<F: Fn(&T) -> String + Copy>(&self, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
         let node = &self.node_layout[current_node_id];
         let tabs = String::from("\t|").repeat(indent);
-        string.push_str(&format!("{}-- {}: {}\n", tabs, current_node_id.index(), format_cb(self.index_node_data(&current_node_id))));
+        string.push_str(&format!("{}-- {}: {}\n", tabs, current_node_id.index(), format_cb(self.node_data[&current_node_id])));
 
         if let Some(first_child) = node.first_child {
             self.print_tree_recursive(format_cb, string, first_child, indent + 1);
@@ -291,8 +320,8 @@ impl<T: Copy> Arena<T> {
     #[inline]
     pub fn get_all_node_ids(&self) -> BTreeMap<NodeId, T> {
         use std::iter::FromIterator;
-        BTreeMap::from_iter(self.node_data.iter().enumerate().map(|(i, node)|
-            (NodeId::new(i), node.data)
+        BTreeMap::from_iter(self.node_data.internal.iter().enumerate().map(|(i, node)|
+            (NodeId::new(i), *node)
         ))
     }
 }
@@ -339,12 +368,13 @@ impl<T> GetPairMut<T> for Vec<T> {
     }
 }
 */
+
 impl NodeId {
 
     /// Return an iterator of references to this node and its ancestors.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn ancestors(self, node_layout: &NodeLayout) -> Ancestors {
+    pub fn ancestors(self, node_layout: &NodeHierarchy) -> Ancestors {
         Ancestors {
             node_layout,
             node: Some(self),
@@ -354,7 +384,7 @@ impl NodeId {
     /// Return an iterator of references to this node and the siblings before it.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn preceding_siblings(self, node_layout: &NodeLayout) -> PrecedingSiblings {
+    pub fn preceding_siblings(self, node_layout: &NodeHierarchy) -> PrecedingSiblings {
         PrecedingSiblings {
             node_layout,
             node: Some(self),
@@ -364,7 +394,7 @@ impl NodeId {
     /// Return an iterator of references to this node and the siblings after it.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn following_siblings(self, node_layout: &NodeLayout) -> FollowingSiblings {
+    pub fn following_siblings(self, node_layout: &NodeHierarchy) -> FollowingSiblings {
         FollowingSiblings {
             node_layout,
             node: Some(self),
@@ -372,7 +402,7 @@ impl NodeId {
     }
 
     /// Return an iterator of references to this node’s children.
-    pub fn children(self, node_layout: &NodeLayout) -> Children {
+    pub fn children(self, node_layout: &NodeHierarchy) -> Children {
         Children {
             node_layout,
             node: node_layout[self].first_child,
@@ -380,7 +410,7 @@ impl NodeId {
     }
 
     /// Return an iterator of references to this node’s children, in reverse order.
-    pub fn reverse_children(self, node_layout: &NodeLayout) -> ReverseChildren {
+    pub fn reverse_children(self, node_layout: &NodeHierarchy) -> ReverseChildren {
         ReverseChildren {
             node_layout,
             node: node_layout[self].last_child,
@@ -391,12 +421,12 @@ impl NodeId {
     ///
     /// Parent nodes appear before the descendants.
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn descendants(self, node_layout: &NodeLayout) -> Descendants {
+    pub fn descendants(self, node_layout: &NodeHierarchy) -> Descendants {
         Descendants(self.traverse(node_layout))
     }
 
     /// Return an iterator of references to this node and its descendants, in tree order.
-    pub fn traverse(self, node_layout: &NodeLayout) -> Traverse {
+    pub fn traverse(self, node_layout: &NodeHierarchy) -> Traverse {
         Traverse {
             node_layout,
             root: self,
@@ -405,7 +435,7 @@ impl NodeId {
     }
 
     /// Return an iterator of references to this node and its descendants, in tree order.
-    pub fn reverse_traverse(self, node_layout: &NodeLayout) -> ReverseTraverse {
+    pub fn reverse_traverse(self, node_layout: &NodeHierarchy) -> ReverseTraverse {
         ReverseTraverse {
             node_layout,
             root: self,
@@ -423,7 +453,7 @@ macro_rules! impl_node_iterator {
             fn next(&mut self) -> Option<NodeId> {
                 match self.node.take() {
                     Some(node) => {
-                        self.node = $next(&self.node_layout.index_node_info(&node));
+                        self.node = $next(&self.node_layout[node]);
                         Some(node)
                     }
                     None => None
@@ -457,7 +487,7 @@ impl Iterator for LinearIterator {
 
 /// An iterator of references to the ancestors a given node.
 pub struct Ancestors<'a> {
-    node_layout: &'a NodeLayout,
+    node_layout: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -465,7 +495,7 @@ impl_node_iterator!(Ancestors, |node: &Node| node.parent);
 
 /// An iterator of references to the siblings before a given node.
 pub struct PrecedingSiblings<'a> {
-    node_layout: &'a NodeLayout,
+    node_layout: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -473,7 +503,7 @@ impl_node_iterator!(PrecedingSiblings, |node: &Node| node.previous_sibling);
 
 /// An iterator of references to the siblings after a given node.
 pub struct FollowingSiblings<'a> {
-    node_layout: &'a NodeLayout,
+    node_layout: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -481,7 +511,7 @@ impl_node_iterator!(FollowingSiblings, |node: &Node| node.next_sibling);
 
 /// An iterator of references to the children of a given node.
 pub struct Children<'a> {
-    node_layout: &'a NodeLayout,
+    node_layout: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -489,7 +519,7 @@ impl_node_iterator!(Children, |node: &Node| node.next_sibling);
 
 /// An iterator of references to the children of a given node, in reverse order.
 pub struct ReverseChildren<'a> {
-    node_layout: &'a NodeLayout,
+    node_layout: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -537,7 +567,7 @@ impl<T> NodeEdge<T> {
 
 /// An iterator of references to a given node and its descendants, in tree order.
 pub struct Traverse<'a> {
-    node_layout: &'a NodeLayout,
+    node_layout: &'a NodeHierarchy,
     root: NodeId,
     next: Option<NodeEdge<NodeId>>,
 }
@@ -559,7 +589,7 @@ impl<'a> Iterator for Traverse<'a> {
                         if node == self.root {
                             None
                         } else {
-                            match self.arena[node].next_sibling {
+                            match self.node_layout[node].next_sibling {
                                 Some(next_sibling) => Some(NodeEdge::Start(next_sibling)),
                                 None => match self.node_layout[node].parent {
                                     Some(parent) => Some(NodeEdge::End(parent)),
@@ -583,7 +613,7 @@ impl<'a> Iterator for Traverse<'a> {
 
 /// An iterator of references to a given node and its descendants, in reverse tree order.
 pub struct ReverseTraverse<'a> {
-    node_layout: &'a NodeLayout,
+    node_layout: &'a NodeHierarchy,
     root: NodeId,
     next: Option<NodeEdge<NodeId>>,
 }

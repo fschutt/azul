@@ -17,7 +17,7 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
-    id_tree::{Arena, NodeId},
+    id_tree::{NodeDataContainer, NodeId},
     css::Css,
     css_parser::*,
     dom::{
@@ -35,7 +35,7 @@ const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(ColorU { r: 0, b: 0, g
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
-    pub(crate) rectangles: Arena<DisplayRectangle<'a>>
+    pub(crate) rectangles: NodeDataContainer<DisplayRectangle<'a>>
 }
 
 impl<'a, T: Layout + 'a> fmt::Debug for DisplayList<'a, T> {
@@ -80,7 +80,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     pub(crate) fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
         let arena = ui_description.ui_descr_arena.borrow();
 
-        let display_rect_arena = arena.transform(|node, node_id| {
+        let display_rect_arena = arena.node_data.transform(|node_id, node| {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
             let mut rect = DisplayRectangle::new(tag, style);
@@ -338,18 +338,20 @@ struct ContentGroupOrder {
 
 
 fn determine_rendering_order<'a>(
-    rectangles: &Arena<DisplayRectangle<'a>>,
-    layouted_rects: &Arena<LayoutRect>,
+    node_hierarchy: &NodeHierarchy,
+    rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
+    layouted_rects: &NodeDataContainer<LayoutRect>,
 ) -> ContentGroupOrder
 {
     let mut content_groups = Vec::new();
-    determine_rendering_order_inner(rectangles, layouted_rects, 0, NodeId::new(0), &mut content_groups);
+    determine_rendering_order_inner(node_hierarchy, rectangles, layouted_rects, 0, NodeId::new(0), &mut content_groups);
     ContentGroupOrder { groups: content_groups }
 }
 
 fn determine_rendering_order_inner<'a>(
-    rectangles: &Arena<DisplayRectangle<'a>>,
-    layouted_rects: &Arena<LayoutRect>,
+    node_hierarchy: &NodeHierarchy,
+    rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
+    layouted_rects: &NodeDataContainer<LayoutRect>,
     // recursive parameters
     root_depth: usize,
     root_id: NodeId,
@@ -361,7 +363,7 @@ fn determine_rendering_order_inner<'a>(
     let mut root_group = ContentGroup {
         root: RenderableNodeId {
             node_id: root_id,
-            clip_children: node_needs_to_clip_children(&rectangles[root_id].data.style),
+            clip_children: node_needs_to_clip_children(&rectangles[root_id].style),
             scrolls_children: false, // TODO
         },
         root_depth,
@@ -372,11 +374,11 @@ fn determine_rendering_order_inner<'a>(
     let mut depth = root_depth + 1;
 
     // Same as the traverse function, but allows us to skip items, returns the next element
-    fn traverse_simple<T>(root_id: NodeId, current_node: NodeEdge<NodeId>, arena: &Arena<T>) -> Option<NodeEdge<NodeId>> {
+    fn traverse_simple<T>(root_id: NodeId, current_node: NodeEdge<NodeId>, node_hierarchy: &NodeHierarchy) -> Option<NodeEdge<NodeId>> {
         // returns the next item
         match current_node {
             NodeEdge::Start(current_node) => {
-                match arena[current_node].first_child {
+                match node_hierarchy[current_node].first_child {
                     Some(first_child) => Some(NodeEdge::Start(first_child)),
                     None => Some(NodeEdge::End(current_node.clone()))
                 }
@@ -385,9 +387,9 @@ fn determine_rendering_order_inner<'a>(
                 if current_node == root_id {
                     None
                 } else {
-                    match arena[current_node].next_sibling {
+                    match node_hierarchy[current_node].next_sibling {
                         Some(next_sibling) => Some(NodeEdge::Start(next_sibling)),
-                        None => arena[current_node].parent.and_then(|parent| Some(NodeEdge::End(parent))),
+                        None => node_hierarchy[current_node].parent.and_then(|parent| Some(NodeEdge::End(parent))),
                     }
                 }
             }
@@ -395,13 +397,13 @@ fn determine_rendering_order_inner<'a>(
     }
 
     let mut current_node_edge = NodeEdge::Start(root_id);
-    while let Some(next_node_id) = traverse_simple(root_id, current_node_edge.clone(), rectangles) {
+    while let Some(next_node_id) = traverse_simple(root_id, current_node_edge.clone(), node_hierarchy) {
         let mut should_continue_loop = true;
 
         if next_node_id.clone().inner_value() != root_id {
             match next_node_id {
                 NodeEdge::Start(start_tag) => {
-                    let rect_node = &rectangles[start_tag].data;
+                    let rect_node = &rectangles[start_tag];
                     let position = rect_node.layout.position.unwrap_or_default();
                     if position == LayoutPosition::Absolute {
                         // For now, ignore the node and put it aside for later
@@ -439,7 +441,7 @@ fn determine_rendering_order_inner<'a>(
     // Note: Currently reversed order, so that earlier absolute items are drawn
     // on top of later absolute items
     for (absolute_depth, absolute_node_id) in absolute_node_ids.into_iter().rev() {
-        determine_rendering_order_inner(rectangles, layouted_rects, absolute_depth, absolute_node_id, content_groups);
+        determine_rendering_order_inner(node_hierarchy, rectangles, layouted_rects, absolute_depth, absolute_node_id, content_groups);
     }
 }
 
@@ -453,22 +455,23 @@ fn do_the_layout<'a, 'b, T: Layout>(
     render_api: &RenderApi,
     rect_size: LogicalSize,
     rect_offset: LogicalPosition)
--> (Arena<LayoutRect>, Vec<(usize, NodeId)>, WordCache)
+-> (NodeDataContainer<LayoutRect>, Vec<(usize, NodeId)>, WordCache)
 {
     use text_layout::{split_text_into_words, get_words_cached};
     use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
 
     let arena = display_list.ui_descr.ui_descr_arena.borrow();
+    let node_data = &arena.node_data;
+    let node_hierarchy = &arena.node_layout;
 
-    let word_cache: BTreeMap<NodeId, (Words, FontMetrics)> = arena
-    .linear_iter()
+    let word_cache: BTreeMap<NodeId, (Words, FontMetrics)> = node_hierarchy.internal.iter()
     .filter_map(|id| {
 
-        let (font, font_metrics, font_id, font_size) = match arena[id].data.node_type {
+        let (font, font_metrics, font_id, font_size) = match node_data[id].data.node_type {
             NodeType::Label(_) | NodeType::Text(_) => {
                 use text_layout::TextLayoutOptions;
 
-                let rect = &display_list.rectangles[id].data;
+                let rect = &display_list.rectangles[id];
                 let style = &rect.style;
                 let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
                 let font_size = style.font_size.unwrap_or(DEFAULT_FONT_SIZE);
@@ -491,7 +494,7 @@ fn do_the_layout<'a, 'b, T: Layout>(
             _ => return None,
         };
 
-        match &arena[id].data.node_type {
+        match &node_data[id].node_type {
             NodeType::Label(ref string_to_render) => {
                 Some((id, (split_text_into_words(&string_to_render, &font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing), font_metrics)))
             },
@@ -662,8 +665,8 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, T: Layout>(
         // Push the root of the node
         fn push_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
             item: RenderableNodeId,
-            solved_rects: &Arena<LayoutRect>,
-            arena: &Arena<NodeData<T>>,
+            solved_rects_data: &NodeDataContainer<LayoutRect>,
+            arena_data: &NodeDataContainer<NodeData<T>>,
             epoch: Epoch,
             scrollable_nodes: &mut ScrolledNodes,
             referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
@@ -1155,7 +1158,7 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a + Layout> {
     /// Necessary to push
     pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
-    pub display_rectangle_arena: &'d Arena<DisplayRectangle<'d>>,
+    pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
     /// Reference to the word cache (left over from the layout,
     /// to re-use the text layout from there)
     pub word_cache: &'c WordCache,
