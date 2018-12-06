@@ -13,7 +13,7 @@ use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use rusttype::Font;
-use azul_style::{StyleFontSize, FontId, StyleLetterSpacing};
+use azul_css::{StyleFontSize, FontId, StyleLetterSpacing};
 use {
     text_layout::{split_text_into_words, TextSizePx},
     text_cache::{TextId, TextCache},
@@ -28,7 +28,7 @@ use {
 /// but should work).
 pub struct AppResources {
     /// When looking up images, there are two sources: Either the indirect way via using a
-    /// StyleImageId (which is a String) or a direct ImageId. The indirect way requires one
+    /// CssImageId (which is a String) or a direct ImageId. The indirect way requires one
     /// extra lookup (to map from the stringified ID to the actual image ID).
     pub(crate) style_ids_to_image_ids: FastHashMap<String, ImageId>,
     /// The actual image cache, does NOT store the image data, only stores it temporarily

@@ -35,5 +35,5 @@ fn main() {
         app.run(Window::new_hot_reload_interval(WindowCreateOptions::default(), style_loader, 3000).unwrap()).unwrap();
     }
     #[cfg(not(debug_assertions))]
-    app.run(Window::new(WindowCreateOptions::default(), AppStyle::new()).unwrap()).unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), Css::new()).unwrap()).unwrap();
 }

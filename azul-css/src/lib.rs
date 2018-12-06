@@ -5,10 +5,10 @@ extern crate euclid;
 
 #[macro_use]
 mod macros;
-mod style;
-mod style_properties;
+mod css;
+mod css_properties;
 mod hot_reload;
 
-pub use style::*;
-pub use style_properties::*;
+pub use css::*;
+pub use css_properties::*;
 pub use hot_reload::*;

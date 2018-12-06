@@ -32,7 +32,7 @@ use lyon::{
 use usvg::{Error as SvgError, ViewBox, Transform};
 use webrender::api::{ColorU, ColorF, GlyphInstance};
 use rusttype::{Font, Glyph};
-use azul_style::{FontId, StyleFontSize};
+use azul_css::{FontId, StyleFontSize};
 use {
     FastHashMap,
     dom::{Callback, Texture},

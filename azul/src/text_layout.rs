@@ -3,7 +3,7 @@
 use webrender::api::LayoutPixel;
 use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
-use azul_style::{
+use azul_css::{
     StyleTextAlignmentHorz, StyleFontSize, StyleBackgroundColor, StyleLetterSpacing,
     FontId, StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow
 };
@@ -802,7 +802,7 @@ fn words_to_left_aligned_glyphs<'a>(
                 }
 
                 for glyph in &word.glyphs {
-                    use azul_style::PT_TO_PX;
+                    use azul_css::PT_TO_PX;
 
                     // vertical_advance is in px
                     let mut new_glyph = *glyph;
@@ -891,7 +891,7 @@ fn align_text_horz(
     glyphs: &mut [GlyphInstance],
     line_breaks: &[(usize, f32)]
 ) {
-    use azul_style::StyleTextAlignmentHorz::*;
+    use azul_css::StyleTextAlignmentHorz::*;
 
     // Text alignment is theoretically very simple:
     //

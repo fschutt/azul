@@ -1,7 +1,7 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
 use std::{fmt, num::{ParseIntError, ParseFloatError}};
-use azul_style::*;
+use azul_css::*;
 
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
@@ -33,15 +33,15 @@ macro_rules! typed_pixel_value_parser {
 /// returns the parsed value or an error
 ///
 /// ```rust
-/// # extern crate azul_style;
-/// # use azul_style::*;
+/// # extern crate azul_css;
+/// # use azul_css::*;
 /// # use azul_css_parser::from_kv;
 /// assert_eq!(
 ///     from_kv("width", "500px"),
-///     Ok(StyleProperty::Width(LayoutWidth(PixelValue::px(500.0))))
+///     Ok(CssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
 /// )
 /// ```
-pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<StyleProperty, CssParsingError<'a>> {
+pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
     let key = key.trim();
     let value = value.trim();
     match key {
@@ -1231,7 +1231,7 @@ impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 fn parse_css_background<'a>(input: &'a str)
 -> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
-    use azul_style::BackgroundType::*;
+    use azul_css::BackgroundType::*;
 
     let mut input_iter = input.splitn(2, "(");
     let first_item = input_iter.next();
@@ -1408,16 +1408,16 @@ fn parse_css_background<'a>(input: &'a str)
     }
 }
 
-impl<'a> From<QuoteStripped<'a>> for StyleImageId {
+impl<'a> From<QuoteStripped<'a>> for CssImageId {
     fn from(input: QuoteStripped<'a>) -> Self {
-        StyleImageId(input.0.to_string())
+        CssImageId(input.0.to_string())
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str);
 
-fn parse_image<'a>(input: &'a str) -> Result<StyleImageId, CssImageParseError<'a>> {
+fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
     Ok(strip_quotes(input)?.into())
 }
 
@@ -2439,7 +2439,7 @@ mod css_tests {
     #[test]
     fn test_parse_background_image() {
         assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(StyleBackground::Image(
-            StyleImageId(String::from("Cat 01"))
+            CssImageId(String::from("Cat 01"))
         )));
     }
 

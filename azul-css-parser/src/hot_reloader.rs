@@ -1,7 +1,7 @@
-//! Provides an implementation of the HotReloadHandler from the `azul_style` crate, allowing CSS
+//! Provides an implementation of the HotReloadHandler from the `azul_css` crate, allowing CSS
 //! files to be dynamically reloaded at runtime.
 
-use azul_style::{HotReloadHandler, AppStyle};
+use azul_css::{HotReloadHandler, Css};
 
 /// Allows dynamic reloading of a CSS file at application runtime.
 pub struct HotReloader {
@@ -17,7 +17,7 @@ impl HotReloader {
 }
 
 impl HotReloadHandler for HotReloader {
-    fn reload_style(&mut self) -> Option<Result<AppStyle, String>> {
+    fn reload_style(&mut self) -> Option<Result<Css, String>> {
         use std::fs;
 
         let file_path = &self.file_path.clone();

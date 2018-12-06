@@ -38,7 +38,7 @@ macro_rules! impl_pixel_value {($struct:ident) => (
 
 /// A property that can be used to style DOM nodes
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StyleProperty {
+pub enum CssProperty {
     BorderRadius(StyleBorderRadius),
     BackgroundColor(StyleBackgroundColor),
     TextColor(StyleTextColor),
@@ -74,10 +74,10 @@ pub enum StyleProperty {
     Overflow(LayoutOverflow),
 }
 
-impl StyleProperty {
+impl CssProperty {
     /// Returns whether this property will be inherited during cascading
     pub fn is_inheritable(&self) -> bool {
-        use self::StyleProperty::*;
+        use self::CssProperty::*;
         match self {
             | TextColor(_)
             | FontFamily(_)
@@ -89,42 +89,42 @@ impl StyleProperty {
     }
 }
 
-impl_from!(StyleBorderRadius, StyleProperty::BorderRadius);
-impl_from!(StyleBackground, StyleProperty::Background);
-impl_from!(StyleBoxShadow, StyleProperty::BoxShadow);
-impl_from!(StyleBorder, StyleProperty::Border);
-impl_from!(StyleFontSize, StyleProperty::FontSize);
-impl_from!(StyleFontFamily, StyleProperty::FontFamily);
-impl_from!(StyleTextAlignmentHorz, StyleProperty::TextAlign);
-impl_from!(StyleLineHeight, StyleProperty::LineHeight);
-impl_from!(StyleLetterSpacing, StyleProperty::LetterSpacing);
-impl_from!(StyleBackgroundColor, StyleProperty::BackgroundColor);
-impl_from!(StyleTextColor, StyleProperty::TextColor);
+impl_from!(StyleBorderRadius, CssProperty::BorderRadius);
+impl_from!(StyleBackground, CssProperty::Background);
+impl_from!(StyleBoxShadow, CssProperty::BoxShadow);
+impl_from!(StyleBorder, CssProperty::Border);
+impl_from!(StyleFontSize, CssProperty::FontSize);
+impl_from!(StyleFontFamily, CssProperty::FontFamily);
+impl_from!(StyleTextAlignmentHorz, CssProperty::TextAlign);
+impl_from!(StyleLineHeight, CssProperty::LineHeight);
+impl_from!(StyleLetterSpacing, CssProperty::LetterSpacing);
+impl_from!(StyleBackgroundColor, CssProperty::BackgroundColor);
+impl_from!(StyleTextColor, CssProperty::TextColor);
 
-impl_from!(LayoutOverflow, StyleProperty::Overflow);
-impl_from!(LayoutWidth, StyleProperty::Width);
-impl_from!(LayoutHeight, StyleProperty::Height);
-impl_from!(LayoutMinWidth, StyleProperty::MinWidth);
-impl_from!(LayoutMinHeight, StyleProperty::MinHeight);
-impl_from!(LayoutMaxWidth, StyleProperty::MaxWidth);
-impl_from!(LayoutMaxHeight, StyleProperty::MaxHeight);
+impl_from!(LayoutOverflow, CssProperty::Overflow);
+impl_from!(LayoutWidth, CssProperty::Width);
+impl_from!(LayoutHeight, CssProperty::Height);
+impl_from!(LayoutMinWidth, CssProperty::MinWidth);
+impl_from!(LayoutMinHeight, CssProperty::MinHeight);
+impl_from!(LayoutMaxWidth, CssProperty::MaxWidth);
+impl_from!(LayoutMaxHeight, CssProperty::MaxHeight);
 
-impl_from!(LayoutPosition, StyleProperty::Position);
-impl_from!(LayoutTop, StyleProperty::Top);
-impl_from!(LayoutBottom, StyleProperty::Bottom);
-impl_from!(LayoutRight, StyleProperty::Right);
-impl_from!(LayoutLeft, StyleProperty::Left);
+impl_from!(LayoutPosition, CssProperty::Position);
+impl_from!(LayoutTop, CssProperty::Top);
+impl_from!(LayoutBottom, CssProperty::Bottom);
+impl_from!(LayoutRight, CssProperty::Right);
+impl_from!(LayoutLeft, CssProperty::Left);
 
-impl_from!(LayoutPadding, StyleProperty::Padding);
-impl_from!(LayoutMargin, StyleProperty::Margin);
+impl_from!(LayoutPadding, CssProperty::Padding);
+impl_from!(LayoutMargin, CssProperty::Margin);
 
-impl_from!(LayoutWrap, StyleProperty::FlexWrap);
-impl_from!(LayoutDirection, StyleProperty::FlexDirection);
-impl_from!(LayoutFlexGrow, StyleProperty::FlexGrow);
-impl_from!(LayoutFlexShrink, StyleProperty::FlexShrink);
-impl_from!(LayoutJustifyContent, StyleProperty::JustifyContent);
-impl_from!(LayoutAlignItems, StyleProperty::AlignItems);
-impl_from!(LayoutAlignContent, StyleProperty::AlignContent);
+impl_from!(LayoutWrap, CssProperty::FlexWrap);
+impl_from!(LayoutDirection, CssProperty::FlexDirection);
+impl_from!(LayoutFlexGrow, CssProperty::FlexGrow);
+impl_from!(LayoutFlexShrink, CssProperty::FlexShrink);
+impl_from!(LayoutJustifyContent, CssProperty::JustifyContent);
+impl_from!(LayoutAlignItems, CssProperty::AlignItems);
+impl_from!(LayoutAlignContent, CssProperty::AlignContent);
 
 const SCALE_FACTOR: f32 = 10000.0;
 
@@ -456,12 +456,12 @@ pub struct BoxShadowPreDisplayItem {
 pub enum StyleBackground {
     LinearGradient(LinearGradientPreInfo),
     RadialGradient(RadialGradientPreInfo),
-    Image(StyleImageId),
+    Image(CssImageId),
     NoBackground,
 }
 
-impl<'a> From<StyleImageId> for StyleBackground {
-    fn from(id: StyleImageId) -> Self {
+impl<'a> From<CssImageId> for StyleBackground {
+    fn from(id: CssImageId) -> Self {
         StyleBackground::Image(id)
     }
 }
@@ -627,11 +627,11 @@ pub enum BackgroundType {
 /// Note: In theory, we could take a reference here,
 /// but this leads to horrible lifetime issues.
 ///
-/// Ownership allows the `AppStyle` struct to be independent
+/// Ownership allows the `Css` struct to be independent
 /// of the original source text. For example, when parsing a style
 /// from CSS, the original string can be deallocated afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StyleImageId(pub String);
+pub struct CssImageId(pub String);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GradientStopPre {

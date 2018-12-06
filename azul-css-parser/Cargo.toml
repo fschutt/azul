@@ -16,5 +16,5 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
-azul-style              = { path = "../azul-style", default-features = false }
+azul-css                = { path = "../azul-css",   default-features = false }
 simplecss               = { version = "0.1.0",      default-features = false }
