@@ -1052,7 +1052,7 @@ pub(crate) fn get_y_positions(
 mod layout_tests {
 
     use css_parser::RectLayout;
-    use id_tree::{Arena, Node, NodeId};
+    use id_tree::{Node, NodeId};
     use super::*;
 
     /// Returns a DOM for testing so we don't have to construct it every time.
@@ -1066,7 +1066,7 @@ mod layout_tests {
     ///    '   '--- 4
     ///    '-- 5
     /// ```
-    fn get_testing_dom() -> NodeHierarchy {
+    fn get_testing_hierarchy() -> NodeHierarchy {
         NodeHierarchy {
             internal: vec![
                 // 0
@@ -1124,11 +1124,12 @@ mod layout_tests {
     /// Returns the same arena, but pre-fills nodes at [(NodeId, RectLayout)]
     /// with the layout rect
     fn get_display_rectangle_arena(constraints: &[(usize, RectLayout)]) -> (NodeHierarchy, NodeDataContainer<RectLayout>) {
-        let arena_data = vec![RectLayout::default(); arena.node_data.len()];
+        let arena = get_testing_hierarchy();
+        let mut arena_data = vec![RectLayout::default(); arena.len()];
         for (id, rect) in constraints {
-            arena_data[NodeId::new(*id)] = *rect;
+            arena_data[*id] = *rect;
         }
-        (get_testing_hierarchy(), arena_data)
+        (arena, NodeDataContainer { internal: arena_data })
     }
 
     #[test]
@@ -1232,7 +1233,7 @@ mod layout_tests {
         ]);
 
         let preferred_widths = node_data.transform(|_, _| None);
-        let mut width_filled_out_data = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&display_rectangles, preferred_widths);
+        let mut width_filled_out_data = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&node_data, preferred_widths);
 
         // Test some basic stuff - test that `get_flex_basis` works
 
@@ -1276,7 +1277,7 @@ mod layout_tests {
 
 
         // This step shouldn't have touched the flex_grow_px
-        for node in width_filled_out_data.internal {
+        for node in &width_filled_out_data.internal {
             assert_eq!(node.flex_grow_px, 0.0);
         }
 
@@ -1313,7 +1314,7 @@ mod layout_tests {
         //    '   '-- 4     -- [] - expecting width to stretch to 80px (half of 160)
         //    '-- 5         -- [] - expecting width to stretch to 554px (754 - 200px max-width of earlier sibling)
 
-        width_filled_out_data.apply_flex_grow(node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth, window_width);
+        width_filled_out_data.apply_flex_grow(&node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth, window_width);
 
         assert_eq!(width_filled_out_data[NodeId::new(0)].solved_result(), WidthSolvedResult {
             min_width: 40.0,

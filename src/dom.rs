@@ -1083,36 +1083,36 @@ fn test_dom_sibling_1() {
     assert_eq!(NodeId::new(0), dom.root);
 
     assert_eq!(vec![String::from("sibling-1")],
-        arena[
-            arena[dom.root]
-            .first_child().expect("root has no first child")
-        ].data.ids);
+        arena.node_data[
+            arena.node_layout[dom.root]
+            .first_child.expect("root has no first child")
+        ].ids);
 
     assert_eq!(vec![String::from("sibling-2")],
-        arena[
-            arena[
-                arena[dom.root]
-                .first_child().expect("root has no first child")
-            ].next_sibling().expect("root has no second sibling")
-        ].data.ids);
+        arena.node_data[
+            arena.node_layout[
+                arena.node_layout[dom.root]
+                .first_child.expect("root has no first child")
+            ].next_sibling.expect("root has no second sibling")
+        ].ids);
 
     assert_eq!(vec![String::from("sibling-1-child-1")],
-        arena[
-            arena[
-                arena[dom.root]
-                .first_child().expect("root has no first child")
-            ].first_child().expect("first child has no first child")
-        ].data.ids);
+        arena.node_data[
+            arena.node_layout[
+                arena.node_layout[dom.root]
+                .first_child.expect("root has no first child")
+            ].first_child.expect("first child has no first child")
+        ].ids);
 
     assert_eq!(vec![String::from("sibling-2-child-1")],
-        arena[
-            arena[
-                arena[
-                    arena[dom.root]
-                    .first_child().expect("root has no first child")
-                ].next_sibling().expect("first child has no second sibling")
-            ].first_child().expect("second sibling has no first child")
-        ].data.ids);
+        arena.node_data[
+            arena.node_layout[
+                arena.node_layout[
+                    arena.node_layout[dom.root]
+                    .first_child.expect("root has no first child")
+                ].next_sibling.expect("first child has no second sibling")
+            ].first_child.expect("second sibling has no first child")
+        ].ids);
 }
 
 #[test]
@@ -1143,26 +1143,27 @@ fn test_dom_from_iter_1() {
     assert_eq!(arena.len(), 6);
 
     // Check root node
-    assert_eq!(arena.nodes.first(), Some(&Node {
+    assert_eq!(arena.node_layout.get(NodeId::new(0)), Some(&Node {
         parent: None,
         previous_sibling: None,
         next_sibling: None,
         first_child: Some(NodeId::new(1)),
         last_child: Some(NodeId::new(5)),
-        data: NodeData::new(NodeType::Div),
     }));
+    assert_eq!(arena.node_data.get(NodeId::new(0)), Some(&NodeData::new(NodeType::Div)));
 
-    assert_eq!(arena.nodes.last(), Some(&Node {
+    assert_eq!(arena.node_layout.get(NodeId::new(arena.node_layout.len() - 1)), Some(&Node {
         parent: Some(NodeId::new(0)),
         previous_sibling: Some(NodeId::new(4)),
         next_sibling: None,
         first_child: None,
         last_child: None,
-        data: NodeData {
-            node_type: NodeType::Label(String::from("5")),
-            .. Default::default()
-        }
     }));
+    assert_eq!(arena.node_data.get(NodeId::new(arena.node_data.len() - 1)), Some(&NodeData {
+        node_type: NodeType::Label(String::from("5")),
+        .. Default::default()
+    }));
+
 }
 
 /// Test that there shouldn't be a DOM that has 0 nodes

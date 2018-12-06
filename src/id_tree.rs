@@ -114,6 +114,10 @@ impl NodeHierarchy {
         self.internal.len()
     }
 
+    pub fn get(&self, id: NodeId) -> Option<&Node> {
+        self.internal.get(id.index())
+    }
+
     pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
             arena_len: self.len(),
@@ -606,77 +610,5 @@ impl<'a> Iterator for ReverseTraverse<'a> {
             }
             None => None
         }
-    }
-}
-
-#[cfg(test)]
-mod id_tree_tests {
-    use super::*;
-
-    #[test]
-    fn drop_allocator() {
-        use std::cell::Cell;
-
-        struct DropTracker<'a>(&'a Cell<u32>);
-        impl<'a> Drop for DropTracker<'a> {
-            fn drop(&mut self) {
-                self.0.set(&self.0.get() + 1);
-            }
-        }
-
-        let drop_counter = Cell::new(0);
-        {
-            let mut new_counter = 0;
-            let arena = &mut Arena::new();
-            macro_rules! new {
-                () => {
-                    {
-                        new_counter += 1;
-                        arena.new_node((new_counter, DropTracker(&drop_counter)))
-                    }
-                }
-            };
-
-            let a = new!();  // 1
-            a.append(new!(), arena);  // 2
-            a.append(new!(), arena);  // 3
-            a.prepend(new!(), arena);  // 4
-            let b = new!();  // 5
-            b.append(a, arena);
-            a.insert_before(new!(), arena);  // 6
-            a.insert_before(new!(), arena);  // 7
-            a.insert_after(new!(), arena);  // 8
-            a.insert_after(new!(), arena);  // 9
-            let c = new!();  // 10
-            b.append(c, arena);
-
-            assert_eq!(drop_counter.get(), 0);
-            arena[c].previous_sibling().unwrap().detach(arena);
-            assert_eq!(drop_counter.get(), 0);
-
-            assert_eq!(b.descendants(arena).map(|node| arena[node].data.0).collect::<Vec<_>>(), [
-                5, 6, 7, 1, 4, 2, 3, 9, 10
-            ]);
-        }
-
-        assert_eq!(drop_counter.get(), 10);
-    }
-
-
-    #[test]
-    fn children_ordering() {
-
-        let arena = &mut Arena::new();
-        let root = arena.new_node("".to_string());
-
-        root.append(arena.new_node("b".to_string()), arena);
-        root.prepend(arena.new_node("a".to_string()), arena);
-        root.append(arena.new_node("c".to_string()), arena);
-
-        let children = root.children(arena).map(|node| &*arena[node].data).collect::<Vec<&str>>();
-        let reverse_children = root.reverse_children(arena).map(|node| &*arena[node].data).collect::<Vec<&str>>();
-
-        assert_eq!(children, vec!["a", "b", "c"]);
-        assert_eq!(reverse_children, vec!["c", "b", "a"]);
     }
 }
