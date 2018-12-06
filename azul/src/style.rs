@@ -7,9 +7,9 @@ use azul_css::{
     CssContentGroup,
     CssConstraintList,
     CssDeclaration,
-    XPath,
-    XPathSelector,
-    XPathPseudoSelector
+    CssPath,
+    CssPathSelector,
+    CssPathPseudoSelector
 };
 use {
     traits::Layout,
@@ -31,7 +31,7 @@ pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
 
 /// Returns if the style xpath matches the DOM node (i.e. if the DOM node should be styled by that element)
 pub fn matches_html_element<'a, T: Layout>(
-    xpath: &XPath,
+    xpath: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
     html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>)
@@ -54,7 +54,7 @@ pub fn matches_html_element<'a, T: Layout>(
                 // The node has no parent, but the CSS path
                 // still has an extra limitation - only valid if the
                 // next content group is a "*" element
-                return *content_group == [&XPathSelector::Global];
+                return *content_group == [&CssPathSelector::Global];
             },
         };
         let current_selector_matches = selector_group_matches(&content_group, &html_node_tree[cur_node_id]);
@@ -74,7 +74,7 @@ pub fn matches_html_element<'a, T: Layout>(
 }
 
 struct CssGroupIterator<'a> {
-    pub css_path: &'a Vec<XPathSelector>,
+    pub css_path: &'a Vec<CssPathSelector>,
     pub current_idx: usize,
     pub last_reason: CssGroupSplitReason,
 }
@@ -86,7 +86,7 @@ enum CssGroupSplitReason {
 }
 
 impl<'a> CssGroupIterator<'a> {
-    pub fn new(css_path: &'a Vec<XPathSelector>) -> Self {
+    pub fn new(css_path: &'a Vec<CssPathSelector>) -> Self {
         let initial_len = css_path.len();
         Self {
             css_path,
@@ -100,7 +100,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     type Item = (CssContentGroup<'a>, CssGroupSplitReason);
 
     fn next(&mut self) -> Option<(CssContentGroup<'a>, CssGroupSplitReason)> {
-        use self::XPathSelector::*;
+        use self::CssPathSelector::*;
 
         let mut new_idx = self.current_idx;
 
@@ -146,7 +146,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
 #[test]
 fn test_css_group_iterator() {
 
-    use self::XPathSelector::*;
+    use self::CssPathSelector::*;
     use azul_css::NodeTypePath;
 
     // ".hello > #id_text.new_class div.content"
@@ -245,8 +245,8 @@ fn construct_html_cascade_tree<'a, T: Layout>(
 ///
 /// The intent is to "split" the CSS path into groups by selectors, then store and cache
 /// whether the direct or any parent has matched the path correctly
-fn selector_group_matches<'a, T: Layout>(selectors: &[&XPathSelector], html_node: &HtmlCascadeInfo<'a, T>) -> bool {
-    use self::XPathSelector::*;
+fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_node: &HtmlCascadeInfo<'a, T>) -> bool {
+    use self::CssPathSelector::*;
 
     for selector in selectors {
         match selector {
@@ -266,24 +266,24 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&XPathSelector], html_node
                     return false;
                 }
             },
-            PseudoSelector(XPathPseudoSelector::First) => {
+            PseudoSelector(CssPathPseudoSelector::First) => {
                 // Notice: index_in_parent is 1-indexed
                 if html_node.index_in_parent != 1 { return false; }
             },
-            PseudoSelector(XPathPseudoSelector::Last) => {
+            PseudoSelector(CssPathPseudoSelector::Last) => {
                 // Notice: index_in_parent is 1-indexed
                 if !html_node.is_last_child { return false; }
             },
-            PseudoSelector(XPathPseudoSelector::NthChild(x)) => {
+            PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
                 if html_node.index_in_parent != *x { return false; }
             },
-            PseudoSelector(XPathPseudoSelector::Hover) => {
+            PseudoSelector(CssPathPseudoSelector::Hover) => {
                 if !html_node.is_hovered_over { return false; }
             },
-            PseudoSelector(XPathPseudoSelector::Active) => {
+            PseudoSelector(CssPathPseudoSelector::Active) => {
                 if !html_node.is_active { return false; }
             },
-            PseudoSelector(XPathPseudoSelector::Focus) => {
+            PseudoSelector(CssPathPseudoSelector::Focus) => {
                 if !html_node.is_focused { return false; }
             },
             DirectChildren | Children => {
@@ -373,40 +373,40 @@ pub(crate) fn sort_by_specificity(mut style: Css) -> Css {
     style
 }
 
-/// Returns specificity of the given style path. Further information can be found on
+/// Returns specificity of the given css path. Further information can be found on
 /// [the w3 website](http://www.w3.org/TR/selectors/#specificity).
-fn get_specificity(path: &XPath) -> (usize, usize, usize) {
-    let id_count = path.selectors.iter().filter(|x|     if let XPathSelector::Id(_) = x {     true } else { false }).count();
-    let class_count = path.selectors.iter().filter(|x|  if let XPathSelector::Class(_) = x {  true } else { false }).count();
-    let div_count = path.selectors.iter().filter(|x|    if let XPathSelector::Type(_) = x {   true } else { false }).count();
+fn get_specificity(path: &CssPath) -> (usize, usize, usize) {
+    let id_count = path.selectors.iter().filter(|x|     if let CssPathSelector::Id(_) = x {     true } else { false }).count();
+    let class_count = path.selectors.iter().filter(|x|  if let CssPathSelector::Class(_) = x {  true } else { false }).count();
+    let div_count = path.selectors.iter().filter(|x|    if let CssPathSelector::Type(_) = x {   true } else { false }).count();
     (id_count, class_count, div_count)
 }
 
 #[test]
 fn test_specificity() {
-    use self::XPathSelector::*;
+    use self::CssPathSelector::*;
     use azul_css::NodeTypePath;
-    assert_eq!(get_specificity(&XPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
-    assert_eq!(get_specificity(&XPath { selectors: vec![Class("hello".into())] }), (0, 1, 0));
-    assert_eq!(get_specificity(&XPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1));
-    assert_eq!(get_specificity(&XPath { selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)] }), (1, 0, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into())] }), (1, 0, 0));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".into())] }), (0, 1, 0));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)] }), (1, 0, 1));
 }
 
-// Assert that order of the style items is correct (in order of xpath specificity, lowest-to-highest)
+// Assert that order of the style items is correct (in order of CSS path specificity, lowest-to-highest)
 #[test]
 fn test_specificity_sort() {
     use azul_css::*;
-    use self::XPathSelector::*;
+    use self::CssPathSelector::*;
     use azul_css::NodeTypePath::*;
 
     let input_style = Css {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
     };
 
@@ -415,11 +415,11 @@ fn test_specificity_sort() {
     let expected_style = Css {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: XPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
         ],
     };
 
