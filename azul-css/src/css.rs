@@ -90,18 +90,18 @@ impl DynamicCssProperty {
     }
 }
 
-/// One block of rules that applies a bunch of rules to an "xpath" in the style, i.e.
+/// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssRuleBlock {
-    /// The xpath (full selector) of the style ruleset
-    pub path: XPath,
+    /// The css path (full selector) of the style ruleset
+    pub path: CssPath,
     /// `"justify-content: center"` =>
     /// `CssDeclaration::Static(CssProperty::JustifyContent(LayoutJustifyContent::Center))`
     pub declarations: Vec<CssDeclaration>,
 }
 
-pub type CssContentGroup<'a> = Vec<&'a XPathSelector>;
+pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 
 /// Signifies the type (i.e. the discriminant value) of a DOM node without any of its associated
 /// data
@@ -129,16 +129,16 @@ impl std::fmt::Display for NodeTypePath {
     }
 }
 
-/// Represents a full style xpath:
+/// Represents a full CSS path:
 /// `#div > .my_class:focus` =>
-/// `[XPathSelector::Type(NodeTypePath::Div), LimitChildren, XPathSelector::Class("my_class"), XPathSelector::PseudoSelector]`
+/// `[CssfPathSelector::Type(NodeTypePath::Div), LimitChildren, CssPathSelector::Class("my_class"), CssPathSelector::PseudoSelector]`
 #[derive(Debug, Clone, Hash, Default, PartialEq)]
-pub struct XPath {
-    pub selectors: Vec<XPathSelector>,
+pub struct CssPath {
+    pub selectors: Vec<CssPathSelector>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum XPathSelector {
+pub enum CssPathSelector {
     /// Represents the `*` selector
     Global,
     /// `div`, `p`, etc.
@@ -148,15 +148,17 @@ pub enum XPathSelector {
     /// `#something`
     Id(String),
     /// `:something`
-    PseudoSelector(XPathPseudoSelector),
+    PseudoSelector(CssPathPseudoSelector),
     /// Represents the `>` selector
     DirectChildren,
     /// Represents the ` ` selector
     Children
 }
 
+impl Default for CssPathSelector { fn default() -> Self { CssPathSelector::Global } }
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum XPathPseudoSelector {
+pub enum CssPathPseudoSelector {
     /// `:first`
     First,
     /// `:last`

@@ -13,9 +13,9 @@ use azul_css::{
     DynamicCssProperty,
     DynamicCssPropertyDefault,
     CssRuleBlock,
-    XPath,
-    XPathSelector,
-    XPathPseudoSelector,
+    CssPath,
+    CssPathSelector,
+    CssPathPseudoSelector,
 };
 
 /// Error that can happen during the parsing of a CSS value
@@ -72,13 +72,13 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     UnclosedBracesNthChild(e) => format!(":nth-child has unclosed braces: ':{}'", e),
 }}
 
-fn pseudo_selector_from_str<'a>(data: &'a str) -> Result<XPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
+fn pseudo_selector_from_str<'a>(data: &'a str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
     match data {
-        "first" => Ok(XPathPseudoSelector::First),
-        "last" => Ok(XPathPseudoSelector::Last),
-        "hover" => Ok(XPathPseudoSelector::Hover),
-        "active" => Ok(XPathPseudoSelector::Active),
-        "focus" => Ok(XPathPseudoSelector::Focus),
+        "first" => Ok(CssPathPseudoSelector::First),
+        "last" => Ok(CssPathPseudoSelector::Last),
+        "hover" => Ok(CssPathPseudoSelector::Hover),
+        "active" => Ok(CssPathPseudoSelector::Active),
+        "focus" => Ok(CssPathPseudoSelector::Focus),
         other => {
             // TODO: move this into a seperate function
             if other.starts_with("nth-child") {
@@ -94,7 +94,7 @@ fn pseudo_selector_from_str<'a>(data: &'a str) -> Result<XPathPseudoSelector, Cs
                 let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
                 nth_child_string.trim();
                 let parsed = nth_child_string.parse::<usize>()?;
-                Ok(XPathPseudoSelector::NthChild(parsed))
+                Ok(CssPathPseudoSelector::NthChild(parsed))
             } else {
                 Err(CssPseudoSelectorParseError::UnknownSelector(other))
             }
@@ -105,12 +105,12 @@ fn pseudo_selector_from_str<'a>(data: &'a str) -> Result<XPathPseudoSelector, Cs
 #[test]
 fn test_css_pseudo_selector_parse() {
     let ok_res = [
-        ("first", XPathPseudoSelector::First),
-        ("last", XPathPseudoSelector::Last),
-        ("nth-child(4)", XPathPseudoSelector::NthChild(4)),
-        ("hover", XPathPseudoSelector::Hover),
-        ("active", XPathPseudoSelector::Active),
-        ("focus", XPathPseudoSelector::Focus),
+        ("first", CssPathPseudoSelector::First),
+        ("last", CssPathPseudoSelector::Last),
+        ("nth-child(4)", CssPathPseudoSelector::NthChild(4)),
+        ("hover", CssPathPseudoSelector::Hover),
+        ("active", CssPathPseudoSelector::Active),
+        ("focus", CssPathPseudoSelector::Focus),
     ];
 
     let err = [
@@ -179,7 +179,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
                         parser_in_block = false;
                         for path in current_paths.drain(..) {
                             css_blocks.push(CssRuleBlock {
-                                path: XPath { selectors: path },
+                                path: CssPath { selectors: path },
                                 declarations: current_rules.clone(),
                             })
                         }
@@ -192,43 +192,43 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
                         if parser_in_block {
                             return Err(CssParseError::MalformedCss);
                         }
-                        last_path.push(XPathSelector::Global);
+                        last_path.push(CssPathSelector::Global);
                     },
                     Token::TypeSelector(div_type) => {
                         if parser_in_block {
                             return Err(CssParseError::MalformedCss);
                         }
-                        last_path.push(XPathSelector::Type(node_type_path_from_str(div_type)?));
+                        last_path.push(CssPathSelector::Type(node_type_path_from_str(div_type)?));
                     },
                     Token::IdSelector(id) => {
                         if parser_in_block {
                             return Err(CssParseError::MalformedCss);
                         }
-                        last_path.push(XPathSelector::Id(id.to_string()));
+                        last_path.push(CssPathSelector::Id(id.to_string()));
                     },
                     Token::ClassSelector(class) => {
                         if parser_in_block {
                             return Err(CssParseError::MalformedCss);
                         }
-                        last_path.push(XPathSelector::Class(class.to_string()));
+                        last_path.push(CssPathSelector::Class(class.to_string()));
                     },
                     Token::Combinator(Combinator::GreaterThan) => {
                         if parser_in_block {
                             return Err(CssParseError::MalformedCss);
                         }
-                        last_path.push(XPathSelector::DirectChildren);
+                        last_path.push(CssPathSelector::DirectChildren);
                     },
                     Token::Combinator(Combinator::Space) => {
                         if parser_in_block {
                             return Err(CssParseError::MalformedCss);
                         }
-                        last_path.push(XPathSelector::Children);
+                        last_path.push(CssPathSelector::Children);
                     },
                     Token::PseudoClass(pseudo_class) => {
                         if parser_in_block {
                             return Err(CssParseError::MalformedCss);
                         }
-                        last_path.push(XPathSelector::PseudoSelector(pseudo_selector_from_str(pseudo_class)?));
+                        last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(pseudo_class)?));
                     },
                     Token::Declaration(key, val) => {
                         if !parser_in_block {
@@ -462,15 +462,15 @@ fn test_css_parse_1() {
 
     let expected_css_rules = vec![
         CssRuleBlock {
-            path: XPath {
+            path: CssPath {
                 selectors: vec![
-                    XPathSelector::Type(NodeTypePath::Div),
-                    XPathSelector::Id(String::from("my_id")),
-                    XPathSelector::Children,
+                    CssPathSelector::Type(NodeTypePath::Div),
+                    CssPathSelector::Id(String::from("my_id")),
+                    CssPathSelector::Children,
                     // NOTE: This is technically wrong, the space between "#my_id"
                     // and ".my_class" is important, but gets ignored for now
-                    XPathSelector::Class(String::from("my_class")),
-                    XPathSelector::PseudoSelector(XPathPseudoSelector::First),
+                    CssPathSelector::Class(String::from("my_class")),
+                    CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
                 ],
             },
             declarations: vec![CssDeclaration::Static(CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
@@ -482,7 +482,7 @@ fn test_css_parse_1() {
 
 #[test]
 fn test_css_simple_selector_parse() {
-    use self::XPathSelector::*;
+    use self::CssPathSelector::*;
     use azul_css::NodeTypePath;
     let css = "div#id.my_class > p .new { }";
     let parsed = vec![
@@ -496,7 +496,7 @@ fn test_css_simple_selector_parse() {
     ];
     assert_eq!(new_from_str(css).unwrap(), Css {
         rules: vec![CssRuleBlock {
-            path: XPath { selectors: parsed },
+            path: CssPath { selectors: parsed },
             declarations: Vec::new(),
         }],
     });
@@ -525,7 +525,7 @@ mod stylesheet_parse {
             let css_1 = ".my_class { background-color: red; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
+                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into())] },
                     declarations: vec![
                         CssDeclaration::Static(red.clone())
                     ],
@@ -539,11 +539,11 @@ mod stylesheet_parse {
             let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: XPath { selectors: vec![XPathSelector::Id("my_id".into())] },
+                    path: CssPath { selectors: vec![CssPathSelector::Id("my_id".into())] },
                     declarations: vec![CssDeclaration::Static(red.clone())]
                 },
                 CssRuleBlock {
-                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
+                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into())] },
                     declarations: vec![CssDeclaration::Static(blue.clone())]
                 },
             ];
@@ -555,15 +555,15 @@ mod stylesheet_parse {
             let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: XPath { selectors: vec![XPathSelector::Global] },
+                    path: CssPath { selectors: vec![CssPathSelector::Global] },
                     declarations: vec![CssDeclaration::Static(black.clone())]
                 },
                 CssRuleBlock {
-                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into()), XPathSelector::Id("my_id".into())] },
+                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into()), CssPathSelector::Id("my_id".into())] },
                     declarations: vec![CssDeclaration::Static(red.clone())]
                 },
                 CssRuleBlock {
-                    path: XPath { selectors: vec![XPathSelector::Class("my_class".into())] },
+                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into())] },
                     declarations: vec![CssDeclaration::Static(blue.clone())]
                 },
             ];
@@ -576,7 +576,7 @@ mod stylesheet_parse {
 #[test]
 fn test_multiple_rules() {
     use azul_css::*;
-    use self::XPathSelector::*;
+    use self::CssPathSelector::*;
 
     let parsed_css = new_from_str("
         * { }
@@ -588,11 +588,11 @@ fn test_multiple_rules() {
 
     let expected_rules = vec![
         // Rules are sorted by order of appearance in source string
-        CssRuleBlock { path: XPath { selectors: vec![Global] }, declarations: Vec::new() },
-        CssRuleBlock { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-        CssRuleBlock { path: XPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".into())] }, declarations: Vec::new() },
-        CssRuleBlock { path: XPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-        CssRuleBlock { path: XPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: CssPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
     ];
 
     assert_eq!(parsed_css, expected_rules.into());
