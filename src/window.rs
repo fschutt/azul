@@ -237,7 +237,7 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
         let ui_state = self.ui_state;
         let arena = ui_state.dom.arena.borrow();
 
-        if node_id.index() > arena.nodes_len() {
+        if node_id.index() > arena.len() {
             return None; // node_id out of range
         }
 
@@ -271,7 +271,7 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
         let ui_state = self.ui_state;
         let arena = ui_state.dom.arena.borrow();
 
-        if node_id.index() > arena.nodes_len() {
+        if node_id.index() > arena.len() {
             return None; // node_id out of range
         }
 
