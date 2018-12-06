@@ -260,7 +260,7 @@ impl<T> Arena<T> {
     /// Transform keeps the relative order of parents / children
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
-    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(NodeId, T) -> U {
+    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(T, NodeId) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
             node_layout: self.node_layout,
@@ -304,7 +304,7 @@ impl<T> Arena<T> {
     fn print_tree_recursive<F: Fn(&T) -> String + Copy>(&self, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
         let node = &self.node_layout[current_node_id];
         let tabs = String::from("\t|").repeat(indent);
-        string.push_str(&format!("{}-- {}: {}\n", tabs, current_node_id.index(), format_cb(self.node_data[&current_node_id])));
+        string.push_str(&format!("{}-- {}: {}\n", tabs, current_node_id.index(), format_cb(&self.node_data[current_node_id])));
 
         if let Some(first_child) = node.first_child {
             self.print_tree_recursive(format_cb, string, first_child, indent + 1);
