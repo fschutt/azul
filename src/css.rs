@@ -196,7 +196,7 @@ pub struct CssRuleBlock {
 
 /// Represents a full CSS path:
 /// `#div > .my_class:focus` =>
-/// `[CssPathSelector::Type(NodeTypePath::Div), LimitChildren, CssPathSelector::Class("my_class"), CssPathSelector::PseudoSelector]`
+/// `[CssPathSelector::Type(NodeTypePath::Div), DirectChildren, CssPathSelector::Class("my_class"), CssPathSelector::PseudoSelector]`
 #[derive(Debug, Clone, Hash, Default, PartialEq)]
 pub struct CssPath {
     pub selectors: Vec<CssPathSelector>,
@@ -250,7 +250,7 @@ impl CssPath {
                 PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
                     if index_in_parent != *x { return false; }
                 },
-                LimitChildren | PseudoSelector(_) => {
+                DirectChildren | Children | PseudoSelector(_) => {
                     // TODO: for now
                     return false;
                 },
@@ -274,7 +274,9 @@ pub enum CssPathSelector {
     /// `:something`
     PseudoSelector(CssPathPseudoSelector),
     /// Represents the `>` selector
-    LimitChildren,
+    DirectChildren,
+    /// Represents the ` ` selector
+    Children
 }
 
 impl Default for CssPathSelector { fn default() -> Self { CssPathSelector::Global } }
@@ -460,7 +462,13 @@ impl Css {
                             if parser_in_block {
                                 return Err(CssParseError::MalformedCss);
                             }
-                            last_path.push(CssPathSelector::LimitChildren);
+                            last_path.push(CssPathSelector::DirectChildren);
+                        },
+                        Token::Combinator(Combinator::Space) => {
+                            if parser_in_block {
+                                return Err(CssParseError::MalformedCss);
+                            }
+                            last_path.push(CssPathSelector::Children);
                         },
                         Token::PseudoClass(pseudo_class) => {
                             if parser_in_block {
@@ -923,6 +931,7 @@ fn test_css_parse_1() {
                         CssPathSelector::Id(String::from("my_id")),
                         // NOTE: This is technically wrong, the space between "#my_id"
                         // and ".my_class" is important, but gets ignored for now
+                        CssPathSelector::Children,
                         CssPathSelector::Class(String::from("my_class")),
                         CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
                     ],
@@ -938,6 +947,32 @@ fn test_css_parse_1() {
     };
 
     assert_eq!(parsed_css, expected_css);
+}
+
+#[test]
+fn test_css_simple_selector_parse() {
+    use self::CssPathSelector::*;
+    let css = "div#id.my_class > p .new { }";
+    let parsed = vec![
+        Type(NodeTypePath::Div),
+        Id("id".into()),
+        Class("my_class".into()),
+        DirectChildren,
+        Type(NodeTypePath::P),
+        Children,
+        Class("new".into())
+    ];
+    assert_eq!(Css::new_from_str(css).unwrap(), Css {
+        rules: vec![CssRuleBlock {
+            path: CssPath { selectors: parsed },
+            declarations: Vec::new(),
+        }],
+        needs_relayout: true,
+        #[cfg(debug_assertions)]
+        hot_reload_path: None,
+        #[cfg(debug_assertions)]
+        hot_reload_override_native: false,
+    });
 }
 
 #[cfg(test)]
