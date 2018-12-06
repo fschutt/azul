@@ -268,14 +268,14 @@ impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
     ///
     /// Note: Index is 0-based (first item has the index of 0)
     pub fn get_index_in_parent(&self, node_id: NodeId) -> Option<(usize, NodeId)> {
-        let ui_state = self.ui_state;
-        let node_layout = ui_state.dom.arena.borrow().node_layout;
+        let arena_borrow = self.ui_state.dom.arena.borrow();
+        let node_layout = &arena_borrow.node_layout;
 
         if node_id.index() > node_layout.len() {
             return None; // node_id out of range
         }
 
-        let parent = node_layout[node_id].parent()?;
+        let parent = node_layout[node_id].parent?;
         Some((node_id.preceding_siblings(&node_layout).count() - 1, parent))
     }
 }
