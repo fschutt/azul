@@ -15,7 +15,7 @@ use {
     text_cache::TextId,
     traits::Layout,
     app_state::AppState,
-    id_tree::{NodeId, Node, Arena},
+    id_tree::{NodeId, Node, Arena, NodeHierarchy, NodeDataContainer},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
     text_layout::{Words, FontMetrics, TextSizePx},
@@ -724,7 +724,11 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
         Dom {
             head: NodeId::new(0),
             root: NodeId::new(0),
-            arena: Rc::new(RefCell::new(Arena { node_data, node_layout })) }
+            arena: Rc::new(RefCell::new(Arena {
+                node_data: NodeDataContainer::new(node_data),
+                node_layout: NodeHierarchy::new(node_layout),
+            })),
+        }
     }
 }
 
@@ -823,51 +827,51 @@ impl<T: Layout> Dom<T> {
 
         for node_id in 0..child_len {
             let node_id = NodeId::new(node_id);
-            let node: &mut Node<NodeData<T>> = &mut child_arena[node_id];
+            let node_id_child: &mut Node = &mut child_arena.node_layout[node_id];
 
             // WARNING: Order of these blocks is important!
 
-            if node.previous_sibling_mut().and_then(|previous_sibling| {
+            if node_id_child.previous_sibling.as_mut().and_then(|previous_sibling| {
                 // Some(previous_sibling) - increase the parent ID by the current arena length
                 *previous_sibling += self_len;
                 Some(previous_sibling)
             }).is_none() {
                 // None - set the current heads' last child as the new previous sibling
-                let last_child = self_arena[self.head].last_child;
-                if last_child.is_some() && node.parent.is_none() {
-                    node.previous_sibling = last_child;
-                    self_arena[last_child.unwrap()].next_sibling = Some(node_id + self_len);
+                let last_child = self_arena.node_layout[self.head].last_child;
+                if last_child.is_some() && node_id_child.parent.is_none() {
+                    node_id_child.previous_sibling = last_child;
+                    self_arena.node_layout[last_child.unwrap()].next_sibling = Some(node_id + self_len);
                 }
             }
 
-            if node.parent_mut().and_then(|parent| {
+            if node_id_child.parent.as_mut().and_then(|parent| {
                 *parent += self_len;
                 Some(parent)
             }).is_none() {
                 // Have we encountered the last root item?
-                if node.next_sibling.is_none() {
+                if node_id_child.next_sibling.is_none() {
                     last_sibling = Some(node_id);
                 }
-                node.parent = Some(self.head);
+                node_id_child.parent = Some(self.head);
             }
 
-            if let Some(next_sibling) = node.next_sibling_mut() {
+            if let Some(next_sibling) = node_id_child.next_sibling.as_mut() {
                 *next_sibling += self_len;
             }
 
-            if let Some(first_child) = node.first_child_mut() {
+            if let Some(first_child) = node_id_child.first_child.as_mut() {
                 *first_child += self_len;
             }
 
-            if let Some(last_child) = node.last_child_mut() {
+            if let Some(last_child) = node_id_child.last_child.as_mut() {
                 *last_child += self_len;
             }
         }
 
-        self_arena[self.head].first_child.get_or_insert(NodeId::new(self_len));
-        self_arena[self.head].last_child = Some(last_sibling.unwrap() + self_len);
+        self_arena.node_layout[self.head].first_child.get_or_insert(NodeId::new(self_len));
+        self_arena.node_layout[self.head].last_child = Some(last_sibling.unwrap() + self_len);
 
-        (&mut *self_arena).append(&mut child_arena);
+        (&mut *self_arena).append_arena(&mut child_arena);
     }
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
@@ -913,27 +917,27 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn add_id<S: Into<String>>(&mut self, id: S) {
-        self.arena.borrow_mut()[self.head].data.ids.push(id.into());
+        self.arena.borrow_mut().node_data[self.head].ids.push(id.into());
     }
 
     #[inline]
     pub fn add_class<S: Into<String>>(&mut self, class: S) {
-        self.arena.borrow_mut()[self.head].data.classes.push(class.into());
+        self.arena.borrow_mut().node_data[self.head].classes.push(class.into());
     }
 
     #[inline]
     pub fn add_callback(&mut self, on: On, callback: Callback<T>) {
-        self.arena.borrow_mut()[self.head].data.events.callbacks.insert(on, callback);
+        self.arena.borrow_mut().node_data[self.head].events.callbacks.insert(on, callback);
     }
 
     #[inline]
     pub fn add_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
-        self.arena.borrow_mut()[self.head].data.default_callback_ids.push((on, id));
+        self.arena.borrow_mut().node_data[self.head].default_callback_ids.push((on, id));
     }
 
     #[inline]
     pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: ParsedCssProperty) {
-        self.arena.borrow_mut()[self.head].data.dynamic_css_overrides.push((override_id.into(), property));
+        self.arena.borrow_mut().node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
     }
 
     /// Prints a debug formatted version of the DOM for easier debugging
@@ -946,7 +950,7 @@ impl<T: Layout> Dom<T> {
     /// two-way data binding tutorial on why this is useful (last section)
     #[inline]
     pub fn enable_hit_testing(&mut self, when_to_hit_test: On) {
-        self.arena.borrow_mut()[self.head].data.force_enable_hit_test.push(when_to_hit_test);
+        self.arena.borrow_mut().node_data[self.head].force_enable_hit_test.push(when_to_hit_test);
     }
 
     pub(crate) fn collect_callbacks(
@@ -961,31 +965,31 @@ impl<T: Layout> Dom<T> {
         // Reset the tag
         TAG_ID.swap(1, Ordering::SeqCst);
 
-        let arena = self.arena.borrow();
+        let arena = &self.arena.borrow();
 
         for node_id in arena.linear_iter() {
 
-            let item = &arena[node_id];
+            let data = &arena.node_data[node_id];
 
             let mut node_tag_id = None;
 
-            if !item.data.events.callbacks.is_empty() {
+            if !data.events.callbacks.is_empty() {
                 let tag_id = new_tag_id();
-                tag_ids_to_callback_list.insert(tag_id, item.data.events.callbacks.clone());
+                tag_ids_to_callback_list.insert(tag_id, data.events.callbacks.clone());
                 node_tag_id = Some(tag_id);
             }
 
-            if !item.data.default_callback_ids.is_empty() {
+            if !data.default_callback_ids.is_empty() {
                 let tag_id = node_tag_id.unwrap_or(new_tag_id());
-                tag_ids_to_default_callback_list.insert(tag_id, item.data.default_callback_ids.iter().cloned().collect());
+                tag_ids_to_default_callback_list.insert(tag_id, data.default_callback_ids.iter().cloned().collect());
                 node_tag_id = Some(tag_id);
             }
 
             // Force-enabling hit-testing is important for child nodes that don't have any
             // callbacks attached themselves, but their parents need them to be hit-tested
-            if !item.data.force_enable_hit_test.is_empty() {
+            if !data.force_enable_hit_test.is_empty() {
                 let tag_id = node_tag_id.unwrap_or(new_tag_id());
-                tag_ids_to_noop_callbacks.insert(tag_id, item.data.force_enable_hit_test.iter().cloned().collect());
+                tag_ids_to_noop_callbacks.insert(tag_id, data.force_enable_hit_test.iter().cloned().collect());
                 node_tag_id = Some(tag_id);
             }
 
@@ -995,8 +999,8 @@ impl<T: Layout> Dom<T> {
             }
 
             // Collect all the styling overrides into one hash map
-            if !item.data.dynamic_css_overrides.is_empty() {
-                dynamic_css_overrides.insert(node_id, item.data.dynamic_css_overrides.iter().cloned().collect());
+            if !data.dynamic_css_overrides.is_empty() {
+                dynamic_css_overrides.insert(node_id, data.dynamic_css_overrides.iter().cloned().collect());
             }
         }
     }
