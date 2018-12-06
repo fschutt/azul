@@ -78,11 +78,11 @@ mod node_id {
             write!(f, "{}", self.index())
         }
     }
-}
 
-impl fmt::Debug for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "NodeId({})", self.index())
+    impl fmt::Debug for NodeId {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "NodeId({})", self.index())
+        }
     }
 }
 
