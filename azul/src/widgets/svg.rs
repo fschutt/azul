@@ -107,7 +107,7 @@ const SVG_VERTEX_SHADER: &str = "
 
         vec2 position_centered = translated_xy / bbox_size;
         vec2 position_zoomed = position_centered * vec2(zoom);
-        gl_Position = vec4(vec2(-1.0) + position_zoomed + (offset / bbox_size), z_index, 1.0);
+        gl_Position = vec4(position_zoomed + (offset / bbox_size) - vec2(1.0), z_index, 1.0);
     }";
 
 const SVG_FRAGMENT_SHADER: &str = "
@@ -642,11 +642,11 @@ impl SampledBezierCurve {
     ///
     /// - `Vec<(f32, f32)>`: the x and y offsets of the glyph characters
     /// - `Vec<f32>`: The rotations in degrees of the glyph characters
-    pub fn get_text_offsets_and_rotations(&self, glyphs: &[GlyphInstance], start_offset: f32)
+    pub fn get_text_offsets_and_rotations(&self, glyphs: &[GlyphInstance], start_offset: f32, font_metrics: &FontMetrics)
     -> (Vec<(f32, f32)>, Vec<BezierCharacterRotation>)
     {
-        let mut glyph_offsets = vec![];
-        let mut glyph_rotations = vec![];
+        let mut glyph_offsets = Vec::new();
+        let mut glyph_rotations = Vec::new();
 
         // NOTE: g.point.x is the offset from the start, not the advance!
         let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
@@ -655,7 +655,7 @@ impl SampledBezierCurve {
         for glyph_idx in 0..glyphs.len() {
             let char_bezier_percentage = self.get_bezier_percentage_from_offset(current_offset);
             let char_bezier_pt = cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
-            glyph_offsets.push((char_bezier_pt.x, char_bezier_pt.y));
+            glyph_offsets.push((char_bezier_pt.x / font_metrics.get_svg_font_scale_factor(), char_bezier_pt.y / font_metrics.get_svg_font_scale_factor()));
 
             let char_rotation_percentage = self.get_bezier_percentage_from_offset(last_offset);
             let rotation = cubic_bezier_normal(&self.original_curve, char_rotation_percentage).to_rotation();
@@ -945,6 +945,38 @@ pub struct SvgStyle {
     // TODO: stroke-dasharray
 }
 
+impl SvgStyle {
+    /// If the style already has a rotation, adds the rotation, otherwise sets the rotation
+    ///
+    /// Input is in degrees.
+    pub fn rotate(&mut self, degrees: f32) {
+        let current_rotation = self.transform.rotation.and_then(|r| Some(r.1.to_degrees())).unwrap_or(0.0);
+        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        self.transform.rotation = Some((current_rotation_point, SvgRotation::degrees(current_rotation + degrees)));
+    }
+
+    /// If the style already has a rotation, adds the rotation, otherwise sets the rotation point to the new value
+    pub fn move_rotation_point(&mut self, rotation_point_x: f32, rotation_point_y: f32) {
+        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        let current_rotation = self.transform.rotation.unwrap_or_default().1;
+        let new_rotation_point = SvgRotationPoint { x: current_rotation_point.x + rotation_point_x, y: current_rotation_point.y + rotation_point_y };
+        self.transform.rotation = Some((new_rotation_point, current_rotation));
+    }
+
+    /// If the style already has a scale, adds the rotation, otherwise sets the scale.
+    pub fn scale(&mut self, scale_factor_x: f32, scale_factor_y: f32) {
+        let (cur_scale_x, cur_scale_y) = self.transform.translation.and_then(|t| Some((t.x, t.y))).unwrap_or((0.0, 0.0));
+        self.transform.scale = Some(SvgScaleFactor { x: cur_scale_x * scale_factor_x, y: cur_scale_y * scale_factor_y });
+    }
+
+    /// If the style already has a translation, adds the new translation,
+    /// otherwise initializes the value to the new translation
+    pub fn translate(&mut self, x_px: f32, y_px: f32) {
+        let (cur_x, cur_y) = self.transform.translation.and_then(|t| Some((t.x, t.y))).unwrap_or((0.0, 0.0));
+        self.transform.translation = Some(SvgTranslation { x: cur_x + x_px, y: cur_y + y_px });
+    }
+}
+
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct SvgTransform {
     /// Rotation of this SVG layer in degrees, around the point specified in the SvgRotationPoint
@@ -1030,19 +1062,19 @@ pub struct SvgStrokeOptions {
     /// Line width
     ///
     /// Default value: `StrokeOptions::DEFAULT_LINE_WIDTH`.
-    pub line_width: usize,
+    line_width: usize,
 
     /// See the SVG specification.
     ///
     /// Must be greater than or equal to 1.0.
     /// Default value: `StrokeOptions::DEFAULT_MITER_LIMIT`.
-    pub miter_limit: usize,
+    miter_limit: usize,
 
     /// Maximum allowed distance to the path when building an approximation.
     ///
     /// See [Flattening and tolerance](index.html#flattening-and-tolerance).
     /// Default value: `StrokeOptions::DEFAULT_TOLERANCE`.
-    pub tolerance: usize,
+    tolerance: usize,
 
     /// Apply line width
     ///
@@ -1054,15 +1086,31 @@ pub struct SvgStrokeOptions {
     pub apply_line_width: bool,
 }
 
+const SVG_LINE_PRECISION: f32 = 1000.0;
+
+impl SvgStrokeOptions {
+    /// NOTE: Getters and setters are necessary here, because the line width, miter limit, etc.
+    /// are all normalized to fit into a usize
+    pub fn with_line_width(mut self, line_width: f32) -> Self { self.set_line_width(line_width); self }
+    pub fn set_line_width(&mut self, line_width: f32) { self.line_width = (line_width * SVG_LINE_PRECISION) as usize; }
+    pub fn get_line_width(&self) -> f32 { self.line_width as f32 / SVG_LINE_PRECISION }
+    pub fn with_miter_limit(mut self, miter_limit: f32) -> Self { self.set_miter_limit(miter_limit); self }
+    pub fn set_miter_limit(&mut self, miter_limit: f32) { self.miter_limit = (miter_limit * SVG_LINE_PRECISION) as usize; }
+    pub fn get_miter_limit(&self) -> f32 { self.miter_limit as f32 / SVG_LINE_PRECISION }
+    pub fn with_tolerance(mut self, tolerance: f32) -> Self { self.set_tolerance(tolerance); self }
+    pub fn set_tolerance(&mut self, tolerance: f32) { self.tolerance = (tolerance * SVG_LINE_PRECISION) as usize; }
+    pub fn get_tolerance(&self) -> f32 { self.tolerance as f32 / SVG_LINE_PRECISION }
+}
+
 impl Into<StrokeOptions> for SvgStrokeOptions {
     fn into(self) -> StrokeOptions {
         let target = StrokeOptions::default()
-            .with_tolerance(self.tolerance as f32 / 1000.0)
+            .with_tolerance(self.get_tolerance())
             .with_start_cap(self.start_cap.into())
             .with_end_cap(self.end_cap.into())
             .with_line_join(self.line_join.into())
-            .with_line_width(self.line_width as f32 / 1000.0)
-            .with_miter_limit(self.miter_limit as f32 / 1000.0);
+            .with_line_width(self.get_line_width())
+            .with_miter_limit(self.get_miter_limit());
 
         if !self.apply_line_width {
             target.dont_apply_line_width()
@@ -1082,9 +1130,9 @@ impl Default for SvgStrokeOptions {
             start_cap: SvgLineCap::default(),
             end_cap: SvgLineCap::default(),
             line_join: SvgLineJoin::default(),
-            line_width: (DEFAULT_LINE_WIDTH * 1000.0) as usize,
-            miter_limit: (DEFAULT_MITER_LIMIT * 1000.0) as usize,
-            tolerance: (DEFAULT_TOLERANCE * 1000.0) as usize,
+            line_width: (DEFAULT_LINE_WIDTH * SVG_LINE_PRECISION) as usize,
+            miter_limit: (DEFAULT_MITER_LIMIT * SVG_LINE_PRECISION) as usize,
+            tolerance: (DEFAULT_TOLERANCE * SVG_LINE_PRECISION) as usize,
             apply_line_width: true,
         }
     }
@@ -1615,11 +1663,10 @@ mod svg_to_lyon {
         };
 
         let opts = SvgStrokeOptions {
-            line_width: ((s.width as f32) * 1000.0) as usize,
             start_cap: line_cap,
             end_cap: line_cap,
             line_join,
-            .. Default::default()
+            .. SvgStrokeOptions::default().with_line_width(s.width as f32)
         };
 
         (ColorU {
@@ -1852,11 +1899,8 @@ impl SvgBbox {
         }],
         Some(color),
         None,
-        Some(SvgStrokeOptions {
-            line_width: (line_width * 1000.0) as usize,
-            .. Default::default()
-        }))
-    }
+        Some(SvgStrokeOptions::default().with_line_width(line_width))
+    )}
 
     /// Checks if the bounding box contains a point
     pub fn contains_point(&self, x: f32, y: f32) -> bool {
@@ -1869,8 +1913,7 @@ impl SvgBbox {
     }
 }
 
-#[inline]
-fn is_point_in_shape(point: (f32, f32), shape: &[(f32, f32)]) -> bool {
+pub fn is_point_in_shape(point: (f32, f32), shape: &[(f32, f32)]) -> bool {
     if shape.len() < 3 {
         // Shape must at least have 3 points, i.e. be a triangle
         return false;
@@ -1893,12 +1936,13 @@ fn is_point_in_shape(point: (f32, f32), shape: &[(f32, f32)]) -> bool {
 /// Depending on if the result of this function is positive or negative,
 /// the target point lies either right or left to the imaginary line from (start -> end)
 #[inline]
-fn side_of_point(target: (f32, f32), start: (f32, f32), end: (f32, f32)) -> f32 {
+pub fn side_of_point(target: (f32, f32), start: (f32, f32), end: (f32, f32)) -> f32 {
     ((target.0 - start.0) * (end.1 - start.1)) -
     ((target.1 - start.1) * (end.0 - start.0))
 }
 
 impl SvgTextLayout {
+
     /// Calculate the text layout from a font and a font size.
     ///
     /// Warning: may be slow on large texts.
@@ -1978,18 +2022,28 @@ impl SvgText {
         let font = resources.get_font(&self.font_id).unwrap().0;
         let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
         let font_metrics = FontMetrics::new(&font, &self.font_size, &TextLayoutOptions::default());
+        // let scale_factor = self.font_size.0.to_pixels() * font_metrics.height_for_1px;
+        // let scale_factor = 1.0;
+        let scale_factor = font_metrics.height_for_1px;
+
+        // Text is in unscaled units, so that the text can later be scaled on the GPU
         match self.placement {
             SvgTextPlacement::Unmodified => {
-                normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics)
+                let mut text = normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics);
+                text.style.scale(scale_factor, scale_factor);
+                text
             },
             SvgTextPlacement::Rotated(degrees) => {
-                let mut text = normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics);
-                text.style.transform.rotation = Some((SvgRotationPoint::default(), SvgRotation::degrees(degrees)));
+                let mut text = normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics);
+                text.style.scale(scale_factor, scale_factor);
+                text.style.rotate(degrees);
                 text
             },
             SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                text_on_curve(&self.text_layout.0, self.style, &font, &*vectorized_font, &self.font_size, &font_metrics, &curve)
-            }
+                let mut text = text_on_curve(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics, &curve);
+                text.style.scale(scale_factor, scale_factor);
+                text
+            },
         }
     }
 
@@ -2000,29 +2054,21 @@ impl SvgText {
 
 pub fn normal_text(
     layout: &LayoutTextResult,
-    mut text_style: SvgStyle,
+    text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
-    font_size: &StyleFontSize,
     font_metrics: &FontMetrics)
 -> SvgLayerResourceDirect
 {
     let fill_vertices = text_style.fill.and_then(|_| {
         let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs, fill_verts))
+        Some(normal_text_to_vertices(&layout.layouted_glyphs, fill_verts, font_metrics))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
         let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs, stroke_verts))
+        Some(normal_text_to_vertices(&layout.layouted_glyphs, stroke_verts, font_metrics))
     });
-
-    let scale_factor = font_size.to_pixels() * font_metrics.height_for_1px;
-    let new_scale = match text_style.transform.scale {
-        Some(SvgScaleFactor { x, y }) => SvgScaleFactor{ x: x * scale_factor, y: y * scale_factor },
-        None => SvgScaleFactor { x: scale_factor, y: scale_factor },
-    };
-    text_style.transform.scale = Some(new_scale);
 
     SvgLayerResourceDirect {
         style: text_style,
@@ -2034,13 +2080,24 @@ pub fn normal_text(
 pub fn normal_text_to_vertices(
     glyph_ids: &[GlyphInstance],
     mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
+    font_metrics: &FontMetrics,
 ) -> VerticesIndicesBuffer
 {
-    vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
-        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x, gid.point.y);
-    });
-
+    normal_text_to_vertices_inner(glyph_ids, &mut vertex_buffers, font_metrics);
     join_vertex_buffers(&vertex_buffers)
+}
+
+fn normal_text_to_vertices_inner(
+    glyph_ids: &[GlyphInstance],
+    vertex_buffers: &mut Vec<VertexBuffers<SvgVert, u32>>,
+    font_metrics: &FontMetrics)
+{
+    let scale_factor = font_metrics.get_svg_font_scale_factor();
+    vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
+        // NOTE: The gid.point has the font size already applied to it,
+        // so we have to un-do the scaling for the glyph offsets, so all other scaling can be done on the GPU
+        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x / scale_factor, gid.point.y / scale_factor);
+    });
 }
 
 pub fn text_on_curve(
@@ -2048,21 +2105,21 @@ pub fn text_on_curve(
     text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
-    font_size: &StyleFontSize,
     font_metrics: &FontMetrics,
     curve: &SampledBezierCurve)
 -> SvgLayerResourceDirect
 {
-    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0);
+    // NOTE: char offsets are now in unscaled glyph space!
+    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0, font_metrics);
 
     let fill_vertices = text_style.fill.and_then(|_| {
         let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
-        Some(curved_vector_text_to_vertices(font_size, &char_offsets, &char_rotations, font_metrics, fill_verts))
+        Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, fill_verts))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
         let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
-        Some(curved_vector_text_to_vertices(font_size, &char_offsets, &char_rotations, font_metrics, stroke_verts))
+        Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, stroke_verts))
     });
 
     SvgLayerResourceDirect {
@@ -2074,34 +2131,20 @@ pub fn text_on_curve(
 
 // Calculates the layout for one word block
 pub fn curved_vector_text_to_vertices(
-    font_size: &StyleFontSize,
     char_offsets: &[(f32, f32)],
     char_rotations: &[BezierCharacterRotation],
-    font_metrics: &FontMetrics,
     mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
 ) -> VerticesIndicesBuffer
 {
-    // Only allowed here because the curved text needs to scale before the characters are rotated
-    fn scale_vertex_buffer(input: &mut [SvgVert], scale: &StyleFontSize, height_for_1px: f32) {
-        let real_size = scale.to_pixels();
-        let scale_factor = real_size * height_for_1px;
-        for vert in input {
-            vert.xy.0 *= scale_factor;
-            vert.xy.1 *= scale_factor;
-        }
-    }
-
     vertex_buffers.iter_mut()
     .zip(char_rotations.into_iter())
     .zip(char_offsets.iter())
     .for_each(|((vertex_buf, char_rot), char_offset)| {
         let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
-        // 2. Scale characters to the final size
-        scale_vertex_buffer(&mut vertex_buf.vertices, font_size, font_metrics.height_for_1px);
-        // 3. Rotate individual characters inside of the word
+        // 1. Rotate individual characters inside of the word
         let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
         rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
-        // 4. Transform characters to their respective positions
+        // 2. Transform characters to their respective positions
         transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x, *char_offset_y);
     });
 
@@ -2258,11 +2301,12 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
         layer_transform: &SvgTransform)
 {
     let (layer_rotation_center, layer_rotation_degrees) = layer_transform.rotation.unwrap_or_default();
+    let (rotation_sin, rotation_cos) = layer_rotation_degrees.to_rotation();
     let layer_translation = layer_transform.translation.unwrap_or_default();
     let layer_scale_factor = layer_transform.scale.unwrap_or_default();
-    let (rotation_sin, rotation_cos) = layer_rotation_degrees.to_rotation();
 
     let uniforms = uniform! {
+
         // vertex shader
         bbox_size: (bbox_size.width / 2.0, bbox_size.height / 2.0),
         offset: (pan.0, pan.1),
