@@ -13,7 +13,7 @@ use {
     ui_description::{UiDescription, StyledNode},
     dom::{NodeTypePath, NodeData, NodeTypePathParseError},
     ui_state::UiState,
-    id_tree::NodeId,
+    id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
 };
 
 /// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
@@ -206,59 +206,281 @@ pub struct CssPath {
 pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
     node_data: &'a NodeData<T>,
     index_in_parent: usize,
-    is_mouse_over: bool,
-    is_mouse_pressed: bool,
-    // parent node item count, is_hovered, is_focused, is_active
+    is_last_child: bool,
+    is_hovered_over: bool,
+    is_focused: bool,
+    is_active: bool,
 }
 
 impl CssPath {
 
     /// Returns if the CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
-    pub fn matches_html_element<'a, T: Layout>(&self, html_node: &HtmlCascadeInfo<'a, T>) -> bool {
-        use self::CssPathSelector::*;
-
-        let html_node_type = html_node.node_data.node_type.get_path();
-        let html_classes = &html_node.node_data.classes;
-        let html_ids = &html_node.node_data.ids;
-        let index_in_parent = html_node.index_in_parent;
-
-        // TODO: Later on, we'll need the full path of all selectors of all parents of this node,
-        // but for now just match the current selector
-
-        for selector in &self.selectors {
-            match selector {
-                Global => { },
-                Type(t) => {
-                    if html_node_type != *t {
-                        return false;
-                    }
-                },
-                Class(c) => {
-                    if !html_classes.contains(c) {
-                        return false;
-                    }
-                },
-                Id(id) => {
-                    if !html_ids.contains(id) {
-                      return false;
-                    }
-                },
-                PseudoSelector(CssPathPseudoSelector::First) => {
-                    // Notice: index_in_parent is 1-indexed
-                    if index_in_parent != 1 { return false; }
-                },
-                PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
-                    if index_in_parent != *x { return false; }
-                },
-                DirectChildren | Children | PseudoSelector(_) => {
-                    // TODO: for now
-                    return false;
-                },
-            }
+    pub fn matches_html_element<'a, T: Layout>(
+        &self,
+        node_id: NodeId,
+        node_hierarchy: &NodeHierarchy,
+        html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>)
+    -> bool
+    {
+        use self::CssGroupSplitReason::*;
+        if self.selectors.is_empty() {
+            return false;
         }
 
-        true
+        let mut current_node = Some(node_id);
+        let mut direct_parent_has_to_match = false;
+        let mut last_selector_matched = false;
+
+        for (content_group, reason) in CssGroupIterator::new(&self.selectors) {
+            let cur_node_id = match current_node {
+                Some(c) => c,
+                None => {
+                    // The node has no parent, but the CSS path
+                    // still has an extra limitation - only valid if the
+                    // next content group is a "*" element
+                    return *content_group == [&CssPathSelector::Global];
+                },
+            };
+            let current_selector_matches = selector_group_matches(&content_group, &html_node_tree[cur_node_id]);
+            if direct_parent_has_to_match && !current_selector_matches {
+                // If the element was a ">" element and the current,
+                // direct parent does not match, return false
+                return false; // not executed (maybe this is the bug)
+            }
+            // Important: Set if the current selector has matched the element
+            last_selector_matched = current_selector_matches;
+            // Select if the next content group has to exactly match or if it can potentially be skipped
+            direct_parent_has_to_match = reason == DirectChildren;
+            current_node = node_hierarchy[cur_node_id].parent;
+        }
+
+        last_selector_matched
     }
+}
+
+type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
+
+struct CssGroupIterator<'a> {
+    pub css_path: &'a Vec<CssPathSelector>,
+    pub current_idx: usize,
+    pub last_reason: CssGroupSplitReason,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum CssGroupSplitReason {
+    Children,
+    DirectChildren,
+}
+
+impl<'a> CssGroupIterator<'a> {
+    pub fn new(css_path: &'a Vec<CssPathSelector>) -> Self {
+        let initial_len = css_path.len();
+        Self {
+            css_path,
+            current_idx: initial_len,
+            last_reason: CssGroupSplitReason::Children,
+        }
+    }
+}
+
+impl<'a> Iterator for CssGroupIterator<'a> {
+    type Item = (CssContentGroup<'a>, CssGroupSplitReason);
+
+    fn next(&mut self) -> Option<(CssContentGroup<'a>, CssGroupSplitReason)> {
+        use self::CssPathSelector::*;
+
+        let mut new_idx = self.current_idx;
+
+        if new_idx == 0 {
+            return None;
+        }
+
+        let mut current_path = Vec::new();
+
+        while new_idx != 0 {
+            match self.css_path.get(new_idx - 1)? {
+                Children => {
+                    self.last_reason = CssGroupSplitReason::Children;
+                    break;
+                },
+                DirectChildren => {
+                    self.last_reason = CssGroupSplitReason::DirectChildren;
+                    break;
+                },
+                other => current_path.push(other),
+            }
+            new_idx -= 1;
+        }
+
+        current_path.reverse();
+
+        if new_idx == 0 {
+            if current_path.is_empty() {
+                None
+            } else {
+                // Last element of path
+                self.current_idx = 0;
+                Some((current_path, self.last_reason))
+            }
+        } else {
+            // skip the "Children | DirectChildren" element itself
+            self.current_idx = new_idx - 1;
+            Some((current_path, self.last_reason))
+        }
+    }
+}
+
+
+#[test]
+fn test_css_group_iterator() {
+
+    use self::CssPathSelector::*;
+
+    // ".hello > #id_text.new_class div.content"
+    // -> ["div.content", "#id_text.new_class", ".hello"]
+    let selectors = vec![
+        Class("hello".into()),
+        DirectChildren,
+        Id("id_test".into()),
+        Class("new_class".into()),
+        Children,
+        Type(NodeTypePath::Div),
+        Class("content".into()),
+    ];
+
+    let mut it = CssGroupIterator::new(&selectors);
+
+    assert_eq!(it.next(), Some((vec![
+       &Type(NodeTypePath::Div),
+       &Class("content".into()),
+    ], CssGroupSplitReason::Children)));
+
+    assert_eq!(it.next(), Some((vec![
+       &Id("id_test".into()),
+       &Class("new_class".into()),
+    ], CssGroupSplitReason::DirectChildren)));
+
+    assert_eq!(it.next(), Some((vec![
+        &Class("hello".into()),
+    ], CssGroupSplitReason::DirectChildren))); // technically not correct
+
+    assert_eq!(it.next(), None);
+
+    // Test single class
+    let selectors_2 = vec![
+        Class("content".into()),
+    ];
+
+    let mut it = CssGroupIterator::new(&selectors_2);
+
+    assert_eq!(it.next(), Some((vec![
+       &Class("content".into()),
+    ], CssGroupSplitReason::Children)));
+
+    assert_eq!(it.next(), None);
+}
+
+
+fn construct_html_cascade_tree<'a, T: Layout>(
+    input: &'a NodeDataContainer<NodeData<T>>,
+    node_hierarchy: &NodeHierarchy,
+    node_depths_sorted: &[(usize, NodeId)])
+-> NodeDataContainer<HtmlCascadeInfo<'a, T>>
+{
+    let mut nodes = (0..node_hierarchy.len()).map(|_| HtmlCascadeInfo {
+        node_data: &input[NodeId::new(0)],
+        index_in_parent: 0,
+        is_last_child: false,
+        is_hovered_over: false,
+        is_active: false,
+        is_focused: false,
+    }).collect::<Vec<_>>();
+
+    for (_depth, parent_id) in node_depths_sorted {
+
+        // Note: starts at 1 instead of 0
+        let index_in_parent = parent_id.preceding_siblings(node_hierarchy).count();
+
+        let parent_html_matcher = HtmlCascadeInfo {
+            node_data: &input[*parent_id],
+            index_in_parent: index_in_parent, // necessary for nth-child
+            is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(), // Necessary for :last selectors
+            is_hovered_over: false, // TODO
+            is_active: false, // TODO
+            is_focused: false, // TODO
+        };
+
+        nodes[parent_id.index()] = parent_html_matcher;
+
+        for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
+            let child_html_matcher = HtmlCascadeInfo {
+                node_data: &input[child_id],
+                index_in_parent: child_idx + 1, // necessary for nth-child
+                is_last_child: node_hierarchy[child_id].next_sibling.is_none(),
+                is_hovered_over: false, // TODO
+                is_active: false, // TODO
+                is_focused: false, // TODO
+            };
+
+            nodes[child_id.index()] = child_html_matcher;
+        }
+    }
+
+    NodeDataContainer { internal: nodes }
+}
+
+/// Matches a single groupt of items, panics on Children or DirectChildren selectors
+///
+/// The intent is to "split" the CSS path into groups by selectors, then store and cache
+/// whether the direct or any parent has matched the path correctly
+fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_node: &HtmlCascadeInfo<'a, T>) -> bool {
+    use self::CssPathSelector::*;
+
+    for selector in selectors {
+        match selector {
+            Global => { },
+            Type(t) => {
+                if html_node.node_data.node_type.get_path() != *t {
+                    return false;
+                }
+            },
+            Class(c) => {
+                if !html_node.node_data.classes.contains(c) {
+                    return false;
+                }
+            },
+            Id(id) => {
+                if !html_node.node_data.ids.contains(id) {
+                    return false;
+                }
+            },
+            PseudoSelector(CssPathPseudoSelector::First) => {
+                // Notice: index_in_parent is 1-indexed
+                if html_node.index_in_parent != 1 { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::Last) => {
+                // Notice: index_in_parent is 1-indexed
+                if !html_node.is_last_child { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
+                if html_node.index_in_parent != *x { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::Hover) => {
+                if !html_node.is_hovered_over { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::Active) => {
+                if !html_node.is_active { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::Focus) => {
+                if !html_node.is_focused { return false; }
+            },
+            DirectChildren | Children => {
+                panic!("Unreachable: DirectChildren or Children in CSS path!");
+            },
+        }
+    }
+
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -762,48 +984,34 @@ pub(crate) fn match_dom_css_selectors<T: Layout>(
 
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
+    let html_tree = construct_html_cascade_tree(&arena_borrow.node_data, &arena_borrow.node_layout, &non_leaf_nodes);
+
     for (_depth, parent_id) in non_leaf_nodes {
-
-        // Note: starts at 1 instead of 0
-        let index_in_parent = parent_id.preceding_siblings(&arena_borrow.node_layout).count();
-
-        let parent_html_matcher = HtmlCascadeInfo {
-            node_data: &arena_borrow.node_data[parent_id],
-            index_in_parent: index_in_parent, // necessary for nth-child
-            is_mouse_over: false, // TODO
-            is_mouse_pressed: false, // TODO
-        };
 
         let mut parent_rules = styled_nodes.get(&parent_id).cloned().unwrap_or_default();
 
         // Iterate through all rules in the CSS style sheet, test if the
         // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
         // so the cost of this should be insignificant.
-        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&parent_html_matcher)) {
+        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(parent_id, &arena_borrow.node_layout, &html_tree)) {
             parent_rules.css_constraints.list.extend(applying_rule.declarations.clone());
         }
 
         let inheritable_rules: Vec<CssDeclaration> = parent_rules.css_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
 
         // For children: inherit from parents - filter children that themselves are not parents!
-        for (child_idx, child_id) in parent_id.children(&arena_borrow.node_layout).enumerate() {
+        for child_id in parent_id.children(&arena_borrow.node_layout) {
             let child_node = &arena_borrow.node_layout[child_id];
             match child_node.first_child {
                 None => {
+
                     // Style children that themselves aren't parents
                     let mut child_rules = inheritable_rules.clone();
-
-                    let child_html_matcher = HtmlCascadeInfo {
-                        node_data: &arena_borrow.node_data[child_id],
-                        index_in_parent: child_idx + 1, // necessary for nth-child
-                        is_mouse_over: false, // TODO
-                        is_mouse_pressed: false, // TODO
-                    };
 
                     // Iterate through all rules in the CSS style sheet, test if the
                     // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
                     // so the cost of this should be insignificant.
-                    for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&child_html_matcher)) {
+                    for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(child_id, &arena_borrow.node_layout, &html_tree)) {
                         child_rules.extend(applying_rule.declarations.clone());
                     }
 
@@ -981,7 +1189,13 @@ mod cascade_tests {
     use prelude::*;
     use super::*;
 
+    const RED: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+    const BLUE: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
+    const BLACK: ParsedCssProperty = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+
     fn test_css(css: &str, ids: Vec<&str>, classes: Vec<&str>, expected: Vec<ParsedCssProperty>) {
+
+        use id_tree::Node;
 
         // Unimportant boilerplate
         struct Data { }
@@ -998,15 +1212,21 @@ mod cascade_tests {
             .. Default::default()
         };
 
-        let test_node = HtmlCascadeInfo {
+        let test_node = NodeDataContainer { internal: vec![HtmlCascadeInfo {
             node_data: &node_data,
             index_in_parent: 0,
-            is_mouse_over: false,
-            is_mouse_pressed: false,
-        };
+            is_hovered_over: false,
+            is_focused: false,
+            is_last_child: false,
+            is_active: false,
+        }] };
 
         let mut test_node_rules = Vec::new();
-        for applying_rule in css.rules.iter().filter(|rule| rule.path.matches_html_element(&test_node)) {
+        let node_layout = NodeHierarchy { internal: vec![Node::default()]};
+
+        for applying_rule in css.rules.iter().filter(|rule| {
+            rule.path.matches_html_element(NodeId::new(0), &node_layout, &test_node)
+        }) {
             test_node_rules.extend(applying_rule.declarations.clone());
         }
 
@@ -1017,36 +1237,56 @@ mod cascade_tests {
     // Tests that an element with a single class always gets the CSS element applied properly
     #[test]
     fn test_apply_css_pure_class() {
-        let red = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-        let blue = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
-        let black = ParsedCssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
-
         // Test that single elements are applied properly
-        {
-            let css_1 = ".my_class { background-color: red; }";
-            test_css(css_1, vec![], vec!["my_class"], vec![red.clone()]);
-            test_css(css_1, vec!["my_id"], vec!["my_class"], vec![red.clone()]);
-            test_css(css_1, vec!["my_id"], vec![], vec![]);
-        }
+        let css_1 = "
+            .my_class { background-color: red; }
+        ";
 
-        // Test that the ID overwrites the class (higher specificy)
-        {
-            let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
-            test_css(css_2, vec![], vec![], vec![]);
-            test_css(css_2, vec!["my_id"], vec![], vec![red.clone()]);
-            test_css(css_2, vec!["my_id"], vec!["my_class"], vec![blue.clone(), red.clone()]); // red will overwrite blue later on
-            test_css(css_2, vec![], vec!["my_class"], vec![blue.clone()]);
-        }
+        // .my_class = red
+        test_css(css_1, vec![], vec!["my_class"], vec![RED.clone()]);
+        // .my_class#my_id = still red, my_id doesn't do anything
+        test_css(css_1, vec!["my_id"], vec!["my_class"], vec![RED.clone()]);
+        // #my_id = no color (unmatched)
+        test_css(css_1, vec!["my_id"], vec![], vec![]);
+    }
 
-        // Global tests
-        {
-            let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
-            test_css(css_3, vec![], vec![], vec![black.clone()]);
-            test_css(css_3, vec!["my_id"], vec![], vec![black.clone()]); // note: .my_class#my_id
-            test_css(css_3, vec![], vec!["my_class"], vec![black.clone(), blue.clone()]);
-            test_css(css_3, vec!["my_id"], vec!["my_class"], vec![black.clone(), blue.clone(), red.clone()]);
-            test_css(css_3, vec![], vec!["my_class"], vec![black.clone(), blue.clone()]);
-        }
+    // Test that the ID overwrites the class (higher specificy)
+    #[test]
+    fn test_id_overrides_class() {
+        let css_2 = "
+            #my_id { background-color: red; }
+            .my_class { background-color: blue; }
+        ";
+
+        // "" = no color
+        test_css(css_2, vec![], vec![], vec![]);
+        // "#my_id" = red
+        test_css(css_2, vec!["my_id"], vec![], vec![RED.clone()]);
+        // ".my_class#my_id" = red (will overwrite blue later on)
+        test_css(css_2, vec!["my_id"], vec!["my_class"], vec![BLUE.clone(), RED.clone()]);
+        // ".my_class" = blue
+        test_css(css_2, vec![], vec!["my_class"], vec![BLUE.clone()]);
+    }
+
+    // Test that the global * operator is respected as a fallback if no selector matches
+    #[test]
+    fn test_global_operator_as_fallback() {
+        let css_3 = "
+            * { background-color: black; }
+            .my_class#my_id { background-color: red; }
+            .my_class { background-color: blue; }
+        ";
+
+        // "" = black, since * operator is present
+        test_css(css_3, vec![], vec![], vec![BLACK.clone()]);
+        // "#my_id" alone doesn't match anything, only ".my_class#my_id" should match
+        test_css(css_3, vec!["my_id"], vec![], vec![BLACK.clone()]);
+        // ".my_class" = black (because of global operator), then blue
+        test_css(css_3, vec![], vec!["my_class"], vec![BLACK.clone(), BLUE.clone()]);
+        // ".my_class#my_id" = red (because .my_class#my_id = red)
+        test_css(css_3, vec!["my_id"], vec!["my_class"], vec![BLACK.clone(), BLUE.clone(), RED.clone()]);
+        // ".my_class" = blue (because .my_class = blue)
+        test_css(css_3, vec![], vec!["my_class"], vec![BLACK.clone(), BLUE.clone()]);
     }
 }
 
