@@ -83,7 +83,7 @@ mod node_id {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Node {
     pub parent: Option<NodeId>,
     pub previous_sibling: Option<NodeId>,
