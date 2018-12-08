@@ -56,6 +56,9 @@ name = "azul"
 version = "0.1.0"
 dependencies = [
  "app_units 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css 0.1.0",
+ "azul-css-parser 0.1.0",
+ "azul-native-style 0.1.0",
  "azul_glium 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "backtrace 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "clipboard2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -70,13 +73,36 @@ dependencies = [
  "nfd 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rusttype 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "simplecss 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "stb_truetype 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "tinyfiledialogs 3.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "twox-hash 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode-normalization 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "usvg 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.57.2 (git+https://github.com/servo/webrender?rev=92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5)",
+]
+
+[[package]]
+name = "azul-css"
+version = "0.1.0"
+dependencies = [
+ "euclid 0.19.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "webrender 0.57.2 (git+https://github.com/servo/webrender?rev=92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5)",
+]
+
+[[package]]
+name = "azul-css-parser"
+version = "0.1.0"
+dependencies = [
+ "azul-css 0.1.0",
+ "simplecss 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "azul-native-style"
+version = "0.1.0"
+dependencies = [
+ "azul-css 0.1.0",
+ "azul-css-parser 0.1.0",
 ]
 
 [[package]]
@@ -287,8 +313,11 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "crossbeam-deque"
@@ -620,7 +649,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "adler32 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "crc32fast 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crc32fast 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1671,7 +1700,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum core-graphics 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)" = "56790968ab1c8a1202a102e6de05fc6e1ec87da99e4e93e9a7d13efbfc1e95a9"
 "checksum core-text 10.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "81f59bff773954e5cd058a3f5983406b52bec7cc65202bef340ba64a0c40ac91"
 "checksum core-text 13.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "7210eea4baa4b51d7319d90e4787d8a2b472c8d5d9926dc39be85fecac0e6df7"
-"checksum crc32fast 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "e0e685559fa8bccfa46afd0f876047ee5d87c536d71d0c2b3a08cc9e880f73eb"
+"checksum crc32fast 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e91d5240c6975ef33aeb5f148f35275c25eda8e8a5f95abe421978b05b8bf192"
 "checksum crossbeam-deque 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f739f8c5363aca78cfb059edf753d8f0d36908c348f3d8d1503f03d8b75d9cf3"
 "checksum crossbeam-epoch 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "927121f5407de9956180ff5e936fe3cf4324279280001cd56b669d28ee7e9150"
 "checksum crossbeam-utils 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "2760899e32a1d58d5abb31129f8fae5de75220bc2176e77ff7c627ae45c918d9"
