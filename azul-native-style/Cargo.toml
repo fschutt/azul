@@ -1,0 +1,20 @@
+[package]
+name = "azul-native-style"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+description = '''
+    OS-native styles for use with the Azul desktop GUI framework
+'''
+documentation = "https://docs.rs/azul"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user interface", "svg", "graphics", "native" ]
+categories = ["gui"]
+license = "MIT"
+repository = "https://github.com/maps4print/azul"
+readme = "README.md"
+exclude = ["assets/*", "doc/*", "examples/*"]
+autoexamples = false
+
+[dependencies]
+azul-css                = { path = "../azul-css",          default-features = false }
+azul-css-parser         = { path = "../azul-css-parser",   default-features = false }
