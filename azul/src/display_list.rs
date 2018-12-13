@@ -18,13 +18,15 @@ use webrender::api::{
     NormalBorder, ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
     ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode, BorderDetails,
+    ColorU, BorderStyle,
 };
 use azul_css::{
     Css, StyleTextAlignmentHorz, LayoutPosition,CssProperty, LayoutOverflow,
-    StyleFontSize, StyleBorderRadius, PixelValue, FloatValue, ColorU, LayoutMargin,
+    StyleFontSize, StyleBorderRadius, PixelValue, FloatValue, LayoutMargin,
     StyleTextColor, StyleBackground, StyleBoxShadow, StyleBackgroundColor,
-    StyleBorder, BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, SizeMetric,
+    StyleBorder, BoxShadowPreDisplayItem, LayoutPadding, SizeMetric,
     BoxShadowClipMode, FontId, StyleTextAlignmentVert, RectStyle, RectLayout,
+    ColorU as StyleColorU
 };
 use {
     FastHashMap,
@@ -45,7 +47,7 @@ use {
     window::{Window, WindowInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
 };
 
-const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(ColorU { r: 0, b: 0, g: 0, a: 255 });
+const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
 
 // In case no font size is specified for a node,
 // this will be substituted as the default font size
@@ -832,10 +834,11 @@ pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
 }
 
 fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Option<ComplexClipRegion> {
+    use css::webrender_translate::wr_translate_border_radius;
     rect.style.border_radius.and_then(|border_radius| {
         Some(ComplexClipRegion {
             rect: bounds,
-            radii: border_radius.into(),
+            radii: wr_translate_border_radius(border_radius.0).into(),
             mode: ClipMode::Clip,
         })
     })
@@ -900,7 +903,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
                       bg_col);
         }
     } else if info.tag.is_some() {
-        const TRANSPARENT_BG: StyleBackgroundColor = StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 0 });
+        const TRANSPARENT_BG: StyleBackgroundColor = StyleBackgroundColor(StyleColorU { r: 0, g: 0, b: 0, a: 0 });
         push_rect(&info,
                   referenced_mutable_content.builder,
                   &TRANSPARENT_BG);
@@ -928,9 +931,9 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     let scrollbar_style = ScrollbarInfo {
         width: TextSizePx(17.0),
         padding: TextSizePx(2.0),
-        background_color: StyleBackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 }),
-        triangle_color: StyleBackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 }),
-        bar_color: StyleBackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 }),
+        background_color: StyleBackgroundColor(StyleColorU { r: 241, g: 241, b: 241, a: 255 }),
+        triangle_color: StyleBackgroundColor(StyleColorU { r: 163, g: 163, b: 163, a: 255 }),
+        bar_color: StyleBackgroundColor(StyleColorU { r: 193, g: 193, b: 193, a: 255 }),
     };
 
     // The only thing changed between TextId and String is
@@ -1225,7 +1228,8 @@ fn push_rect(
     builder: &mut DisplayListBuilder,
     color: &StyleBackgroundColor)
 {
-    builder.push_rect(&info, color.0.into());
+    use css::webrender_translate::wr_translate_color_u;
+    builder.push_rect(&info, wr_translate_color_u(color.0).into());
 }
 
 struct OverflowInfo {
@@ -1251,6 +1255,7 @@ fn push_text(
 -> Option<OverflowInfo>
 {
     use text_layout::{self, TextLayoutOptions};
+    use css::webrender_translate::wr_translate_color_u;
 
     if text.is_empty_text(&*app_resources) {
         return None;
@@ -1283,7 +1288,7 @@ fn push_text(
 
     // WARNING: Do not enable FontInstanceFlags::FONT_SMOOTHING or FontInstanceFlags::FORCE_AUTOHINT -
     // they seem to interfere with the text layout thereby messing with the actual text layout.
-    let font_color = style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0.into();
+    let font_color = wr_translate_color_u(style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0).into();
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
     flags.set(FontInstanceFlags::LCD_VERTICAL, true);
@@ -1388,6 +1393,7 @@ fn push_triangle(
 {
     use self::TriangleDirection::*;
     use webrender::api::{LayoutSideOffsets, BorderRadius};
+    use css::webrender_translate::wr_translate_color_u;
 
     // see: https://css-tricks.com/snippets/css/css-triangle/
     // uses the "3d effect" for making a triangle
@@ -1407,22 +1413,22 @@ fn push_triangle(
             (TRANSPARENT, BorderStyle::Hidden),
             (TRANSPARENT, BorderStyle::Hidden),
             (TRANSPARENT, BorderStyle::Hidden),
-            (background_color.0, BorderStyle::Solid)
+            (wr_translate_color_u(background_color.0), BorderStyle::Solid)
         ],
         PointDown       => [
             (TRANSPARENT, BorderStyle::Hidden),
             (TRANSPARENT, BorderStyle::Hidden),
-            (background_color.0, BorderStyle::Solid),
+            (wr_translate_color_u(background_color.0), BorderStyle::Solid),
             (TRANSPARENT, BorderStyle::Hidden)
         ],
         PointLeft       => [
             (TRANSPARENT, BorderStyle::Hidden),
-            (background_color.0, BorderStyle::Solid),
+            (wr_translate_color_u(background_color.0), BorderStyle::Solid),
             (TRANSPARENT, BorderStyle::Hidden),
             (TRANSPARENT, BorderStyle::Hidden)
         ],
         PointRight      => [
-            (background_color.0, BorderStyle::Solid),
+            (wr_translate_color_u(background_color.0), BorderStyle::Solid),
             (TRANSPARENT, BorderStyle::Hidden),
             (TRANSPARENT, BorderStyle::Hidden),
             (TRANSPARENT, BorderStyle::Hidden)
@@ -1471,6 +1477,10 @@ fn push_box_shadow(
         shadow_type: BoxShadowClipMode)
     {
         use webrender::api::LayoutVector2D;
+        use css::webrender_translate::{
+            wr_translate_color_u, wr_translate_border_radius,
+            wr_translate_box_shadow_clip_mode
+        };
 
         let pre_shadow = match pre_shadow {
             None => return,
@@ -1508,11 +1518,11 @@ fn push_box_shadow(
             &info,
             *bounds,
             LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
-            apply_gamma(pre_shadow.color.into()),
+            apply_gamma(wr_translate_color_u(pre_shadow.color).into()),
             pre_shadow.blur_radius.to_pixels(),
             pre_shadow.spread_radius.to_pixels(),
-            border_radius.into(),
-            pre_shadow.clip_mode
+            wr_translate_border_radius(border_radius.0).into(),
+            wr_translate_box_shadow_clip_mode(pre_shadow.clip_mode)
         );
     }
 
@@ -1677,6 +1687,11 @@ fn push_background(
     app_resources: &AppResources)
 {
     use azul_css::StyleBackground::*;
+    use css::webrender_translate::{
+        wr_translate_color_u, wr_translate_extend_mode, wr_translate_layout_point,
+        wr_translate_layout_rect,
+    };
+
     match background {
         RadialGradient(gradient) => {
             use azul_css::Shape;
@@ -1684,7 +1699,7 @@ fn push_background(
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap().get(),
-                    color: gradient_pre.color.into(),
+                    color: wr_translate_color_u(gradient_pre.color).into(),
                 }).collect();
 
             let center = bounds.center();
@@ -1697,7 +1712,7 @@ fn push_background(
                     TypedSize2D::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
                 },
             };
-            let gradient = builder.create_radial_gradient(center, radius, stops, gradient.extend_mode);
+            let gradient = builder.create_radial_gradient(center, radius, stops, wr_translate_extend_mode(gradient.extend_mode));
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         LinearGradient(gradient) => {
@@ -1705,11 +1720,16 @@ fn push_background(
             let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap().get() / 100.0,
-                    color: gradient_pre.color.into(),
+                    color: wr_translate_color_u(gradient_pre.color).into(),
                 }).collect();
 
-            let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&bounds);
-            let gradient = builder.create_gradient(begin_pt, end_pt, stops, gradient.extend_mode);
+            let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&wr_translate_layout_rect(*bounds));
+            let gradient = builder.create_gradient(
+                    wr_translate_layout_point(begin_pt),
+                    wr_translate_layout_point(end_pt),
+                    stops,
+                    wr_translate_extend_mode(gradient.extend_mode));
+
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         Image(style_image_id) => {
@@ -1772,8 +1792,15 @@ fn push_border(
     border: &StyleBorder,
     border_radius: &Option<StyleBorderRadius>)
 {
+    use css::webrender_translate::{
+        wr_translate_layout_side_offsets, wr_translate_border_details
+    };
+
     if let Some((border_widths, border_details)) = border.get_webrender_border(*border_radius) {
-        builder.push_border(info, border_widths, border_details);
+        builder.push_border(
+            info,
+            wr_translate_layout_side_offsets(border_widths),
+            wr_translate_border_details(border_details));
     }
 }
 

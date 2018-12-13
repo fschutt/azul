@@ -2,16 +2,23 @@
 
 // The following types are present in webrender, however, azul-css should not
 // depend on webrender, just to have the same types, azul-css should be a standalone crate.
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
-pub struct LayoutPoint { pub x: FloatValue, pub y: FloatValue }
-impl LayoutPoint {
-    pub fn new(x: f32, y: f32) -> Self {
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct LayoutSize { pub width: f32, pub height: f32 }
+/// Same as `TypedPoint2D<f32, LayoutPixel>`, but
+/// `azul-css` should not depend on `euclid`
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct LayoutPoint { pub x: f32, pub y: f32 }
+impl LayoutSize {
+    pub fn new(width: f32, height: f32) -> Self {
         Self {
-            x: FloatValue::new(x),
-            y: FloatValue::new(y),
+            width,
+            height,
         }
+    }
+    pub fn zero() -> Self {
+        Self::new(0.0, 0.0)
     }
 }
 
@@ -26,20 +33,6 @@ impl PixelSize {
     }
     pub fn zero() -> Self {
         Self::new(PixelValue::px(0.0), PixelValue::px(0.0))
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
-pub struct LayoutSize { pub width: FloatValue, pub height: FloatValue }
-impl LayoutSize {
-    pub fn new(width: f32, height: f32) -> Self {
-        Self {
-            width: FloatValue::new(width),
-            height: FloatValue::new(height),
-        }
-    }
-    pub fn zero() -> Self {
-        Self::new(0.0, 0.0)
     }
 }
 
@@ -121,10 +114,6 @@ pub enum BorderStyle {
 pub struct NinePatchBorder {
     // not implemented or parse-able yet, so no fields!
 }
-
-/// Same as `TypedPoint2D<f32, LayoutPixel>`, but
-/// `azul-css` should not depend on `euclid`
-pub struct Point2D { pub x: f32, pub y: f32 }
 
 /// Currently hard-coded: Height of one em in pixels
 pub const EM_HEIGHT: f32 = 16.0;
@@ -583,7 +572,7 @@ pub enum Direction {
 impl Direction {
     /// Calculates the points of the gradient stops for angled linear gradients
     pub fn to_points(&self, rect: &LayoutRect)
-    -> (Point2D, Point2D)
+    -> (LayoutPoint, LayoutPoint)
     {
         match self {
             Direction::Angle(deg) => {
@@ -595,8 +584,8 @@ impl Direction {
 
                 let deg = -deg; // negate winding direction
 
-                let width_half = rect.size.width.get() as usize / 2;
-                let height_half = rect.size.height.get() as usize / 2;
+                let width_half = rect.size.width as usize / 2;
+                let height_half = rect.size.height as usize / 2;
 
                 // hypotenuse_len is the length of the center of the rect to the corners
                 let hypotenuse_len = (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
@@ -636,8 +625,8 @@ impl Direction {
                 let dx = deg.to_radians().sin() * searched_len as f32;
                 let dy = deg.to_radians().cos() * searched_len as f32;
 
-                let start_point_location = Point2D { x: width_half as f32 + dx, y: height_half as f32 + dy };
-                let end_point_location = Point2D { x: width_half as f32 - dx, y: height_half as f32 - dy };
+                let start_point_location = LayoutPoint { x: width_half as f32 + dx, y: height_half as f32 + dy };
+                let end_point_location = LayoutPoint { x: width_half as f32 - dx, y: height_half as f32 - dy };
 
                 (start_point_location, end_point_location)
             },
@@ -693,18 +682,18 @@ impl DirectionCorner {
         }
     }
 
-    pub fn to_point(&self, rect: &LayoutRect) -> Point2D
+    pub fn to_point(&self, rect: &LayoutRect) -> LayoutPoint
     {
         use self::DirectionCorner::*;
         match *self {
-            Right       => Point2D { x: rect.size.width.get(),          y: rect.size.height.get() / 2.0     },
-            Left        => Point2D { x: 0.0,                            y: rect.size.height.get() / 2.0     },
-            Top         => Point2D { x: rect.size.width.get() / 2.0,    y: 0.0                              },
-            Bottom      => Point2D { x: rect.size.width.get() / 2.0,    y: rect.size.height.get()           },
-            TopRight    => Point2D { x: rect.size.width.get(),          y: 0.0                              },
-            TopLeft     => Point2D { x: 0.0,                            y: 0.0                              },
-            BottomRight => Point2D { x: rect.size.width.get(),          y: rect.size.height.get()           },
-            BottomLeft  => Point2D { x: 0.0,                            y: rect.size.height.get()           },
+            Right       => LayoutPoint { x: rect.size.width,          y: rect.size.height / 2.0     },
+            Left        => LayoutPoint { x: 0.0,                      y: rect.size.height / 2.0     },
+            Top         => LayoutPoint { x: rect.size.width / 2.0,    y: 0.0                        },
+            Bottom      => LayoutPoint { x: rect.size.width / 2.0,    y: rect.size.height           },
+            TopRight    => LayoutPoint { x: rect.size.width,          y: 0.0                        },
+            TopLeft     => LayoutPoint { x: 0.0,                      y: 0.0                        },
+            BottomRight => LayoutPoint { x: rect.size.width,          y: rect.size.height           },
+            BottomLeft  => LayoutPoint { x: 0.0,                      y: rect.size.height           },
         }
     }
 }
