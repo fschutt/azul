@@ -67,11 +67,6 @@ css_parser = []
 # The reason we do this is because doctests don't get cfg(test)
 # See: https://github.com/rust-lang/cargo/issues/4669
 doc-test = []
-# Some test have to be disabled for Travis, since Travis does not
-# use OpenGL 3.2, so the tests will fail.
-#
-# To actually test the library, run `cargo --test --features=doc-test`
-no-opengl-tests = []
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details
