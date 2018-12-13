@@ -63,12 +63,14 @@ fn main() {
 
     let app = App::new(data, AppConfig::default());
 
-    let native_style = css::native();
+    #[cfg(debug_assertions)]
+    let window = Window::new_hot_reload(WindowCreateOptions::default(), css::hot_reload(CSS_PATH!(), true)).unwrap();
 
-    let window = if cfg!(debug_assertions) {
-        Window::new_hot_reload(WindowCreateOptions::default(), css::hot_reload(CSS_PATH!(), true)).unwrap()
-    } else {
-        Window::new(WindowCreateOptions::default(), native_style).unwrap()
+    #[cfg(not(debug_assertions))]
+    let window = {
+        let mut style = css::native();
+        style.merge(css::from_str(include_str!(CSS_PATH!())).unwrap());
+        Window::new(WindowCreateOptions::default(), style).unwrap()
     };
 
     app.run(window).unwrap();

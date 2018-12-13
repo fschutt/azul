@@ -69,7 +69,7 @@ fn main() {
         app.run(Window::new_hot_reload(WindowCreateOptions::default(), hot_reloader).unwrap()).unwrap();
     }
     #[cfg(not(debug_assertions))] {
-        let css = css::new_from_str(include_str!(CSS_PATH!())).unwrap();
+        let css = css::from_str(include_str!(CSS_PATH!())).unwrap();
         app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
     }
 }

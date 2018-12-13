@@ -1,7 +1,5 @@
 //! Main utilities for high-level datatypes from the `azul_css` crate.
 
-#[cfg(debug_assertions)]
-use std::collections::BTreeMap;
 use azul_css::{
     Css,
     CssContentGroup,
@@ -301,6 +299,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
 -> UiDescription<T>
 {
     use ui_solver::get_non_leaf_nodes_sorted_by_depth;
+    use std::collections::BTreeMap;
 
     let root = ui_state.dom.root;
     let arena_borrow = &*ui_state.dom.arena.borrow();
