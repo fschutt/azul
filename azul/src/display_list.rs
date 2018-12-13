@@ -6,11 +6,26 @@ use std::{
     sync::{Arc, Mutex},
     collections::BTreeMap,
 };
-use webrender::api::*;
 use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
 use glium::glutin::dpi::{LogicalPosition, LogicalSize};
-use azul_css::*;
+use webrender::api::{
+    LayoutPixel, RenderApi, FontInstanceKey,
+    DisplayListBuilder, PrimitiveInfo, GradientStop, ColorF, PipelineId, Epoch,
+    ImageData, ImageKey, ImageDescriptor, ResourceUpdate, AddImage, AddFontInstance,
+    AddFont, BorderRadius, ClipMode, LayoutPoint, LayoutSize,
+    GlyphOptions, LayoutRect, BorderSide, FontKey, ExternalScrollId,
+    NormalBorder, ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
+    ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
+    ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode, BorderDetails,
+};
+use azul_css::{
+    Css, StyleTextAlignmentHorz, LayoutPosition,CssProperty, LayoutOverflow,
+    StyleFontSize, StyleBorderRadius, PixelValue, FloatValue, ColorU, LayoutMargin,
+    StyleTextColor, StyleBackground, StyleBoxShadow, StyleBackgroundColor,
+    StyleBorder, BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, SizeMetric,
+    BoxShadowClipMode, FontId, StyleTextAlignmentVert, RectStyle, RectLayout,
+};
 use {
     FastHashMap,
     app_resources::AppResources,
@@ -545,8 +560,8 @@ fn do_the_layout<'a,'b, T: Layout>(
 
     let layouted_arena = node_data.transform(|node, node_id| {
         LayoutRect::new(
-            TypedPoint2D::new(x_positions[node_id].0, y_positions[node_id].0),
-            TypedSize2D::new(solved_widths.solved_widths[node_id].total(), solved_heights.solved_heights[node_id].total())
+            LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
+            LayoutSize::new(solved_widths.solved_widths[node_id].total(), solved_heights.solved_heights[node_id].total())
         )
     });
 
