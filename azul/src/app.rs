@@ -474,31 +474,6 @@ impl<T: Layout> App<T> {
     /// This also means that the font needs to be re-parsed if you want to add it again.
     /// Use with care.
     ///
-    /// ## Example
-    ///
-    #[cfg_attr(feature = "no-opengl-tests", doc = " ```no_run")]
-    #[cfg_attr(not(feature = "no-opengl-tests"), doc = " ```")]
-    /// # use azul::prelude::*;
-    /// # const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
-    /// #
-    /// # struct MyAppData { }
-    /// #
-    /// # impl Layout for MyAppData {
-    /// #     fn layout(&self, _window_id: WindowInfo<MyAppData>) -> Dom<MyAppData> {
-    /// #         Dom::new(NodeType::Div)
-    /// #    }
-    /// # }
-    /// #
-    /// # fn main() {
-    /// let mut app = App::new(MyAppData { }, AppConfig::default());
-    /// app.add_font(FontId::ExternalFont("Webly Sleeky UI".into()), &mut TEST_FONT).unwrap();
-    /// app.delete_font(&FontId::ExternalFont("Webly Sleeky UI".into()));
-    /// // NOTE: The font isn't immediately removed, only in the next draw call
-    /// app.mock_render_frame();
-    /// assert!(!app.has_font(&FontId::ExternalFont("Webly Sleeky UI".into())));
-    /// # }
-    /// ```
-    ///
     /// [`AppState::delete_font`]: ../app_state/struct.AppState.html#method.delete_font
     pub fn delete_font(&mut self, id: &FontId)
         -> Option<()>
