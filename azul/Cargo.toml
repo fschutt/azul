@@ -64,9 +64,6 @@ default = [
 native_style = []
 # Exports the azul-css-parser crate in the prelude
 css_parser = []
-# The reason we do this is because doctests don't get cfg(test)
-# See: https://github.com/rust-lang/cargo/issues/4669
-doc-test = []
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details
