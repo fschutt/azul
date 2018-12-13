@@ -1,7 +1,5 @@
 //! Provides datatypes used to describe an application's style using the Azul GUI framework.
 
-extern crate webrender;
-
 #[macro_use]
 mod macros;
 mod css;
