@@ -32,7 +32,6 @@ use {
     window_state::WindowSize,
     text_cache::TextId,
     dom::{ScrollTagId, UpdateScreen},
-    style::sort_by_specificity,
     app_resources::AppResources,
     app_state::AppState,
     traits::Layout,
@@ -346,6 +345,7 @@ impl<T: Layout> App<T> {
             }
 
             #[cfg(debug_assertions)] {
+                use style::sort_by_specificity;
                 for (window_idx, window) in self.windows.iter_mut().enumerate() {
                     // Hot-reload a style if necessary
                     if let Some(ref mut hot_reloader) = window.style_loader {

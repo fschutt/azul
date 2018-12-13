@@ -14,14 +14,8 @@ struct Calculator {
 impl Layout for Calculator {
     fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
         Dom::div()
-            .with_child(Dom::div().with_id("result")
-                .with_child(Dom::label(
-                    if let Some(result) = self.result {
-                        format!("{}", result)
-                    } else {
-                        self.current_operand_stack.get_display()
-                    }
-                ))
+            .with_child(Dom::label(self.result.and_then(|r| Some(r.to_string())).unwrap_or(self.current_operand_stack.get_display()))
+                        .with_id("result")
             )
             .with_child(Dom::div().with_id("numpad-container")
                 .with_child(Dom::div().with_class("row").with_hit_test(On::MouseUp)
@@ -252,12 +246,16 @@ fn main() {
     let mut app = App::new(Calculator::default(), AppConfig::default());
     app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
 
-    let window = if cfg!(debug_assertions) {
+    #[cfg(debug_assertions)]
+    let window = {
         let hot_reloader = css::hot_reload(CSS_PATH!(), true);
         Window::new_hot_reload(WindowCreateOptions::default(), hot_reloader).unwrap()
-    } else {
+    };
+
+    #[cfg(not(debug_assertions))]
+    let window = {
         let mut style = css::native();
-        style.merge(css::from_str(CSS_PATH!()).unwrap());
+        style.merge(css::from_str(include_str!(CSS_PATH!())).unwrap());
         Window::new(WindowCreateOptions::default(), style).unwrap()
     };
 

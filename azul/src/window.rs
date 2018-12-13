@@ -26,7 +26,9 @@ use glium::{
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
-use azul_css::{ Css, HotReloadHandler };
+use azul_css::Css;
+#[cfg(debug_assertions)]
+use azul_css::HotReloadHandler;
 use {
     FastHashMap,
     dom::{Texture, On, Callback},
