@@ -2,6 +2,7 @@
 name = "azul-native-style"
 version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
 description = '''
     OS-native styles for use with the Azul desktop GUI framework
 '''
