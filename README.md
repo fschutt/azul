@@ -74,7 +74,7 @@ fn update_counter(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataM
 
 fn main() {
     let app = App::new(DataModel { counter: 0 }, AppConfig::default());
-    app.run(Window::new(WindowCreateOptions::default(), Css::new()).unwrap()).unwrap();
+    app.run(Window::new(WindowCreateOptions::default(), css::native()).unwrap()).unwrap();
 }
 ```
 
@@ -211,7 +211,7 @@ fn test_it_should_increase_the_counter() {
 
 ## Performance
 
-A default window, with no fonts or images added takes up roughly 39MB of RAM and
+A default window, with no fonts or images added takes up roughly 23MB of RAM and
 5MB in binary size. This usage can go up once you load more images and fonts, since
 Azul has to load and keep the images in RAM.
 
