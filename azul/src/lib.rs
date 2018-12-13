@@ -33,8 +33,9 @@
 //!
 //! ## Hello world
 //!
-#![cfg_attr(feature = "no-opengl-tests", doc = " ```no_run")]
-#![cfg_attr(not(feature = "no-opengl-tests"), doc = " ```")]
+//! Note: Can currently not be tested on CI, since it opens a graphical window.
+//!
+//! ```no_run
 //! extern crate azul;
 //!
 //! use azul::prelude::*;
@@ -49,7 +50,7 @@
 //!
 //! fn main() {
 //!     let app = App::new(MyDataModel { }, AppConfig::default());
-//!     let window = Window::new(WindowCreateOptions::default(), Css::new()).unwrap();
+//!     let window = Window::new(WindowCreateOptions::default(), css::native()).unwrap();
 //!     app.run(window).unwrap();
 //! }
 //! ```

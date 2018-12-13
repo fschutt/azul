@@ -524,35 +524,6 @@ impl<T: Layout> App<T> {
         self.app_state.set_clipboard_string(contents)
     }
 
-    /// Mock rendering function, for creating a hidden window and rendering one frame
-    /// Used in unit tests. You **have** to enable software rendering, otherwise,
-    /// this function won't work in a headless environment.
-    ///
-    /// **NOTE**: In a headless environment, such as Travis, you have to use XVFB to
-    /// create a fake X11 server. XVFB also has a bug where it loads with the default of
-    /// 8-bit greyscale color (see [here]). In order to fix that, you have to run:
-    ///
-    /// `xvfb-run --server-args "-screen 0 1920x1080x24" cargo test --features "doc-test"`
-    ///
-    /// [here]: https://unix.stackexchange.com/questions/104914/
-    ///
-    #[cfg(any(feature = "doc-test"))]
-    pub fn mock_render_frame(&mut self) {
-        use prelude::*;
-        let hidden_create_options = WindowCreateOptions {
-            state: WindowState { is_visible: false, .. Default::default() },
-            /// force sofware renderer (OSMesa)
-            renderer_type: RendererType::Software,
-            .. Default::default()
-        };
-        self.push_window(Window::new(hidden_create_options, Css::new()).unwrap());
-        // TODO: do_first_redraw shouldn't exist, need to find a better way to update the resources
-        // This will make App::delete_font doc-test fail if run without `no-opengl-tests`.
-        //
-        // let ui_state_cache = Self::initialize_ui_state(&self.windows, &self.app_state);
-        // Self::do_first_redraw(&mut self.windows, &mut self.app_state, &ui_state_cache);
-    }
-
     /// See `AppState::add_custom_task`.
     pub fn add_custom_task<U: Send + 'static>(
         &mut self,
