@@ -1,7 +1,6 @@
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
 pub use {
-    euclid::{TypedPoint2D},
     webrender::api::{
         BorderDetails, NormalBorder,
         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
@@ -11,7 +10,12 @@ pub use {
     },
 };
 
-pub(crate) const EM_HEIGHT: f32 = 16.0;
+/// Same as `TypedPoint2D<f32, LayoutPixel>`, but
+/// `azul-css` should not depend on `euclid`
+pub struct Point2D { pub x: f32, pub y: f32 }
+
+/// Currently hard-coded: Height of one em in pixels
+pub const EM_HEIGHT: f32 = 16.0;
 /// WebRender measures in points, not in pixels!
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
@@ -599,18 +603,18 @@ impl DirectionCorner {
         }
     }
 
-    pub fn to_point(&self, rect: &LayoutRect) -> TypedPoint2D<f32, LayoutPixel>
+    pub fn to_point(&self, rect: &LayoutRect) -> Point2D
     {
         use self::DirectionCorner::*;
         match *self {
-            Right => TypedPoint2D::new(rect.size.width, rect.size.height / 2.0),
-            Left => TypedPoint2D::new(0.0, rect.size.height / 2.0),
-            Top => TypedPoint2D::new(rect.size.width / 2.0, 0.0),
-            Bottom => TypedPoint2D::new(rect.size.width / 2.0, rect.size.height),
-            TopRight =>  TypedPoint2D::new(rect.size.width, 0.0),
-            TopLeft => TypedPoint2D::new(0.0, 0.0),
-            BottomRight => TypedPoint2D::new(rect.size.width, rect.size.height),
-            BottomLeft => TypedPoint2D::new(0.0, rect.size.height),
+            Right       => Point2D { x: rect.size.width,        y: rect.size.height / 2.0   },
+            Left        => Point2D { x: 0.0,                    y: rect.size.height / 2.0   },
+            Top         => Point2D { x: rect.size.width / 2.0,  y: 0.0                      },
+            Bottom      => Point2D { x: rect.size.width / 2.0,  y: rect.size.height         },
+            TopRight    => Point2D { x: rect.size.width,        y: 0.0                      },
+            TopLeft     => Point2D { x: 0.0,                    y: 0.0                      },
+            BottomRight => Point2D { x: rect.size.width,        y: rect.size.height         },
+            BottomLeft  => Point2D { x: 0.0,                    y: rect.size.height         },
         }
     }
 }
