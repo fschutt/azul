@@ -228,6 +228,9 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let node_hierarchy = &arena.node_layout;
         let node_data = &arena.node_data;
 
+        // Upload image and font resources
+        Self::update_resources(&window.internal.api, app_resources, &mut resource_updates);
+
         let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
             node_hierarchy,
             node_data,
@@ -249,9 +252,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         let LogicalSize { width, height } = window.state.size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(window.internal.pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.len());
-
-        // Upload image and font resources
-        Self::update_resources(&window.internal.api, app_resources, &mut resource_updates);
 
         let rects_in_rendering_order = determine_rendering_order(node_hierarchy, &self.rectangles, &laid_out_rectangles);
 
