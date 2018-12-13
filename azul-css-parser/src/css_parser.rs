@@ -2390,37 +2390,39 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_border_radius_1() {
-        assert_eq!(parse_css_border_radius("15px"), Ok(StyleBorderRadius::uniform(PixelValue::px(15.0))));
+        assert_eq!(parse_css_border_radius("15px"), Ok(StyleBorderRadius(
+            BorderRadius::uniform(PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)))
+        )));
     }
 
     #[test]
     fn test_parse_css_border_radius_2() {
-        assert_eq!(parse_css_border_radius("15px 50px"), Ok(StyleBorderRadius {
-            top_left: [PixelValue::px(15.0), PixelValue::px(15.0)],
-            bottom_right: [PixelValue::px(15.0), PixelValue::px(15.0)],
-            top_right: [PixelValue::px(50.0), PixelValue::px(50.0)],
-            bottom_left: [PixelValue::px(50.0), PixelValue::px(50.0)],
-        }));
+        assert_eq!(parse_css_border_radius("15px 50px"), Ok(StyleBorderRadius(BorderRadius {
+            top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
+            bottom_right: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
+            top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
+            bottom_left: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
+        })));
     }
 
     #[test]
     fn test_parse_css_border_radius_3() {
-        assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(StyleBorderRadius {
-            top_left: [PixelValue::px(15.0), PixelValue::px(15.0)],
-            bottom_right: [PixelValue::px(30.0), PixelValue::px(30.0)],
-            top_right: [PixelValue::px(50.0), PixelValue::px(50.0)],
-            bottom_left: [PixelValue::px(50.0), PixelValue::px(50.0)],
-        }));
+        assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(StyleBorderRadius(BorderRadius {
+            top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
+            bottom_right: PixelSize::new(PixelValue::px(30.0), PixelValue::px(30.0)),
+            top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
+            bottom_left: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
+        })));
     }
 
     #[test]
     fn test_parse_css_border_radius_4() {
-        assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(StyleBorderRadius {
-            top_left: [PixelValue::px(15.0), PixelValue::px(15.0)],
-            bottom_right: [PixelValue::px(30.0), PixelValue::px(30.0)],
-            top_right: [PixelValue::px(50.0), PixelValue::px(50.0)],
-            bottom_left: [PixelValue::px(5.0), PixelValue::px(5.0)],
-        }));
+        assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(StyleBorderRadius(BorderRadius {
+            top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
+            bottom_right: PixelSize::new(PixelValue::px(30.0), PixelValue::px(30.0)),
+            top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
+            bottom_left: PixelSize::new(PixelValue::px(5.0), PixelValue::px(5.0)),
+        })));
     }
 
     #[test]

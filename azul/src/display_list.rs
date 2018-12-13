@@ -653,6 +653,7 @@ fn node_needs_to_clip_children(style: &RectStyle) -> bool {
 
 #[test]
 fn test_overflow_parsing() {
+    use azul_css::{TextOverflowBehaviour, TextOverflowBehaviourInner};
     let style1 = RectStyle::default();
     assert!(!node_needs_to_clip_children(&style1));
 
