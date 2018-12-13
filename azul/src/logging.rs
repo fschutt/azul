@@ -1,3 +1,4 @@
+#[cfg(feature = "logging")]
 use backtrace::{Backtrace, BacktraceFrame};
 use dialogs::msg_box_ok;
 use log::LevelFilter;
