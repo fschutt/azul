@@ -1,7 +1,19 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
 use std::{fmt, num::{ParseIntError, ParseFloatError}};
-use azul_css::*;
+use azul_css::{
+    StyleTextAlignmentHorz, TextOverflowBehaviour, TextOverflowBehaviourInner,
+    LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent, Shape,
+    LayoutWrap, LayoutDirection, LayoutPosition,CssProperty, LayoutOverflow,
+    StyleFontFamily, StyleFontSize, StyleLineHeight, LayoutFlexShrink, LayoutFlexGrow,
+    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom,
+    LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
+    StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
+    ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
+    GradientStopPre, RadialGradientPreInfo, StyleBackgroundColor,
+    DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradientPreInfo,
+    BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide,
+};
 
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
@@ -33,11 +45,10 @@ macro_rules! typed_pixel_value_parser {
 /// returns the parsed value or an error
 ///
 /// ```rust
-/// # extern crate azul_css;
-/// # use azul_css::*;
-/// # use azul_css_parser::from_kv;
+/// # extern crate azul_css_parser;
+/// # use azul_css_parser;
 /// assert_eq!(
-///     from_kv("width", "500px"),
+///     azul_css_parser::from_kv("width", "500px"),
 ///     Ok(CssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
 /// )
 /// ```
@@ -1616,15 +1627,6 @@ pub enum CssShapeParseError<'a> {
 impl_display!{CssShapeParseError<'a>, {
     ShapeErr(e) => format!("\"{}\"", e.0),
 }}
-
-/// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
-/// makes decisions based on horizontal / vertical direction easier to write.
-/// Use `LayoutDirection::get_axis()` to get the axis for a given `LayoutDirection`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum LayoutAxis {
-    Horizontal,
-    Vertical,
-}
 
 /// Stylistic options of the rectangle that don't influence the layout
 /// (todo: border-box?)
