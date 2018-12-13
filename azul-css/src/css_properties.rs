@@ -1,15 +1,5 @@
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
-// pub use {
-//     webrender::api::{
-//         BorderDetails, NormalBorder,
-//         NinePatchBorder, LayoutPixel, BoxShadowClipMode, ColorU,
-//         ColorF, LayoutVector2D, Gradient, RadialGradient, LayoutPoint,
-//         LayoutSize, ExtendMode, LayoutSideOffsets, BorderStyle,
-//         BorderRadius, BorderSide, LayoutRect,
-//     },
-// };
-
 // The following types are present in webrender, however, azul-css should not
 // depend on webrender, just to have the same types, azul-css should be a standalone crate.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
@@ -26,6 +16,20 @@ impl LayoutPoint {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+pub struct PixelSize { pub width: PixelValue, pub height: PixelValue }
+impl PixelSize {
+    pub fn new(width: PixelValue, height: PixelValue) -> Self {
+        Self {
+            width,
+            height,
+        }
+    }
+    pub fn zero() -> Self {
+        Self::new(PixelValue::px(0.0), PixelValue::px(0.0))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct LayoutSize { pub width: FloatValue, pub height: FloatValue }
 impl LayoutSize {
     pub fn new(width: f32, height: f32) -> Self {
@@ -34,7 +38,6 @@ impl LayoutSize {
             height: FloatValue::new(height),
         }
     }
-
     pub fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
@@ -51,18 +54,22 @@ pub struct LayoutSideOffsets {
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct BorderRadius {
-    pub top_left: LayoutSize,
-    pub top_right: LayoutSize,
-    pub bottom_left: LayoutSize,
-    pub bottom_right: LayoutSize,
+    pub top_left: PixelSize,
+    pub top_right: PixelSize,
+    pub bottom_left: PixelSize,
+    pub bottom_right: PixelSize,
 }
 impl BorderRadius {
     pub fn zero() -> Self {
+        Self::uniform(PixelSize::zero())
+    }
+
+    pub fn uniform(value: PixelSize) -> Self {
         Self {
-            top_left: LayoutSize::zero(),
-            top_right: LayoutSize::zero(),
-            bottom_left: LayoutSize::zero(),
-            bottom_right: LayoutSize::zero(),
+            top_left: value,
+            top_right: value,
+            bottom_left: value,
+            bottom_right: value,
         }
     }
 }
@@ -237,7 +244,7 @@ impl_from!(LayoutAlignContent, CssProperty::AlignContent);
 
 const SCALE_FACTOR: f32 = 10000.0;
 
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
@@ -316,7 +323,7 @@ impl From<f32> for FloatValue {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq, Ord, PartialOrd)]
 pub enum SizeMetric {
     Px,
     Pt,
@@ -324,38 +331,11 @@ pub enum SizeMetric {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct StyleBorderRadius {
-    pub top_left: [PixelValue;2],
-    pub top_right: [PixelValue;2],
-    pub bottom_left: [PixelValue;2],
-    pub bottom_right: [PixelValue;2],
-}
+pub struct StyleBorderRadius(pub BorderRadius);
 
 impl StyleBorderRadius {
-
     pub fn zero() -> Self {
-        const ZERO_PX: PixelValue = PixelValue { number: FloatValue { number: (0.0 * SCALE_FACTOR) as isize }, metric: SizeMetric::Px };
-        Self::uniform(ZERO_PX)
-    }
-
-    pub fn uniform(value: PixelValue) -> Self {
-        Self {
-            top_left: [value, value],
-            top_right: [value, value],
-            bottom_left: [value, value],
-            bottom_right: [value, value],
-        }
-    }
-}
-
-impl From<StyleBorderRadius> for BorderRadius {
-    fn from(radius: StyleBorderRadius) -> BorderRadius {
-        Self {
-            top_left: LayoutSize::new(radius.top_left[0].to_pixels(), radius.top_left[1].to_pixels()),
-            top_right: LayoutSize::new(radius.top_right[0].to_pixels(), radius.top_right[1].to_pixels()),
-            bottom_left: LayoutSize::new(radius.bottom_left[0].to_pixels(), radius.bottom_left[1].to_pixels()),
-            bottom_right: LayoutSize::new(radius.bottom_right[0].to_pixels(), radius.bottom_right[1].to_pixels()),
-        }
+        StyleBorderRadius(BorderRadius::zero())
     }
 }
 
@@ -525,7 +505,7 @@ impl StyleBorder {
                     left: BorderSide { color:  border_color_left.into(), style: border_style_left },
                     right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
                     bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
-                    radius: border_radius.and_then(|b| Some(b.into())).unwrap_or(BorderRadius::zero()),
+                    radius: border_radius.and_then(|b| Some(b.0)).unwrap_or(BorderRadius::zero()),
                     do_aa: border_radius.is_some() || is_not_solid,
                 });
 

@@ -1,5 +1,3 @@
-#[cfg(feature = "logging")]
-use backtrace::{Backtrace, BacktraceFrame};
 use dialogs::msg_box_ok;
 use log::LevelFilter;
 use std::sync::atomic::{Ordering, AtomicBool};
@@ -67,6 +65,7 @@ pub(crate) fn set_up_logging(log_file_path: Option<String>, log_level: LevelFilt
 pub(crate) fn set_up_panic_hooks() {
 
     use std::panic::{self, PanicInfo};
+    use backtrace::{Backtrace, BacktraceFrame};
 
     fn panic_fn(panic_info: &PanicInfo) {
 
@@ -127,68 +126,68 @@ pub(crate) fn set_up_panic_hooks() {
         }
     }
 
-    panic::set_hook(Box::new(panic_fn));
-}
+    fn format_backtrace(backtrace: &Backtrace) -> String {
 
-fn format_backtrace(backtrace: &Backtrace) -> String {
+        fn format_frame(frame: &BacktraceFrame) -> String {
 
-    fn format_frame(frame: &BacktraceFrame) -> String {
+            use std::ffi::OsStr;
 
-        use std::ffi::OsStr;
+            let ip = frame.ip();
+            let symbols = frame.symbols();
 
-        let ip = frame.ip();
-        let symbols = frame.symbols();
+            const UNRESOLVED_FN_STR: &str = "unresolved function";
 
-        const UNRESOLVED_FN_STR: &str = "unresolved function";
+            if symbols.is_empty() {
+                return format!("{} @ {:?}", UNRESOLVED_FN_STR, ip);
+            }
 
-        if symbols.is_empty() {
-            return format!("{} @ {:?}", UNRESOLVED_FN_STR, ip);
+            // skip the first 10 symbols because they belong to the
+            // backtrace library and aren't relevant for debugging
+            symbols.iter().map(|symbol| {
+
+                let mut nice_string = String::new();
+
+                if let Some(name) = symbol.name() {
+                    let name_demangled = format!("{}", name);
+                    let name_demangled_new = name_demangled.rsplit("::").skip(1).map(|e| e.to_string()).collect::<Vec<String>>();
+                    let name_demangled = name_demangled_new.into_iter().rev().collect::<Vec<String>>().join("::");
+                    nice_string.push_str(&name_demangled);
+                } else {
+                    nice_string.push_str(UNRESOLVED_FN_STR);
+                }
+
+                let mut file_string = String::new();
+                if let Some(file) = symbol.filename() {
+                    let origin_file_name = file.file_name()
+                        .unwrap_or(OsStr::new("unresolved file name"))
+                        .to_string_lossy();
+                    file_string.push_str(&format!("{}", origin_file_name));
+                }
+
+                if let Some(line) = symbol.lineno() {
+                    file_string.push_str(&format!(":{}", line));
+                }
+
+                if !file_string.is_empty() {
+                    nice_string.push_str(" @ ");
+                    nice_string.push_str(&file_string);
+                    if !nice_string.ends_with("\n") {
+                        nice_string.push_str("\n");
+                    }
+                }
+
+                nice_string
+
+            }).collect::<Vec<String>>().join("")
         }
 
-        // skip the first 10 symbols because they belong to the
-        // backtrace library and aren't relevant for debugging
-        symbols.iter().map(|symbol| {
-
-            let mut nice_string = String::new();
-
-            if let Some(name) = symbol.name() {
-                let name_demangled = format!("{}", name);
-                let name_demangled_new = name_demangled.rsplit("::").skip(1).map(|e| e.to_string()).collect::<Vec<String>>();
-                let name_demangled = name_demangled_new.into_iter().rev().collect::<Vec<String>>().join("::");
-                nice_string.push_str(&name_demangled);
-            } else {
-                nice_string.push_str(UNRESOLVED_FN_STR);
-            }
-
-            let mut file_string = String::new();
-            if let Some(file) = symbol.filename() {
-                let origin_file_name = file.file_name()
-                    .unwrap_or(OsStr::new("unresolved file name"))
-                    .to_string_lossy();
-                file_string.push_str(&format!("{}", origin_file_name));
-            }
-
-            if let Some(line) = symbol.lineno() {
-                file_string.push_str(&format!(":{}", line));
-            }
-
-            if !file_string.is_empty() {
-                nice_string.push_str(" @ ");
-                nice_string.push_str(&file_string);
-                if !nice_string.ends_with("\n") {
-                    nice_string.push_str("\n");
-                }
-            }
-
-            nice_string
-
-        }).collect::<Vec<String>>().join("")
+        backtrace
+            .frames()
+            .iter()
+            .map(|frame| format_frame(frame))
+            .collect::<Vec<String>>()
+            .join("\r\n")
     }
 
-    backtrace
-        .frames()
-        .iter()
-        .map(|frame| format_frame(frame))
-        .collect::<Vec<String>>()
-        .join("\r\n")
+    panic::set_hook(Box::new(panic_fn));
 }

@@ -30,3 +30,25 @@ pub fn hot_reload(file_path: &str, override_native: bool) -> Box<dyn azul_css::H
         hot_reloader
     }
 }
+
+// Type translation functions (from azul-css to webrender)
+//
+// The reason for doing this is so that azul-css doesn't depend on webrender or euclid
+// (since webrender is a huge dependency) just to use the types. Only if you depend on azul,
+// you have to depend on webrender
+
+
+pub(crate) mod webrender_translate {
+    use azul_css::StyleBorderRadius as CssStyleBorderRadius;
+    use webrender::api::BorderRadius as WrBorderRadius;
+    pub fn wr_translate_border_radius(input: CssStyleBorderRadius) -> WrBorderRadius {
+        use webrender::api::LayoutSize;
+        let CssStyleBorderRadius { top_left, top_right, bottom_left, bottom_right } = input;
+        WrBorderRadius {
+            top_left: LayoutSize::new(top_left.x.to_pixels(), top_left.y.to_pixels()),
+            top_right: LayoutSize::new(top_right.x.to_pixels(), top_right.y.to_pixels()),
+            bottom_left: LayoutSize::new(bottom_left.x.to_pixels(), bottom_left.y.to_pixels()),
+            bottom_right: LayoutSize::new(bottom_right.x.to_pixels(), bottom_right.y.to_pixels()),
+        }
+    }
+}

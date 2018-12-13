@@ -2,6 +2,7 @@
 name = "azul-css-parser"
 version = "0.1.0"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
 description = '''
     CSS-compatible parser for the Azul GUI framework
 '''
@@ -9,7 +10,6 @@ documentation = "https://docs.rs/azul"
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user interface", "svg", "graphics", "css" ]
 categories = ["gui"]
-license = "MIT"
 repository = "https://github.com/maps4print/azul"
 readme = "README.md"
 exclude = ["assets/*", "doc/*", "examples/*"]

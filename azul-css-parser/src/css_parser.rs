@@ -12,7 +12,9 @@ use azul_css::{
     ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
     GradientStopPre, RadialGradientPreInfo, StyleBackgroundColor,
     DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradientPreInfo,
-    BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide,
+    BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
+
+    SizeMetric, BoxShadowClipMode, ExtendMode, FontId,
 };
 
 /// A parser that can accept a list of items and mappings
@@ -46,7 +48,9 @@ macro_rules! typed_pixel_value_parser {
 ///
 /// ```rust
 /// # extern crate azul_css_parser;
+/// # extern crate azul_css;
 /// # use azul_css_parser;
+/// # use azul_css::{LayoutWidth, PixelValue, CssProperty};
 /// assert_eq!(
 ///     azul_css_parser::from_kv("width", "500px"),
 ///     Ok(CssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
@@ -353,7 +357,7 @@ fn parse_css_border_radius<'a>(input: &'a str)
             // (the value applies to all four corners, which are rounded equally:
 
             let uniform_radius = parse_pixel_value(components.next().unwrap())?;
-            Ok(StyleBorderRadius::uniform(uniform_radius))
+            Ok(StyleBorderRadius(BorderRadius::uniform(PixelSize::new(uniform_radius, uniform_radius))))
         },
         2 => {
             // Two values - border-radius: 15px 50px;
@@ -363,12 +367,12 @@ fn parse_css_border_radius<'a>(input: &'a str)
             let top_left_bottom_right = parse_pixel_value(components.next().unwrap())?;
             let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
 
-            Ok(StyleBorderRadius{
-                top_left: [top_left_bottom_right, top_left_bottom_right],
-                bottom_right: [top_left_bottom_right, top_left_bottom_right],
-                top_right: [top_right_bottom_left, top_right_bottom_left],
-                bottom_left: [top_right_bottom_left, top_right_bottom_left],
-            })
+            Ok(StyleBorderRadius(BorderRadius {
+                top_left: PixelSize::new(top_left_bottom_right, top_left_bottom_right),
+                bottom_right:  PixelSize::new(top_left_bottom_right, top_left_bottom_right),
+                top_right:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
+                bottom_left:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
+            }))
         },
         3 => {
             // Three values - border-radius: 15px 50px 30px;
@@ -379,12 +383,12 @@ fn parse_css_border_radius<'a>(input: &'a str)
             let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
             let bottom_right = parse_pixel_value(components.next().unwrap())?;
 
-            Ok(StyleBorderRadius{
-                top_left: [top_left, top_left],
-                bottom_right: [bottom_right, bottom_right],
-                top_right: [top_right_bottom_left, top_right_bottom_left],
-                bottom_left: [top_right_bottom_left, top_right_bottom_left],
-            })
+            Ok(StyleBorderRadius(BorderRadius {
+                top_left: PixelSize::new(top_left, top_left),
+                bottom_right:  PixelSize::new(bottom_right, bottom_right),
+                top_right:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
+                bottom_left: PixelSize::new(top_right_bottom_left, top_right_bottom_left),
+            }))
         }
         4 => {
             // Four values - border-radius: 15px 50px 30px 5px;
@@ -397,12 +401,12 @@ fn parse_css_border_radius<'a>(input: &'a str)
             let bottom_right = parse_pixel_value(components.next().unwrap())?;
             let bottom_left = parse_pixel_value(components.next().unwrap())?;
 
-            Ok(StyleBorderRadius{
-                top_left: [top_left, top_left],
-                bottom_right: [bottom_right, bottom_right],
-                top_right: [top_right, top_right],
-                bottom_left: [bottom_left, bottom_left],
-            })
+            Ok(StyleBorderRadius(BorderRadius {
+                top_left: PixelSize::new(top_left, top_left),
+                bottom_right: PixelSize::new(bottom_right, bottom_right),
+                top_right: PixelSize::new(top_right, top_right),
+                bottom_left: PixelSize::new(bottom_left, bottom_left),
+            }))
         },
         _ => {
             Err(CssStyleBorderRadiusParseError::TooManyValues(input))
