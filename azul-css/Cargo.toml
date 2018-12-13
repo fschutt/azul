@@ -17,9 +17,3 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
-
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5", default-features = false }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-webrender = { git = "https://github.com/servo/webrender", rev = "92235d1fc4ff4c4fb4e1ed709eb3136e96c786b5" }
