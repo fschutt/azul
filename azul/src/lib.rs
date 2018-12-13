@@ -212,6 +212,7 @@ pub mod prelude {
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::TextLayoutOptions;
 
+    #[cfg(any(feature = "css_parser", feature = "native-style"))]
     pub use css;
 
     #[cfg(feature = "logging")]
