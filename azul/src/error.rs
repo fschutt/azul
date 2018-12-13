@@ -1,5 +1,4 @@
 pub use app::RuntimeError;
-#[cfg(debug_assertions)]
 pub use font::FontError;
 #[cfg(feature = "image_loading")]
 pub use image::ImageError;
