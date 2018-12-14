@@ -119,12 +119,7 @@ const SVG_FRAGMENT_SHADER: &str = "
     #define varying out
 
     uniform vec4 color;
-
     out vec4 out_color;
-
-    vec4 linear_to_srgb(vec4 input) {
-        return vec4(pow(input.xyz, vec3(2.2)), input.w);
-    }
 
     // The shader output is in SRGB color space,
     // and the shader assumes that the input colors are in SRGB, too.
@@ -966,8 +961,11 @@ impl SvgStyle {
 
     /// If the style already has a scale, adds the rotation, otherwise sets the scale.
     pub fn scale(&mut self, scale_factor_x: f32, scale_factor_y: f32) {
-        let (cur_scale_x, cur_scale_y) = self.transform.translation.and_then(|t| Some((t.x, t.y))).unwrap_or((0.0, 0.0));
-        self.transform.scale = Some(SvgScaleFactor { x: cur_scale_x * scale_factor_x, y: cur_scale_y * scale_factor_y });
+        let (new_scale_x, new_scale_y) = match self.transform.scale {
+            Some(s) => (s.x * scale_factor_x, s.y * scale_factor_y),
+            None => (scale_factor_x, scale_factor_y),
+        };
+        self.transform.scale = Some(SvgScaleFactor { x: new_scale_x, y: new_scale_y });
     }
 
     /// If the style already has a translation, adds the new translation,
@@ -2023,29 +2021,28 @@ impl SvgText {
         let font = resources.get_font(&self.font_id).unwrap().0;
         let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
         let font_metrics = FontMetrics::new(&font, &self.font_size, &TextLayoutOptions::default());
-        // let scale_factor = self.font_size.0.to_pixels() * font_metrics.height_for_1px;
-        // let scale_factor = 1.0;
-        let scale_factor = font_metrics.height_for_1px;
 
-        // Text is in unscaled units, so that the text can later be scaled on the GPU
-        match self.placement {
+        // The text contains the vertices and indices in unscaled units. This is so that the font
+        // can be cached and later on be scaled and rotated on the GPU instead of the CPU.
+        let mut text = match self.placement {
             SvgTextPlacement::Unmodified => {
-                let mut text = normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics);
-                text.style.scale(scale_factor, scale_factor);
-                text
+                normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics)
             },
             SvgTextPlacement::Rotated(degrees) => {
                 let mut text = normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics);
-                text.style.scale(scale_factor, scale_factor);
                 text.style.rotate(degrees);
                 text
             },
             SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                let mut text = text_on_curve(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics, &curve);
-                text.style.scale(scale_factor, scale_factor);
-                text
+                text_on_curve(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics, &curve)
             },
-        }
+        };
+
+        let gpu_scale_factor = self.font_size.to_pixels() * font_metrics.height_for_1px;
+
+        // The scaling happens later on the GPU side!
+        text.style.scale(gpu_scale_factor, gpu_scale_factor);
+        text
     }
 
     pub fn get_bbox(&self) -> SvgBbox {
@@ -2093,7 +2090,7 @@ fn normal_text_to_vertices_inner(
     vertex_buffers: &mut Vec<VertexBuffers<SvgVert, u32>>,
     font_metrics: &FontMetrics)
 {
-    let scale_factor = font_metrics.get_svg_font_scale_factor();
+    let scale_factor = font_metrics.get_svg_font_scale_factor(); // x / font_size * scale_factor
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
         // NOTE: The gid.point has the font size already applied to it,
         // so we have to un-do the scaling for the glyph offsets, so all other scaling can be done on the GPU
