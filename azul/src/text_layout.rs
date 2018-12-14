@@ -376,7 +376,7 @@ impl FontMetrics {
 
     /// Necessary to un-do the scaling done by the text layout
     pub fn get_svg_font_scale_factor(&self) -> f32 {
-        self.font_size_no_line_height.0 // * self.height_for_1px
+        self.font_size_no_line_height.0 * self.height_for_1px
     }
 }
 
