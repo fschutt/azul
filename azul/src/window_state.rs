@@ -12,6 +12,7 @@ use glium::glutin::{
 };
 use {
     dom::On,
+    id_tree::NodeId,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -160,6 +161,9 @@ pub struct WindowState {
     pub(crate) mouse_state: MouseState,
     /// Whether there is a file currently hovering over the window
     pub(crate) hovered_file: Option<PathBuf>,
+    /// What node is currently hovered over, default to None. Only necessary internal
+    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events.
+    pub(crate) focused_element: Option<NodeId>,
     /// Previous window state, used for determining mouseout, etc. events
     pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -214,6 +218,7 @@ impl Default for WindowState {
         Self {
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
+            focused_element: None,
             hovered_file: None,
             previous_window_state: None,
             title: DEFAULT_TITLE.into(),
