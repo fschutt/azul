@@ -637,9 +637,9 @@ fn call_callbacks<T: Layout>(
     ui_state_cache: &[UiState<T>],
     app_state: &mut AppState<T>)
 {
-    use dom::UpdateScreen;
+    use app_state::AppStateNoData;
     use window::WindowEvent;
-    use dom::Callback;
+    use dom::UpdateScreen;
     use window_state::{KeyboardState, MouseState};
 
     let hit_test_results = match hit_test_results {
@@ -649,98 +649,57 @@ fn call_callbacks<T: Layout>(
 
     let mut should_update_screen = UpdateScreen::DontRedraw;
 
-    let callbacks_filter_list = window.state.determine_callbacks(event);
+    let callbacks_filter_list = window.state.determine_callbacks(&hit_test_results, event, &ui_state_cache[window_id.id]);
 
     // TODO: this should be refactored - currently very stateful and error-prone!
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
     app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
-    // TODO: duplicated code!
     {
-        use app_state::AppStateNoData;
-
         let mut lock = app_state.data.lock().unwrap();
+        for (node_id, callback_results) in callbacks_filter_list.iter() {
+            let hit_item = &callback_results.hit_test_item;
+            for default_callback_id in callback_results.default_callbacks.values() {
 
-        for (item, callback_id_list) in hit_test_results.items.iter().filter_map(|item|
-            ui_state_cache[window_id.id].tag_ids_to_default_callbacks // <- NOTE: tag_ids_to_default_callbacks
-            .get(&item.tag.0)
-            .and_then(|callback_id_list| Some((item, callback_id_list)))
-        ) {
-            use dom::On;
+                let window_event = WindowEvent {
+                    window: window_id.id,
+                    hit_dom_node: *node_id,
+                    ui_state: &ui_state_cache[window_id.id],
+                    hit_test_result: &hit_test_results,
+                    cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
+                    cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
+                };
+
+                let app_state_no_data = AppStateNoData {
+                    windows: &app_state.windows,
+                    resources: &mut app_state.resources,
+                };
+
+                // safe unwrap, we have added the callback previously
+                if app_state.windows[window_id.id].default_callbacks.run_callback(&mut *lock, default_callback_id, app_state_no_data, window_event) == UpdateScreen::Redraw {
+                    should_update_screen = UpdateScreen::Redraw;
+                }
+            }
+        }
+    } // release mutex
+
+    for (node_id, callback_results) in callbacks_filter_list.iter() {
+        let hit_item = &callback_results.hit_test_item;
+        for callback in callback_results.normal_callbacks.values() {
 
             let window_event = WindowEvent {
                 window: window_id.id,
-                hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
+                hit_dom_node: *node_id,
                 ui_state: &ui_state_cache[window_id.id],
                 hit_test_result: &hit_test_results,
-                cursor_relative_to_item: (item.point_relative_to_item.x, item.point_relative_to_item.y),
-                cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
+                cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
+                cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
             };
-            // Invoke On::MouseOver callback - TODO: duplicated code (due to borrowing issues)!
-            if let Some(callback_id) = callback_id_list.get(&On::MouseOver) {
 
-                let app_state_no_data = AppStateNoData {
-                    windows: &app_state.windows,
-                    resources: &mut app_state.resources,
-                };
-
-                // safe unwrap, we have added the callback previously
-                if app_state.windows[window_id.id].default_callbacks.run_callback(
-                    &mut *lock, callback_id, app_state_no_data, window_event
-                    ) == UpdateScreen::Redraw {
-                    should_update_screen = UpdateScreen::Redraw;
-                }
-            }
-
-            for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_id_list.get(on)) {
-
-                let app_state_no_data = AppStateNoData {
-                    windows: &app_state.windows,
-                    resources: &mut app_state.resources,
-                };
-
-                // safe unwrap, we have added the callback previously
-                if app_state.windows[window_id.id].default_callbacks.run_callback(
-                    &mut *lock, callback_id, app_state_no_data, window_event
-                ) == UpdateScreen::Redraw {
-                    should_update_screen = UpdateScreen::Redraw;
-                }
-            }
-        }
-    } // unlock AppState mutex
-
-    // For all hit items, lookup the callback and call it
-    for (item, callback_list) in hit_test_results.items.iter().filter_map(|item|
-        ui_state_cache[window_id.id].tag_ids_to_callbacks
-        .get(&item.tag.0)
-        .and_then(|callback_list| Some((item, callback_list)))
-    ) {
-        use dom::On;
-
-        let window_event = WindowEvent {
-            window: window_id.id,
-            hit_dom_node: ui_state_cache[window_id.id].tag_ids_to_node_ids[&item.tag.0],
-            ui_state: &ui_state_cache[window_id.id],
-            hit_test_result: &hit_test_results,
-            cursor_relative_to_item: (item.point_relative_to_item.x, item.point_relative_to_item.y),
-            cursor_in_viewport: (item.point_in_viewport.x, item.point_in_viewport.y),
-        };
-
-        let mut invoke_callback = |&Callback(callback_func)| {
-            if (callback_func)(app_state, window_event) == UpdateScreen::Redraw {
+            if (callback.0)(app_state, window_event) == UpdateScreen::Redraw {
                 should_update_screen = UpdateScreen::Redraw;
             }
-        };
-
-        // Invoke On::MouseOver callback
-        if let Some(callback_id) = callback_list.get(&On::MouseOver) {
-            invoke_callback(callback_id);
-        }
-
-        // Invoke user-defined callback if necessary
-        for callback_id in callbacks_filter_list.iter().filter_map(|on| callback_list.get(on)) {
-            invoke_callback(callback_id);
         }
     }
 

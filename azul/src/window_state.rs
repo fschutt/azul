@@ -2,7 +2,7 @@
 //! click was a mouseover, mouseout, and so on and calling the correct callbacks)
 
 use std::{
-    collections::HashSet,
+    collections::{HashSet, BTreeMap},
     path::PathBuf,
 };
 use glium::glutin::{
@@ -10,9 +10,13 @@ use glium::glutin::{
     MouseCursor, VirtualKeyCode, MouseScrollDelta,
     ModifiersState, dpi::{LogicalPosition, LogicalSize},
 };
+use webrender::api::{HitTestResult, HitTestItem};
 use {
-    dom::On,
+    dom::{On, Callback, TabIndex},
+    default_callbacks::DefaultCallbackId,
     id_tree::NodeId,
+    ui_state::UiState,
+    traits::Layout,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -235,6 +239,12 @@ impl Default for WindowState {
     }
 }
 
+pub(crate) struct DetermineCallbackResult<T: Layout> {
+    pub(crate) hit_test_item: HitTestItem,
+    pub(crate) default_callbacks: BTreeMap<On, DefaultCallbackId>,
+    pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
+}
+
 impl WindowState
 {
     pub fn get_mouse_state(&self) -> &MouseState {
@@ -249,46 +259,52 @@ impl WindowState
         self.hovered_file.as_ref()
     }
 
-    // Determine which event / which callback(s) should be called and in which order
-    //
-    // This function also updates / mutates the current window state,
-    // so that we are ready for the next frame
-    pub(crate) fn determine_callbacks(&mut self, event: &Event) -> Vec<On> {
-
+    /// Determine which event / which callback(s) should be called and in which order
+    ///
+    /// This function also updates / mutates the current window state, so that
+    /// the window state is updated for the next frame
+    ///
+    /// # Returns
+    ///
+    /// A BTreeMap where each item is already filtered by the proper hit-testing type,
+    /// meaning in order to get the proper callbacks, you simply have to iterate through
+    /// all node IDs
+    pub(crate) fn determine_callbacks<T: Layout>(&mut self, hit_test_result: &HitTestResult, event: &Event, ui_state: &UiState<T>)
+    -> BTreeMap<NodeId, DetermineCallbackResult<T>>
+    {
         use std::collections::HashSet;
         use glium::glutin::{
             Event, WindowEvent, KeyboardInput,
             MouseButton::*,
         };
 
-        let event = if let Event::WindowEvent { event, .. } = event { event } else { return Vec::new(); };
+        let event = if let Event::WindowEvent { event, .. } = event { event } else { return BTreeMap::new(); };
 
         // store the current window state so we can set it in this.previous_window_state later on
         let mut previous_state = Box::new(self.clone());
         previous_state.previous_window_state = None;
 
         let mut events_vec = HashSet::<On>::new();
+        events_vec.insert(On::MouseOver);
 
         match event {
             WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
+                events_vec.insert(On::MouseDown);
                 match button {
                     Left => {
                         if !self.mouse_state.left_down {
-                            events_vec.insert(On::MouseDown);
                             events_vec.insert(On::LeftMouseDown);
                         }
                         self.mouse_state.left_down = true;
                     },
                     Right => {
                         if !self.mouse_state.right_down {
-                            events_vec.insert(On::MouseDown);
                             events_vec.insert(On::RightMouseDown);
                         }
                         self.mouse_state.right_down = true;
                     },
                     Middle => {
                         if !self.mouse_state.middle_down {
-                            events_vec.insert(On::MouseDown);
                             events_vec.insert(On::MiddleMouseDown);
                         }
                         self.mouse_state.middle_down = true;
@@ -348,9 +364,64 @@ impl WindowState
             _ => { }
         }
 
+        let event_was_mouse_down = if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = event { true } else { false };
+        let event_was_mouse_release = if let WindowEvent::MouseInput { state: ElementState::Released, .. } = event { true } else { false };
+
+        // TODO: If the current mouse is down, but the event
+        // wasn't a click, that means it was a drag
+
+        // Figure out if an item has received the onfocus or onfocusleave event
+        let closest_item_with_focus_tab: Option<(NodeId, TabIndex)> = if event_was_mouse_down || event_was_mouse_release {
+            // Find the first (closest to cursor in hierarchy) item that has a tabindex
+            hit_test_result.items.iter().rev().find_map(|item| ui_state.tab_index_tags.get(&item.tag.0)).cloned()
+        } else {
+            None
+        };
+
+        if let Some((new_focused_element_node_id, _)) = closest_item_with_focus_tab {
+            // Update the current window states focus element, regardless of
+            // whether an On::FocusReceived or a On::FocusLost
+            self.focused_element = Some(new_focused_element_node_id);
+            if previous_state.focused_element != Some(new_focused_element_node_id) {
+                if previous_state.focused_element.is_none() {
+                    events_vec.insert(On::FocusReceived);
+                } else {
+                    events_vec.insert(On::FocusLost);
+                }
+                // else, if the last element = current element,
+                // then the focus is still on the same field
+            }
+        } else if event_was_mouse_release || event_was_mouse_down {
+            self.focused_element = None;
+            events_vec.insert(On::FocusLost);
+        }
+
         self.previous_window_state = Some(previous_state);
 
-        events_vec.into_iter().collect()
+        hit_test_result.items
+            .iter()
+            .filter_map(|item| {
+                let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
+                let default_callbacks = ui_state.tag_ids_to_default_callbacks
+                    .get(&item.tag.0)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|(on, _)| events_vec.contains(&on))
+                    .collect();
+
+                let normal_callbacks = ui_state.tag_ids_to_callbacks
+                    .get(&item.tag.0)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|(on, _)| events_vec.contains(&on))
+                    .collect();
+                let hit_test_item = item.clone();
+
+                Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
+            })
+            .collect()
     }
 
     pub(crate) fn update_keyboard_modifiers(&mut self, event: &Event) {
