@@ -396,8 +396,8 @@ pub struct NodeData<T: Layout> {
     pub ids: Vec<String>,
     /// `.myclass .otherclass`
     pub classes: Vec<String>,
-    /// `onclick` -> `my_button_click_handler`
-    pub events: CallbackList<T>,
+    /// `On::MouseUp` -> `Callback(my_button_click_handler)`
+    pub callbacks: Vec<(On, Callback<T>)>,
     /// Usually not set by the user directly - `FakeWindow::add_default_callback`
     /// returns a callback ID, so that we know which default callback(s) are attached
     /// to this node.
@@ -470,7 +470,7 @@ impl<T: Layout> PartialEq for NodeData<T> {
         self.node_type == other.node_type &&
         self.ids == other.ids &&
         self.classes == other.classes &&
-        self.events == other.events &&
+        self.callbacks == other.callbacks &&
         self.default_callback_ids == other.default_callback_ids &&
         self.dynamic_style_overrides == other.dynamic_style_overrides &&
         self.draggable == other.draggable &&
@@ -486,7 +486,7 @@ impl<T: Layout> Default for NodeData<T> {
             node_type: NodeType::Div,
             ids: Vec::new(),
             classes: Vec::new(),
-            events: CallbackList::default(),
+            callbacks: Vec::new(),
             default_callback_ids: Vec::new(),
             dynamic_style_overrides: Vec::new(),
             draggable: false,
@@ -504,12 +504,14 @@ impl<T: Layout> Hash for NodeData<T> {
         for class in &self.classes {
             class.hash(state);
         }
+        for callback in &self.callbacks {
+            callback.hash(state);
+        }
         for default_callback_id in &self.default_callback_ids {
             default_callback_id.hash(state);
         }
-        self.events.hash(state);
-        for override_property in &self.dynamic_style_overrides {
-            override_property.hash(state);
+        for dynamic_style_override in &self.dynamic_style_overrides {
+            dynamic_style_override.hash(state);
         }
         self.draggable.hash(state);
         self.tab_index.hash(state);
@@ -522,7 +524,7 @@ impl<T: Layout> Clone for NodeData<T> {
             node_type: self.node_type.clone(),
             ids: self.ids.clone(),
             classes: self.classes.clone(),
-            events: self.events.clone(),
+            callbacks: self.callbacks.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
             dynamic_style_overrides: self.dynamic_style_overrides.clone(),
             draggable: self.draggable.clone(),
@@ -559,7 +561,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tnode_type: {:?}, \
                 \tids: {:?}, \
                 \tclasses: {:?}, \
-                \tevents: {:?}, \
+                \tcallbacks: {:?}, \
                 \tdefault_callback_ids: {:?}, \
                 \tdynamic_style_overrides: {:?}, \
                 \tdraggable: {:?}, \
@@ -568,7 +570,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
         self.node_type,
         self.ids,
         self.classes,
-        self.events,
+        self.callbacks,
         self.default_callback_ids,
         self.dynamic_style_overrides,
         self.draggable,
@@ -600,51 +602,6 @@ impl<T: Layout> NodeData<T> {
         }
     }
 }
-
-pub struct CallbackList<T: Layout> {
-    pub callbacks: BTreeMap<On, Callback<T>>
-}
-
-impl<T: Layout> Default for CallbackList<T> {
-    fn default() -> Self {
-        Self {
-            callbacks: BTreeMap::default(),
-        }
-    }
-}
-
-impl<T: Layout> Hash for CallbackList<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        for callback in &self.callbacks {
-            callback.hash(state);
-        }
-    }
-}
-
-impl<T: Layout> fmt::Debug for CallbackList<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CallbackList (length: {:?})", self.callbacks.len())
-    }
-}
-
-impl<T: Layout> Clone for CallbackList<T> {
-    fn clone(&self) -> Self {
-        CallbackList { callbacks: self.callbacks.clone() }
-    }
-}
-
-impl<T: Layout> PartialEq for CallbackList<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    if self.callbacks.len() != rhs.callbacks.len() {
-        return false;
-    }
-    self.callbacks.iter().all(|(key, val)| {
-        rhs.callbacks.get(key) == Some(val)
-    })
-  }
-}
-
-impl<T: Layout> Eq for CallbackList<T> { }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[derive(Clone, PartialEq, Eq)]
@@ -918,7 +875,7 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn add_callback(&mut self, on: On, callback: Callback<T>) {
-        self.arena.borrow_mut().node_data[self.head].events.callbacks.insert(on, callback);
+        self.arena.borrow_mut().node_data[self.head].callbacks.push((on, callback));
     }
 
     #[inline]
@@ -981,9 +938,9 @@ impl<T: Layout> Dom<T> {
 
                 let mut node_tag_id = None;
 
-                if !data.events.callbacks.is_empty() {
+                if !data.callbacks.is_empty() {
                     let tag_id = new_tag_id();
-                    tag_ids_to_callbacks.insert(tag_id, data.events.callbacks.clone());
+                    tag_ids_to_callbacks.insert(tag_id, data.callbacks.iter().cloned().collect());
                     node_tag_id = Some(tag_id);
                 }
 
