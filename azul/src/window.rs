@@ -31,7 +31,7 @@ use azul_css::Css;
 use azul_css::HotReloadHandler;
 use {
     FastHashMap,
-    dom::{Texture, On, Callback},
+    dom::{Texture, Callback},
     daemon::{Daemon, DaemonId},
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
@@ -233,37 +233,39 @@ impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
 
 impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> { }
 
+
+pub struct IndexPathIterator<'a, 'b: 'a, T: 'b + Layout> {
+    current_item: NodeId,
+    event: &'a WindowEvent<'b, T>,
+}
+
+impl<'a, 'b, T: 'a + Layout> IndexPathIterator<'a, 'b, T> {
+    /// Returns what node ID the iterator is currently processing
+    pub fn current_node(&self) -> NodeId {
+        self.current_item
+    }
+}
+
+impl<'a, 'b, T: 'a + Layout> Iterator for IndexPathIterator<'a, 'b, T> {
+    type Item = usize;
+
+    /// For each item in the current item path, returns the index of the item in the parent
+    fn next(&mut self) -> Option<usize> {
+        let (new_index, new_parent) = self.event.get_index_in_parent(self.current_item)?;
+        self.current_item = new_parent;
+        Some(new_index)
+    }
+}
+
 impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
-    /// Returns the index + the node ID of a child of the current node of a certain event type
-    pub fn get_first_hit_child(&self, node_id: NodeId, searched_event_type: On) -> Option<(usize, NodeId)> {
 
-        let ui_state = self.ui_state;
-        let node_layout = &ui_state.dom.arena.borrow().node_layout;
-
-        if node_id.index() > node_layout.len() {
-            return None; // node_id out of range
+    /// Creates an iterator that starts at the current DOM node and continouusly
+    /// returns the index in the parent, until it gets to the root component.
+    pub fn index_path_iter<'b>(&'b self) -> IndexPathIterator<'a, 'b, T> {
+        IndexPathIterator {
+            current_item: self.hit_dom_node,
+            event: &self,
         }
-
-        node_id
-            .children(&node_layout)
-            .enumerate()
-            .filter_map(|(idx, child_id)| {
-                ui_state.node_ids_to_tag_ids.get(&child_id).and_then(|tag| Some((*tag, idx, child_id)))
-            })
-            .filter(|(tag, _, _)| {
-                self.hit_test_result.items.iter().any(|item| item.tag.0 == *tag)
-            })
-            .filter(|(tag, _, _)| {
-                if let Some(map) = ui_state.tag_ids_to_default_callbacks.get(&tag) {
-                    map.get(&searched_event_type).is_some()
-                } else if let Some(map) = ui_state.tag_ids_to_noop_callbacks.get(&tag) {
-                    map.get(&searched_event_type).is_some()
-                } else {
-                    false
-                }
-            })
-            .map(|(_, idx, child_id)| (idx, child_id))
-            .next()
     }
 
     /// For any node ID, returns what the position in its parent it is, plus the parent itself.
