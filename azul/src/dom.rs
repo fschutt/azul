@@ -387,6 +387,10 @@ pub enum On {
     DroppedFile,
     /// A file was hovered, but has exited the window
     HoveredFileCancelled,
+    /// Equivalent to `onfocus`
+    FocusReceived,
+    /// Equivalent to `onblur`
+    FocusLost,
 }
 
 pub struct NodeData<T: Layout> {
