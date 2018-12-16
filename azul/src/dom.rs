@@ -421,7 +421,50 @@ pub struct NodeData<T: Layout> {
     ///     dynamic_style_overrides: vec![("my_custom_width".into(), CssProperty::Width(LayoutWidth::px(500.0)))]
     /// }
     /// ```
-    pub dynamic_style_overrides: Vec<(String, CssProperty)>
+    pub dynamic_style_overrides: Vec<(String, CssProperty)>,
+    /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
+    ///
+    /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
+    pub draggable: bool,
+    /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
+    /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
+    /// `On::FocusLost` (equivalent to onblur), etc. events.
+    pub tab_index: Option<TabIndex>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum TabIndex {
+    /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`
+    /// (both have the effect of making the element focusable).
+    ///
+    /// Sidenote: See https://www.w3.org/TR/html5/editing.html#sequential-focus-navigation-and-the-tabindex-attribute
+    /// for interesting notes on tabindex and accessibility
+    Auto,
+    /// Set the tab index in relation to its parent element. I.e. if you have a list of elements,
+    /// the focusing order is restricted to the current parent.
+    ///
+    /// Ex. a div might have:
+    ///
+    /// ```no_run,ignore
+    /// div (Auto)
+    /// |- element1 (OverrideInParent 0) <- current focus
+    /// |- element2 (OverrideInParent 5)
+    /// |- element3 (OverrideInParent 2)
+    /// |- element4 (Global 5)
+    /// ```
+    ///
+    /// When pressing tab repeatedly, the focusing order will be
+    /// "element3, element2, element4, div", since OverrideInParent elements
+    /// take precedence among global order.
+    OverrideInParent(usize),
+    /// Set the global tabindex order, independe
+    Global(usize),
+}
+
+impl Default for TabIndex {
+    fn default() -> Self {
+        TabIndex::Auto
+    }
 }
 
 impl<T: Layout> PartialEq for NodeData<T> {
@@ -448,6 +491,8 @@ impl<T: Layout> Default for NodeData<T> {
             default_callback_ids: Vec::new(),
             force_enable_hit_test: Vec::new(),
             dynamic_style_overrides: Vec::new(),
+            draggable: false,
+            tab_index: None,
         }
     }
 }
@@ -482,6 +527,8 @@ impl<T: Layout> Clone for NodeData<T> {
             default_callback_ids: self.default_callback_ids.clone(),
             force_enable_hit_test: self.force_enable_hit_test.clone(),
             dynamic_style_overrides: self.dynamic_style_overrides.clone(),
+            draggable: self.draggable.clone(),
+            tab_index: self.tab_index.clone(),
         }
     }
 }
