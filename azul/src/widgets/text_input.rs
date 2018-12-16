@@ -82,9 +82,6 @@ impl TextInput {
         if let Some((text_input_callback, vk_callback)) = self.on_text_input_callback {
             parent_div.add_default_callback_id(On::TextInput, text_input_callback);
             parent_div.add_default_callback_id(On::VirtualKeyDown, vk_callback);
-        } else {
-            parent_div.enable_hit_testing(On::VirtualKeyDown);
-            parent_div.enable_hit_testing(On::TextInput);
         }
 
         parent_div.with_child(Dom::new(NodeType::Label(field.text.clone())).with_class("__azul-native-input-text-label"))

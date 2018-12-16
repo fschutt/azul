@@ -4,12 +4,13 @@ use std::{
     cell::RefCell,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     iter::FromIterator,
 };
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use azul_css::{ NodeTypePath, CssProperty };
 use {
+    ui_state::UiState,
     FastHashMap,
     window::{WindowEvent, WindowInfo},
     images::{ImageId, ImageState},
@@ -403,9 +404,6 @@ pub struct NodeData<T: Layout> {
     ///
     /// This is only important if this node has any default callbacks.
     pub default_callback_ids: Vec<(On, DefaultCallbackId)>,
-    /// Force this DOM node to be part of the hit-testing although it may have no
-    /// callbacks attached. Default: `BTreeSet::new()`.
-    pub force_enable_hit_test: Vec<On>,
     /// Override certain dynamic styling properties in this frame. For this,
     /// these properties have to have a name (the ID).
     ///
@@ -474,8 +472,9 @@ impl<T: Layout> PartialEq for NodeData<T> {
         self.classes == other.classes &&
         self.events == other.events &&
         self.default_callback_ids == other.default_callback_ids &&
-        self.force_enable_hit_test == other.force_enable_hit_test &&
-        self.dynamic_style_overrides == other.dynamic_style_overrides
+        self.dynamic_style_overrides == other.dynamic_style_overrides &&
+        self.draggable == other.draggable &&
+        self.tab_index == other.tab_index
     }
 }
 
@@ -489,7 +488,6 @@ impl<T: Layout> Default for NodeData<T> {
             classes: Vec::new(),
             events: CallbackList::default(),
             default_callback_ids: Vec::new(),
-            force_enable_hit_test: Vec::new(),
             dynamic_style_overrides: Vec::new(),
             draggable: false,
             tab_index: None,
@@ -510,10 +508,11 @@ impl<T: Layout> Hash for NodeData<T> {
             default_callback_id.hash(state);
         }
         self.events.hash(state);
-        self.force_enable_hit_test.hash(state);
         for override_property in &self.dynamic_style_overrides {
             override_property.hash(state);
         }
+        self.draggable.hash(state);
+        self.tab_index.hash(state);
     }
 }
 
@@ -525,7 +524,6 @@ impl<T: Layout> Clone for NodeData<T> {
             classes: self.classes.clone(),
             events: self.events.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
-            force_enable_hit_test: self.force_enable_hit_test.clone(),
             dynamic_style_overrides: self.dynamic_style_overrides.clone(),
             draggable: self.draggable.clone(),
             tab_index: self.tab_index.clone(),
@@ -563,16 +561,18 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tclasses: {:?}, \
                 \tevents: {:?}, \
                 \tdefault_callback_ids: {:?}, \
-                \tforce_enable_hit_test: {:?}, \
                 \tdynamic_style_overrides: {:?}, \
+                \tdraggable: {:?}, \
+                \ttab_index: {:?}, \
             }}",
         self.node_type,
         self.ids,
         self.classes,
         self.events,
         self.default_callback_ids,
-        self.force_enable_hit_test,
-        self.dynamic_style_overrides)
+        self.dynamic_style_overrides,
+        self.draggable,
+        self.tab_index)
     }
 }
 
@@ -900,14 +900,6 @@ impl<T: Layout> Dom<T> {
         self
     }
 
-    /// Enable the DOM to trigger a hit-test on the specified event, although
-    /// there may not be any callbacks attached.
-    #[inline]
-    pub fn with_hit_test(mut self, on: On) -> Self {
-        self.enable_hit_testing(on);
-        self
-    }
-
     #[inline]
     pub fn with_style_override<S: Into<String>>(mut self, id: S, property: CssProperty) -> Self {
         self.add_style_override(id, property);
@@ -944,63 +936,96 @@ impl<T: Layout> Dom<T> {
         println!("{}", self.arena.borrow().print_tree(|t| format!("{}", t)));
     }
 
-    /// Enables the current DOM element to be hit-tested even though it may
-    /// not have any callbacks or default callbacks attached to it. See the
-    /// two-way data binding tutorial on why this is useful (last section)
-    #[inline]
-    pub fn enable_hit_testing(&mut self, when_to_hit_test: On) {
-        self.arena.borrow_mut().node_data[self.head].force_enable_hit_test.push(when_to_hit_test);
-    }
+    pub(crate) fn into_ui_state(self) -> UiState<T> {
 
-    pub(crate) fn collect_callbacks(
-        &self,
-        tag_ids_to_callback_list: &mut BTreeMap<TagId, BTreeMap<On, Callback<T>>>,
-        tag_ids_to_default_callback_list: &mut BTreeMap<TagId, BTreeMap<On, DefaultCallbackId>>,
-        tag_ids_to_noop_callbacks: &mut BTreeMap<TagId, BTreeSet<On>>,
-        node_ids_to_tag_ids: &mut BTreeMap<NodeId, TagId>,
-        tag_ids_to_node_ids: &mut BTreeMap<TagId, NodeId>,
-        dynamic_style_overrides: &mut BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
-    {
+        // NOTE: Originally it was allowed to create a DOM with
+        // multiple root elements using `add_sibling()` and `with_sibling()`.
+        //
+        // However, it was decided to remove these functions (in commit #586933),
+        // as they aren't practical (you can achieve the same thing with one
+        // wrapper div and multiple add_child() calls) and they create problems
+        // when layouting elements since add_sibling() essentially modifies the
+        // space that the parent can distribute, which in code, simply looks weird
+        // and led to bugs.
+        //
+        // It is assumed that the DOM returned by the user has exactly one root node
+        // with no further siblings and that the root node is the Node with the ID 0.
+
+        // All nodes that have regular (user-defined) callbacks
+        let mut tag_ids_to_callbacks = BTreeMap::new();
+        // All nodes that have a default callback
+        let mut tag_ids_to_default_callbacks = BTreeMap::new();
+        // All tags that have can be focused (necessary for hit-testing)
+        let mut tab_index_tags = BTreeMap::new();
+        // All tags that have can be dragged & dropped (necessary for hit-testing)
+        let mut draggable_tags = BTreeMap::new();
+
+        // Mapping from tags to nodes (necessary so that the hit-testing can resolve the NodeId from any given tag)
+        let mut tag_ids_to_node_ids = BTreeMap::new();
+        // Mapping from nodes to tags, reverse mapping (not used right now, may be useful in the future)
+        let mut node_ids_to_tag_ids = BTreeMap::new();
+        // Which nodes have extra dynamic CSS overrides?
+        let mut dynamic_style_overrides = BTreeMap::new();
+
         // Reset the tag
         TAG_ID.swap(1, Ordering::SeqCst);
 
-        let arena = &self.arena.borrow();
+        {
+            let arena = &self.arena.borrow();
 
-        for node_id in arena.linear_iter() {
+            debug_assert!(arena.node_layout[NodeId::new(0)].next_sibling.is_none());
 
-            let data = &arena.node_data[node_id];
+            for node_id in arena.linear_iter() {
 
-            let mut node_tag_id = None;
+                let data = &arena.node_data[node_id];
 
-            if !data.events.callbacks.is_empty() {
-                let tag_id = new_tag_id();
-                tag_ids_to_callback_list.insert(tag_id, data.events.callbacks.clone());
-                node_tag_id = Some(tag_id);
+                let mut node_tag_id = None;
+
+                if !data.events.callbacks.is_empty() {
+                    let tag_id = new_tag_id();
+                    tag_ids_to_callbacks.insert(tag_id, data.events.callbacks.clone());
+                    node_tag_id = Some(tag_id);
+                }
+
+                if !data.default_callback_ids.is_empty() {
+                    let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
+                    tag_ids_to_default_callbacks.insert(tag_id, data.default_callback_ids.iter().cloned().collect());
+                    node_tag_id = Some(tag_id);
+                }
+
+                if data.draggable {
+                    let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
+                    draggable_tags.insert(tag_id, node_id);
+                    node_tag_id = Some(tag_id);
+                }
+
+                if let Some(tab_index) = data.tab_index {
+                    let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
+                    tab_index_tags.insert(tag_id, (node_id, tab_index));
+                    node_tag_id = Some(tag_id);
+                }
+
+                if let Some(tag_id) = node_tag_id {
+                    tag_ids_to_node_ids.insert(tag_id, node_id);
+                    node_ids_to_tag_ids.insert(node_id, tag_id);
+                }
+
+                // Collect all the styling overrides into one hash map
+                if !data.dynamic_style_overrides.is_empty() {
+                    dynamic_style_overrides.insert(node_id, data.dynamic_style_overrides.iter().cloned().collect());
+                }
             }
+        }
 
-            if !data.default_callback_ids.is_empty() {
-                let tag_id = node_tag_id.unwrap_or(new_tag_id());
-                tag_ids_to_default_callback_list.insert(tag_id, data.default_callback_ids.iter().cloned().collect());
-                node_tag_id = Some(tag_id);
-            }
-
-            // Force-enabling hit-testing is important for child nodes that don't have any
-            // callbacks attached themselves, but their parents need them to be hit-tested
-            if !data.force_enable_hit_test.is_empty() {
-                let tag_id = node_tag_id.unwrap_or(new_tag_id());
-                tag_ids_to_noop_callbacks.insert(tag_id, data.force_enable_hit_test.iter().cloned().collect());
-                node_tag_id = Some(tag_id);
-            }
-
-            if let Some(tag_id) = node_tag_id {
-                tag_ids_to_node_ids.insert(tag_id, node_id);
-                node_ids_to_tag_ids.insert(node_id, tag_id);
-            }
-
-            // Collect all the styling overrides into one hash map
-            if !data.dynamic_style_overrides.is_empty() {
-                dynamic_style_overrides.insert(node_id, data.dynamic_style_overrides.iter().cloned().collect());
-            }
+        UiState {
+            dom: self,
+            tag_ids_to_callbacks,
+            tag_ids_to_default_callbacks,
+            tab_index_tags,
+            draggable_tags,
+            node_ids_to_tag_ids,
+            tag_ids_to_node_ids,
+            dynamic_style_overrides,
         }
     }
 }

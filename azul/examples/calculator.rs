@@ -13,41 +13,33 @@ struct Calculator {
 
 impl Layout for Calculator {
     fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
+
+        fn numpad_btn(label: &str, class: &str) -> Dom<Calculator> {
+            Dom::label(label).with_class(class).with_callback(On::MouseUp, Callback(handle_mouseclick_numpad_btn))
+        }
+
+        fn render_row(labels: &[&str;4]) -> Dom<Calculator> {
+            Dom::div().with_class("row")
+                .with_child(numpad_btn(labels[0], "numpad-button"))
+                .with_child(numpad_btn(labels[1], "numpad-button"))
+                .with_child(numpad_btn(labels[2], "numpad-button"))
+                .with_child(numpad_btn(labels[3], "orange"))
+        }
+
+        let result = self.result.and_then(|r| Some(r.to_string())).unwrap_or(self.current_operand_stack.get_display());
+
         Dom::div()
-            .with_child(Dom::label(self.result.and_then(|r| Some(r.to_string())).unwrap_or(self.current_operand_stack.get_display()))
-                        .with_id("result")
-            )
+            .with_child(Dom::label(result).with_id("result"))
             .with_child(Dom::div().with_id("numpad-container")
-                .with_child(Dom::div().with_class("row").with_hit_test(On::MouseUp)
-                    .with_child(Dom::label("C").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("+/-").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("%").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("/").with_class("orange").with_hit_test(On::MouseUp))
+                .with_child(render_row(&["C", "+/-", "%", "/"]))
+                .with_child(render_row(&["7", "8", "9", "x"]))
+                .with_child(render_row(&["4", "5", "6", "-"]))
+                .with_child(render_row(&["1", "2", "3", "+"]))
+                .with_child(Dom::div().with_class("row")
+                    .with_child(numpad_btn("0", "numpad-button").with_id("zero"))
+                    .with_child(numpad_btn(".", "numpad-button"))
+                    .with_child(numpad_btn("=", "orange"))
                 )
-                .with_child(Dom::div().with_class("row").with_hit_test(On::MouseUp)
-                    .with_child(Dom::label("7").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("8").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("9").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("x").with_class("orange").with_hit_test(On::MouseUp))
-                )
-                .with_child(Dom::new(NodeType::Div).with_class("row").with_hit_test(On::MouseUp)
-                    .with_child(Dom::label("4").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("5").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("6").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("-").with_class("orange").with_hit_test(On::MouseUp))
-                )
-                .with_child(Dom::new(NodeType::Div).with_class("row").with_hit_test(On::MouseUp)
-                    .with_child(Dom::label("1").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("2").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("3").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("+").with_class("orange").with_hit_test(On::MouseUp))
-                )
-                .with_child(Dom::new(NodeType::Div).with_class("row").with_hit_test(On::MouseUp)
-                    .with_child(Dom::label("0").with_id("zero").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label(".").with_class("numpad-button").with_hit_test(On::MouseUp))
-                    .with_child(Dom::label("=").with_class("orange").with_hit_test(On::MouseUp))
-                )
-                .with_callback(On::MouseUp, Callback(handle_mouseclick_numpad))
             )
     }
 }
@@ -119,17 +111,17 @@ impl OperandStack {
     }
 }
 
+fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: WindowEvent<Calculator>) -> UpdateScreen {
 
+    let mut row_iter = event.index_path_iter();
 
-fn handle_mouseclick_numpad(app_state: &mut AppState<Calculator>, event: WindowEvent<Calculator>) -> UpdateScreen {
-
-    // Figure out which row was clicked...
-    let (clicked_row_idx, row_that_was_clicked) = match event.get_first_hit_child(event.hit_dom_node, On::MouseUp) {
+    // Figure out which row and column was clicked...
+    let clicked_col_idx = match row_iter.next() {
         Some(s) => s,
         None => return UpdateScreen::DontRedraw,
     };
 
-    let (clicked_col_idx, _) = match event.get_first_hit_child(row_that_was_clicked, On::MouseUp) {
+    let clicked_row_idx = match row_iter.next() {
         Some(s) => s,
         None => return UpdateScreen::DontRedraw,
     };
@@ -176,6 +168,8 @@ fn handle_mouseclick_numpad(app_state: &mut AppState<Calculator>, event: WindowE
 
         _ => return UpdateScreen::DontRedraw, // invalid item
     };
+
+    println!("got event: {:?}", event);
 
     // Act on the event accordingly
     match event {
