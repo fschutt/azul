@@ -15,11 +15,10 @@ impl Layout for List {
                 node_type: NodeType::Label(item.to_string()),
                 classes: vec!["item".into()],
                 ids: if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] },
-                force_enable_hit_test: vec![On::MouseDown],
+                callbacks: vec![(On::MouseDown, Callback(print_which_item_was_selected))],
                 .. Default::default()
             }
-        }).collect::<Dom<Self>>()
-        .with_callback(On::MouseDown, Callback(print_which_item_was_selected));
+        }).collect::<Dom<Self>>();
 
         Dom::new(NodeType::Div).with_id("container").with_child(child_nodes)
 
@@ -28,7 +27,7 @@ impl Layout for List {
 
 fn print_which_item_was_selected(app_state: &mut AppState<List>, event: WindowEvent<List>) -> UpdateScreen {
 
-    let selected = event.get_first_hit_child(event.hit_dom_node, On::MouseDown).and_then(|x| Some(x.0));
+    let selected = event.index_path_iter().next();
     let mut should_redraw = UpdateScreen::DontRedraw;
 
     app_state.data.modify(|state| {
