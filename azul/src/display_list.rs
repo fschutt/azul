@@ -12,7 +12,7 @@ use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 use webrender::api::{
     LayoutPixel, RenderApi, FontInstanceKey,
     DisplayListBuilder, PrimitiveInfo, GradientStop, ColorF, PipelineId, Epoch,
-    ImageData, ImageKey, ImageDescriptor, ResourceUpdate, AddImage, AddFontInstance,
+    ImageData, ImageDescriptor, ResourceUpdate, AddImage, AddFontInstance,
     AddFont, BorderRadius, ClipMode, LayoutPoint, LayoutSize,
     GlyphOptions, LayoutRect, BorderSide, FontKey, ExternalScrollId,
     NormalBorder, ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
@@ -134,46 +134,26 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         app_resources: &mut AppResources,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
-        use images::{ImageState, ImageInfo};
+        use images::{ImageResourceUpdate, ImageInfo};
 
-        let mut updated_images = Vec::<(ImageId, (ImageData, ImageDescriptor))>::new();
-        let mut to_delete_images = Vec::<(ImageId, Option<ImageKey>)>::new();
-
-        // possible performance bottleneck (duplicated cloning) !!
-        for (key, value) in app_resources.images.iter() {
-            match *value {
-                ImageState::ReadyForUpload(ref d) => {
-                    updated_images.push((key.clone(), d.clone()));
+        for update in app_resources.resource_updates.image_updates.drain(..) {
+            match update {
+                // Upload new images to the GPU
+                ImageResourceUpdate::Upload(id, data, descriptor) => {
+                    let key = api.generate_image_key();
+                    resource_updates.push(ResourceUpdate::AddImage(
+                        AddImage { key, descriptor, data, tiling: None }
+                    ));
+                    app_resources.images.insert(id, ImageInfo { key, descriptor });
                 },
-                ImageState::Uploaded(_) => { },
-                ImageState::AboutToBeDeleted((ref k, _)) => {
-                    to_delete_images.push((key.clone(), k.clone()));
+                // Remove any images that should be deleted
+                ImageResourceUpdate::Delete(id, k, _) => {
+                    if let Some(image_key) = k {
+                        resource_updates.push(ResourceUpdate::DeleteImage(image_key));
+                    }
+                    app_resources.images.remove(&id);
                 }
             }
-        }
-
-        // Remove any images that should be deleted
-        for (resource_key, image_key) in to_delete_images.into_iter() {
-            if let Some(image_key) = image_key {
-                resource_updates.push(ResourceUpdate::DeleteImage(image_key));
-            }
-            app_resources.images.remove(&resource_key);
-        }
-
-        // Upload all remaining images to the GPU only if the haven't been
-        // uploaded yet
-        for (resource_key, (data, descriptor)) in updated_images.into_iter() {
-
-            let key = api.generate_image_key();
-            resource_updates.push(ResourceUpdate::AddImage(
-                AddImage { key, descriptor, data, tiling: None }
-            ));
-
-            *app_resources.images.get_mut(&resource_key).unwrap() =
-                ImageState::Uploaded(ImageInfo {
-                    key: key,
-                    descriptor: descriptor
-            });
         }
     }
 
@@ -1757,30 +1737,22 @@ fn push_image(
     size: TypedSize2D<f32, LayoutPixel>)
 -> Option<OverflowInfo>
 {
-    use images::ImageState::*;
-
     let image_info = app_resources.images.get(image_id)?;
 
-    match image_info {
-        Uploaded(image_info) => {
+    // NOTE: The webrender gamma hack doesn't apply to images,
+    // since webrender has no way of easily coloring images
+    // without using stacking contexts.
+    //
+    // This leads to lighter images, but that's just how things are right now
 
-            // NOTE: The webrender gamma hack doesn't apply to images,
-            // since webrender has no way of easily coloring images
-            // without using stacking contexts.
-            //
-            // This leads to lighter images, but that's just how things are right now
-
-            builder.push_image(
-                    &info,
-                    size,
-                    LayoutSize::zero(),
-                    ImageRendering::Auto,
-                    AlphaType::PremultipliedAlpha,
-                    image_info.key,
-                    ColorF::WHITE);
-        },
-        _ => { },
-    }
+    builder.push_image(
+            &info,
+            size,
+            LayoutSize::zero(),
+            ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
+            image_info.key,
+            ColorF::WHITE);
 
     // TODO: determine if image has overflown its container
     None

@@ -50,26 +50,18 @@ pub(crate) struct ImageInfo {
     pub(crate) descriptor: ImageDescriptor,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) enum ImageState {
-    // resource is available for the renderer
-    Uploaded(ImageInfo),
-    // image is loaded & decoded, but not yet available
-    ReadyForUpload((ImageData, ImageDescriptor)),
-    // Image is about to get deleted in the next frame
-    AboutToBeDeleted((Option<ImageKey>, ImageDescriptor)),
-}
-
-impl ImageState {
+impl ImageInfo {
     /// Returns the original dimensions of the image
     pub fn get_dimensions(&self) -> (f32, f32) {
-        use self::ImageState::*;
-        match self {
-            Uploaded(ImageInfo { descriptor, .. }) |
-            ReadyForUpload((_, descriptor)) |
-            AboutToBeDeleted((_, descriptor)) => (descriptor.size.width as f32, descriptor.size.height as f32)
-        }
+        (self.descriptor.size.width as f32, self.descriptor.size.height as f32)
     }
+}
+
+pub(crate) enum ImageResourceUpdate {
+    /// Loaded & decoded image texture should be uploaded to the rendering engine
+    Upload(ImageId, ImageData, ImageDescriptor),
+    /// Image should be deleted
+    Delete(ImageId, Option<ImageKey>, ImageDescriptor),
 }
 
 impl ImageType {

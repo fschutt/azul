@@ -18,7 +18,7 @@ use {
     text_layout::{split_text_into_words, TextSizePx},
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
-    images::{ImageId, ImageState},
+    images::{ImageId, ImageInfo, ImageResourceUpdate},
 };
 
 /// Stores the resources for the application, souch as fonts, images and cached
@@ -31,9 +31,8 @@ pub struct AppResources {
     /// CssImageId (which is a String) or a direct ImageId. The indirect way requires one
     /// extra lookup (to map from the stringified ID to the actual image ID).
     pub(crate) style_ids_to_image_ids: FastHashMap<String, ImageId>,
-    /// The actual image cache, does NOT store the image data, only stores it temporarily
-    /// while it is being uploaded to the GPU via webrender.
-    pub(crate) images: FastHashMap<ImageId, ImageState>,
+    /// The actual image cache. The image data is not stored here; it is uploaded to the GPU.
+    pub(crate) images: FastHashMap<ImageId, ImageInfo>,
     // Fonts are trickier to handle than images.
     // First, we duplicate the font - webrender wants the raw font data,
     // but we also need access to the font metrics. So we first parse the font
@@ -44,6 +43,9 @@ pub struct AppResources {
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
     pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
+    /// Contains all incoming requests to add, remove, or update one of the app's resources, like
+    /// fonts and images.
+    pub(crate) resource_updates: ResourceUpdates,
     /// Stores long texts across frames
     pub(crate) text_cache: TextCache,
     /// Keyboard clipboard storage and retrieval functionality
@@ -57,6 +59,7 @@ impl Default for AppResources {
             fonts: FastHashMap::default(),
             font_data: RefCell::new(FastHashMap::default()),
             images: FastHashMap::default(),
+            resource_updates: ResourceUpdates::default(),
             text_cache: TextCache::default(),
             clipboard: SystemClipboard::new().unwrap(),
         }
@@ -87,17 +90,17 @@ impl AppResources {
             },
         };
 
-        match self.images.entry(*image_id) {
-            Occupied(_) => Ok(None),
-            Vacant(v) => {
-                let mut image_data = Vec::<u8>::new();
-                data.read_to_end(&mut image_data).map_err(|e| ImageError::IoError(e))?;
-                let image_format = image_type.into_image_format(&image_data)?;
-                let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
-                v.insert(ImageState::ReadyForUpload(images::prepare_image(decoded)?));
-                Ok(Some(()))
-            },
-        }
+        Ok(if self.images.contains_key(image_id) {
+            None
+        } else {
+            let mut image_data = Vec::<u8>::new();
+            data.read_to_end(&mut image_data).map_err(|e| ImageError::IoError(e))?;
+            let image_format = image_type.into_image_format(&image_data)?;
+            let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
+            let (data, desc) = images::prepare_image(decoded)?;
+            self.resource_updates.image_updates.push(ImageResourceUpdate::Upload(image_id.clone(), data, desc));
+            Some(())
+        })
     }
 
     /// See [`AppState::delete_image()`](../app_state/struct.AppState.html#method.delete_image)
@@ -108,16 +111,14 @@ impl AppResources {
 
         match self.images.get_mut(&image_id) {
             None => None,
-            Some(v) => {
-                let to_delete_image_key = match *v {
-                    ImageState::Uploaded(ref image_info) => {
-                        Some((Some(image_info.key.clone()), image_info.descriptor.clone()))
-                    },
-                    _ => None,
-                };
-                if let Some((key, descriptor)) = to_delete_image_key {
-                    *v = ImageState::AboutToBeDeleted((key, descriptor));
-                }
+            Some(image_info) => {
+                let key = image_info.key.clone();
+                let descriptor = image_info.descriptor.clone();
+                self.resource_updates.image_updates.push(ImageResourceUpdate::Delete(
+                    image_id.clone(),
+                    Some(key),
+                    descriptor
+                ));
                 Some(())
             }
         }
@@ -298,4 +299,11 @@ impl AppResources {
     {
         self.clipboard.set_string_contents(contents)
     }
+}
+
+/// Holds any requests to update an application's resources
+#[derive(Default)]
+pub(crate) struct ResourceUpdates {
+    pub image_updates: Vec<ImageResourceUpdate>,
+    //pub font_updates: Vec<FontResourceUpdate>,
 }

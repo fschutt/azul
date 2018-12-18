@@ -13,7 +13,7 @@ use {
     ui_state::UiState,
     FastHashMap,
     window::{WindowEvent, WindowInfo},
-    images::{ImageId, ImageState},
+    images::{ImageId, ImageInfo},
     text_cache::TextId,
     traits::Layout,
     app_state::AppState,
@@ -296,7 +296,7 @@ impl<T: Layout> NodeType<T> {
 
     /// Returns the preferred width, for example for an image, that would be the
     /// original width (an image always wants to take up the original space)
-    pub(crate) fn get_preferred_width(&self, image_cache: &FastHashMap<ImageId, ImageState>) -> Option<f32> {
+    pub(crate) fn get_preferred_width(&self, image_cache: &FastHashMap<ImageId, ImageInfo>) -> Option<f32> {
         use self::NodeType::*;
         match self {
             Image(i) => image_cache.get(i).and_then(|image_state| Some(image_state.get_dimensions().0)),
@@ -309,7 +309,7 @@ impl<T: Layout> NodeType<T> {
     pub(crate) fn get_preferred_height_based_on_width(
         &self,
         div_width: TextSizePx,
-        image_cache: &FastHashMap<ImageId, ImageState>,
+        image_cache: &FastHashMap<ImageId, ImageInfo>,
         words: Option<&Words>,
         font_metrics: Option<FontMetrics>,
     ) -> Option<TextSizePx>
