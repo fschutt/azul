@@ -213,6 +213,7 @@ impl<T: Layout> App<T> {
     /// ```
     pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>>
     {
+        #[cfg(feature="system_fonts")]
         self.load_system_fonts(window.style.required_fonts());
         // Apps need to have at least one window open
         self.push_window(window);
@@ -376,6 +377,7 @@ impl<T: Layout> App<T> {
 
                 // It's okay to call this multiple times with the same font id; nothing will happen
                 // if a font with the same id has already been loaded
+                #[cfg(feature="system_fonts")]
                 self.load_system_fonts(referenced_fonts);
             }
 
@@ -545,6 +547,7 @@ impl<T: Layout> App<T> {
     }
 
     /// Uses system fonts to load any specified fonts that have not already been added as resources
+    #[cfg(feature="system_fonts")]
     fn load_system_fonts(&mut self, fonts: Vec<FontId>) {
         for font_id in fonts {
             if !self.has_font(&font_id) {

@@ -28,7 +28,7 @@ unicode-normalization   = { version = "0.1.5",                default-features =
 lazy_static             = { version = "1",                    default-features = false }
 tinyfiledialogs         = { version = "3.3.5",                default-features = false }
 clipboard2              = { version = "0.1.0",                default-features = false }
-font-loader             = { version = "0.7.0",                default-features = false }
+font-loader             = { version = "0.7.0",                default-features = false, optional = true }
 azul-native-style       = { version = "0.1.0",                path = "../azul-native-style", optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",   optional = true }
 serde                   = { version = "1",                    default-features = false, optional = true }
@@ -59,7 +59,10 @@ default = [
     "image_loading",
     "native-style",
     "css-parser",
+    "system_fonts",
 ]
+# Enables scanning installed fonts on the system for use in an application
+system_fonts = ["font-loader"]
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details

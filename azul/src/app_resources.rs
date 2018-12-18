@@ -159,6 +159,7 @@ impl AppResources {
     }
 
     /// Search for a font installed on the user's computer, validate and return it
+    #[cfg(feature="system_fonts")]
     pub(crate) fn get_system_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>)>
     {
         use font_loader::system_fonts::{self, FontPropertyBuilder};
