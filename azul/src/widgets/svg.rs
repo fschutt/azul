@@ -1248,7 +1248,7 @@ impl VectorizedFont {
         use font::rusttype_load_font;
 
         let file_contents = fs::read(path).ok()?;
-        let font = rusttype_load_font(file_contents, None).ok()?.0;
+        let font = rusttype_load_font(&file_contents, None).ok()?;
         Some(Self::from_font(&font))
     }
 }

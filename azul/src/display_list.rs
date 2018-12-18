@@ -14,7 +14,7 @@ use webrender::api::{
     DisplayListBuilder, PrimitiveInfo, GradientStop, ColorF, PipelineId, Epoch,
     ImageData, ImageDescriptor, ResourceUpdate, AddImage, AddFontInstance,
     AddFont, BorderRadius, ClipMode, LayoutPoint, LayoutSize,
-    GlyphOptions, LayoutRect, BorderSide, FontKey, ExternalScrollId,
+    GlyphOptions, LayoutRect, BorderSide, ExternalScrollId,
     NormalBorder, ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
     ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode, BorderDetails,
@@ -164,47 +164,35 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         app_resources: &mut AppResources,
         resource_updates: &mut Vec<ResourceUpdate>)
     {
-        use font::FontState;
-        use azul_css::FontId;
+        use font::FontResourceUpdate;
+        use std::rc::Rc;
+        use std::cell::RefCell;
 
-        let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
-        let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
-
-        for (key, value) in app_resources.font_data.borrow().iter() {
-            match &*(*value.2).borrow() {
-                FontState::ReadyForUpload(ref bytes) => {
-                    updated_fonts.push((key.clone(), bytes.clone()));
+        for update in app_resources.resource_updates.font_updates.drain(..) {
+            match update {
+                // Upload new fonts to the GPU
+                FontResourceUpdate::Upload(id, font, bytes) => {
+                    let key = api.generate_font_key();
+                    resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, bytes.clone(), 0))); // TODO: use the index better?
+                    let mut borrow_mut = app_resources.font_data.borrow_mut();
+                    borrow_mut.insert(id, (Rc::new(font), Rc::new(bytes), Rc::new(RefCell::new(key))));
                 },
-                FontState::Uploaded(_) => { },
-                FontState::AboutToBeDeleted(ref font_key) => {
-                    let to_delete_font_instances = font_key.and_then(|f_key| {
-                        let to_delete_font_instances = app_resources.fonts[&f_key].values().cloned().collect();
-                        Some((f_key.clone(), to_delete_font_instances))
-                    });
-                    to_delete_fonts.push((key.clone(), to_delete_font_instances));
+                // Delete the complete font. Maybe a more granular option to
+                // keep the font data in memory should be added later
+                FontResourceUpdate::Delete(id, font_key) => {
+                    if let Some(font_key) = font_key {
+                        {   //(NLL scope)
+                            let to_delete_font_instances = app_resources.fonts[&font_key].values().cloned();
+                            for instance in to_delete_font_instances {
+                                resource_updates.push(ResourceUpdate::DeleteFontInstance(instance));
+                            }
+                        }
+                        resource_updates.push(ResourceUpdate::DeleteFont(font_key.clone()));
+                        app_resources.fonts.remove(&font_key);
+                    };
+                    app_resources.font_data.borrow_mut().remove(&id);
                 }
             }
-        }
-
-        // Delete the complete font. Maybe a more granular option to
-        // keep the font data in memory should be added later
-        for (resource_key, to_delete_instances) in to_delete_fonts.into_iter() {
-            if let Some((font_key, font_instance_keys)) = to_delete_instances {
-                for instance in font_instance_keys {
-                    resource_updates.push(ResourceUpdate::DeleteFontInstance(instance));
-                }
-                resource_updates.push(ResourceUpdate::DeleteFont(font_key));
-                app_resources.fonts.remove(&font_key);
-            }
-            app_resources.font_data.borrow_mut().remove(&resource_key);
-        }
-
-        // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
-        for (resource_key, data) in updated_fonts.into_iter() {
-            let key = api.generate_font_key();
-            resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
-            let mut borrow_mut = app_resources.font_data.borrow_mut();
-            *borrow_mut.get_mut(&resource_key).unwrap().2.borrow_mut() = FontState::Uploaded(key);
         }
     }
 
@@ -1786,8 +1774,6 @@ fn push_font(
     render_api: &RenderApi)
 -> Option<FontInstanceKey>
 {
-    use font::FontState;
-
     if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
         #[cfg(feature = "logging")] {
             error!("warning: too big or too small font size");
@@ -1795,40 +1781,29 @@ fn push_font(
         return None;
     }
 
-    let font_state = app_resources.get_font_state(font_id)?;
+    let font_key = app_resources.get_font_key(font_id)?;
+    let font_key = font_key.borrow();
 
-    let borrow = font_state.borrow();
-
-    match &*borrow {
-        FontState::Uploaded(font_key) => {
-            let font_sizes_hashmap = app_resources.fonts.entry(*font_key)
-                                     .or_insert(FastHashMap::default());
-            let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
-                .or_insert_with(|| {
-                    let f_instance_key = render_api.generate_font_instance_key();
-                    resource_updates.push(ResourceUpdate::AddFontInstance(
-                        AddFontInstance {
-                            key: f_instance_key,
-                            font_key: *font_key,
-                            glyph_size: font_size_app_units,
-                            options: None,
-                            platform_options: None,
-                            variations: Vec::new(),
-                        }
-                    ));
-                    f_instance_key
+    let font_sizes_hashmap = app_resources.fonts.entry(*font_key)
+                             .or_insert(FastHashMap::default());
+    let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
+        .or_insert_with(|| {
+            let f_instance_key = render_api.generate_font_instance_key();
+            resource_updates.push(ResourceUpdate::AddFontInstance(
+                AddFontInstance {
+                    key: f_instance_key,
+                    font_key: *font_key,
+                    glyph_size: font_size_app_units,
+                    options: None,
+                    platform_options: None,
+                    variations: Vec::new(),
                 }
-            );
+            ));
+            f_instance_key
+        }
+    );
 
-            Some(*font_instance_key)
-        },
-        _ => {
-            // This can happen when the font is loaded for the first time in `.get_font_state`
-            // TODO: Make a pre-pass that queries and uploads all non-available fonts
-            // error!("warning: trying to use font {:?} that isn't yet available", font_id);
-            None
-        },
-    }
+    Some(*font_instance_key)
 }
 
 /// For a given rectangle, determines what text alignment should be used

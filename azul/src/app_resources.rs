@@ -17,7 +17,7 @@ use azul_css::{StyleFontSize, FontId, StyleLetterSpacing};
 use {
     text_layout::{split_text_into_words, TextSizePx},
     text_cache::{TextId, TextCache},
-    font::{FontState, FontError},
+    font::{FontResourceUpdate, FontError},
     images::{ImageId, ImageInfo, ImageResourceUpdate},
 };
 
@@ -38,7 +38,7 @@ pub struct AppResources {
     // but we also need access to the font metrics. So we first parse the font
     // to make sure that nothing is going wrong. In the next draw call, we
     // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: RefCell<FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontState>>)>>,
+    pub(crate) font_data: RefCell<FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontKey>>)>>,
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
@@ -149,43 +149,47 @@ impl AppResources {
     {
         use font;
 
-        match self.font_data.borrow_mut().entry(id) {
-            Occupied(_) => Ok(None),
-            Vacant(v) => {
-                let mut font_data = Vec::<u8>::new();
-                data.read_to_end(&mut font_data).map_err(|e| FontError::IoError(e))?;
-                let (parsed_font, fd) = font::rusttype_load_font(font_data.clone(), None)?;
-                v.insert((Rc::new(parsed_font), Rc::new(fd), Rc::new(RefCell::new(FontState::ReadyForUpload(font_data)))));
-                Ok(Some(()))
-            },
-        }
+        Ok(if self.font_data.borrow_mut().contains_key(&id) {
+            None
+        } else {
+            let mut font_data = Vec::<u8>::new();
+            data.read_to_end(&mut font_data).map_err(|e| FontError::IoError(e))?;
+            let parsed_font = font::rusttype_load_font(&font_data, None)?;
+            self.resource_updates.font_updates.push(FontResourceUpdate::Upload(id, parsed_font, font_data));
+            Some(())
+        })
     }
 
     /// Search for a builtin font on the users computer, validate and return it
-    fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
+    fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>)>
     {
         use font_loader::system_fonts::{self, FontPropertyBuilder};
         use font::rusttype_load_font;
 
         let (font_bytes, idx) = system_fonts::get(&FontPropertyBuilder::new().family(&id).build())?;
-        let (f, b) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok()?;
-        Some((f, b, FontState::ReadyForUpload(font_bytes)))
+        let f = rusttype_load_font(&font_bytes, Some(idx)).ok()?;
+        Some((f, font_bytes))
     }
 
     /// Internal API - we want the user to get the first two fields of the
-    fn get_font_internal(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontState>>)> {
+    fn get_font_internal(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontKey>>)> {
         match id {
             FontId::BuiltinFont(b) => {
                 if self.font_data.borrow().get(id).is_none() {
-                    let (font, font_bytes, font_state) = Self::get_builtin_font(b.clone())?;
-                    self.font_data.borrow_mut().insert(id.clone(), (Rc::new(font), Rc::new(font_bytes), Rc::new(RefCell::new(font_state))));
+                    let (font, font_bytes) = Self::get_builtin_font(b.clone())?;
+                    // TODO system fonts are loaded for the first time from within the render loop,
+                    // which is not good performance-wise and causes them to be unavailable until the second frame update.
+                    // Splitting font resources off into its own immutable field exposed this issue,
+                    // since the font data was in a RefCell.
+                    //self.resource_updates.font_updates.push(FontResourceUpdate::Upload(id.clone(), font, font_bytes));
+                    println!("Failed to load system font");
                 }
-                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
+                self.font_data.borrow().get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
             },
             FontId::ExternalFont(_) => {
                 // For external fonts, we assume that the application programmer has
                 // already loaded them, so we don't try to fallback to system fonts.
-                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
+                self.font_data.borrow().get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
             },
         }
     }
@@ -197,8 +201,8 @@ impl AppResources {
     }
 
     /// Note the pub(crate) here: We don't want to expose the FontState in the public API
-    pub(crate) fn get_font_state(&self, id: &FontId) -> Option<Rc<RefCell<FontState>>> {
-        self.get_font_internal(id).and_then(|(_, _, state)| Some(state))
+    pub(crate) fn get_font_key(&self, id: &FontId) -> Option<Rc<RefCell<FontKey>>> {
+        self.get_font_internal(id).and_then(|(_, _, key)| Some(key))
     }
 
     /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
@@ -213,19 +217,17 @@ impl AppResources {
         -> Option<()>
     {
         // TODO: can fonts that haven't been uploaded yet be deleted?
-        let mut to_delete_font_key = None;
-
         match self.font_data.borrow().get(&id) {
-            None => return None,
-            Some(v) => match *(*v.2).borrow() {
-                FontState::Uploaded(font_key) => { to_delete_font_key = Some(font_key.clone()); },
-                _ => { },
+            None => None,
+            Some(v) => {
+                let font_key = *(*v.2).borrow();
+                self.resource_updates.font_updates.push(FontResourceUpdate::Delete(
+                    id.clone(),
+                    Some(font_key.clone())
+                ));
+                Some(())
             }
         }
-
-        let mut borrow_mut = self.font_data.borrow_mut();
-        *borrow_mut.get_mut(&id).unwrap().2.borrow_mut() = FontState::AboutToBeDeleted(to_delete_font_key);
-        Some(())
     }
 
     /// Adds a string to the internal text cache, but only store it as a string,
@@ -305,5 +307,5 @@ impl AppResources {
 #[derive(Default)]
 pub(crate) struct ResourceUpdates {
     pub image_updates: Vec<ImageResourceUpdate>,
-    //pub font_updates: Vec<FontResourceUpdate>,
+    pub font_updates: Vec<FontResourceUpdate>,
 }

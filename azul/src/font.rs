@@ -1,18 +1,16 @@
 //! Module for loading and handling fonts
 use webrender::api::FontKey;
 use rusttype::{Error as RusttypeError, Font, FontCollection};
+use azul_css::FontId;
 
-#[derive(Debug, Clone)]
-pub(crate) enum FontState {
-    // Font is available for the renderer
-    Uploaded(FontKey),
-    // Raw bytes for the font, to be uploaded in the next
-    // draw call (for WebRender's add_raw_font function)
-    ReadyForUpload(Vec<u8>),
-    /// Font that is about to be deleted
+pub(crate) enum FontResourceUpdate {
+    /// Raw bytes for the font should be uploaded to the rendering engine, used in Webrender's
+    /// add_raw_font function
+    Upload(FontId, Font<'static>, Vec<u8>),
+    /// Font should be deleted
     /// We need both the ID (to delete the bytes of the font)
     /// as well as the FontKey to delete all the font instances
-    AboutToBeDeleted(Option<FontKey>),
+    Delete(FontId, Option<FontKey>),
 }
 
 #[derive(Debug)]
@@ -41,8 +39,8 @@ impl From<RusttypeError> for FontError {
 }
 
 /// Read font data to get font information, v_metrics, glyph info etc.
-pub fn rusttype_load_font(data: Vec<u8>, index: Option<i32>) -> Result<(Font<'static>, Vec<u8>), FontError> {
+pub fn rusttype_load_font(data: &Vec<u8>, index: Option<i32>) -> Result<Font<'static>, FontError> {
     let collection = FontCollection::from_bytes(data.clone())?;
     let font = collection.clone().into_font().unwrap_or(collection.font_at(index.and_then(|i| Some(i as usize)).unwrap_or(0))?);
-    Ok((font, data))
+    Ok(font)
 }
