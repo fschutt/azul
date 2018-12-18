@@ -1,7 +1,5 @@
 use std::{
     io::Read,
-    rc::Rc,
-    cell::RefCell,
     collections::hash_map::Entry::*,
 };
 use webrender::api::{FontKey, FontInstanceKey};
@@ -38,7 +36,7 @@ pub struct AppResources {
     // but we also need access to the font metrics. So we first parse the font
     // to make sure that nothing is going wrong. In the next draw call, we
     // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontKey>>)>,
+    pub(crate) font_data: FastHashMap<FontId, (Font<'static>, Vec<u8>, FontKey)>,
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
@@ -171,8 +169,8 @@ impl AppResources {
         Some((f, font_bytes))
     }
 
-    /// Internal API - we want the user to get the first two fields of the
-    fn get_font_internal(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontKey>>)> {
+    /// Internal method - only the first two fields should be exposed in the public API.
+    fn get_font_internal(&self, id: &FontId) -> Option<(Font<'static>, Vec<u8>, FontKey)> {
         match id {
             FontId::BuiltinFont(b) => {
                 if self.font_data.get(id).is_none() {
@@ -196,12 +194,12 @@ impl AppResources {
 
     /// Given a `FontId`, returns the `Font` and the original bytes making up the font
     /// or `None`, if the `FontId` is invalid.
-    pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
+    pub fn get_font(&self, id: &FontId) -> Option<(Font<'static>, Vec<u8>)> {
         self.get_font_internal(id).and_then(|(font, bytes, _)| Some((font, bytes)))
     }
 
     /// Note the pub(crate) here: We don't want to expose the FontState in the public API
-    pub(crate) fn get_font_key(&self, id: &FontId) -> Option<Rc<RefCell<FontKey>>> {
+    pub(crate) fn get_font_key(&self, id: &FontId) -> Option<FontKey> {
         self.get_font_internal(id).and_then(|(_, _, key)| Some(key))
     }
 
@@ -219,8 +217,7 @@ impl AppResources {
         // TODO: can fonts that haven't been uploaded yet be deleted?
         match self.font_data.get(&id) {
             None => None,
-            Some(v) => {
-                let font_key = *(*v.2).borrow();
+            Some((_, _, font_key)) => {
                 self.resource_updates.font_updates.push(FontResourceUpdate::Delete(
                     id.clone(),
                     Some(font_key.clone())

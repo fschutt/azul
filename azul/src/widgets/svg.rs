@@ -1373,7 +1373,7 @@ impl VectorizedFontCache {
 
     pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Arc<VectorizedFont>> {
         self.vectorized_fonts.lock().unwrap().entry(id.clone())
-            .or_insert_with(|| Arc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0)));
+            .or_insert_with(|| Arc::new(VectorizedFont::from_font(&app_resources.get_font(&id).unwrap().0)));
         self.vectorized_fonts.lock().unwrap().get(&id).and_then(|font| Some(font.clone()))
     }
 

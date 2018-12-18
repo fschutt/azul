@@ -165,8 +165,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         resource_updates: &mut Vec<ResourceUpdate>)
     {
         use font::FontResourceUpdate;
-        use std::rc::Rc;
-        use std::cell::RefCell;
 
         for update in app_resources.resource_updates.font_updates.drain(..) {
             match update {
@@ -174,7 +172,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 FontResourceUpdate::Upload(id, font, bytes) => {
                     let key = api.generate_font_key();
                     resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, bytes.clone(), 0))); // TODO: use the index better?
-                    app_resources.font_data.insert(id, (Rc::new(font), Rc::new(bytes), Rc::new(RefCell::new(key))));
+                    app_resources.font_data.insert(id, (font, bytes, key));
                 },
                 // Delete the complete font. Maybe a more granular option to
                 // keep the font data in memory should be added later
@@ -1781,9 +1779,8 @@ fn push_font(
     }
 
     let font_key = app_resources.get_font_key(font_id)?;
-    let font_key = font_key.borrow();
 
-    let font_sizes_hashmap = app_resources.fonts.entry(*font_key)
+    let font_sizes_hashmap = app_resources.fonts.entry(font_key)
                              .or_insert(FastHashMap::default());
     let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
         .or_insert_with(|| {
@@ -1791,7 +1788,7 @@ fn push_font(
             resource_updates.push(ResourceUpdate::AddFontInstance(
                 AddFontInstance {
                     key: f_instance_key,
-                    font_key: *font_key,
+                    font_key: font_key,
                     glyph_size: font_size_app_units,
                     options: None,
                     platform_options: None,

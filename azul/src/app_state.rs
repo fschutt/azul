@@ -2,7 +2,6 @@ use std::{
     io::Read,
     collections::hash_map::Entry::*,
     sync::{Arc, Mutex},
-    rc::Rc,
 };
 #[cfg(feature = "image_loading")]
 use image::ImageError;
@@ -191,7 +190,7 @@ impl<T: Layout> AppState<T> {
         self.resources.has_font(id)
     }
 
-    pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
+    pub fn get_font(&self, id: &FontId) -> Option<(Font<'static>, Vec<u8>)> {
         self.resources.get_font(id)
     }
 
