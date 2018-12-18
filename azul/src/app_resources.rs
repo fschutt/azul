@@ -38,7 +38,7 @@ pub struct AppResources {
     // but we also need access to the font metrics. So we first parse the font
     // to make sure that nothing is going wrong. In the next draw call, we
     // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: RefCell<FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontKey>>)>>,
+    pub(crate) font_data: FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontKey>>)>,
     // After we've looked up the FontKey in the font_data map, we can then access
     // the font instance key (if there is any). If there is no font instance key,
     // we first need to create one.
@@ -57,7 +57,7 @@ impl Default for AppResources {
         Self {
             style_ids_to_image_ids: FastHashMap::default(),
             fonts: FastHashMap::default(),
-            font_data: RefCell::new(FastHashMap::default()),
+            font_data: FastHashMap::default(),
             images: FastHashMap::default(),
             resource_updates: ResourceUpdates::default(),
             text_cache: TextCache::default(),
@@ -70,7 +70,7 @@ impl AppResources {
 
     /// Returns the IDs of all currently loaded fonts in `self.font_data`
     pub fn get_loaded_fonts(&self) -> Vec<FontId> {
-        self.font_data.borrow().keys().cloned().collect()
+        self.font_data.keys().cloned().collect()
     }
 
     /// See [`AppState::add_image()`](../app_state/struct.AppState.html#method.add_image)
@@ -149,7 +149,7 @@ impl AppResources {
     {
         use font;
 
-        Ok(if self.font_data.borrow_mut().contains_key(&id) {
+        Ok(if self.font_data.contains_key(&id) {
             None
         } else {
             let mut font_data = Vec::<u8>::new();
@@ -175,7 +175,7 @@ impl AppResources {
     fn get_font_internal(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontKey>>)> {
         match id {
             FontId::BuiltinFont(b) => {
-                if self.font_data.borrow().get(id).is_none() {
+                if self.font_data.get(id).is_none() {
                     let (font, font_bytes) = Self::get_builtin_font(b.clone())?;
                     // TODO system fonts are loaded for the first time from within the render loop,
                     // which is not good performance-wise and causes them to be unavailable until the second frame update.
@@ -184,12 +184,12 @@ impl AppResources {
                     //self.resource_updates.font_updates.push(FontResourceUpdate::Upload(id.clone(), font, font_bytes));
                     println!("Failed to load system font");
                 }
-                self.font_data.borrow().get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
+                self.font_data.get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
             },
             FontId::ExternalFont(_) => {
                 // For external fonts, we assume that the application programmer has
                 // already loaded them, so we don't try to fallback to system fonts.
-                self.font_data.borrow().get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
+                self.font_data.get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
             },
         }
     }
@@ -209,7 +209,7 @@ impl AppResources {
     pub fn has_font(&self, id: &FontId)
         -> bool
     {
-        self.font_data.borrow().get(id).is_some()
+        self.font_data.get(id).is_some()
     }
 
     /// See [`AppState::delete_font()`](./struct.AppState.html#method.delete_font)
@@ -217,7 +217,7 @@ impl AppResources {
         -> Option<()>
     {
         // TODO: can fonts that haven't been uploaded yet be deleted?
-        match self.font_data.borrow().get(&id) {
+        match self.font_data.get(&id) {
             None => None,
             Some(v) => {
                 let font_key = *(*v.2).borrow();

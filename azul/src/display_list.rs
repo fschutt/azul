@@ -174,8 +174,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 FontResourceUpdate::Upload(id, font, bytes) => {
                     let key = api.generate_font_key();
                     resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, bytes.clone(), 0))); // TODO: use the index better?
-                    let mut borrow_mut = app_resources.font_data.borrow_mut();
-                    borrow_mut.insert(id, (Rc::new(font), Rc::new(bytes), Rc::new(RefCell::new(key))));
+                    app_resources.font_data.insert(id, (Rc::new(font), Rc::new(bytes), Rc::new(RefCell::new(key))));
                 },
                 // Delete the complete font. Maybe a more granular option to
                 // keep the font data in memory should be added later
@@ -190,7 +189,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                         resource_updates.push(ResourceUpdate::DeleteFont(font_key.clone()));
                         app_resources.fonts.remove(&font_key);
                     };
-                    app_resources.font_data.borrow_mut().remove(&id);
+                    app_resources.font_data.remove(&id);
                 }
             }
         }
