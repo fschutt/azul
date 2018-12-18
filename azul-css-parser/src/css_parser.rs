@@ -1786,9 +1786,9 @@ pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, Cs
 
         if double_quote_iter.next().is_some() || single_quote_iter.next().is_some() {
             let stripped_font = strip_quotes(font)?;
-            fonts.push(FontId::ExternalFont(stripped_font.0.into()));
+            fonts.push(FontId(stripped_font.0.into()));
         } else {
-            fonts.push(FontId::BuiltinFont(font.into()));
+            fonts.push(FontId(font.into()));
         }
     }
 
@@ -2465,8 +2465,8 @@ mod css_tests {
     fn test_parse_style_font_family_1() {
         assert_eq!(parse_style_font_family("\"Webly Sleeky UI\", monospace"), Ok(StyleFontFamily {
             fonts: vec![
-                FontId::ExternalFont("Webly Sleeky UI".into()),
-                FontId::BuiltinFont("monospace".into()),
+                FontId("Webly Sleeky UI".into()),
+                FontId("monospace".into()),
             ]
         }));
     }
@@ -2475,7 +2475,7 @@ mod css_tests {
     fn test_parse_style_font_family_2() {
         assert_eq!(parse_style_font_family("'Webly Sleeky UI'"), Ok(StyleFontFamily {
             fonts: vec![
-                FontId::ExternalFont("Webly Sleeky UI".into()),
+                FontId("Webly Sleeky UI".into()),
             ]
         }));
     }

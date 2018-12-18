@@ -1207,8 +1207,6 @@ pub struct StyleFontFamily {
     pub fonts: Vec<FontId>
 }
 
+/// Specifies a unique identifier for a font, similar to a CssImageId.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum FontId {
-    BuiltinFont(String),
-    ExternalFont(String),
-}
+pub struct FontId(pub String);

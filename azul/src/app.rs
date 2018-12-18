@@ -213,6 +213,7 @@ impl<T: Layout> App<T> {
     /// ```
     pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>>
     {
+        self.load_system_fonts(window.style.required_fonts());
         // Apps need to have at least one window open
         self.push_window(window);
         self.run_inner()?;
@@ -346,6 +347,7 @@ impl<T: Layout> App<T> {
 
             #[cfg(debug_assertions)] {
                 use style::sort_by_specificity;
+                let mut referenced_fonts = vec![];
                 for (window_idx, window) in self.windows.iter_mut().enumerate() {
                     // Hot-reload a style if necessary
                     if let Some(ref mut hot_reloader) = window.style_loader {
@@ -353,6 +355,8 @@ impl<T: Layout> App<T> {
                             match hot_reloader.reload_style() {
                                 Ok(style) => {
                                     window.style = sort_by_specificity(style);
+                                    let mut this_window_fonts = window.style.required_fonts();
+                                    referenced_fonts.append(&mut this_window_fonts);
                                     last_style_reload = Instant::now();
                                     window.events_loop.create_proxy().wakeup().unwrap_or(());
                                     awakened_task[window_idx] = true;
@@ -369,6 +373,10 @@ impl<T: Layout> App<T> {
                         }
                     }
                 }
+
+                // It's okay to call this multiple times with the same font id; nothing will happen
+                // if a font with the same id has already been loaded
+                self.load_system_fonts(referenced_fonts);
             }
 
             // Close windows if necessary
@@ -452,7 +460,7 @@ impl<T: Layout> App<T> {
         self.app_state.add_font(id, data)
     }
 
-    /// Checks if a font is currently registered and ready-to-use
+    /// Checks if a font is currently registered and ready-to-use, or pending registration
     pub fn has_font(&mut self, id: &FontId)
         -> bool
     {
@@ -534,6 +542,17 @@ impl<T: Layout> App<T> {
         after_completion_deamons: &[Daemon<T>])
     {
         self.app_state.add_custom_task(data, callback, after_completion_deamons);
+    }
+
+    /// Uses system fonts to load any specified fonts that have not already been added as resources
+    fn load_system_fonts(&mut self, fonts: Vec<FontId>) {
+        for font_id in fonts {
+            if !self.has_font(&font_id) {
+                if let Some((_, font_data)) = AppResources::get_system_font(font_id.0.clone()) {
+                    self.add_font(font_id, &mut &font_data[..]).unwrap();
+                }
+            }
+        }
     }
 }
 

@@ -158,8 +158,8 @@ impl AppResources {
         })
     }
 
-    /// Search for a builtin font on the users computer, validate and return it
-    fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>)>
+    /// Search for a font installed on the user's computer, validate and return it
+    pub(crate) fn get_system_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>)>
     {
         use font_loader::system_fonts::{self, FontPropertyBuilder};
         use font::rusttype_load_font;
@@ -170,26 +170,9 @@ impl AppResources {
     }
 
     /// Internal method - only the first two fields should be exposed in the public API.
+    #[inline]
     fn get_font_internal(&self, id: &FontId) -> Option<(Font<'static>, Vec<u8>, FontKey)> {
-        match id {
-            FontId::BuiltinFont(b) => {
-                if self.font_data.get(id).is_none() {
-                    let (font, font_bytes) = Self::get_builtin_font(b.clone())?;
-                    // TODO system fonts are loaded for the first time from within the render loop,
-                    // which is not good performance-wise and causes them to be unavailable until the second frame update.
-                    // Splitting font resources off into its own immutable field exposed this issue,
-                    // since the font data was in a RefCell.
-                    //self.resource_updates.font_updates.push(FontResourceUpdate::Upload(id.clone(), font, font_bytes));
-                    println!("Failed to load system font");
-                }
-                self.font_data.get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
-            },
-            FontId::ExternalFont(_) => {
-                // For external fonts, we assume that the application programmer has
-                // already loaded them, so we don't try to fallback to system fonts.
-                self.font_data.get(id).and_then(|(font, bytes, key)| Some((font.clone(), bytes.clone(), key.clone())))
-            },
-        }
+        self.font_data.get(id).cloned()
     }
 
     /// Given a `FontId`, returns the `Font` and the original bytes making up the font
@@ -203,11 +186,20 @@ impl AppResources {
         self.get_font_internal(id).and_then(|(_, _, key)| Some(key))
     }
 
-    /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
+    /// Checks if a `FontId` is valid, i.e. if a font is currently or will be ready-to-use
     pub fn has_font(&self, id: &FontId)
         -> bool
     {
-        self.font_data.get(id).is_some()
+        if self.font_data.get(id).is_some() {
+            return true;
+        }
+        for update in self.resource_updates.font_updates.iter() {
+            match update {
+                FontResourceUpdate::Upload(ref font_id, _, _) if id == font_id => return true,
+                _ => (),
+            }
+        }
+        false
     }
 
     /// See [`AppState::delete_font()`](./struct.AppState.html#method.delete_font)

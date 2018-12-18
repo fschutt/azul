@@ -1,5 +1,5 @@
 //! Types and methods used to describe the style of an application
-use css_properties::CssProperty;
+use css_properties::{CssProperty, FontId};
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
@@ -196,5 +196,39 @@ impl Css {
     /// appending the rules of `other` after the rules of `self`.
     pub fn append(&mut self, mut other: Self) {
         self.rules.append(&mut other.rules);
+    }
+
+    /// Scans the CSS for all required fonts so they can be loaded as external resources.
+    pub fn required_fonts(&self) -> Vec<FontId> {
+        use crate::css_properties::StyleFontFamily;
+
+        let mut referenced_fonts: Vec<StyleFontFamily> = vec![];
+
+        for rule_block in self.rules.iter() {
+            for declaration in rule_block.declarations.iter() {
+                match declaration {
+                    CssDeclaration::Static(CssProperty::FontFamily(f)) |
+                    CssDeclaration::Dynamic(DynamicCssProperty {
+                        default: DynamicCssPropertyDefault::Exact(CssProperty::FontFamily(f)),
+                        ..
+                    }) => {
+                        referenced_fonts.push(f.clone());
+                    }
+                    _ => ()
+                }
+            }
+        }
+
+        let mut all_fonts = vec![];
+
+        for font_declaration in referenced_fonts.into_iter() {
+            for font_id in font_declaration.fonts {
+                if !all_fonts.contains(&font_id) {
+                    all_fonts.push(font_id);
+                }
+            }
+        }
+
+        all_fonts
     }
 }
