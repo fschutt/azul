@@ -161,7 +161,7 @@ impl<T: Layout> AppState<T> {
     ///
     /// ```
     /// # use azul::prelude::*;
-    /// const TEST_FONT: &[u8] = include_bytes!("../assets/fonts/weblysleekuil.ttf");
+    /// const TEST_FONT: &[u8] = include_bytes!("../../assets/fonts/weblysleekuil.ttf");
     ///
     /// struct MyAppData { }
     ///
