@@ -4,9 +4,9 @@ use std::{fmt, num::{ParseIntError, ParseFloatError}};
 use azul_css::{
     StyleTextAlignmentHorz, TextOverflowBehaviour, TextOverflowBehaviourInner,
     LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent, Shape,
-    LayoutWrap, LayoutDirection, LayoutPosition,CssProperty, LayoutOverflow,
+    LayoutWrap, LayoutDirection, LayoutPosition, CssProperty, LayoutOverflow,
     StyleFontFamily, StyleFontSize, StyleLineHeight, LayoutFlexShrink, LayoutFlexGrow,
-    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom,
+    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, StyleCursor,
     LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
     StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
     ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
@@ -60,15 +60,16 @@ pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<CssProperty, CssParsi
     let key = key.trim();
     let value = value.trim();
     match key {
-        "border-radius"     => Ok(parse_css_border_radius(value)?.into()),
-        "background-color"  => Ok(parse_css_background_color(value)?.into()),
+        "border-radius"     => Ok(parse_style_border_radius(value)?.into()),
+        "background-color"  => Ok(parse_style_background_color(value)?.into()),
         "font-color" |
-        "color"             => Ok(parse_css_text_color(value)?.into()),
-        "background"        => Ok(parse_css_background(value)?.into()),
-        "font-size"         => Ok(parse_css_font_size(value)?.into()),
-        "font-family"       => Ok(parse_css_font_family(value)?.into()),
-        "letter-spacing"    => Ok(parse_css_letter_spacing(value)?.into()),
-        "line-height"       => Ok(parse_css_line_height(value)?.into()),
+        "color"             => Ok(parse_style_text_color(value)?.into()),
+        "background"        => Ok(parse_style_background(value)?.into()),
+        "font-size"         => Ok(parse_style_font_size(value)?.into()),
+        "font-family"       => Ok(parse_style_font_family(value)?.into()),
+        "letter-spacing"    => Ok(parse_style_letter_spacing(value)?.into()),
+        "line-height"       => Ok(parse_style_line_height(value)?.into()),
+        "cursor"            => Ok(parse_style_cursor(value)?.into()),
 
         "border"            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
         "border-top"        => Ok(border_parser::parse_top(value)?.into()),
@@ -345,7 +346,7 @@ impl_from!(PixelParseError<'a>, CssShadowParseError::ValueParseErr);
 impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
-fn parse_css_border_radius<'a>(input: &'a str)
+fn parse_style_border_radius<'a>(input: &'a str)
 -> Result<StyleBorderRadius, CssStyleBorderRadiusParseError<'a>>
 {
     let mut components = input.split_whitespace();
@@ -527,13 +528,13 @@ fn parse_float_value(input: &str)
     Ok(FloatValue::new(input.trim().parse::<f32>()?))
 }
 
-fn parse_css_background_color<'a>(input: &'a str)
+fn parse_style_background_color<'a>(input: &'a str)
 -> Result<StyleBackgroundColor, CssColorParseError<'a>>
 {
     parse_css_color(input).and_then(|ok| Ok(StyleBackgroundColor(ok)))
 }
 
-fn parse_css_text_color<'a>(input: &'a str)
+fn parse_style_text_color<'a>(input: &'a str)
 -> Result<StyleTextColor, CssColorParseError<'a>>
 {
     parse_css_color(input).and_then(|ok| Ok(StyleTextColor(ok)))
@@ -1243,7 +1244,7 @@ impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 
 // parses a background, such as "linear-gradient(red, green)"
-fn parse_css_background<'a>(input: &'a str)
+fn parse_style_background<'a>(input: &'a str)
 -> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
     use azul_css::BackgroundType::*;
@@ -1662,7 +1663,7 @@ pub(crate) struct RectStyle {
     pub(crate) letter_spacing: Option<StyleLetterSpacing>,
 }
 
-typed_pixel_value_parser!(parse_css_letter_spacing, StyleLetterSpacing);
+typed_pixel_value_parser!(parse_style_letter_spacing, StyleLetterSpacing);
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]
@@ -1738,13 +1739,13 @@ fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, Flex
     }
 }
 
-fn parse_css_line_height(input: &str)
+fn parse_style_line_height(input: &str)
 -> Result<StyleLineHeight, PercentageParseError>
 {
     parse_percentage_value(input).and_then(|e| Ok(StyleLineHeight(e)))
 }
 
-typed_pixel_value_parser!(parse_css_font_size, StyleFontSize);
+typed_pixel_value_parser!(parse_style_font_size, StyleFontSize);
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum CssStyleFontFamilyParseError<'a> {
@@ -1768,7 +1769,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 // "Webly Sleeky UI", monospace
 // 'Webly Sleeky Ui', monospace
 // sans-serif
-pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
+pub(crate) fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
 
@@ -1792,6 +1793,38 @@ pub(crate) fn parse_css_font_family<'a>(input: &'a str) -> Result<StyleFontFamil
         fonts: fonts,
     })
 }
+
+multi_type_parser!(parse_style_cursor, StyleCursor,
+                   ["alias", Alias],
+                   ["all-scroll", AllScroll],
+                   ["cell", Cell],
+                   ["col-resize", ColResize],
+                   ["context-menu", ContextMenu],
+                   ["copy", Copy],
+                   ["crosshair", Crosshair],
+                   ["default", Default],
+                   ["e-resize", EResize],
+                   ["ew-resize", EwResize],
+                   ["grab", Grab],
+                   ["grabbing", Grabbing],
+                   ["help", Help],
+                   ["move", Move],
+                   ["n-resize", NResize],
+                   ["ns-resize", NsResize],
+                   ["nesw-resize", NeswResize],
+                   ["nwse-resize", NwseResize],
+                   ["pointer", Pointer],
+                   ["progress", Progress],
+                   ["row-resize", RowResize],
+                   ["s-resize", SResize],
+                   ["se-resize", SeResize],
+                   ["text", Text],
+                   ["unset", Unset],
+                   ["vertical-text", VerticalText],
+                   ["w-resize", WResize],
+                   ["wait", Wait],
+                   ["zoom-in", ZoomIn],
+                   ["zoom-out", ZoomOut]);
 
 multi_type_parser!(parse_layout_direction, LayoutDirection,
                     ["row", Row],
@@ -1978,7 +2011,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_1() {
-        assert_eq!(parse_css_background("linear-gradient(red, yellow)"),
+        assert_eq!(parse_style_background("linear-gradient(red, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
@@ -1995,7 +2028,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_2() {
-        assert_eq!(parse_css_background("linear-gradient(red, lime, blue, yellow)"),
+        assert_eq!(parse_style_background("linear-gradient(red, lime, blue, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
@@ -2020,7 +2053,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_3() {
-        assert_eq!(parse_css_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
+        assert_eq!(parse_style_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::Angle(50.0.into()),
                 extend_mode: ExtendMode::Repeat,
@@ -2042,7 +2075,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_4() {
-        assert_eq!(parse_css_background("linear-gradient(to bottom right, red, yellow)"),
+        assert_eq!(parse_style_background("linear-gradient(to bottom right, red, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
                 extend_mode: ExtendMode::Clamp,
@@ -2059,7 +2092,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_5() {
-        assert_eq!(parse_css_background("linear-gradient(0.42rad, red, yellow)"),
+        assert_eq!(parse_style_background("linear-gradient(0.42rad, red, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::Angle(FloatValue::new(24.0642)),
                 extend_mode: ExtendMode::Clamp,
@@ -2076,7 +2109,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_6() {
-        assert_eq!(parse_css_background("linear-gradient(12.93grad, red, yellow)"),
+        assert_eq!(parse_style_background("linear-gradient(12.93grad, red, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::Angle(FloatValue::new(11.637)),
                 extend_mode: ExtendMode::Clamp,
@@ -2096,7 +2129,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_7() {
-        assert_eq!(parse_css_background("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
+        assert_eq!(parse_style_background("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::Angle(FloatValue::new(10.0)),
                 extend_mode: ExtendMode::Clamp,
@@ -2113,7 +2146,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_8() {
-        assert_eq!(parse_css_background("linear-gradient(50deg, rgb(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
+        assert_eq!(parse_style_background("linear-gradient(50deg, rgb(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
             Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
                 direction: Direction::Angle(FloatValue::new(40.0)),
                 extend_mode: ExtendMode::Clamp,
@@ -2131,7 +2164,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_radial_gradient_1() {
-        assert_eq!(parse_css_background("radial-gradient(circle, lime, blue, yellow)"),
+        assert_eq!(parse_style_background("radial-gradient(circle, lime, blue, yellow)"),
             Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Clamp,
@@ -2155,7 +2188,7 @@ mod css_tests {
     /*
     #[test]
     fn test_parse_radial_gradient_2() {
-        assert_eq!(parse_css_background("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
+        assert_eq!(parse_style_background("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
             Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Repeat,
@@ -2389,15 +2422,15 @@ mod css_tests {
     }
 
     #[test]
-    fn test_parse_css_border_radius_1() {
-        assert_eq!(parse_css_border_radius("15px"), Ok(StyleBorderRadius(
+    fn test_parse_style_border_radius_1() {
+        assert_eq!(parse_style_border_radius("15px"), Ok(StyleBorderRadius(
             BorderRadius::uniform(PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)))
         )));
     }
 
     #[test]
-    fn test_parse_css_border_radius_2() {
-        assert_eq!(parse_css_border_radius("15px 50px"), Ok(StyleBorderRadius(BorderRadius {
+    fn test_parse_style_border_radius_2() {
+        assert_eq!(parse_style_border_radius("15px 50px"), Ok(StyleBorderRadius(BorderRadius {
             top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
             bottom_right: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
             top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
@@ -2406,8 +2439,8 @@ mod css_tests {
     }
 
     #[test]
-    fn test_parse_css_border_radius_3() {
-        assert_eq!(parse_css_border_radius("15px 50px 30px"), Ok(StyleBorderRadius(BorderRadius {
+    fn test_parse_style_border_radius_3() {
+        assert_eq!(parse_style_border_radius("15px 50px 30px"), Ok(StyleBorderRadius(BorderRadius {
             top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
             bottom_right: PixelSize::new(PixelValue::px(30.0), PixelValue::px(30.0)),
             top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
@@ -2416,8 +2449,8 @@ mod css_tests {
     }
 
     #[test]
-    fn test_parse_css_border_radius_4() {
-        assert_eq!(parse_css_border_radius("15px 50px 30px 5px"), Ok(StyleBorderRadius(BorderRadius {
+    fn test_parse_style_border_radius_4() {
+        assert_eq!(parse_style_border_radius("15px 50px 30px 5px"), Ok(StyleBorderRadius(BorderRadius {
             top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
             bottom_right: PixelSize::new(PixelValue::px(30.0), PixelValue::px(30.0)),
             top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
@@ -2426,8 +2459,8 @@ mod css_tests {
     }
 
     #[test]
-    fn test_parse_css_font_family_1() {
-        assert_eq!(parse_css_font_family("\"Webly Sleeky UI\", monospace"), Ok(StyleFontFamily {
+    fn test_parse_style_font_family_1() {
+        assert_eq!(parse_style_font_family("\"Webly Sleeky UI\", monospace"), Ok(StyleFontFamily {
             fonts: vec![
                 FontId::ExternalFont("Webly Sleeky UI".into()),
                 FontId::BuiltinFont("monospace".into()),
@@ -2436,8 +2469,8 @@ mod css_tests {
     }
 
     #[test]
-    fn test_parse_css_font_family_2() {
-        assert_eq!(parse_css_font_family("'Webly Sleeky UI'"), Ok(StyleFontFamily {
+    fn test_parse_style_font_family_2() {
+        assert_eq!(parse_style_font_family("'Webly Sleeky UI'"), Ok(StyleFontFamily {
             fonts: vec![
                 FontId::ExternalFont("Webly Sleeky UI".into()),
             ]
@@ -2446,7 +2479,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_background_image() {
-        assert_eq!(parse_css_background("image(\"Cat 01\")"), Ok(StyleBackground::Image(
+        assert_eq!(parse_style_background("image(\"Cat 01\")"), Ok(StyleBackground::Image(
             CssImageId(String::from("Cat 01"))
         )));
     }

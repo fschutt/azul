@@ -155,6 +155,7 @@ pub enum CssProperty {
     LetterSpacing(StyleLetterSpacing),
     BoxShadow(StyleBoxShadow),
     LineHeight(StyleLineHeight),
+    Cursor(StyleCursor),
 
     Width(LayoutWidth),
     Height(LayoutHeight),
@@ -205,6 +206,7 @@ impl_from!(StyleLineHeight, CssProperty::LineHeight);
 impl_from!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from!(StyleBackgroundColor, CssProperty::BackgroundColor);
 impl_from!(StyleTextColor, CssProperty::TextColor);
+impl_from!(StyleCursor, CssProperty::Cursor);
 
 impl_from!(LayoutOverflow, CssProperty::Overflow);
 impl_from!(LayoutWidth, CssProperty::Width);
@@ -641,6 +643,70 @@ impl Direction {
 pub enum Shape {
     Ellipse,
     Circle,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum StyleCursor {
+    /// `alias`
+    Alias,
+    /// `all-scroll`
+    AllScroll,
+    /// `cell`
+    Cell,
+    /// `col-resize`
+    ColResize,
+    /// `context-menu`
+    ContextMenu,
+    /// `copy`
+    Copy,
+    /// `crosshair`
+    Crosshair,
+    /// `default` - note: called "arrow" in winit
+    Default,
+    /// `e-resize`
+    EResize,
+    /// `ew-resize`
+    EwResize,
+    /// `grab`
+    Grab,
+    /// `grabbing`
+    Grabbing,
+    /// `help`
+    Help,
+    /// `move`
+    Move,
+    /// `n-resize`
+    NResize,
+    /// `ns-resize`
+    NsResize,
+    /// `nesw-resize`
+    NeswResize,
+    /// `nwse-resize`
+    NwseResize,
+    /// `pointer` - note: called "hand" in winit
+    Pointer,
+    /// `progress`
+    Progress,
+    /// `row-resize`
+    RowResize,
+    /// `s-resize`
+    SResize,
+    /// `se-resize`
+    SeResize,
+    /// `text`
+    Text,
+    /// `unset`
+    Unset,
+    /// `vertical-text`
+    VerticalText,
+    /// `w-resize`
+    WResize,
+    /// `wait`
+    Wait,
+    /// `zoom-in`
+    ZoomIn,
+    /// `zoom-out`
+    ZoomOut,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
