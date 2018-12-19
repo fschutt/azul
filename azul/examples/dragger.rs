@@ -1,6 +1,7 @@
 extern crate azul;
 
 use azul::prelude::*;
+use std::time::Duration;
 
 #[derive(Default)]
 struct DragMeApp {
@@ -65,7 +66,7 @@ fn main() {
     let app = App::new(DragMeApp::default(), AppConfig::default());
 
     #[cfg(debug_assertions)] {
-        let hot_reloader = css::hot_reload(CSS_PATH!(), false);
+        let hot_reloader = css::hot_reload(CSS_PATH!(), Duration::from_millis(500));
         app.run(Window::new_hot_reload(WindowCreateOptions::default(), hot_reloader).unwrap()).unwrap();
     }
     #[cfg(not(debug_assertions))] {

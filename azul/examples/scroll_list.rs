@@ -1,6 +1,7 @@
 extern crate azul;
 
-use azul::{prelude::*};
+use azul::prelude::*;
+use std::time::Duration;
 
 struct List {
     items: Vec<&'static str>,
@@ -63,14 +64,10 @@ fn main() {
     let app = App::new(data, AppConfig::default());
 
     #[cfg(debug_assertions)]
-    let window = Window::new_hot_reload(WindowCreateOptions::default(), css::hot_reload(CSS_PATH!(), true)).unwrap();
+    let window = Window::new_hot_reload(WindowCreateOptions::default(), css::hot_reload(CSS_PATH!(), Duration::from_millis(500))).unwrap();
 
     #[cfg(not(debug_assertions))]
-    let window = {
-        let mut style = css::native();
-        style.merge(css::from_str(include_str!(CSS_PATH!())).unwrap());
-        Window::new(WindowCreateOptions::default(), style).unwrap()
-    };
+    let window = Window::new(WindowCreateOptions::default(), css::override_native(include_str!(CSS_PATH!())).unwrap()).unwrap();
 
     app.run(window).unwrap();
 }

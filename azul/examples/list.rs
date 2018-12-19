@@ -53,8 +53,6 @@ fn main() {
     };
 
     let app = App::new(data, AppConfig::default());
-    let mut style = css::native();
-    style.merge(css::from_str(CUSTOM_CSS).unwrap());
-    let window = Window::new(WindowCreateOptions::default(), style).unwrap();
+    let window = Window::new(WindowCreateOptions::default(), css::override_native(CUSTOM_CSS).unwrap()).unwrap();
     app.run(window).unwrap();
 }

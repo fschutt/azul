@@ -239,19 +239,7 @@ fn main() {
 
     let mut app = App::new(Calculator::default(), AppConfig::default());
     app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
-
-    #[cfg(debug_assertions)]
-    let window = {
-        let hot_reloader = css::hot_reload(CSS_PATH!(), true);
-        Window::new_hot_reload(WindowCreateOptions::default(), hot_reloader).unwrap()
-    };
-
-    #[cfg(not(debug_assertions))]
-    let window = {
-        let mut style = css::native();
-        style.merge(css::from_str(include_str!(CSS_PATH!())).unwrap());
-        Window::new(WindowCreateOptions::default(), style).unwrap()
-    };
-
+    let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
+    let window = Window::new(WindowCreateOptions::default(), css).unwrap();
     app.run(window).unwrap();
 }
