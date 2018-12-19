@@ -83,8 +83,9 @@ extern crate app_units;
 extern crate unicode_normalization;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
-extern crate font_loader;
 
+#[cfg(feature="system_fonts")]
+extern crate font_loader;
 #[cfg(feature = "logging")]
 #[cfg_attr(feature = "logging", macro_use)]
 extern crate log;

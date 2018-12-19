@@ -8,7 +8,7 @@ use std::{
     iter::FromIterator,
 };
 use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
-use azul_css::{ NodeTypePath, CssProperty };
+use azul_css::{ NodeTypePath, CssProperty, FontId, StyleFontFamily };
 use {
     ui_state::UiState,
     FastHashMap,
@@ -613,6 +613,8 @@ pub struct Dom<T: Layout> {
     pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
     pub(crate) root: NodeId,
     pub(crate) head: NodeId,
+    #[cfg(feature="system_fonts")]
+    pub(crate) dynamic_fonts: Vec<FontId>,
 }
 
 impl<T: Layout> fmt::Debug for Dom<T> {
@@ -652,6 +654,8 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
             last_child: None,
             first_child: None,
         }];
+        #[cfg(feature="system_fonts")]
+        let mut dynamic_fonts = vec![];
 
         let mut idx = 0;
 
@@ -664,6 +668,21 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
                 first_child: None,
             };
             node_layout.push(node);
+
+            #[cfg(feature="system_fonts")]
+            for (_, dynamic_property) in &item.dynamic_css_overrides {
+                match dynamic_property {
+                    CssProperty::FontFamily(StyleFontFamily { fonts }) => {
+                        for font in fonts {
+                            if !dynamic_fonts.contains(font) {
+                                dynamic_fonts.push(font.clone());
+                            }
+                        }
+                    }
+                    _ => ()
+                }
+            }
+
             node_data.push(item);
 
             idx += 1;
@@ -688,6 +707,8 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
                 node_data: NodeDataContainer::new(node_data),
                 node_layout: NodeHierarchy::new(node_layout),
             })),
+            #[cfg(feature="system_fonts")]
+            dynamic_fonts,
         }
     }
 }
@@ -756,6 +777,8 @@ impl<T: Layout> Dom<T> {
             arena: Rc::new(RefCell::new(arena)),
             root: root,
             head: root,
+            #[cfg(feature="system_fonts")]
+            dynamic_fonts: vec![],
         }
     }
 
@@ -828,6 +851,14 @@ impl<T: Layout> Dom<T> {
             }
         }
 
+        // Populate the parent with dynamic font properties from the child
+        #[cfg(feature="system_fonts")]
+        for dynamic_font in child.dynamic_fonts {
+            if !self.dynamic_fonts.contains(&dynamic_font) {
+                self.dynamic_fonts.push(dynamic_font);
+            }
+        }
+
         self_arena.node_layout[self.head].first_child.get_or_insert(NodeId::new(self_len));
         self_arena.node_layout[self.head].last_child = Some(last_sibling.unwrap() + self_len);
 
@@ -889,6 +920,18 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: CssProperty) {
+        use azul_css::StyleFontFamily;
+        #[cfg(feature="system_fonts")]
+        match &property {
+            CssProperty::FontFamily(StyleFontFamily { fonts }) => {
+                for font in fonts {
+                    if !self.dynamic_fonts.contains(font) {
+                        self.dynamic_fonts.push(font.clone());
+                    }
+                }
+            }
+            _ => (),
+        }
         self.arena.borrow_mut().node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
     }
 
@@ -1172,4 +1215,42 @@ fn test_zero_size_dom() {
 
     null_dom.add_class("hello"); // should not panic
     null_dom.add_id("id-hello"); // should not panic
+}
+
+/// Test that dynamic fonts are propagated correctly across children and siblings
+#[test]
+#[cfg(feature="system_fonts")]
+fn test_dynamic_fonts() {
+    //use azul_css::{StyleFontFamily, FontId};
+    struct TestLayout;
+
+    impl Layout for TestLayout {
+        fn layout(&self) -> Dom<Self> {
+            Dom::new(NodeType::Div).with_css_override(
+                "override1",
+                CssProperty::FontFamily(StyleFontFamily { fonts: vec![FontId("monospace".into())] })
+            ).with_child(
+                Dom::new(NodeType::Div).with_css_override(
+                    "override2",
+                    CssProperty::FontFamily(StyleFontFamily { fonts: vec![FontId("sans-serif".into())] })
+                )
+            ).with_child(
+                Dom::new(NodeType::Div).with_css_override(
+                    "override3",
+                    CssProperty::FontFamily(StyleFontFamily { fonts: vec![FontId("monospace".into())] })
+                )
+            ).with_child(
+                Dom::new(NodeType::Div).with_css_override(
+                    "override4",
+                    CssProperty::FontFamily(StyleFontFamily { fonts: vec![FontId("monospace".into())] })
+                )
+            )
+        }
+    }
+
+    let dom = TestLayout.layout();
+
+    assert_eq!(dom.dynamic_fonts.len(), 2);
+    assert!(dom.dynamic_fonts.contains(&FontId("monospace".into())));
+    assert!(dom.dynamic_fonts.contains(&FontId("sans-serif".into())));
 }

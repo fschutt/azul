@@ -325,6 +325,23 @@ impl<T: Layout> App<T> {
                     let window_id = WindowId { id: idx };
                     ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
 
+                    //load fonts from dynamic ids
+                    #[cfg(feature="system_fonts")] {
+                        let dynamic_fonts = ui_state_cache[idx].dom.dynamic_fonts.clone();
+
+                        // Expanded version of `self.load_system_fonts(dynamic_fonts);`, since
+                        // self is already mutably borrowed from looping over the windows with
+                        // `iter_mut`.
+                        // TODO is there a better way to handle this?
+                        for font_id in dynamic_fonts {
+                            if !self.app_state.has_font(&font_id) {
+                                if let Some((_, font_data)) = AppResources::get_system_font(font_id.0.clone()) {
+                                    self.app_state.add_font(font_id, &mut &font_data[..]).unwrap();
+                                }
+                            }
+                        }
+                    }
+
                     // Style the DOM
                     ui_description_cache[idx] = UiDescription::from_dom(
                         &ui_state_cache[idx],
@@ -348,7 +365,10 @@ impl<T: Layout> App<T> {
 
             #[cfg(debug_assertions)] {
                 use style::sort_by_specificity;
+
+                #[cfg(feature="system_fonts")]
                 let mut referenced_fonts = vec![];
+
                 for (window_idx, window) in self.windows.iter_mut().enumerate() {
                     // Hot-reload a style if necessary
                     if let Some(ref mut hot_reloader) = window.style_loader {
@@ -356,8 +376,10 @@ impl<T: Layout> App<T> {
                             match hot_reloader.reload_style() {
                                 Ok(style) => {
                                     window.style = sort_by_specificity(style);
-                                    let mut this_window_fonts = window.style.required_fonts();
-                                    referenced_fonts.append(&mut this_window_fonts);
+
+                                    #[cfg(feature="system_fonts")]
+                                    referenced_fonts.extend(window.style.required_fonts());
+
                                     last_style_reload = Instant::now();
                                     window.events_loop.create_proxy().wakeup().unwrap_or(());
                                     awakened_task[window_idx] = true;
@@ -463,7 +485,7 @@ impl<T: Layout> App<T> {
     }
 
     /// Checks if a font is currently registered and ready-to-use, or pending registration
-    pub fn has_font(&mut self, id: &FontId)
+    pub fn has_font(&self, id: &FontId)
         -> bool
     {
         self.app_state.has_font(id)
