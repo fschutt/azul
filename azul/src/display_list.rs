@@ -1962,6 +1962,7 @@ fn populate_style_properties(
             JustifyContent(j)   => { rect.layout.justify_content = Some(*j);                },
             AlignItems(a)       => { rect.layout.align_items = Some(*a);                    },
             AlignContent(a)     => { rect.layout.align_content = Some(*a);                  },
+            Cursor(_)           => { /* cursor neither affects layout nor styling */        },
         }
     }
 
