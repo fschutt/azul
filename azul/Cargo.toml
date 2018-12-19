@@ -14,7 +14,7 @@ keywords = ["gui", "GUI", "user interface", "svg", "graphics" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 readme = "README.md"
-exclude = ["assets/*", "doc/*", "examples/*"]
+exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 
 [dependencies]
@@ -102,40 +102,50 @@ webp = ["image/webp"]
 
 [[example]]
 name = "debug"
+path = "../examples/debug.rs"
 required-features = ["svg_parsing"]
 
 [[example]]
 name = "async"
+path = "../examples/async.rs"
 required-features = []
 
 [[example]]
 name = "hot_reload"
+path = "../examples/hot_reload.rs"
 required-features = ["image_loading"]
 
 [[example]]
 name = "table"
+path = "../examples/table.rs"
 required-features = []
 
 [[example]]
 name = "text_input"
+path = "../examples/text_input.rs"
 required-features = []
 
 [[example]]
 name = "list"
+path = "../examples/list.rs"
 required-features = []
 
 [[example]]
 name = "calculator"
+path = "../examples/calculator.rs"
 required-features = []
 
 [[example]]
 name = "dragger"
+path = "../examples/dragger.rs"
 required-features = []
 
 [[example]]
 name = "scroll_list"
+path = "../examples/scroll_list.rs"
 required-features = []
 
 [[example]]
 name = "game_of_life"
+path = "../examples/game_of_life.rs"
 required-features = []

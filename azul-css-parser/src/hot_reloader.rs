@@ -2,38 +2,42 @@
 //! files to be dynamically reloaded at runtime.
 
 use azul_css::{HotReloadHandler, Css};
+use std::time::Duration;
+use std::path::PathBuf;
+
+pub const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Allows dynamic reloading of a CSS file at application runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HotReloader {
-    file_path: String,
+    file_path: PathBuf,
+    reload_interval: Duration,
 }
 
 impl HotReloader {
     /// Creates a HotReloader that will load a style directly from the CSS file
     /// at the given path.
-    pub fn new(file_path: String) -> Box<dyn HotReloadHandler> {
-        Box::new(HotReloader { file_path })
+    pub fn new<P: Into<PathBuf>>(file_path: P) -> Self {
+        Self { file_path: file_path.into(), reload_interval: DEFAULT_RELOAD_INTERVAL }
+    }
+
+    pub fn with_reload_interval(self, reload_interval: Duration) -> Self {
+        Self { reload_interval, .. self }
     }
 }
 
 impl HotReloadHandler for HotReloader {
-    fn reload_style(&mut self) -> Option<Result<Css, String>> {
+    fn reload_style(&mut self) -> Result<Css, String> {
         use std::fs;
 
-        let file_path = &self.file_path.clone();
+        let reloaded_css = fs::read_to_string(&self.file_path)
+            .map_err(|e| format!("Io error: \"{}\" when loading file \"{}\"", e, self.file_path.to_str().unwrap_or("")))?;
 
-        let reloaded_css = match fs::read_to_string(&file_path) {
-            Ok(o) => o,
-            Err(e) => {
-                return Some(Err(format!("Io error: \"{}\" when loading file \"{}\"", e, file_path).to_string()));
-            },
-        };
+        ::css::new_from_str(&reloaded_css)
+            .map_err(|e| format!("Parse error \"{}\":\r\n{}\n", self.file_path.to_str().unwrap_or(""), e))
+    }
 
-        Some(match ::css::new_from_str(&reloaded_css) {
-            Ok(style) => Ok(style),
-            Err(e) => {
-                Err(format!("Parse error \"{}\":\r\n{}\n", file_path, e).to_string())
-            },
-        })
+    fn get_reload_interval(&self) -> Duration {
+        self.reload_interval
     }
 }

@@ -235,7 +235,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
 }
 
 fn main() {
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/calculator.css")) }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/calculator.css")) }
 
     let mut app = App::new(Calculator::default(), AppConfig::default());
     app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
