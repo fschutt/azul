@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
     collections::BTreeMap,
 };
-use azul_css::{ Css, CssConstraintList, CssProperty };
+use azul_css::{ Css, CssDeclaration, CssProperty };
 use {
     FastHashMap,
     id_tree::{Arena, NodeId},
@@ -81,5 +81,5 @@ impl<T: Layout> UiDescription<T> {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct StyledNode {
     /// The CSS constraints, after the cascading step
-    pub(crate) style_constraints: CssConstraintList
+    pub(crate) style_constraints: Vec<CssDeclaration>,
 }

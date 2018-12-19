@@ -3,6 +3,7 @@
 extern crate azul;
 
 use azul::prelude::*;
+use std::time::Duration;
 
 const TEST_IMAGE: &[u8] = include_bytes!("../assets/images/cat_image.jpg");
 
@@ -31,10 +32,7 @@ fn main() {
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
 
     #[cfg(debug_assertions)]
-    let window = {
-        let style_loader = css::hot_reload(CSS_PATH!(), false);
-        Window::new_hot_reload_interval(WindowCreateOptions::default(), style_loader, 3000).unwrap()
-    };
+    let window = Window::new_hot_reload(WindowCreateOptions::default(), css::hot_reload(CSS_PATH!(), Duration::from_millis(500))).unwrap();
 
     #[cfg(not(debug_assertions))]
     let window = Window::new(WindowCreateOptions::default(), css::from_str(include_str!(CSS_PATH!())).unwrap()).unwrap();

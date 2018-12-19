@@ -52,7 +52,7 @@ pub struct WindowId {
 }
 
 impl WindowId {
-    pub fn new(id: usize) -> Self { Self { id: id } }
+    pub(crate) fn new(id: usize) -> Self { Self { id: id } }
 }
 
 /// User-modifiable fake window
@@ -560,9 +560,6 @@ pub struct Window<T: Layout> {
     /// enabled
     #[cfg(debug_assertions)]
     pub(crate) style_loader: Option<Box<dyn HotReloadHandler>>,
-    /// A configurable interval for hot-reloading of styles from the style_loader, defaults to 500ms
-    #[cfg(debug_assertions)]
-    pub(crate) reload_interval: u64,
     /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`
     /// of the `WindowCreateOptions`, so that we can write:
     ///
@@ -668,6 +665,7 @@ pub(crate) struct WindowInternal {
 }
 
 impl<'a, T: Layout> Window<T> {
+
     /// Creates a new window
     pub fn new(mut options: WindowCreateOptions<T>, style: Css) -> Result<Self, WindowCreateError> {
 
@@ -862,8 +860,6 @@ impl<'a, T: Layout> Window<T> {
             style: sort_by_specificity(style),
             #[cfg(debug_assertions)]
             style_loader: None,
-            #[cfg(debug_assertions)]
-            reload_interval: 500,
             animations: FastHashMap::default(),
             scroll_states: ScrollStates::new(),
             internal: WindowInternal {
@@ -880,9 +876,7 @@ impl<'a, T: Layout> Window<T> {
         Ok(window)
     }
 
-    /// Creates a new window that will automatically load a new style from a HotReloadHandler source
-    /// every 500ms.
-    ///
+    /// Creates a new window that will automatically load a new style from a given HotReloadHandler.
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
     pub fn new_hot_reload(options: WindowCreateOptions<T>, style_loader: Box<dyn HotReloadHandler>) -> Result<Self, WindowCreateError>  {
@@ -891,17 +885,7 @@ impl<'a, T: Layout> Window<T> {
         Ok(window)
     }
 
-    /// Creates a new window that will automatically load a new style from a HotReloadHandler source
-    /// at the specified interval.
-    ///
-    /// Only available with debug_assertions enabled.
-    #[cfg(debug_assertions)]
-    pub fn new_hot_reload_interval(options: WindowCreateOptions<T>, style_loader: Box<dyn HotReloadHandler>, interval_millis: u64) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new_hot_reload(options, style_loader)?;
-        window.reload_interval = interval_millis;
-        Ok(window)
-    }
-
+    /// Returns an iterator over all given monitors
     pub fn get_available_monitors() -> MonitorIter {
         MonitorIter {
             inner: EventsLoop::new().get_available_monitors(),

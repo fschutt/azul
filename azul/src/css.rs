@@ -1,6 +1,17 @@
 //! Provides convenience wrappers around some of azul's helper crates, when the appropriate
 //! features are enabled.
 
+use std::time::Duration;
+use std::path::PathBuf;
+
+pub use azul_css::*;
+#[cfg(feature = "css_parser")]
+pub use azul_css_parser::*;
+
+use azul_css::{self, Css};
+#[cfg(feature = "css_parser")]
+use azul_css_parser::{self, CssParseError};
+
 /// Returns a style with the native appearance for the operating system. Convenience wrapper
 /// for functionality from the the `azul-native-style` crate.
 #[cfg(feature = "native_style")]
@@ -11,24 +22,29 @@ pub fn native() -> azul_css::Css {
 /// Parses CSS from a string. Convenience wrapper for functionality from the `azul-css-parser`
 /// crate.
 #[cfg(feature = "css_parser")]
-pub fn from_str(input: &str) -> Result<azul_css::Css, azul_css_parser::CssParseError> {
+pub fn from_str(input: &str) -> Result<Css, CssParseError> {
     azul_css_parser::new_from_str(input)
 }
 
-/// Allows dynamic reloading of a CSS file during an application's runtime; useful for
-/// iterating over multiple styles without recompiling every time.
-///
-/// Setting `override_native` to `true` will cause reloaded styles to be applied on top of the
-/// native appearance for the operating system.
+#[cfg(feature = "css_parser")]
+pub fn override_native(input: &str) -> Result<Css, CssParseError> {
+    let mut css = native();
+    css.append(from_str(input)?);
+    Ok(css)
+}
+
+/// Allows dynamic reloading of a CSS file during an applications runtime, useful for
+/// changing the look & feel while the application is running.
+#[cfg(all(debug_assertions, feature = "css_parser"))]
+pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
+    Box::new(azul_css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
+}
+
+/// Same as `Self::hot_reload`, but appends the given file to the
+/// `Self::native()` style before the hot-reloaded styles, similar to `override_native`.
 #[cfg(all(debug_assertions, feature = "css_parser", feature = "native_style"))]
-pub fn hot_reload(file_path: &str, override_native: bool) -> Box<dyn azul_css::HotReloadHandler> {
-    let file_path = file_path.to_owned();
-    let hot_reloader = azul_css_parser::HotReloader::new(file_path);
-    if override_native {
-        azul_css::HotReloadOverride::new(azul_native_style::native(), hot_reloader)
-    } else {
-        hot_reloader
-    }
+pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
+    Box::new(azul_css::HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
 }
 
 /// Type translation functions (from azul-css to webrender types)
@@ -133,13 +149,20 @@ pub(crate) mod webrender_translate {
 
     #[inline(always)]
     pub fn wr_translate_normal_border(input: CssNormalBorder) -> WrNormalBorder {
+
+        // Webrender crashes if anti-aliasing is disabled and the border isn't pure-solid
+        let is_not_solid = [input.top.style, input.bottom.style, input.left.style, input.right.style].iter().any(|style| {
+            *style != CssBorderStyle::Solid
+        });
+        let do_aa = input.radius.is_some() || is_not_solid;
+
         WrNormalBorder {
             left: wr_translate_border_side(input.left),
             right: wr_translate_border_side(input.right),
             top: wr_translate_border_side(input.top),
             bottom: wr_translate_border_side(input.bottom),
-            radius: wr_translate_border_radius(input.radius),
-            do_aa: input.do_aa,
+            radius: wr_translate_border_radius(input.radius.unwrap_or_default()),
+            do_aa,
         }
     }
 
@@ -182,6 +205,45 @@ pub(crate) mod webrender_translate {
                 radius: WrBorderRadius::zero(),
                 do_aa: false,
             })
+        }
+    }
+
+    use azul_css::StyleCursor as CssCursor;
+    use glium::glutin::MouseCursor as WinitCursor;
+
+    #[inline(always)]
+    pub fn winit_translate_cursor(input: CssCursor) -> WinitCursor {
+        match input {
+            CssCursor::Alias             => WinitCursor::Alias,
+            CssCursor::AllScroll         => WinitCursor::AllScroll,
+            CssCursor::Cell              => WinitCursor::Cell,
+            CssCursor::ColResize         => WinitCursor::ColResize,
+            CssCursor::ContextMenu       => WinitCursor::ContextMenu,
+            CssCursor::Copy              => WinitCursor::Copy,
+            CssCursor::Crosshair         => WinitCursor::Crosshair,
+            CssCursor::Default           => WinitCursor::Arrow,         /* note: default -> arrow */
+            CssCursor::EResize           => WinitCursor::EResize,
+            CssCursor::EwResize          => WinitCursor::EwResize,
+            CssCursor::Grab              => WinitCursor::Grab,
+            CssCursor::Grabbing          => WinitCursor::Grabbing,
+            CssCursor::Help              => WinitCursor::Help,
+            CssCursor::Move              => WinitCursor::Move,
+            CssCursor::NResize           => WinitCursor::NResize,
+            CssCursor::NsResize          => WinitCursor::NsResize,
+            CssCursor::NeswResize        => WinitCursor::NeswResize,
+            CssCursor::NwseResize        => WinitCursor::NwseResize,
+            CssCursor::Pointer           => WinitCursor::Hand,          /* note: pointer -> hand */
+            CssCursor::Progress          => WinitCursor::Progress,
+            CssCursor::RowResize         => WinitCursor::RowResize,
+            CssCursor::SResize           => WinitCursor::SResize,
+            CssCursor::SeResize          => WinitCursor::SeResize,
+            CssCursor::Text              => WinitCursor::Text,
+            CssCursor::Unset             => WinitCursor::Arrow,         /* note: pointer -> hand */
+            CssCursor::VerticalText      => WinitCursor::VerticalText,
+            CssCursor::WResize           => WinitCursor::WResize,
+            CssCursor::Wait              => WinitCursor::Wait,
+            CssCursor::ZoomIn            => WinitCursor::ZoomIn,
+            CssCursor::ZoomOut           => WinitCursor::ZoomOut,
         }
     }
 }
