@@ -1979,7 +1979,7 @@ fn populate_style_properties(
     }
 
     // Apply / static / dynamic properties
-    for constraint in &rect.styled_node.style_constraints.list {
+    for constraint in &rect.styled_node.style_constraints {
         use azul_css::CssDeclaration::*;
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),

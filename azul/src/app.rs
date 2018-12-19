@@ -349,20 +349,22 @@ impl<T: Layout> App<T> {
                 for (window_idx, window) in self.windows.iter_mut().enumerate() {
                     // Hot-reload a style if necessary
                     if let Some(ref mut hot_reloader) = window.style_loader {
-                        if Instant::now() - last_style_reload > Duration::from_millis(window.reload_interval) {
+                        if Instant::now() - last_style_reload > hot_reloader.get_reload_interval() {
                             match hot_reloader.reload_style() {
-                                Some(Ok(style)) => {
+                                Ok(style) => {
                                     window.style = sort_by_specificity(style);
                                     last_style_reload = Instant::now();
                                     window.events_loop.create_proxy().wakeup().unwrap_or(());
                                     awakened_task[window_idx] = true;
-                                }
-                                Some(Err(why)) => {
+                                },
+                                Err(why) => {
                                     #[cfg(feature = "logging")] {
-                                        format!("Failed to hot-reload style: {}", why);
+                                        error!("Failed to hot-reload style: {}", why);
                                     }
-                                }
-                                None => (),
+                                    #[cfg(not(feature = "logging"))] {
+                                        println!("Failed to hot-reload style: {}", why);
+                                    }
+                                },
                             };
                         }
                     }

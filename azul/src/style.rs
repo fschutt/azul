@@ -3,7 +3,6 @@
 use azul_css::{
     Css,
     CssContentGroup,
-    CssConstraintList,
     CssDeclaration,
     CssPath,
     CssPathSelector,
@@ -317,10 +316,10 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         // This is technically O(n ^ 2), however, there are usually not that many style blocks,
         // so the cost of this should be insignificant.
         for applying_rule in style.rules.iter().filter(|rule| matches_html_element(&rule.path, parent_id, &arena_borrow.node_layout, &html_tree)) {
-            parent_rules.style_constraints.list.extend(applying_rule.declarations.clone());
+            parent_rules.style_constraints.extend(applying_rule.declarations.clone());
         }
 
-        let inheritable_rules: Vec<CssDeclaration> = parent_rules.style_constraints.list.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
+        let inheritable_rules: Vec<CssDeclaration> = parent_rules.style_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
 
         // For children: inherit from parents - filter children that themselves are not parents!
         for child_id in parent_id.children(&arena_borrow.node_layout) {
@@ -338,11 +337,11 @@ pub(crate) fn match_dom_selectors<T: Layout>(
                         child_rules.extend(applying_rule.declarations.clone());
                     }
 
-                    styled_nodes.insert(child_id, StyledNode { style_constraints: CssConstraintList { list: child_rules }});
+                    styled_nodes.insert(child_id, StyledNode { style_constraints: child_rules });
                 },
                 Some(_) => {
                     // For all children that themselves are parents, simply copy the inheritable rules
-                    styled_nodes.insert(child_id, StyledNode { style_constraints: CssConstraintList { list: inheritable_rules.clone() } });
+                    styled_nodes.insert(child_id, StyledNode { style_constraints: inheritable_rules.clone() });
                 },
             }
         }
