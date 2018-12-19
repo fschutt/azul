@@ -2,14 +2,17 @@
 
 // The following types are present in webrender, however, azul-css should not
 // depend on webrender, just to have the same types, azul-css should be a standalone crate.
+
+/// Only used for calculations: Rectangle (x, y, width, height) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
+/// Only used for calculations: Size (width, height) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutSize { pub width: f32, pub height: f32 }
-/// Same as `TypedPoint2D<f32, LayoutPixel>`, but
-/// `azul-css` should not depend on `euclid`
+/// Only used for calculations: Point coordinate (x, y) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutPoint { pub x: f32, pub y: f32 }
+
 impl LayoutSize {
     pub fn new(width: f32, height: f32) -> Self {
         Self {
@@ -22,20 +25,25 @@ impl LayoutSize {
     }
 }
 
+/// Represents a parsed pair of `5px, 10px` values - useful for border radius calculation
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct PixelSize { pub width: PixelValue, pub height: PixelValue }
+
 impl PixelSize {
+
     pub fn new(width: PixelValue, height: PixelValue) -> Self {
         Self {
             width,
             height,
         }
     }
+
     pub fn zero() -> Self {
         Self::new(PixelValue::px(0.0), PixelValue::px(0.0))
     }
 }
 
+/// Offsets of the border-width calculations
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct LayoutSideOffsets {
     pub top: FloatValue,
@@ -43,8 +51,11 @@ pub struct LayoutSideOffsets {
     pub bottom: FloatValue,
     pub left: FloatValue,
 }
+
+/// u8-based color (similar to webrenders ColorU)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
+
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct BorderRadius {
     pub top_left: PixelSize,
@@ -52,7 +63,15 @@ pub struct BorderRadius {
     pub bottom_left: PixelSize,
     pub bottom_right: PixelSize,
 }
+
+impl Default for BorderRadius {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
 impl BorderRadius {
+
     pub fn zero() -> Self {
         Self::uniform(PixelSize::zero())
     }
@@ -72,31 +91,38 @@ pub enum BorderDetails {
     Normal(NormalBorder),
     NinePatch(NinePatchBorder),
 }
+
+/// Represents a normal `border` property (no image border / nine-patch border)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct NormalBorder {
     pub left: BorderSide,
     pub right: BorderSide,
     pub top: BorderSide,
     pub bottom: BorderSide,
-    pub radius: BorderRadius,
-    pub do_aa: bool,
+    pub radius: Option<BorderRadius>,
 }
-// NOTE: WebRender version has a ColorF here, not a ColorU
+
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct BorderSide {
     pub color: ColorU,
     pub style: BorderStyle,
 }
+
+/// What direction should a `box-shadow` be clipped in (inset or outset)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub enum BoxShadowClipMode {
     Outset,
     Inset,
 }
+
+/// Whether a `gradient` should be repeated or clamped to the edges.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub enum ExtendMode {
     Clamp,
     Repeat,
 }
+
+/// Style of a `border`: solid, double, dash, ridge, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub enum BorderStyle {
     None,
@@ -233,8 +259,14 @@ impl_from!(LayoutJustifyContent, CssProperty::JustifyContent);
 impl_from!(LayoutAlignItems, CssProperty::AlignItems);
 impl_from!(LayoutAlignContent, CssProperty::AlignContent);
 
-const SCALE_FACTOR: f32 = 10000.0;
+/// Multiplier for floating point accuracy. Elements such as px or %
+/// are only accurate until a certain number of decimal points, therefore
+/// they have to be casted to isizes in order to make the f32 values
+/// hash-able: Css has a relatively low precision here, roughly 5 digits, i.e
+/// `1.00001 == 1.0`
+pub const FP_PRECISION_MULTIPLIER: f32 = 10000.0;
 
+/// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PixelValue {
     pub metric: SizeMetric,
@@ -265,6 +297,7 @@ impl PixelValue {
         }
     }
 
+    /// Returns the value of the SizeMetric in pixels
     #[inline]
     pub fn to_pixels(&self) -> f32 {
         match self.metric {
@@ -275,24 +308,25 @@ impl PixelValue {
     }
 }
 
-/// "100%" or "1.0" value - usize based, so it can be
-/// safely hashed, accurate to 4 decimal places
-#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq)]
+/// Wrapper around FloatValue, represents a percentage instead
+/// of just being a regular floating-point value, i.e `5` = `5%`
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PercentageValue {
-    /// Normalized value, 100% = 1.0
-    number: isize,
+    number: FloatValue,
 }
 
 impl PercentageValue {
     pub fn new(value: f32) -> Self {
-        Self { number: (value * SCALE_FACTOR) as isize }
+        Self { number: value.into() }
     }
 
     pub fn get(&self) -> f32 {
-        self.number as f32 / SCALE_FACTOR
+        self.number.get()
     }
 }
 
+/// Wrapper around an f32 value that is internally casted to an isize, in order to
+/// provide hash-ability (to avoid numerical instability).
 #[derive(Debug, PartialEq, Copy, Clone, Hash, Eq, Ord, PartialOrd)]
 pub struct FloatValue {
     number: isize,
@@ -300,11 +334,11 @@ pub struct FloatValue {
 
 impl FloatValue {
     pub fn new(value: f32) -> Self {
-        Self { number: (value * SCALE_FACTOR) as isize }
+        Self { number: (value * FP_PRECISION_MULTIPLIER) as isize }
     }
 
     pub fn get(&self) -> f32 {
-        self.number as f32 / SCALE_FACTOR
+        self.number as f32 / FP_PRECISION_MULTIPLIER
     }
 }
 
@@ -314,6 +348,7 @@ impl From<f32> for FloatValue {
     }
 }
 
+/// Enum representing the metric associated with a number (px, pt, em, etc.)
 #[derive(Debug, PartialEq, Clone, Copy, Hash, Eq, Ord, PartialOrd)]
 pub enum SizeMetric {
     Px,
@@ -321,7 +356,7 @@ pub enum SizeMetric {
     Em,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBorderRadius(pub BorderRadius);
 
 impl StyleBorderRadius {
@@ -480,11 +515,6 @@ impl StyleBorder {
                 let border_style_left = left.and_then(|left| Some(left.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
                 let border_style_right = right.and_then(|right| Some(right.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
 
-                // Webrender crashes if AA is disabled and the border isn't pure-solid
-                let is_not_solid = [border_style_top, border_style_bottom, border_style_left, border_style_right].iter().any(|style| {
-                    *style != BorderStyle::Solid
-                });
-
                 let border_widths = LayoutSideOffsets {
                     top: FloatValue::new(border_width_top),
                     right: FloatValue::new(border_width_right),
@@ -496,8 +526,7 @@ impl StyleBorder {
                     left: BorderSide { color:  border_color_left.into(), style: border_style_left },
                     right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
                     bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
-                    radius: border_radius.and_then(|b| Some(b.0)).unwrap_or(BorderRadius::zero()),
-                    do_aa: border_radius.is_some() || is_not_solid,
+                    radius: border_radius.and_then(|r| Some(r.0)),
                 });
 
                 Some((border_widths, border_details))
@@ -516,6 +545,7 @@ pub struct StyleBorderSide {
     pub border_color: ColorU,
 }
 
+/// Represents a `box-shadow` attribute.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBoxShadow {
     pub top: Option<Option<BoxShadowPreDisplayItem>>,
@@ -539,8 +569,8 @@ pub struct BoxShadowPreDisplayItem {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StyleBackground {
-    LinearGradient(LinearGradientPreInfo),
-    RadialGradient(RadialGradientPreInfo),
+    LinearGradient(LinearGradient),
+    RadialGradient(RadialGradient),
     Image(CssImageId),
     NoBackground,
 }
@@ -552,14 +582,14 @@ impl<'a> From<CssImageId> for StyleBackground {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LinearGradientPreInfo {
+pub struct LinearGradient {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RadialGradientPreInfo {
+pub struct RadialGradient {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
@@ -707,6 +737,12 @@ pub enum StyleCursor {
     ZoomIn,
     /// `zoom-out`
     ZoomOut,
+}
+
+impl Default for StyleCursor {
+    fn default() -> StyleCursor {
+        StyleCursor::Default
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -1126,6 +1162,7 @@ impl_pixel_value!(LayoutBottom);
 impl_pixel_value!(LayoutRight);
 impl_pixel_value!(LayoutLeft);
 
+/// Represents a `font-size` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct StyleFontSize(pub PixelValue);
 
@@ -1137,6 +1174,7 @@ impl StyleFontSize {
     }
 }
 
+/// Represents a `font-family` attribute
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct StyleFontFamily {
     // fonts in order of precedence, i.e. "Webly Sleeky UI", "monospace", etc.

@@ -10,8 +10,8 @@ use azul_css::{
     LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
     StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
     ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
-    GradientStopPre, RadialGradientPreInfo, StyleBackgroundColor,
-    DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradientPreInfo,
+    GradientStopPre, RadialGradient, StyleBackgroundColor,
+    DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradient,
     BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
 
     SizeMetric, BoxShadowClipMode, ExtendMode, FontId,
@@ -1247,18 +1247,18 @@ impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 fn parse_style_background<'a>(input: &'a str)
 -> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
-    use azul_css::BackgroundType::*;
+    use azul_css::BackgroundType;
 
     let mut input_iter = input.splitn(2, "(");
     let first_item = input_iter.next();
 
     let background_type = match first_item {
         Some("none") => { return Ok(StyleBackground::NoBackground); },
-        Some("linear-gradient") => LinearGradient,
-        Some("repeating-linear-gradient") => RepeatingLinearGradient,
-        Some("radial-gradient") => RadialGradient,
-        Some("repeating-radial-gradient") => RepeatingRadialGradient,
-        Some("image") => Image,
+        Some("linear-gradient") => BackgroundType::LinearGradient,
+        Some("repeating-linear-gradient") => BackgroundType::RepeatingLinearGradient,
+        Some("radial-gradient") => BackgroundType::RadialGradient,
+        Some("repeating-radial-gradient") => BackgroundType::RepeatingRadialGradient,
+        Some("image") => BackgroundType::Image,
         _ => { return Err(CssBackgroundParseError::InvalidBackground(first_item.unwrap())); } // failure here
     };
 
@@ -1278,7 +1278,7 @@ fn parse_style_background<'a>(input: &'a str)
 
     // brace_contents contains "red, yellow, etc"
     let brace_contents = brace_contents.unwrap();
-    if background_type == Image {
+    if background_type == BackgroundType::Image {
         let image = parse_image(brace_contents)?;
         return Ok(image.into());
     }
@@ -1300,8 +1300,12 @@ fn parse_style_background<'a>(input: &'a str)
 
     let mut first_is_direction = false;
     let mut first_is_shape = false;
-    let is_linear_gradient = background_type == LinearGradient || background_type == RepeatingLinearGradient;
-    let is_radial_gradient = background_type == RadialGradient || background_type == RepeatingRadialGradient;
+
+    let is_linear_gradient = background_type == BackgroundType::LinearGradient ||
+                             background_type == BackgroundType::RepeatingLinearGradient;
+
+    let is_radial_gradient = background_type == BackgroundType::RadialGradient ||
+                             background_type == BackgroundType::RepeatingRadialGradient;
 
     if is_linear_gradient {
         if let Ok(dir) = parse_direction(first_brace_item) {
@@ -1392,35 +1396,35 @@ fn parse_style_background<'a>(input: &'a str)
     }
 
     match background_type {
-        LinearGradient => {
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+        BackgroundType::LinearGradient => {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
-        RepeatingLinearGradient => {
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+        BackgroundType::RepeatingLinearGradient => {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
         },
-        RadialGradient => {
-            Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
+        BackgroundType::RadialGradient => {
+            Ok(StyleBackground::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
-        RepeatingRadialGradient => {
-            Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
+        BackgroundType::RepeatingRadialGradient => {
+            Ok(StyleBackground::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
         },
-        Image => unreachable!(),
+        BackgroundType::Image => unreachable!(),
     }
 }
 
@@ -2012,7 +2016,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_1() {
         assert_eq!(parse_style_background("linear-gradient(red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2029,7 +2033,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_2() {
         assert_eq!(parse_style_background("linear-gradient(red, lime, blue, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2054,7 +2058,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_3() {
         assert_eq!(parse_style_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::Angle(50.0.into()),
                 extend_mode: ExtendMode::Repeat,
                 stops: vec![
@@ -2076,7 +2080,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_4() {
         assert_eq!(parse_style_background("linear-gradient(to bottom right, red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2093,7 +2097,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_5() {
         assert_eq!(parse_style_background("linear-gradient(0.42rad, red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(24.0642)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2110,7 +2114,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_6() {
         assert_eq!(parse_style_background("linear-gradient(12.93grad, red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(11.637)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2130,7 +2134,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_7() {
         assert_eq!(parse_style_background("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(10.0)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2147,7 +2151,7 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_8() {
         assert_eq!(parse_style_background("linear-gradient(50deg, rgb(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
-            Ok(StyleBackground::LinearGradient(LinearGradientPreInfo {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(40.0)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2165,7 +2169,7 @@ mod css_tests {
     #[test]
     fn test_parse_radial_gradient_1() {
         assert_eq!(parse_style_background("radial-gradient(circle, lime, blue, yellow)"),
-            Ok(StyleBackground::RadialGradient(RadialGradientPreInfo {
+            Ok(StyleBackground::RadialGradient(RadialGradient {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
@@ -2189,7 +2193,7 @@ mod css_tests {
     #[test]
     fn test_parse_radial_gradient_2() {
         assert_eq!(parse_style_background("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
-            Ok(ParsedGradient::RadialGradient(RadialGradientPreInfo {
+            Ok(ParsedGradient::RadialGradient(RadialGradient {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Repeat,
                 stops: vec![

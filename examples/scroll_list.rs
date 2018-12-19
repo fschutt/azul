@@ -59,7 +59,7 @@ fn main() {
         selected: None,
     };
 
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/scroll_list.css")) }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/scroll_list.css")) }
 
     let app = App::new(data, AppConfig::default());
 

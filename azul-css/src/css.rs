@@ -1,8 +1,8 @@
 //! Types and methods used to describe the style of an application
 use css_properties::CssProperty;
 
-/// Wrapper for a `Vec<CssRuleBlock>` - the style is immutable at runtime, it can only be
-/// created once. Animations / conditional styling is implemented using dynamic fields.
+/// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
+/// i.e. blocks of key-value pairs associated with a selector path.
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Css {
     /// The style rules making up the document - for example, de-duplicated CSS rules
@@ -103,8 +103,8 @@ pub struct CssRuleBlock {
 
 pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 
-/// Signifies the type (i.e. the discriminant value) of a DOM node without any of its associated
-/// data
+/// Signifies the type (i.e. the discriminant value) of a DOM node
+/// without carrying any of its associated data
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum NodeTypePath {
     Div,
@@ -129,9 +129,17 @@ impl std::fmt::Display for NodeTypePath {
     }
 }
 
-/// Represents a full CSS path:
-/// `#div > .my_class:focus` =>
-/// `[CssfPathSelector::Type(NodeTypePath::Div), LimitChildren, CssPathSelector::Class("my_class"), CssPathSelector::PseudoSelector]`
+/// Represents a full CSS path (i.e. the "div#id.class" selector belonging to
+///  a CSS "content group" (the following key-value block)).
+///
+/// ```no_run,ignore
+/// "#div > .my_class:focus" ==
+/// [
+///   CssPathSelector::Type(NodeTypePath::Div),
+///   CssPathSelector::PseudoSelector(CssPathPseudoSelector::LimitChildren),
+///   CssPathSelector::Class("my_class"),
+///   CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
+/// ]
 #[derive(Debug, Clone, Hash, Default, PartialEq)]
 pub struct CssPath {
     pub selectors: Vec<CssPathSelector>,
@@ -155,7 +163,11 @@ pub enum CssPathSelector {
     Children
 }
 
-impl Default for CssPathSelector { fn default() -> Self { CssPathSelector::Global } }
+impl Default for CssPathSelector {
+    fn default() -> Self {
+        CssPathSelector::Global
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum CssPathPseudoSelector {
@@ -174,19 +186,15 @@ pub enum CssPathPseudoSelector {
 }
 
 impl Css {
+
     /// Creates a new stylesheet with no style rules.
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// Combines two parsed stylesheets into one, appending the rules of
-    /// `other` after the rules of `self`.
-    pub fn merge(&mut self, mut other: Self) {
+    /// Combines two parsed stylesheets into one,
+    /// appending the rules of `other` after the rules of `self`.
+    pub fn append(&mut self, mut other: Self) {
         self.rules.append(&mut other.rules);
     }
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct CssConstraintList {
-    pub list: Vec<CssDeclaration>
 }

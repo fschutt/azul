@@ -26,7 +26,7 @@ impl Layout for MyDataModel {
 
 fn main() {
 
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/hot_reload.css")) }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/hot_reload.css")) }
 
     let mut app = App::new(MyDataModel, AppConfig::default());
     app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
