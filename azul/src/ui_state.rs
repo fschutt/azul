@@ -23,7 +23,7 @@ pub struct UiState<T: Layout> {
     pub tab_index_tags: BTreeMap<TagId, (NodeId, TabIndex)>,
     pub draggable_tags: BTreeMap<TagId, NodeId>,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
-    pub dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
+    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {
