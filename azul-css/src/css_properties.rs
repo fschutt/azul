@@ -52,9 +52,35 @@ pub struct LayoutSideOffsets {
     pub left: FloatValue,
 }
 
-/// u8-based color (similar to webrenders ColorU)
+/// u8-based color, range 0 to 255 (similar to webrenders ColorU)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
+
+/// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct ColorF { pub r: f32, pub g: f32, pub b: f32, pub a: f32 }
+
+impl From<ColorU> for ColorF {
+    fn from(input: ColorU) -> ColorF {
+        ColorF {
+            r: (input.r as f32) / 255.0,
+            g: (input.g as f32) / 255.0,
+            b: (input.b as f32) / 255.0,
+            a: (input.a as f32) / 255.0,
+        }
+    }
+}
+
+impl From<ColorF> for ColorU {
+    fn from(input: ColorF) -> ColorU {
+        ColorU {
+            r: (input.r.min(1.0) * 255.0) as u8,
+            g: (input.g.min(1.0) * 255.0) as u8,
+            b: (input.b.min(1.0) * 255.0) as u8,
+            a: (input.a.min(1.0) * 255.0) as u8,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct BorderRadius {
