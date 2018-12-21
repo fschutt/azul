@@ -73,7 +73,7 @@ dependencies = [
  "nfd 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rusttype 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "stb_truetype 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "stb_truetype 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tinyfiledialogs 3.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "twox-hash 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode-normalization 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1149,7 +1149,7 @@ dependencies = [
  "approx 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "arrayvec 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "ordered-float 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "stb_truetype 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "stb_truetype 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1317,7 +1317,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "stb_truetype"
-version = "0.2.4"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1827,7 +1827,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum smallvec 0.6.7 (registry+https://github.com/rust-lang/crates.io-index)" = "b73ea3738b47563803ef814925e69be00799a8c07420be8b996f8e98fb2336db"
 "checksum smithay-client-toolkit 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "4bfd1c912756e610ab598d60fb16adeb3b6745ac0b0a4a2cc1a6b9fa88111409"
 "checksum stable_deref_trait 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
-"checksum stb_truetype 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "48fa7d3136d8645909de1f7c7eb5416cc43057a75ace08fc39ae736bc9da8af1"
+"checksum stb_truetype 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "52ce2b38abdd11cffbc68928810248e0dd003fea489a88a404dc1ba7ae2d5538"
 "checksum svgdom 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)" = "bc4610cb63ef2e0f835dcc3f09474f59d3df96d251f27bfc1fd3d9807d54d149"
 "checksum svgtypes 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6d7da116a3aedb07023f8399e126d0467bd9629d3a235f339eb7986f779a07c9"
 "checksum syn 0.15.22 (registry+https://github.com/rust-lang/crates.io-index)" = "ae8b29eb5210bc5cf63ed6149cbf9adfc82ac0be023d8735c176ee74a2db4da7"
