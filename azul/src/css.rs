@@ -49,7 +49,7 @@ pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> 
 
 /// Same as `Self::hot_reload`, but appends the given file to the
 /// `Self::native()` style before the hot-reloaded styles, similar to `override_native`.
-#[cfg(all(debug_assertions, feature = "css-parser", feature = "native_style"))]
+#[cfg(all(debug_assertions, feature = "css-parser", feature = "native-style"))]
 pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
     Box::new(azul_css::HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
 }
