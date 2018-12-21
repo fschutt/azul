@@ -5,11 +5,13 @@ use std::time::Duration;
 use std::path::PathBuf;
 
 pub use azul_css::*;
-#[cfg(feature = "css_parser")]
+#[cfg(feature = "css-parser")]
 pub use azul_css_parser::*;
+#[cfg(feature = "native-style")]
+pub use azul_native_style::*;
 
 use azul_css::{self, Css};
-#[cfg(feature = "css_parser")]
+#[cfg(feature = "css-parser")]
 use azul_css_parser::{self, CssParseError};
 
 /// Returns a style with the native appearance for the operating system. Convenience wrapper
@@ -21,12 +23,12 @@ pub fn native() -> azul_css::Css {
 
 /// Parses CSS from a string. Convenience wrapper for functionality from the `azul-css-parser`
 /// crate.
-#[cfg(feature = "css_parser")]
+#[cfg(feature = "css-parser")]
 pub fn from_str(input: &str) -> Result<Css, CssParseError> {
     azul_css_parser::new_from_str(input)
 }
 
-#[cfg(feature = "css_parser")]
+#[cfg(all(feature = "css-parser", feature = "native-style"))]
 pub fn override_native(input: &str) -> Result<Css, CssParseError> {
     let mut css = native();
     css.append(from_str(input)?);
@@ -35,14 +37,14 @@ pub fn override_native(input: &str) -> Result<Css, CssParseError> {
 
 /// Allows dynamic reloading of a CSS file during an applications runtime, useful for
 /// changing the look & feel while the application is running.
-#[cfg(all(debug_assertions, feature = "css_parser"))]
+#[cfg(all(debug_assertions, feature = "css-parser"))]
 pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
     Box::new(azul_css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
 }
 
 /// Same as `Self::hot_reload`, but appends the given file to the
 /// `Self::native()` style before the hot-reloaded styles, similar to `override_native`.
-#[cfg(all(debug_assertions, feature = "css_parser", feature = "native_style"))]
+#[cfg(all(debug_assertions, feature = "css-parser", feature = "native_style"))]
 pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
     Box::new(azul_css::HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
 }

@@ -109,6 +109,7 @@ extern crate twox_hash;
 #[cfg(not(target_os = "linux"))]
 extern crate nfd;
 
+#[cfg(feature = "css-parser")]
 extern crate azul_css;
 extern crate azul_native_style;
 extern crate azul_css_parser;
@@ -122,7 +123,7 @@ pub mod app;
 pub mod app_state;
 /// Font & image resource handling, lookup and caching
 pub mod app_resources;
-#[cfg(any(feature = "css_parser", feature = "native-style"))]
+#[cfg(any(feature = "css-parser", feature = "native-style"))]
 pub mod css;
 /// Daemon / timer system
 pub mod daemon;
@@ -213,7 +214,7 @@ pub mod prelude {
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::TextLayoutOptions;
 
-    #[cfg(any(feature = "css_parser", feature = "native-style"))]
+    #[cfg(any(feature = "css-parser", feature = "native-style"))]
     pub use css;
 
     #[cfg(feature = "logging")]

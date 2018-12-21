@@ -19,20 +19,20 @@ autoexamples = false
 
 [dependencies]
 azul-css                = { path = "../azul-css",             default_features = false }
-azul-native-style       = { path = "../azul-native-style",    default_features = false }
-azul-css-parser         = { path = "../azul-css-parser",      default_features = false }
 azul_glium              = { version = "0.22.0",               default-features = false, features = ["glutin"] }
 gleam                   = { version = "0.6",                  default-features = false }
 euclid                  = { version = "0.19",                 default-features = false }
-rusttype                = { version = "0.7.3",                default-features = false }
+rusttype                = { version = "0.7.2",                default-features = false }
 app_units               = { version = "0.7",                  default-features = false } # TODO: Remove once webrender PR is merged
 unicode-normalization   = { version = "0.1.5",                default-features = false }
 lazy_static             = { version = "1",                    default-features = false }
 tinyfiledialogs         = { version = "3.3.5",                default-features = false }
 clipboard2              = { version = "0.1.0",                default-features = false }
 font-loader             = { version = "0.7.0",                default-features = false }
+azul-native-style       = { version = "0.1.0",                path = "../azul-native-style", optional = true }
+azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",   optional = true }
 log                     = { version = "0.4.1",                default-features = false, optional = true }
-stb_truetype            = { version = "0.2.2",                default-features = false, optional = true }
+stb_truetype            = { version = "=0.2.2",               default-features = false, optional = true }
 fern                    = { version = "0.5.5",                default-features = false, optional = true }
 backtrace               = { version = "0.3",                  default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
 lyon                    = { version = "0.11.0",               default-features = false, optional = true }
@@ -57,8 +57,8 @@ default = [
     "logging",
     "svg",
     "image_loading",
-    "native_style",
-    "css_parser",
+    "native-style",
+    "css-parser",
 ]
 # Exports the azul-native-style crate in the prelude
 native_style = []
@@ -99,6 +99,8 @@ hdr = ["image/hdr"]
 jpeg_rayon = ["image/jpeg_rayon"]
 dxt = ["image/dxt"]
 webp = ["image/webp"]
+css-parser = ["azul-css-parser"]
+native-style = ["azul-native-style"]
 
 [[example]]
 name = "debug"
