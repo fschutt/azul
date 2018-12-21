@@ -36,10 +36,8 @@ pub use hot_reloader::{
 };
 
 
-#[cfg(feature = "serde_serialization")]
 pub use css_color::CssColor;
 
-#[cfg(feature = "serde_serialization")]
 pub mod css_color {
 
     use azul_css::{ColorU, ColorF};
