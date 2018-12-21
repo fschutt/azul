@@ -90,6 +90,7 @@ name = "azul-css-parser"
 version = "0.1.0"
 dependencies = [
  "azul-css 0.1.0",
+ "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "simplecss 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

@@ -18,3 +18,8 @@ autoexamples = false
 [dependencies]
 azul-css                = { path = "../azul-css",   default-features = false }
 simplecss               = { version = "0.1.0",      default-features = false }
+serde                   = { version = "1",          default-features = false, optional = true }
+
+[features]
+default = []
+serde_serialization = ["serde"]
