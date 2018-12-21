@@ -258,7 +258,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     Ok(css_blocks.into())
 }
 
-/// Error that can happen during `css_parser::from_kv`
+/// Error that can happen during `css_parser::parse_key_value_pair`
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynamicCssParseError<'a> {
     /// The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `
@@ -290,12 +290,12 @@ impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
     }
 }
 
-const START_BRACE: &str = "[[";
-const END_BRACE: &str = "]]";
+pub const START_BRACE: &str = "[[";
+pub const END_BRACE: &str = "]]";
 
 /// Determine if a Css property is static (immutable) or if it can change
 /// during the runtime of the program
-fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
+pub fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
 -> Result<CssDeclaration, DynamicCssParseError<'a>>
 {
     let key = key.trim();
@@ -312,12 +312,12 @@ fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
             parse_dynamic_css_property(key, value).and_then(|val| Ok(CssDeclaration::Dynamic(val)))
         },
         (false, false) => {
-            Ok(CssDeclaration::Static(css_parser::from_kv(key, value)?))
+            Ok(CssDeclaration::Static(css_parser::parse_key_value_pair(key, value)?))
         }
     }
 }
 
-fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
+pub fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
     use std::char;
 
     // "[[ id | 400px ]]" => "id | 400px"
@@ -335,7 +335,7 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
         (None, Some(id)) => {
             if id.trim().is_empty() {
                 return Err(DynamicCssParseError::EmptyBraces);
-            } else if css_parser::from_kv(key, id).is_ok() {
+            } else if css_parser::parse_key_value_pair(key, id).is_ok() {
                 // if there is an ID, but the ID is a CSS value
                 return Err(DynamicCssParseError::NoId);
             } else {
@@ -356,24 +356,19 @@ fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dynami
     }
 
     if dynamic_id.starts_with(char::is_numeric) ||
-       css_parser::from_kv(key, dynamic_id).is_ok() {
+       css_parser::parse_key_value_pair(key, dynamic_id).is_ok() {
         return Err(DynamicCssParseError::InvalidId);
     }
 
     let default_case_parsed = match default_case {
         "auto" => DynamicCssPropertyDefault::Auto,
-        other => DynamicCssPropertyDefault::Exact(css_parser::from_kv(key, other)?),
+        other => DynamicCssPropertyDefault::Exact(css_parser::parse_key_value_pair(key, other)?),
     };
 
     Ok(DynamicCssProperty {
         dynamic_id: dynamic_id.to_string(),
         default: default_case_parsed,
     })
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct CssConstraintList {
-    pub(crate) list: Vec<CssDeclaration>
 }
 
 #[test]

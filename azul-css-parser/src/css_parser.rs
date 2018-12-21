@@ -52,11 +52,11 @@ macro_rules! typed_pixel_value_parser {
 /// # use azul_css_parser;
 /// # use azul_css::{LayoutWidth, PixelValue, CssProperty};
 /// assert_eq!(
-///     azul_css_parser::from_kv("width", "500px"),
+///     azul_css_parser::parse_key_value_pair("width", "500px"),
 ///     Ok(CssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
 /// )
 /// ```
-pub fn from_kv<'a>(key: &'a str, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
+pub fn parse_key_value_pair<'a>(key: &'a str, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
     let key = key.trim();
     let value = value.trim();
     match key {
