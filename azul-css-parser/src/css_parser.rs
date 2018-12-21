@@ -20,7 +20,7 @@ use azul_css::{
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
     ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => (
-        fn $fn<'a>(input: &'a str)
+        pub fn $fn<'a>(input: &'a str)
         -> Result<$return, InvalidValueErr<'a>>
         {
             match input {
@@ -35,7 +35,7 @@ macro_rules! multi_type_parser {
 
 macro_rules! typed_pixel_value_parser {
     ($fn:ident, $return:ident) => (
-        fn $fn<'a>(input: &'a str)
+        pub fn $fn<'a>(input: &'a str)
         -> Result<$return, PixelParseError<'a>>
         {
             parse_pixel_value(input).and_then(|e| Ok($return(e)))
@@ -346,7 +346,7 @@ impl_from!(PixelParseError<'a>, CssShadowParseError::ValueParseErr);
 impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
-fn parse_style_border_radius<'a>(input: &'a str)
+pub fn parse_style_border_radius<'a>(input: &'a str)
 -> Result<StyleBorderRadius, CssStyleBorderRadiusParseError<'a>>
 {
     let mut components = input.split_whitespace();
@@ -427,7 +427,7 @@ impl_display!{ PixelParseError<'a>, {
 }}
 
 /// parse a single value such as "15px"
-fn parse_pixel_value<'a>(input: &'a str)
+pub fn parse_pixel_value<'a>(input: &'a str)
 -> Result<PixelValue, PixelParseError<'a>>
 {
     let mut split_pos = 0;
@@ -462,7 +462,7 @@ impl_display! { PercentageParseError, {
 }}
 
 // Parse "1.2" or "120%" (similar to parse_pixel_value)
-fn parse_percentage_value(input: &str)
+pub fn parse_percentage_value(input: &str)
 -> Result<PercentageValue, PercentageParseError>
 {
     let mut split_pos = 0;
@@ -488,7 +488,7 @@ fn parse_percentage_value(input: &str)
 ///
 /// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
 /// "#00FF00" -> ColorF { r: 0, g: 255, b: 0 })
-pub(crate) fn parse_css_color<'a>(input: &'a str)
+pub fn parse_css_color<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     if input.starts_with('#') {
@@ -522,19 +522,19 @@ pub(crate) fn parse_css_color<'a>(input: &'a str)
     }
 }
 
-fn parse_float_value(input: &str)
+pub fn parse_float_value(input: &str)
 -> Result<FloatValue, ParseFloatError>
 {
     Ok(FloatValue::new(input.trim().parse::<f32>()?))
 }
 
-fn parse_style_background_color<'a>(input: &'a str)
+pub fn parse_style_background_color<'a>(input: &'a str)
 -> Result<StyleBackgroundColor, CssColorParseError<'a>>
 {
     parse_css_color(input).and_then(|ok| Ok(StyleBackgroundColor(ok)))
 }
 
-fn parse_style_text_color<'a>(input: &'a str)
+pub fn parse_style_text_color<'a>(input: &'a str)
 -> Result<StyleTextColor, CssColorParseError<'a>>
 {
     parse_css_color(input).and_then(|ok| Ok(StyleTextColor(ok)))
@@ -543,7 +543,7 @@ fn parse_style_text_color<'a>(input: &'a str)
 /// Parse a built-in background color
 ///
 /// "blue" -> "00FF00" -> ColorF { r: 0, g: 255, b: 0 })
-fn parse_color_builtin<'a>(input: &'a str)
+pub fn parse_color_builtin<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     let (r, g, b, a) = match input {
@@ -703,7 +703,7 @@ fn parse_color_builtin<'a>(input: &'a str)
 
 /// Parse a color of the form 'rgb([0-255], [0-255], [0-255])', or 'rgba([0-255], [0-255], [0-255],
 /// [0.0-1.0])' without the leading 'rgb[a](' or trailing ')'. Alpha defaults to 255.
-fn parse_color_rgb<'a>(input: &'a str, parse_alpha: bool)
+pub fn parse_color_rgb<'a>(input: &'a str, parse_alpha: bool)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     let mut components = input.split(',').map(|c| c.trim());
@@ -720,7 +720,7 @@ fn parse_color_rgb<'a>(input: &'a str, parse_alpha: bool)
 }
 
 /// Parse the color components passed as arguments to an rgb(...) CSS color.
-fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
+pub fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     #[inline]
@@ -744,7 +744,7 @@ fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
 }
 
 /// Parse a color of the form 'hsl([0.0-360.0]deg, [0-100]%, [0-100]%)', or 'hsla([0.0-360.0]deg, [0-100]%, [0-100]%, [0.0-1.0])' without the leading 'hsl[a](' or trailing ')'. Alpha defaults to 255.
-fn parse_color_hsl<'a>(input: &'a str, parse_alpha: bool)
+pub fn parse_color_hsl<'a>(input: &'a str, parse_alpha: bool)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     let mut components = input.split(',').map(|c| c.trim());
@@ -761,7 +761,7 @@ fn parse_color_hsl<'a>(input: &'a str, parse_alpha: bool)
 }
 
 /// Parse the color components passed as arguments to an hsl(...) CSS color.
-fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
+pub fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     #[inline]
@@ -831,7 +831,6 @@ fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
     Ok(ColorU { r, g, b, a: 255 })
 }
 
-#[inline]
 fn parse_alpha_component<'a>(components: &mut Iterator<Item=&'a str>) -> Result<u8, CssColorParseError<'a>> {
     let a = components.next().ok_or(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha))?;
     if a.is_empty() {
@@ -849,7 +848,7 @@ fn parse_alpha_component<'a>(components: &mut Iterator<Item=&'a str>) -> Result<
 /// Parse a background color, WITHOUT THE HASH
 ///
 /// "00FFFF" -> ColorF { r: 0, g: 255, b: 255})
-fn parse_color_no_hash<'a>(input: &'a str)
+pub fn parse_color_no_hash<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     #[inline]
@@ -962,7 +961,7 @@ impl_from!(PixelParseError<'a>, LayoutPaddingParseError::PixelParseError);
 /// Parse a padding value such as
 ///
 /// "10px 10px"
-fn parse_layout_padding<'a>(input: &'a str)
+pub fn parse_layout_padding<'a>(input: &'a str)
 -> Result<LayoutPadding, LayoutPaddingParseError>
 {
     let mut input_iter = input.split_whitespace();
@@ -1022,7 +1021,7 @@ impl_display!{ LayoutMarginParseError<'a>, {
 
 impl_from!(PixelParseError<'a>, LayoutMarginParseError::PixelParseError);
 
-fn parse_layout_margin<'a>(input: &'a str)
+pub fn parse_layout_margin<'a>(input: &'a str)
 -> Result<LayoutMargin, LayoutMarginParseError>
 {
     match parse_layout_padding(input) {
@@ -1047,7 +1046,7 @@ const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 /// Parse a CSS border such as
 ///
 /// "5px solid red"
-fn parse_css_border<'a>(input: &'a str)
+pub fn parse_css_border<'a>(input: &'a str)
 -> Result<StyleBorderSide, CssBorderParseError<'a>>
 {
     // Default border thickness on the web seems to be 3px
@@ -1102,7 +1101,7 @@ multi_type_parser!(parse_border_style, BorderStyle,
 parse_tblr!(box_shadow_parser, StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
 
 /// Parses a CSS box-shadow
-fn parse_css_box_shadow<'a>(input: &'a str)
+pub fn parse_css_box_shadow<'a>(input: &'a str)
 -> Result<Option<BoxShadowPreDisplayItem>, CssShadowParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
@@ -1244,7 +1243,7 @@ impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 
 // parses a background, such as "linear-gradient(red, green)"
-fn parse_style_background<'a>(input: &'a str)
+pub fn parse_style_background<'a>(input: &'a str)
 -> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
     use azul_css::BackgroundType;
@@ -1435,9 +1434,9 @@ impl<'a> From<QuoteStripped<'a>> for CssImageId {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct QuoteStripped<'a>(pub(crate) &'a str);
+pub struct QuoteStripped<'a>(pub(crate) &'a str);
 
-fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
+pub fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
     Ok(strip_quotes(input)?.into())
 }
 
@@ -1448,7 +1447,7 @@ fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>>
 /// `"Helvetica"` - valid
 /// `'Helvetica'` - valid
 /// `'Helvetica"` - invalid
-fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuotesError<'a>> {
+pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuotesError<'a>> {
     let mut double_quote_iter = input.splitn(2, '"');
     double_quote_iter.next();
     let mut single_quote_iter = input.splitn(2, '\'');
@@ -1488,7 +1487,7 @@ impl_display!{ CssGradientStopParseError<'a>, {
 }}
 
 // parses "red" , "red 5%"
-fn parse_gradient_stop<'a>(input: &'a str)
+pub fn parse_gradient_stop<'a>(input: &'a str)
 -> Result<GradientStopPre, CssGradientStopParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
@@ -1503,7 +1502,7 @@ fn parse_gradient_stop<'a>(input: &'a str)
 }
 
 // parses "5%" -> 5
-fn parse_percentage(input: &str)
+pub fn parse_percentage(input: &str)
 -> Option<PercentageValue>
 {
     let mut input_iter = input.rsplitn(2, '%');
@@ -1543,7 +1542,7 @@ impl<'a> From<CssDirectionCornerParseError<'a>> for CssDirectionParseError<'a> {
 }
 
 // parses "50deg", "to right bottom"
-fn parse_direction<'a>(input: &'a str)
+pub fn parse_direction<'a>(input: &'a str)
 -> Result<Direction, CssDirectionParseError<'a>>
 {
     use std::f32::consts::PI;
@@ -1616,7 +1615,7 @@ impl_display!{ CssDirectionCornerParseError<'a>, {
     InvalidDirection(val) => format!("Invalid direction: \"{}\"", val),
 }}
 
-fn parse_direction_corner<'a>(input: &'a str)
+pub fn parse_direction_corner<'a>(input: &'a str)
 -> Result<DirectionCorner, CssDirectionCornerParseError<'a>>
 {
     match input {
@@ -1640,31 +1639,31 @@ impl_display!{CssShapeParseError<'a>, {
 /// Stylistic options of the rectangle that don't influence the layout
 /// (todo: border-box?)
 #[derive(Default, Debug, Clone, PartialEq, Hash)]
-pub(crate) struct RectStyle {
+pub struct RectStyle {
     /// Background color of this rectangle
-    pub(crate) background_color: Option<StyleBackgroundColor>,
+    pub background_color: Option<StyleBackgroundColor>,
     /// Shadow color
-    pub(crate) box_shadow: Option<StyleBoxShadow>,
+    pub box_shadow: Option<StyleBoxShadow>,
     /// Gradient (location) + stops
-    pub(crate) background: Option<StyleBackground>,
+    pub background: Option<StyleBackground>,
     /// Border
-    pub(crate) border: Option<StyleBorder>,
+    pub border: Option<StyleBorder>,
     /// Border radius
-    pub(crate) border_radius: Option<StyleBorderRadius>,
+    pub border_radius: Option<StyleBorderRadius>,
     /// Font size
-    pub(crate) font_size: Option<StyleFontSize>,
+    pub font_size: Option<StyleFontSize>,
     /// Font name / family
-    pub(crate) font_family: Option<StyleFontFamily>,
+    pub font_family: Option<StyleFontFamily>,
     /// Text color
-    pub(crate) font_color: Option<StyleTextColor>,
+    pub font_color: Option<StyleTextColor>,
     /// Text alignment
-    pub(crate) text_align: Option<StyleTextAlignmentHorz,>,
+    pub text_align: Option<StyleTextAlignmentHorz,>,
     /// Text overflow behaviour
-    pub(crate) overflow: Option<LayoutOverflow>,
+    pub overflow: Option<LayoutOverflow>,
     /// `line-height` property
-    pub(crate) line_height: Option<StyleLineHeight>,
+    pub line_height: Option<StyleLineHeight>,
     /// `letter-spacing` property (modifies the width and height)
-    pub(crate) letter_spacing: Option<StyleLetterSpacing>,
+    pub letter_spacing: Option<StyleLetterSpacing>,
 }
 
 typed_pixel_value_parser!(parse_style_letter_spacing, StyleLetterSpacing);
@@ -1720,7 +1719,7 @@ impl_display!{FlexGrowParseError<'a>, {
     ParseFloat(e, orig_str) => format!("flex-grow: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
 }}
 
-fn parse_layout_flex_grow<'a>(input: &'a str) -> Result<LayoutFlexGrow, FlexGrowParseError<'a>> {
+pub fn parse_layout_flex_grow<'a>(input: &'a str) -> Result<LayoutFlexGrow, FlexGrowParseError<'a>> {
     match parse_float_value(input) {
         Ok(o) => Ok(LayoutFlexGrow(o)),
         Err(e) => Err(FlexGrowParseError::ParseFloat(e, input)),
@@ -1736,14 +1735,14 @@ impl_display!{FlexShrinkParseError<'a>, {
     ParseFloat(e, orig_str) => format!("flex-shrink: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
 }}
 
-fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, FlexShrinkParseError<'a>> {
+pub fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, FlexShrinkParseError<'a>> {
     match parse_float_value(input) {
         Ok(o) => Ok(LayoutFlexShrink(o)),
         Err(e) => Err(FlexShrinkParseError::ParseFloat(e, input)),
     }
 }
 
-fn parse_style_line_height(input: &str)
+pub fn parse_style_line_height(input: &str)
 -> Result<StyleLineHeight, PercentageParseError>
 {
     parse_percentage_value(input).and_then(|e| Ok(StyleLineHeight(e)))
@@ -1773,7 +1772,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 // "Webly Sleeky UI", monospace
 // 'Webly Sleeky Ui', monospace
 // sans-serif
-pub(crate) fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
+pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
 
