@@ -27,7 +27,7 @@ pub struct UiDescription<T: Layout> {
     /// This is why we need this field here
     pub(crate) default_style_of_node: StyledNode,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
-    pub(crate) dynamic_style_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
+    pub(crate) dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
 }
 
 impl<T: Layout> fmt::Debug for UiDescription<T> {
@@ -37,13 +37,13 @@ impl<T: Layout> fmt::Debug for UiDescription<T> {
             ui_descr_root: {:?},
             styled_nodes: {:?},
             default_style_of_node: {:?},
-            dynamic_style_overrides: {:?},
+            dynamic_css_overrides: {:?},
         }}",
             self.ui_descr_arena,
             self.ui_descr_root,
             self.styled_nodes,
             self.default_style_of_node,
-            self.dynamic_style_overrides,
+            self.dynamic_css_overrides,
         )
     }
 }
@@ -55,7 +55,7 @@ impl<T: Layout> Clone for UiDescription<T> {
             ui_descr_root: self.ui_descr_root,
             styled_nodes: self.styled_nodes.clone(),
             default_style_of_node: self.default_style_of_node.clone(),
-            dynamic_style_overrides: self.dynamic_style_overrides.clone(),
+            dynamic_css_overrides: self.dynamic_css_overrides.clone(),
         }
     }
 }

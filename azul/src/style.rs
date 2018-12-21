@@ -360,7 +360,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),
-        dynamic_style_overrides: ui_state.dynamic_style_overrides.clone(),
+        dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
     }
 }
 

@@ -109,7 +109,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
             let mut rect = DisplayRectangle::new(tag, style);
-            populate_style_properties(&mut rect, node_id, &ui_description.dynamic_style_overrides);
+            populate_style_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
             rect
         });
 
@@ -1920,7 +1920,7 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
 fn populate_style_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
-    style_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
+    css_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
 {
     use azul_css::CssProperty::{self, *};
 
@@ -1984,7 +1984,7 @@ fn populate_style_properties(
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {
-                if let Some(overridden_property) = style_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
+                if let Some(overridden_property) = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
                     // Only apply the dynamic style property default, if it isn't set to auto
                     if property_type_matches(overridden_property, &dynamic_property.default) {
                         apply_style_property(rect, overridden_property);
