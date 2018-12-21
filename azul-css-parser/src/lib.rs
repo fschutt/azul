@@ -29,9 +29,7 @@ pub use css::{
     CssParseError,
 };
 
-pub use css_parser::{
-    from_kv,
-};
+pub use css_parser::*;
 
 pub use hot_reloader::{
     HotReloader,
@@ -44,7 +42,8 @@ pub use css_color::CssColor;
 #[cfg(feature = "serde_serialization")]
 pub mod css_color {
 
-    use css::{ColorU, ColorF};
+    use azul_css::{ColorU, ColorF};
+    use css_parser::{parse_css_color, CssColorParseError};
 
     /// CssColor is simply a wrapper around the internal CSS color parsing methods.
     ///
