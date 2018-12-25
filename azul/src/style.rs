@@ -1,4 +1,4 @@
-//! Main utilities for high-level datatypes from the `azul_css` crate.
+//! DOM-tree to CSS style tree stying
 
 use azul_css::{
     Css,
@@ -17,7 +17,7 @@ use {
 };
 
 /// Has all the necessary information about the style CSS path
-pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
+pub(crate) struct HtmlCascadeInfo<'a, T: 'a + Layout> {
     node_data: &'a NodeData<T>,
     index_in_parent: usize,
     is_last_child: bool,
@@ -27,7 +27,7 @@ pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
 }
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
-pub fn matches_html_element<'a, T: Layout>(
+pub(crate) fn matches_html_element<'a, T: Layout>(
     css_path: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
@@ -122,6 +122,8 @@ impl<'a> Iterator for CssGroupIterator<'a> {
             new_idx -= 1;
         }
 
+        // NOTE: Order is not important for matching elements, only important for testing
+        #[cfg(test)]
         current_path.reverse();
 
         if new_idx == 0 {
@@ -190,10 +192,13 @@ fn test_css_group_iterator() {
     assert_eq!(it.next(), None);
 }
 
-fn construct_html_cascade_tree<'a, T: Layout>(
+pub(crate) fn construct_html_cascade_tree<'a, T: Layout>(
     input: &'a NodeDataContainer<NodeData<T>>,
     node_hierarchy: &NodeHierarchy,
-    node_depths_sorted: &[(usize, NodeId)])
+    node_depths_sorted: &[(usize, NodeId)],
+    focused_item: Option<NodeId>,
+    hovered_items: &[NodeId],
+    is_mouse_down: bool)
 -> NodeDataContainer<HtmlCascadeInfo<'a, T>>
 {
     let mut nodes = (0..node_hierarchy.len()).map(|_| HtmlCascadeInfo {
@@ -207,28 +212,30 @@ fn construct_html_cascade_tree<'a, T: Layout>(
 
     for (_depth, parent_id) in node_depths_sorted {
 
-        // Note: starts at 1 instead of 0
+        // Note: :nth-child() starts at 1 instead of 0
         let index_in_parent = parent_id.preceding_siblings(node_hierarchy).count();
 
+        let is_parent_hovered_over = hovered_items.contains(parent_id);
         let parent_html_matcher = HtmlCascadeInfo {
             node_data: &input[*parent_id],
             index_in_parent: index_in_parent, // necessary for nth-child
             is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(), // Necessary for :last selectors
-            is_hovered_over: false, // TODO
-            is_active: false, // TODO
-            is_focused: false, // TODO
+            is_hovered_over: is_parent_hovered_over,
+            is_active: is_parent_hovered_over && is_mouse_down,
+            is_focused: focused_item == Some(*parent_id),
         };
 
         nodes[parent_id.index()] = parent_html_matcher;
 
         for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
+            let is_child_hovered_over = hovered_items.contains(&child_id);
             let child_html_matcher = HtmlCascadeInfo {
                 node_data: &input[child_id],
                 index_in_parent: child_idx + 1, // necessary for nth-child
                 is_last_child: node_hierarchy[child_id].next_sibling.is_none(),
-                is_hovered_over: false, // TODO
-                is_active: false, // TODO
-                is_focused: false, // TODO
+                is_hovered_over: is_child_hovered_over,
+                is_active: is_child_hovered_over && is_mouse_down,
+                is_focused: focused_item == Some(child_id),
             };
 
             nodes[child_id.index()] = child_html_matcher;
@@ -294,8 +301,11 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_no
 
 pub(crate) fn match_dom_selectors<T: Layout>(
     ui_state: &UiState<T>,
-    style: &Css)
--> UiDescription<T>
+    style: &Css,
+    focused_node: Option<NodeId>,
+    hovered_nodes: &[NodeId],
+    is_mouse_down: bool,
+) -> UiDescription<T>
 {
     use ui_solver::get_non_leaf_nodes_sorted_by_depth;
     use std::collections::BTreeMap;
@@ -306,7 +316,14 @@ pub(crate) fn match_dom_selectors<T: Layout>(
 
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
-    let html_tree = construct_html_cascade_tree(&arena_borrow.node_data, &arena_borrow.node_layout, &non_leaf_nodes);
+    let html_tree = construct_html_cascade_tree(
+        &arena_borrow.node_data,
+        &arena_borrow.node_layout,
+        &non_leaf_nodes,
+        focused_node,
+        hovered_nodes,
+        is_mouse_down,
+    );
 
     for (_depth, parent_id) in non_leaf_nodes {
 

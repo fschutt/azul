@@ -166,8 +166,12 @@ pub struct WindowState {
     /// Whether there is a file currently hovering over the window
     pub(crate) hovered_file: Option<PathBuf>,
     /// What node is currently hovered over, default to None. Only necessary internal
-    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events.
-    pub(crate) focused_element: Option<NodeId>,
+    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
+    /// as well as styling `:focus` elements
+    pub(crate) focused_node: Option<NodeId>,
+    /// Currently hovered nodes, default to an empty Vec. Important for
+    /// styling `:hover` elements.
+    pub(crate) hovered_nodes: Vec<NodeId>,
     /// Previous window state, used for determining mouseout, etc. events
     pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -222,7 +226,8 @@ impl Default for WindowState {
         Self {
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
-            focused_element: None,
+            focused_node: None,
+            hovered_nodes: Vec::new(),
             hovered_file: None,
             previous_window_state: None,
             title: DEFAULT_TITLE.into(),
@@ -381,9 +386,9 @@ impl WindowState
         if let Some((new_focused_element_node_id, _)) = closest_item_with_focus_tab {
             // Update the current window states focus element, regardless of
             // whether an On::FocusReceived or a On::FocusLost
-            self.focused_element = Some(new_focused_element_node_id);
-            if previous_state.focused_element != Some(new_focused_element_node_id) {
-                if previous_state.focused_element.is_none() {
+            self.focused_node = Some(new_focused_element_node_id);
+            if previous_state.focused_node != Some(new_focused_element_node_id) {
+                if previous_state.focused_node.is_none() {
                     events_vec.insert(On::FocusReceived);
                 } else {
                     events_vec.insert(On::FocusLost);
@@ -392,9 +397,23 @@ impl WindowState
                 // then the focus is still on the same field
             }
         } else if event_was_mouse_release || event_was_mouse_down {
-            self.focused_element = None;
+            self.focused_node = None;
             events_vec.insert(On::FocusLost);
         }
+
+        // Update all hovered nodes for creating new :hover tags
+        self.hovered_nodes = hit_test_result.items.iter().filter_map(|item| ui_state.tag_ids_to_node_ids.get(&item.tag.0)).cloned().collect();
+
+        /*
+        // onmouseenter / onmouseleave events
+        for onmouseenter_node in self.hovered_nodes.filter(|current| previous_state.hovered_nodes.find(current).is_none()) {
+            events_vec.insert(On::MouseLeave, onmouseleave_node);
+        }
+
+        for onmouseleave_node in previous_state.hovered_nodes.filter(|prev| self.hovered_nodes.find(prev).is_none()) {
+            events_vec.insert(On::MouseEnter, onmouseenter_node);
+        }
+        */
 
         self.previous_window_state = Some(previous_state);
 

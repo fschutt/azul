@@ -1128,8 +1128,13 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         new_dom = (iframe_callback.0)(&iframe_pointer, window_info, bounds);
     }
 
+    // TODO: Right now, no focusing, hovering or :active allowed in iframes!
+    let is_mouse_down = false;
+    let focused_node = None;
+    let hovered_nodes = [];
+
     let ui_state = UiState::from_dom(new_dom);
-    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.app_style);
+    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.app_style, focused_node, &hovered_nodes, is_mouse_down);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     let arena = ui_description.ui_descr_arena.borrow();

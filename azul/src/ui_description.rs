@@ -64,7 +64,7 @@ impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
-        Self::from_dom(&UiState::from_dom(default_dom), &Css::default())
+        Self::from_dom(&UiState::from_dom(default_dom), &Css::default(), None, &[], false)
     }
 }
 
@@ -72,9 +72,15 @@ impl<T: Layout> UiDescription<T> {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn from_dom(ui_state: &UiState<T>, style: &Css) -> Self
+    pub fn from_dom(
+        ui_state: &UiState<T>,
+        style: &Css,
+        focused_node: Option<NodeId>,
+        hovered_nodes: &[NodeId],
+        is_mouse_down: bool,
+    ) -> Self
     {
-        ::style::match_dom_selectors(ui_state, &style)
+        ::style::match_dom_selectors(ui_state, &style, focused_node, hovered_nodes, is_mouse_down)
     }
 }
 
