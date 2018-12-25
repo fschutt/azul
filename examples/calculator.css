@@ -25,9 +25,13 @@
 
 .orange {
     background: linear-gradient(to bottom, #f69135, #f37335);
-    font-color: white;
+    color: white;
     border-bottom: 1px solid #8d8d8d;
     width: 98px;
+}
+
+.orange:focus {
+    border: 3px solid blue;
 }
 
 #zero {

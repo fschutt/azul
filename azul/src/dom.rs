@@ -868,6 +868,12 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
+    pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
+        self.add_tab_index(tab_index);
+        self
+    }
+
+    #[inline]
     pub fn add_id<S: Into<String>>(&mut self, id: S) {
         self.arena.borrow_mut().node_data[self.head].ids.push(id.into());
     }
@@ -885,6 +891,11 @@ impl<T: Layout> Dom<T> {
     #[inline]
     pub fn add_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
         self.arena.borrow_mut().node_data[self.head].default_callback_ids.push((on, id));
+    }
+
+    #[inline]
+    pub fn add_tab_index(&mut self, tab_index: TabIndex) {
+        self.arena.borrow_mut().node_data[self.head].tab_index = Some(tab_index);
     }
 
     #[inline]

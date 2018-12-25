@@ -15,7 +15,10 @@ impl Layout for Calculator {
     fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
 
         fn numpad_btn(label: &str, class: &str) -> Dom<Calculator> {
-            Dom::label(label).with_class(class).with_callback(On::MouseUp, Callback(handle_mouseclick_numpad_btn))
+            Dom::label(label)
+            .with_class(class)
+            .with_tab_index(TabIndex::Auto)
+            .with_callback(On::MouseUp, Callback(handle_mouseclick_numpad_btn))
         }
 
         fn render_row(labels: &[&str;4]) -> Dom<Calculator> {
