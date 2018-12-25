@@ -323,10 +323,17 @@ impl<T: Layout> App<T> {
                     let window_id = WindowId { id: idx };
                     ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
 
-                    // Style the DOM
+                    // Style the DOM (is_mouse_down, etc. necessary for styling :hover, :active + :focus nodes)
+                    let is_mouse_down = window.state.mouse_state.left_down      ||
+                                        window.state.mouse_state.middle_down    ||
+                                        window.state.mouse_state.right_down;
+
                     ui_description_cache[idx] = UiDescription::from_dom(
                         &ui_state_cache[idx],
                         &window.style,
+                        window.state.focused_node,
+                        &window.state.hovered_nodes,
+                        is_mouse_down,
                     );
 
                     // render the window (webrender will send an Awakened event when the frame is done)
