@@ -51,7 +51,7 @@ macro_rules! typed_pixel_value_parser {
 /// # extern crate azul_css_parser;
 /// # extern crate azul_css;
 /// # use azul_css_parser;
-/// # use azul_css::{LayoutWidth, PixelValue, CssProperty, CssProperty};
+/// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssProperty};
 /// assert_eq!(
 ///     azul_css_parser::parse_key_value_pair(CssPropertyType::Width, "500px"),
 ///     Ok(CssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
@@ -63,51 +63,51 @@ pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<
     match key {
         BorderRadius     => Ok(parse_style_border_radius(value)?.into()),
         BackgroundColor  => Ok(parse_style_background_color(value)?.into()),
-        TextColor             => Ok(parse_style_text_color(value)?.into()),
-        Background        => Ok(parse_style_background(value)?.into()),
+        TextColor        => Ok(parse_style_text_color(value)?.into()),
+        Background       => Ok(parse_style_background(value)?.into()),
         FontSize         => Ok(parse_style_font_size(value)?.into()),
         FontFamily       => Ok(parse_style_font_family(value)?.into()),
         LetterSpacing    => Ok(parse_style_letter_spacing(value)?.into()),
         LineHeight       => Ok(parse_style_line_height(value)?.into()),
-        Cursor            => Ok(parse_style_cursor(value)?.into()),
+        Cursor           => Ok(parse_style_cursor(value)?.into()),
 
-        Border            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
+        Border           => Ok(StyleBorder::all(parse_css_border(value)?).into()),
         BorderTop        => Ok(border_parser::parse_top(value)?.into()),
         BorderBottom     => Ok(border_parser::parse_bottom(value)?.into()),
         BorderLeft       => Ok(border_parser::parse_left(value)?.into()),
         BorderRight      => Ok(border_parser::parse_right(value)?.into()),
 
-        Width             => Ok(parse_layout_width(value)?.into()),
-        Height            => Ok(parse_layout_height(value)?.into()),
+        Width            => Ok(parse_layout_width(value)?.into()),
+        Height           => Ok(parse_layout_height(value)?.into()),
         MinWidth         => Ok(parse_layout_min_width(value)?.into()),
         MinHeight        => Ok(parse_layout_min_height(value)?.into()),
         MaxWidth         => Ok(parse_layout_max_width(value)?.into()),
         MaxHeight        => Ok(parse_layout_max_height(value)?.into()),
 
-        Position          => Ok(parse_layout_position(value)?.into()),
-        Top               => Ok(parse_layout_top(value)?.into()),
-        Right             => Ok(parse_layout_right(value)?.into()),
-        Left              => Ok(parse_layout_left(value)?.into()),
-        Bottom            => Ok(parse_layout_bottom(value)?.into()),
+        Position         => Ok(parse_layout_position(value)?.into()),
+        Top              => Ok(parse_layout_top(value)?.into()),
+        Right            => Ok(parse_layout_right(value)?.into()),
+        Left             => Ok(parse_layout_left(value)?.into()),
+        Bottom           => Ok(parse_layout_bottom(value)?.into()),
         TextAlign        => Ok(parse_layout_text_align(value)?.into()),
 
         BoxShadow        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
-        BoxShadowTop    => Ok(box_shadow_parser::parse_top(value)?.into()),
-        BoxShadowBottom => Ok(box_shadow_parser::parse_bottom(value)?.into()),
-        BoxShadowLeft   => Ok(box_shadow_parser::parse_left(value)?.into()),
-        BoxShadowRight  => Ok(box_shadow_parser::parse_right(value)?.into()),
+        BoxShadowTop     => Ok(box_shadow_parser::parse_top(value)?.into()),
+        BoxShadowBottom  => Ok(box_shadow_parser::parse_bottom(value)?.into()),
+        BoxShadowLeft    => Ok(box_shadow_parser::parse_left(value)?.into()),
+        BoxShadowRight   => Ok(box_shadow_parser::parse_right(value)?.into()),
 
-        Padding           => Ok(parse_layout_padding(value)?.into()),
+        Padding          => Ok(parse_layout_padding(value)?.into()),
         PaddingTop       => Ok(layout_padding_parser::parse_top(value)?.into()),
         PaddingBottom    => Ok(layout_padding_parser::parse_bottom(value)?.into()),
         PaddingLeft      => Ok(layout_padding_parser::parse_left(value)?.into()),
         PaddingRight     => Ok(layout_padding_parser::parse_right(value)?.into()),
 
-        Margin            => Ok(parse_layout_margin(value)?.into()),
-        MarginTop       => Ok(layout_margin_parser::parse_top(value)?.into()),
-        MarginBottom    => Ok(layout_margin_parser::parse_bottom(value)?.into()),
-        MarginLeft      => Ok(layout_margin_parser::parse_left(value)?.into()),
-        MarginRight     => Ok(layout_margin_parser::parse_right(value)?.into()),
+        Margin           => Ok(parse_layout_margin(value)?.into()),
+        MarginTop        => Ok(layout_margin_parser::parse_top(value)?.into()),
+        MarginBottom     => Ok(layout_margin_parser::parse_bottom(value)?.into()),
+        MarginLeft       => Ok(layout_margin_parser::parse_left(value)?.into()),
+        MarginRight      => Ok(layout_margin_parser::parse_right(value)?.into()),
 
         FlexWrap         => Ok(parse_layout_wrap(value)?.into()),
         FlexDirection    => Ok(parse_layout_direction(value)?.into()),
@@ -118,7 +118,7 @@ pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<
         AlignItems       => Ok(parse_layout_align_items(value)?.into()),
         AlignContent     => Ok(parse_layout_align_content(value)?.into()),
 
-        Overflow          => {
+        Overflow         => {
             let overflow_both_directions = parse_layout_text_overflow(value)?;
             Ok(LayoutOverflow {
                 horizontal: TextOverflowBehaviour::Modified(overflow_both_directions),
