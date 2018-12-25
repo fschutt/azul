@@ -16,7 +16,7 @@ use {
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
 };
 
-/// Has all the necessary information about the style xpath
+/// Has all the necessary information about the style CSS path
 pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
     node_data: &'a NodeData<T>,
     index_in_parent: usize,
@@ -26,9 +26,9 @@ pub struct HtmlCascadeInfo<'a, T: 'a + Layout> {
     is_active: bool,
 }
 
-/// Returns if the style xpath matches the DOM node (i.e. if the DOM node should be styled by that element)
+/// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
 pub fn matches_html_element<'a, T: Layout>(
-    xpath: &CssPath,
+    css_path: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
     html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>)
@@ -36,7 +36,7 @@ pub fn matches_html_element<'a, T: Layout>(
 {
     use self::CssGroupSplitReason::*;
 
-    if xpath.selectors.is_empty() {
+    if css_path.selectors.is_empty() {
         return false;
     }
 
@@ -44,7 +44,7 @@ pub fn matches_html_element<'a, T: Layout>(
     let mut direct_parent_has_to_match = false;
     let mut last_selector_matched = false;
 
-    for (content_group, reason) in CssGroupIterator::new(&xpath.selectors) {
+    for (content_group, reason) in CssGroupIterator::new(&css_path.selectors) {
         let cur_node_id = match current_node {
             Some(c) => c,
             None => {
