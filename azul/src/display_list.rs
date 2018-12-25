@@ -284,7 +284,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 node_data: node_data,
                 render_api: &window.internal.api,
                 display_rectangle_arena: &self.rectangles,
-                app_style: &window.style,
+                app_style: &window.css,
                 word_cache: &word_cache,
             },
             &mut DisplayListParametersMut {
