@@ -1,26 +1,36 @@
 //! High-level types and functions related to CSS parsing
 use std::{
     num::ParseIntError,
+    fmt,
 };
 pub use simplecss::Error as CssSyntaxError;
+use simplecss::Tokenizer;
 
 use css_parser;
 pub use css_parser::CssParsingError;
-use dom::{node_type_path_from_str, NodeTypePathParseError};
 use azul_css::{
     Css,
     CssDeclaration,
     DynamicCssProperty,
     DynamicCssPropertyDefault,
+    CssPropertyType,
     CssRuleBlock,
     CssPath,
     CssPathSelector,
     CssPathPseudoSelector,
+    NodeTypePath,
+    NodeTypePathParseError,
 };
 
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]
-pub enum CssParseError<'a> {
+pub struct CssParseError<'a> {
+    pub error: CssParseErrorInner<'a>,
+    pub location: ErrorLocation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssParseErrorInner<'a> {
     /// A hard error in the CSS syntax
     ParseError(CssSyntaxError),
     /// Braces are not balanced properly
@@ -38,9 +48,11 @@ pub enum CssParseError<'a> {
     PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
     /// The path has to be either `*`, `div`, `p` or something like that
     NodeTypePath(NodeTypePathParseError<'a>),
+    /// A certain property has an unknown key, for example: `alsdfkj: 500px` = `unknown CSS key "alsdfkj: 500px"`
+    UnknownPropertyKey(&'a str, &'a str),
 }
 
-impl_display!{ CssParseError<'a>, {
+impl_display!{ CssParseErrorInner<'a>, {
     ParseError(e) => format!("Parse Error: {:?}", e),
     UnclosedBlock => "Unclosed block",
     MalformedCss => "Malformed Css",
@@ -48,12 +60,13 @@ impl_display!{ CssParseError<'a>, {
     UnexpectedValue(e) => format!("Unexpected value: {}", e),
     PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
     NodeTypePath(e) => format!("Failed to parse CSS selector path: {}", e),
+    UnknownPropertyKey(k, v) => format!("Unknown CSS key: \"{}: {}\"", k, v),
 }}
 
-impl_from! { CssParsingError<'a>, CssParseError::UnexpectedValue }
-impl_from! { DynamicCssParseError<'a>, CssParseError::DynamicCssParseError }
-impl_from! { CssPseudoSelectorParseError<'a>, CssParseError::PseudoSelectorParseError }
-impl_from! { NodeTypePathParseError<'a>, CssParseError::NodeTypePath }
+impl_from! { CssParsingError<'a>, CssParseErrorInner::UnexpectedValue }
+impl_from! { DynamicCssParseError<'a>, CssParseErrorInner::DynamicCssParseError }
+impl_from! { CssPseudoSelectorParseError<'a>, CssParseErrorInner::PseudoSelectorParseError }
+impl_from! { NodeTypePathParseError<'a>, CssParseErrorInner::NodeTypePath }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssPseudoSelectorParseError<'a> {
@@ -131,11 +144,49 @@ fn test_css_pseudo_selector_parse() {
     }
 }
 
-/// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
-pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
-    use simplecss::{Tokenizer, Token, Combinator};
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ErrorLocation {
+    pub line: usize,
+    pub column: usize,
+}
 
+impl<'a> fmt::Display for CssParseError<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CSS error at line {}:{}:\r\n{}", self.location.line, self.location.column, self.error)
+    }
+}
+
+pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     let mut tokenizer = Tokenizer::new(css_string);
+    match new_from_str_inner(css_string, &mut tokenizer) {
+        Ok(css) => Ok(css),
+        Err(e) => {
+            let error_location = tokenizer.pos();
+            let mut line_number = 0;
+            let mut total_characters = 0;
+
+            for line in css_string[0..error_location].lines() {
+                line_number += 1;
+                total_characters += line.chars().count();
+            }
+
+            let characters_in_line = error_location - total_characters;
+            let error_location = ErrorLocation {
+                line: line_number,
+                column: characters_in_line,
+            };
+            Err(CssParseError {
+                error: e,
+                location: error_location,
+            })
+        }
+    }
+}
+
+/// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
+fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) -> Result<Css, CssParseErrorInner<'a>> {
+    use simplecss::{Token, Combinator};
+
 
     let mut css_blocks = Vec::new();
 
@@ -152,6 +203,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     // Keep track of the current path during parsing
     let mut last_path = Vec::new();
 
+    let css_property_map = azul_css::get_css_key_map();
     loop {
         let tokenize_result = tokenizer.parse_next();
         match tokenize_result {
@@ -160,7 +212,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
                     Token::BlockStart => {
                         if parser_in_block {
                             // multi-nested CSS blocks are currently not supported
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         parser_in_block = true;
                         block_nesting += 1;
@@ -174,7 +226,7 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
                     Token::BlockEnd => {
                         block_nesting -= 1;
                         if !parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         parser_in_block = false;
                         for path in current_paths.drain(..) {
@@ -190,51 +242,55 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
                     // tokens that adjust the last_path
                     Token::UniversalSelector => {
                         if parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         last_path.push(CssPathSelector::Global);
                     },
                     Token::TypeSelector(div_type) => {
                         if parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
-                        last_path.push(CssPathSelector::Type(node_type_path_from_str(div_type)?));
+                        last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
                     },
                     Token::IdSelector(id) => {
                         if parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         last_path.push(CssPathSelector::Id(id.to_string()));
                     },
                     Token::ClassSelector(class) => {
                         if parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         last_path.push(CssPathSelector::Class(class.to_string()));
                     },
                     Token::Combinator(Combinator::GreaterThan) => {
                         if parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         last_path.push(CssPathSelector::DirectChildren);
                     },
                     Token::Combinator(Combinator::Space) => {
                         if parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         last_path.push(CssPathSelector::Children);
                     },
                     Token::PseudoClass(pseudo_class) => {
                         if parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
                         last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(pseudo_class)?));
                     },
                     Token::Declaration(key, val) => {
                         if !parser_in_block {
-                            return Err(CssParseError::MalformedCss);
+                            return Err(CssParseErrorInner::MalformedCss);
                         }
-                        current_rules.push(determine_static_or_dynamic_css_property(key, val)?);
+
+                        let parsed_key = CssPropertyType::from_str(key, &css_property_map)
+                            .ok_or(CssParseErrorInner::UnknownPropertyKey(key, val))?;
+
+                        current_rules.push(determine_static_or_dynamic_css_property(parsed_key, val)?);
                     },
                     Token::EndOfStream => {
                         break;
@@ -245,14 +301,14 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
                 }
             },
             Err(e) => {
-                return Err(CssParseError::ParseError(e));
+                return Err(CssParseErrorInner::ParseError(e));
             }
         }
     }
 
     // non-even number of blocks
     if block_nesting != 0 {
-        return Err(CssParseError::UnclosedBlock);
+        return Err(CssParseErrorInner::UnclosedBlock);
     }
 
     Ok(css_blocks.into())
@@ -295,10 +351,9 @@ pub const END_BRACE: &str = "]]";
 
 /// Determine if a Css property is static (immutable) or if it can change
 /// during the runtime of the program
-pub fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str)
+pub fn determine_static_or_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str)
 -> Result<CssDeclaration, DynamicCssParseError<'a>>
 {
-    let key = key.trim();
     let value = value.trim();
 
     let is_starting_with_braces = value.starts_with(START_BRACE);
@@ -317,7 +372,7 @@ pub fn determine_static_or_dynamic_css_property<'a>(key: &'a str, value: &'a str
     }
 }
 
-pub fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
+pub fn parse_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
     use std::char;
 
     // "[[ id | 400px ]]" => "id | 400px"
@@ -366,6 +421,7 @@ pub fn parse_dynamic_css_property<'a>(key: &'a str, value: &'a str) -> Result<Dy
     };
 
     Ok(DynamicCssProperty {
+        property_type: key,
         dynamic_id: dynamic_id.to_string(),
         default: default_case_parsed,
     })
@@ -376,70 +432,72 @@ fn test_detect_static_or_dynamic_property() {
     use azul_css::{CssProperty, StyleTextAlignmentHorz};
     use css_parser::InvalidValueErr;
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", " center   "),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, " center   "),
         Ok(CssDeclaration::Static(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)))
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[    400px ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[    400px ]]"),
         Err(DynamicCssParseError::NoDefaultCase)
     );
 
-    assert_eq!(determine_static_or_dynamic_css_property("text-align", "[[  400px"),
+    assert_eq!(determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  400px"),
         Err(DynamicCssParseError::UnclosedBraces)
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  400px | center ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  400px | center ]]"),
         Err(DynamicCssParseError::InvalidId)
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  hello | center ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  hello | center ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+            property_type: CssPropertyType::TextAlign,
             default: DynamicCssPropertyDefault::Exact(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
             dynamic_id: String::from("hello"),
         }))
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  hello | auto ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  hello | auto ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
+            property_type: CssPropertyType::TextAlign,
             default: DynamicCssPropertyDefault::Auto,
             dynamic_id: String::from("hello"),
         }))
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[  abc | hello ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  abc | hello ]]"),
         Err(DynamicCssParseError::UnexpectedValue(
             CssParsingError::InvalidValueErr(InvalidValueErr("hello"))
         ))
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ ]]"),
         Err(DynamicCssParseError::EmptyBraces)
     );
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[]]"),
         Err(DynamicCssParseError::EmptyBraces)
     );
 
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ center ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ center ]]"),
         Err(DynamicCssParseError::NoId)
     );
 
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ hello |  ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ hello |  ]]"),
         Err(DynamicCssParseError::NoDefaultCase)
     );
 
     // debatable if this is a suitable error for this case:
     assert_eq!(
-        determine_static_or_dynamic_css_property("text-align", "[[ |  ]]"),
+        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ |  ]]"),
         Err(DynamicCssParseError::EmptyBraces)
     );
 }

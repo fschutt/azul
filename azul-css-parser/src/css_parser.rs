@@ -2,6 +2,7 @@
 
 use std::{fmt, num::{ParseIntError, ParseFloatError}};
 use azul_css::{
+    CssPropertyType,
     StyleTextAlignmentHorz, TextOverflowBehaviour, TextOverflowBehaviourInner,
     LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent, Shape,
     LayoutWrap, LayoutDirection, LayoutPosition, CssProperty, LayoutOverflow,
@@ -50,103 +51,94 @@ macro_rules! typed_pixel_value_parser {
 /// # extern crate azul_css_parser;
 /// # extern crate azul_css;
 /// # use azul_css_parser;
-/// # use azul_css::{LayoutWidth, PixelValue, CssProperty};
+/// # use azul_css::{LayoutWidth, PixelValue, CssProperty, CssProperty};
 /// assert_eq!(
-///     azul_css_parser::parse_key_value_pair("width", "500px"),
+///     azul_css_parser::parse_key_value_pair(CssPropertyType::Width, "500px"),
 ///     Ok(CssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
 /// )
 /// ```
-pub fn parse_key_value_pair<'a>(key: &'a str, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
-    let key = key.trim();
+pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
+    use self::CssPropertyType::*;
     let value = value.trim();
     match key {
-        "border-radius"     => Ok(parse_style_border_radius(value)?.into()),
-        "background-color"  => Ok(parse_style_background_color(value)?.into()),
-        "font-color" |
-        "color"             => Ok(parse_style_text_color(value)?.into()),
-        "background"        => Ok(parse_style_background(value)?.into()),
-        "font-size"         => Ok(parse_style_font_size(value)?.into()),
-        "font-family"       => Ok(parse_style_font_family(value)?.into()),
-        "letter-spacing"    => Ok(parse_style_letter_spacing(value)?.into()),
-        "line-height"       => Ok(parse_style_line_height(value)?.into()),
-        "cursor"            => Ok(parse_style_cursor(value)?.into()),
+        BorderRadius     => Ok(parse_style_border_radius(value)?.into()),
+        BackgroundColor  => Ok(parse_style_background_color(value)?.into()),
+        TextColor             => Ok(parse_style_text_color(value)?.into()),
+        Background        => Ok(parse_style_background(value)?.into()),
+        FontSize         => Ok(parse_style_font_size(value)?.into()),
+        FontFamily       => Ok(parse_style_font_family(value)?.into()),
+        LetterSpacing    => Ok(parse_style_letter_spacing(value)?.into()),
+        LineHeight       => Ok(parse_style_line_height(value)?.into()),
+        Cursor            => Ok(parse_style_cursor(value)?.into()),
 
-        "border"            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
-        "border-top"        => Ok(border_parser::parse_top(value)?.into()),
-        "border-bottom"     => Ok(border_parser::parse_bottom(value)?.into()),
-        "border-left"       => Ok(border_parser::parse_left(value)?.into()),
-        "border-right"      => Ok(border_parser::parse_right(value)?.into()),
+        Border            => Ok(StyleBorder::all(parse_css_border(value)?).into()),
+        BorderTop        => Ok(border_parser::parse_top(value)?.into()),
+        BorderBottom     => Ok(border_parser::parse_bottom(value)?.into()),
+        BorderLeft       => Ok(border_parser::parse_left(value)?.into()),
+        BorderRight      => Ok(border_parser::parse_right(value)?.into()),
 
-        "box-shadow"        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
-        "box-shadow-top"    => Ok(box_shadow_parser::parse_top(value)?.into()),
-        "box-shadow-bottom" => Ok(box_shadow_parser::parse_bottom(value)?.into()),
-        "box-shadow-left"   => Ok(box_shadow_parser::parse_left(value)?.into()),
-        "box-shadow-right"  => Ok(box_shadow_parser::parse_right(value)?.into()),
+        Width             => Ok(parse_layout_width(value)?.into()),
+        Height            => Ok(parse_layout_height(value)?.into()),
+        MinWidth         => Ok(parse_layout_min_width(value)?.into()),
+        MinHeight        => Ok(parse_layout_min_height(value)?.into()),
+        MaxWidth         => Ok(parse_layout_max_width(value)?.into()),
+        MaxHeight        => Ok(parse_layout_max_height(value)?.into()),
 
-        "width"             => Ok(parse_layout_width(value)?.into()),
-        "height"            => Ok(parse_layout_height(value)?.into()),
-        "min-width"         => Ok(parse_layout_min_width(value)?.into()),
-        "min-height"        => Ok(parse_layout_min_height(value)?.into()),
-        "max-width"         => Ok(parse_layout_max_width(value)?.into()),
-        "max-height"        => Ok(parse_layout_max_height(value)?.into()),
+        Position          => Ok(parse_layout_position(value)?.into()),
+        Top               => Ok(parse_layout_top(value)?.into()),
+        Right             => Ok(parse_layout_right(value)?.into()),
+        Left              => Ok(parse_layout_left(value)?.into()),
+        Bottom            => Ok(parse_layout_bottom(value)?.into()),
+        TextAlign        => Ok(parse_layout_text_align(value)?.into()),
 
-        "position"          => Ok(parse_layout_position(value)?.into()),
-        "top"               => Ok(parse_layout_top(value)?.into()),
-        "right"             => Ok(parse_layout_right(value)?.into()),
-        "left"              => Ok(parse_layout_left(value)?.into()),
-        "bottom"            => Ok(parse_layout_bottom(value)?.into()),
-        "text-align"        => Ok(parse_layout_text_align(value)?.into()),
+        BoxShadow        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
+        BoxShadowTop    => Ok(box_shadow_parser::parse_top(value)?.into()),
+        BoxShadowBottom => Ok(box_shadow_parser::parse_bottom(value)?.into()),
+        BoxShadowLeft   => Ok(box_shadow_parser::parse_left(value)?.into()),
+        BoxShadowRight  => Ok(box_shadow_parser::parse_right(value)?.into()),
 
-        "padding"           => Ok(parse_layout_padding(value)?.into()),
-        "padding-top"       => Ok(layout_padding_parser::parse_top(value)?.into()),
-        "padding-bottom"    => Ok(layout_padding_parser::parse_bottom(value)?.into()),
-        "padding-left"      => Ok(layout_padding_parser::parse_left(value)?.into()),
-        "padding-right"     => Ok(layout_padding_parser::parse_right(value)?.into()),
+        Padding           => Ok(parse_layout_padding(value)?.into()),
+        PaddingTop       => Ok(layout_padding_parser::parse_top(value)?.into()),
+        PaddingBottom    => Ok(layout_padding_parser::parse_bottom(value)?.into()),
+        PaddingLeft      => Ok(layout_padding_parser::parse_left(value)?.into()),
+        PaddingRight     => Ok(layout_padding_parser::parse_right(value)?.into()),
 
-        "margin"            => Ok(parse_layout_margin(value)?.into()),
-        "margin-top"       => Ok(layout_margin_parser::parse_top(value)?.into()),
-        "margin-bottom"    => Ok(layout_margin_parser::parse_bottom(value)?.into()),
-        "margin-left"      => Ok(layout_margin_parser::parse_left(value)?.into()),
-        "margin-right"     => Ok(layout_margin_parser::parse_right(value)?.into()),
+        Margin            => Ok(parse_layout_margin(value)?.into()),
+        MarginTop       => Ok(layout_margin_parser::parse_top(value)?.into()),
+        MarginBottom    => Ok(layout_margin_parser::parse_bottom(value)?.into()),
+        MarginLeft      => Ok(layout_margin_parser::parse_left(value)?.into()),
+        MarginRight     => Ok(layout_margin_parser::parse_right(value)?.into()),
 
-        "flex-wrap"         => Ok(parse_layout_wrap(value)?.into()),
-        "flex-direction"    => Ok(parse_layout_direction(value)?.into()),
-        "flex-grow"         => Ok(parse_layout_flex_grow(value)?.into()),
-        "flex-shrink"       => Ok(parse_layout_flex_shrink(value)?.into()),
+        FlexWrap         => Ok(parse_layout_wrap(value)?.into()),
+        FlexDirection    => Ok(parse_layout_direction(value)?.into()),
+        FlexGrow         => Ok(parse_layout_flex_grow(value)?.into()),
+        FlexShrink       => Ok(parse_layout_flex_shrink(value)?.into()),
 
-        "align-main-axis" |
-        "justify-content"   => Ok(parse_layout_justify_content(value)?.into()),
+        JustifyContent   => Ok(parse_layout_justify_content(value)?.into()),
+        AlignItems       => Ok(parse_layout_align_items(value)?.into()),
+        AlignContent     => Ok(parse_layout_align_content(value)?.into()),
 
-        "align-cross-axis" |
-        "align-items"       => Ok(parse_layout_align_items(value)?.into()),
-
-        "align-cross-axis-multiline" |
-        "align-content"     => Ok(parse_layout_align_content(value)?.into()),
-
-        "overflow"          => {
+        Overflow          => {
             let overflow_both_directions = parse_layout_text_overflow(value)?;
             Ok(LayoutOverflow {
                 horizontal: TextOverflowBehaviour::Modified(overflow_both_directions),
                 vertical: TextOverflowBehaviour::Modified(overflow_both_directions),
             }.into())
         },
-        "overflow-x"        => {
+        OverflowX        => {
             let overflow_x = parse_layout_text_overflow(value)?;
             Ok(LayoutOverflow {
                 horizontal: TextOverflowBehaviour::Modified(overflow_x),
                 vertical: TextOverflowBehaviour::default(),
             }.into())
         },
-        "overflow-y"        => {
+        OverflowY        => {
             let overflow_y = parse_layout_text_overflow(value)?;
             Ok(LayoutOverflow {
                 horizontal: TextOverflowBehaviour::default(),
                 vertical: TextOverflowBehaviour::Modified(overflow_y),
             }.into())
-        },
-
-
-        _ => Err((key, value).into())
+        }
     }
 }
 
@@ -169,9 +161,6 @@ pub enum CssParsingError<'a> {
     MarginParseError(LayoutMarginParseError<'a>),
     FlexShrinkParseError(FlexShrinkParseError<'a>),
     FlexGrowParseError(FlexGrowParseError<'a>),
-    /// Key is not supported, i.e. `#div { aldfjasdflk: 400px }` results in an
-    /// `UnsupportedCssKey("aldfjasdflk", "400px")` error
-    UnsupportedCssKey(&'a str, &'a str),
 }
 
 impl_display!{ CssParsingError<'a>, {
@@ -189,7 +178,6 @@ impl_display!{ CssParsingError<'a>, {
     MarginParseError(e) => format!("{}", e),
     FlexShrinkParseError(e) => format!("{}", e),
     FlexGrowParseError(e) => format!("{}", e),
-    UnsupportedCssKey(key, value) => format!("Unsupported Css-key: \"{}\" - value: \"{}\"", key, value),
 }}
 
 impl_from!(CssBorderParseError<'a>, CssParsingError::CssBorderParseError);
@@ -205,12 +193,6 @@ impl_from!(LayoutPaddingParseError<'a>, CssParsingError::PaddingParseError);
 impl_from!(LayoutMarginParseError<'a>, CssParsingError::MarginParseError);
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrinkParseError);
 impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrowParseError);
-
-impl<'a> From<(&'a str, &'a str)> for CssParsingError<'a> {
-    fn from((a, b): (&'a str, &'a str)) -> Self {
-        CssParsingError::UnsupportedCssKey(a, b)
-    }
-}
 
 impl<'a> From<PercentageParseError> for CssParsingError<'a> {
     fn from(e: PercentageParseError) -> Self {

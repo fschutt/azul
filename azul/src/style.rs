@@ -1,5 +1,6 @@
 //! DOM-tree to CSS style tree stying
 
+use std::collections::BTreeSet;
 use azul_css::{
     Css,
     CssContentGroup,
@@ -243,6 +244,32 @@ pub(crate) fn construct_html_cascade_tree<'a, T: Layout>(
     }
 
     NodeDataContainer { internal: nodes }
+}
+
+/// In order to support :hover, the element must have a TagId, otherwise it
+/// will be disregarded in the hit-testing. A hover group
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+pub struct HoverGroup {
+    /// The CSS path until the `:hover` part
+    pub css_path: CssPath,
+    /// Whether any property in the hover group will trigger a re-layout.
+    /// This is important for creating
+    pub affects_layout: bool,
+}
+
+pub(crate) fn collect_hover_groups(css: &Css) -> BTreeSet<HoverGroup> {
+    use azul_css::{CssPathSelector, CssPathPseudoSelector};
+    let hover_rule = CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover);
+    css.rules.iter().filter_map(|rule_block| {
+        if rule_block.path.selectors.contains(&hover_rule) {
+            Some(HoverGroup {
+                css_path: rule_block.path.clone(),
+                affects_layout: rule_block.declarations.iter().any(|hover_rule| hover_rule.can_trigger_relayout()),
+            })
+        } else {
+            None
+        }
+    }).collect()
 }
 
 /// Matches a single groupt of items, panics on Children or DirectChildren selectors

@@ -21,7 +21,6 @@ mod macros;
 
 mod css_parser;
 mod css;
-mod dom;
 mod hot_reloader;
 
 pub use css::{
