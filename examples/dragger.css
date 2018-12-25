@@ -4,7 +4,7 @@
 
 #blue {
     background-color: #011C41;
-    width: [[ drag_width | 0px ]];
+    width: [[ drag_width | auto ]];
 }
 
 #orange {
@@ -19,9 +19,17 @@
     justify-content: center;
 }
 
-#dragger_handle {
+#dragger_handle_container, #dragger_handle {
     width: 50px;
     height: 50px;
+}
+
+#dragger_handle_container {
+    position: relative;
+}
+
+#dragger_handle {
+    /* justify-content: center does work if the item is not position:absolute */
     position: absolute;
     background-color: #F5A219;
     left: -25px;
