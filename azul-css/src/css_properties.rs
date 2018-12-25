@@ -322,10 +322,11 @@ impl CssPropertyType {
     /// Parses a CSS key, such as `width` from a string:
     ///
     /// ```rust
+    /// # use azul_css::{CssPropertyType, get_css_key_map};
     /// let map = get_css_key_map();
-    /// assert_eq!(Some(CssPropertyType::Width), CssPropertyType::from_str("width"));
-    /// assert_eq!(Some(CssPropertyType::JustifyContent), CssPropertyType::from_str("justify-content"));
-    /// assert_eq!(None, CssPropertyType::from_str("asdfasdfasdf"));
+    /// assert_eq!(Some(CssPropertyType::Width), CssPropertyType::from_str("width", &map));
+    /// assert_eq!(Some(CssPropertyType::JustifyContent), CssPropertyType::from_str("justify-content", &map));
+    /// assert_eq!(None, CssPropertyType::from_str("asdfasdfasdf", &map));
     /// ```
     pub fn from_str(input: &str, map: &BTreeMap<&'static str, Self>) -> Option<Self> {
         let input = input.trim();
