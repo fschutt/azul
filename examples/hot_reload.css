@@ -4,6 +4,7 @@
     justify-content: flex-start;
 }
 
+
 #red {
     background-color: #BF0C2B;
     color: white;
@@ -17,7 +18,7 @@
 
 #sub-wrapper {
     flex-direction: column;
-    width: 400px;
+    width: 200px;
     box-shadow: 0px 0px 50px black;
     position: relative;
     top: 40px;

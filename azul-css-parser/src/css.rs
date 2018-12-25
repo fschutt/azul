@@ -40,10 +40,6 @@ pub enum CssParseErrorInner<'a> {
     /// Error parsing dynamic CSS property, such as
     /// `#div { width: {{ my_id }} /* no default case */ }`
     DynamicCssParseError(DynamicCssParseError<'a>),
-    /// Error during parsing the value of a field
-    /// (Css is parsed eagerly, directly converted to strongly typed values
-    /// as soon as possible)
-    UnexpectedValue(CssParsingError<'a>),
     /// Error while parsing a pseudo selector (like `:aldkfja`)
     PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
     /// The path has to be either `*`, `div`, `p` or something like that
@@ -56,14 +52,12 @@ impl_display!{ CssParseErrorInner<'a>, {
     ParseError(e) => format!("Parse Error: {:?}", e),
     UnclosedBlock => "Unclosed block",
     MalformedCss => "Malformed Css",
-    DynamicCssParseError(e) => format!("Dynamic parsing error: {}", e),
-    UnexpectedValue(e) => format!("Unexpected value: {}", e),
+    DynamicCssParseError(e) => format!("Error parsing dynamic CSS property: {}", e),
     PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
     NodeTypePath(e) => format!("Failed to parse CSS selector path: {}", e),
     UnknownPropertyKey(k, v) => format!("Unknown CSS key: \"{}: {}\"", k, v),
 }}
 
-impl_from! { CssParsingError<'a>, CssParseErrorInner::UnexpectedValue }
 impl_from! { DynamicCssParseError<'a>, CssParseErrorInner::DynamicCssParseError }
 impl_from! { CssPseudoSelectorParseError<'a>, CssParseErrorInner::PseudoSelectorParseError }
 impl_from! { NodeTypePathParseError<'a>, CssParseErrorInner::NodeTypePath }
@@ -152,7 +146,7 @@ pub struct ErrorLocation {
 
 impl<'a> fmt::Display for CssParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CSS error at line {}:{}:\r\n{}", self.location.line, self.location.column, self.error)
+        write!(f, "CSS error at line {}:{}: {}", self.location.line, self.location.column, self.error)
     }
 }
 
@@ -161,20 +155,21 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     match new_from_str_inner(css_string, &mut tokenizer) {
         Ok(css) => Ok(css),
         Err(e) => {
-            let error_location = tokenizer.pos();
-            let mut line_number = 0;
-            let mut total_characters = 0;
+            let error_location = tokenizer.pos().saturating_sub(1);
+            let line_number: usize = css_string[0..error_location].lines().count();
 
-            for line in css_string[0..error_location].lines() {
-                line_number += 1;
-                total_characters += line.chars().count();
-            }
+            // Rust doesn't count "\n" as a character, so we have to add the line number count on top
+            let total_characters: usize = css_string[0..error_location].lines().take(line_number.saturating_sub(1)).map(|line| line.chars().count()).sum();
+            let total_characters = total_characters + line_number;
+            /*println!("line_number: {} error location: {}, total characters: {}", line_number,
+                     error_location, total_characters);*/
+            let characters_in_line = (error_location + 2) - total_characters;
 
-            let characters_in_line = error_location - total_characters;
             let error_location = ErrorLocation {
                 line: line_number,
                 column: characters_in_line,
             };
+
             Err(CssParseError {
                 error: e,
                 location: error_location,

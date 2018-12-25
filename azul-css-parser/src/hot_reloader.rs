@@ -34,7 +34,10 @@ impl HotReloadHandler for HotReloader {
             .map_err(|e| format!("Io error: \"{}\" when loading file \"{}\"", e, self.file_path.to_str().unwrap_or("")))?;
 
         ::css::new_from_str(&reloaded_css)
-            .map_err(|e| format!("Parse error \"{}\":\r\n{}\n", self.file_path.to_str().unwrap_or(""), e))
+            .map_err(|e| {
+                let file_name = self.file_path.file_name().and_then(|os_str| Some(os_str.to_string_lossy())).unwrap_or_default();
+                format!("{}: {}", file_name, e)
+            })
     }
 
     fn get_reload_interval(&self) -> Duration {

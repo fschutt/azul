@@ -239,6 +239,8 @@ impl<T: Layout> App<T> {
 
         #[cfg(debug_assertions)]
         let mut last_style_reload = Instant::now();
+        #[cfg(debug_assertions)]
+        let mut should_print_css_error = true;
 
         while !self.windows.is_empty() {
 
@@ -353,7 +355,7 @@ impl<T: Layout> App<T> {
             }
 
             #[cfg(debug_assertions)] {
-                hot_reload_css(&mut self.windows, &mut last_style_reload, &mut awakened_task)
+                hot_reload_css(&mut self.windows, &mut last_style_reload, &mut should_print_css_error, &mut awakened_task)
             }
 
             // Close windows if necessary
@@ -539,31 +541,46 @@ enum WindowCloseEvent {
     NoCloseEvent,
 }
 
+/// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
 #[cfg(debug_assertions)]
-fn hot_reload_css<T: Layout>(windows: &mut [Window<T>], last_style_reload: &mut Instant, awakened_tasks: &mut [bool]) {
+fn hot_reload_css<T: Layout>(
+    windows: &mut [Window<T>],
+    last_style_reload: &mut Instant,
+    should_print_error: &mut bool,
+    awakened_tasks: &mut [bool])
+{
     for (window_idx, window) in windows.iter_mut().enumerate() {
         // Hot-reload a style if necessary
-        if let Some(ref mut hot_reloader) = window.css_loader {
-            if Instant::now() - *last_style_reload > hot_reloader.get_reload_interval() {
-                match hot_reloader.reload_style() {
-                    Ok(mut new_css) => {
-                        new_css.sort_by_specificity();
-                        window.css = new_css;
-                        *last_style_reload = Instant::now();
-                        window.events_loop.create_proxy().wakeup().unwrap_or(());
-                        awakened_tasks[window_idx]  = true;
-                    },
-                    Err(why) => {
-                        #[cfg(feature = "logging")] {
-                            error!("Failed to hot-reload style: {}", why);
-                        }
-                        #[cfg(not(feature = "logging"))] {
-                            println!("Failed to hot-reload style: {}", why);
-                        }
-                    },
-                };
-            }
+        let hot_reloader = match window.css_loader.as_mut() {
+            None => continue,
+            Some(s) => s,
+        };
+
+        let should_reload = Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
+
+        if !should_reload {
+            return;
         }
+
+        match hot_reloader.reload_style() {
+            Ok(mut new_css) => {
+                new_css.sort_by_specificity();
+                window.css = new_css;
+                if !(*should_print_error) {
+                    println!("CSS parsed without errors, continuing hot-reloading.");
+                }
+                *last_style_reload = Instant::now();
+                window.events_loop.create_proxy().wakeup().unwrap_or(());
+                awakened_tasks[window_idx]  = true;
+                *should_print_error = true;
+            },
+            Err(why) => {
+                if *should_print_error {
+                    println!("{}", why);
+                }
+                *should_print_error = false;
+            },
+        };
     }
 }
 
