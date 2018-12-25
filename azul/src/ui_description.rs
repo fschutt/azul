@@ -87,5 +87,5 @@ impl<T: Layout> UiDescription<T> {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct StyledNode {
     /// The CSS constraints, after the cascading step
-    pub(crate) style_constraints: Vec<CssDeclaration>,
+    pub(crate) css_constraints: Vec<CssDeclaration>,
 }

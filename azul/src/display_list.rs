@@ -109,7 +109,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
             let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
             let mut rect = DisplayRectangle::new(tag, style);
-            populate_style_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
+            populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
             rect
         });
 
@@ -284,7 +284,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 node_data: node_data,
                 render_api: &window.internal.api,
                 display_rectangle_arena: &self.rectangles,
-                app_style: &window.css,
+                css: &window.css,
                 word_cache: &word_cache,
             },
             &mut DisplayListParametersMut {
@@ -858,7 +858,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     use webrender::api::BorderRadius;
 
     let DisplayListParametersRef {
-        render_api, app_style,
+        render_api, css,
         display_rectangle_arena, word_cache, pipeline_id,
         node_hierarchy, node_data,
     } = referenced_content;
@@ -1134,7 +1134,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     let hovered_nodes = [];
 
     let ui_state = UiState::from_dom(new_dom);
-    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.app_style, focused_node, &hovered_nodes, is_mouse_down);
+    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.css, focused_node, &hovered_nodes, is_mouse_down);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     let arena = ui_description.ui_descr_arena.borrow();
@@ -1197,8 +1197,8 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
     pub pipeline_id: PipelineId,
     pub node_hierarchy: &'e NodeHierarchy,
     pub node_data: &'a NodeDataContainer<NodeData<T>>,
-    /// The style that should be applied to the DOM
-    pub app_style: &'b Css,
+    /// The CSS that should be applied to the DOM
+    pub css: &'b Css,
     /// Necessary to push
     pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
@@ -1740,7 +1740,7 @@ fn push_background(
         },
         Image(style_image_id) => {
             // TODO: background-origin, background-position, background-repeat
-            if let Some(image_id) = app_resources.style_ids_to_image_ids.get(&style_image_id.0) {
+            if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&style_image_id.0) {
                 let bounds = info.rect;
                 let image_dimensions = app_resources.images.get(image_id).and_then(|i| Some(i.get_dimensions()))
                     .unwrap_or((bounds.size.width, bounds.size.height)); // better than crashing...
@@ -1922,7 +1922,7 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
 }
 
 /// Populate the style properties of the `DisplayRectangle`
-fn populate_style_properties(
+fn populate_css_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
     css_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
@@ -1984,7 +1984,7 @@ fn populate_style_properties(
     }
 
     // Apply / static / dynamic properties
-    for constraint in &rect.styled_node.style_constraints {
+    for constraint in &rect.styled_node.css_constraints {
         use azul_css::CssDeclaration::*;
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),

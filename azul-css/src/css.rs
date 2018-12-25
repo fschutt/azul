@@ -185,9 +185,24 @@ impl fmt::Display for NodeTypePath {
 ///   CssPathSelector::Class("my_class"),
 ///   CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
 /// ]
-#[derive(Debug, Clone, Hash, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Hash, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CssPath {
     pub selectors: Vec<CssPathSelector>,
+}
+
+impl fmt::Display for CssPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        for selector in &self.selectors {
+            write!(f, "{}", selector)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for CssPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -214,6 +229,21 @@ impl Default for CssPathSelector {
     }
 }
 
+impl fmt::Display for CssPathSelector {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::CssPathSelector::*;
+        match &self {
+            Global => write!(f, "*"),
+            Type(n) => write!(f, "{}", n),
+            Class(c) => write!(f, ".{}", c),
+            Id(i) => write!(f, "#{}", i),
+            PseudoSelector(p) => write!(f, ":{}", p),
+            DirectChildren => write!(f, ">"),
+            Children => write!(f, " "),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CssPathPseudoSelector {
     /// `:first`
@@ -228,6 +258,20 @@ pub enum CssPathPseudoSelector {
     Active,
     /// `:focus` - element has received focus
     Focus,
+}
+
+impl fmt::Display for CssPathPseudoSelector {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::CssPathPseudoSelector::*;
+        match &self {
+            First => write!(f, "first"),
+            Last => write!(f, "last"),
+            NthChild(u) => write!(f, "nth-child({})", u),
+            Hover => write!(f, "hover"),
+            Active => write!(f, "active"),
+            Focus => write!(f, "focus"),
+        }
+    }
 }
 
 impl Css {
