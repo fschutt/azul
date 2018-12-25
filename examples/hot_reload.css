@@ -4,6 +4,10 @@
     justify-content: flex-start;
 }
 
+#red.class:hover {
+    background-color: yellow;
+    width: 500px;
+}
 
 #red {
     background-color: #BF0C2B;

@@ -261,14 +261,14 @@ pub(crate) fn collect_hover_groups(css: &Css) -> BTreeSet<HoverGroup> {
     use azul_css::{CssPathSelector, CssPathPseudoSelector};
     let hover_rule = CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover);
     css.rules.iter().filter_map(|rule_block| {
-        if rule_block.path.selectors.contains(&hover_rule) {
-            Some(HoverGroup {
-                css_path: rule_block.path.clone(),
-                affects_layout: rule_block.declarations.iter().any(|hover_rule| hover_rule.can_trigger_relayout()),
-            })
-        } else {
-            None
+        let pos = rule_block.path.selectors.iter().position(|x| *x == hover_rule)?;
+        if rule_block.declarations.is_empty() {
+            return None;
         }
+        Some(HoverGroup {
+            css_path: CssPath { selectors: rule_block.path.selectors.iter().cloned().take(pos).collect() },
+            affects_layout: rule_block.declarations.iter().any(|hover_rule| hover_rule.can_trigger_relayout()),
+        })
     }).collect()
 }
 
@@ -328,7 +328,7 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_no
 
 pub(crate) fn match_dom_selectors<T: Layout>(
     ui_state: &UiState<T>,
-    style: &Css,
+    css: &Css,
     focused_node: Option<NodeId>,
     hovered_nodes: &[NodeId],
     is_mouse_down: bool,
@@ -356,14 +356,14 @@ pub(crate) fn match_dom_selectors<T: Layout>(
 
         let mut parent_rules = styled_nodes.get(&parent_id).cloned().unwrap_or_default();
 
-        // Iterate through all style rules, test if they match
-        // This is technically O(n ^ 2), however, there are usually not that many style blocks,
+        // Iterate through all CSS rules, test if they match
+        // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
         // so the cost of this should be insignificant.
-        for applying_rule in style.rules.iter().filter(|rule| matches_html_element(&rule.path, parent_id, &arena_borrow.node_layout, &html_tree)) {
-            parent_rules.style_constraints.extend(applying_rule.declarations.clone());
+        for applying_rule in css.rules.iter().filter(|rule| matches_html_element(&rule.path, parent_id, &arena_borrow.node_layout, &html_tree)) {
+            parent_rules.css_constraints.extend(applying_rule.declarations.clone());
         }
 
-        let inheritable_rules: Vec<CssDeclaration> = parent_rules.style_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
+        let inheritable_rules: Vec<CssDeclaration> = parent_rules.css_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
 
         // For children: inherit from parents - filter children that themselves are not parents!
         for child_id in parent_id.children(&arena_borrow.node_layout) {
@@ -377,15 +377,15 @@ pub(crate) fn match_dom_selectors<T: Layout>(
                     // Iterate through all style rules, test if they match
                     // This is technically O(n ^ 2), however, there are usually not that many style blocks,
                     // so the cost of this should be insignificant.
-                    for applying_rule in style.rules.iter().filter(|rule| matches_html_element(&rule.path, child_id, &arena_borrow.node_layout, &html_tree)) {
+                    for applying_rule in css.rules.iter().filter(|rule| matches_html_element(&rule.path, child_id, &arena_borrow.node_layout, &html_tree)) {
                         child_rules.extend(applying_rule.declarations.clone());
                     }
 
-                    styled_nodes.insert(child_id, StyledNode { style_constraints: child_rules });
+                    styled_nodes.insert(child_id, StyledNode { css_constraints: child_rules });
                 },
                 Some(_) => {
                     // For all children that themselves are parents, simply copy the inheritable rules
-                    styled_nodes.insert(child_id, StyledNode { style_constraints: inheritable_rules.clone() });
+                    styled_nodes.insert(child_id, StyledNode { css_constraints: inheritable_rules.clone() });
                 },
             }
         }
