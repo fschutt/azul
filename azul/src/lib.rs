@@ -194,7 +194,7 @@ pub mod prelude {
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
         UpdateScreen, Texture, GlTextureCallback,
-        IFrameCallback,
+        IFrameCallback, TabIndex,
     };
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
