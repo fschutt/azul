@@ -1,5 +1,6 @@
 //! Types and methods used to describe the style of an application
-use css_properties::CssProperty;
+use css_properties::{CssProperty, CssPropertyType};
+use std::fmt;
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
@@ -30,8 +31,18 @@ impl CssDeclaration {
     pub fn is_inheritable(&self) -> bool {
         use self::CssDeclaration::*;
         match self {
-            Static(s) => s.is_inheritable(),
+            Static(s) => s.get_type().is_inheritable(),
             Dynamic(d) => d.is_inheritable(),
+        }
+    }
+
+    /// Returns whether this rule affects only styling properties or layout
+    /// properties (that could trigger a re-layout)
+    pub fn can_trigger_relayout(&self) -> bool {
+        use self::CssDeclaration::*;
+        match self {
+            Static(s) => s.get_type().can_trigger_relayout(),
+            Dynamic(d) => d.can_trigger_relayout(),
         }
     }
 }
@@ -58,6 +69,8 @@ impl CssDeclaration {
 /// special cases now use one single API.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DynamicCssProperty {
+    /// Key for this property
+    pub property_type: CssPropertyType,
     /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
     pub dynamic_id: String,
     /// Default value, used if the css property isn't overridden in this frame
@@ -88,6 +101,10 @@ impl DynamicCssProperty {
         // the wrong UI component starts to react because it was inherited.
         false
     }
+
+    pub fn can_trigger_relayout(&self) -> bool {
+        self.property_type.can_trigger_relayout()
+    }
 }
 
 /// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
@@ -105,7 +122,7 @@ pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 
 /// Signifies the type (i.e. the discriminant value) of a DOM node
 /// without carrying any of its associated data
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NodeTypePath {
     Div,
     P,
@@ -114,17 +131,45 @@ pub enum NodeTypePath {
     IFrame,
 }
 
-impl std::fmt::Display for NodeTypePath {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NodeTypePathParseError<'a> {
+    Invalid(&'a str),
+}
+
+impl<'a> fmt::Display for NodeTypePathParseError<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self {
+            NodeTypePathParseError::Invalid(e) => write!(f, "Invalid node type: {}", e),
+        }
+    }
+}
+
+const NODE_TYPE_PATH_MAP: [(NodeTypePath, &'static str); 5] = [
+    (NodeTypePath::Div, "div"),
+    (NodeTypePath::P, "p"),
+    (NodeTypePath::Img, "img"),
+    (NodeTypePath::Texture, "texture"),
+    (NodeTypePath::IFrame, "iframe"),
+];
+
+/// Parses the node type from a CSS string such as `"div"` => `NodeTypePath::Div`
+impl NodeTypePath {
+    pub fn from_str(css_key: &str) -> Result<Self, NodeTypePathParseError> {
+        NODE_TYPE_PATH_MAP.iter()
+        .find(|(_, k)| css_key == *k)
+        .and_then(|(v, _)| Some(*v))
+        .ok_or(NodeTypePathParseError::Invalid(css_key))
+    }
+}
+
+impl fmt::Display for NodeTypePath {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        use self::NodeTypePath::*;
-        let path = match self {
-            Div => "div",
-            P => "p",
-            Img => "img",
-            Texture => "texture",
-            IFrame => "iframe",
-        };
-        write!(f, "{}", path)?;
+        let display_string = NODE_TYPE_PATH_MAP.iter()
+            .find(|(v, _)| *self == *v)
+            .and_then(|(_, k)| Some(*k))
+            .unwrap();
+
+        write!(f, "{}", display_string)?;
         Ok(())
     }
 }
@@ -140,12 +185,12 @@ impl std::fmt::Display for NodeTypePath {
 ///   CssPathSelector::Class("my_class"),
 ///   CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
 /// ]
-#[derive(Debug, Clone, Hash, Default, PartialEq)]
+#[derive(Debug, Clone, Hash, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CssPath {
     pub selectors: Vec<CssPathSelector>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CssPathSelector {
     /// Represents the `*` selector
     Global,
@@ -169,7 +214,7 @@ impl Default for CssPathSelector {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CssPathPseudoSelector {
     /// `:first`
     First,

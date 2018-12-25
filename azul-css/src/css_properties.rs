@@ -4,6 +4,9 @@
 // depend on webrender, just to have the same types, azul-css should be a standalone crate.
 
 /// Only used for calculations: Rectangle (x, y, width, height) in layout space.
+use std::collections::BTreeMap;
+use std::fmt;
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
 /// Only used for calculations: Size (width, height) in layout space.
@@ -193,6 +196,194 @@ macro_rules! impl_pixel_value {($struct:ident) => (
     }
 )}
 
+pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);51] = [
+    (CssPropertyType::BorderRadius,     "border-radius"),
+    (CssPropertyType::BackgroundColor,  "background-color"),
+    (CssPropertyType::TextColor,        "color"),
+    (CssPropertyType::Background,       "background"),
+    (CssPropertyType::FontSize,         "font-size"),
+    (CssPropertyType::FontFamily,       "font-family"),
+    (CssPropertyType::TextAlign,        "text-align"),
+    (CssPropertyType::LetterSpacing,    "letter-spacing"),
+    (CssPropertyType::LineHeight,       "line-height"),
+    (CssPropertyType::Cursor,           "cursor"),
+    (CssPropertyType::Width,            "width"),
+    (CssPropertyType::Height,           "height"),
+    (CssPropertyType::MinWidth,         "min-width"),
+    (CssPropertyType::MinHeight,        "min-height"),
+    (CssPropertyType::MaxWidth,         "max-width"),
+    (CssPropertyType::MaxHeight,        "max-height"),
+    (CssPropertyType::Position,         "position"),
+    (CssPropertyType::Top,              "top"),
+    (CssPropertyType::Right,            "right"),
+    (CssPropertyType::Left,             "left"),
+    (CssPropertyType::Bottom,           "bottom"),
+    (CssPropertyType::FlexWrap,         "flex-wrap"),
+    (CssPropertyType::FlexDirection,    "flex-direction"),
+    (CssPropertyType::FlexGrow,         "flex-grow"),
+    (CssPropertyType::FlexShrink,       "flex-shrink"),
+    (CssPropertyType::JustifyContent,   "justify-content"),
+    (CssPropertyType::AlignItems,       "align-items"),
+    (CssPropertyType::AlignContent,     "align-content"),
+    (CssPropertyType::Overflow,         "overflow"),
+    (CssPropertyType::OverflowX,        "overflow-x"),
+    (CssPropertyType::OverflowY,        "overflow-y"),
+    (CssPropertyType::Padding,          "padding"),
+    (CssPropertyType::PaddingTop,       "padding-top"),
+    (CssPropertyType::PaddingLeft,      "padding-left"),
+    (CssPropertyType::PaddingRight,     "padding-right"),
+    (CssPropertyType::PaddingBottom,    "padding-bottom"),
+    (CssPropertyType::Margin,           "margin"),
+    (CssPropertyType::MarginTop,        "margin-top"),
+    (CssPropertyType::MarginLeft,       "margin-left"),
+    (CssPropertyType::MarginRight,      "margin-right"),
+    (CssPropertyType::MarginBottom,     "margin-bottom"),
+    (CssPropertyType::Border,           "border"),
+    (CssPropertyType::BorderTop,        "border-top"),
+    (CssPropertyType::BorderLeft,       "border-left"),
+    (CssPropertyType::BorderRight,      "border-right"),
+    (CssPropertyType::BorderBottom,     "border-bottom"),
+    (CssPropertyType::BoxShadow,        "box-shadow"),
+    (CssPropertyType::BoxShadowTop,     "box-shadow-top"),
+    (CssPropertyType::BoxShadowLeft,    "box-shadow-left"),
+    (CssPropertyType::BoxShadowRight,   "box-shadow-right"),
+    (CssPropertyType::BoxShadowBottom,  "box-shadow-bottom"),
+];
+
+/// Returns a map useful for parsing the keys of CSS stylesheets
+pub fn get_css_key_map() -> BTreeMap<&'static str, CssPropertyType> {
+    CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect()
+}
+
+/// Same as CssProperty, but without any data. Used to identify the
+/// key of the CSS key-value pair without parsing the value
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CssPropertyType {
+    BorderRadius,
+    BackgroundColor,
+    TextColor,
+    Background,
+    FontSize,
+    FontFamily,
+    TextAlign,
+    LetterSpacing,
+    LineHeight,
+    Cursor,
+    Width,
+    Height,
+    MinWidth,
+    MinHeight,
+    MaxWidth,
+    MaxHeight,
+    Position,
+    Top,
+    Right,
+    Left,
+    Bottom,
+    FlexWrap,
+    FlexDirection,
+    FlexGrow,
+    FlexShrink,
+    JustifyContent,
+    AlignItems,
+    AlignContent,
+
+    Overflow,
+    OverflowX,
+    OverflowY,
+
+    Padding,
+    PaddingTop,
+    PaddingLeft,
+    PaddingRight,
+    PaddingBottom,
+
+    Margin,
+    MarginTop,
+    MarginLeft,
+    MarginRight,
+    MarginBottom,
+
+    Border,
+    BorderTop,
+    BorderLeft,
+    BorderRight,
+    BorderBottom,
+
+    BoxShadow,
+    BoxShadowTop,
+    BoxShadowLeft,
+    BoxShadowRight,
+    BoxShadowBottom,
+}
+
+impl CssPropertyType {
+
+    /// Parses a CSS key, such as `width` from a string:
+    ///
+    /// ```rust
+    /// let map = get_css_key_map();
+    /// assert_eq!(Some(CssPropertyType::Width), CssPropertyType::from_str("width"));
+    /// assert_eq!(Some(CssPropertyType::JustifyContent), CssPropertyType::from_str("justify-content"));
+    /// assert_eq!(None, CssPropertyType::from_str("asdfasdfasdf"));
+    /// ```
+    pub fn from_str(input: &str, map: &BTreeMap<&'static str, Self>) -> Option<Self> {
+        let input = input.trim();
+        map.get(input).and_then(|x| Some(*x))
+    }
+
+    pub fn to_str(&self, map: &BTreeMap<&'static str, Self>) -> &'static str {
+        map.iter().find(|(_, v)| *v == self).and_then(|(k, _)| Some(k)).unwrap()
+    }
+
+    /// Returns whether this property will be inherited during cascading
+    pub fn is_inheritable(&self) -> bool {
+    /// Returns whether this property can trigger a re-layout
+        use self::CssPropertyType::*;
+        match self {
+            | TextColor
+            | FontFamily
+            | FontSize
+            | LineHeight
+            | TextAlign => true,
+            _ => false,
+        }
+    }
+
+    /// Returns whether this property can trigger a re-layout
+    pub fn can_trigger_relayout(&self) -> bool {
+        use self::CssPropertyType::*;
+
+        // Since the border can be larger than the content,
+        // in which case the content needs to be re-layouted, assume true for Border
+
+        // FontFamily, FontSize, LetterSpacing and LineHeight can affect
+        // the text layout and therefore the screen layout
+
+        match self {
+            | BorderRadius
+            | BackgroundColor
+            | TextColor
+            | Background
+            | TextAlign
+            | BoxShadow
+            | BoxShadowTop
+            | BoxShadowLeft
+            | BoxShadowBottom
+            | BoxShadowRight
+            | Cursor => false,
+            _ => true,
+        }
+    }
+}
+
+impl fmt::Display for CssPropertyType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let key = CSS_PROPERTY_KEY_MAP.iter().find(|(v, _)| *v == *self).and_then(|(k, _)| Some(k)).unwrap();
+        write!(f, "{}", key)
+    }
+}
+
 /// A property that can be used to style DOM nodes
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CssProperty {
@@ -208,7 +399,6 @@ pub enum CssProperty {
     BoxShadow(StyleBoxShadow),
     LineHeight(StyleLineHeight),
     Cursor(StyleCursor),
-
     Width(LayoutWidth),
     Height(LayoutHeight),
     MinWidth(LayoutMinWidth),
@@ -233,16 +423,41 @@ pub enum CssProperty {
 }
 
 impl CssProperty {
-    /// Returns whether this property will be inherited during cascading
-    pub fn is_inheritable(&self) -> bool {
-        use self::CssProperty::*;
-        match self {
-            | TextColor(_)
-            | FontFamily(_)
-            | FontSize(_)
-            | LineHeight(_)
-            | TextAlign(_) => true,
-            _ => false,
+    pub fn get_type(&self) -> CssPropertyType {
+        match &self {
+            CssProperty::BorderRadius(_) => CssPropertyType::BorderRadius,
+            CssProperty::BackgroundColor(_) => CssPropertyType::BackgroundColor,
+            CssProperty::TextColor(_) => CssPropertyType::TextColor,
+            CssProperty::Border(_) => CssPropertyType::Border,
+            CssProperty::Background(_) => CssPropertyType::Background,
+            CssProperty::FontSize(_) => CssPropertyType::FontSize,
+            CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
+            CssProperty::TextAlign(_) => CssPropertyType::TextAlign,
+            CssProperty::LetterSpacing(_) => CssPropertyType::LetterSpacing,
+            CssProperty::BoxShadow(_) => CssPropertyType::BoxShadow,
+            CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
+            CssProperty::Cursor(_) => CssPropertyType::Cursor,
+            CssProperty::Width(_) => CssPropertyType::Width,
+            CssProperty::Height(_) => CssPropertyType::Height,
+            CssProperty::MinWidth(_) => CssPropertyType::MinWidth,
+            CssProperty::MinHeight(_) => CssPropertyType::MinHeight,
+            CssProperty::MaxWidth(_) => CssPropertyType::MaxWidth,
+            CssProperty::MaxHeight(_) => CssPropertyType::MaxHeight,
+            CssProperty::Position(_) => CssPropertyType::Position,
+            CssProperty::Top(_) => CssPropertyType::Top,
+            CssProperty::Right(_) => CssPropertyType::Right,
+            CssProperty::Left(_) => CssPropertyType::Left,
+            CssProperty::Bottom(_) => CssPropertyType::Bottom,
+            CssProperty::Padding(_) => CssPropertyType::Padding,
+            CssProperty::Margin(_) => CssPropertyType::Margin,
+            CssProperty::FlexWrap(_) => CssPropertyType::FlexWrap,
+            CssProperty::FlexDirection(_) => CssPropertyType::FlexDirection,
+            CssProperty::FlexGrow(_) => CssPropertyType::FlexGrow,
+            CssProperty::FlexShrink(_) => CssPropertyType::FlexShrink,
+            CssProperty::JustifyContent(_) => CssPropertyType::JustifyContent,
+            CssProperty::AlignItems(_) => CssPropertyType::AlignItems,
+            CssProperty::AlignContent(_) => CssPropertyType::AlignContent,
+            CssProperty::Overflow(_) => CssPropertyType::Overflow,
         }
     }
 }
