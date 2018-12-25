@@ -19,7 +19,7 @@ impl Layout for DragMeApp {
 
         // Set the width of the dragger on the red element
         if let Some(w) = self.width {
-            left.add_style_override("drag_width", CssProperty::Width(LayoutWidth::px(w)));
+            left.add_css_override("drag_width", CssProperty::Width(LayoutWidth::px(w)));
         }
 
         let right = Dom::new(NodeType::Div).with_id("orange");
@@ -27,8 +27,10 @@ impl Layout for DragMeApp {
         // The dragger is 0px wide, but has an absolutely positioned rectangle
         // inside of it, which can be dragged
         let dragger = Dom::new(NodeType::Div).with_id("dragger").with_child(
-            Dom::new(NodeType::Div).with_id("dragger_handle")
-            .with_callback(On::MouseDown, Callback(start_drag)));
+            Dom::div().with_id("dragger_handle_container").with_child(
+                Dom::div().with_id("dragger_handle").with_callback(On::MouseDown, Callback(start_drag))
+            )
+        );
 
         Dom::new(NodeType::Div).with_id("container")
             .with_callback(On::MouseOver, Callback(update_drag))
@@ -61,7 +63,7 @@ fn update_drag(state: &mut State, event: Event) -> UpdateScreen {
 }
 
 fn main() {
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/examples/dragger.css")) }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/dragger.css")) }
 
     let app = App::new(DragMeApp::default(), AppConfig::default());
 
