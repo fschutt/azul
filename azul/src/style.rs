@@ -438,11 +438,10 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         styled_nodes.insert(parent_id, parent_rules);
     }
 
-/*
-    let hover_selectors = collect_hover_groups(css);
-    let selected_hover_nodes = match_hover_selectors(hover_selectors, &arena_borrow.node_layout, &html_tree);
-    println!("selected nodes: {:#?}", selected_hover_nodes);
-*/
+    // In order to hit-test :hover and :active nodes, need to select them first
+    // (to insert their TagId later)
+    let selected_hover_nodes = match_hover_selectors(collect_hover_groups(css), &arena_borrow.node_layout, &html_tree);
+
     UiDescription {
         // Note: this clone is necessary, otherwise,
         // we wouldn't be able to update the UiState
@@ -455,5 +454,6 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),
         dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
+        selected_hover_nodes,
     }
 }

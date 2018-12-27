@@ -12,6 +12,7 @@ use {
     dom::Dom,
     dom::NodeData,
     ui_state::UiState,
+    style::HoverGroup,
 };
 
 pub struct UiDescription<T: Layout> {
@@ -28,6 +29,10 @@ pub struct UiDescription<T: Layout> {
     pub(crate) default_style_of_node: StyledNode,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
     pub(crate) dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
+    /// In order to hit-test :hover and :active selectors, need to insert tags for all rectangles
+    /// that have a non-:hover path, for example if we have `#thing:hover`, then all nodes selected by `#thing`
+    /// need to get a TagId, otherwise, they can't be hit-tested.
+    pub(crate) selected_hover_nodes: BTreeMap<NodeId, HoverGroup>,
 }
 
 impl<T: Layout> fmt::Debug for UiDescription<T> {
@@ -38,12 +43,14 @@ impl<T: Layout> fmt::Debug for UiDescription<T> {
             styled_nodes: {:?},
             default_style_of_node: {:?},
             dynamic_css_overrides: {:?},
+            selected_hover_nodes: {:?},
         }}",
             self.ui_descr_arena,
             self.ui_descr_root,
             self.styled_nodes,
             self.default_style_of_node,
             self.dynamic_css_overrides,
+            self.selected_hover_nodes,
         )
     }
 }
@@ -56,6 +63,7 @@ impl<T: Layout> Clone for UiDescription<T> {
             styled_nodes: self.styled_nodes.clone(),
             default_style_of_node: self.default_style_of_node.clone(),
             dynamic_css_overrides: self.dynamic_css_overrides.clone(),
+            selected_hover_nodes: self.selected_hover_nodes.clone(),
         }
     }
 }
@@ -64,7 +72,7 @@ impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
-        Self::from_dom(&UiState::from_dom(default_dom), &Css::default(), None, &[], false)
+        Self::match_css_to_dom(&mut default_dom.into_ui_state(), &Css::default(), None, &[], false)
     }
 }
 
@@ -72,15 +80,18 @@ impl<T: Layout> UiDescription<T> {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn from_dom(
-        ui_state: &UiState<T>,
+    pub fn match_css_to_dom(
+        ui_state: &mut UiState<T>,
         style: &Css,
         focused_node: Option<NodeId>,
         hovered_nodes: &[NodeId],
         is_mouse_down: bool,
     ) -> Self
     {
-        ::style::match_dom_selectors(ui_state, &style, focused_node, hovered_nodes, is_mouse_down)
+        let ui_description = ::style::match_dom_selectors(ui_state, &style, focused_node, hovered_nodes, is_mouse_down);
+        // Important: Create all the tags for the :hover and :active selectors
+        ui_state.create_tags_for_hover_nodes(&ui_description.selected_hover_nodes);
+        ui_description
     }
 }
 

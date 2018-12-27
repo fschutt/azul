@@ -404,43 +404,61 @@ impl WindowState
         // Update all hovered nodes for creating new :hover tags
         self.hovered_nodes = hit_test_result.items.iter().filter_map(|item| ui_state.tag_ids_to_node_ids.get(&item.tag.0)).cloned().collect();
 
-        /*
-        // onmouseenter / onmouseleave events
-        for onmouseenter_node in self.hovered_nodes.filter(|current| previous_state.hovered_nodes.find(current).is_none()) {
-            events_vec.insert(On::MouseLeave, onmouseleave_node);
+        fn hit_test_item_to_callback_result<T: Layout>(item: &HitTestItem, ui_state: &UiState<T>, events_vec: &HashSet<On>) -> Option<(NodeId, DetermineCallbackResult<T>)> {
+            let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
+            let default_callbacks = ui_state.tag_ids_to_default_callbacks
+                .get(&item.tag.0)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(on, _)| events_vec.contains(&on))
+                .collect();
+
+            let normal_callbacks = ui_state.tag_ids_to_callbacks
+                .get(&item.tag.0)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(on, _)| events_vec.contains(&on))
+                .collect();
+            let hit_test_item = item.clone();
+            Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
+        };
+
+        let nodes_with_callbacks = hit_test_result.items
+            .iter()
+            .filter_map(|item| hit_test_item_to_callback_result(item, ui_state, &events_vec))
+            .collect();
+
+/*
+        // Insert all On::MouseEnter events
+        for mouse_enter_node_id in self.hovered_nodes.iter().filter(|current| previous_state.hovered_nodes.iter().find(|x| x == current).is_none()).map(|x| *x) {
+
         }
 
-        for onmouseleave_node in previous_state.hovered_nodes.filter(|prev| self.hovered_nodes.find(prev).is_none()) {
-            events_vec.insert(On::MouseEnter, onmouseenter_node);
+        // Insert all On::MouseLeave events
+        for mouse_leave_node_id in previous_state.hovered_nodes.iter().filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none()).map(|x| *x) {
+            nodes_with_callbacks.entry(mouse_leave_node_id)
+            .or_insert_with(||
+                DetermineCallbackResult {
+                    hit_test_item: HitTestItem,
+                    default_callbacks: BTreeMap<On, DefaultCallbackId>,
+                    normal_callbacks: BTreeMap<On, Callback<T>>,
+                }
+            )
         }
-        */
+*/
 
         self.previous_window_state = Some(previous_state);
 
-        hit_test_result.items
-            .iter()
-            .filter_map(|item| {
-                let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
-                let default_callbacks = ui_state.tag_ids_to_default_callbacks
-                    .get(&item.tag.0)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|(on, _)| events_vec.contains(&on))
-                    .collect();
-
-                let normal_callbacks = ui_state.tag_ids_to_callbacks
-                    .get(&item.tag.0)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|(on, _)| events_vec.contains(&on))
-                    .collect();
-                let hit_test_item = item.clone();
-
-                Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
-            })
-            .collect()
+        nodes_with_callbacks
+/*
+DetermineCallbackResult<T: Layout> {
+    pub(crate) hit_test_item: HitTestItem,
+    pub(crate) default_callbacks: BTreeMap<On, DefaultCallbackId>,
+    pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
+}
+*/
     }
 
     pub(crate) fn update_keyboard_modifiers(&mut self, event: &Event) {
