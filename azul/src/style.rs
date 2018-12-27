@@ -1,6 +1,6 @@
 //! DOM-tree to CSS style tree stying
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use azul_css::{
     Css,
     CssContentGroup,
@@ -248,32 +248,73 @@ pub(crate) fn construct_html_cascade_tree<'a, T: Layout>(
 
 /// In order to support :hover, the element must have a TagId, otherwise it
 /// will be disregarded in the hit-testing. A hover group
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct HoverGroup {
-    /// The CSS path until the `:hover` part
-    pub css_path: CssPath,
     /// Whether any property in the hover group will trigger a re-layout.
     /// This is important for creating
     pub affects_layout: bool,
+    /// Whether this path ends with `:active` or with `:hover`
+    pub active_or_hover: ActiveHover,
 }
 
-pub(crate) fn collect_hover_groups(css: &Css) -> BTreeSet<HoverGroup> {
-    use azul_css::{CssPathSelector, CssPathPseudoSelector};
+/// Sets whether an element needs to be selected for `:active` or for `:hover`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum ActiveHover {
+    Active,
+    Hover,
+}
 
-    let hover_rule = CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover);
-    let active_rule = CssPathSelector::PseudoSelector(CssPathPseudoSelector::Active);
+/// Returns all CSS paths that have a `:hover` or `:active` in their path
+/// (since they need to have tags for hit-testing)
+fn collect_hover_groups(css: &Css) -> BTreeMap<CssPath, HoverGroup> {
+    use azul_css::{CssPathSelector::*, CssPathPseudoSelector::*};
 
-    // Filter out all :hover and :active rules, since we need to create tags for them after the main CSS styling has been done
+    let hover_rule = PseudoSelector(Hover);
+    let active_rule = PseudoSelector(Active);
+
+    // Filter out all :hover and :active rules, since we need to create tags
+    // for them after the main CSS styling has been done
     css.rules.iter().filter_map(|rule_block| {
         let pos = rule_block.path.selectors.iter().position(|x| *x == hover_rule || *x == active_rule)?;
         if rule_block.declarations.is_empty() {
             return None;
         }
-        Some(HoverGroup {
-            css_path: CssPath { selectors: rule_block.path.selectors.iter().cloned().take(pos).collect() },
+
+        let active_or_hover = match rule_block.path.selectors.get(pos)? {
+            PseudoSelector(Hover) => ActiveHover::Hover,
+            PseudoSelector(Active) => ActiveHover::Active,
+            _ => return None,
+        };
+
+        let css_path = CssPath { selectors: rule_block.path.selectors.iter().cloned().take(pos).collect() };
+        let hover_group = HoverGroup {
             affects_layout: rule_block.declarations.iter().any(|hover_rule| hover_rule.can_trigger_relayout()),
-        })
+            active_or_hover,
+        };
+        Some((css_path, hover_group))
     }).collect()
+}
+
+/// In order to figure out on which nodes to insert the :hover and :active hit-test tags,
+/// we need to select all items that have a :hover or :active tag.
+fn match_hover_selectors<'a, T: Layout>(
+    hover_selectors: BTreeMap<CssPath, HoverGroup>,
+    node_hierarchy: &NodeHierarchy,
+    html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>,
+) -> BTreeMap<NodeId, HoverGroup>
+{
+    let mut btree_map = BTreeMap::new();
+
+    for (css_path, hover_selector) in hover_selectors {
+        btree_map.extend(
+            html_node_tree
+            .linear_iter()
+            .filter(|node_id| matches_html_element(&css_path, *node_id, node_hierarchy, html_node_tree))
+            .map(|node_id| (node_id, hover_selector))
+        );
+    }
+
+    btree_map
 }
 
 /// Matches a single groupt of items, panics on Children or DirectChildren selectors
@@ -397,6 +438,11 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         styled_nodes.insert(parent_id, parent_rules);
     }
 
+/*
+    let hover_selectors = collect_hover_groups(css);
+    let selected_hover_nodes = match_hover_selectors(hover_selectors, &arena_borrow.node_layout, &html_tree);
+    println!("selected nodes: {:#?}", selected_hover_nodes);
+*/
     UiDescription {
         // Note: this clone is necessary, otherwise,
         // we wouldn't be able to update the UiState
