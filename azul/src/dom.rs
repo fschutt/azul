@@ -31,7 +31,7 @@ pub(crate) type TagId = u64;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub(crate) struct ScrollTagId(pub TagId);
 
-fn new_tag_id() -> TagId {
+pub(crate) fn new_tag_id() -> TagId {
     TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
 }
 
@@ -998,6 +998,7 @@ impl<T: Layout> Dom<T> {
             node_ids_to_tag_ids,
             tag_ids_to_node_ids,
             dynamic_css_overrides,
+            tag_ids_to_hover_active_states: BTreeMap::new(),
         }
     }
 }

@@ -331,8 +331,8 @@ impl<T: Layout> App<T> {
                                         window.state.mouse_state.middle_down    ||
                                         window.state.mouse_state.right_down;
 
-                    ui_description_cache[idx] = UiDescription::from_dom(
-                        &ui_state_cache[idx],
+                    ui_description_cache[idx] = UiDescription::match_css_to_dom(
+                        &mut ui_state_cache[idx],
                         &window.css,
                         window.state.focused_node,
                         &window.state.hovered_nodes,

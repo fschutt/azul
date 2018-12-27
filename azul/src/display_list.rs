@@ -1133,8 +1133,8 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     let focused_node = None;
     let hovered_nodes = [];
 
-    let ui_state = UiState::from_dom(new_dom);
-    let ui_description = UiDescription::<T>::from_dom(&ui_state, &referenced_content.css, focused_node, &hovered_nodes, is_mouse_down);
+    let mut ui_state = new_dom.into_ui_state();
+    let ui_description = UiDescription::<T>::match_css_to_dom(&mut ui_state, &referenced_content.css, focused_node, &hovered_nodes, is_mouse_down);
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
     let arena = ui_description.ui_descr_arena.borrow();

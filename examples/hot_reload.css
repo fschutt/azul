@@ -24,6 +24,10 @@
     left: 20px;
 }
 
+#yellow:hover {
+    background-color: yellow;
+}
+
 #yellow {
     background-color: #F5900E;
     height: 70px;
