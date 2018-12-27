@@ -259,9 +259,13 @@ pub struct HoverGroup {
 
 pub(crate) fn collect_hover_groups(css: &Css) -> BTreeSet<HoverGroup> {
     use azul_css::{CssPathSelector, CssPathPseudoSelector};
+
     let hover_rule = CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover);
+    let active_rule = CssPathSelector::PseudoSelector(CssPathPseudoSelector::Active);
+
+    // Filter out all :hover and :active rules, since we need to create tags for them after the main CSS styling has been done
     css.rules.iter().filter_map(|rule_block| {
-        let pos = rule_block.path.selectors.iter().position(|x| *x == hover_rule)?;
+        let pos = rule_block.path.selectors.iter().position(|x| *x == hover_rule || *x == active_rule)?;
         if rule_block.declarations.is_empty() {
             return None;
         }
