@@ -30,8 +30,8 @@ pub struct MyAppData {
 
 #[derive(Debug)]
 pub struct Map {
-    pub cache: SvgCache<MyAppData>,
-    pub layers: Vec<SvgLayerId>,
+    pub cache: SvgCache,
+    pub layers: Vec<(SvgLayerId, SvgStyle)>,
     pub font_cache: VectorizedFontCache,
     pub texts: HashMap<TextId, SvgText>,
     pub hovered_text: Option<TextId>,
@@ -80,7 +80,7 @@ fn render_map(map: &mut Map, info: WindowInfo<MyAppData>, dimensions: HidpiAdjus
 }
 
 fn build_layers(
-    existing_layers: &[SvgLayerId],
+    existing_layers: &[(SvgLayerId, SvgStyle)],
     texts: &HashMap<TextId, SvgText>,
     hovered_text: &Option<TextId>,
     vector_font_cache: &VectorizedFontCache,
