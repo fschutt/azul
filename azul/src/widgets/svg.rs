@@ -28,7 +28,7 @@ use lyon::{
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D, UnknownUnit},
 };
 #[cfg(feature = "svg_parsing")]
-use usvg::{Error as SvgError, ViewBox, Transform};
+use usvg::{Error as SvgError};
 use webrender::api::{ColorF, GlyphInstance};
 use azul_css::ColorU;
 use rusttype::{Font, Glyph};
@@ -176,14 +176,6 @@ pub struct SvgCache {
     vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
     stroke_vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
     shader: Mutex<Option<SvgShader>>,
-    // Stores the 2D transforms of the shapes on the screen. The vertices are
-    // offset by the X, Y value in the transforms struct. This should be expanded
-    // to full matrices later on, so you can do full 3D transformations
-    // on 2D shapes later on. For now, each transform is just an X, Y offset
-    #[cfg(feature = "svg_parsing")]
-    transforms: FastHashMap<SvgTransformId, Transform>,
-    #[cfg(feature = "svg_parsing")]
-    view_boxes: FastHashMap<SvgViewBoxId, ViewBox>,
 }
 
 impl Default for SvgCache {
@@ -194,10 +186,6 @@ impl Default for SvgCache {
             vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
             stroke_vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
             shader: Mutex::new(None),
-            #[cfg(feature = "svg_parsing")]
-            transforms: FastHashMap::default(),
-            #[cfg(feature = "svg_parsing")]
-            view_boxes: FastHashMap::default(),
         }
     }
 }
@@ -309,22 +297,15 @@ impl SvgCache {
         stroke_rmut.clear();
     }
 
-    #[cfg(feature = "svg_parsing")]
-    pub fn add_transforms(&mut self, transforms: FastHashMap<SvgTransformId, Transform>) {
-        transforms.into_iter().for_each(|(k, v)| {
-            self.transforms.insert(k, v);
-        });
-    }
-
     /// Parses an input source, parses the SVG, adds the shapes as layers into
     /// the registry, returns the IDs of the added shapes, in the order that they appeared in the Svg
     #[cfg(feature = "svg_parsing")]
-    pub fn add_svg<S: AsRef<str>>(&mut self, input: S) -> Result<Vec<SvgLayerId>, SvgParseError> {
-        let (layers, transforms) = self::svg_to_lyon::parse_from(input, &mut self.view_boxes)?;
-        self.add_transforms(transforms);
+    pub fn add_svg<S: AsRef<str>>(&mut self, input: S) -> Result<Vec<(SvgLayerId, SvgStyle)>, SvgParseError> {
+        let layers = self::svg_to_lyon::parse_from(input)?;
         Ok(layers
             .into_iter()
-            .map(|layer| self.add_layer(layer))
+            .map(|(layer, style)| SvgLayerResourceDirect::tesselate_from_layer(&layer, style))
+            .map(|tesselated_layer| self.add_layer(tesselated_layer))
             .collect())
     }
 }
@@ -1368,38 +1349,26 @@ mod svg_to_lyon {
         math::Point,
         path::PathEvent,
     };
-    use usvg::{ViewBox, Transform, Tree, PathSegment,
-        Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
-    use widgets::svg::{SvgLayer, SvgStrokeOptions, SvgLineCap, SvgLineJoin,
-        SvgLayerType, SvgStyle, SvgCallbacks, SvgParseError, SvgTransformId,
-        new_svg_transform_id, new_view_box_id, SvgViewBoxId, LayerType};
-    use traits::Layout;
+    use usvg::{Tree, PathSegment, Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
+    use widgets::svg::{
+        SvgStrokeOptions, SvgLineCap, SvgLineJoin,
+        SvgLayerType, SvgStyle, SvgParseError
+    };
     use azul_css::ColorU;
-    use FastHashMap;
 
-    pub fn parse_from<S: AsRef<str>, T: Layout>(svg_source: S, view_boxes: &mut FastHashMap<SvgViewBoxId, ViewBox>)
-    -> Result<(Vec<SvgLayer<T>>, FastHashMap<SvgTransformId, Transform>), SvgParseError> {
+    pub fn parse_from<S: AsRef<str>>(svg_source: S) -> Result<Vec<(Vec<SvgLayerType>, SvgStyle)>, SvgParseError> {
+
         let opt = Options::default();
         let rtree = Tree::from_str(svg_source.as_ref(), &opt).unwrap();
 
         let mut layer_data = Vec::new();
-        let mut transform = None;
-        let mut transforms = FastHashMap::default();
-
-        let view_box = rtree.svg_node().view_box;
-        let view_box_id = new_view_box_id();
-        view_boxes.insert(view_box_id, view_box);
 
         for node in rtree.root().descendants() {
             if let NodeKind::Path(p) = &*node.borrow() {
                 let mut style = SvgStyle::default();
 
-                // use the first transform component
-                if transform.is_none() {
-                    transform = Some(node.borrow().transform());
-                }
-
                 if let Some(ref fill) = p.fill {
+
                     // fall back to always use color fill
                     // no gradients (yet?)
                     let color = match fill.paint {
@@ -1419,23 +1388,12 @@ mod svg_to_lyon {
                     style.stroke = Some(convert_stroke(stroke));
                 }
 
-                let transform_id = transform.and_then(|t| {
-                    let new_id = new_svg_transform_id();
-                    transforms.insert(new_id, t.clone());
-                    Some(new_id)
-                });
-
-                layer_data.push(SvgLayer {
-                    data: LayerType::KnownSize([SvgLayerType::Polygon(p.segments.iter().map(|e| as_event(e)).collect())]),
-                    callbacks: SvgCallbacks::None,
-                    style: style,
-                    transform_id: transform_id,
-                    view_box_id: view_box_id,
-                })
+                let layer = vec![SvgLayerType::Polygon(p.segments.iter().map(|e| as_event(e)).collect())];
+                layer_data.push((layer, style));
             }
         }
 
-        Ok((layer_data, transforms))
+        Ok(layer_data)
     }
 
     // Map resvg::tree::PathSegment to lyon::path::PathEvent
@@ -1537,6 +1495,12 @@ pub struct SvgLayerResourceDirect {
     pub style: SvgStyle,
     pub fill: Option<VerticesIndicesBuffer>,
     pub stroke: Option<VerticesIndicesBuffer>,
+}
+
+impl SvgLayerResourceDirect {
+    pub fn tesselate_from_layer(data: &[SvgLayerType], style: SvgStyle) -> Self {
+        tesselate_polygon_data(data, style)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
