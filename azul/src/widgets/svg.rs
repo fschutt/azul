@@ -3,7 +3,6 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}},
     cell::{RefCell, RefMut},
-    hash::{Hash, Hasher},
     collections::hash_map::Entry::*,
 };
 #[cfg(feature = "svg_parsing")]
@@ -36,8 +35,7 @@ use rusttype::{Font, Glyph};
 use azul_css::{FontId, StyleFontSize};
 use {
     FastHashMap,
-    dom::{Callback, Texture},
-    traits::Layout,
+    dom::Texture,
     window::ReadOnlyWindow,
     app_resources::AppResources,
     text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
@@ -171,9 +169,7 @@ impl SvgShader {
     }
 }
 
-pub struct SvgCache<T: Layout> {
-    // note: one "layer" merely describes one or more polygons that have the same style
-    layers: FastHashMap<SvgLayerId, SvgLayer<T>>,
+pub struct SvgCache {
     // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
     gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
     stroke_gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
@@ -190,10 +186,9 @@ pub struct SvgCache<T: Layout> {
     view_boxes: FastHashMap<SvgViewBoxId, ViewBox>,
 }
 
-impl<T: Layout> Default for SvgCache<T> {
+impl Default for SvgCache {
     fn default() -> Self {
         Self {
-            layers: FastHashMap::default(),
             gpu_ready_to_upload_cache: FastHashMap::default(),
             stroke_gpu_ready_to_upload_cache: FastHashMap::default(),
             vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
@@ -229,7 +224,7 @@ fn fill_vertex_buffer_cache<'a, F: Facade>(
     }
 }
 
-impl<T: Layout> SvgCache<T> {
+impl SvgCache {
 
     /// Creates an empty SVG cache
     pub fn empty() -> Self {
@@ -277,36 +272,24 @@ impl<T: Layout> SvgCache<T> {
         self.vertex_index_buffer_cache.borrow().get(id).and_then(|x| Some(x.clone()))
     }
 
-    fn get_style(&self, id: &SvgLayerId)
-    -> SvgStyle
-    {
-        self.layers.get(id).as_ref().unwrap().style
-    }
+    pub fn add_layer(&mut self, layer: SvgLayerResourceDirect) -> (SvgLayerId, SvgStyle) {
 
-    pub fn add_layer(&mut self, layer: SvgLayer<T>) -> SvgLayerId {
-        // TODO: set tolerance based on zoom
+        let SvgLayerResourceDirect { style, stroke, fill } = layer;
+
         let new_svg_id = new_svg_layer_id();
 
-        let stroke_present = layer.style.stroke.and_then(|s| Some(s.1.clone()));
-        let fill_present = layer.style.fill.is_some();
-
-        let (opt_fill, opt_stroke) = tesselate_layer_data(&layer.data, DEFAULT_GLYPH_TOLERANCE, fill_present, stroke_present);
-
-        if let Some((fill_vertex_buf, fill_index_buf)) = opt_fill {
-            self.gpu_ready_to_upload_cache.insert(new_svg_id, (fill_vertex_buf, fill_index_buf));
+        if let Some(fill) = fill {
+            self.gpu_ready_to_upload_cache.insert(new_svg_id, (fill.vertices, fill.indices));
         }
 
-        if let Some((stroke_vertex_buf, stroke_index_buf)) = opt_stroke {
-            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, (stroke_vertex_buf, stroke_index_buf));
+        if let Some(stroke) = stroke {
+            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, (stroke.vertices, stroke.indices));
         }
 
-        self.layers.insert(new_svg_id, layer);
-
-        new_svg_id
+        (new_svg_id, style)
     }
 
     pub fn delete_layer(&mut self, svg_id: SvgLayerId) {
-        self.layers.remove(&svg_id);
         self.gpu_ready_to_upload_cache.remove(&svg_id);
         self.stroke_gpu_ready_to_upload_cache.remove(&svg_id);
         let rmut = self.vertex_index_buffer_cache.get_mut();
@@ -316,8 +299,6 @@ impl<T: Layout> SvgCache<T> {
     }
 
     pub fn clear_all_layers(&mut self) {
-        self.layers.clear();
-
         self.gpu_ready_to_upload_cache.clear();
         self.stroke_gpu_ready_to_upload_cache.clear();
 
@@ -348,10 +329,10 @@ impl<T: Layout> SvgCache<T> {
     }
 }
 
-impl<T: Layout> fmt::Debug for SvgCache<T> {
+impl fmt::Debug for SvgCache {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for layer in self.layers.keys() {
-            write!(f, "{:?}", layer)?;
+        for layer_id in self.gpu_ready_to_upload_cache.keys() {
+            write!(f, "{:?}", layer_id)?;
         }
         Ok(())
     }
@@ -360,9 +341,13 @@ impl<T: Layout> fmt::Debug for SvgCache<T> {
 const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
 /// Returns the (fill, stroke) vertices of a layer
-pub fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, fill: bool, stroke_options: Option<SvgStrokeOptions>)
--> (Option<(Vec<SvgVert>, Vec<u32>)>, Option<(Vec<SvgVert>, Vec<u32>)>)
+pub fn tesselate_polygon_data(layer_data: &[SvgLayerType], style: SvgStyle)
+-> SvgLayerResourceDirect // (Option<(Vec<SvgVert>, Vec<u32>)>, Option<(Vec<SvgVert>, Vec<u32>)>)
 {
+    let tolerance = 0.01;
+    let fill = style.fill.is_some();
+    let stroke_options = style.stroke.map(|s| s.1);
+
     let mut last_index = 0;
     let mut fill_vertex_buf = Vec::<SvgVert>::new();
     let mut fill_index_buf = Vec::<u32>::new();
@@ -371,7 +356,7 @@ pub fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, fill: bool, 
     let mut stroke_vertex_buf = Vec::<SvgVert>::new();
     let mut stroke_index_buf = Vec::<u32>::new();
 
-    for layer in layer_data.get() {
+    for layer in layer_data {
 
         let mut path = None;
 
@@ -395,54 +380,37 @@ pub fn tesselate_layer_data(layer_data: &LayerType, tolerance: f32, fill: bool, 
     }
 
     let fill_verts = if fill {
-        Some((fill_vertex_buf, fill_index_buf))
-    } else {
-        None
-    };
+        Some(VerticesIndicesBuffer {
+            vertices: fill_vertex_buf,
+            indices: fill_index_buf,
+        })
+    } else { None };
 
     let stroke_verts = if stroke_options.is_some() {
-        Some((stroke_vertex_buf, stroke_index_buf))
-    } else {
-        None
-    };
+        Some(VerticesIndicesBuffer {
+            vertices: stroke_vertex_buf,
+            indices: stroke_index_buf,
+        })
+    } else { None };
 
-    (fill_verts, stroke_verts)
+    SvgLayerResourceDirect {
+        style,
+        fill: fill_verts,
+        stroke: stroke_verts,
+    }
 }
 
 /// Quick helper function to generate the vertices for a black circle at runtime
 pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResourceDirect {
-
-    let should_fill = true;
-    let should_stroke = None;
-    let tolerance = 0.01;
-
-    let (fill, stroke) = tesselate_layer_data(&LayerType::from_single_layer(SvgLayerType::Circle(circle)), tolerance, should_fill, should_stroke);
     let style = SvgStyle::filled(fill_color);
-
-    SvgLayerResourceDirect {
-        style: style,
-        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
-        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
-    }
+    tesselate_polygon_data(&[SvgLayerType::Circle(circle)], style)
 }
 
 /// Quick helper function to generate the layer for **multiple** circles (in one draw call)
 pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResourceDirect {
-
-    let circles = circles.iter().map(|c| SvgLayerType::Circle(*c)).collect();
-
-    let should_fill = true;
-    let should_stroke = None;
-    let tolerance = 0.01;
-
-    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(circles), tolerance, should_fill, should_stroke);
+    let circles = circles.iter().map(|c| SvgLayerType::Circle(*c)).collect::<Vec<_>>();
     let style = SvgStyle::filled(fill_color);
-
-    SvgLayerResourceDirect {
-        style: style,
-        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
-        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
-    }
+    tesselate_polygon_data(&circles, style)
 }
 
 /// Helper function to easily draw some lines at runtime
@@ -471,19 +439,9 @@ pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_optio
             }
 
             SvgLayerType::Polygon(poly_events)
-        }).collect();
+        }).collect::<Vec<_>>();
 
-    let should_fill = false; // important!
-    let should_stroke = Some(stroke_options);
-    let tolerance = 0.01;
-
-    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(polygons), tolerance, should_fill, should_stroke);
-
-    SvgLayerResourceDirect {
-        style: style,
-        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
-        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
-    }
+    tesselate_polygon_data(&polygons, style)
 }
 
 pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: Option<ColorU>, stroke_options: Option<SvgStrokeOptions>)
@@ -494,19 +452,8 @@ pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: 
         fill: fill_color,
         .. Default::default()
     };
-
-    let should_fill = style.fill.is_some();
-    let should_stroke = style.stroke.and_then(|(_, options)| Some(options));
-    let tolerance = 0.01;
-
-    let rects = rects.iter().map(|r| SvgLayerType::Rect(*r)).collect();
-    let (fill, stroke) = tesselate_layer_data(&LayerType::from_polygons(rects), tolerance, should_fill, should_stroke);
-
-    SvgLayerResourceDirect {
-        style: style,
-        fill: fill.and_then(|fill| Some(VerticesIndicesBuffer { vertices: fill.0, indices: fill.1 })),
-        stroke: stroke.and_then(|stroke| Some(VerticesIndicesBuffer { vertices: stroke.0, indices: stroke.1 })),
-    }
+    let rects = rects.iter().map(|r| SvgLayerType::Rect(*r)).collect::<Vec<_>>();
+    tesselate_polygon_data(&rects, style)
 }
 
 const BEZIER_SAMPLE_RATE: usize = 20;
@@ -798,138 +745,6 @@ impl From<IoError> for SvgParseError {
     }
 }
 
-pub struct SvgLayer<T: Layout> {
-    pub data: LayerType,
-    pub callbacks: SvgCallbacks<T>,
-    pub style: SvgStyle,
-    pub transform_id: Option<SvgTransformId>,
-    // TODO: This is currently not used
-    pub view_box_id: SvgViewBoxId,
-}
-
-impl<T: Layout> SvgLayer<T> {
-    /// Shorthand for creating a SvgLayer from some data and style
-    pub fn default_from_layer(data: LayerType, style: SvgStyle) -> Self {
-        SvgLayer {
-            data,
-            callbacks: SvgCallbacks::None,
-            style,
-            transform_id: None,
-            view_box_id: new_view_box_id(),
-        }
-    }
-}
-
-impl<T: Layout> fmt::Debug for SvgLayer<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SvgLayer {{ data: {:?}, callbacks: {:?}, style: {:?}, transform_id: {:?}, view_box_id: {:?} }}",
-           self.data,
-           self.callbacks,
-           self.style,
-           self.transform_id,
-           self.view_box_id)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum LayerType {
-    KnownSize([SvgLayerType; 1]),
-    UnknownSize(Vec<SvgLayerType>),
-}
-
-impl LayerType {
-    pub fn get(&self) -> &[SvgLayerType] {
-        use self::LayerType::*;
-        match self {
-            KnownSize(a) => &a[..],
-            UnknownSize(b) => &b[..],
-        }
-    }
-
-    pub fn from_polygons(data: Vec<SvgLayerType>) -> Self {
-        LayerType::UnknownSize(data)
-    }
-
-    pub fn from_single_layer(data: SvgLayerType) -> Self {
-        LayerType::KnownSize([data])
-    }
-}
-
-impl<T: Layout> Clone for SvgLayer<T> {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-            callbacks: self.callbacks.clone(),
-            style: self.style.clone(),
-            transform_id: self.transform_id,
-            view_box_id: self.view_box_id,
-        }
-    }
-}
-
-pub enum SvgCallbacks<T: Layout> {
-    // No callbacks for this layer
-    None,
-    /// Call the callback on any of the items
-    Any(Callback<T>),
-    /// Call the callback when the SvgLayer item at index [x] is
-    ///  hovered over / interacted with
-    Some(Vec<(usize, Callback<T>)>),
-}
-
-impl<T: Layout> fmt::Debug for SvgCallbacks<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::SvgCallbacks::*;
-        match self {
-            None => write!(f, "SvgCallbacks::None"),
-            Any(a) => write!(f, "SvgCallbacks::Any({:?})", a),
-            Some(v) => {
-                let mut s = String::new();
-                for i in v.iter() {
-                    s += &format!("{:?}", i);
-                }
-                write!(f, "SvgCallbacks::Some({})", s)
-            },
-        }
-    }
-}
-
-impl<T: Layout> Clone for SvgCallbacks<T> {
-    fn clone(&self) -> Self {
-        use self::SvgCallbacks::*;
-        match self {
-            None => None,
-            Any(c) => Any(c.clone()),
-            Some(v) => Some(v.clone()),
-        }
-    }
-}
-
-impl<T: Layout> Hash for SvgCallbacks<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        use self::SvgCallbacks::*;
-        match self {
-            None => 0.hash(state),
-            Any(c) => { Any(*c).hash(state); },
-            Some(ref v) => {
-                2.hash(state);
-                for (id, callback) in v {
-                    id.hash(state);
-                    callback.hash(state);
-                }
-            },
-        }
-    }
-}
-
-impl<T: Layout> PartialEq for SvgCallbacks<T> {
-    fn eq(&self, rhs: &Self) -> bool {
-        self == rhs
-    }
-}
-
-impl<T: Layout> Eq for SvgCallbacks<T> { }
-
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct SvgStyle {
     /// Stroke color
@@ -942,6 +757,7 @@ pub struct SvgStyle {
 }
 
 impl SvgStyle {
+
     /// If the style already has a rotation, adds the rotation, otherwise sets the rotation
     ///
     /// Input is in degrees.
@@ -1712,7 +1528,7 @@ impl Default for Svg {
 
 #[derive(Debug, Clone)]
 pub enum SvgLayerResource {
-    Reference(SvgLayerId),
+    Reference((SvgLayerId, SvgStyle)),
     Direct(SvgLayerResourceDirect),
 }
 
@@ -2200,9 +2016,9 @@ impl Svg {
     /// The final texture will be width * height large. Note that width and height
     /// need to be multiplied with the current `HiDPI` factor, otherwise the texture
     /// will be blurry on HiDPI screens. This isn't done automatically.
-    pub fn render_svg<T: Layout>(
+    pub fn render_svg(
         &self,
-        svg_cache: &SvgCache<T>,
+        svg_cache: &SvgCache,
         window: &ReadOnlyWindow,
         width: usize,
         height: usize)
@@ -2239,18 +2055,19 @@ impl Svg {
         let tex = window.create_texture(texture_width, texture_height);
 
         {
+
         let mut surface = tex.as_surface();
         surface.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
 
         for layer in &self.layers {
 
             let style = match &layer {
-                SvgLayerResource::Reference(layer_id) => { svg_cache.get_style(layer_id) },
+                SvgLayerResource::Reference((_, style)) => *style,
                 SvgLayerResource::Direct(d) => d.style,
             };
 
             let fill_vi = match &layer {
-                SvgLayerResource::Reference(layer_id) => svg_cache.get_vertices_and_indices(window, layer_id),
+                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(window, layer_id),
                 SvgLayerResource::Direct(d) => d.fill.as_ref().and_then(|f| {
                     let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
                     let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
@@ -2259,7 +2076,7 @@ impl Svg {
             };
 
             let stroke_vi = match &layer {
-                SvgLayerResource::Reference(layer_id) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
+                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
                 SvgLayerResource::Direct(d) => d.stroke.as_ref().and_then(|f| {
                     let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
                     let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
