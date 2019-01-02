@@ -47,7 +47,8 @@ impl Layout for Calculator {
 
         let result = if self.division_by_zero {
             String::from("Cannot divide by zero.")
-        } else {
+        }
+		else {
             self.current_operand_stack.get_display()
         };
 
@@ -140,19 +141,11 @@ impl OperandStack {
         }
 
         // Iterate the stack until the first Dot is found
-        let first_dot_position = self
-            .stack
-            .iter()
-            .position(|x| *x == Number::Dot)
-            .and_then(|x| Some(x - 1))
-            .unwrap_or(stack_size - 1) as i32;
+        let first_dot_position = self.stack.iter().position(|x| *x == Number::Dot).and_then(|x| Some(x - 1)).unwrap_or(stack_size - 1) as i32;
 
         let mut final_number = 0.0;
 
-        for (number_position, number) in self
-            .stack
-            .iter()
-            .filter_map(|x| match x {
+        for (number_position, number) in self.stack.iter().filter_map(|x| match x {
                 Number::Dot => None,
                 Number::Value(v) => Some(v),
             })
@@ -170,10 +163,7 @@ impl OperandStack {
     }
 }
 
-fn handle_mouseclick_numpad_btn(
-    app_state: &mut AppState<Calculator>,
-    event: WindowEvent<Calculator>,
-) -> UpdateScreen {
+fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: WindowEvent<Calculator>) -> UpdateScreen {
     let mut row_iter = event.index_path_iter();
 
     // Figure out which row and column was clicked...
@@ -229,8 +219,7 @@ fn handle_mouseclick_numpad_btn(
         Event::InvertSign => {
             app_state.data.modify(|state| {
                 if !state.division_by_zero {
-                    state.current_operand_stack.negative_number =
-                        !state.current_operand_stack.negative_number;
+                    state.current_operand_stack.negative_number = !state.current_operand_stack.negative_number;
                 }
             });
 
@@ -263,10 +252,9 @@ fn handle_mouseclick_numpad_btn(
                 }
                 if let Some(Event::EqualSign) = state.last_event {
                     state.expression = format!("{} =", state.current_operand_stack.get_display());
-                } else {
-                    state
-                        .expression
-                        .push_str(&format!("{} =", state.current_operand_stack.get_display()));
+                }
+				else {
+                    state.expression.push_str(&format!("{} =", state.current_operand_stack.get_display()));
                     if let Some(operation) = &state.last_event.clone() {
                         if let Some(operand) = state.current_operator.clone() {
                             let num = state.current_operand_stack.get_number();
@@ -288,13 +276,7 @@ fn handle_mouseclick_numpad_btn(
                 if state.division_by_zero {
                     return;
                 }
-                if state
-                    .current_operand_stack
-                    .stack
-                    .iter()
-                    .position(|x| *x == Number::Dot)
-                    .is_none()
-                {
+                if state.current_operand_stack.stack.iter().position(|x| *x == Number::Dot).is_none() {
                     if state.current_operand_stack.stack.len() == 0 {
                         state.current_operand_stack.stack.push(Number::Value(0));
                     }
@@ -320,12 +302,11 @@ fn handle_mouseclick_numpad_btn(
                 if let Some(Event::EqualSign) = state.last_event {
                     state.expression = String::new();
                 }
-                state
-                    .expression
-                    .push_str(&state.current_operand_stack.get_display());
+                state.expression.push_str(&state.current_operand_stack.get_display());
                 if let Some(Event::EqualSign) = state.last_event {
                     state.current_operator = Some(state.current_operand_stack.clone());
-                } else if let Some(last_operation) = &state.last_event.clone() {
+                }
+				else if let Some(last_operation) = &state.last_event.clone() {
                     if let Some(operand) = state.current_operator.clone() {
                         let num = state.current_operand_stack.get_number();
                         let op = operand.get_number();
@@ -333,8 +314,9 @@ fn handle_mouseclick_numpad_btn(
                             Some(r) => state.current_operator = Some(OperandStack::from(r)),
                             None => state.division_by_zero = true,
                         }
-                    }
-                } else {
+					}
+                }
+				else {
                     state.current_operator = Some(state.current_operand_stack.clone());
                 }
                 state.current_operand_stack = OperandStack::default();
@@ -359,13 +341,12 @@ fn perform_operation(left_operand: f32, operation: &Event, right_operand: f32) -
         Event::Multiply => Some(left_operand * right_operand),
         Event::Subtract => Some(left_operand - right_operand),
         Event::Plus => Some(left_operand + right_operand),
-        Event::Divide => {
-            if right_operand == 0.0 {
+        Event::Divide => if right_operand == 0.0 {
                 None
-            } else {
-                Some(left_operand / right_operand)
             }
-        }
+			else {
+                Some(left_operand / right_operand)
+        },
         _ => unreachable!(),
     }
 }
@@ -378,8 +359,7 @@ fn main() {
     }
 
     let mut app = App::new(Calculator::default(), AppConfig::default());
-    app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone())
-        .unwrap();
+    app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
     let window = Window::new(WindowCreateOptions::default(), css).unwrap();
     app.run(window).unwrap();
