@@ -1,3 +1,13 @@
+#expression {
+    max-height: 50pt;
+    background-color: #444;
+    color: white;
+    flex-direction: row;
+    text-align: right;
+    padding-right: 40pt;
+    justify-content: flex-end;
+}
+
 #result {
     max-height: 81pt;
     background: linear-gradient(to top, #111, #444);
