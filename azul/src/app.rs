@@ -1,44 +1,43 @@
-use std::{
-    mem,
-    fmt,
-    time::Instant,
-    io::Read,
-    sync::{Arc, Mutex, PoisonError},
-};
+use azul_css::{FontId, PixelValue, StyleLetterSpacing};
 use glium::{
-    SwapBuffersError,
     glutin::{
+        dpi::{LogicalPosition, LogicalSize},
         Event,
-        dpi::{LogicalPosition, LogicalSize}
     },
-};
-use webrender::{
-    PipelineInfo,
-    api::{
-        HitTestResult, HitTestFlags, DevicePixel,
-        WorldPoint, LayoutSize, LayoutPoint,
-        Epoch, Transaction,
-    },
+    SwapBuffersError,
 };
 #[cfg(feature = "image_loading")]
 use image::ImageError;
-#[cfg(feature = "logging")]
-use log::LevelFilter;
 #[cfg(feature = "image_loading")]
 use images::ImageType;
-use azul_css::{FontId, PixelValue, StyleLetterSpacing};
+#[cfg(feature = "logging")]
+use log::LevelFilter;
+use std::{
+    fmt,
+    io::Read,
+    mem,
+    sync::{Arc, Mutex, PoisonError},
+    time::Instant,
+};
+use webrender::{
+    api::{
+        DevicePixel, Epoch, HitTestFlags, HitTestResult, LayoutPoint, LayoutSize, Transaction,
+        WorldPoint,
+    },
+    PipelineInfo,
+};
 use {
-    error::{FontError, ClipboardError},
-    window::{Window, WindowId, FakeWindow, ScrollStates},
-    window_state::WindowSize,
-    text_cache::TextId,
-    dom::{ScrollTagId, UpdateScreen},
     app_resources::AppResources,
     app_state::AppState,
-    traits::Layout,
-    ui_state::UiState,
-    ui_description::UiDescription,
     daemon::Daemon,
+    dom::{ScrollTagId, UpdateScreen},
+    error::{ClipboardError, FontError},
+    text_cache::TextId,
+    traits::Layout,
+    ui_description::UiDescription,
+    ui_state::UiState,
+    window::{FakeWindow, ScrollStates, Window, WindowId},
+    window_state::WindowSize,
 };
 
 type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
@@ -148,11 +147,11 @@ impl Default for AppConfig {
 }
 
 impl<T: Layout> App<T> {
-
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
     pub fn new(initial_data: T, config: AppConfig) -> Self {
-        #[cfg(feature = "logging")] {
+        #[cfg(feature = "logging")]
+        {
             if let Some(log_level) = config.enable_logging {
                 ::logging::set_up_logging(config.log_file_path, log_level);
 
@@ -212,8 +211,7 @@ impl<T: Layout> App<T> {
     /// // continue the rest of the program here...
     /// println!("username: {:?}, password: {:?}", username, password);
     /// ```
-    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>>
-    {
+    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>> {
         // Apps need to have at least one window open
         self.push_window(window);
         self.run_inner()?;
@@ -224,13 +222,16 @@ impl<T: Layout> App<T> {
         // See https://github.com/maps4print/azul/issues/24#issuecomment-429737273
         mem::drop(self.app_state.tasks);
 
-        let unique_arc = Arc::try_unwrap(self.app_state.data).map_err(|_| RuntimeError::ArcUnlockError)?;
+        let unique_arc =
+            Arc::try_unwrap(self.app_state.data).map_err(|_| RuntimeError::ArcUnlockError)?;
         unique_arc.into_inner().map_err(|e| e.into())
     }
 
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
-
-        use std::{thread, time::{Duration, Instant}};
+        use std::{
+            thread,
+            time::{Duration, Instant},
+        };
 
         let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &mut self.app_state);
         let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
@@ -243,14 +244,12 @@ impl<T: Layout> App<T> {
         let mut should_print_css_error = true;
 
         while !self.windows.is_empty() {
-
             let time_start = Instant::now();
             let mut closed_windows = Vec::<usize>::new();
 
             let mut frame_was_resize = false;
 
             'window_loop: for (idx, window) in self.windows.iter_mut().enumerate() {
-
                 let window_id = WindowId { id: idx };
                 let mut frame_event_info = FrameEventInfo::default();
 
@@ -261,7 +260,9 @@ impl<T: Layout> App<T> {
                 }
 
                 for event in &events {
-                    if preprocess_event(event, &mut frame_event_info, awakened_task[idx]) == WindowCloseEvent::AboutToClose {
+                    if preprocess_event(event, &mut frame_event_info, awakened_task[idx])
+                        == WindowCloseEvent::AboutToClose
+                    {
                         closed_windows.push(idx);
                         continue 'window_loop;
                     }
@@ -284,7 +285,7 @@ impl<T: Layout> App<T> {
                             window_id,
                             &mut frame_event_info,
                             &ui_state_cache,
-                            &mut self.app_state
+                            &mut self.app_state,
                         );
                     }
                 }
@@ -292,12 +293,19 @@ impl<T: Layout> App<T> {
                 // Scroll for the scrolled amount for each node that registered a scroll state.
                 render_on_scroll(window, hit_test_results, &frame_event_info);
 
-                if frame_event_info.should_swap_window || frame_event_info.is_resize_event || force_redraw_cache[idx] > 0 {
+                if frame_event_info.should_swap_window
+                    || frame_event_info.is_resize_event
+                    || force_redraw_cache[idx] > 0
+                {
                     window.display.swap_buffers()?;
                     if let Some(i) = force_redraw_cache.get_mut(idx) {
-                        if *i > 0 { *i -= 1 };
+                        if *i > 0 {
+                            *i -= 1
+                        };
                         if *i == 0 {
-                            clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
+                            clean_up_unused_opengl_textures(
+                                window.renderer.as_mut().unwrap().flush_pipeline_info(),
+                            );
                         }
                     }
                 }
@@ -321,15 +329,14 @@ impl<T: Layout> App<T> {
                 window.clear_scroll_state();
 
                 if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
-
                     // Call the Layout::layout() fn, get the DOM
                     let window_id = WindowId { id: idx };
                     ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
 
                     // Style the DOM (is_mouse_down, etc. necessary for styling :hover, :active + :focus nodes)
-                    let is_mouse_down = window.state.mouse_state.left_down      ||
-                                        window.state.mouse_state.middle_down    ||
-                                        window.state.mouse_state.right_down;
+                    let is_mouse_down = window.state.mouse_state.left_down
+                        || window.state.mouse_state.middle_down
+                        || window.state.mouse_state.right_down;
 
                     ui_description_cache[idx] = UiDescription::match_css_to_dom(
                         &mut ui_state_cache[idx],
@@ -348,14 +355,21 @@ impl<T: Layout> App<T> {
                         &ui_state_cache[idx],
                         &mut *window,
                         &mut self.app_state.windows[idx],
-                        &mut self.app_state.resources);
+                        &mut self.app_state.resources,
+                    );
 
                     awakened_task[idx] = false;
                 }
             }
 
-            #[cfg(debug_assertions)] {
-                hot_reload_css(&mut self.windows, &mut last_style_reload, &mut should_print_css_error, &mut awakened_task)
+            #[cfg(debug_assertions)]
+            {
+                hot_reload_css(
+                    &mut self.windows,
+                    &mut last_style_reload,
+                    &mut should_print_css_error,
+                    &mut awakened_task,
+                )
             }
 
             // Close windows if necessary
@@ -369,9 +383,13 @@ impl<T: Layout> App<T> {
             let should_redraw_daemons = self.app_state.run_all_daemons();
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
 
-
-            if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
-                self.windows.iter().for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
+            if [should_redraw_daemons, should_redraw_tasks]
+                .into_iter()
+                .any(|e| *e == UpdateScreen::Redraw)
+            {
+                self.windows
+                    .iter()
+                    .for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
                 awakened_task = vec![true; self.windows.len()];
             } else if !frame_was_resize {
                 // Wait until 16ms have passed, but not during a resize event
@@ -386,13 +404,15 @@ impl<T: Layout> App<T> {
         Ok(())
     }
 
-    fn initialize_ui_state(windows: &[Window<T>], app_state: &mut AppState<T>)
-    -> Vec<UiState<T>>
-    {
-        windows.iter().enumerate().map(|(idx, _window)| {
-            let window_id = WindowId { id: idx };
-            UiState::from_app_state(app_state, window_id)
-        }).collect()
+    fn initialize_ui_state(windows: &[Window<T>], app_state: &mut AppState<T>) -> Vec<UiState<T>> {
+        windows
+            .iter()
+            .enumerate()
+            .map(|(idx, _window)| {
+                let window_id = WindowId { id: idx };
+                UiState::from_app_state(app_state, window_id)
+            })
+            .collect()
     }
 
     /// Add an image to the internal resources. Only available with
@@ -404,25 +424,24 @@ impl<T: Layout> App<T> {
     /// - `Ok(None)` if the image was added, but didn't exist previously.
     /// - `Err(e)` if the image couldn't be decoded
     #[cfg(feature = "image_loading")]
-    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
-        -> Result<Option<()>, ImageError>
-    {
+    pub fn add_image<S: Into<String>, R: Read>(
+        &mut self,
+        id: S,
+        data: &mut R,
+        image_type: ImageType,
+    ) -> Result<Option<()>, ImageError> {
         self.app_state.add_image(id, data, image_type)
     }
 
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
-        -> Option<()>
-    {
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) -> Option<()> {
         self.app_state.delete_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S)
-        -> bool
-    {
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S) -> bool {
         self.app_state.has_image(id)
     }
 
@@ -433,16 +452,12 @@ impl<T: Layout> App<T> {
     /// - `Ok(Some(()))` if an font with the same ID already exists.
     /// - `Ok(None)` if the font was added, but didn't exist previously.
     /// - `Err(e)` if the font couldn't be decoded
-    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
-        -> Result<Option<()>, FontError>
-    {
+    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R) -> Result<Option<()>, FontError> {
         self.app_state.add_font(id, data)
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font(&mut self, id: &FontId)
-        -> bool
-    {
+    pub fn has_font(&mut self, id: &FontId) -> bool {
         self.app_state.has_font(id)
     }
 
@@ -464,31 +479,30 @@ impl<T: Layout> App<T> {
     /// Use with care.
     ///
     /// [`AppState::delete_font`]: ../app_state/struct.AppState.html#method.delete_font
-    pub fn delete_font(&mut self, id: &FontId)
-        -> Option<()>
-    {
+    pub fn delete_font(&mut self, id: &FontId) -> Option<()> {
         self.app_state.delete_font(id)
     }
 
     /// Create a daemon. Does nothing if a daemon with the function pointer location already exists.
     ///
     /// If the daemon was inserted, returns true, otherwise false
-    pub fn add_daemon(&mut self, daemon: Daemon<T>)
-        -> bool
-    {
+    pub fn add_daemon(&mut self, daemon: Daemon<T>) -> bool {
         self.app_state.add_daemon(daemon)
     }
 
-    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
-    -> TextId
-    {
+    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S) -> TextId {
         self.app_state.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>)
-    -> TextId
-    {
-        self.app_state.add_text_cached(text, font_id, font_size, letter_spacing)
+    pub fn add_text_cached<S: Into<String>>(
+        &mut self,
+        text: S,
+        font_id: &FontId,
+        font_size: PixelValue,
+        letter_spacing: Option<StyleLetterSpacing>,
+    ) -> TextId {
+        self.app_state
+            .add_text_cached(text, font_id, font_size, letter_spacing)
     }
 
     pub fn delete_text(&mut self, id: TextId) {
@@ -500,16 +514,12 @@ impl<T: Layout> App<T> {
     }
 
     /// Get the contents of the system clipboard as a string
-    pub fn get_clipboard_string(&mut self)
-    -> Result<String, ClipboardError>
-    {
+    pub fn get_clipboard_string(&mut self) -> Result<String, ClipboardError> {
         self.app_state.get_clipboard_string()
     }
 
     /// Set the contents of the system clipboard as a string
-    pub fn set_clipboard_string(&mut self, contents: String)
-    -> Result<(), ClipboardError>
-    {
+    pub fn set_clipboard_string(&mut self, contents: String) -> Result<(), ClipboardError> {
         self.app_state.set_clipboard_string(contents)
     }
 
@@ -518,9 +528,10 @@ impl<T: Layout> App<T> {
         &mut self,
         data: &Arc<Mutex<U>>,
         callback: fn(Arc<Mutex<U>>, Arc<()>),
-        after_completion_deamons: &[Daemon<T>])
-    {
-        self.app_state.add_custom_task(data, callback, after_completion_deamons);
+        after_completion_deamons: &[Daemon<T>],
+    ) {
+        self.app_state
+            .add_custom_task(data, callback, after_completion_deamons);
     }
 }
 
@@ -529,9 +540,10 @@ impl<T: Layout + Send + 'static> App<T> {
     pub fn add_task(
         &mut self,
         callback: fn(Arc<Mutex<T>>, Arc<()>),
-        after_completion_callbacks: &[Daemon<T>])
-    {
-        self.app_state.add_task(callback, after_completion_callbacks);
+        after_completion_callbacks: &[Daemon<T>],
+    ) {
+        self.app_state
+            .add_task(callback, after_completion_callbacks);
     }
 }
 
@@ -547,8 +559,8 @@ fn hot_reload_css<T: Layout>(
     windows: &mut [Window<T>],
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
-    awakened_tasks: &mut [bool])
-{
+    awakened_tasks: &mut [bool],
+) {
     for (window_idx, window) in windows.iter_mut().enumerate() {
         // Hot-reload a style if necessary
         let hot_reloader = match window.css_loader.as_mut() {
@@ -556,7 +568,8 @@ fn hot_reload_css<T: Layout>(
             Some(s) => s,
         };
 
-        let should_reload = Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
+        let should_reload =
+            Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
 
         if !should_reload {
             return;
@@ -571,15 +584,15 @@ fn hot_reload_css<T: Layout>(
                 }
                 *last_style_reload = Instant::now();
                 window.events_loop.create_proxy().wakeup().unwrap_or(());
-                awakened_tasks[window_idx]  = true;
+                awakened_tasks[window_idx] = true;
                 *should_print_error = true;
-            },
+            }
             Err(why) => {
                 if *should_print_error {
                     println!("{}", why);
                 }
                 *should_print_error = false;
-            },
+            }
         };
     }
 }
@@ -589,51 +602,53 @@ fn hot_reload_css<T: Layout>(
 ///
 /// `awakened_task` is a special field that should be set to true if the `Task`
 /// system fired a `WindowEvent::Awakened`.
-fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awakened_task: bool) -> WindowCloseEvent {
+fn preprocess_event(
+    event: &Event,
+    frame_event_info: &mut FrameEventInfo,
+    awakened_task: bool,
+) -> WindowCloseEvent {
     use glium::glutin::WindowEvent;
 
     match event {
-        Event::WindowEvent { event, .. } => {
-            match event {
-                WindowEvent::CursorMoved { position, .. } => {
-                    frame_event_info.should_hittest = true;
-                    frame_event_info.cur_cursor_pos = *position;
-                },
-                WindowEvent::Resized(wh) => {
-                    frame_event_info.new_window_size = Some(*wh);
-                    frame_event_info.is_resize_event = true;
-                    frame_event_info.should_redraw_window = true;
-                },
-                WindowEvent::Refresh => {
-                    frame_event_info.should_redraw_window = true;
-                },
-                WindowEvent::HiDpiFactorChanged(dpi) => {
-                    frame_event_info.new_dpi_factor = Some(*dpi);
-                    frame_event_info.should_redraw_window = true;
-                },
-                WindowEvent::CloseRequested => {
-                    return WindowCloseEvent::AboutToClose;
-                },
-                WindowEvent::Destroyed => {
-                    return WindowCloseEvent::AboutToClose;
-                },
-                WindowEvent::KeyboardInput { .. } |
-                WindowEvent::ReceivedCharacter(_) |
-                WindowEvent::MouseWheel { .. } |
-                WindowEvent::MouseInput { .. } |
-                WindowEvent::Touch(_) => {
-                    frame_event_info.should_hittest = true;
-                },
-                _ => { },
+        Event::WindowEvent { event, .. } => match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                frame_event_info.should_hittest = true;
+                frame_event_info.cur_cursor_pos = *position;
             }
+            WindowEvent::Resized(wh) => {
+                frame_event_info.new_window_size = Some(*wh);
+                frame_event_info.is_resize_event = true;
+                frame_event_info.should_redraw_window = true;
+            }
+            WindowEvent::Refresh => {
+                frame_event_info.should_redraw_window = true;
+            }
+            WindowEvent::HiDpiFactorChanged(dpi) => {
+                frame_event_info.new_dpi_factor = Some(*dpi);
+                frame_event_info.should_redraw_window = true;
+            }
+            WindowEvent::CloseRequested => {
+                return WindowCloseEvent::AboutToClose;
+            }
+            WindowEvent::Destroyed => {
+                return WindowCloseEvent::AboutToClose;
+            }
+            WindowEvent::KeyboardInput { .. }
+            | WindowEvent::ReceivedCharacter(_)
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::Touch(_) => {
+                frame_event_info.should_hittest = true;
+            }
+            _ => {}
         },
         Event::Awakened => {
             frame_event_info.should_swap_window = true;
             if awakened_task {
                 frame_event_info.should_redraw_window = true;
             }
-        },
-        _ => { },
+        }
+        _ => {}
     }
 
     WindowCloseEvent::NoCloseEvent
@@ -641,14 +656,18 @@ fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awaken
 
 /// Returns the currently hit-tested results, in back-to-front order
 fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
-
-    let cursor_location = window.state.mouse_state.cursor_pos.and_then(|pos| Some(WorldPoint::new(pos.x as f32, pos.y as f32)))?;
+    let cursor_location = window
+        .state
+        .mouse_state
+        .cursor_pos
+        .and_then(|pos| Some(WorldPoint::new(pos.x as f32, pos.y as f32)))?;
 
     let mut hit_test_results = window.internal.api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
         cursor_location,
-        HitTestFlags::FIND_ALL);
+        HitTestFlags::FIND_ALL,
+    );
 
     if hit_test_results.items.is_empty() {
         return None;
@@ -667,11 +686,11 @@ fn call_callbacks<T: Layout>(
     window_id: WindowId,
     info: &mut FrameEventInfo,
     ui_state_cache: &[UiState<T>],
-    app_state: &mut AppState<T>)
-{
+    app_state: &mut AppState<T>,
+) {
     use app_state::AppStateNoData;
-    use window::WindowEvent;
     use dom::UpdateScreen;
+    use window::WindowEvent;
     use window_state::{KeyboardState, MouseState};
 
     let hit_test_results = match hit_test_results {
@@ -681,7 +700,10 @@ fn call_callbacks<T: Layout>(
 
     let mut should_update_screen = UpdateScreen::DontRedraw;
 
-    let callbacks_filter_list = window.state.determine_callbacks(&hit_test_results, event, &ui_state_cache[window_id.id]);
+    let callbacks_filter_list =
+        window
+            .state
+            .determine_callbacks(&hit_test_results, event, &ui_state_cache[window_id.id]);
 
     // TODO: this should be refactored - currently very stateful and error-prone!
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
@@ -693,14 +715,19 @@ fn call_callbacks<T: Layout>(
         for (node_id, callback_results) in callbacks_filter_list.iter() {
             let hit_item = &callback_results.hit_test_item;
             for default_callback_id in callback_results.default_callbacks.values() {
-
                 let window_event = WindowEvent {
                     window: window_id.id,
                     hit_dom_node: *node_id,
                     ui_state: &ui_state_cache[window_id.id],
                     hit_test_result: &hit_test_results,
-                    cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
-                    cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
+                    cursor_relative_to_item: (
+                        hit_item.point_relative_to_item.x,
+                        hit_item.point_relative_to_item.y,
+                    ),
+                    cursor_in_viewport: (
+                        hit_item.point_in_viewport.x,
+                        hit_item.point_in_viewport.y,
+                    ),
                 };
 
                 let app_state_no_data = AppStateNoData {
@@ -709,7 +736,16 @@ fn call_callbacks<T: Layout>(
                 };
 
                 // safe unwrap, we have added the callback previously
-                if app_state.windows[window_id.id].default_callbacks.run_callback(&mut *lock, default_callback_id, app_state_no_data, window_event) == UpdateScreen::Redraw {
+                if app_state.windows[window_id.id]
+                    .default_callbacks
+                    .run_callback(
+                        &mut *lock,
+                        default_callback_id,
+                        app_state_no_data,
+                        window_event,
+                    )
+                    == UpdateScreen::Redraw
+                {
                     should_update_screen = UpdateScreen::Redraw;
                 }
             }
@@ -719,13 +755,15 @@ fn call_callbacks<T: Layout>(
     for (node_id, callback_results) in callbacks_filter_list.iter() {
         let hit_item = &callback_results.hit_test_item;
         for callback in callback_results.normal_callbacks.values() {
-
             let window_event = WindowEvent {
                 window: window_id.id,
                 hit_dom_node: *node_id,
                 ui_state: &ui_state_cache[window_id.id],
                 hit_test_result: &hit_test_results,
-                cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
+                cursor_relative_to_item: (
+                    hit_item.point_relative_to_item.x,
+                    hit_item.point_relative_to_item.y,
+                ),
                 cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
             };
 
@@ -749,20 +787,16 @@ fn render<T: Layout>(
     ui_state: &UiState<T>,
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
-    app_resources: &mut AppResources)
-{
+    app_resources: &mut AppResources,
+) {
     use display_list::DisplayList;
 
-    use webrender::api::{Transaction, DeviceIntRect, DeviceIntPoint};
+    use webrender::api::{DeviceIntPoint, DeviceIntRect, Transaction};
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
-    let (builder, scrolled_nodes) = display_list.into_display_list_builder(
-        app_data,
-        window,
-        fake_window,
-        app_resources,
-    );
+    let (builder, scrolled_nodes) =
+        display_list.into_display_list_builder(app_data, window, fake_window, app_resources);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     window.internal.last_display_list_builder = builder.finalize().2;
@@ -775,13 +809,21 @@ fn render<T: Layout>(
 
         // Send webrender the size and buffer of the display
         let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size);
-        txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor as f32);
+        txn.set_window_parameters(
+            framebuffer_size,
+            bounds,
+            window.state.size.hidpi_factor as f32,
+        );
 
         txn.set_display_list(
             window.internal.epoch,
             None,
             logical_size,
-            (window.internal.pipeline_id, logical_size, window.internal.last_display_list_builder.clone()),
+            (
+                window.internal.pipeline_id,
+                logical_size,
+                window.internal.last_display_list_builder.clone(),
+            ),
             true,
         );
 
@@ -792,7 +834,10 @@ fn render<T: Layout>(
     };
 
     window.internal.epoch = increase_epoch(window.internal.epoch);
-    window.internal.api.send_transaction(window.internal.document_id, webrender_transaction);
+    window
+        .internal
+        .api
+        .send_transaction(window.internal.document_id, webrender_transaction);
     window.renderer.as_mut().unwrap().update();
     render_inner(window, framebuffer_size);
 }
@@ -806,7 +851,11 @@ fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
     use webrender::api::ScrollClamping;
     for (key, value) in scroll_states.0.iter_mut() {
         let (x, y) = value.get();
-        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
+        txn.scroll_node_with_id(
+            LayoutPoint::new(x, y),
+            *key,
+            ScrollClamping::ToContentBounds,
+        );
     }
 }
 
@@ -827,9 +876,8 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 fn render_on_scroll<T: Layout>(
     window: &mut Window<T>,
     hit_test_results: Option<HitTestResult>,
-    frame_event_info: &FrameEventInfo)
-{
-
+    frame_event_info: &FrameEventInfo,
+) {
     const SCROLL_THRESHOLD: f64 = 0.5; // px
 
     let hit_test_results = match hit_test_results {
@@ -837,7 +885,7 @@ fn render_on_scroll<T: Layout>(
         None => match do_hit_test(&window) {
             Some(s) => s,
             None => return,
-        }
+        },
     };
 
     let scroll_x = window.state.mouse_state.scroll_x;
@@ -853,10 +901,16 @@ fn render_on_scroll<T: Layout>(
         let scrolled_nodes = &window.internal.last_scrolled_nodes;
         let scroll_states = &mut window.scroll_states;
 
-        for scroll_node in hit_test_results.items.iter()
-            .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag.0)))
-            .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id)) {
-
+        for scroll_node in hit_test_results
+            .items
+            .iter()
+            .filter_map(|item| {
+                scrolled_nodes
+                    .tags_to_node_ids
+                    .get(&ScrollTagId(item.tag.0))
+            })
+            .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id))
+        {
             // The external scroll ID is constructed from the DOM hash
             let scroll_id = scroll_node.parent_external_scroll_id;
 
@@ -876,7 +930,6 @@ fn render_on_scroll<T: Layout>(
 }
 
 fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
-
     use webrender::api::*;
 
     let mut txn = Transaction::new();
@@ -885,7 +938,10 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
 
     txn.generate_frame();
 
-    window.internal.api.send_transaction(window.internal.document_id, txn);
+    window
+        .internal
+        .api
+        .send_transaction(window.internal.document_id, txn);
     window.renderer.as_mut().unwrap().update();
 
     let (_, physical_size) = convert_window_size(&window.state.size);
@@ -893,7 +949,6 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
-
     use compositor::ACTIVE_GL_TEXTURES;
 
     // TODO: currently active epochs can be empty, why?
@@ -939,7 +994,6 @@ fn increase_epoch(old: Epoch) -> Epoch {
 //
 // For some reason, webrender allows rendering negative width / height, although that doesn't make sense
 fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: DeviceIntSize) {
-
     use gleam::gl;
     use window::get_gl_context;
 
@@ -947,7 +1001,18 @@ fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: DeviceIntSi
     // unsafe { window.display.gl_window().make_current().unwrap(); }
 
     let mut current_program = [0_i32];
-    unsafe { get_gl_context(&window.display).unwrap().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
-    window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
-    get_gl_context(&window.display).unwrap().use_program(current_program[0] as u32);
+    unsafe {
+        get_gl_context(&window.display)
+            .unwrap()
+            .get_integer_v(gl::CURRENT_PROGRAM, &mut current_program)
+    };
+    window
+        .renderer
+        .as_mut()
+        .unwrap()
+        .render(framebuffer_size)
+        .unwrap();
+    get_gl_context(&window.display)
+        .unwrap()
+        .use_program(current_program[0] as u32);
 }

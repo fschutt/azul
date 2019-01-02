@@ -3,8 +3,13 @@
 use app_state::AppStateNoData;
 use window::WindowEvent;
 
-pub type DefaultCallbackType<T, U> = fn(&mut U, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent<T>) -> UpdateScreen;
-pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent<T>) -> UpdateScreen;
+pub type DefaultCallbackType<T, U> =
+    fn(&mut U, app_state_no_data: AppStateNoData<T>, window_event: WindowEvent<T>) -> UpdateScreen;
+pub type DefaultCallbackTypeUnchecked<T> = fn(
+    &StackCheckedPointer<T>,
+    app_state_no_data: AppStateNoData<T>,
+    window_event: WindowEvent<T>,
+) -> UpdateScreen;
 
 mod stack_checked_pointer {
 
@@ -14,11 +19,11 @@ mod stack_checked_pointer {
         marker::PhantomData,
     };
     use {
-        traits::Layout,
-        dom::{UpdateScreen, Dom, Texture},
-        default_callbacks::DefaultCallbackType,
         app_state::AppStateNoData,
-        window::{WindowEvent, WindowInfo, HidpiAdjustedBounds},
+        default_callbacks::DefaultCallbackType,
+        dom::{Dom, Texture, UpdateScreen},
+        traits::Layout,
+        window::{HidpiAdjustedBounds, WindowEvent, WindowInfo},
     };
 
     /// A `StackCheckedPointer` is a type-erased, non-boxed pointer to a
@@ -38,7 +43,6 @@ mod stack_checked_pointer {
     }
 
     impl<T: Layout> StackCheckedPointer<T> {
-
         /// Validates that the pointer to U is contained in T.
         ///
         /// This means that the lifetime of U is the same lifetime as T -
@@ -68,20 +72,22 @@ mod stack_checked_pointer {
             &self,
             callback: DefaultCallbackType<T, U>,
             app_state_no_data: AppStateNoData<T>,
-            window_event: WindowEvent<T>)
-        -> UpdateScreen
-        {
+            window_event: WindowEvent<T>,
+        ) -> UpdateScreen {
             // VERY UNSAFE, TRIPLE-CHECK FOR UNDEFINED BEHAVIOUR
-            callback(&mut *(self.internal as *mut U), app_state_no_data, window_event)
+            callback(
+                &mut *(self.internal as *mut U),
+                app_state_no_data,
+                window_event,
+            )
         }
 
         pub unsafe fn invoke_mut_iframe<U: Sized>(
             &self,
             callback: fn(&mut U, WindowInfo<T>, HidpiAdjustedBounds) -> Dom<T>,
             window_info: WindowInfo<T>,
-            dimensions: HidpiAdjustedBounds)
-        -> Dom<T>
-        {
+            dimensions: HidpiAdjustedBounds,
+        ) -> Dom<T> {
             callback(&mut *(self.internal as *mut U), window_info, dimensions)
         }
 
@@ -89,9 +95,8 @@ mod stack_checked_pointer {
             &self,
             callback: fn(&mut U, WindowInfo<T>, HidpiAdjustedBounds) -> Option<Texture>,
             window_info: WindowInfo<T>,
-            dimensions: HidpiAdjustedBounds)
-        -> Option<Texture>
-        {
+            dimensions: HidpiAdjustedBounds,
+        ) -> Option<Texture> {
             callback(&mut *(self.internal as *mut U), window_info, dimensions)
         }
     }
@@ -100,31 +105,40 @@ mod stack_checked_pointer {
 
     impl<T: Layout> fmt::Debug for StackCheckedPointer<T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "StackCheckedPointer {{ internal: 0x{:x}, marker: {:?} }}", self.internal as usize, self.marker)
+            write!(
+                f,
+                "StackCheckedPointer {{ internal: 0x{:x}, marker: {:?} }}",
+                self.internal as usize, self.marker
+            )
         }
     }
 
     impl<T: Layout> Clone for StackCheckedPointer<T> {
         fn clone(&self) -> Self {
-            StackCheckedPointer { internal: self.internal, marker: self.marker.clone() }
+            StackCheckedPointer {
+                internal: self.internal,
+                marker: self.marker.clone(),
+            }
         }
     }
 
     impl<T: Layout> Hash for StackCheckedPointer<T> {
-      fn hash<H>(&self, state: &mut H) where H: Hasher {
-        state.write_usize(self.internal as usize);
-      }
+        fn hash<H>(&self, state: &mut H)
+        where
+            H: Hasher,
+        {
+            state.write_usize(self.internal as usize);
+        }
     }
 
     impl<T: Layout> PartialEq for StackCheckedPointer<T> {
-      fn eq(&self, rhs: &Self) -> bool {
-        self.internal as usize == rhs.internal as usize
-      }
+        fn eq(&self, rhs: &Self) -> bool {
+            self.internal as usize == rhs.internal as usize
+        }
     }
 
-    impl<T: Layout> Eq for StackCheckedPointer<T> { }
-    impl<T: Layout> Copy for StackCheckedPointer<T> { }
-
+    impl<T: Layout> Eq for StackCheckedPointer<T> {}
+    impl<T: Layout> Copy for StackCheckedPointer<T> {}
 
     /// Returns true if U is a type inside of T
     ///
@@ -142,7 +156,6 @@ mod stack_checked_pointer {
     /// assert_eq!(is_subtype_of(&data, &data.p[0]), false);
     /// ```
     fn is_subtype_of<T, U>(data: &T, subtype: &U) -> bool {
-
         // determine in which direction the stack grows
         use std::mem::size_of;
 
@@ -168,8 +181,10 @@ mod stack_checked_pointer {
 
     #[test]
     fn test_reflection_subtyping() {
-
-        struct Data { i: usize, p: Vec<usize> }
+        struct Data {
+            i: usize,
+            p: Vec<usize>,
+        }
         let data = Data { i: 5, p: vec![5] };
 
         assert_eq!(is_subtype_of(&data, &data.i), true);
@@ -178,7 +193,6 @@ mod stack_checked_pointer {
     }
 }
 
-
 pub use self::stack_checked_pointer::StackCheckedPointer;
 use std::{
     collections::BTreeMap,
@@ -186,10 +200,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
 };
-use {
-    dom::{UpdateScreen},
-    traits::Layout,
-};
+use {dom::UpdateScreen, traits::Layout};
 
 static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -217,7 +228,10 @@ impl<T: Layout> Clone for DefaultCallback<T> {
 }
 
 impl<T: Layout> Hash for DefaultCallback<T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         state.write_usize(self.0 as usize);
     }
 }
@@ -228,16 +242,15 @@ impl<T: Layout> PartialEq for DefaultCallback<T> {
     }
 }
 
-impl<T: Layout> Eq for DefaultCallback<T> { }
+impl<T: Layout> Eq for DefaultCallback<T> {}
 
-impl<T: Layout> Copy for DefaultCallback<T> { }
+impl<T: Layout> Copy for DefaultCallback<T> {}
 
 pub(crate) struct DefaultCallbackSystem<T: Layout> {
     callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
 }
 
 impl<T: Layout> DefaultCallbackSystem<T> {
-
     /// Creates a new, empty list of callbacks
     pub(crate) fn new() -> Self {
         Self {
@@ -249,8 +262,8 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         &mut self,
         callback_id: DefaultCallbackId,
         ptr: StackCheckedPointer<T>,
-        func: DefaultCallback<T>)
-    {
+        func: DefaultCallback<T>,
+    ) {
         self.callbacks.insert(callback_id, (ptr, func));
     }
 
@@ -264,13 +277,13 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         _app_data: &mut T,
         callback_id: &DefaultCallbackId,
         app_state_no_data: AppStateNoData<T>,
-        window_event: WindowEvent<T>)
-    -> UpdateScreen
-    {
+        window_event: WindowEvent<T>,
+    ) -> UpdateScreen {
         if let Some((callback_ptr, callback_fn)) = self.callbacks.get(callback_id) {
             (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
         } else {
-            #[cfg(feature = "logging")] {
+            #[cfg(feature = "logging")]
+            {
                 warn!("Calling default callback with invalid ID {:?}", callback_id);
             }
             UpdateScreen::DontRedraw

@@ -3,43 +3,36 @@
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
-    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
 )]
-
 #![deny(unused_must_use)]
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
 #![allow(unused_variables)]
 
 extern crate azul_css;
-extern crate simplecss;
 #[cfg(feature = "serde_serialization")]
 extern crate serde;
+extern crate simplecss;
 
 #[macro_use]
 mod macros;
 
-mod css_parser;
 mod css;
+mod css_parser;
 mod hot_reloader;
 
-pub use css::{
-    new_from_str,
-    CssParseError,
-};
+pub use css::{new_from_str, CssParseError};
 
 pub use css_parser::*;
 
-pub use hot_reloader::{
-    HotReloader,
-};
-
+pub use hot_reloader::HotReloader;
 
 pub use css_color::CssColor;
 
 pub mod css_color {
 
-    use azul_css::{ColorU, ColorF};
+    use azul_css::{ColorF, ColorU};
     use css_parser::{parse_css_color, CssColorParseError};
 
     /// CssColor is simply a wrapper around the internal CSS color parsing methods.
@@ -56,9 +49,7 @@ pub mod css_color {
         /// Can parse a CSS color with or without prefixed hash or capitalization, i.e. `#aabbcc`
         pub fn from_str<'a>(input: &'a str) -> Result<Self, CssColorParseError<'a>> {
             let color = parse_css_color(input)?;
-            Ok(Self {
-                internal: color,
-            })
+            Ok(Self { internal: color })
         }
 
         /// Returns the internal parsed color, but in a `0.0 - 1.0` range instead of `0 - 255`
@@ -76,8 +67,15 @@ pub mod css_color {
         /// If `self.alpha` is `FF`, it will be omitted from the final result (since `FF` is the default for CSS colors)
         pub fn to_string(&self, prefix_hash: bool) -> String {
             let prefix = if prefix_hash { "#" } else { "" };
-            let alpha = if self.internal.a == 255 { String::new() } else { format!("{:02x}", self.internal.a) };
-            format!("{}{:02x}{:02x}{:02x}{}", prefix, self.internal.r, self.internal.g, self.internal.b, alpha)
+            let alpha = if self.internal.a == 255 {
+                String::new()
+            } else {
+                format!("{:02x}", self.internal.a)
+            };
+            format!(
+                "{}{:02x}{:02x}{:02x}{}",
+                prefix, self.internal.r, self.internal.g, self.internal.b, alpha
+            )
         }
     }
 
@@ -89,7 +87,9 @@ pub mod css_color {
 
     impl From<ColorF> for CssColor {
         fn from(color: ColorF) -> Self {
-            CssColor { internal: color.into() }
+            CssColor {
+                internal: color.into(),
+            }
         }
     }
 
@@ -112,12 +112,13 @@ pub mod css_color {
     }
 
     #[cfg(feature = "serde_serialization")]
-    use serde::{de, Serialize, Deserialize, Serializer, Deserializer};
+    use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
     #[cfg(feature = "serde_serialization")]
     impl Serialize for CssColor {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer,
+        where
+            S: Serializer,
         {
             let prefix_css_color_with_hash = true;
             serializer.serialize_str(&self.to_string(prefix_css_color_with_hash))
@@ -127,7 +128,8 @@ pub mod css_color {
     #[cfg(feature = "serde_serialization")]
     impl<'de> Deserialize<'de> for CssColor {
         fn deserialize<D>(deserializer: D) -> Result<CssColor, D::Error>
-        where D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
         {
             let s = String::deserialize(deserializer)?;
             CssColor::from_str(&s).map_err(de::Error::custom)

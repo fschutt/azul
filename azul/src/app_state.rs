@@ -1,26 +1,26 @@
-use std::{
-    io::Read,
-    collections::hash_map::Entry::*,
-    sync::{Arc, Mutex},
-    rc::Rc,
-};
+use azul_css::{FontId, PixelValue, StyleFontSize, StyleLetterSpacing};
 #[cfg(feature = "image_loading")]
 use image::ImageError;
 #[cfg(feature = "image_loading")]
 use images::ImageType;
 use rusttype::Font;
-use azul_css::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing};
+use std::{
+    collections::hash_map::Entry::*,
+    io::Read,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 use {
-    FastHashMap,
-    text_cache::TextId,
-    window::FakeWindow,
-    task::Task,
-    dom::UpdateScreen,
-    traits::Layout,
     app_resources::AppResources,
-    font::FontError,
-    error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
+    dom::UpdateScreen,
+    error::ClipboardError,
+    font::FontError,
+    task::Task,
+    text_cache::TextId,
+    traits::Layout,
+    window::FakeWindow,
+    FastHashMap,
 };
 
 /// Wrapper for your application data, stores the data, windows and resources, as
@@ -77,11 +77,10 @@ pub struct AppStateNoData<'a, T: 'a + Layout> {
     /// See [`AppState.windows`](./struct.AppState.html#structfield.windows)
     pub windows: &'a Vec<FakeWindow<T>>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
-    pub resources : &'a mut AppResources,
+    pub resources: &'a mut AppResources,
 }
 
 impl<T: Layout> AppState<T> {
-
     /// Creates a new `AppState`
     pub fn new(initial_data: T) -> Self {
         Self {
@@ -116,25 +115,24 @@ impl<T: Layout> AppState<T> {
     /// [`ImageType::GuessImageFormat`]: ../prelude/enum.ImageType.html#variant.GuessImageFormat
     ///
     #[cfg(feature = "image_loading")]
-    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
-        -> Result<Option<()>, ImageError>
-    {
+    pub fn add_image<S: Into<String>, R: Read>(
+        &mut self,
+        id: S,
+        data: &mut R,
+        image_type: ImageType,
+    ) -> Result<Option<()>, ImageError> {
         self.resources.add_image(id, data, image_type)
     }
 
     /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S)
-        -> bool
-    {
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S) -> bool {
         self.resources.has_image(id)
     }
 
     /// Removes an image from the internal app resources.
     /// Returns `Some` if the image existed and was removed.
     /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
-        -> Option<()>
-    {
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) -> Option<()> {
         self.resources.delete_image(id)
     }
 
@@ -178,16 +176,12 @@ impl<T: Layout> AppState<T> {
     ///     UpdateScreen::DontRedraw
     /// }
     /// ```
-    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
-        -> Result<Option<()>, FontError>
-    {
+    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R) -> Result<Option<()>, FontError> {
         self.resources.add_font(id, data)
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font(&self, id: &FontId)
-        -> bool
-    {
+    pub fn has_font(&self, id: &FontId) -> bool {
         self.resources.has_font(id)
     }
 
@@ -215,9 +209,7 @@ impl<T: Layout> AppState<T> {
     /// You can also call this function on an `App` struct, see [`App::add_font`].
     ///
     /// [`App::add_font`]: ../app/struct.App.html#method.add_font
-    pub fn delete_font(&mut self, id: &FontId)
-        -> Option<()>
-    {
+    pub fn delete_font(&mut self, id: &FontId) -> Option<()> {
         self.resources.delete_font(id)
     }
 
@@ -227,24 +219,27 @@ impl<T: Layout> AppState<T> {
     pub fn add_daemon(&mut self, daemon: Daemon<T>) -> bool {
         match self.daemons.entry(daemon.id) {
             Occupied(_) => false,
-            Vacant(v) => { v.insert(daemon); true },
+            Vacant(v) => {
+                v.insert(daemon);
+                true
+            }
         }
     }
 
     /// Run all currently registered daemons
     #[must_use]
-    pub(crate) fn run_all_daemons(&mut self)
-    -> UpdateScreen
-    {
+    pub(crate) fn run_all_daemons(&mut self) -> UpdateScreen {
         let mut should_update_screen = UpdateScreen::DontRedraw;
         let mut lock = self.data.lock().unwrap();
         let mut daemons_to_terminate = Vec::new();
 
         for (key, daemon) in self.daemons.iter_mut() {
-            let (should_update, should_terminate) = daemon.invoke_callback_with_data(&mut lock, &mut self.resources);
+            let (should_update, should_terminate) =
+                daemon.invoke_callback_with_data(&mut lock, &mut self.resources);
 
-            if should_update == UpdateScreen::Redraw &&
-               should_update_screen == UpdateScreen::DontRedraw {
+            if should_update == UpdateScreen::Redraw
+                && should_update_screen == UpdateScreen::DontRedraw
+            {
                 should_update_screen = UpdateScreen::Redraw;
             }
 
@@ -262,9 +257,7 @@ impl<T: Layout> AppState<T> {
 
     /// Remove all tasks that have finished executing
     #[must_use]
-    pub(crate) fn clean_up_finished_tasks(&mut self)
-    -> UpdateScreen
-    {
+    pub(crate) fn clean_up_finished_tasks(&mut self) -> UpdateScreen {
         let old_count = self.tasks.len();
         let mut daemons_to_add = Vec::new();
         self.tasks.retain(|task| {
@@ -291,17 +284,20 @@ impl<T: Layout> AppState<T> {
         }
     }
 
-    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
-    -> TextId
-    {
+    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S) -> TextId {
         self.resources.add_text_uncached(text)
     }
 
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>)
-    -> TextId
-    {
+    pub fn add_text_cached<S: Into<String>>(
+        &mut self,
+        text: S,
+        font_id: &FontId,
+        font_size: PixelValue,
+        letter_spacing: Option<StyleLetterSpacing>,
+    ) -> TextId {
         let font_size = StyleFontSize(font_size);
-        self.resources.add_text_cached(text, font_id, font_size, letter_spacing)
+        self.resources
+            .add_text_cached(text, font_id, font_size, letter_spacing)
     }
 
     pub fn delete_text(&mut self, id: TextId) {
@@ -313,16 +309,12 @@ impl<T: Layout> AppState<T> {
     }
 
     /// Get the contents of the system clipboard as a string
-    pub fn get_clipboard_string(&mut self)
-    -> Result<String, ClipboardError>
-    {
+    pub fn get_clipboard_string(&mut self) -> Result<String, ClipboardError> {
         self.resources.get_clipboard_string()
     }
 
     /// Set the contents of the system clipboard as a string
-    pub fn set_clipboard_string(&mut self, contents: String)
-    -> Result<(), ClipboardError>
-    {
+    pub fn set_clipboard_string(&mut self, contents: String) -> Result<(), ClipboardError> {
         self.resources.set_clipboard_string(contents)
     }
 
@@ -341,8 +333,8 @@ impl<T: Layout> AppState<T> {
         &mut self,
         data: &Arc<Mutex<U>>,
         callback: fn(Arc<Mutex<U>>, Arc<()>),
-        after_completion_deamons: &[Daemon<T>])
-    {
+        after_completion_deamons: &[Daemon<T>],
+    ) {
         let task = Task::new(data, callback).then(after_completion_deamons);
         self.tasks.push(task);
     }
@@ -353,8 +345,8 @@ impl<T: Layout + Send + 'static> AppState<T> {
     pub fn add_task(
         &mut self,
         callback: fn(Arc<Mutex<T>>, Arc<()>),
-        after_completion_deamons: &[Daemon<T>])
-    {
+        after_completion_deamons: &[Daemon<T>],
+    ) {
         let task = Task::new(&self.data, callback).then(after_completion_deamons);
         self.tasks.push(task);
     }

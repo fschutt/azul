@@ -6,21 +6,21 @@ use azul_css::Css;
 extern crate azul_css_parser;
 
 /// CSS mimicking the OS-native look - Windows: `styles/native_windows.css`
-#[cfg(target_os="windows")]
+#[cfg(target_os = "windows")]
 pub const NATIVE_CSS: &str = concat!(
     include_str!("styles/native_windows.css"),
     include_str!("styles/shared/table.css"),
 );
 
 /// CSS mimicking the OS-native look - Linux: `styles/native_linux.css`
-#[cfg(target_os="linux")]
+#[cfg(target_os = "linux")]
 pub const NATIVE_CSS: &str = concat!(
     include_str!("styles/native_linux.css"),
     include_str!("styles/shared/table.css"),
 );
 
 /// CSS mimicking the OS-native look - Mac: `styles/native_macos.css`
-#[cfg(target_os="macos")]
+#[cfg(target_os = "macos")]
 pub const NATIVE_CSS: &str = concat!(
     include_str!("styles/native_macos.css"),
     include_str!("styles/shared/table.css"),

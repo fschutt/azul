@@ -1,7 +1,7 @@
 use {
-    traits::Layout,
     dom::{Dom, NodeType},
     images::ImageId,
+    traits::Layout,
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -17,24 +17,24 @@ pub enum ButtonContent {
 }
 
 impl Button {
-    pub fn with_label<S>(text: S)
-    -> Self where S: Into<String>
+    pub fn with_label<S>(text: S) -> Self
+    where
+        S: Into<String>,
     {
         Self {
             content: ButtonContent::Text(text.into()),
         }
     }
 
-    pub fn with_image(image: ImageId)
-    -> Self
-    {
+    pub fn with_image(image: ImageId) -> Self {
         Self {
             content: ButtonContent::Image(image),
         }
     }
 
-    pub fn dom<T>(self)
-    -> Dom<T> where T: Layout
+    pub fn dom<T>(self) -> Dom<T>
+    where
+        T: Layout,
     {
         use self::ButtonContent::*;
         let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");

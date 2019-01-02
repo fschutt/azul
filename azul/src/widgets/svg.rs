@@ -1,50 +1,52 @@
-use std::{
-    fmt,
-    rc::Rc,
-    sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}},
-    cell::{RefCell, RefMut},
-    collections::hash_map::Entry::*,
-};
-#[cfg(feature = "svg_parsing")]
-use std::io::{Error as IoError};
+use azul_css::ColorU;
+use azul_css::{FontId, StyleFontSize};
 use glium::{
-    backend::Facade, index::PrimitiveType,
-    DrawParameters, IndexBuffer, VertexBuffer,
-    Program, Api, Surface,
+    backend::Facade, index::PrimitiveType, Api, DrawParameters, IndexBuffer, Program, Surface,
+    VertexBuffer,
 };
 use lyon::{
-    tessellation::{
-        FillOptions, BuffersBuilder, FillVertex, FillTessellator,
-        LineCap, LineJoin, StrokeTessellator, StrokeOptions, StrokeVertex,
-        basic_shapes::{
-            fill_circle, stroke_circle, fill_rounded_rectangle,
-            stroke_rounded_rectangle, BorderRadii
-        },
-    },
+    geom::euclid::{TypedPoint2D, TypedRect, TypedSize2D, TypedVector2D, UnknownUnit},
     path::{
+        builder::{FlatPathBuilder, PathBuilder},
         default::{Builder, Path},
-        builder::{PathBuilder, FlatPathBuilder},
     },
-    geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D, UnknownUnit},
+    tessellation::{
+        basic_shapes::{
+            fill_circle, fill_rounded_rectangle, stroke_circle, stroke_rounded_rectangle,
+            BorderRadii,
+        },
+        BuffersBuilder, FillOptions, FillTessellator, FillVertex, LineCap, LineJoin, StrokeOptions,
+        StrokeTessellator, StrokeVertex,
+    },
+};
+use rusttype::{Font, Glyph};
+#[cfg(feature = "svg_parsing")]
+use std::io::Error as IoError;
+use std::{
+    cell::{RefCell, RefMut},
+    collections::hash_map::Entry::*,
+    fmt,
+    rc::Rc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 #[cfg(feature = "svg_parsing")]
-use usvg::{Error as SvgError};
+use usvg::Error as SvgError;
 use webrender::api::{ColorF, GlyphInstance};
-use azul_css::ColorU;
-use rusttype::{Font, Glyph};
-use azul_css::{FontId, StyleFontSize};
 use {
-    FastHashMap,
-    dom::Texture,
-    window::ReadOnlyWindow,
     app_resources::AppResources,
-    text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
+    dom::Texture,
+    text_layout::{layout_text, FontMetrics, LayoutTextResult, TextLayoutOptions},
+    window::ReadOnlyWindow,
+    FastHashMap,
 };
 
+pub use lyon::geom::math::Point;
+pub use lyon::path::PathEvent;
 pub use lyon::tessellation::VertexBuffers;
 pub use rusttype::GlyphId;
-pub use lyon::path::PathEvent;
-pub use lyon::geom::math::Point;
 
 static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
@@ -158,7 +160,6 @@ impl SvgShader {
             // Important: Disable automatic gl::GL_FRAMEBUFFER_SRGB -
             // webrender expects SRGB textures and will handle this conversion for us
             // See https://github.com/servo/webrender/issues/3262
-
             outputs_srgb: true,
             uses_point_size: false,
         };
@@ -173,8 +174,10 @@ pub struct SvgCache {
     // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
     gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
     stroke_gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
-    stroke_vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
+    vertex_index_buffer_cache:
+        RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
+    stroke_vertex_index_buffer_cache:
+        RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
     shader: Mutex<Option<SvgShader>>,
 }
 
@@ -194,26 +197,26 @@ fn fill_vertex_buffer_cache<'a, F: Facade>(
     id: &SvgLayerId,
     mut rmut: RefMut<'a, FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
     rnotmut: &FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    window: &F)
-{
+    window: &F,
+) {
     use std::collections::hash_map::Entry::*;
 
     match rmut.entry(*id) {
-        Occupied(_) => { },
+        Occupied(_) => {}
         Vacant(v) => {
             let (vbuf, ibuf) = match rnotmut.get(id).as_ref() {
                 Some(s) => s,
                 None => return,
             };
             let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
-            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
+            let index_buffer =
+                IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
             v.insert(Rc::new((vertex_buffer, index_buffer)));
         }
     }
 }
 
 impl SvgCache {
-
     /// Creates an empty SVG cache
     pub fn empty() -> Self {
         Self::default()
@@ -228,26 +231,32 @@ impl SvgCache {
         shader_lock.as_ref().and_then(|s| Some(s.clone())).unwrap()
     }
 
-    fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
-    {
-
+    fn get_stroke_vertices_and_indices<'a, F: Facade>(
+        &'a self,
+        window: &F,
+        id: &SvgLayerId,
+    ) -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>> {
         {
             let rmut = self.stroke_vertex_index_buffer_cache.borrow_mut();
             let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
             fill_vertex_buffer_cache(id, rmut, rnotmut, window);
         }
 
-        self.stroke_vertex_index_buffer_cache.borrow().get(id).and_then(|x| Some(x.clone()))
+        self.stroke_vertex_index_buffer_cache
+            .borrow()
+            .get(id)
+            .and_then(|x| Some(x.clone()))
     }
 
     /// Note: panics if the ID isn't found.
     ///
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
     /// in sync, a panic should never happen
-    fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
-    {
+    fn get_vertices_and_indices<'a, F: Facade>(
+        &'a self,
+        window: &F,
+        id: &SvgLayerId,
+    ) -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>> {
         // We need the SvgCache to call this function immutably, otherwise we can't
         // use it from the Layout::layout() function
         {
@@ -257,21 +266,29 @@ impl SvgCache {
             fill_vertex_buffer_cache(id, rmut, rnotmut, window);
         }
 
-        self.vertex_index_buffer_cache.borrow().get(id).and_then(|x| Some(x.clone()))
+        self.vertex_index_buffer_cache
+            .borrow()
+            .get(id)
+            .and_then(|x| Some(x.clone()))
     }
 
     pub fn add_layer(&mut self, layer: SvgLayerResourceDirect) -> (SvgLayerId, SvgStyle) {
-
-        let SvgLayerResourceDirect { style, stroke, fill } = layer;
+        let SvgLayerResourceDirect {
+            style,
+            stroke,
+            fill,
+        } = layer;
 
         let new_svg_id = new_svg_layer_id();
 
         if let Some(fill) = fill {
-            self.gpu_ready_to_upload_cache.insert(new_svg_id, (fill.vertices, fill.indices));
+            self.gpu_ready_to_upload_cache
+                .insert(new_svg_id, (fill.vertices, fill.indices));
         }
 
         if let Some(stroke) = stroke {
-            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, (stroke.vertices, stroke.indices));
+            self.stroke_gpu_ready_to_upload_cache
+                .insert(new_svg_id, (stroke.vertices, stroke.indices));
         }
 
         (new_svg_id, style)
@@ -300,7 +317,10 @@ impl SvgCache {
     /// Parses an input source, parses the SVG, adds the shapes as layers into
     /// the registry, returns the IDs of the added shapes, in the order that they appeared in the Svg
     #[cfg(feature = "svg_parsing")]
-    pub fn add_svg<S: AsRef<str>>(&mut self, input: S) -> Result<Vec<(SvgLayerId, SvgStyle)>, SvgParseError> {
+    pub fn add_svg<S: AsRef<str>>(
+        &mut self,
+        input: S,
+    ) -> Result<Vec<(SvgLayerId, SvgStyle)>, SvgParseError> {
         let layers = self::svg_to_lyon::parse_from(input)?;
         Ok(layers
             .into_iter()
@@ -322,8 +342,10 @@ impl fmt::Debug for SvgCache {
 const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
 /// Returns the (fill, stroke) vertices of a layer
-pub fn tesselate_polygon_data(layer_data: &[SvgLayerType], style: SvgStyle)
--> SvgLayerResourceDirect // (Option<(Vec<SvgVert>, Vec<u32>)>, Option<(Vec<SvgVert>, Vec<u32>)>)
+pub fn tesselate_polygon_data(
+    layer_data: &[SvgLayerType],
+    style: SvgStyle,
+) -> SvgLayerResourceDirect // (Option<(Vec<SvgVert>, Vec<u32>)>, Option<(Vec<SvgVert>, Vec<u32>)>)
 {
     let tolerance = 0.01;
     let fill = style.fill.is_some();
@@ -338,7 +360,6 @@ pub fn tesselate_polygon_data(layer_data: &[SvgLayerType], style: SvgStyle)
     let mut stroke_index_buf = Vec::<u32>::new();
 
     for layer in layer_data {
-
         let mut path = None;
 
         if fill {
@@ -351,10 +372,15 @@ pub fn tesselate_polygon_data(layer_data: &[SvgLayerType], style: SvgStyle)
         }
 
         if let Some(stroke_options) = &stroke_options {
-            let VertexBuffers { vertices, indices } = layer.tesselate_stroke(tolerance, &mut path, *stroke_options);
+            let VertexBuffers { vertices, indices } =
+                layer.tesselate_stroke(tolerance, &mut path, *stroke_options);
             let stroke_vertices_len = vertices.len();
             stroke_vertex_buf.extend(vertices.into_iter());
-            stroke_index_buf.extend(indices.into_iter().map(|i| i as u32 + last_stroke_index as u32));
+            stroke_index_buf.extend(
+                indices
+                    .into_iter()
+                    .map(|i| i as u32 + last_stroke_index as u32),
+            );
             stroke_index_buf.push(GL_RESTART_INDEX);
             last_stroke_index += stroke_vertices_len;
         }
@@ -365,14 +391,18 @@ pub fn tesselate_polygon_data(layer_data: &[SvgLayerType], style: SvgStyle)
             vertices: fill_vertex_buf,
             indices: fill_index_buf,
         })
-    } else { None };
+    } else {
+        None
+    };
 
     let stroke_verts = if stroke_options.is_some() {
         Some(VerticesIndicesBuffer {
             vertices: stroke_vertex_buf,
             indices: stroke_index_buf,
         })
-    } else { None };
+    } else {
+        None
+    };
 
     SvgLayerResourceDirect {
         style,
@@ -389,7 +419,10 @@ pub fn quick_circle(circle: SvgCircle, fill_color: ColorU) -> SvgLayerResourceDi
 
 /// Quick helper function to generate the layer for **multiple** circles (in one draw call)
 pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResourceDirect {
-    let circles = circles.iter().map(|c| SvgLayerType::Circle(*c)).collect::<Vec<_>>();
+    let circles = circles
+        .iter()
+        .map(|c| SvgLayerType::Circle(*c))
+        .collect::<Vec<_>>();
     let style = SvgStyle::filled(fill_color);
     tesselate_polygon_data(&circles, style)
 }
@@ -402,38 +435,50 @@ pub fn quick_circles(circles: &[SvgCircle], fill_color: ColorU) -> SvgLayerResou
 ///    Lines that are shorter than 2 points are ignored / not rendered.
 /// - `stroke_color`: The color of the line
 /// - `stroke_options`: If the line should be round, square, etc.
-pub fn quick_lines(lines: &[Vec<(f32, f32)>], stroke_color: ColorU, stroke_options: Option<SvgStrokeOptions>)
--> SvgLayerResourceDirect
-{
+pub fn quick_lines(
+    lines: &[Vec<(f32, f32)>],
+    stroke_color: ColorU,
+    stroke_options: Option<SvgStrokeOptions>,
+) -> SvgLayerResourceDirect {
     let stroke_options = stroke_options.unwrap_or_default();
     let style = SvgStyle::stroked(stroke_color, stroke_options);
 
-    let polygons = lines.iter()
+    let polygons = lines
+        .iter()
         .filter(|line| line.len() >= 2)
         .map(|line| {
-
             let first_point = &line[0];
-            let mut poly_events = vec![PathEvent::MoveTo(TypedPoint2D::new(first_point.0, first_point.1))];
+            let mut poly_events = vec![PathEvent::MoveTo(TypedPoint2D::new(
+                first_point.0,
+                first_point.1,
+            ))];
 
             for (x, y) in line.iter().skip(1) {
                 poly_events.push(PathEvent::LineTo(TypedPoint2D::new(*x, *y)));
             }
 
             SvgLayerType::Polygon(poly_events)
-        }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
 
     tesselate_polygon_data(&polygons, style)
 }
 
-pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: Option<ColorU>, stroke_options: Option<SvgStrokeOptions>)
--> SvgLayerResourceDirect
-{
+pub fn quick_rects(
+    rects: &[SvgRect],
+    stroke_color: Option<ColorU>,
+    fill_color: Option<ColorU>,
+    stroke_options: Option<SvgStrokeOptions>,
+) -> SvgLayerResourceDirect {
     let style = SvgStyle {
         stroke: stroke_color.and_then(|col| Some((col, stroke_options.unwrap_or_default()))),
         fill: fill_color,
-        .. Default::default()
+        ..Default::default()
     };
-    let rects = rects.iter().map(|r| SvgLayerType::Rect(*r)).collect::<Vec<_>>();
+    let rects = rects
+        .iter()
+        .map(|r| SvgLayerType::Rect(*r))
+        .collect::<Vec<_>>();
     tesselate_polygon_data(&rects, style)
 }
 
@@ -468,11 +513,11 @@ type ArcLength = f32;
 #[derive(Debug, Copy, Clone)]
 pub struct SampledBezierCurve {
     /// Copy of the original curve which the SampledBezierCurve was created from
-    original_curve: [BezierControlPoint;4],
+    original_curve: [BezierControlPoint; 4],
     /// Total length of the arc of the curve (from 0.0 to 1.0)
     arc_length: f32,
     /// Stores the x and y position of the sampled bezier points
-    sampled_bezier_points: [BezierControlPoint;BEZIER_SAMPLE_RATE + 1],
+    sampled_bezier_points: [BezierControlPoint; BEZIER_SAMPLE_RATE + 1],
     /// Each index is the bezier value * 0.1, i.e. index 1 = 0.1,
     /// index 2 = 0.2 and so on.
     ///
@@ -486,15 +531,14 @@ pub struct SampledBezierCurve {
 pub struct BezierCharacterRotation(pub f32);
 
 impl SampledBezierCurve {
-
     /// Roughly estimate the length of a bezier curve arc using 10 samples
-    pub fn from_curve(curve: &[BezierControlPoint;4]) -> Self {
-
+    pub fn from_curve(curve: &[BezierControlPoint; 4]) -> Self {
         let mut sampled_bezier_points = [curve[0]; BEZIER_SAMPLE_RATE + 1];
         let mut arc_length_parametrization = [0.0; BEZIER_SAMPLE_RATE + 1];
 
         for i in 1..(BEZIER_SAMPLE_RATE + 1) {
-            sampled_bezier_points[i] = cubic_interpolate_bezier(curve, i as f32 / BEZIER_SAMPLE_RATE as f32);
+            sampled_bezier_points[i] =
+                cubic_interpolate_bezier(curve, i as f32 / BEZIER_SAMPLE_RATE as f32);
         }
 
         sampled_bezier_points[BEZIER_SAMPLE_RATE] = curve[3];
@@ -524,13 +568,17 @@ impl SampledBezierCurve {
     /// NOTE: Currently this function assumes a value that will be on the curve,
     /// not past the 1.0 mark.
     pub fn get_bezier_percentage_from_offset(&self, offset: f32) -> f32 {
-
         let mut lower_bound = 0;
         let mut upper_bound = BEZIER_SAMPLE_RATE;
 
         // If the offset is too high (past 1.0) we simply interpolate between the 0.9
         // and 1.0 point. Because of this we don't want to include the last point when iterating
-        for (i, param) in self.arc_length_parametrization.iter().take(BEZIER_SAMPLE_RATE).enumerate() {
+        for (i, param) in self
+            .arc_length_parametrization
+            .iter()
+            .take(BEZIER_SAMPLE_RATE)
+            .enumerate()
+        {
             if *param < offset {
                 lower_bound = i;
             } else if *param > offset {
@@ -566,27 +614,40 @@ impl SampledBezierCurve {
     ///
     /// - `Vec<(f32, f32)>`: the x and y offsets of the glyph characters
     /// - `Vec<f32>`: The rotations in degrees of the glyph characters
-    pub fn get_text_offsets_and_rotations(&self, glyphs: &[GlyphInstance], start_offset: f32, font_metrics: &FontMetrics)
-    -> (Vec<(f32, f32)>, Vec<BezierCharacterRotation>)
-    {
+    pub fn get_text_offsets_and_rotations(
+        &self,
+        glyphs: &[GlyphInstance],
+        start_offset: f32,
+        font_metrics: &FontMetrics,
+    ) -> (Vec<(f32, f32)>, Vec<BezierCharacterRotation>) {
         let mut glyph_offsets = Vec::new();
         let mut glyph_rotations = Vec::new();
 
         // NOTE: g.point.x is the offset from the start, not the advance!
-        let mut current_offset = start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
+        let mut current_offset =
+            start_offset + glyphs.get(0).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
         let mut last_offset = start_offset;
 
         for glyph_idx in 0..glyphs.len() {
             let char_bezier_percentage = self.get_bezier_percentage_from_offset(current_offset);
-            let char_bezier_pt = cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
-            glyph_offsets.push((char_bezier_pt.x / font_metrics.get_svg_font_scale_factor(), char_bezier_pt.y / font_metrics.get_svg_font_scale_factor()));
+            let char_bezier_pt =
+                cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
+            glyph_offsets.push((
+                char_bezier_pt.x / font_metrics.get_svg_font_scale_factor(),
+                char_bezier_pt.y / font_metrics.get_svg_font_scale_factor(),
+            ));
 
             let char_rotation_percentage = self.get_bezier_percentage_from_offset(last_offset);
-            let rotation = cubic_bezier_normal(&self.original_curve, char_rotation_percentage).to_rotation();
+            let rotation =
+                cubic_bezier_normal(&self.original_curve, char_rotation_percentage).to_rotation();
             glyph_rotations.push(rotation);
 
             last_offset = current_offset;
-            current_offset = start_offset + glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
+            current_offset = start_offset
+                + glyphs
+                    .get(glyph_idx + 1)
+                    .and_then(|g| Some(g.point.x))
+                    .unwrap_or(0.0);
         }
 
         (glyph_offsets, glyph_rotations)
@@ -596,8 +657,7 @@ impl SampledBezierCurve {
     ///
     /// Since a bezier curve is always contained within the 4 control points,
     /// the returned Bbox can be used for hit-testing.
-    pub fn get_bbox(&self) -> (SvgBbox, [(usize, usize);2]) {
-
+    pub fn get_bbox(&self) -> (SvgBbox, [(usize, usize); 2]) {
         let mut lowest_x = self.original_curve[0].x;
         let mut highest_x = self.original_curve[0].x;
         let mut lowest_y = self.original_curve[0].y;
@@ -628,8 +688,11 @@ impl SampledBezierCurve {
         }
 
         (
-            SvgBbox(TypedRect::new(TypedPoint2D::new(lowest_x, lowest_y), TypedSize2D::new(highest_x - lowest_x, highest_y - lowest_y))),
-            [(lowest_x_idx, lowest_y_idx), (highest_x_idx, highest_y_idx)]
+            SvgBbox(TypedRect::new(
+                TypedPoint2D::new(lowest_x, lowest_y),
+                TypedSize2D::new(highest_x - lowest_x, highest_y - lowest_y),
+            )),
+            [(lowest_x_idx, lowest_y_idx), (highest_x_idx, highest_y_idx)],
         )
     }
 
@@ -637,31 +700,47 @@ impl SampledBezierCurve {
     /// Usually only good for debugging
     pub fn draw_circles(&self, color: ColorU) -> SvgLayerResourceDirect {
         quick_circles(
-            &self.sampled_bezier_points
-            .iter()
-            .map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 1.0 })
-            .collect::<Vec<_>>(),
-            color)
+            &self
+                .sampled_bezier_points
+                .iter()
+                .map(|c| SvgCircle {
+                    center_x: c.x,
+                    center_y: c.y,
+                    radius: 1.0,
+                })
+                .collect::<Vec<_>>(),
+            color,
+        )
     }
 
     /// Returns the geometry necessary to draw the control handles of this curve
     pub fn draw_control_handles(&self, color: ColorU) -> SvgLayerResourceDirect {
         quick_circles(
-            &self.original_curve
-            .iter()
-            .map(|c| SvgCircle { center_x: c.x, center_y: c.y, radius: 3.0 })
-            .collect::<Vec<_>>(),
-            color)
+            &self
+                .original_curve
+                .iter()
+                .map(|c| SvgCircle {
+                    center_x: c.x,
+                    center_y: c.y,
+                    radius: 3.0,
+                })
+                .collect::<Vec<_>>(),
+            color,
+        )
     }
 
     /// Returns the geometry necessary to draw the bezier curve (the actual line)
     pub fn draw_lines(&self, stroke_color: ColorU) -> SvgLayerResourceDirect {
-        let line = [self.sampled_bezier_points.iter().map(|b| (b.x, b.y)).collect()];
+        let line = [self
+            .sampled_bezier_points
+            .iter()
+            .map(|b| (b.x, b.y))
+            .collect()];
         quick_lines(&line, stroke_color, None)
     }
 
     /// Returns the sampled points from this bezier curve
-    pub fn get_sampled_points<'a>(&'a self) -> &'a [BezierControlPoint;BEZIER_SAMPLE_RATE + 1] {
+    pub fn get_sampled_points<'a>(&'a self) -> &'a [BezierControlPoint; BEZIER_SAMPLE_RATE + 1] {
         &self.sampled_bezier_points
     }
 }
@@ -670,7 +749,6 @@ impl SampledBezierCurve {
 ///
 /// TODO: Wrap this in a nicer API
 pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert, u32>]) -> VerticesIndicesBuffer {
-
     let mut last_index = 0;
     let mut vertex_buf = Vec::<SvgVert>::new();
     let mut index_buf = Vec::<u32>::new();
@@ -683,7 +761,10 @@ pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert, u32>]) -> VerticesInd
         last_index += vertices_len;
     }
 
-    VerticesIndicesBuffer { vertices: vertex_buf, indices: index_buf }
+    VerticesIndicesBuffer {
+        vertices: vertex_buf,
+        indices: index_buf,
+    }
 }
 
 pub fn transform_vertex_buffer(input: &mut [SvgVert], x: f32, y: f32) {
@@ -738,21 +819,38 @@ pub struct SvgStyle {
 }
 
 impl SvgStyle {
-
     /// If the style already has a rotation, adds the rotation, otherwise sets the rotation
     ///
     /// Input is in degrees.
     pub fn rotate(&mut self, degrees: f32) {
-        let current_rotation = self.transform.rotation.and_then(|r| Some(r.1.to_degrees())).unwrap_or(0.0);
-        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
-        self.transform.rotation = Some((current_rotation_point, SvgRotation::degrees(current_rotation + degrees)));
+        let current_rotation = self
+            .transform
+            .rotation
+            .and_then(|r| Some(r.1.to_degrees()))
+            .unwrap_or(0.0);
+        let current_rotation_point = self
+            .transform
+            .rotation
+            .and_then(|r| Some(r.0))
+            .unwrap_or_default();
+        self.transform.rotation = Some((
+            current_rotation_point,
+            SvgRotation::degrees(current_rotation + degrees),
+        ));
     }
 
     /// If the style already has a rotation, adds the rotation, otherwise sets the rotation point to the new value
     pub fn move_rotation_point(&mut self, rotation_point_x: f32, rotation_point_y: f32) {
-        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        let current_rotation_point = self
+            .transform
+            .rotation
+            .and_then(|r| Some(r.0))
+            .unwrap_or_default();
         let current_rotation = self.transform.rotation.unwrap_or_default().1;
-        let new_rotation_point = SvgRotationPoint { x: current_rotation_point.x + rotation_point_x, y: current_rotation_point.y + rotation_point_y };
+        let new_rotation_point = SvgRotationPoint {
+            x: current_rotation_point.x + rotation_point_x,
+            y: current_rotation_point.y + rotation_point_y,
+        };
         self.transform.rotation = Some((new_rotation_point, current_rotation));
     }
 
@@ -762,14 +860,24 @@ impl SvgStyle {
             Some(s) => (s.x * scale_factor_x, s.y * scale_factor_y),
             None => (scale_factor_x, scale_factor_y),
         };
-        self.transform.scale = Some(SvgScaleFactor { x: new_scale_x, y: new_scale_y });
+        self.transform.scale = Some(SvgScaleFactor {
+            x: new_scale_x,
+            y: new_scale_y,
+        });
     }
 
     /// If the style already has a translation, adds the new translation,
     /// otherwise initializes the value to the new translation
     pub fn translate(&mut self, x_px: f32, y_px: f32) {
-        let (cur_x, cur_y) = self.transform.translation.and_then(|t| Some((t.x, t.y))).unwrap_or((0.0, 0.0));
-        self.transform.translation = Some(SvgTranslation { x: cur_x + x_px, y: cur_y + y_px });
+        let (cur_x, cur_y) = self
+            .transform
+            .translation
+            .and_then(|t| Some((t.x, t.y)))
+            .unwrap_or((0.0, 0.0));
+        self.transform.translation = Some(SvgTranslation {
+            x: cur_x + x_px,
+            y: cur_y + y_px,
+        });
     }
 }
 
@@ -784,13 +892,19 @@ pub struct SvgTransform {
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct SvgRotation { degrees: f32 }
+pub struct SvgRotation {
+    degrees: f32,
+}
 
 impl SvgRotation {
     /// Note: Assumes that the input is in degrees, not radians!
-    pub fn degrees(degrees: f32) -> Self { Self { degrees } }
+    pub fn degrees(degrees: f32) -> Self {
+        Self { degrees }
+    }
 
-    pub fn to_degrees(&self) -> f32 { self.degrees }
+    pub fn to_degrees(&self) -> f32 {
+        self.degrees
+    }
 
     // Returns the (sin, cos) in radians
     fn to_rotation(&self) -> (f32, f32) {
@@ -802,12 +916,18 @@ impl SvgRotation {
 /// Rotation point, local to the current SVG layer, i.e. (0.0, 0.0) will
 /// rotate the shape on the top left corner
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct SvgRotationPoint { pub x: f32, pub y: f32 }
+pub struct SvgRotationPoint {
+    pub x: f32,
+    pub y: f32,
+}
 
 /// Scale factor (1.0, 1.0) by default. Unit is in normalized percent.
 /// Shapes can be stretched and squished.
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct SvgScaleFactor { pub x: f32, pub y: f32 }
+pub struct SvgScaleFactor {
+    pub x: f32,
+    pub y: f32,
+}
 
 impl Default for SvgScaleFactor {
     fn default() -> Self {
@@ -818,20 +938,23 @@ impl Default for SvgScaleFactor {
 /// Translation **in pixels** (or whatever the source unit for rendered SVG data
 /// is, but usually this will be pixels)
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
-pub struct SvgTranslation { pub x: f32, pub y: f32 }
+pub struct SvgTranslation {
+    pub x: f32,
+    pub y: f32,
+}
 
 impl SvgStyle {
     pub fn stroked(color: ColorU, stroke_opts: SvgStrokeOptions) -> Self {
         Self {
             stroke: Some((color, stroke_opts)),
-            .. Default::default()
+            ..Default::default()
         }
     }
 
     pub fn filled(color: ColorU) -> Self {
         Self {
             fill: Some(color),
-            .. Default::default()
+            ..Default::default()
         }
     }
 }
@@ -887,15 +1010,36 @@ const SVG_LINE_PRECISION: f32 = 1000.0;
 impl SvgStrokeOptions {
     /// NOTE: Getters and setters are necessary here, because the line width, miter limit, etc.
     /// are all normalized to fit into a usize
-    pub fn with_line_width(mut self, line_width: f32) -> Self { self.set_line_width(line_width); self }
-    pub fn set_line_width(&mut self, line_width: f32) { self.line_width = (line_width * SVG_LINE_PRECISION) as usize; }
-    pub fn get_line_width(&self) -> f32 { self.line_width as f32 / SVG_LINE_PRECISION }
-    pub fn with_miter_limit(mut self, miter_limit: f32) -> Self { self.set_miter_limit(miter_limit); self }
-    pub fn set_miter_limit(&mut self, miter_limit: f32) { self.miter_limit = (miter_limit * SVG_LINE_PRECISION) as usize; }
-    pub fn get_miter_limit(&self) -> f32 { self.miter_limit as f32 / SVG_LINE_PRECISION }
-    pub fn with_tolerance(mut self, tolerance: f32) -> Self { self.set_tolerance(tolerance); self }
-    pub fn set_tolerance(&mut self, tolerance: f32) { self.tolerance = (tolerance * SVG_LINE_PRECISION) as usize; }
-    pub fn get_tolerance(&self) -> f32 { self.tolerance as f32 / SVG_LINE_PRECISION }
+    pub fn with_line_width(mut self, line_width: f32) -> Self {
+        self.set_line_width(line_width);
+        self
+    }
+    pub fn set_line_width(&mut self, line_width: f32) {
+        self.line_width = (line_width * SVG_LINE_PRECISION) as usize;
+    }
+    pub fn get_line_width(&self) -> f32 {
+        self.line_width as f32 / SVG_LINE_PRECISION
+    }
+    pub fn with_miter_limit(mut self, miter_limit: f32) -> Self {
+        self.set_miter_limit(miter_limit);
+        self
+    }
+    pub fn set_miter_limit(&mut self, miter_limit: f32) {
+        self.miter_limit = (miter_limit * SVG_LINE_PRECISION) as usize;
+    }
+    pub fn get_miter_limit(&self) -> f32 {
+        self.miter_limit as f32 / SVG_LINE_PRECISION
+    }
+    pub fn with_tolerance(mut self, tolerance: f32) -> Self {
+        self.set_tolerance(tolerance);
+        self
+    }
+    pub fn set_tolerance(&mut self, tolerance: f32) {
+        self.tolerance = (tolerance * SVG_LINE_PRECISION) as usize;
+    }
+    pub fn get_tolerance(&self) -> f32 {
+        self.tolerance as f32 / SVG_LINE_PRECISION
+    }
 }
 
 impl Into<StrokeOptions> for SvgStrokeOptions {
@@ -1020,7 +1164,6 @@ pub struct VectorizedFont {
 
 impl VectorizedFont {
     pub fn from_font(font: &Font) -> Self {
-
         let mut glyph_polygon_map = FastHashMap::default();
 
         // TODO: In a regular font (4000 characters), this is pretty slow!
@@ -1041,8 +1184,8 @@ impl VectorizedFont {
 
     /// Loads a vectorized font from a path
     pub fn from_path(path: &str) -> Option<Self> {
-        use std::fs;
         use font::rusttype_load_font;
+        use std::fs;
 
         let file_contents = fs::read(path).ok()?;
         let font = rusttype_load_font(file_contents, None).ok()?.0;
@@ -1052,77 +1195,89 @@ impl VectorizedFont {
 
 /// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
 /// fill vertices for all the characters at once
-pub fn get_fill_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance])
--> Vec<VertexBuffers<SvgVert, u32>>
-{
+pub fn get_fill_vertices(
+    vectorized_font: &VectorizedFont,
+    original_font: &Font,
+    ids: &[GlyphInstance],
+) -> Vec<VertexBuffers<SvgVert, u32>> {
     let mut glyph_polygon_lock = vectorized_font.glyph_polygon_map.lock().unwrap();
 
-    ids.iter().filter_map(|id| {
-        let id = GlyphId(id.index);
-        match glyph_polygon_lock.entry(id) {
-            Occupied(o) => Some(o.get().clone()),
-            Vacant(v) => {
-                let g = original_font.glyph(id);
-                let poly = glyph_to_svg_layer_type(g)?;
-                let mut path = None;
-                let polygon_verts = poly.tesselate_fill(DEFAULT_GLYPH_TOLERANCE, &mut path);
-                v.insert(polygon_verts.clone());
-                Some(polygon_verts)
+    ids.iter()
+        .filter_map(|id| {
+            let id = GlyphId(id.index);
+            match glyph_polygon_lock.entry(id) {
+                Occupied(o) => Some(o.get().clone()),
+                Vacant(v) => {
+                    let g = original_font.glyph(id);
+                    let poly = glyph_to_svg_layer_type(g)?;
+                    let mut path = None;
+                    let polygon_verts = poly.tesselate_fill(DEFAULT_GLYPH_TOLERANCE, &mut path);
+                    v.insert(polygon_verts.clone());
+                    Some(polygon_verts)
+                }
             }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Note: Since `VectorizedFont` has to lock access on this, you'll want to get the
 /// stroke vertices for all the characters at once
-pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Font, ids: &[GlyphInstance], stroke_options: &SvgStrokeOptions)
--> Vec<VertexBuffers<SvgVert, u32>>
-{
+pub fn get_stroke_vertices(
+    vectorized_font: &VectorizedFont,
+    original_font: &Font,
+    ids: &[GlyphInstance],
+    stroke_options: &SvgStrokeOptions,
+) -> Vec<VertexBuffers<SvgVert, u32>> {
     let mut glyph_stroke_lock = vectorized_font.glyph_stroke_map.lock().unwrap();
 
-    ids.iter().filter_map(|id| {
-        let id = GlyphId(id.index);
-        match glyph_stroke_lock.entry(id) {
-            Occupied(o) => Some(o.get().clone()),
-            Vacant(v) => {
-                let g = original_font.glyph(id);
-                let poly = glyph_to_svg_layer_type(g)?;
-                let mut path = None;
-                let stroke_verts = poly.tesselate_stroke(DEFAULT_GLYPH_TOLERANCE, &mut path, *stroke_options);
-                v.insert(stroke_verts.clone());
-                Some(stroke_verts)
+    ids.iter()
+        .filter_map(|id| {
+            let id = GlyphId(id.index);
+            match glyph_stroke_lock.entry(id) {
+                Occupied(o) => Some(o.get().clone()),
+                Vacant(v) => {
+                    let g = original_font.glyph(id);
+                    let poly = glyph_to_svg_layer_type(g)?;
+                    let mut path = None;
+                    let stroke_verts =
+                        poly.tesselate_stroke(DEFAULT_GLYPH_TOLERANCE, &mut path, *stroke_options);
+                    v.insert(stroke_verts.clone());
+                    Some(stroke_verts)
+                }
             }
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Converts a glyph to a `SvgLayerType::Polygon`
 fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> Option<SvgLayerType> {
-    Some(SvgLayerType::Polygon(glyph
-        .standalone()
-        .get_data()?.shape
-        .as_ref()?
-        .iter()
-        .map(rusttype_glyph_to_path_events)
-        .collect()))
+    Some(SvgLayerType::Polygon(
+        glyph
+            .standalone()
+            .get_data()?
+            .shape
+            .as_ref()?
+            .iter()
+            .map(rusttype_glyph_to_path_events)
+            .collect(),
+    ))
 }
 
 use stb_truetype::Vertex;
 
 // Convert a Rusttype glyph to a Vec of PathEvents,
 // in order to turn a glyph into a polygon
-fn rusttype_glyph_to_path_events(vertex: &Vertex)
--> PathEvent
-{   use stb_truetype::VertexType;
+fn rusttype_glyph_to_path_events(vertex: &Vertex) -> PathEvent {
+    use stb_truetype::VertexType;
     // Rusttypes vertex type needs to be inverted in the Y axis
     // in order to work with lyon correctly
     match vertex.vertex_type() {
-        VertexType::CurveTo =>  PathEvent::QuadraticTo(
-                                    Point::new(vertex.cx as f32, -(vertex.cy as f32)),
-                                    Point::new(vertex.x as f32,  -(vertex.y as f32))
-                                ),
-        VertexType::MoveTo =>   PathEvent::MoveTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
-        VertexType::LineTo =>   PathEvent::LineTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
+        VertexType::CurveTo => PathEvent::QuadraticTo(
+            Point::new(vertex.cx as f32, -(vertex.cy as f32)),
+            Point::new(vertex.x as f32, -(vertex.y as f32)),
+        ),
+        VertexType::MoveTo => PathEvent::MoveTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
+        VertexType::LineTo => PathEvent::LineTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
     }
 }
 
@@ -1148,7 +1303,6 @@ fn test_vectorized_font_cache_is_send() {
 }
 
 impl VectorizedFontCache {
-
     pub fn new() -> Self {
         Self {
             vectorized_fonts: Mutex::new(FastHashMap::default()),
@@ -1156,11 +1310,18 @@ impl VectorizedFontCache {
     }
 
     pub fn insert_if_not_exist(&mut self, id: FontId, font: &Font) {
-        self.vectorized_fonts.lock().unwrap().entry(id).or_insert_with(|| Arc::new(VectorizedFont::from_font(font)));
+        self.vectorized_fonts
+            .lock()
+            .unwrap()
+            .entry(id)
+            .or_insert_with(|| Arc::new(VectorizedFont::from_font(font)));
     }
 
     pub fn insert(&mut self, id: FontId, font: VectorizedFont) {
-        self.vectorized_fonts.lock().unwrap().insert(id, Arc::new(font));
+        self.vectorized_fonts
+            .lock()
+            .unwrap()
+            .insert(id, Arc::new(font));
     }
 
     /// Returns true if the font cache has the respective font
@@ -1168,10 +1329,25 @@ impl VectorizedFontCache {
         self.vectorized_fonts.lock().unwrap().get(id).is_some()
     }
 
-    pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Arc<VectorizedFont>> {
-        self.vectorized_fonts.lock().unwrap().entry(id.clone())
-            .or_insert_with(|| Arc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0)));
-        self.vectorized_fonts.lock().unwrap().get(&id).and_then(|font| Some(font.clone()))
+    pub fn get_font(
+        &self,
+        id: &FontId,
+        app_resources: &AppResources,
+    ) -> Option<Arc<VectorizedFont>> {
+        self.vectorized_fonts
+            .lock()
+            .unwrap()
+            .entry(id.clone())
+            .or_insert_with(|| {
+                Arc::new(VectorizedFont::from_font(
+                    &*app_resources.get_font(&id).unwrap().0,
+                ))
+            });
+        self.vectorized_fonts
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|font| Some(font.clone()))
     }
 
     pub fn remove_font(&mut self, id: &FontId) {
@@ -1180,9 +1356,11 @@ impl VectorizedFontCache {
 }
 
 impl SvgLayerType {
-    pub fn tesselate_fill(&self, tolerance: f32, polygon: &mut Option<Path>)
-    -> VertexBuffers<SvgVert, u32>
-    {
+    pub fn tesselate_fill(
+        &self,
+        tolerance: f32,
+        polygon: &mut Option<Path>,
+    ) -> VertexBuffers<SvgVert, u32> {
         let mut geometry = VertexBuffers::new();
 
         match self {
@@ -1194,47 +1372,52 @@ impl SvgLayerType {
                 let path = polygon.as_ref().unwrap();
 
                 let mut tessellator = FillTessellator::new();
-                tessellator.tessellate_path(
-                    path.path_iter(),
-                    &FillOptions::default(),
-                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
-                        SvgVert {
+                tessellator
+                    .tessellate_path(
+                        path.path_iter(),
+                        &FillOptions::default(),
+                        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| SvgVert {
                             xy: (vertex.position.x, vertex.position.y),
                             normal: (vertex.normal.x, vertex.position.y),
-                        }
-                    }),
-                ).unwrap();
-            },
+                        }),
+                    )
+                    .unwrap();
+            }
             SvgLayerType::Circle(c) => {
                 let center = TypedPoint2D::new(c.center_x, c.center_y);
-                fill_circle(center, c.radius, &FillOptions::default(),
-                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
-                        SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
-                        }
-                    }
-                ));
-            },
+                fill_circle(
+                    center,
+                    c.radius,
+                    &FillOptions::default(),
+                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| SvgVert {
+                        xy: (vertex.position.x, vertex.position.y),
+                        normal: (vertex.normal.x, vertex.position.y),
+                    }),
+                );
+            }
             SvgLayerType::Rect(r) => {
                 let (rect, radii) = get_radii(&r);
-                fill_rounded_rectangle(&rect, &radii, &FillOptions::default(),
-                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
-                        SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
-                        }
-                    }
-                ));
+                fill_rounded_rectangle(
+                    &rect,
+                    &radii,
+                    &FillOptions::default(),
+                    &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| SvgVert {
+                        xy: (vertex.position.x, vertex.position.y),
+                        normal: (vertex.normal.x, vertex.position.y),
+                    }),
+                );
             }
         }
 
         geometry
     }
 
-    pub fn tesselate_stroke(&self, tolerance: f32, polygon: &mut Option<Path>, stroke: SvgStrokeOptions)
-    -> VertexBuffers<SvgVert, u32>
-    {
+    pub fn tesselate_stroke(
+        &self,
+        tolerance: f32,
+        polygon: &mut Option<Path>,
+        stroke: SvgStrokeOptions,
+    ) -> VertexBuffers<SvgVert, u32> {
         let mut stroke_geometry = VertexBuffers::new();
         let stroke_options: StrokeOptions = stroke.into();
         let stroke_options = stroke_options.with_tolerance(tolerance);
@@ -1258,29 +1441,35 @@ impl SvgLayerType {
                         }
                     }),
                 );
-            },
+            }
             SvgLayerType::Circle(c) => {
                 let center = TypedPoint2D::new(c.center_x, c.center_y);
-                stroke_circle(center, c.radius, &stroke_options,
+                stroke_circle(
+                    center,
+                    c.radius,
+                    &stroke_options,
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
                             xy: (vertex.position.x, vertex.position.y),
                             normal: (vertex.normal.x, vertex.position.y),
                         }
-                    }
-                ));
-            },
+                    }),
+                );
+            }
             SvgLayerType::Rect(r) => {
                 let (rect, radii) = get_radii(&r);
-                stroke_rounded_rectangle(&rect, &radii, &stroke_options,
+                stroke_rounded_rectangle(
+                    &rect,
+                    &radii,
+                    &stroke_options,
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
                             xy: (vertex.position.x, vertex.position.y),
                             normal: (vertex.normal.x, vertex.position.y),
                         }
-                    }
-                ));
-            },
+                    }),
+                );
+            }
         }
 
         stroke_geometry
@@ -1288,7 +1477,10 @@ impl SvgLayerType {
 }
 
 fn get_radii(r: &SvgRect) -> (TypedRect<f32, UnknownUnit>, BorderRadii) {
-    let rect = TypedRect::new(TypedPoint2D::new(r.x, r.y), TypedSize2D::new(r.width, r.height));
+    let rect = TypedRect::new(
+        TypedPoint2D::new(r.x, r.y),
+        TypedSize2D::new(r.width, r.height),
+    );
     let radii = BorderRadii {
         top_left: r.rx,
         top_right: r.rx,
@@ -1335,29 +1527,23 @@ impl SvgRect {
     /// Note: does not incorporate rounded edges!
     /// Origin of x and y is assumed to be the top left corner
     pub fn contains_point(&self, x: f32, y: f32) -> bool {
-        x > self.x &&
-        x < self.x + self.width &&
-        y > self.y &&
-        y < self.y + self.height
+        x > self.x && x < self.x + self.width && y > self.y && y < self.y + self.height
     }
 }
 
 #[cfg(feature = "svg_parsing")]
 mod svg_to_lyon {
 
-    use lyon::{
-        math::Point,
-        path::PathEvent,
-    };
-    use usvg::{Tree, PathSegment, Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
-    use widgets::svg::{
-        SvgStrokeOptions, SvgLineCap, SvgLineJoin,
-        SvgLayerType, SvgStyle, SvgParseError
-    };
     use azul_css::ColorU;
+    use lyon::{math::Point, path::PathEvent};
+    use usvg::{Color, LineCap, LineJoin, NodeKind, Options, Paint, PathSegment, Stroke, Tree};
+    use widgets::svg::{
+        SvgLayerType, SvgLineCap, SvgLineJoin, SvgParseError, SvgStrokeOptions, SvgStyle,
+    };
 
-    pub fn parse_from<S: AsRef<str>>(svg_source: S) -> Result<Vec<(Vec<SvgLayerType>, SvgStyle)>, SvgParseError> {
-
+    pub fn parse_from<S: AsRef<str>>(
+        svg_source: S,
+    ) -> Result<Vec<(Vec<SvgLayerType>, SvgStyle)>, SvgParseError> {
         let opt = Options::default();
         let rtree = Tree::from_str(svg_source.as_ref(), &opt).unwrap();
 
@@ -1368,7 +1554,6 @@ mod svg_to_lyon {
                 let mut style = SvgStyle::default();
 
                 if let Some(ref fill) = p.fill {
-
                     // fall back to always use color fill
                     // no gradients (yet?)
                     let color = match fill.paint {
@@ -1380,7 +1565,7 @@ mod svg_to_lyon {
                         r: color.red,
                         g: color.green,
                         b: color.blue,
-                        a: (fill.opacity.value() * 255.0) as u8
+                        a: (fill.opacity.value() * 255.0) as u8,
                     });
                 }
 
@@ -1388,7 +1573,9 @@ mod svg_to_lyon {
                     style.stroke = Some(convert_stroke(stroke));
                 }
 
-                let layer = vec![SvgLayerType::Polygon(p.segments.iter().map(|e| as_event(e)).collect())];
+                let layer = vec![SvgLayerType::Polygon(
+                    p.segments.iter().map(|e| as_event(e)).collect(),
+                )];
                 layer_data.push((layer, style));
             }
         }
@@ -1401,12 +1588,18 @@ mod svg_to_lyon {
         match *ps {
             PathSegment::MoveTo { x, y } => PathEvent::MoveTo(Point::new(x as f32, y as f32)),
             PathSegment::LineTo { x, y } => PathEvent::LineTo(Point::new(x as f32, y as f32)),
-            PathSegment::CurveTo { x1, y1, x2, y2, x, y, } => {
-                PathEvent::CubicTo(
-                    Point::new(x1 as f32, y1 as f32),
-                    Point::new(x2 as f32, y2 as f32),
-                    Point::new(x as f32, y as f32))
-            }
+            PathSegment::CurveTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => PathEvent::CubicTo(
+                Point::new(x1 as f32, y1 as f32),
+                Point::new(x2 as f32, y2 as f32),
+                Point::new(x as f32, y as f32),
+            ),
             PathSegment::ClosePath => PathEvent::Close,
         }
     }
@@ -1419,7 +1612,6 @@ mod svg_to_lyon {
 
     // dissect a resvg::Stroke into a webrender::ColorU + SvgStrokeOptions
     pub fn convert_stroke(s: &Stroke) -> (ColorU, SvgStrokeOptions) {
-
         let color = match s.paint {
             Paint::Color(c) => c,
             _ => FALLBACK_COLOR,
@@ -1439,15 +1631,18 @@ mod svg_to_lyon {
             start_cap: line_cap,
             end_cap: line_cap,
             line_join,
-            .. SvgStrokeOptions::default().with_line_width(s.width as f32)
+            ..SvgStrokeOptions::default().with_line_width(s.width as f32)
         };
 
-        (ColorU {
-            r: color.red,
-            g: color.green,
-            b: color.blue,
-            a: (s.opacity.value() * 255.0) as u8
-        }, opts)
+        (
+            ColorU {
+                r: color.red,
+                g: color.green,
+                b: color.blue,
+                a: (s.opacity.value() * 255.0) as u8,
+            },
+            opts,
+        )
     }
 }
 
@@ -1478,7 +1673,12 @@ impl Default for Svg {
             zoom: 1.0,
             enable_fxaa: false,
             enable_hidpi: true,
-            background_color: ColorU { r: 0, b: 0, g: 0, a: 0 },
+            background_color: ColorU {
+                r: 0,
+                b: 0,
+                g: 0,
+                a: 0,
+            },
             multisampling_factor: 1.0,
         }
     }
@@ -1535,7 +1735,7 @@ impl BezierControlPoint {
 ///
 /// - `BezierControlPoint`: The calculated point which lies on the curve,
 ///    according the the bezier formula
-pub fn cubic_interpolate_bezier(curve: &[BezierControlPoint;4], t: f32) -> BezierControlPoint {
+pub fn cubic_interpolate_bezier(curve: &[BezierControlPoint; 4], t: f32) -> BezierControlPoint {
     let one_minus = 1.0 - t;
     let one_minus_square = one_minus.powi(2);
     let one_minus_cubic = one_minus.powi(3);
@@ -1543,20 +1743,20 @@ pub fn cubic_interpolate_bezier(curve: &[BezierControlPoint;4], t: f32) -> Bezie
     let t_pow2 = t.powi(2);
     let t_pow3 = t.powi(3);
 
-    let x =         one_minus_cubic  *             curve[0].x
-            + 3.0 * one_minus_square * t         * curve[1].x
-            + 3.0 * one_minus        * t_pow2    * curve[2].x
-            +                          t_pow3    * curve[3].x;
+    let x = one_minus_cubic * curve[0].x
+        + 3.0 * one_minus_square * t * curve[1].x
+        + 3.0 * one_minus * t_pow2 * curve[2].x
+        + t_pow3 * curve[3].x;
 
-    let y =         one_minus_cubic  *             curve[0].y
-            + 3.0 * one_minus_square * t         * curve[1].y
-            + 3.0 * one_minus        * t_pow2    * curve[2].y
-            +                          t_pow3    * curve[3].y;
+    let y = one_minus_cubic * curve[0].y
+        + 3.0 * one_minus_square * t * curve[1].y
+        + 3.0 * one_minus * t_pow2 * curve[2].y
+        + t_pow3 * curve[3].y;
 
     BezierControlPoint { x, y }
 }
 
-pub fn quadratic_interpolate_bezier(curve: &[BezierControlPoint;3], t: f32) -> BezierControlPoint {
+pub fn quadratic_interpolate_bezier(curve: &[BezierControlPoint; 3], t: f32) -> BezierControlPoint {
     let one_minus = 1.0 - t;
     let one_minus_square = one_minus.powi(2);
 
@@ -1564,13 +1764,13 @@ pub fn quadratic_interpolate_bezier(curve: &[BezierControlPoint;3], t: f32) -> B
 
     // TODO: Why 3.0 and not 2.0?
 
-    let x =         one_minus_square *             curve[0].x
-            + 2.0 * one_minus        * t         * curve[1].x
-            + 3.0                    * t_pow2    * curve[2].x;
+    let x = one_minus_square * curve[0].x
+        + 2.0 * one_minus * t * curve[1].x
+        + 3.0 * t_pow2 * curve[2].x;
 
-    let y =         one_minus_square *             curve[0].y
-            + 2.0 * one_minus        * t         * curve[1].y
-            + 3.0                    * t_pow2    * curve[2].y;
+    let y = one_minus_square * curve[0].y
+        + 2.0 * one_minus * t * curve[1].y
+        + 3.0 * t_pow2 * curve[2].y;
 
     BezierControlPoint { x, y }
 }
@@ -1588,8 +1788,7 @@ impl BezierNormalVector {
 }
 
 /// Calculates the normal vector at a certain point (perpendicular to the curve)
-pub fn cubic_bezier_normal(curve: &[BezierControlPoint;4], t: f32) -> BezierNormalVector {
-
+pub fn cubic_bezier_normal(curve: &[BezierControlPoint; 4], t: f32) -> BezierNormalVector {
     // 1. Calculate the derivative of the bezier curve
     //
     // This means, we go from 4 control points to 3 control points and redistribute
@@ -1611,11 +1810,23 @@ pub fn cubic_bezier_normal(curve: &[BezierControlPoint;4], t: f32) -> BezierNorm
     // The first derivative of a cubic bezier curve is a quadratic bezier curve
     // Luckily, the first derivative is also the tangent vector. So all we need to do
     // is to get the quadratic bezier
-    let mut tangent = quadratic_interpolate_bezier(&[
-        BezierControlPoint { x: weight_1_x, y: weight_1_y },
-        BezierControlPoint { x: weight_2_x, y: weight_2_y },
-        BezierControlPoint { x: weight_3_x, y: weight_3_y },
-    ], t);
+    let mut tangent = quadratic_interpolate_bezier(
+        &[
+            BezierControlPoint {
+                x: weight_1_x,
+                y: weight_1_y,
+            },
+            BezierControlPoint {
+                x: weight_2_x,
+                y: weight_2_y,
+            },
+            BezierControlPoint {
+                x: weight_3_x,
+                y: weight_3_y,
+            },
+        ],
+        t,
+    );
 
     // We normalize the tangent to have a lenght of 1
     let tangent_length = (tangent.x.powi(2) + tangent.y.powi(2)).sqrt();
@@ -1668,18 +1879,20 @@ pub struct SvgBbox(pub TypedRect<f32, SvgWorldPixel>);
 impl SvgBbox {
     /// Simple function for drawing a single bounding box
     pub fn draw_lines(&self, color: ColorU, line_width: f32) -> SvgLayerResourceDirect {
-        quick_rects(&[SvgRect {
-            width: self.0.size.width,
-            height: self.0.size.height,
-            x: self.0.origin.x,
-            y: self.0.origin.y,
-            rx: 0.0,
-            ry: 0.0,
-        }],
-        Some(color),
-        None,
-        Some(SvgStrokeOptions::default().with_line_width(line_width))
-    )}
+        quick_rects(
+            &[SvgRect {
+                width: self.0.size.width,
+                height: self.0.size.height,
+                x: self.0.origin.x,
+                y: self.0.origin.y,
+                rx: 0.0,
+                ry: 0.0,
+            }],
+            Some(color),
+            None,
+            Some(SvgStrokeOptions::default().with_line_width(line_width)),
+        )
+    }
 
     /// Checks if the bounding box contains a point
     pub fn contains_point(&self, x: f32, y: f32) -> bool {
@@ -1705,9 +1918,10 @@ pub fn is_point_in_shape(point: (f32, f32), shape: &[(f32, f32)]) -> bool {
     // only one point, we know that it isn't inside the target shape.
     // all() is lazy and will quit on the first result where the target is not
     // inside the shape.
-    shape.iter().zip(shape.iter().skip(1)).all(|(start, end)| {
-        !(side_of_point(point, *start, *end).is_sign_positive())
-    })
+    shape
+        .iter()
+        .zip(shape.iter().skip(1))
+        .all(|(start, end)| !(side_of_point(point, *start, *end).is_sign_positive()))
 }
 
 /// Determine which side of a vector the point is on.
@@ -1716,16 +1930,19 @@ pub fn is_point_in_shape(point: (f32, f32), shape: &[(f32, f32)]) -> bool {
 /// the target point lies either right or left to the imaginary line from (start -> end)
 #[inline]
 pub fn side_of_point(target: (f32, f32), start: (f32, f32), end: (f32, f32)) -> f32 {
-    ((target.0 - start.0) * (end.1 - start.1)) -
-    ((target.1 - start.1) * (end.0 - start.0))
+    ((target.0 - start.0) * (end.1 - start.1)) - ((target.1 - start.1) * (end.0 - start.0))
 }
 
 impl SvgTextLayout {
-
     /// Calculate the text layout from a font and a font size.
     ///
     /// Warning: may be slow on large texts.
-    pub fn from_str(text: &str, font: &Font, font_size: &StyleFontSize, text_layout_options: &TextLayoutOptions) -> Self {
+    pub fn from_str(
+        text: &str,
+        font: &Font,
+        font_size: &StyleFontSize,
+        text_layout_options: &TextLayoutOptions,
+    ) -> Self {
         let font_metrics = FontMetrics::new(font, font_size, text_layout_options);
         SvgTextLayout(layout_text(text, font, &font_metrics))
     }
@@ -1738,14 +1955,11 @@ impl SvgTextLayout {
         let normal_height = self.0.min_height.0;
 
         SvgBbox(match placement {
-            Unmodified => {
-                TypedRect::new(
-                    TypedPoint2D::new(0.0, 0.0),
-                    TypedSize2D::new(normal_width, normal_height)
-                )
-            },
+            Unmodified => TypedRect::new(
+                TypedPoint2D::new(0.0, 0.0),
+                TypedSize2D::new(normal_width, normal_height),
+            ),
             Rotated(r) => {
-
                 fn rotate_point((x, y): (f32, f32), sin: f32, cos: f32) -> (f32, f32) {
                     ((x * cos) - (y * sin), (x * sin) + (y * cos))
                 }
@@ -1764,16 +1978,28 @@ impl SvgTextLayout {
                 let (bottom_right_x, bottom_right_y) = rotate_point(bottom_right, sin, cos);
                 let (bottom_left_x, bottom_left_y) = rotate_point(bottom_left, sin, cos);
 
-                let min_x = top_left_x.min(top_right_x).min(bottom_right_x).min(bottom_left_x);
-                let max_x = top_left_x.max(top_right_x).max(bottom_right_x).max(bottom_left_x);
-                let min_y = top_left_y.min(top_right_y).min(bottom_right_y).min(bottom_left_y);
-                let max_y = top_left_y.max(top_right_y).max(bottom_right_y).max(bottom_left_y);
+                let min_x = top_left_x
+                    .min(top_right_x)
+                    .min(bottom_right_x)
+                    .min(bottom_left_x);
+                let max_x = top_left_x
+                    .max(top_right_x)
+                    .max(bottom_right_x)
+                    .max(bottom_left_x);
+                let min_y = top_left_y
+                    .min(top_right_y)
+                    .min(bottom_right_y)
+                    .min(bottom_left_y);
+                let max_y = top_left_y
+                    .max(top_right_y)
+                    .max(bottom_right_y)
+                    .max(bottom_left_y);
 
                 TypedRect::new(
                     TypedPoint2D::new(min_x, min_y),
-                    TypedSize2D::new(max_x - min_x, max_y - min_y)
+                    TypedSize2D::new(max_x - min_x, max_y - min_y),
                 )
-            },
+            }
             OnCubicBezierCurve(curve) => {
                 let (mut bbox, _bbox_indices) = curve.get_bbox();
 
@@ -1795,27 +2021,46 @@ impl SvgTextLayout {
 }
 
 impl SvgText {
-    pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache, resources: &AppResources)
-    -> SvgLayerResourceDirect
-    {
+    pub fn to_svg_layer(
+        &self,
+        vectorized_fonts_cache: &VectorizedFontCache,
+        resources: &AppResources,
+    ) -> SvgLayerResourceDirect {
         let font = resources.get_font(&self.font_id).unwrap().0;
-        let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
+        let vectorized_font = vectorized_fonts_cache
+            .get_font(&self.font_id, resources)
+            .unwrap();
         let font_metrics = FontMetrics::new(&font, &self.font_size, &TextLayoutOptions::default());
 
         // The text contains the vertices and indices in unscaled units. This is so that the font
         // can be cached and later on be scaled and rotated on the GPU instead of the CPU.
         let mut text = match self.placement {
-            SvgTextPlacement::Unmodified => {
-                normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics)
-            },
+            SvgTextPlacement::Unmodified => normal_text(
+                &self.text_layout.0,
+                self.style,
+                &font,
+                &*vectorized_font,
+                &font_metrics,
+            ),
             SvgTextPlacement::Rotated(degrees) => {
-                let mut text = normal_text(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics);
+                let mut text = normal_text(
+                    &self.text_layout.0,
+                    self.style,
+                    &font,
+                    &*vectorized_font,
+                    &font_metrics,
+                );
                 text.style.rotate(degrees);
                 text
-            },
-            SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                text_on_curve(&self.text_layout.0, self.style, &font, &*vectorized_font, &font_metrics, &curve)
-            },
+            }
+            SvgTextPlacement::OnCubicBezierCurve(curve) => text_on_curve(
+                &self.text_layout.0,
+                self.style,
+                &font,
+                &*vectorized_font,
+                &font_metrics,
+                &curve,
+            ),
         };
 
         let gpu_scale_factor = self.font_size.to_pixels() * font_metrics.height_for_1px;
@@ -1835,17 +2080,25 @@ pub fn normal_text(
     text_style: SvgStyle,
     font: &Font,
     vectorized_font: &VectorizedFont,
-    font_metrics: &FontMetrics)
--> SvgLayerResourceDirect
-{
+    font_metrics: &FontMetrics,
+) -> SvgLayerResourceDirect {
     let fill_vertices = text_style.fill.and_then(|_| {
         let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs, fill_verts, font_metrics))
+        Some(normal_text_to_vertices(
+            &layout.layouted_glyphs,
+            fill_verts,
+            font_metrics,
+        ))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
-        let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs, stroke_verts, font_metrics))
+        let stroke_verts =
+            get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
+        Some(normal_text_to_vertices(
+            &layout.layouted_glyphs,
+            stroke_verts,
+            font_metrics,
+        ))
     });
 
     SvgLayerResourceDirect {
@@ -1859,8 +2112,7 @@ pub fn normal_text_to_vertices(
     glyph_ids: &[GlyphInstance],
     mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
     font_metrics: &FontMetrics,
-) -> VerticesIndicesBuffer
-{
+) -> VerticesIndicesBuffer {
     normal_text_to_vertices_inner(glyph_ids, &mut vertex_buffers, font_metrics);
     join_vertex_buffers(&vertex_buffers)
 }
@@ -1868,14 +2120,21 @@ pub fn normal_text_to_vertices(
 fn normal_text_to_vertices_inner(
     glyph_ids: &[GlyphInstance],
     vertex_buffers: &mut Vec<VertexBuffers<SvgVert, u32>>,
-    font_metrics: &FontMetrics)
-{
+    font_metrics: &FontMetrics,
+) {
     let scale_factor = font_metrics.get_svg_font_scale_factor(); // x / font_size * scale_factor
-    vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
-        // NOTE: The gid.point has the font size already applied to it,
-        // so we have to un-do the scaling for the glyph offsets, so all other scaling can be done on the GPU
-        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x / scale_factor, gid.point.y / scale_factor);
-    });
+    vertex_buffers
+        .iter_mut()
+        .zip(glyph_ids)
+        .for_each(|(vertex_buf, gid)| {
+            // NOTE: The gid.point has the font size already applied to it,
+            // so we have to un-do the scaling for the glyph offsets, so all other scaling can be done on the GPU
+            transform_vertex_buffer(
+                &mut vertex_buf.vertices,
+                gid.point.x / scale_factor,
+                gid.point.y / scale_factor,
+            );
+        });
 }
 
 pub fn text_on_curve(
@@ -1884,20 +2143,29 @@ pub fn text_on_curve(
     font: &Font,
     vectorized_font: &VectorizedFont,
     font_metrics: &FontMetrics,
-    curve: &SampledBezierCurve)
--> SvgLayerResourceDirect
-{
+    curve: &SampledBezierCurve,
+) -> SvgLayerResourceDirect {
     // NOTE: char offsets are now in unscaled glyph space!
-    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0, font_metrics);
+    let (char_offsets, char_rotations) =
+        curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0, font_metrics);
 
     let fill_vertices = text_style.fill.and_then(|_| {
         let fill_verts = get_fill_vertices(vectorized_font, font, &layout.layouted_glyphs);
-        Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, fill_verts))
+        Some(curved_vector_text_to_vertices(
+            &char_offsets,
+            &char_rotations,
+            fill_verts,
+        ))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
-        let stroke_verts = get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
-        Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, stroke_verts))
+        let stroke_verts =
+            get_stroke_vertices(vectorized_font, font, &layout.layouted_glyphs, &stroke.1);
+        Some(curved_vector_text_to_vertices(
+            &char_offsets,
+            &char_rotations,
+            stroke_verts,
+        ))
     });
 
     SvgLayerResourceDirect {
@@ -1912,28 +2180,30 @@ pub fn curved_vector_text_to_vertices(
     char_offsets: &[(f32, f32)],
     char_rotations: &[BezierCharacterRotation],
     mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
-) -> VerticesIndicesBuffer
-{
-    vertex_buffers.iter_mut()
-    .zip(char_rotations.into_iter())
-    .zip(char_offsets.iter())
-    .for_each(|((vertex_buf, char_rot), char_offset)| {
-        let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
-        // 1. Rotate individual characters inside of the word
-        let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
-        rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
-        // 2. Transform characters to their respective positions
-        transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x, *char_offset_y);
-    });
+) -> VerticesIndicesBuffer {
+    vertex_buffers
+        .iter_mut()
+        .zip(char_rotations.into_iter())
+        .zip(char_offsets.iter())
+        .for_each(|((vertex_buf, char_rot), char_offset)| {
+            let (char_offset_x, char_offset_y) = char_offset; // weird borrow issue
+                                                              // 1. Rotate individual characters inside of the word
+            let (char_sin, char_cos) = (char_rot.0.sin(), char_rot.0.cos());
+            rotate_vertex_buffer(&mut vertex_buf.vertices, char_sin, char_cos);
+            // 2. Transform characters to their respective positions
+            transform_vertex_buffer(&mut vertex_buf.vertices, *char_offset_x, *char_offset_y);
+        });
 
     join_vertex_buffers(&vertex_buffers)
 }
 
 impl Svg {
-
     #[inline]
     pub fn with_layers(layers: Vec<SvgLayerResource>) -> Self {
-        Self { layers: layers, .. Default::default() }
+        Self {
+            layers: layers,
+            ..Default::default()
+        }
     }
 
     #[inline]
@@ -1985,9 +2255,8 @@ impl Svg {
         svg_cache: &SvgCache,
         window: &ReadOnlyWindow,
         width: usize,
-        height: usize)
-    -> Texture
-    {
+        height: usize,
+    ) -> Texture {
         // TODO: Theoretically, this module (svg.rs) should stand on its
         // own and not require these kinds of hacks
         use css::webrender_translate::wr_translate_color_u;
@@ -2008,62 +2277,96 @@ impl Svg {
         let shader = svg_cache.init_shader(window);
 
         let hidpi = window.get_hidpi_factor() as f32;
-        let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom };
-        let pan = if self.enable_hidpi { (self.pan.0 * hidpi, self.pan.1 * hidpi) } else { self.pan };
+        let zoom = if self.enable_hidpi {
+            self.zoom * hidpi
+        } else {
+            self.zoom
+        };
+        let pan = if self.enable_hidpi {
+            (self.pan.0 * hidpi, self.pan.1 * hidpi)
+        } else {
+            self.pan
+        };
 
         let draw_options = DrawParameters {
             primitive_restart_index: true,
-            .. Default::default()
+            ..Default::default()
         };
 
         let tex = window.create_texture(texture_width, texture_height);
 
         {
+            let mut surface = tex.as_surface();
+            surface.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
 
-        let mut surface = tex.as_surface();
-        surface.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+            for layer in &self.layers {
+                let style = match &layer {
+                    SvgLayerResource::Reference((_, style)) => *style,
+                    SvgLayerResource::Direct(d) => d.style,
+                };
 
-        for layer in &self.layers {
+                let fill_vi = match &layer {
+                    SvgLayerResource::Reference((layer_id, _)) => {
+                        svg_cache.get_vertices_and_indices(window, layer_id)
+                    }
+                    SvgLayerResource::Direct(d) => d.fill.as_ref().and_then(|f| {
+                        let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
+                        let index_buffer =
+                            IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices)
+                                .unwrap();
+                        Some(Rc::new((vertex_buffer, index_buffer)))
+                    }),
+                };
 
-            let style = match &layer {
-                SvgLayerResource::Reference((_, style)) => *style,
-                SvgLayerResource::Direct(d) => d.style,
-            };
+                let stroke_vi = match &layer {
+                    SvgLayerResource::Reference((layer_id, _)) => {
+                        svg_cache.get_stroke_vertices_and_indices(window, layer_id)
+                    }
+                    SvgLayerResource::Direct(d) => d.stroke.as_ref().and_then(|f| {
+                        let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
+                        let index_buffer =
+                            IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices)
+                                .unwrap();
+                        Some(Rc::new((vertex_buffer, index_buffer)))
+                    }),
+                };
 
-            let fill_vi = match &layer {
-                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(window, layer_id),
-                SvgLayerResource::Direct(d) => d.fill.as_ref().and_then(|f| {
-                    let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
-                    let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                    Some(Rc::new((vertex_buffer, index_buffer)))
-                }),
-            };
+                if let (Some(fill_color), Some(fill_vi)) = (style.fill, fill_vi) {
+                    let (fill_vertices, fill_indices) = &*fill_vi;
+                    draw_vertex_buffer_to_surface(
+                        &mut surface,
+                        &shader.program,
+                        &fill_vertices,
+                        &fill_indices,
+                        &draw_options,
+                        &bbox_size,
+                        fill_color,
+                        z_index,
+                        pan,
+                        zoom,
+                        &style.transform,
+                    );
+                }
 
-            let stroke_vi = match &layer {
-                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
-                SvgLayerResource::Direct(d) => d.stroke.as_ref().and_then(|f| {
-                    let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
-                    let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                    Some(Rc::new((vertex_buffer, index_buffer)))
-                }),
-            };
-
-            if let (Some(fill_color), Some(fill_vi))  = (style.fill, fill_vi) {
-                let (fill_vertices, fill_indices) = &*fill_vi;
-                draw_vertex_buffer_to_surface(
-                    &mut surface, &shader.program, &fill_vertices, &fill_indices,
-                    &draw_options, &bbox_size, fill_color, z_index, pan, zoom, &style.transform);
+                if let (Some(stroke_color), Some(stroke_vi)) = (style.stroke, stroke_vi) {
+                    let (stroke_vertices, stroke_indices) = &*stroke_vi;
+                    draw_vertex_buffer_to_surface(
+                        &mut surface,
+                        &shader.program,
+                        &stroke_vertices,
+                        &stroke_indices,
+                        &draw_options,
+                        &bbox_size,
+                        stroke_color.0,
+                        z_index,
+                        pan,
+                        zoom,
+                        &style.transform,
+                    );
+                }
             }
 
-            if let (Some(stroke_color), Some(stroke_vi))  = (style.stroke, stroke_vi) {
-                let (stroke_vertices, stroke_indices) = &*stroke_vi;
-                draw_vertex_buffer_to_surface(&mut surface, &shader.program, &stroke_vertices, &stroke_indices,
-                    &draw_options, &bbox_size, stroke_color.0, z_index, pan, zoom, &style.transform);
-            }
-        }
-
-        // TODO: apply FXAA shader
-
+            // TODO: apply FXAA shader
         } // unbind surface framebuffer
 
         tex
@@ -2071,23 +2374,24 @@ impl Svg {
 }
 
 fn draw_vertex_buffer_to_surface<S: Surface>(
-        surface: &mut S,
-        shader: &Program,
-        vertices: &VertexBuffer<SvgVert>,
-        indices: &IndexBuffer<u32>,
-        draw_options: &DrawParameters,
-        bbox_size: &TypedSize2D<f32, SvgWorldPixel>,
-        color: ColorU,
-        z_index: f32,
-        pan: (f32, f32),
-        zoom: f32,
-        layer_transform: &SvgTransform)
-{
+    surface: &mut S,
+    shader: &Program,
+    vertices: &VertexBuffer<SvgVert>,
+    indices: &IndexBuffer<u32>,
+    draw_options: &DrawParameters,
+    bbox_size: &TypedSize2D<f32, SvgWorldPixel>,
+    color: ColorU,
+    z_index: f32,
+    pan: (f32, f32),
+    zoom: f32,
+    layer_transform: &SvgTransform,
+) {
     use css::webrender_translate::wr_translate_color_u;
 
     let color: ColorF = wr_translate_color_u(color).into();
 
-    let (layer_rotation_center, layer_rotation_degrees) = layer_transform.rotation.unwrap_or_default();
+    let (layer_rotation_center, layer_rotation_degrees) =
+        layer_transform.rotation.unwrap_or_default();
     let (rotation_sin, rotation_cos) = layer_rotation_degrees.to_rotation();
     let layer_translation = layer_transform.translation.unwrap_or_default();
     let layer_scale_factor = layer_transform.scale.unwrap_or_default();
@@ -2114,5 +2418,7 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
         ),
     };
 
-    surface.draw(vertices, indices, shader, &uniforms, draw_options).unwrap();
+    surface
+        .draw(vertices, indices, shader, &uniforms, draw_options)
+        .unwrap();
 }

@@ -1,18 +1,12 @@
-use std::sync::atomic::{Ordering, AtomicUsize};
 use azul_css::{FontId, StyleFontSize};
-use {
-    FastHashMap,
-    text_layout::Words,
-    app_resources::AppResources,
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use {app_resources::AppResources, text_layout::Words, FastHashMap};
 
 static TEXT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn new_text_id() -> TextId {
     let unique_id = TEXT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-    TextId {
-        inner: unique_id
-    }
+    TextId { inner: unique_id }
 }
 
 /// A unique ID by which a large block of text can be uniquely identified
@@ -34,11 +28,11 @@ pub struct TextCache {
     /// TextId -> FontId (to look up by font)
     /// FontId -> StyleFontSize (to categorize by size within a font)
     /// StyleFontSize -> layouted words (to cache the glyph widths on a per-font-size basis)
-    pub layouted_strings_cache: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<StyleFontSize, Words>>>,
+    pub layouted_strings_cache:
+        FastHashMap<TextId, FastHashMap<FontId, FastHashMap<StyleFontSize, Words>>>,
 }
 
 impl TextCache {
-
     /// Add a new, large text to the resources
     pub fn add_text<S: Into<String>>(&mut self, text: S) -> TextId {
         let id = new_text_id();
@@ -68,7 +62,6 @@ impl TextCache {
     }
 }
 
-
 /// This is used for caching large strings (in the `push_text` function)
 /// In the cached version, you can lookup the text as well as the dimensions of
 /// the words in the `AppResources`. For the `Uncached` version, you'll have to re-
@@ -87,18 +80,14 @@ impl TextInfo {
     ///
     /// Returns true if the TextInfo::Cached TextId does not exist
     /// (since in that case, it is "empty", so to speak)
-    pub(crate) fn is_empty_text(&self, app_resources: &AppResources)
-    -> bool
-    {
+    pub(crate) fn is_empty_text(&self, app_resources: &AppResources) -> bool {
         use self::TextInfo::*;
 
         match self {
-            Cached(text_id) => {
-                match app_resources.text_cache.string_cache.get(text_id) {
-                    Some(s) => s.is_empty(),
-                    None => true,
-                }
-            }
+            Cached(text_id) => match app_resources.text_cache.string_cache.get(text_id) {
+                Some(s) => s.is_empty(),
+                None => true,
+            },
             Uncached(s) => s.is_empty(),
         }
     }

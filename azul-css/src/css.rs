@@ -89,7 +89,7 @@ pub struct DynamicCssProperty {
 /// different from `auto`, since `auto` has its width determined by how much space there is
 /// available in the parent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DynamicCssPropertyDefault  {
+pub enum DynamicCssPropertyDefault {
     Exact(CssProperty),
     Auto,
 }
@@ -155,16 +155,18 @@ const NODE_TYPE_PATH_MAP: [(NodeTypePath, &'static str); 5] = [
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypePath::Div`
 impl NodeTypePath {
     pub fn from_str(css_key: &str) -> Result<Self, NodeTypePathParseError> {
-        NODE_TYPE_PATH_MAP.iter()
-        .find(|(_, k)| css_key == *k)
-        .and_then(|(v, _)| Some(*v))
-        .ok_or(NodeTypePathParseError::Invalid(css_key))
+        NODE_TYPE_PATH_MAP
+            .iter()
+            .find(|(_, k)| css_key == *k)
+            .and_then(|(v, _)| Some(*v))
+            .ok_or(NodeTypePathParseError::Invalid(css_key))
     }
 }
 
 impl fmt::Display for NodeTypePath {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        let display_string = NODE_TYPE_PATH_MAP.iter()
+        let display_string = NODE_TYPE_PATH_MAP
+            .iter()
             .find(|(v, _)| *self == *v)
             .and_then(|(_, k)| Some(*k))
             .unwrap();
@@ -220,7 +222,7 @@ pub enum CssPathSelector {
     /// Represents the `>` selector
     DirectChildren,
     /// Represents the ` ` selector
-    Children
+    Children,
 }
 
 impl Default for CssPathSelector {
@@ -275,7 +277,6 @@ impl fmt::Display for CssPathPseudoSelector {
 }
 
 impl Css {
-
     /// Creates a new stylesheet with no style rules.
     pub fn new() -> Self {
         Default::default()
@@ -290,26 +291,77 @@ impl Css {
     /// Sort the style rules by their weight, so that the rules are applied in the correct order.
     /// Should always be called when a new style is loaded from an external source.
     pub fn sort_by_specificity(&mut self) {
-        self.rules.sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
+        self.rules
+            .sort_by(|a, b| get_specificity(&a.path).cmp(&get_specificity(&b.path)));
     }
 }
 
 /// Returns specificity of the given css path. Further information can be found on
 /// [the w3 website](http://www.w3.org/TR/selectors/#specificity).
 fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
-    let id_count = path.selectors.iter().filter(|x|     if let CssPathSelector::Id(_) = x {     true } else { false }).count();
-    let class_count = path.selectors.iter().filter(|x|  if let CssPathSelector::Class(_) = x {  true } else { false }).count();
-    let div_count = path.selectors.iter().filter(|x|    if let CssPathSelector::Type(_) = x {   true } else { false }).count();
+    let id_count = path
+        .selectors
+        .iter()
+        .filter(|x| {
+            if let CssPathSelector::Id(_) = x {
+                true
+            } else {
+                false
+            }
+        })
+        .count();
+    let class_count = path
+        .selectors
+        .iter()
+        .filter(|x| {
+            if let CssPathSelector::Class(_) = x {
+                true
+            } else {
+                false
+            }
+        })
+        .count();
+    let div_count = path
+        .selectors
+        .iter()
+        .filter(|x| {
+            if let CssPathSelector::Type(_) = x {
+                true
+            } else {
+                false
+            }
+        })
+        .count();
     (id_count, class_count, div_count, path.selectors.len())
 }
 
 #[test]
 fn test_specificity() {
     use self::CssPathSelector::*;
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into())] }), (1, 0, 0, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".into())] }), (0, 1, 0, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)] }), (1, 0, 1, 2));
+    assert_eq!(
+        get_specificity(&CssPath {
+            selectors: vec![Id("hello".into())]
+        }),
+        (1, 0, 0, 1)
+    );
+    assert_eq!(
+        get_specificity(&CssPath {
+            selectors: vec![Class("hello".into())]
+        }),
+        (0, 1, 0, 1)
+    );
+    assert_eq!(
+        get_specificity(&CssPath {
+            selectors: vec![Type(NodeTypePath::Div)]
+        }),
+        (0, 0, 1, 1)
+    );
+    assert_eq!(
+        get_specificity(&CssPath {
+            selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)]
+        }),
+        (1, 0, 1, 2)
+    );
 }
 
 // Assert that order of the style items is correct (in order of CSS path specificity, lowest-to-highest)
@@ -321,11 +373,46 @@ fn test_specificity_sort() {
     let mut input_style = Css {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![Global],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![
+                        Global,
+                        Type(Div),
+                        Class("my_class".into()),
+                        Id("my_id".into()),
+                    ],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![Global, Type(Div), Id("my_id".into())],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![Global, Id("my_id".into())],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![
+                        Type(Div),
+                        Class("my_class".into()),
+                        Class("specific".into()),
+                        Id("my_id".into()),
+                    ],
+                },
+                declarations: Vec::new(),
+            },
         ],
     };
 
@@ -334,11 +421,46 @@ fn test_specificity_sort() {
     let expected_style = Css {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![Global],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![Global, Id("my_id".into())],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![Global, Type(Div), Id("my_id".into())],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![
+                        Global,
+                        Type(Div),
+                        Class("my_class".into()),
+                        Id("my_id".into()),
+                    ],
+                },
+                declarations: Vec::new(),
+            },
+            CssRuleBlock {
+                path: CssPath {
+                    selectors: vec![
+                        Type(Div),
+                        Class("my_class".into()),
+                        Class("specific".into()),
+                        Id("my_id".into()),
+                    ],
+                },
+                declarations: Vec::new(),
+            },
         ],
     };
 

@@ -5,10 +5,10 @@
 ///     Bar(BarError<'a>)
 ///     Foo(FooError<'a>)
 /// }
-/// 
+///
 /// impl_from!(BarError<'a>, Error::Bar);
 /// impl_from!(BarError<'a>, Error::Bar);
-/// 
+///
 /// ```
 macro_rules! impl_from {
     // From a type with a lifetime to a type which also has a lifetime

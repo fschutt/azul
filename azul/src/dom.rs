@@ -1,26 +1,26 @@
+use azul_css::{CssProperty, NodeTypePath};
+use glium::{framebuffer::SimpleFrameBuffer, Texture2d};
 use std::{
-    fmt,
-    rc::Rc,
     cell::RefCell,
-    hash::{Hash, Hasher},
-    sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
+    fmt,
+    hash::{Hash, Hasher},
     iter::FromIterator,
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
 };
-use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
-use azul_css::{ NodeTypePath, CssProperty };
 use {
-    ui_state::UiState,
-    FastHashMap,
-    window::{WindowEvent, WindowInfo},
+    app_state::AppState,
+    default_callbacks::{DefaultCallbackId, StackCheckedPointer},
+    id_tree::{Arena, Node, NodeDataContainer, NodeHierarchy, NodeId},
     images::{ImageId, ImageState},
     text_cache::TextId,
+    text_layout::{FontMetrics, TextSizePx, Words},
     traits::Layout,
-    app_state::AppState,
-    id_tree::{NodeId, Node, Arena, NodeHierarchy, NodeDataContainer},
-    default_callbacks::{DefaultCallbackId, StackCheckedPointer},
+    ui_state::UiState,
     window::HidpiAdjustedBounds,
-    text_layout::{Words, FontMetrics, TextSizePx},
+    window::{WindowEvent, WindowInfo},
+    FastHashMap,
 };
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -108,24 +108,28 @@ impl<T: Layout> Clone for Callback<T> {
 /// (to create diffs between two states). Comparing usizes is more efficient
 /// than re-creating the whole DOM and serves as a caching mechanism.
 impl<T: Layout> Hash for Callback<T> {
-  fn hash<H>(&self, state: &mut H) where H: Hasher {
-    state.write_usize(self.0 as usize);
-  }
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        state.write_usize(self.0 as usize);
+    }
 }
 
 /// Basically compares the function pointers and types for equality
 impl<T: Layout> PartialEq for Callback<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    self.0 as usize == rhs.0 as usize
-  }
+    fn eq(&self, rhs: &Self) -> bool {
+        self.0 as usize == rhs.0 as usize
+    }
 }
 
-impl<T: Layout> Eq for Callback<T> { }
+impl<T: Layout> Eq for Callback<T> {}
 
-impl<T: Layout> Copy for Callback<T> { }
+impl<T: Layout> Copy for Callback<T> {}
 
-
-pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Option<Texture>);
+pub struct GlTextureCallback<T: Layout>(
+    pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Option<Texture>,
+);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for GlTextureCallback<T>
 
@@ -142,21 +146,26 @@ impl<T: Layout> Clone for GlTextureCallback<T> {
 }
 
 impl<T: Layout> Hash for GlTextureCallback<T> {
-  fn hash<H>(&self, state: &mut H) where H: Hasher {
-    state.write_usize(self.0 as usize);
-  }
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        state.write_usize(self.0 as usize);
+    }
 }
 
 impl<T: Layout> PartialEq for GlTextureCallback<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    self.0 as usize == rhs.0 as usize
-  }
+    fn eq(&self, rhs: &Self) -> bool {
+        self.0 as usize == rhs.0 as usize
+    }
 }
 
-impl<T: Layout> Eq for GlTextureCallback<T> { }
-impl<T: Layout> Copy for GlTextureCallback<T> { }
+impl<T: Layout> Eq for GlTextureCallback<T> {}
+impl<T: Layout> Copy for GlTextureCallback<T> {}
 
-pub struct IFrameCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Dom<T>);
+pub struct IFrameCallback<T: Layout>(
+    pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Dom<T>,
+);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for IFrameCallback<T>
 
@@ -173,21 +182,23 @@ impl<T: Layout> Clone for IFrameCallback<T> {
 }
 
 impl<T: Layout> Hash for IFrameCallback<T> {
-  fn hash<H>(&self, state: &mut H) where H: Hasher {
-    state.write_usize(self.0 as usize);
-  }
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        state.write_usize(self.0 as usize);
+    }
 }
 
 impl<T: Layout> PartialEq for IFrameCallback<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    self.0 as usize == rhs.0 as usize
-  }
+    fn eq(&self, rhs: &Self) -> bool {
+        self.0 as usize == rhs.0 as usize
+    }
 }
 
-impl<T: Layout> Eq for IFrameCallback<T> { }
+impl<T: Layout> Eq for IFrameCallback<T> {}
 
-impl<T: Layout> Copy for IFrameCallback<T> { }
-
+impl<T: Layout> Copy for IFrameCallback<T> {}
 
 /// List of core DOM node types built-into by `azul`.
 pub enum NodeType<T: Layout> {
@@ -218,8 +229,16 @@ impl<T: Layout> fmt::Debug for NodeType<T> {
             Label(a) => write!(f, "NodeType::Label {{ {:?} }}", a),
             Text(a) => write!(f, "NodeType::Text {{ {:?} }}", a),
             Image(a) => write!(f, "NodeType::Image {{ {:?} }}", a),
-            GlTexture((ptr, cb)) => write!(f, "NodeType::GlTexture {{ ptr: {:?}, callback: {:?} }}", ptr, cb),
-            IFrame((ptr, cb)) => write!(f, "NodeType::IFrame {{ ptr: {:?}, callback: {:?} }}", ptr, cb),
+            GlTexture((ptr, cb)) => write!(
+                f,
+                "NodeType::GlTexture {{ ptr: {:?}, callback: {:?} }}",
+                ptr, cb
+            ),
+            IFrame((ptr, cb)) => write!(
+                f,
+                "NodeType::IFrame {{ ptr: {:?}, callback: {:?} }}",
+                ptr, cb
+            ),
         }
     }
 }
@@ -239,23 +258,26 @@ impl<T: Layout> Clone for NodeType<T> {
 }
 
 impl<T: Layout> Hash for NodeType<T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         use self::NodeType::*;
         use std::mem;
         mem::discriminant(&self).hash(state);
         match self {
-            Div => { },
+            Div => {}
             Label(a) => a.hash(state),
             Text(a) => a.hash(state),
             Image(a) => a.hash(state),
             GlTexture((ptr, a)) => {
                 ptr.hash(state);
                 a.hash(state);
-            },
+            }
             IFrame((ptr, a)) => {
                 ptr.hash(state);
                 a.hash(state);
-            },
+            }
         }
     }
 }
@@ -268,21 +290,16 @@ impl<T: Layout> PartialEq for NodeType<T> {
             (Label(a), Label(b)) => a == b,
             (Text(a), Text(b)) => a == b,
             (Image(a), Image(b)) => a == b,
-            (GlTexture((ptr_a, a)), GlTexture((ptr_b, b))) => {
-                a == b && ptr_a == ptr_b
-            },
-            (IFrame((ptr_a, a)), IFrame((ptr_b, b))) => {
-                a == b && ptr_a == ptr_b
-            },
+            (GlTexture((ptr_a, a)), GlTexture((ptr_b, b))) => a == b && ptr_a == ptr_b,
+            (IFrame((ptr_a, a)), IFrame((ptr_b, b))) => a == b && ptr_a == ptr_b,
             _ => false,
         }
     }
 }
 
-impl<T: Layout> Eq for NodeType<T> { }
+impl<T: Layout> Eq for NodeType<T> {}
 
 impl<T: Layout> NodeType<T> {
-
     pub(crate) fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
         match self {
@@ -296,11 +313,20 @@ impl<T: Layout> NodeType<T> {
 
     /// Returns the preferred width, for example for an image, that would be the
     /// original width (an image always wants to take up the original space)
-    pub(crate) fn get_preferred_width(&self, image_cache: &FastHashMap<ImageId, ImageState>) -> Option<f32> {
+    pub(crate) fn get_preferred_width(
+        &self,
+        image_cache: &FastHashMap<ImageId, ImageState>,
+    ) -> Option<f32> {
         use self::NodeType::*;
         match self {
-            Image(i) => image_cache.get(i).and_then(|image_state| Some(image_state.get_dimensions().0)),
-            Label(_) | Text(_) => /* TODO: Calculate the minimum width for the text? */ None,
+            Image(i) => image_cache
+                .get(i)
+                .and_then(|image_state| Some(image_state.get_dimensions().0)),
+            Label(_) | Text(_) =>
+            /* TODO: Calculate the minimum width for the text? */
+            {
+                None
+            }
             _ => None,
         }
     }
@@ -312,8 +338,7 @@ impl<T: Layout> NodeType<T> {
         image_cache: &FastHashMap<ImageId, ImageState>,
         words: Option<&Words>,
         font_metrics: Option<FontMetrics>,
-    ) -> Option<TextSizePx>
-    {
+    ) -> Option<TextSizePx> {
         use self::NodeType::*;
         use azul_css::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
 
@@ -324,10 +349,16 @@ impl<T: Layout> NodeType<T> {
             }),
             Label(_) | Text(_) => {
                 let (words, font) = (words?, font_metrics?);
-                let vertical_info = words.get_vertical_height(&LayoutOverflow {
-                    horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Scroll),
-                    .. Default::default()
-                }, &font, div_width);
+                let vertical_info = words.get_vertical_height(
+                    &LayoutOverflow {
+                        horizontal: TextOverflowBehaviour::Modified(
+                            TextOverflowBehaviourInner::Scroll,
+                        ),
+                        ..Default::default()
+                    },
+                    &font,
+                    div_width,
+                );
                 Some(vertical_info.vertical_height)
             }
             _ => None,
@@ -471,18 +502,18 @@ impl Default for TabIndex {
 
 impl<T: Layout> PartialEq for NodeData<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.node_type == other.node_type &&
-        self.ids == other.ids &&
-        self.classes == other.classes &&
-        self.callbacks == other.callbacks &&
-        self.default_callback_ids == other.default_callback_ids &&
-        self.dynamic_css_overrides == other.dynamic_css_overrides &&
-        self.draggable == other.draggable &&
-        self.tab_index == other.tab_index
+        self.node_type == other.node_type
+            && self.ids == other.ids
+            && self.classes == other.classes
+            && self.callbacks == other.callbacks
+            && self.default_callback_ids == other.default_callback_ids
+            && self.dynamic_css_overrides == other.dynamic_css_overrides
+            && self.draggable == other.draggable
+            && self.tab_index == other.tab_index
     }
 }
 
-impl<T: Layout> Eq for NodeData<T> { }
+impl<T: Layout> Eq for NodeData<T> {}
 
 impl<T: Layout> Default for NodeData<T> {
     fn default() -> Self {
@@ -539,19 +570,26 @@ impl<T: Layout> Clone for NodeData<T> {
 
 impl<T: Layout> fmt::Display for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-
         let html_type = self.node_type.get_path();
 
         let id_string = if self.ids.is_empty() {
             String::new()
         } else {
-            self.ids.iter().map(|x| format!("#{}", x)).collect::<Vec<String>>().join(" ")
+            self.ids
+                .iter()
+                .map(|x| format!("#{}", x))
+                .collect::<Vec<String>>()
+                .join(" ")
         };
 
         let class_string = if self.classes.is_empty() {
             String::new()
         } else {
-            self.classes.iter().map(|x| format!(".{}", x)).collect::<Vec<String>>().join(" ")
+            self.classes
+                .iter()
+                .map(|x| format!(".{}", x))
+                .collect::<Vec<String>>()
+                .join(" ")
         };
 
         write!(f, "[{} {} {}]", html_type, id_string, class_string)
@@ -560,38 +598,39 @@ impl<T: Layout> fmt::Display for NodeData<T> {
 
 impl<T: Layout> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
+        write!(
+            f,
             "NodeData {{ \
-                \tnode_type: {:?}, \
-                \tids: {:?}, \
-                \tclasses: {:?}, \
-                \tcallbacks: {:?}, \
-                \tdefault_callback_ids: {:?}, \
-                \tdynamic_css_overrides: {:?}, \
-                \tdraggable: {:?}, \
-                \ttab_index: {:?}, \
-            }}",
-        self.node_type,
-        self.ids,
-        self.classes,
-        self.callbacks,
-        self.default_callback_ids,
-        self.dynamic_css_overrides,
-        self.draggable,
-        self.tab_index)
+             \tnode_type: {:?}, \
+             \tids: {:?}, \
+             \tclasses: {:?}, \
+             \tcallbacks: {:?}, \
+             \tdefault_callback_ids: {:?}, \
+             \tdynamic_css_overrides: {:?}, \
+             \tdraggable: {:?}, \
+             \ttab_index: {:?}, \
+             }}",
+            self.node_type,
+            self.ids,
+            self.classes,
+            self.callbacks,
+            self.default_callback_ids,
+            self.dynamic_css_overrides,
+            self.draggable,
+            self.tab_index
+        )
     }
 }
 
 impl<T: Layout> NodeData<T> {
-
     pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
         use std::hash::Hash;
 
         // Pick hash algorithm based on features
-        #[cfg(feature = "faster-hashing")]
-        use twox_hash::XxHash as HashAlgorithm;
         #[cfg(not(feature = "faster-hashing"))]
         use std::collections::hash_map::DefaultHasher as HashAlgorithm;
+        #[cfg(feature = "faster-hashing")]
+        use twox_hash::XxHash as HashAlgorithm;
 
         let mut hasher = HashAlgorithm::default();
         self.hash(&mut hasher);
@@ -602,7 +641,7 @@ impl<T: Layout> NodeData<T> {
     pub fn new(node_type: NodeType<T>) -> Self {
         Self {
             node_type,
-            .. Default::default()
+            ..Default::default()
         }
     }
 }
@@ -617,16 +656,16 @@ pub struct Dom<T: Layout> {
 
 impl<T: Layout> fmt::Debug for Dom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-        "Dom {{ arena: {:?}, root: {:?}, head: {:?} }}",
-        self.arena,
-        self.root,
-        self.head)
+        write!(
+            f,
+            "Dom {{ arena: {:?}, root: {:?}, head: {:?} }}",
+            self.arena, self.root, self.head
+        )
     }
 }
 
 impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
-    fn from_iter<I: IntoIterator<Item=Dom<T>>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = Dom<T>>>(iter: I) -> Self {
         let mut c = Dom::new(NodeType::Div);
         for i in iter {
             c.add_child(i);
@@ -636,8 +675,7 @@ impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
 }
 
 impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
-    fn from_iter<I: IntoIterator<Item=NodeData<T>>>(iter: I) -> Self {
-
+    fn from_iter<I: IntoIterator<Item = NodeData<T>>>(iter: I) -> Self {
         use id_tree::Node;
 
         // We have to use a "root" node, otherwise we run into problems if
@@ -658,7 +696,11 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
         for item in iter {
             let node = Node {
                 parent: Some(NodeId::new(0)),
-                previous_sibling: if idx == 0 { None } else { Some(NodeId::new(idx)) },
+                previous_sibling: if idx == 0 {
+                    None
+                } else {
+                    Some(NodeId::new(idx))
+                },
                 next_sibling: Some(NodeId::new(idx + 2)),
                 last_child: None,
                 first_child: None,
@@ -693,13 +735,17 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
 }
 
 impl<T: Layout> FromIterator<NodeType<T>> for Dom<T> {
-    fn from_iter<I: IntoIterator<Item=NodeType<T>>>(iter: I) -> Self {
-        iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
+    fn from_iter<I: IntoIterator<Item = NodeType<T>>>(iter: I) -> Self {
+        iter.into_iter()
+            .map(|i| NodeData {
+                node_type: i,
+                ..Default::default()
+            })
+            .collect()
     }
 }
 
 impl<T: Layout> Dom<T> {
-
     /// Creates an empty DOM
     #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
@@ -761,7 +807,6 @@ impl<T: Layout> Dom<T> {
 
     /// Adds a child DOM to the current DOM
     pub fn add_child(&mut self, child: Self) {
-
         // Note: for a more readable Python version of this algorithm,
         // see: https://gist.github.com/fschutt/4b3bd9a2654b548a6eb0b6a8623bdc8a#file-dow_new_2-py-L65-L107
 
@@ -791,23 +836,34 @@ impl<T: Layout> Dom<T> {
 
             // WARNING: Order of these blocks is important!
 
-            if node_id_child.previous_sibling.as_mut().and_then(|previous_sibling| {
-                // Some(previous_sibling) - increase the parent ID by the current arena length
-                *previous_sibling += self_len;
-                Some(previous_sibling)
-            }).is_none() {
+            if node_id_child
+                .previous_sibling
+                .as_mut()
+                .and_then(|previous_sibling| {
+                    // Some(previous_sibling) - increase the parent ID by the current arena length
+                    *previous_sibling += self_len;
+                    Some(previous_sibling)
+                })
+                .is_none()
+            {
                 // None - set the current heads' last child as the new previous sibling
                 let last_child = self_arena.node_layout[self.head].last_child;
                 if last_child.is_some() && node_id_child.parent.is_none() {
                     node_id_child.previous_sibling = last_child;
-                    self_arena.node_layout[last_child.unwrap()].next_sibling = Some(node_id + self_len);
+                    self_arena.node_layout[last_child.unwrap()].next_sibling =
+                        Some(node_id + self_len);
                 }
             }
 
-            if node_id_child.parent.as_mut().and_then(|parent| {
-                *parent += self_len;
-                Some(parent)
-            }).is_none() {
+            if node_id_child
+                .parent
+                .as_mut()
+                .and_then(|parent| {
+                    *parent += self_len;
+                    Some(parent)
+                })
+                .is_none()
+            {
                 // Have we encountered the last root item?
                 if node_id_child.next_sibling.is_none() {
                     last_sibling = Some(node_id);
@@ -828,7 +884,9 @@ impl<T: Layout> Dom<T> {
             }
         }
 
-        self_arena.node_layout[self.head].first_child.get_or_insert(NodeId::new(self_len));
+        self_arena.node_layout[self.head]
+            .first_child
+            .get_or_insert(NodeId::new(self_len));
         self_arena.node_layout[self.head].last_child = Some(last_sibling.unwrap() + self_len);
 
         (&mut *self_arena).append_arena(&mut child_arena);
@@ -875,22 +933,30 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn add_id<S: Into<String>>(&mut self, id: S) {
-        self.arena.borrow_mut().node_data[self.head].ids.push(id.into());
+        self.arena.borrow_mut().node_data[self.head]
+            .ids
+            .push(id.into());
     }
 
     #[inline]
     pub fn add_class<S: Into<String>>(&mut self, class: S) {
-        self.arena.borrow_mut().node_data[self.head].classes.push(class.into());
+        self.arena.borrow_mut().node_data[self.head]
+            .classes
+            .push(class.into());
     }
 
     #[inline]
     pub fn add_callback(&mut self, on: On, callback: Callback<T>) {
-        self.arena.borrow_mut().node_data[self.head].callbacks.push((on, callback));
+        self.arena.borrow_mut().node_data[self.head]
+            .callbacks
+            .push((on, callback));
     }
 
     #[inline]
     pub fn add_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
-        self.arena.borrow_mut().node_data[self.head].default_callback_ids.push((on, id));
+        self.arena.borrow_mut().node_data[self.head]
+            .default_callback_ids
+            .push((on, id));
     }
 
     #[inline]
@@ -900,7 +966,9 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: CssProperty) {
-        self.arena.borrow_mut().node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
+        self.arena.borrow_mut().node_data[self.head]
+            .dynamic_css_overrides
+            .push((override_id.into(), property));
     }
 
     /// Prints a debug formatted version of the DOM for easier debugging
@@ -909,7 +977,6 @@ impl<T: Layout> Dom<T> {
     }
 
     pub(crate) fn into_ui_state(self) -> UiState<T> {
-
         // NOTE: Originally it was allowed to create a DOM with
         // multiple root elements using `add_sibling()` and `with_sibling()`.
         //
@@ -948,7 +1015,6 @@ impl<T: Layout> Dom<T> {
             debug_assert!(arena.node_layout[NodeId::new(0)].next_sibling.is_none());
 
             for node_id in arena.linear_iter() {
-
                 let data = &arena.node_data[node_id];
 
                 let mut node_tag_id = None;
@@ -961,7 +1027,8 @@ impl<T: Layout> Dom<T> {
 
                 if !data.default_callback_ids.is_empty() {
                     let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
-                    tag_ids_to_default_callbacks.insert(tag_id, data.default_callback_ids.iter().cloned().collect());
+                    tag_ids_to_default_callbacks
+                        .insert(tag_id, data.default_callback_ids.iter().cloned().collect());
                     node_tag_id = Some(tag_id);
                 }
 
@@ -984,7 +1051,10 @@ impl<T: Layout> Dom<T> {
 
                 // Collect all the styling overrides into one hash map
                 if !data.dynamic_css_overrides.is_empty() {
-                    dynamic_css_overrides.insert(node_id, data.dynamic_css_overrides.iter().cloned().collect());
+                    dynamic_css_overrides.insert(
+                        node_id,
+                        data.dynamic_css_overrides.iter().cloned().collect(),
+                    );
                 }
             }
         }
@@ -1052,80 +1122,89 @@ impl PartialEq for Texture {
     }
 }
 
-impl Eq for Texture { }
+impl Eq for Texture {}
 
 #[test]
 fn test_dom_sibling_1() {
-
-    struct TestLayout { }
+    struct TestLayout {}
 
     impl Layout for TestLayout {
         fn layout(&self) -> Dom<Self> {
             Dom::new(NodeType::Div)
                 .with_child(
                     Dom::new(NodeType::Div)
-                    .with_id("sibling-1")
-                    .with_child(Dom::new(NodeType::Div)
-                        .with_id("sibling-1-child-1")))
-                .with_child(Dom::new(NodeType::Div)
-                    .with_id("sibling-2")
-                    .with_child(Dom::new(NodeType::Div)
-                        .with_id("sibling-2-child-1")))
+                        .with_id("sibling-1")
+                        .with_child(Dom::new(NodeType::Div).with_id("sibling-1-child-1")),
+                )
+                .with_child(
+                    Dom::new(NodeType::Div)
+                        .with_id("sibling-2")
+                        .with_child(Dom::new(NodeType::Div).with_id("sibling-2-child-1")),
+                )
         }
     }
 
-    let dom = TestLayout{ }.layout();
+    let dom = TestLayout {}.layout();
     let arena = dom.arena.borrow();
 
     assert_eq!(NodeId::new(0), dom.root);
 
-    assert_eq!(vec![String::from("sibling-1")],
-        arena.node_data[
-            arena.node_layout[dom.root]
-            .first_child.expect("root has no first child")
-        ].ids);
+    assert_eq!(
+        vec![String::from("sibling-1")],
+        arena.node_data[arena.node_layout[dom.root]
+            .first_child
+            .expect("root has no first child")]
+        .ids
+    );
 
-    assert_eq!(vec![String::from("sibling-2")],
-        arena.node_data[
-            arena.node_layout[
-                arena.node_layout[dom.root]
-                .first_child.expect("root has no first child")
-            ].next_sibling.expect("root has no second sibling")
-        ].ids);
+    assert_eq!(
+        vec![String::from("sibling-2")],
+        arena.node_data[arena.node_layout[arena.node_layout[dom.root]
+            .first_child
+            .expect("root has no first child")]
+        .next_sibling
+        .expect("root has no second sibling")]
+        .ids
+    );
 
-    assert_eq!(vec![String::from("sibling-1-child-1")],
-        arena.node_data[
-            arena.node_layout[
-                arena.node_layout[dom.root]
-                .first_child.expect("root has no first child")
-            ].first_child.expect("first child has no first child")
-        ].ids);
+    assert_eq!(
+        vec![String::from("sibling-1-child-1")],
+        arena.node_data[arena.node_layout[arena.node_layout[dom.root]
+            .first_child
+            .expect("root has no first child")]
+        .first_child
+        .expect("first child has no first child")]
+        .ids
+    );
 
-    assert_eq!(vec![String::from("sibling-2-child-1")],
-        arena.node_data[
-            arena.node_layout[
-                arena.node_layout[
-                    arena.node_layout[dom.root]
-                    .first_child.expect("root has no first child")
-                ].next_sibling.expect("first child has no second sibling")
-            ].first_child.expect("second sibling has no first child")
-        ].ids);
+    assert_eq!(
+        vec![String::from("sibling-2-child-1")],
+        arena.node_data[arena.node_layout[arena.node_layout[arena.node_layout[dom.root]
+            .first_child
+            .expect("root has no first child")]
+        .next_sibling
+        .expect("first child has no second sibling")]
+        .first_child
+        .expect("second sibling has no first child")]
+        .ids
+    );
 }
 
 #[test]
 fn test_dom_from_iter_1() {
-
     use id_tree::Node;
 
-    struct TestLayout { }
+    struct TestLayout {}
 
     impl Layout for TestLayout {
         fn layout(&self) -> Dom<Self> {
-            (0..5).map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1)))).collect()
+            (0..5)
+                .map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1))))
+                .collect()
         }
     }
 
-    let dom = TestLayout{ }.layout();
+    let dom = TestLayout {}.layout();
     let arena = dom.arena.borrow();
 
     // We need to have 6 nodes:
@@ -1140,34 +1219,46 @@ fn test_dom_from_iter_1() {
     assert_eq!(arena.len(), 6);
 
     // Check root node
-    assert_eq!(arena.node_layout.get(NodeId::new(0)), Some(&Node {
-        parent: None,
-        previous_sibling: None,
-        next_sibling: None,
-        first_child: Some(NodeId::new(1)),
-        last_child: Some(NodeId::new(5)),
-    }));
-    assert_eq!(arena.node_data.get(NodeId::new(0)), Some(&NodeData::new(NodeType::Div)));
+    assert_eq!(
+        arena.node_layout.get(NodeId::new(0)),
+        Some(&Node {
+            parent: None,
+            previous_sibling: None,
+            next_sibling: None,
+            first_child: Some(NodeId::new(1)),
+            last_child: Some(NodeId::new(5)),
+        })
+    );
+    assert_eq!(
+        arena.node_data.get(NodeId::new(0)),
+        Some(&NodeData::new(NodeType::Div))
+    );
 
-    assert_eq!(arena.node_layout.get(NodeId::new(arena.node_layout.len() - 1)), Some(&Node {
-        parent: Some(NodeId::new(0)),
-        previous_sibling: Some(NodeId::new(4)),
-        next_sibling: None,
-        first_child: None,
-        last_child: None,
-    }));
-    assert_eq!(arena.node_data.get(NodeId::new(arena.node_data.len() - 1)), Some(&NodeData {
-        node_type: NodeType::Label(String::from("5")),
-        .. Default::default()
-    }));
-
+    assert_eq!(
+        arena
+            .node_layout
+            .get(NodeId::new(arena.node_layout.len() - 1)),
+        Some(&Node {
+            parent: Some(NodeId::new(0)),
+            previous_sibling: Some(NodeId::new(4)),
+            next_sibling: None,
+            first_child: None,
+            last_child: None,
+        })
+    );
+    assert_eq!(
+        arena.node_data.get(NodeId::new(arena.node_data.len() - 1)),
+        Some(&NodeData {
+            node_type: NodeType::Label(String::from("5")),
+            ..Default::default()
+        })
+    );
 }
 
 /// Test that there shouldn't be a DOM that has 0 nodes
 #[test]
 fn test_zero_size_dom() {
-
-    struct TestLayout { }
+    struct TestLayout {}
 
     impl Layout for TestLayout {
         fn layout(&self) -> Dom<Self> {
@@ -1175,9 +1266,11 @@ fn test_zero_size_dom() {
         }
     }
 
-    let mut null_dom =
-        (0..0)
-        .map(|_| NodeData { node_type: NodeType::Div, .. Default::default() })
+    let mut null_dom = (0..0)
+        .map(|_| NodeData {
+            node_type: NodeType::Div,
+            ..Default::default()
+        })
         .collect::<Dom<TestLayout>>();
 
     assert!(null_dom.arena.borrow().len() == 1);

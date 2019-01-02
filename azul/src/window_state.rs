@@ -1,22 +1,22 @@
 //! Contains methods related to event filtering (i.e. detecting whether a
 //! click was a mouseover, mouseout, and so on and calling the correct callbacks)
 
+use glium::glutin::{
+    dpi::{LogicalPosition, LogicalSize},
+    ElementState, Event, KeyboardInput, ModifiersState, MouseCursor, MouseScrollDelta, ScanCode,
+    VirtualKeyCode, Window, WindowEvent,
+};
 use std::{
-    collections::{HashSet, BTreeMap},
+    collections::{BTreeMap, HashSet},
     path::PathBuf,
 };
-use glium::glutin::{
-    Window, Event, WindowEvent, KeyboardInput, ScanCode, ElementState,
-    MouseCursor, VirtualKeyCode, MouseScrollDelta,
-    ModifiersState, dpi::{LogicalPosition, LogicalSize},
-};
-use webrender::api::{HitTestResult, HitTestItem};
+use webrender::api::{HitTestItem, HitTestResult};
 use {
-    dom::{On, Callback, TabIndex},
     default_callbacks::DefaultCallbackId,
+    dom::{Callback, On, TabIndex},
     id_tree::NodeId,
-    ui_state::UiState,
     traits::Layout,
+    ui_state::UiState,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -25,13 +25,11 @@ const DEFAULT_HEIGHT: f64 = 600.0;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone)]
-pub struct KeyboardState
-{
+pub struct KeyboardState {
     // Modifier keys that are currently actively pressed during this frame
     //
     // Note: These are tracked separately by glium to prevent missing state changes
     // when the window isn't focused
-
     /// Shift key
     pub shift_down: bool,
     /// Ctrl key
@@ -60,7 +58,6 @@ pub struct KeyboardState
 }
 
 impl KeyboardState {
-
     fn update_from_modifier_state(&mut self, state: ModifiersState) {
         self.shift_down = state.shift;
         self.ctrl_down = state.ctrl;
@@ -71,8 +68,7 @@ impl KeyboardState {
 
 /// Mouse position on the screen
 #[derive(Debug, Copy, Clone)]
-pub struct MouseState
-{
+pub struct MouseState {
     /// Current mouse cursor type
     pub mouse_cursor_type: MouseCursor,
     //// Where is the mouse cursor currently? Set to `None` if the window is not focused
@@ -250,8 +246,7 @@ pub(crate) struct DetermineCallbackResult<T: Layout> {
     pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
 }
 
-impl WindowState
-{
+impl WindowState {
     pub fn get_mouse_state(&self) -> &MouseState {
         &self.mouse_state
     }
@@ -274,16 +269,20 @@ impl WindowState
     /// A BTreeMap where each item is already filtered by the proper hit-testing type,
     /// meaning in order to get the proper callbacks, you simply have to iterate through
     /// all node IDs
-    pub(crate) fn determine_callbacks<T: Layout>(&mut self, hit_test_result: &HitTestResult, event: &Event, ui_state: &UiState<T>)
-    -> BTreeMap<NodeId, DetermineCallbackResult<T>>
-    {
+    pub(crate) fn determine_callbacks<T: Layout>(
+        &mut self,
+        hit_test_result: &HitTestResult,
+        event: &Event,
+        ui_state: &UiState<T>,
+    ) -> BTreeMap<NodeId, DetermineCallbackResult<T>> {
+        use glium::glutin::{Event, KeyboardInput, MouseButton::*, WindowEvent};
         use std::collections::HashSet;
-        use glium::glutin::{
-            Event, WindowEvent, KeyboardInput,
-            MouseButton::*,
-        };
 
-        let event = if let Event::WindowEvent { event, .. } = event { event } else { return BTreeMap::new(); };
+        let event = if let Event::WindowEvent { event, .. } = event {
+            event
+        } else {
+            return BTreeMap::new();
+        };
 
         // store the current window state so we can set it in this.previous_window_state later on
         let mut previous_state = Box::new(self.clone());
@@ -293,7 +292,11 @@ impl WindowState
         events_vec.insert(On::MouseOver);
 
         match event {
-            WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button,
+                ..
+            } => {
                 events_vec.insert(On::MouseDown);
                 match button {
                     Left => {
@@ -301,87 +304,127 @@ impl WindowState
                             events_vec.insert(On::LeftMouseDown);
                         }
                         self.mouse_state.left_down = true;
-                    },
+                    }
                     Right => {
                         if !self.mouse_state.right_down {
                             events_vec.insert(On::RightMouseDown);
                         }
                         self.mouse_state.right_down = true;
-                    },
+                    }
                     Middle => {
                         if !self.mouse_state.middle_down {
                             events_vec.insert(On::MiddleMouseDown);
                         }
                         self.mouse_state.middle_down = true;
-                    },
-                    _ => { }
+                    }
+                    _ => {}
                 }
-            },
-            WindowEvent::MouseInput { state: ElementState::Released, button, .. } => {
-                match button {
-                    Left => {
-                        if self.mouse_state.left_down {
-                            events_vec.insert(On::MouseUp);
-                            events_vec.insert(On::LeftMouseUp);
-                        }
-                        self.mouse_state.left_down = false;
-                    },
-                    Right => {
-                        if self.mouse_state.right_down {
-                            events_vec.insert(On::MouseUp);
-                            events_vec.insert(On::RightMouseUp);
-                        }
-                        self.mouse_state.right_down = false;
-                    },
-                    Middle => {
-                        if self.mouse_state.middle_down {
-                            events_vec.insert(On::MouseUp);
-                            events_vec.insert(On::MiddleMouseUp);
-                        }
-                        self.mouse_state.middle_down = false;
-                    },
-                    _ => { }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button,
+                ..
+            } => match button {
+                Left => {
+                    if self.mouse_state.left_down {
+                        events_vec.insert(On::MouseUp);
+                        events_vec.insert(On::LeftMouseUp);
+                    }
+                    self.mouse_state.left_down = false;
                 }
+                Right => {
+                    if self.mouse_state.right_down {
+                        events_vec.insert(On::MouseUp);
+                        events_vec.insert(On::RightMouseUp);
+                    }
+                    self.mouse_state.right_down = false;
+                }
+                Middle => {
+                    if self.mouse_state.middle_down {
+                        events_vec.insert(On::MouseUp);
+                        events_vec.insert(On::MiddleMouseUp);
+                    }
+                    self.mouse_state.middle_down = false;
+                }
+                _ => {}
             },
             WindowEvent::MouseWheel { .. } => {
                 events_vec.insert(On::Scroll);
-            },
-            WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
+            }
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(_),
+                        ..
+                    },
+                ..
+            } => {
                 events_vec.insert(On::VirtualKeyDown);
-            },
+            }
             WindowEvent::ReceivedCharacter(c) => {
                 if !c.is_control() {
                     events_vec.insert(On::TextInput);
                 }
-            },
-            WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
+            }
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state: ElementState::Released,
+                        virtual_keycode: Some(_),
+                        ..
+                    },
+                ..
+            } => {
                 events_vec.insert(On::VirtualKeyUp);
-            },
+            }
             WindowEvent::HoveredFile(_) => {
                 events_vec.insert(On::HoveredFile);
-            },
+            }
             WindowEvent::DroppedFile(_) => {
                 events_vec.insert(On::DroppedFile);
-            },
+            }
             WindowEvent::HoveredFileCancelled => {
                 events_vec.insert(On::HoveredFileCancelled);
-            },
-            _ => { }
+            }
+            _ => {}
         }
 
-        let event_was_mouse_down = if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = event { true } else { false };
-        let event_was_mouse_release = if let WindowEvent::MouseInput { state: ElementState::Released, .. } = event { true } else { false };
+        let event_was_mouse_down = if let WindowEvent::MouseInput {
+            state: ElementState::Pressed,
+            ..
+        } = event
+        {
+            true
+        } else {
+            false
+        };
+        let event_was_mouse_release = if let WindowEvent::MouseInput {
+            state: ElementState::Released,
+            ..
+        } = event
+        {
+            true
+        } else {
+            false
+        };
 
         // TODO: If the current mouse is down, but the event
         // wasn't a click, that means it was a drag
 
         // Figure out if an item has received the onfocus or onfocusleave event
-        let closest_item_with_focus_tab: Option<(NodeId, TabIndex)> = if event_was_mouse_down || event_was_mouse_release {
-            // Find the first (closest to cursor in hierarchy) item that has a tabindex
-            hit_test_result.items.iter().rev().find_map(|item| ui_state.tab_index_tags.get(&item.tag.0)).cloned()
-        } else {
-            None
-        };
+        let closest_item_with_focus_tab: Option<(NodeId, TabIndex)> =
+            if event_was_mouse_down || event_was_mouse_release {
+                // Find the first (closest to cursor in hierarchy) item that has a tabindex
+                hit_test_result
+                    .items
+                    .iter()
+                    .rev()
+                    .find_map(|item| ui_state.tab_index_tags.get(&item.tag.0))
+                    .cloned()
+            } else {
+                None
+            };
 
         if let Some((new_focused_element_node_id, _)) = closest_item_with_focus_tab {
             // Update the current window states focus element, regardless of
@@ -402,11 +445,21 @@ impl WindowState
         }
 
         // Update all hovered nodes for creating new :hover tags
-        self.hovered_nodes = hit_test_result.items.iter().filter_map(|item| ui_state.tag_ids_to_node_ids.get(&item.tag.0)).cloned().collect();
+        self.hovered_nodes = hit_test_result
+            .items
+            .iter()
+            .filter_map(|item| ui_state.tag_ids_to_node_ids.get(&item.tag.0))
+            .cloned()
+            .collect();
 
-        fn hit_test_item_to_callback_result<T: Layout>(item: &HitTestItem, ui_state: &UiState<T>, events_vec: &HashSet<On>) -> Option<(NodeId, DetermineCallbackResult<T>)> {
+        fn hit_test_item_to_callback_result<T: Layout>(
+            item: &HitTestItem,
+            ui_state: &UiState<T>,
+            events_vec: &HashSet<On>,
+        ) -> Option<(NodeId, DetermineCallbackResult<T>)> {
             let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
-            let default_callbacks = ui_state.tag_ids_to_default_callbacks
+            let default_callbacks = ui_state
+                .tag_ids_to_default_callbacks
                 .get(&item.tag.0)
                 .cloned()
                 .unwrap_or_default()
@@ -414,7 +467,8 @@ impl WindowState
                 .filter(|(on, _)| events_vec.contains(&on))
                 .collect();
 
-            let normal_callbacks = ui_state.tag_ids_to_callbacks
+            let normal_callbacks = ui_state
+                .tag_ids_to_callbacks
                 .get(&item.tag.0)
                 .cloned()
                 .unwrap_or_default()
@@ -422,57 +476,64 @@ impl WindowState
                 .filter(|(on, _)| events_vec.contains(&on))
                 .collect();
             let hit_test_item = item.clone();
-            Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
+            Some((
+                *item_node_id,
+                DetermineCallbackResult {
+                    default_callbacks,
+                    normal_callbacks,
+                    hit_test_item,
+                },
+            ))
         };
 
-        let nodes_with_callbacks = hit_test_result.items
+        let nodes_with_callbacks = hit_test_result
+            .items
             .iter()
             .filter_map(|item| hit_test_item_to_callback_result(item, ui_state, &events_vec))
             .collect();
 
-/*
-        // Insert all On::MouseEnter events
-        for mouse_enter_node_id in self.hovered_nodes.iter().filter(|current| previous_state.hovered_nodes.iter().find(|x| x == current).is_none()).map(|x| *x) {
+        /*
+                // Insert all On::MouseEnter events
+                for mouse_enter_node_id in self.hovered_nodes.iter().filter(|current| previous_state.hovered_nodes.iter().find(|x| x == current).is_none()).map(|x| *x) {
 
-        }
-
-        // Insert all On::MouseLeave events
-        for mouse_leave_node_id in previous_state.hovered_nodes.iter().filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none()).map(|x| *x) {
-            nodes_with_callbacks.entry(mouse_leave_node_id)
-            .or_insert_with(||
-                DetermineCallbackResult {
-                    hit_test_item: HitTestItem,
-                    default_callbacks: BTreeMap<On, DefaultCallbackId>,
-                    normal_callbacks: BTreeMap<On, Callback<T>>,
                 }
-            )
-        }
-*/
+
+                // Insert all On::MouseLeave events
+                for mouse_leave_node_id in previous_state.hovered_nodes.iter().filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none()).map(|x| *x) {
+                    nodes_with_callbacks.entry(mouse_leave_node_id)
+                    .or_insert_with(||
+                        DetermineCallbackResult {
+                            hit_test_item: HitTestItem,
+                            default_callbacks: BTreeMap<On, DefaultCallbackId>,
+                            normal_callbacks: BTreeMap<On, Callback<T>>,
+                        }
+                    )
+                }
+        */
 
         self.previous_window_state = Some(previous_state);
 
         nodes_with_callbacks
-/*
-DetermineCallbackResult<T: Layout> {
-    pub(crate) hit_test_item: HitTestItem,
-    pub(crate) default_callbacks: BTreeMap<On, DefaultCallbackId>,
-    pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
-}
-*/
+        /*
+        DetermineCallbackResult<T: Layout> {
+            pub(crate) hit_test_item: HitTestItem,
+            pub(crate) default_callbacks: BTreeMap<On, DefaultCallbackId>,
+            pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
+        }
+        */
     }
 
     pub(crate) fn update_keyboard_modifiers(&mut self, event: &Event) {
         let modifiers = match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::KeyboardInput { input: KeyboardInput { modifiers, .. }, .. } |
-                    WindowEvent::CursorMoved { modifiers, .. } |
-                    WindowEvent::MouseWheel { modifiers, .. } |
-                    WindowEvent::MouseInput { modifiers, .. } => {
-                        Some(modifiers)
-                    },
-                    _ => None,
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::KeyboardInput {
+                    input: KeyboardInput { modifiers, .. },
+                    ..
                 }
+                | WindowEvent::CursorMoved { modifiers, .. }
+                | WindowEvent::MouseWheel { modifiers, .. }
+                | WindowEvent::MouseInput { modifiers, .. } => Some(modifiers),
+                _ => None,
             },
             _ => None,
         };
@@ -487,37 +548,40 @@ DetermineCallbackResult<T: Layout> {
     /// if the cursor has left the window
     pub(crate) fn update_mouse_cursor_position(&mut self, event: &Event) {
         match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::CursorMoved { position, .. } => {
-                        self.mouse_state.cursor_pos = Some(*position);
-                    },
-                    WindowEvent::CursorLeft { .. } => {
-                        self.mouse_state.cursor_pos = None;
-                    },
-                    WindowEvent::CursorEntered { .. } => {
-                        self.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
-                    },
-                    _ => { }
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.mouse_state.cursor_pos = Some(*position);
                 }
+                WindowEvent::CursorLeft { .. } => {
+                    self.mouse_state.cursor_pos = None;
+                }
+                WindowEvent::CursorEntered { .. } => {
+                    self.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
+                }
+                _ => {}
             },
-            _ => { },
+            _ => {}
         }
     }
 
     pub(crate) fn update_scroll_state(&mut self, event: &Event) {
         match event {
-            Event::WindowEvent { event: WindowEvent::MouseWheel { delta, .. }, .. } => {
+            Event::WindowEvent {
+                event: WindowEvent::MouseWheel { delta, .. },
+                ..
+            } => {
                 const LINE_DELTA: f64 = 38.0;
 
                 let (scroll_x_px, scroll_y_px) = match delta {
                     MouseScrollDelta::PixelDelta(LogicalPosition { x, y }) => (*x, *y),
-                    MouseScrollDelta::LineDelta(x, y) => (*x as f64 * LINE_DELTA, *y as f64 * LINE_DELTA),
+                    MouseScrollDelta::LineDelta(x, y) => {
+                        (*x as f64 * LINE_DELTA, *y as f64 * LINE_DELTA)
+                    }
                 };
                 self.mouse_state.scroll_x = -scroll_x_px;
                 self.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
-            },
-            _ => { },
+            }
+            _ => {}
         }
     }
 
@@ -528,56 +592,71 @@ DetermineCallbackResult<T: Layout> {
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
-                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, .. } => {
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode,
+                                scancode,
+                                ..
+                            },
+                        ..
+                    } => {
                         if let Some(vk) = virtual_keycode {
                             self.keyboard_state.current_virtual_keycodes.insert(*vk);
                             self.keyboard_state.latest_virtual_keycode = Some(*vk);
                         }
                         self.keyboard_state.current_scancodes.insert(*scancode);
-                    },
+                    }
                     // The char event is sliced inbetween a keydown and a keyup event
                     // so the keyup has to clear the character again
                     WindowEvent::ReceivedCharacter(c) => {
                         self.keyboard_state.current_char = Some(*c);
-                    },
-                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, .. } => {
+                    }
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Released,
+                                virtual_keycode,
+                                scancode,
+                                ..
+                            },
+                        ..
+                    } => {
                         if let Some(vk) = virtual_keycode {
                             self.keyboard_state.current_virtual_keycodes.remove(vk);
                             self.keyboard_state.latest_virtual_keycode = None;
                         }
                         self.keyboard_state.current_scancodes.remove(scancode);
-                    },
+                    }
                     WindowEvent::Focused(false) => {
                         self.keyboard_state.current_char = None;
                         self.keyboard_state.current_virtual_keycodes.clear();
                         self.keyboard_state.latest_virtual_keycode = None;
                         self.keyboard_state.current_scancodes.clear();
-                    },
-                    _ => { },
+                    }
+                    _ => {}
                 }
-            },
-            _ => { }
+            }
+            _ => {}
         }
-
     }
 
     pub(crate) fn update_misc_events(&mut self, event: &Event) {
         match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::HoveredFile(path) => {
-                        self.hovered_file = Some(path.clone());
-                    },
-                    WindowEvent::DroppedFile(path) => {
-                        self.hovered_file = Some(path.clone());
-                    },
-                    WindowEvent::HoveredFileCancelled => {
-                        self.hovered_file = None;
-                    },
-                    _ => { },
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::HoveredFile(path) => {
+                    self.hovered_file = Some(path.clone());
                 }
+                WindowEvent::DroppedFile(path) => {
+                    self.hovered_file = Some(path.clone());
+                }
+                WindowEvent::HoveredFileCancelled => {
+                    self.hovered_file = None;
+                }
+                _ => {}
             },
-            _ => { },
+            _ => {}
         }
     }
 }

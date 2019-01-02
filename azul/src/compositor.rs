@@ -2,16 +2,16 @@
 //! This makes it possible to use OpenGL images in the background and compose SVG elements
 //! into the UI.
 
-use std::sync::{Mutex, atomic::{Ordering, AtomicUsize}};
-use webrender::{
-    ExternalImageHandler, ExternalImage, ExternalImageSource,
-    api::{ExternalImageId, TexelRect, DevicePixel, Epoch, ImageRendering},
-};
 use euclid::TypedPoint2D;
-use {
-    FastHashMap,
-    dom::Texture,
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
 };
+use webrender::{
+    api::{DevicePixel, Epoch, ExternalImageId, ImageRendering, TexelRect},
+    ExternalImage, ExternalImageHandler, ExternalImageSource,
+};
+use {dom::Texture, FastHashMap};
 
 static LAST_OPENGL_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -47,20 +47,25 @@ pub(crate) struct ActiveTexture {
 
 // necessary because of lazy_static rules - theoretically unsafe,
 // but we do addition / removal of textures on the main thread
-unsafe impl Send for ActiveTexture { }
-unsafe impl Sync for ActiveTexture { }
+unsafe impl Send for ActiveTexture {}
+unsafe impl Sync for ActiveTexture {}
 
 #[derive(Debug)]
-pub(crate) struct Compositor { }
+pub(crate) struct Compositor {}
 
 impl Default for Compositor {
     fn default() -> Self {
-        Self { }
+        Self {}
     }
 }
 
 impl ExternalImageHandler for Compositor {
-    fn lock(&mut self, key: ExternalImageId, _channel_index: u8, _rendering: ImageRendering) -> ExternalImage {
+    fn lock(
+        &mut self,
+        key: ExternalImageId,
+        _channel_index: u8,
+        _rendering: ImageRendering,
+    ) -> ExternalImage {
         use glium::GlObject;
 
         let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
@@ -85,7 +90,7 @@ impl ExternalImageHandler for Compositor {
                     TypedPoint2D::<f32, DevicePixel>::new(
                         tex.texture.inner.width() as f32,
                         tex.texture.inner.height() as f32,
-                    )
+                    ),
                 ))
             })
             .unwrap_or((ExternalImageSource::Invalid, TypedPoint2D::zero()));

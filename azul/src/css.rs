@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub use azul_css::*;
 #[cfg(feature = "css-parser")]
@@ -43,15 +43,24 @@ pub fn override_native(input: &str) -> Result<Css, CssParseError> {
 /// Allows dynamic reloading of a CSS file during an applications runtime, useful for
 /// changing the look & feel while the application is running.
 #[cfg(all(debug_assertions, feature = "css-parser"))]
-pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
+pub fn hot_reload<P: Into<PathBuf>>(
+    file_path: P,
+    reload_interval: Duration,
+) -> Box<dyn azul_css::HotReloadHandler> {
     Box::new(azul_css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
 }
 
 /// Same as `Self::hot_reload`, but appends the given file to the
 /// `Self::native()` style before the hot-reloaded styles, similar to `override_native`.
 #[cfg(all(debug_assertions, feature = "css-parser", feature = "native-style"))]
-pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
-    Box::new(azul_css::HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
+pub fn hot_reload_override_native<P: Into<PathBuf>>(
+    file_path: P,
+    reload_interval: Duration,
+) -> Box<dyn azul_css::HotReloadHandler> {
+    Box::new(azul_css::HotReloadOverrideHandler::new(
+        native(),
+        hot_reload(file_path, reload_interval),
+    ))
 }
 
 /// Type translation functions (from azul-css to webrender types)
@@ -63,8 +72,8 @@ pub(crate) mod webrender_translate {
 
     // NOTE: In rustc 1.31, most or all of these functions can be const
 
-    use webrender::api::BoxShadowClipMode as WrBoxShadowClipMode;
     use azul_css::BoxShadowClipMode as CssBoxShadowClipMode;
+    use webrender::api::BoxShadowClipMode as WrBoxShadowClipMode;
 
     #[inline(always)]
     pub fn wr_translate_box_shadow_clip_mode(input: CssBoxShadowClipMode) -> WrBoxShadowClipMode {
@@ -74,8 +83,8 @@ pub(crate) mod webrender_translate {
         }
     }
 
-    use webrender::api::ExtendMode as WrExtendMode;
     use azul_css::ExtendMode as CssExtendMode;
+    use webrender::api::ExtendMode as WrExtendMode;
 
     #[inline(always)]
     pub fn wr_translate_extend_mode(input: CssExtendMode) -> WrExtendMode {
@@ -85,8 +94,8 @@ pub(crate) mod webrender_translate {
         }
     }
 
-    use webrender::api::BorderStyle as WrBorderStyle;
     use azul_css::BorderStyle as CssBorderStyle;
+    use webrender::api::BorderStyle as WrBorderStyle;
 
     #[inline(always)]
     pub fn wr_translate_border_style(input: CssBorderStyle) -> WrBorderStyle {
@@ -104,8 +113,8 @@ pub(crate) mod webrender_translate {
         }
     }
 
-    use webrender::api::LayoutSideOffsets as WrLayoutSideOffsets;
     use azul_css::LayoutSideOffsets as CssLayoutSideOffsets;
+    use webrender::api::LayoutSideOffsets as WrLayoutSideOffsets;
 
     #[inline(always)]
     pub fn wr_translate_layout_side_offsets(input: CssLayoutSideOffsets) -> WrLayoutSideOffsets {
@@ -117,12 +126,17 @@ pub(crate) mod webrender_translate {
         )
     }
 
-    use webrender::api::ColorU as WrColorU;
     use azul_css::ColorU as CssColorU;
+    use webrender::api::ColorU as WrColorU;
 
     #[inline(always)]
     pub fn wr_translate_color_u(input: CssColorU) -> WrColorU {
-        WrColorU { r: input.r, g: input.g, b: input.b, a: input.a }
+        WrColorU {
+            r: input.r,
+            g: input.g,
+            b: input.b,
+            a: input.a,
+        }
     }
 
     use azul_css::BorderRadius as CssBorderRadius;
@@ -131,12 +145,23 @@ pub(crate) mod webrender_translate {
     #[inline(always)]
     pub fn wr_translate_border_radius(input: CssBorderRadius) -> WrBorderRadius {
         use webrender::api::LayoutSize;
-        let CssBorderRadius { top_left, top_right, bottom_left, bottom_right } = input;
+        let CssBorderRadius {
+            top_left,
+            top_right,
+            bottom_left,
+            bottom_right,
+        } = input;
         WrBorderRadius {
             top_left: LayoutSize::new(top_left.width.to_pixels(), top_left.height.to_pixels()),
             top_right: LayoutSize::new(top_right.width.to_pixels(), top_right.height.to_pixels()),
-            bottom_left: LayoutSize::new(bottom_left.width.to_pixels(), bottom_left.height.to_pixels()),
-            bottom_right: LayoutSize::new(bottom_right.width.to_pixels(), bottom_right.height.to_pixels()),
+            bottom_left: LayoutSize::new(
+                bottom_left.width.to_pixels(),
+                bottom_left.height.to_pixels(),
+            ),
+            bottom_right: LayoutSize::new(
+                bottom_right.width.to_pixels(),
+                bottom_right.height.to_pixels(),
+            ),
         }
     }
 
@@ -156,11 +181,15 @@ pub(crate) mod webrender_translate {
 
     #[inline(always)]
     pub fn wr_translate_normal_border(input: CssNormalBorder) -> WrNormalBorder {
-
         // Webrender crashes if anti-aliasing is disabled and the border isn't pure-solid
-        let is_not_solid = [input.top.style, input.bottom.style, input.left.style, input.right.style].iter().any(|style| {
-            *style != CssBorderStyle::Solid
-        });
+        let is_not_solid = [
+            input.top.style,
+            input.bottom.style,
+            input.left.style,
+            input.right.style,
+        ]
+        .iter()
+        .any(|style| *style != CssBorderStyle::Solid);
         let do_aa = input.radius.is_some() || is_not_solid;
 
         WrNormalBorder {
@@ -189,8 +218,14 @@ pub(crate) mod webrender_translate {
     #[inline(always)]
     pub fn wr_translate_layout_rect(input: WrLayoutRect) -> CssLayoutRect {
         CssLayoutRect {
-            origin: CssLayoutPoint { x: input.origin.x, y: input.origin.y },
-            size: CssLayoutSize { width: input.size.width, height: input.size.height },
+            origin: CssLayoutPoint {
+                x: input.origin.x,
+                y: input.origin.y,
+            },
+            size: CssLayoutSize {
+                width: input.size.width,
+                height: input.size.height,
+            },
         }
     }
 
@@ -200,9 +235,20 @@ pub(crate) mod webrender_translate {
     // NOTE: Reverse direction: Translate from webrender::LayoutRect to css::LayoutRect
     #[inline(always)]
     pub fn wr_translate_border_details(input: CssBorderDetails) -> WrBorderDetails {
-        let zero_border_side = WrBorderSide { color: WrColorU { r: 0, g: 0, b: 0, a: 0 }.into(), style: WrBorderStyle::None };
+        let zero_border_side = WrBorderSide {
+            color: WrColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            }
+            .into(),
+            style: WrBorderStyle::None,
+        };
         match input {
-            CssBorderDetails::Normal(normal) => WrBorderDetails::Normal(wr_translate_normal_border(normal)),
+            CssBorderDetails::Normal(normal) => {
+                WrBorderDetails::Normal(wr_translate_normal_border(normal))
+            }
             // TODO: Do 9patch border properly - currently this can't be reached since there is no parsing for 9patch border yet!
             CssBorderDetails::NinePatch(_) => WrBorderDetails::Normal(WrNormalBorder {
                 left: zero_border_side,
@@ -211,7 +257,7 @@ pub(crate) mod webrender_translate {
                 top: zero_border_side,
                 radius: WrBorderRadius::zero(),
                 do_aa: false,
-            })
+            }),
         }
     }
 
@@ -221,36 +267,36 @@ pub(crate) mod webrender_translate {
     #[inline(always)]
     pub fn winit_translate_cursor(input: CssCursor) -> WinitCursor {
         match input {
-            CssCursor::Alias             => WinitCursor::Alias,
-            CssCursor::AllScroll         => WinitCursor::AllScroll,
-            CssCursor::Cell              => WinitCursor::Cell,
-            CssCursor::ColResize         => WinitCursor::ColResize,
-            CssCursor::ContextMenu       => WinitCursor::ContextMenu,
-            CssCursor::Copy              => WinitCursor::Copy,
-            CssCursor::Crosshair         => WinitCursor::Crosshair,
-            CssCursor::Default           => WinitCursor::Arrow,         /* note: default -> arrow */
-            CssCursor::EResize           => WinitCursor::EResize,
-            CssCursor::EwResize          => WinitCursor::EwResize,
-            CssCursor::Grab              => WinitCursor::Grab,
-            CssCursor::Grabbing          => WinitCursor::Grabbing,
-            CssCursor::Help              => WinitCursor::Help,
-            CssCursor::Move              => WinitCursor::Move,
-            CssCursor::NResize           => WinitCursor::NResize,
-            CssCursor::NsResize          => WinitCursor::NsResize,
-            CssCursor::NeswResize        => WinitCursor::NeswResize,
-            CssCursor::NwseResize        => WinitCursor::NwseResize,
-            CssCursor::Pointer           => WinitCursor::Hand,          /* note: pointer -> hand */
-            CssCursor::Progress          => WinitCursor::Progress,
-            CssCursor::RowResize         => WinitCursor::RowResize,
-            CssCursor::SResize           => WinitCursor::SResize,
-            CssCursor::SeResize          => WinitCursor::SeResize,
-            CssCursor::Text              => WinitCursor::Text,
-            CssCursor::Unset             => WinitCursor::Arrow,         /* note: pointer -> hand */
-            CssCursor::VerticalText      => WinitCursor::VerticalText,
-            CssCursor::WResize           => WinitCursor::WResize,
-            CssCursor::Wait              => WinitCursor::Wait,
-            CssCursor::ZoomIn            => WinitCursor::ZoomIn,
-            CssCursor::ZoomOut           => WinitCursor::ZoomOut,
+            CssCursor::Alias => WinitCursor::Alias,
+            CssCursor::AllScroll => WinitCursor::AllScroll,
+            CssCursor::Cell => WinitCursor::Cell,
+            CssCursor::ColResize => WinitCursor::ColResize,
+            CssCursor::ContextMenu => WinitCursor::ContextMenu,
+            CssCursor::Copy => WinitCursor::Copy,
+            CssCursor::Crosshair => WinitCursor::Crosshair,
+            CssCursor::Default => WinitCursor::Arrow, /* note: default -> arrow */
+            CssCursor::EResize => WinitCursor::EResize,
+            CssCursor::EwResize => WinitCursor::EwResize,
+            CssCursor::Grab => WinitCursor::Grab,
+            CssCursor::Grabbing => WinitCursor::Grabbing,
+            CssCursor::Help => WinitCursor::Help,
+            CssCursor::Move => WinitCursor::Move,
+            CssCursor::NResize => WinitCursor::NResize,
+            CssCursor::NsResize => WinitCursor::NsResize,
+            CssCursor::NeswResize => WinitCursor::NeswResize,
+            CssCursor::NwseResize => WinitCursor::NwseResize,
+            CssCursor::Pointer => WinitCursor::Hand, /* note: pointer -> hand */
+            CssCursor::Progress => WinitCursor::Progress,
+            CssCursor::RowResize => WinitCursor::RowResize,
+            CssCursor::SResize => WinitCursor::SResize,
+            CssCursor::SeResize => WinitCursor::SeResize,
+            CssCursor::Text => WinitCursor::Text,
+            CssCursor::Unset => WinitCursor::Arrow, /* note: pointer -> hand */
+            CssCursor::VerticalText => WinitCursor::VerticalText,
+            CssCursor::WResize => WinitCursor::WResize,
+            CssCursor::Wait => WinitCursor::Wait,
+            CssCursor::ZoomIn => WinitCursor::ZoomIn,
+            CssCursor::ZoomOut => WinitCursor::ZoomOut,
         }
     }
 }

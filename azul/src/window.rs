@@ -1,47 +1,47 @@
 //! Window creation module
 
-use std::{
-    time::Duration,
-    fmt,
-    rc::Rc,
-    marker::PhantomData,
-    io::Error as IoError,
-};
-use webrender::{
-    api::{
-        LayoutRect, PipelineId, Epoch, ColorF, BuiltDisplayList, DocumentId,
-        RenderApi, ExternalScrollId, RenderNotifier, HitTestResult, DeviceIntSize,
-    },
-    Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags,
-    // renderer::RendererError; -- not currently public in WebRender
-};
-use glium::{
-    IncompatibleOpenGl, Display, SwapBuffersError,
-    debug::DebugCallbackBehavior,
-    glutin::{
-        self, EventsLoop, AvailableMonitorsIter, GlContext, GlWindow, CreationError,
-        MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon,
-        dpi::{LogicalSize, PhysicalSize}
-    },
-    backend::{Context, Facade, glutin::DisplayCreationError},
-};
-use gleam::gl::{self, Gl};
 use azul_css::Css;
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
+use gleam::gl::{self, Gl};
+use glium::{
+    backend::{glutin::DisplayCreationError, Context, Facade},
+    debug::DebugCallbackBehavior,
+    glutin::{
+        self,
+        dpi::{LogicalSize, PhysicalSize},
+        AvailableMonitorsIter, ContextBuilder, ContextError, CreationError, EventsLoop,
+        EventsLoopProxy, GlContext, GlWindow, Icon, MonitorId, WindowBuilder,
+    },
+    Display, IncompatibleOpenGl, SwapBuffersError,
+};
+use std::{fmt, io::Error as IoError, marker::PhantomData, rc::Rc, time::Duration};
+use webrender::{
+    api::{
+        BuiltDisplayList, ColorF, DeviceIntSize, DocumentId, Epoch, ExternalScrollId,
+        HitTestResult, LayoutRect, PipelineId, RenderApi, RenderNotifier,
+    },
+    Renderer,
+    RendererKind,
+    RendererOptions,
+    ShaderPrecacheFlags,
+    // renderer::RendererError; -- not currently public in WebRender
+};
 use {
-    FastHashMap,
-    dom::{Texture, Callback},
-    daemon::{Daemon, DaemonId},
-    window_state::{WindowState, MouseState, KeyboardState, DebugState},
-    traits::Layout,
-    compositor::Compositor,
     app::FrameEventInfo,
     app_resources::AppResources,
-    id_tree::NodeId,
-    default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
-    ui_state::UiState,
+    compositor::Compositor,
+    daemon::{Daemon, DaemonId},
+    default_callbacks::{
+        DefaultCallback, DefaultCallbackId, DefaultCallbackSystem, StackCheckedPointer,
+    },
     display_list::ScrolledNodes,
+    dom::{Callback, Texture},
+    id_tree::NodeId,
+    traits::Layout,
+    ui_state::UiState,
+    window_state::{DebugState, KeyboardState, MouseState, WindowState},
+    FastHashMap,
 };
 
 /// azul-internal ID for a window
@@ -51,7 +51,9 @@ pub struct WindowId {
 }
 
 impl WindowId {
-    pub(crate) fn new(id: usize) -> Self { Self { id: id } }
+    pub(crate) fn new(id: usize) -> Self {
+        Self { id: id }
+    }
 }
 
 /// User-modifiable fake window
@@ -70,12 +72,11 @@ pub struct FakeWindow<T: Layout> {
 }
 
 impl<T: Layout> FakeWindow<T> {
-
     /// Returns a read-only window which can be used to create / draw
     /// custom OpenGL texture during the `.layout()` phase
     pub fn read_only_window(&self) -> ReadOnlyWindow {
         ReadOnlyWindow {
-            inner: self.read_only_window.clone()
+            inner: self.read_only_window.clone(),
         }
     }
 
@@ -108,13 +109,13 @@ impl<T: Layout> FakeWindow<T> {
     pub fn add_callback(
         &mut self,
         callback_ptr: StackCheckedPointer<T>,
-        callback_fn: DefaultCallback<T>)
-    -> DefaultCallbackId
-    {
+        callback_fn: DefaultCallback<T>,
+    ) -> DefaultCallbackId {
         use default_callbacks::get_new_unique_default_callback_id;
 
         let default_callback_id = get_new_unique_default_callback_id();
-        self.default_callbacks.add_callback(default_callback_id, callback_ptr, callback_fn);
+        self.default_callbacks
+            .add_callback(default_callback_id, callback_ptr, callback_fn);
         default_callback_id
     }
 }
@@ -133,10 +134,14 @@ impl Facade for ReadOnlyWindow {
 }
 
 impl ReadOnlyWindow {
-
     pub fn get_physical_size(&self) -> (u32, u32) {
         let hidpi = self.get_hidpi_factor();
-        self.inner.gl_window().get_inner_size().unwrap().to_physical(hidpi).into()
+        self.inner
+            .gl_window()
+            .get_inner_size()
+            .unwrap()
+            .to_physical(hidpi)
+            .into()
     }
 
     /// Returns the current HiDPI factor.
@@ -191,11 +196,14 @@ pub struct WindowInfo<'a, 'b, T: 'b + Layout> {
 
 impl<T: Layout> fmt::Debug for FakeWindow<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
+        write!(
+            f,
             "FakeWindow {{\
-                state: {:?}, \
-                read_only_window: Rc<Display>, \
-            }}", self.state)
+             state: {:?}, \
+             read_only_window: Rc<Display>, \
+             }}",
+            self.state
+        )
     }
 }
 
@@ -230,8 +238,7 @@ impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> { }
-
+impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> {}
 
 pub struct IndexPathIterator<'a, 'b: 'a, T: 'b + Layout> {
     current_item: NodeId,
@@ -257,7 +264,6 @@ impl<'a, 'b, T: 'a + Layout> Iterator for IndexPathIterator<'a, 'b, T> {
 }
 
 impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
-
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the index in the parent, until it gets to the root component.
     pub fn index_path_iter<'b>(&'b self) -> IndexPathIterator<'a, 'b, T> {
@@ -434,7 +440,7 @@ pub enum WindowCreateError {
     /// IO error
     Io(::std::io::Error),
     /// WebRender creation error (probably OpenGL missing?)
-    Renderer/*(RendererError)*/,
+    Renderer, /*(RendererError)*/
 }
 
 impl_display! {
@@ -464,9 +470,7 @@ struct Notifier {
 
 impl Notifier {
     fn new(events_loop_proxy: EventsLoopProxy) -> Notifier {
-        Notifier {
-            events_loop_proxy
-        }
+        Notifier { events_loop_proxy }
     }
 }
 
@@ -479,14 +483,21 @@ impl RenderNotifier for Notifier {
 
     fn wake_up(&self) {
         #[cfg(not(target_os = "android"))]
-        self.events_loop_proxy.wakeup().unwrap_or_else(|_| {
-            #[cfg(feature = "logging")] {
+        self.events_loop_proxy
+            .wakeup()
+            .unwrap_or_else(|_| #[cfg(feature = "logging")]
+            {
                 error!("couldn't wakeup event loop");
-            }
-        });
+            });
     }
 
-    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) {
+    fn new_frame_ready(
+        &self,
+        _id: DocumentId,
+        _scrolled: bool,
+        _composite_needed: bool,
+        _render_time: Option<u64>,
+    ) {
         self.wake_up();
     }
 }
@@ -509,15 +520,15 @@ pub enum WindowMonitorTarget {
     /// Window should appear on the primary monitor
     Primary,
     /// Use `Window::get_available_monitors()` to select the correct monitor
-    Custom(MonitorId)
+    Custom(MonitorId),
 }
 
 impl fmt::Debug for WindowMonitorTarget {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::WindowMonitorTarget::*;
         match *self {
-            Primary =>  write!(f, "WindowMonitorTarget::Primary"),
-            Custom(_) =>  write!(f, "WindowMonitorTarget::Custom(_)"),
+            Primary => write!(f, "WindowMonitorTarget::Primary"),
+            Custom(_) => write!(f, "WindowMonitorTarget::Custom(_)"),
         }
     }
 }
@@ -575,7 +586,7 @@ pub struct Window<T: Layout> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct AnimationState { }
+pub struct AnimationState {}
 
 pub(crate) struct ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
 
@@ -593,14 +604,26 @@ impl ScrollStates {
 
     /// Updating the scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub(crate) fn scroll_node(&mut self, scroll_id: &ExternalScrollId, scroll_by_x: f32, scroll_by_y: f32) {
+    pub(crate) fn scroll_node(
+        &mut self,
+        scroll_id: &ExternalScrollId,
+        scroll_by_x: f32,
+        scroll_by_y: f32,
+    ) {
         if let Some(entry) = self.0.get_mut(scroll_id) {
             entry.add(scroll_by_x, scroll_by_y);
         }
     }
 
-    pub(crate) fn ensure_initialized_scroll_state(&mut self, scroll_id: ExternalScrollId, overflow_x: f32, overflow_y: f32) {
-        self.0.entry(scroll_id).or_insert_with(|| ScrollState::new(overflow_x, overflow_y));
+    pub(crate) fn ensure_initialized_scroll_state(
+        &mut self,
+        scroll_id: ExternalScrollId,
+        overflow_x: f32,
+        overflow_y: f32,
+    ) {
+        self.0
+            .entry(scroll_id)
+            .or_insert_with(|| ScrollState::new(overflow_x, overflow_y));
     }
 
     /// Removes all scroll states that weren't used in the last frame
@@ -664,10 +687,11 @@ pub(crate) struct WindowInternal {
 }
 
 impl<'a, T: Layout> Window<T> {
-
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, mut css: Css) -> Result<Self, WindowCreateError> {
-
+    pub fn new(
+        mut options: WindowCreateOptions<T>,
+        mut css: Css,
+    ) -> Result<Self, WindowCreateError> {
         use self::RendererType::*;
         use webrender::WrShaders;
 
@@ -688,11 +712,11 @@ impl<'a, T: Layout> Window<T> {
             .with_visibility(options.state.is_visible)
             .with_transparency(options.state.is_transparent)
             .with_multitouch();
-/*
-        events_loop.create_proxy().execute_in_thread(|_| {
+        /*
+                events_loop.create_proxy().execute_in_thread(|_| {
 
-        });
-*/
+                });
+        */
         // TODO: Update winit to have:
         //      .with_always_on_top(options.state.is_always_on_top)
         //
@@ -705,14 +729,16 @@ impl<'a, T: Layout> Window<T> {
             window = window.with_window_icon(Some(icon));
         }
 
-        #[cfg(target_os = "windows")] {
+        #[cfg(target_os = "windows")]
+        {
             if let Some(icon) = options.taskbar_icon {
                 use glium::glutin::os::windows::WindowBuilderExt;
                 window = window.with_taskbar_icon(Some(icon));
             }
         }
 
-        #[cfg(target_os = "windows")] {
+        #[cfg(target_os = "windows")]
+        {
             if options.no_redirection_bitmap {
                 use glium::glutin::os::windows::WindowBuilderExt;
                 window = window.with_no_redirection_bitmap(true);
@@ -742,7 +768,7 @@ impl<'a, T: Layout> Window<T> {
             }
 
             #[cfg(not(debug_assertions))] {*/
-                builder = builder.with_gl_debug_flag(false);
+            builder = builder.with_gl_debug_flag(false);
             // }
 
             if vsync {
@@ -756,10 +782,26 @@ impl<'a, T: Layout> Window<T> {
         }
 
         // Only create a context with VSync and SRGB if the context creation works
-        let gl_window = GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
-            .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
-            .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
-            .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
+        let gl_window = GlWindow::new(
+            window.clone(),
+            create_context_builder(true, true),
+            &events_loop,
+        )
+        .or_else(|_| {
+            GlWindow::new(
+                window.clone(),
+                create_context_builder(true, false),
+                &events_loop,
+            )
+        })
+        .or_else(|_| {
+            GlWindow::new(
+                window.clone(),
+                create_context_builder(false, true),
+                &events_loop,
+            )
+        })
+        .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
 
         if let Some(pos) = options.state.position {
             gl_window.window().set_position(pos);
@@ -768,7 +810,9 @@ impl<'a, T: Layout> Window<T> {
         if options.state.is_maximized && !options.state.is_fullscreen {
             gl_window.window().set_maximized(true);
         } else if !options.state.is_fullscreen {
-            gl_window.window().set_inner_size(options.state.size.dimensions);
+            gl_window
+                .window()
+                .set_inner_size(options.state.size.dimensions);
         }
 
         /*#[cfg(debug_assertions)]
@@ -783,7 +827,11 @@ impl<'a, T: Layout> Window<T> {
         const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::EMPTY;
 
         // this exists because RendererOptions isn't Clone-able
-        fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
+        fn get_renderer_opts(
+            native: bool,
+            device_pixel_ratio: f32,
+            clear_color: Option<ColorF>,
+        ) -> RendererOptions {
             use webrender::ProgramCache;
             RendererOptions {
                 resource_override_path: None,
@@ -798,12 +846,17 @@ impl<'a, T: Layout> Window<T> {
                 } else {
                     RendererKind::OSMesa
                 },
-                .. RendererOptions::default()
+                ..RendererOptions::default()
             }
         }
 
         let framebuffer_size = {
-            let (width, height): (u32, u32) = display.gl_window().get_inner_size().unwrap().to_physical(hidpi_factor).into();
+            let (width, height): (u32, u32) = display
+                .gl_window()
+                .get_inner_size()
+                .unwrap()
+                .to_physical(hidpi_factor)
+                .into();
             DeviceIntSize::new(width as i32, height as i32)
         };
 
@@ -811,8 +864,10 @@ impl<'a, T: Layout> Window<T> {
 
         let gl = get_gl_context(&display)?;
 
-        let opts_native = get_renderer_opts(true, device_pixel_ratio as f32, Some(options.background));
-        let opts_osmesa = get_renderer_opts(false, device_pixel_ratio as f32, Some(options.background));
+        let opts_native =
+            get_renderer_opts(true, device_pixel_ratio as f32, Some(options.background));
+        let opts_osmesa =
+            get_renderer_opts(false, device_pixel_ratio as f32, Some(options.background));
 
         // TODO: Right now it's not very ergonomic to cache shaders between
         // renderers - notify webrender about this.
@@ -822,14 +877,16 @@ impl<'a, T: Layout> Window<T> {
             Hardware => {
                 // force hardware renderer
                 Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
-            },
+            }
             Software => {
                 // force software renderer
                 Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
-            },
+            }
             Default => {
                 // try hardware first, fall back to software
-                if let Ok(r) = Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
+                if let Ok(r) =
+                    Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE)
+                {
                     r
                 } else {
                     Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
@@ -849,7 +906,11 @@ impl<'a, T: Layout> Window<T> {
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
-        set_webrender_debug_flags(&mut renderer, &DebugState::default(), &options.state.debug_state);
+        set_webrender_debug_flags(
+            &mut renderer,
+            &DebugState::default(),
+            &options.state.debug_state,
+        );
 
         css.sort_by_specificity();
 
@@ -880,7 +941,10 @@ impl<'a, T: Layout> Window<T> {
     /// Creates a new window that will automatically load a new style from a given HotReloadHandler.
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
-    pub fn new_hot_reload(options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>) -> Result<Self, WindowCreateError>  {
+    pub fn new_hot_reload(
+        options: WindowCreateOptions<T>,
+        css_loader: Box<dyn HotReloadHandler>,
+    ) -> Result<Self, WindowCreateError> {
         let mut window = Window::new(options, Css::default())?;
         window.css_loader = Some(css_loader);
         Ok(window)
@@ -901,7 +965,6 @@ impl<'a, T: Layout> Window<T> {
     /// frequently modified by the user (other properties are always set by the
     /// application developer)
     pub(crate) fn update_from_user_window_state(&mut self, new_state: WindowState) {
-
         let gl_window = self.display.gl_window();
         let window = gl_window.window();
         let old_state = &mut self.state;
@@ -950,18 +1013,30 @@ impl<'a, T: Layout> Window<T> {
         }
 
         if old_state.size.min_dimensions != new_state.size.min_dimensions {
-            window.set_min_dimensions(new_state.size.min_dimensions.and_then(|dim| Some(dim.into())));
+            window.set_min_dimensions(
+                new_state
+                    .size
+                    .min_dimensions
+                    .and_then(|dim| Some(dim.into())),
+            );
             old_state.size.min_dimensions = new_state.size.min_dimensions;
         }
 
         if old_state.size.max_dimensions != new_state.size.max_dimensions {
-            window.set_max_dimensions(new_state.size.max_dimensions.and_then(|dim| Some(dim.into())));
+            window.set_max_dimensions(
+                new_state
+                    .size
+                    .max_dimensions
+                    .and_then(|dim| Some(dim.into())),
+            );
             old_state.size.max_dimensions = new_state.size.max_dimensions;
         }
     }
 
-    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
-
+    pub(crate) fn update_from_external_window_state(
+        &mut self,
+        frame_event_info: &mut FrameEventInfo,
+    ) {
         if let Some(new_size) = frame_event_info.new_window_size {
             self.state.size.dimensions = new_size;
             frame_event_info.should_redraw_window = true;
@@ -986,7 +1061,9 @@ pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateEr
             gl::GlFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
         }),
         glutin::Api::OpenGlEs => Ok(unsafe {
-            gl::GlesFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
+            gl::GlesFns::load_with(|symbol| {
+                display.gl_window().get_proc_address(symbol) as *const _
+            })
         }),
         glutin::Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
     }
@@ -1023,9 +1100,7 @@ impl HidpiAdjustedBounds {
     }
 }
 
-
 fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
-
     use webrender::DebugFlags;
 
     if old_flags.profiler_dbg != new_flags.profiler_dbg {
@@ -1053,13 +1128,22 @@ fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags
         r.set_debug_flag(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
     }
     if old_flags.echo_driver_messages != new_flags.echo_driver_messages {
-        r.set_debug_flag(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+        r.set_debug_flag(
+            DebugFlags::ECHO_DRIVER_MESSAGES,
+            new_flags.echo_driver_messages,
+        );
     }
     if old_flags.new_frame_indicator != new_flags.new_frame_indicator {
-        r.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
+        r.set_debug_flag(
+            DebugFlags::NEW_FRAME_INDICATOR,
+            new_flags.new_frame_indicator,
+        );
     }
     if old_flags.new_scene_indicator != new_flags.new_scene_indicator {
-        r.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
+        r.set_debug_flag(
+            DebugFlags::NEW_SCENE_INDICATOR,
+            new_flags.new_scene_indicator,
+        );
     }
     if old_flags.show_overdraw != new_flags.show_overdraw {
         r.set_debug_flag(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);

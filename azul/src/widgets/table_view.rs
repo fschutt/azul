@@ -2,18 +2,16 @@
 
 use std::collections::BTreeMap;
 use {
-    dom::{Dom, On, NodeData, NodeType, IFrameCallback, UpdateScreen},
     app_state::AppStateNoData,
+    default_callbacks::{DefaultCallback, StackCheckedPointer},
+    dom::{Dom, IFrameCallback, NodeData, NodeType, On, UpdateScreen},
     traits::Layout,
     window::WindowInfo,
-    default_callbacks::{StackCheckedPointer, DefaultCallback},
-    window::{HidpiAdjustedBounds, WindowEvent, FakeWindow},
+    window::{FakeWindow, HidpiAdjustedBounds, WindowEvent},
 };
 
 #[derive(Debug, Default, Copy, Clone)]
-pub struct TableView {
-
-}
+pub struct TableView {}
 
 #[derive(Debug, Clone)]
 pub struct TableViewState {
@@ -55,45 +53,59 @@ pub struct TableColumn {
 
 impl TableView {
     pub fn new() -> Self {
-        Self {
-
-        }
+        Self {}
     }
 
-    pub fn dom<T: Layout>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
-        if let Some(ptr) =  StackCheckedPointer::new(t, data) {
-            let mut dom = Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), ptr)));
+    pub fn dom<T: Layout>(
+        &self,
+        data: &TableViewState,
+        t: &T,
+        window: &mut FakeWindow<T>,
+    ) -> Dom<T> {
+        if let Some(ptr) = StackCheckedPointer::new(t, data) {
+            let mut dom = Dom::new(NodeType::IFrame((
+                IFrameCallback(render_table_callback),
+                ptr,
+            )));
             let callback_id = window.add_callback(ptr, DefaultCallback(Self::table_view_on_click));
             dom.add_default_callback_id(On::MouseUp, callback_id);
             dom
         } else {
             Dom::new(NodeType::Label(
                 "Cannot create table from heap-allocated TableViewState, \
-                 please call TableViewState::render_dom manually".into())
-            )
+                 please call TableViewState::render_dom manually"
+                    .into(),
+            ))
         }
     }
 
-    fn table_view_on_click<T: Layout>(ptr: &StackCheckedPointer<T>, data: AppStateNoData<T>, event: WindowEvent<T>)
-    -> UpdateScreen
-    {
+    fn table_view_on_click<T: Layout>(
+        ptr: &StackCheckedPointer<T>,
+        data: AppStateNoData<T>,
+        event: WindowEvent<T>,
+    ) -> UpdateScreen {
         unsafe { ptr.invoke_mut(TableViewState::on_click, data, event) }
     }
 }
 
-fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
--> Dom<T>
-{
+fn render_table_callback<T: Layout>(
+    ptr: &StackCheckedPointer<T>,
+    info: WindowInfo<T>,
+    dimensions: HidpiAdjustedBounds,
+) -> Dom<T> {
     unsafe { ptr.invoke_mut_iframe(TableViewState::render, info, dimensions) }
 }
 
-
 impl TableViewState {
-    pub fn render<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
-    -> Dom<T>
-    {
-        let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;
-        let necessary_rows = (dimensions.logical_size.height as f32 / state.row_height).ceil() as usize;
+    pub fn render<T: Layout>(
+        state: &mut TableViewState,
+        _info: WindowInfo<T>,
+        dimensions: HidpiAdjustedBounds,
+    ) -> Dom<T> {
+        let necessary_columns =
+            (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;
+        let necessary_rows =
+            (dimensions.logical_size.height as f32 / state.row_height).ceil() as usize;
 
         // div.__azul-native-table-container
         //     |-> div.__azul-native-table-column (Column 0)
@@ -169,9 +181,8 @@ impl TableViewState {
     pub fn on_click<T: Layout>(
         &mut self,
         _app_state: AppStateNoData<T>,
-        _window_event: WindowEvent<T>)
-    -> UpdateScreen
-    {
+        _window_event: WindowEvent<T>,
+    ) -> UpdateScreen {
         println!("table was clicked");
         UpdateScreen::DontRedraw
     }
@@ -200,7 +211,7 @@ pub fn column_name_from_number(num: usize) -> String {
         'A' as u8 + input
     }
 
-    let mut result = [0;MAX_LEN + 1];
+    let mut result = [0; MAX_LEN + 1];
     let mut multiple_of_alphabet = num / ALPHABET_LEN;
     let mut character_count = 0;
 

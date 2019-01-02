@@ -1,18 +1,12 @@
 //! Module for loading and handling images
 
+#[cfg(feature = "image_loading")]
+use image::{self, DynamicImage, GenericImageView, ImageError, ImageFormat, ImageResult};
 use std::{
     path::Path,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use webrender::api::{
-    ImageFormat as WebrenderImageFormat,
-    ImageData, ImageDescriptor, ImageKey
-};
-#[cfg(feature = "image_loading")]
-use image::{
-    self, ImageResult, ImageFormat,
-    ImageError, DynamicImage, GenericImageView,
-};
+use webrender::api::{ImageData, ImageDescriptor, ImageFormat as WebrenderImageFormat, ImageKey};
 
 static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -22,10 +16,8 @@ pub struct ImageId {
 }
 
 pub(crate) fn new_image_id() -> ImageId {
-    let unique_id =IMAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-    ImageId {
-        id: unique_id,
-    }
+    let unique_id = IMAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+    ImageId { id: unique_id }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -65,15 +57,16 @@ impl ImageState {
     pub fn get_dimensions(&self) -> (f32, f32) {
         use self::ImageState::*;
         match self {
-            Uploaded(ImageInfo { descriptor, .. }) |
-            ReadyForUpload((_, descriptor)) |
-            AboutToBeDeleted((_, descriptor)) => (descriptor.size.width as f32, descriptor.size.height as f32)
+            Uploaded(ImageInfo { descriptor, .. })
+            | ReadyForUpload((_, descriptor))
+            | AboutToBeDeleted((_, descriptor)) => {
+                (descriptor.size.width as f32, descriptor.size.height as f32)
+            }
         }
     }
 }
 
 impl ImageType {
-
     #[cfg(feature = "image_loading")]
     pub(crate) fn into_image_format(&self, data: &[u8]) -> ImageResult<ImageFormat> {
         use self::ImageType::*;
@@ -88,9 +81,7 @@ impl ImageType {
             Tga => Ok(ImageFormat::TGA),
             Tiff => Ok(ImageFormat::TIFF),
             WebP => Ok(ImageFormat::WEBP),
-            GuessImageFormat => {
-                image::guess_format(data)
-            }
+            GuessImageFormat => image::guess_format(data),
         }
     }
 }
@@ -106,33 +97,30 @@ impl ImageType {
 /// - which will guess the type of the image from the magic header in the
 /// actual image data.
 pub fn get_image_type_from_extension(path: &Path) -> Option<ImageType> {
-    let ext = path.extension().and_then(|s| s.to_str())
-                  .map_or(String::new(), |s| s.to_ascii_lowercase());
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map_or(String::new(), |s| s.to_ascii_lowercase());
 
     match &ext[..] {
-        "jpg" |
-        "jpeg" => Some(ImageType::Jpeg),
-        "png"  => Some(ImageType::Png),
-        "gif"  => Some(ImageType::Gif),
+        "jpg" | "jpeg" => Some(ImageType::Jpeg),
+        "png" => Some(ImageType::Png),
+        "gif" => Some(ImageType::Gif),
         "webp" => Some(ImageType::WebP),
-        "tif" |
-        "tiff" => Some(ImageType::Tiff),
+        "tif" | "tiff" => Some(ImageType::Tiff),
         "tga" => Some(ImageType::Tga),
         "bmp" => Some(ImageType::Bmp),
         "ico" => Some(ImageType::Ico),
         "hdr" => Some(ImageType::Hdr),
-        "pbm" |
-        "pam" |
-        "ppm" |
-        "pgm" => Some(ImageType::Pnm),
+        "pbm" | "pam" | "ppm" | "pgm" => Some(ImageType::Pnm),
         _ => None,
     }
 }
 
 #[cfg(feature = "image_loading")]
-pub(crate) fn prepare_image(image_decoded: DynamicImage)
-    -> Result<(ImageData, ImageDescriptor), ImageError>
-{
+pub(crate) fn prepare_image(
+    image_decoded: DynamicImage,
+) -> Result<(ImageData, ImageDescriptor), ImageError> {
     let image_dims = image_decoded.dimensions();
 
     // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
@@ -140,23 +128,18 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
         image::ImageLuma8(bytes) => {
             let pixels = bytes.into_raw();
             (WebrenderImageFormat::R8, pixels)
-        },
+        }
         image::ImageLumaA8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
             for greyscale_alpha in bytes.chunks(2) {
                 let grey = greyscale_alpha[0];
                 let alpha = greyscale_alpha[1];
-                pixels.extend_from_slice(&[
-                    grey,
-                    grey,
-                    grey,
-                    alpha,
-                ]);
+                pixels.extend_from_slice(&[grey, grey, grey, alpha]);
             }
             // TODO: necessary for greyscale?
             premultiply(pixels.as_mut_slice());
             (WebrenderImageFormat::BGRA8, pixels)
-        },
+        }
         image::ImageRgba8(mut bytes) => {
             let mut pixels = bytes.into_raw();
             // no extra allocation necessary, but swizzling
@@ -172,7 +155,7 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
             }
             premultiply(pixels.as_mut_slice());
             (WebrenderImageFormat::BGRA8, pixels)
-        },
+        }
         image::ImageRgb8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
             for rgb in bytes.chunks(3) {
@@ -180,11 +163,11 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
                     rgb[2], // b
                     rgb[1], // g
                     rgb[0], // r
-                    0xff    // a
+                    0xff,   // a
                 ]);
             }
             (WebrenderImageFormat::BGRA8, pixels)
-        },
+        }
         image::ImageBgr8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
             for bgr in bytes.chunks(3) {
@@ -192,22 +175,28 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
                     bgr[0], // b
                     bgr[1], // g
                     bgr[2], // r
-                    0xff    // a
+                    0xff,   // a
                 ]);
             }
             (WebrenderImageFormat::BGRA8, pixels)
-        },
+        }
         image::ImageBgra8(bytes) => {
             // Already in the correct format
             let mut pixels = bytes.into_raw();
             premultiply(pixels.as_mut_slice());
             (WebrenderImageFormat::BGRA8, pixels)
-        },
+        }
     };
 
     let opaque = is_image_opaque(format, &bytes[..]);
     let allow_mipmaps = true;
-    let descriptor = ImageDescriptor::new(image_dims.0 as i32, image_dims.1 as i32, format, opaque, allow_mipmaps);
+    let descriptor = ImageDescriptor::new(
+        image_dims.0 as i32,
+        image_dims.1 as i32,
+        format,
+        opaque,
+        allow_mipmaps,
+    );
     let data = ImageData::new(bytes);
     Ok((data, descriptor))
 }

@@ -1,8 +1,8 @@
 //! ID-based node tree
 
 use std::{
-    ops::{Index, IndexMut},
     collections::BTreeMap,
+    ops::{Index, IndexMut},
 };
 
 pub use self::node_id::NodeId;
@@ -36,18 +36,23 @@ mod node_id {
         /// disabled in release mode.
         #[cfg_attr(not(debug_assertions), inline(always))]
         pub(crate) fn new(value: usize) -> Self {
-
-            #[cfg(debug_assertions)] {
+            #[cfg(debug_assertions)]
+            {
                 let (new_value, has_overflown) = value.overflowing_add(1);
                 if has_overflown {
                     panic!("Overflow when creating DOM Node with ID {}", value);
                 } else {
-                    NodeId { index: NonZeroUsize::new(new_value).unwrap() }
+                    NodeId {
+                        index: NonZeroUsize::new(new_value).unwrap(),
+                    }
                 }
             }
 
-            #[cfg(not(debug_assertions))] {
-                NodeId { index: unsafe { NonZeroUsize::new_unchecked(value + 1) } }
+            #[cfg(not(debug_assertions))]
+            {
+                NodeId {
+                    index: unsafe { NonZeroUsize::new_unchecked(value + 1) },
+                }
             }
         }
 
@@ -105,9 +110,7 @@ pub struct NodeHierarchy {
 
 impl NodeHierarchy {
     pub fn new(data: Vec<Node>) -> Self {
-        Self {
-            internal: data,
-        }
+        Self { internal: data }
     }
 
     pub fn len(&self) -> usize {
@@ -135,9 +138,12 @@ impl Index<NodeId> for NodeHierarchy {
     type Output = Node;
 
     fn index(&self, node_id: NodeId) -> &Node {
-        #[cfg(debug_assertions)] {
+        #[cfg(debug_assertions)]
+        {
             self.internal.get(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
+        }
+        #[cfg(not(debug_assertions))]
+        {
             unsafe { self.internal.get_unchecked(node_id.index()) }
         }
     }
@@ -145,9 +151,12 @@ impl Index<NodeId> for NodeHierarchy {
 
 impl IndexMut<NodeId> for NodeHierarchy {
     fn index_mut(&mut self, node_id: NodeId) -> &mut Node {
-        #[cfg(debug_assertions)] {
+        #[cfg(debug_assertions)]
+        {
             self.internal.get_mut(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
+        }
+        #[cfg(not(debug_assertions))]
+        {
             unsafe { self.internal.get_unchecked_mut(node_id.index()) }
         }
     }
@@ -155,17 +164,25 @@ impl IndexMut<NodeId> for NodeHierarchy {
 
 impl<T> NodeDataContainer<T> {
     pub fn new(data: Vec<T>) -> Self {
-        Self {
-            internal: data,
-        }
+        Self { internal: data }
     }
 
-    pub fn len(&self) -> usize { self.internal.len() }
+    pub fn len(&self) -> usize {
+        self.internal.len()
+    }
 
-    pub fn transform<U, F>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(&T, NodeId) -> U {
+    pub fn transform<U, F>(&self, closure: F) -> NodeDataContainer<U>
+    where
+        F: Fn(&T, NodeId) -> U,
+    {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         NodeDataContainer {
-            internal: self.internal.iter().enumerate().map(|(node_id, node)| closure(node, NodeId::new(node_id))).collect(),
+            internal: self
+                .internal
+                .iter()
+                .enumerate()
+                .map(|(node_id, node)| closure(node, NodeId::new(node_id)))
+                .collect(),
         }
     }
 
@@ -185,9 +202,12 @@ impl<T> Index<NodeId> for NodeDataContainer<T> {
     type Output = T;
 
     fn index(&self, node_id: NodeId) -> &T {
-        #[cfg(debug_assertions)] {
+        #[cfg(debug_assertions)]
+        {
             self.internal.get(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
+        }
+        #[cfg(not(debug_assertions))]
+        {
             unsafe { self.internal.get_unchecked(node_id.index()) }
         }
     }
@@ -195,24 +215,30 @@ impl<T> Index<NodeId> for NodeDataContainer<T> {
 
 impl<T> IndexMut<NodeId> for NodeDataContainer<T> {
     fn index_mut(&mut self, node_id: NodeId) -> &mut T {
-        #[cfg(debug_assertions)] {
+        #[cfg(debug_assertions)]
+        {
             self.internal.get_mut(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
+        }
+        #[cfg(not(debug_assertions))]
+        {
             unsafe { self.internal.get_unchecked_mut(node_id.index()) }
         }
     }
 }
 
 impl<T> Arena<T> {
-
     pub fn new() -> Arena<T> {
         Self::with_capacity(0)
     }
 
     pub fn with_capacity(cap: usize) -> Arena<T> {
         Arena {
-            node_layout: NodeHierarchy { internal: Vec::with_capacity(cap) },
-            node_data: NodeDataContainer { internal: Vec::<T>::with_capacity(cap) },
+            node_layout: NodeHierarchy {
+                internal: Vec::with_capacity(cap),
+            },
+            node_data: NodeDataContainer {
+                internal: Vec::<T>::with_capacity(cap),
+            },
         }
     }
 
@@ -252,14 +278,21 @@ impl<T> Arena<T> {
     /// Can potentially mess up internal IDs, only use this if you
     /// know what you're doing
     pub fn append_arena(&mut self, other: &mut Arena<T>) {
-        self.node_layout.internal.append(&mut other.node_layout.internal);
-        self.node_data.internal.append(&mut other.node_data.internal);
+        self.node_layout
+            .internal
+            .append(&mut other.node_layout.internal);
+        self.node_data
+            .internal
+            .append(&mut other.node_data.internal);
     }
 
     /// Transform keeps the relative order of parents / children
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
-    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
+    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U>
+    where
+        F: Fn(&T, NodeId) -> U,
+    {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
             node_layout: self.node_layout.clone(),
@@ -300,10 +333,21 @@ impl<T> Arena<T> {
         s
     }
 
-    fn print_tree_recursive<F: Fn(&T) -> String + Copy>(&self, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
+    fn print_tree_recursive<F: Fn(&T) -> String + Copy>(
+        &self,
+        format_cb: F,
+        string: &mut String,
+        current_node_id: NodeId,
+        indent: usize,
+    ) {
         let node = &self.node_layout[current_node_id];
         let tabs = String::from("\t|").repeat(indent);
-        string.push_str(&format!("{}-- {}: {}\n", tabs, current_node_id.index(), format_cb(&self.node_data[current_node_id])));
+        string.push_str(&format!(
+            "{}-- {}: {}\n",
+            tabs,
+            current_node_id.index(),
+            format_cb(&self.node_data[current_node_id])
+        ));
 
         if let Some(first_child) = node.first_child {
             self.print_tree_recursive(format_cb, string, first_child, indent + 1);
@@ -319,14 +363,17 @@ impl<T: Copy> Arena<T> {
     #[inline]
     pub fn get_all_node_ids(&self) -> BTreeMap<NodeId, T> {
         use std::iter::FromIterator;
-        BTreeMap::from_iter(self.node_data.internal.iter().enumerate().map(|(i, node)|
-            (NodeId::new(i), *node)
-        ))
+        BTreeMap::from_iter(
+            self.node_data
+                .internal
+                .iter()
+                .enumerate()
+                .map(|(i, node)| (NodeId::new(i), *node)),
+        )
     }
 }
 
 impl NodeId {
-
     /// Return an iterator of references to this node and its ancestors.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
@@ -400,7 +447,6 @@ impl NodeId {
     }
 }
 
-
 macro_rules! impl_node_iterator {
     ($name: ident, $next: expr) => {
         impl<'a> Iterator for $name<'a> {
@@ -412,11 +458,11 @@ macro_rules! impl_node_iterator {
                         self.node = $next(&self.node_layout[node]);
                         Some(node)
                     }
-                    None => None
+                    None => None,
                 }
             }
         }
-    }
+    };
 }
 
 /// An linear iterator, does not respect the DOM in any way,
@@ -431,7 +477,7 @@ impl Iterator for LinearIterator {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
-        if self.arena_len < 1 || self.position > (self.arena_len - 1){
+        if self.arena_len < 1 || self.position > (self.arena_len - 1) {
             None
         } else {
             let new_id = Some(NodeId::new(self.position));
@@ -492,7 +538,7 @@ impl<'a> Iterator for Descendants<'a> {
             match self.0.next() {
                 Some(NodeEdge::Start(node)) => return Some(node),
                 Some(NodeEdge::End(_)) => {}
-                None => return None
+                None => return None,
             }
         }
     }
@@ -535,12 +581,10 @@ impl<'a> Iterator for Traverse<'a> {
         match self.next.take() {
             Some(item) => {
                 self.next = match item {
-                    NodeEdge::Start(node) => {
-                        match self.node_layout[node].first_child {
-                            Some(first_child) => Some(NodeEdge::Start(first_child)),
-                            None => Some(NodeEdge::End(node.clone()))
-                        }
-                    }
+                    NodeEdge::Start(node) => match self.node_layout[node].first_child {
+                        Some(first_child) => Some(NodeEdge::Start(first_child)),
+                        None => Some(NodeEdge::End(node.clone())),
+                    },
                     NodeEdge::End(node) => {
                         if node == self.root {
                             None
@@ -554,15 +598,15 @@ impl<'a> Iterator for Traverse<'a> {
                                     // if the tree has been modified during iteration,
                                     // but silently stopping iteration
                                     // seems a more sensible behavior than panicking.
-                                    None => None
-                                }
+                                    None => None,
+                                },
                             }
                         }
                     }
                 };
                 Some(item)
             }
-            None => None
+            None => None,
         }
     }
 }
@@ -581,12 +625,10 @@ impl<'a> Iterator for ReverseTraverse<'a> {
         match self.next.take() {
             Some(item) => {
                 self.next = match item {
-                    NodeEdge::End(node) => {
-                        match self.node_layout[node].last_child {
-                            Some(last_child) => Some(NodeEdge::End(last_child)),
-                            None => Some(NodeEdge::Start(node.clone()))
-                        }
-                    }
+                    NodeEdge::End(node) => match self.node_layout[node].last_child {
+                        Some(last_child) => Some(NodeEdge::End(last_child)),
+                        None => Some(NodeEdge::Start(node.clone())),
+                    },
                     NodeEdge::Start(node) => {
                         if node == self.root {
                             None
@@ -600,15 +642,15 @@ impl<'a> Iterator for ReverseTraverse<'a> {
                                     // if the tree has been modified during iteration,
                                     // but silently stopping iteration
                                     // seems a more sensible behavior than panicking.
-                                    None => None
-                                }
+                                    None => None,
+                                },
                             }
                         }
                     }
                 };
                 Some(item)
             }
-            None => None
+            None => None,
         }
     }
 }

@@ -1,18 +1,15 @@
-use std::{
-    fmt,
-    collections::BTreeMap,
-};
 use azul_css::CssProperty;
+use std::{collections::BTreeMap, fmt};
 use {
-    FastHashMap,
-    window::{WindowInfo, WindowId},
-    traits::Layout,
-    dom::{Callback, Dom, On, TabIndex},
     app_state::AppState,
-    id_tree::NodeId,
-    dom::TagId,
-    style::HoverGroup,
     default_callbacks::DefaultCallbackId,
+    dom::TagId,
+    dom::{Callback, Dom, On, TabIndex},
+    id_tree::NodeId,
+    style::HoverGroup,
+    traits::Layout,
+    window::{WindowId, WindowInfo},
+    FastHashMap,
 };
 
 pub struct UiState<T: Layout> {
@@ -34,17 +31,18 @@ pub struct UiState<T: Layout> {
 
 impl<T: Layout> fmt::Debug for UiState<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
+        write!(
+            f,
             "UiState {{ \
-                \tdom: {:?}, \
-                \ttag_ids_to_callbacks: {:?}, \
-                \ttag_ids_to_default_callbacks: {:?}, \
-                \ttab_index_tags: {:?}, \
-                \tdraggable_tags: {:?}, \
-                \tnode_ids_to_tag_ids: {:?} \
-                \ttag_ids_to_node_ids: {:?} \
-                \ttag_ids_to_hover_active_states: {:?} \
-            }}",
+             \tdom: {:?}, \
+             \ttag_ids_to_callbacks: {:?}, \
+             \ttag_ids_to_default_callbacks: {:?}, \
+             \ttab_index_tags: {:?}, \
+             \tdraggable_tags: {:?}, \
+             \tnode_ids_to_tag_ids: {:?} \
+             \ttag_ids_to_node_ids: {:?} \
+             \ttag_ids_to_hover_active_states: {:?} \
+             }}",
             self.dom,
             self.tag_ids_to_callbacks,
             self.tag_ids_to_default_callbacks,
@@ -59,9 +57,8 @@ impl<T: Layout> fmt::Debug for UiState<T> {
 
 impl<T: Layout> UiState<T> {
     #[allow(unused_imports, unused_variables)]
-    pub(crate) fn from_app_state(app_state: &mut AppState<T>, window_id: WindowId) -> Self
-    {
-        use dom::{Dom, On, NodeType};
+    pub(crate) fn from_app_state(app_state: &mut AppState<T>, window_id: WindowId) -> Self {
+        use dom::{Dom, NodeType, On};
         use std::sync::atomic::Ordering;
 
         let window_info = WindowInfo {
@@ -72,11 +69,13 @@ impl<T: Layout> UiState<T> {
         // Only shortly lock the data to get the dom out
         let dom: Dom<T> = {
             let dom_lock = app_state.data.lock().unwrap();
-            #[cfg(test)]{
+            #[cfg(test)]
+            {
                 Dom::<T>::new(NodeType::Div)
             }
 
-            #[cfg(not(test))]{
+            #[cfg(not(test))]
+            {
                 dom_lock.layout(window_info)
             }
         };
@@ -94,7 +93,8 @@ impl<T: Layout> UiState<T> {
 
             self.node_ids_to_tag_ids.insert(*hover_node_id, hover_tag);
             self.tag_ids_to_node_ids.insert(hover_tag, *hover_node_id);
-            self.tag_ids_to_hover_active_states.insert(hover_tag, (*hover_node_id, *hover_group));
+            self.tag_ids_to_hover_active_states
+                .insert(hover_tag, (*hover_node_id, *hover_group));
         }
     }
 }
@@ -103,6 +103,4 @@ impl<T: Layout> UiState<T> {
 // doesn't report codecov % correctly) except if they have at least one test in
 // the file. This is an empty test, which should be updated later on
 #[test]
-fn __codecov_test_ui_state_file() {
-
-}
+fn __codecov_test_ui_state_file() {}

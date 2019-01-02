@@ -1,13 +1,10 @@
 use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
     fmt,
     hash::{Hash, Hasher},
+    sync::atomic::{AtomicUsize, Ordering},
+    time::{Duration, Instant},
 };
-use {
-    dom::UpdateScreen,
-    app_resources::AppResources,
-};
+use {app_resources::AppResources, dom::UpdateScreen};
 
 /// Should a daemon terminate or not - used to remove active daemons
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -47,7 +44,9 @@ pub struct Daemon<T> {
 }
 
 /// Callback that can runs on every frame on the main thread - can modify the app data model
-pub struct DaemonCallback<T>(pub fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon));
+pub struct DaemonCallback<T>(
+    pub fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon),
+);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for DaemonCallback<T>
 
@@ -64,7 +63,10 @@ impl<T> Clone for DaemonCallback<T> {
 }
 
 impl<T> Hash for DaemonCallback<T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         state.write_usize(self.0 as usize);
     }
 }
@@ -75,9 +77,9 @@ impl<T> PartialEq for DaemonCallback<T> {
     }
 }
 
-impl<T> Eq for DaemonCallback<T> { }
+impl<T> Eq for DaemonCallback<T> {}
 
-impl<T> Copy for DaemonCallback<T> { }
+impl<T> Copy for DaemonCallback<T> {}
 
 impl<T> Daemon<T> {
     /// Create a daemon with a unique ID
@@ -105,7 +107,7 @@ impl<T> Daemon<T> {
     pub fn with_timeout(self, timeout: Duration) -> Self {
         Self {
             max_timeout: Some(timeout),
-            .. self
+            ..self
         }
     }
 
@@ -115,7 +117,7 @@ impl<T> Daemon<T> {
         Self {
             run_every: Some(every),
             last_run: self.last_run - every,
-            .. self
+            ..self
         }
     }
 
@@ -123,9 +125,8 @@ impl<T> Daemon<T> {
     pub(crate) fn invoke_callback_with_data(
         &mut self,
         data: &mut T,
-        app_resources: &mut AppResources)
-    -> (UpdateScreen, TerminateDaemon)
-    {
+        app_resources: &mut AppResources,
+    ) -> (UpdateScreen, TerminateDaemon) {
         // Check if the daemons timeout is reached
         if let Some(max_timeout) = self.max_timeout {
             if Instant::now() - self.created > max_timeout {
@@ -151,20 +152,18 @@ impl<T> Daemon<T> {
 
 impl<T> fmt::Debug for Daemon<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Daemon {{ \
-            created: {:?}, \
-            run_every: {:?}, \
-            last_run: {:?}, \
-            max_timeout: {:?}, \
-            callback: {:?}, \
-            id: {:?}, \
-        }}",
-        self.created,
-        self.run_every,
-        self.last_run,
-        self.max_timeout,
-        self.callback,
-        self.id)
+        write!(
+            f,
+            "Daemon {{ \
+             created: {:?}, \
+             run_every: {:?}, \
+             last_run: {:?}, \
+             max_timeout: {:?}, \
+             callback: {:?}, \
+             id: {:?}, \
+             }}",
+            self.created, self.run_every, self.last_run, self.max_timeout, self.callback, self.id
+        )
     }
 }
 
@@ -182,7 +181,10 @@ impl<T> Clone for Daemon<T> {
 }
 
 impl<T> Hash for Daemon<T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         self.created.hash(state);
         self.run_every.hash(state);
         self.last_run.hash(state);
@@ -194,15 +196,15 @@ impl<T> Hash for Daemon<T> {
 
 impl<T> PartialEq for Daemon<T> {
     fn eq(&self, rhs: &Self) -> bool {
-        self.created == rhs.created &&
-        self.run_every == rhs.run_every &&
-        self.last_run == rhs.last_run &&
-        self.max_timeout == rhs.max_timeout &&
-        self.callback == rhs.callback &&
-        self.id == rhs.id
+        self.created == rhs.created
+            && self.run_every == rhs.run_every
+            && self.last_run == rhs.last_run
+            && self.max_timeout == rhs.max_timeout
+            && self.callback == rhs.callback
+            && self.id == rhs.id
     }
 }
 
-impl<T> Eq for Daemon<T> { }
+impl<T> Eq for Daemon<T> {}
 
-impl<T> Copy for Daemon<T> { }
+impl<T> Copy for Daemon<T> {}

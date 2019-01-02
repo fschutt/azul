@@ -1,18 +1,13 @@
-use std::{
-    fmt,
-    cell::RefCell,
-    rc::Rc,
-    collections::BTreeMap,
-};
-use azul_css::{ Css, CssDeclaration, CssProperty };
+use azul_css::{Css, CssDeclaration, CssProperty};
+use std::{cell::RefCell, collections::BTreeMap, fmt, rc::Rc};
 use {
-    FastHashMap,
-    id_tree::{Arena, NodeId},
-    traits::Layout,
     dom::Dom,
     dom::NodeData,
-    ui_state::UiState,
+    id_tree::{Arena, NodeId},
     style::HoverGroup,
+    traits::Layout,
+    ui_state::UiState,
+    FastHashMap,
 };
 
 pub struct UiDescription<T: Layout> {
@@ -37,7 +32,9 @@ pub struct UiDescription<T: Layout> {
 
 impl<T: Layout> fmt::Debug for UiDescription<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "UiDescription {{ \
+        write!(
+            f,
+            "UiDescription {{ \
             ui_descr_arena: {:?},
             ui_descr_root: {:?},
             styled_nodes: {:?},
@@ -72,7 +69,13 @@ impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
-        Self::match_css_to_dom(&mut default_dom.into_ui_state(), &Css::default(), None, &[], false)
+        Self::match_css_to_dom(
+            &mut default_dom.into_ui_state(),
+            &Css::default(),
+            None,
+            &[],
+            false,
+        )
     }
 }
 
@@ -86,9 +89,14 @@ impl<T: Layout> UiDescription<T> {
         focused_node: Option<NodeId>,
         hovered_nodes: &[NodeId],
         is_mouse_down: bool,
-    ) -> Self
-    {
-        let ui_description = ::style::match_dom_selectors(ui_state, &style, focused_node, hovered_nodes, is_mouse_down);
+    ) -> Self {
+        let ui_description = ::style::match_dom_selectors(
+            ui_state,
+            &style,
+            focused_node,
+            hovered_nodes,
+            is_mouse_down,
+        );
         // Important: Create all the tags for the :hover and :active selectors
         ui_state.create_tags_for_hover_nodes(&ui_description.selected_hover_nodes);
         ui_description

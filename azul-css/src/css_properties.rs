@@ -8,20 +8,26 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
+pub struct LayoutRect {
+    pub origin: LayoutPoint,
+    pub size: LayoutSize,
+}
 /// Only used for calculations: Size (width, height) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct LayoutSize { pub width: f32, pub height: f32 }
+pub struct LayoutSize {
+    pub width: f32,
+    pub height: f32,
+}
 /// Only used for calculations: Point coordinate (x, y) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct LayoutPoint { pub x: f32, pub y: f32 }
+pub struct LayoutPoint {
+    pub x: f32,
+    pub y: f32,
+}
 
 impl LayoutSize {
     pub fn new(width: f32, height: f32) -> Self {
-        Self {
-            width,
-            height,
-        }
+        Self { width, height }
     }
     pub fn zero() -> Self {
         Self::new(0.0, 0.0)
@@ -30,15 +36,14 @@ impl LayoutSize {
 
 /// Represents a parsed pair of `5px, 10px` values - useful for border radius calculation
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
-pub struct PixelSize { pub width: PixelValue, pub height: PixelValue }
+pub struct PixelSize {
+    pub width: PixelValue,
+    pub height: PixelValue,
+}
 
 impl PixelSize {
-
     pub fn new(width: PixelValue, height: PixelValue) -> Self {
-        Self {
-            width,
-            height,
-        }
+        Self { width, height }
     }
 
     pub fn zero() -> Self {
@@ -57,11 +62,21 @@ pub struct LayoutSideOffsets {
 
 /// u8-based color, range 0 to 255 (similar to webrenders ColorU)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
-pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
+pub struct ColorU {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
 
 /// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct ColorF { pub r: f32, pub g: f32, pub b: f32, pub a: f32 }
+pub struct ColorF {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
 
 impl From<ColorU> for ColorF {
     fn from(input: ColorU) -> ColorF {
@@ -100,7 +115,6 @@ impl Default for BorderRadius {
 }
 
 impl BorderRadius {
-
     pub fn zero() -> Self {
         Self::uniform(PixelSize::zero())
     }
@@ -177,77 +191,79 @@ pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
 /// Creates `pt`, `px` and `em` constructors for any struct that has a
 /// `PixelValue` as it's self.0 field.
-macro_rules! impl_pixel_value {($struct:ident) => (
-    impl $struct {
-        #[inline]
-        pub fn px(value: f32) -> Self {
-            $struct(PixelValue::px(value))
-        }
+macro_rules! impl_pixel_value {
+    ($struct:ident) => {
+        impl $struct {
+            #[inline]
+            pub fn px(value: f32) -> Self {
+                $struct(PixelValue::px(value))
+            }
 
-        #[inline]
-        pub fn em(value: f32) -> Self {
-            $struct(PixelValue::em(value))
-        }
+            #[inline]
+            pub fn em(value: f32) -> Self {
+                $struct(PixelValue::em(value))
+            }
 
-        #[inline]
-        pub fn pt(value: f32) -> Self {
-            $struct(PixelValue::pt(value))
+            #[inline]
+            pub fn pt(value: f32) -> Self {
+                $struct(PixelValue::pt(value))
+            }
         }
-    }
-)}
+    };
+}
 
-pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);51] = [
-    (CssPropertyType::BorderRadius,     "border-radius"),
-    (CssPropertyType::BackgroundColor,  "background-color"),
-    (CssPropertyType::TextColor,        "color"),
-    (CssPropertyType::Background,       "background"),
-    (CssPropertyType::FontSize,         "font-size"),
-    (CssPropertyType::FontFamily,       "font-family"),
-    (CssPropertyType::TextAlign,        "text-align"),
-    (CssPropertyType::LetterSpacing,    "letter-spacing"),
-    (CssPropertyType::LineHeight,       "line-height"),
-    (CssPropertyType::Cursor,           "cursor"),
-    (CssPropertyType::Width,            "width"),
-    (CssPropertyType::Height,           "height"),
-    (CssPropertyType::MinWidth,         "min-width"),
-    (CssPropertyType::MinHeight,        "min-height"),
-    (CssPropertyType::MaxWidth,         "max-width"),
-    (CssPropertyType::MaxHeight,        "max-height"),
-    (CssPropertyType::Position,         "position"),
-    (CssPropertyType::Top,              "top"),
-    (CssPropertyType::Right,            "right"),
-    (CssPropertyType::Left,             "left"),
-    (CssPropertyType::Bottom,           "bottom"),
-    (CssPropertyType::FlexWrap,         "flex-wrap"),
-    (CssPropertyType::FlexDirection,    "flex-direction"),
-    (CssPropertyType::FlexGrow,         "flex-grow"),
-    (CssPropertyType::FlexShrink,       "flex-shrink"),
-    (CssPropertyType::JustifyContent,   "justify-content"),
-    (CssPropertyType::AlignItems,       "align-items"),
-    (CssPropertyType::AlignContent,     "align-content"),
-    (CssPropertyType::Overflow,         "overflow"),
-    (CssPropertyType::OverflowX,        "overflow-x"),
-    (CssPropertyType::OverflowY,        "overflow-y"),
-    (CssPropertyType::Padding,          "padding"),
-    (CssPropertyType::PaddingTop,       "padding-top"),
-    (CssPropertyType::PaddingLeft,      "padding-left"),
-    (CssPropertyType::PaddingRight,     "padding-right"),
-    (CssPropertyType::PaddingBottom,    "padding-bottom"),
-    (CssPropertyType::Margin,           "margin"),
-    (CssPropertyType::MarginTop,        "margin-top"),
-    (CssPropertyType::MarginLeft,       "margin-left"),
-    (CssPropertyType::MarginRight,      "margin-right"),
-    (CssPropertyType::MarginBottom,     "margin-bottom"),
-    (CssPropertyType::Border,           "border"),
-    (CssPropertyType::BorderTop,        "border-top"),
-    (CssPropertyType::BorderLeft,       "border-left"),
-    (CssPropertyType::BorderRight,      "border-right"),
-    (CssPropertyType::BorderBottom,     "border-bottom"),
-    (CssPropertyType::BoxShadow,        "box-shadow"),
-    (CssPropertyType::BoxShadowTop,     "box-shadow-top"),
-    (CssPropertyType::BoxShadowLeft,    "box-shadow-left"),
-    (CssPropertyType::BoxShadowRight,   "box-shadow-right"),
-    (CssPropertyType::BoxShadowBottom,  "box-shadow-bottom"),
+pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 51] = [
+    (CssPropertyType::BorderRadius, "border-radius"),
+    (CssPropertyType::BackgroundColor, "background-color"),
+    (CssPropertyType::TextColor, "color"),
+    (CssPropertyType::Background, "background"),
+    (CssPropertyType::FontSize, "font-size"),
+    (CssPropertyType::FontFamily, "font-family"),
+    (CssPropertyType::TextAlign, "text-align"),
+    (CssPropertyType::LetterSpacing, "letter-spacing"),
+    (CssPropertyType::LineHeight, "line-height"),
+    (CssPropertyType::Cursor, "cursor"),
+    (CssPropertyType::Width, "width"),
+    (CssPropertyType::Height, "height"),
+    (CssPropertyType::MinWidth, "min-width"),
+    (CssPropertyType::MinHeight, "min-height"),
+    (CssPropertyType::MaxWidth, "max-width"),
+    (CssPropertyType::MaxHeight, "max-height"),
+    (CssPropertyType::Position, "position"),
+    (CssPropertyType::Top, "top"),
+    (CssPropertyType::Right, "right"),
+    (CssPropertyType::Left, "left"),
+    (CssPropertyType::Bottom, "bottom"),
+    (CssPropertyType::FlexWrap, "flex-wrap"),
+    (CssPropertyType::FlexDirection, "flex-direction"),
+    (CssPropertyType::FlexGrow, "flex-grow"),
+    (CssPropertyType::FlexShrink, "flex-shrink"),
+    (CssPropertyType::JustifyContent, "justify-content"),
+    (CssPropertyType::AlignItems, "align-items"),
+    (CssPropertyType::AlignContent, "align-content"),
+    (CssPropertyType::Overflow, "overflow"),
+    (CssPropertyType::OverflowX, "overflow-x"),
+    (CssPropertyType::OverflowY, "overflow-y"),
+    (CssPropertyType::Padding, "padding"),
+    (CssPropertyType::PaddingTop, "padding-top"),
+    (CssPropertyType::PaddingLeft, "padding-left"),
+    (CssPropertyType::PaddingRight, "padding-right"),
+    (CssPropertyType::PaddingBottom, "padding-bottom"),
+    (CssPropertyType::Margin, "margin"),
+    (CssPropertyType::MarginTop, "margin-top"),
+    (CssPropertyType::MarginLeft, "margin-left"),
+    (CssPropertyType::MarginRight, "margin-right"),
+    (CssPropertyType::MarginBottom, "margin-bottom"),
+    (CssPropertyType::Border, "border"),
+    (CssPropertyType::BorderTop, "border-top"),
+    (CssPropertyType::BorderLeft, "border-left"),
+    (CssPropertyType::BorderRight, "border-right"),
+    (CssPropertyType::BorderBottom, "border-bottom"),
+    (CssPropertyType::BoxShadow, "box-shadow"),
+    (CssPropertyType::BoxShadowTop, "box-shadow-top"),
+    (CssPropertyType::BoxShadowLeft, "box-shadow-left"),
+    (CssPropertyType::BoxShadowRight, "box-shadow-right"),
+    (CssPropertyType::BoxShadowBottom, "box-shadow-bottom"),
 ];
 
 /// Returns a map useful for parsing the keys of CSS stylesheets
@@ -318,7 +334,6 @@ pub enum CssPropertyType {
 }
 
 impl CssPropertyType {
-
     /// Parses a CSS key, such as `width` from a string:
     ///
     /// ```rust
@@ -334,19 +349,18 @@ impl CssPropertyType {
     }
 
     pub fn to_str(&self, map: &BTreeMap<&'static str, Self>) -> &'static str {
-        map.iter().find(|(_, v)| *v == self).and_then(|(k, _)| Some(k)).unwrap()
+        map.iter()
+            .find(|(_, v)| *v == self)
+            .and_then(|(k, _)| Some(k))
+            .unwrap()
     }
 
     /// Returns whether this property will be inherited during cascading
     pub fn is_inheritable(&self) -> bool {
-    /// Returns whether this property can trigger a re-layout
+        /// Returns whether this property can trigger a re-layout
         use self::CssPropertyType::*;
         match self {
-            | TextColor
-            | FontFamily
-            | FontSize
-            | LineHeight
-            | TextAlign => true,
+            TextColor | FontFamily | FontSize | LineHeight | TextAlign => true,
             _ => false,
         }
     }
@@ -362,17 +376,8 @@ impl CssPropertyType {
         // the text layout and therefore the screen layout
 
         match self {
-            | BorderRadius
-            | BackgroundColor
-            | TextColor
-            | Background
-            | TextAlign
-            | BoxShadow
-            | BoxShadowTop
-            | BoxShadowLeft
-            | BoxShadowBottom
-            | BoxShadowRight
-            | Cursor => false,
+            BorderRadius | BackgroundColor | TextColor | Background | TextAlign | BoxShadow
+            | BoxShadowTop | BoxShadowLeft | BoxShadowBottom | BoxShadowRight | Cursor => false,
             _ => true,
         }
     }
@@ -380,7 +385,11 @@ impl CssPropertyType {
 
 impl fmt::Display for CssPropertyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let key = CSS_PROPERTY_KEY_MAP.iter().find(|(v, _)| *v == *self).and_then(|(k, _)| Some(k)).unwrap();
+        let key = CSS_PROPERTY_KEY_MAP
+            .iter()
+            .find(|(v, _)| *v == *self)
+            .and_then(|(k, _)| Some(k))
+            .unwrap();
         write!(f, "{}", key)
     }
 }
@@ -543,9 +552,9 @@ impl PixelValue {
     #[inline]
     pub fn to_pixels(&self) -> f32 {
         match self.metric {
-            SizeMetric::Px => { self.number.get() },
-            SizeMetric::Pt => { (self.number.get()) * PT_TO_PX },
-            SizeMetric::Em => { (self.number.get()) * EM_HEIGHT },
+            SizeMetric::Px => self.number.get(),
+            SizeMetric::Pt => (self.number.get()) * PT_TO_PX,
+            SizeMetric::Em => (self.number.get()) * EM_HEIGHT,
         }
     }
 }
@@ -559,7 +568,9 @@ pub struct PercentageValue {
 
 impl PercentageValue {
     pub fn new(value: f32) -> Self {
-        Self { number: value.into() }
+        Self {
+            number: value.into(),
+        }
     }
 
     pub fn get(&self) -> f32 {
@@ -576,7 +587,9 @@ pub struct FloatValue {
 
 impl FloatValue {
     pub fn new(value: f32) -> Self {
-        Self { number: (value * FP_PRECISION_MULTIPLIER) as isize }
+        Self {
+            number: (value * FP_PRECISION_MULTIPLIER) as isize,
+        }
     }
 
     pub fn get(&self) -> f32 {
@@ -614,7 +627,12 @@ pub struct StyleBackgroundColor(pub ColorU);
 impl Default for StyleBackgroundColor {
     fn default() -> Self {
         // Transparent color
-        StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 0 })
+        StyleBackgroundColor(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        })
     }
 }
 
@@ -632,32 +650,46 @@ pub struct LayoutPadding {
 }
 
 // $struct_name has to have top, left, right, bottom properties
-macro_rules! merge_struct {($struct_name:ident) => (
-impl $struct_name {
-    pub fn merge(a: &mut Option<$struct_name>, b: &$struct_name) {
-       if let Some(ref mut existing) = a {
-           if b.top.is_some() { existing.top = b.top; }
-           if b.bottom.is_some() { existing.bottom = b.bottom; }
-           if b.left.is_some() { existing.left = b.left; }
-           if b.right.is_some() { existing.right = b.right; }
-       } else {
-           *a = Some(*b);
-       }
-    }
-})}
-
-macro_rules! struct_all {($struct_name:ident, $field_type:ty) => (
-impl $struct_name {
-    /// Sets all of the fields (top, left, right, bottom) to `Some(field)`
-    pub fn all(field: $field_type) -> Self {
-        Self {
-            top: Some(field),
-            right: Some(field),
-            left: Some(field),
-            bottom: Some(field),
+macro_rules! merge_struct {
+    ($struct_name:ident) => {
+        impl $struct_name {
+            pub fn merge(a: &mut Option<$struct_name>, b: &$struct_name) {
+                if let Some(ref mut existing) = a {
+                    if b.top.is_some() {
+                        existing.top = b.top;
+                    }
+                    if b.bottom.is_some() {
+                        existing.bottom = b.bottom;
+                    }
+                    if b.left.is_some() {
+                        existing.left = b.left;
+                    }
+                    if b.right.is_some() {
+                        existing.right = b.right;
+                    }
+                } else {
+                    *a = Some(*b);
+                }
+            }
         }
-    }
-})}
+    };
+}
+
+macro_rules! struct_all {
+    ($struct_name:ident, $field_type:ty) => {
+        impl $struct_name {
+            /// Sets all of the fields (top, left, right, bottom) to `Some(field)`
+            pub fn all(field: $field_type) -> Self {
+                Self {
+                    top: Some(field),
+                    right: Some(field),
+                    left: Some(field),
+                    bottom: Some(field),
+                }
+            }
+        }
+    };
+}
 
 merge_struct!(LayoutPadding);
 merge_struct!(LayoutMargin);
@@ -681,10 +713,8 @@ pub struct LayoutOverflow {
 }
 
 impl LayoutOverflow {
-
     // "merges" two LayoutOverflow properties
     pub fn merge(a: &mut Option<Self>, b: &Self) {
-
         fn merge_property(p: &mut TextOverflowBehaviour, other: &TextOverflowBehaviour) {
             if *other == TextOverflowBehaviour::NotModified {
                 return;
@@ -730,32 +760,57 @@ merge_struct!(StyleBorder);
 struct_all!(StyleBorder, StyleBorderSide);
 
 impl StyleBorder {
-
     /// Returns the merged offsets and details for the top, left,
     /// right and bottom styles - necessary, so we can combine `border-top`,
     /// `border-left`, etc. into one border
-    pub fn get_webrender_border(&self, border_radius: Option<StyleBorderRadius>) -> Option<(LayoutSideOffsets, BorderDetails)> {
+    pub fn get_webrender_border(
+        &self,
+        border_radius: Option<StyleBorderRadius>,
+    ) -> Option<(LayoutSideOffsets, BorderDetails)> {
         match (self.top, self.left, self.bottom, self.right) {
             (None, None, None, None) => None,
             (top, left, bottom, right) => {
-
                 // Widths
-                let border_width_top = top.and_then(|top|  Some(top.border_width.to_pixels())).unwrap_or(0.0);
-                let border_width_bottom = bottom.and_then(|bottom|  Some(bottom.border_width.to_pixels())).unwrap_or(0.0);
-                let border_width_left = left.and_then(|left|  Some(left.border_width.to_pixels())).unwrap_or(0.0);
-                let border_width_right = right.and_then(|right|  Some(right.border_width.to_pixels())).unwrap_or(0.0);
+                let border_width_top = top
+                    .and_then(|top| Some(top.border_width.to_pixels()))
+                    .unwrap_or(0.0);
+                let border_width_bottom = bottom
+                    .and_then(|bottom| Some(bottom.border_width.to_pixels()))
+                    .unwrap_or(0.0);
+                let border_width_left = left
+                    .and_then(|left| Some(left.border_width.to_pixels()))
+                    .unwrap_or(0.0);
+                let border_width_right = right
+                    .and_then(|right| Some(right.border_width.to_pixels()))
+                    .unwrap_or(0.0);
 
                 // Color
-                let border_color_top = top.and_then(|top| Some(top.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
-                let border_color_bottom = bottom.and_then(|bottom| Some(bottom.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
-                let border_color_left = left.and_then(|left| Some(left.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
-                let border_color_right = right.and_then(|right| Some(right.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
+                let border_color_top = top
+                    .and_then(|top| Some(top.border_color.into()))
+                    .unwrap_or(DEFAULT_BORDER_COLOR);
+                let border_color_bottom = bottom
+                    .and_then(|bottom| Some(bottom.border_color.into()))
+                    .unwrap_or(DEFAULT_BORDER_COLOR);
+                let border_color_left = left
+                    .and_then(|left| Some(left.border_color.into()))
+                    .unwrap_or(DEFAULT_BORDER_COLOR);
+                let border_color_right = right
+                    .and_then(|right| Some(right.border_color.into()))
+                    .unwrap_or(DEFAULT_BORDER_COLOR);
 
                 // Styles
-                let border_style_top = top.and_then(|top| Some(top.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
-                let border_style_bottom = bottom.and_then(|bottom| Some(bottom.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
-                let border_style_left = left.and_then(|left| Some(left.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
-                let border_style_right = right.and_then(|right| Some(right.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
+                let border_style_top = top
+                    .and_then(|top| Some(top.border_style))
+                    .unwrap_or(DEFAULT_BORDER_STYLE);
+                let border_style_bottom = bottom
+                    .and_then(|bottom| Some(bottom.border_style))
+                    .unwrap_or(DEFAULT_BORDER_STYLE);
+                let border_style_left = left
+                    .and_then(|left| Some(left.border_style))
+                    .unwrap_or(DEFAULT_BORDER_STYLE);
+                let border_style_right = right
+                    .and_then(|right| Some(right.border_style))
+                    .unwrap_or(DEFAULT_BORDER_STYLE);
 
                 let border_widths = LayoutSideOffsets {
                     top: FloatValue::new(border_width_top),
@@ -764,10 +819,22 @@ impl StyleBorder {
                     left: FloatValue::new(border_width_left),
                 };
                 let border_details = BorderDetails::Normal(NormalBorder {
-                    top: BorderSide { color:  border_color_top.into(), style: border_style_top },
-                    left: BorderSide { color:  border_color_left.into(), style: border_style_left },
-                    right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
-                    bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
+                    top: BorderSide {
+                        color: border_color_top.into(),
+                        style: border_style_top,
+                    },
+                    left: BorderSide {
+                        color: border_color_left.into(),
+                        style: border_style_left,
+                    },
+                    right: BorderSide {
+                        color: border_color_right.into(),
+                        style: border_style_right,
+                    },
+                    bottom: BorderSide {
+                        color: border_color_bottom.into(),
+                        style: border_style_bottom,
+                    },
                     radius: border_radius.and_then(|r| Some(r.0)),
                 });
 
@@ -778,7 +845,12 @@ impl StyleBorder {
 }
 
 const DEFAULT_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
-const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+const DEFAULT_BORDER_COLOR: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 255,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StyleBorderSide {
@@ -802,7 +874,7 @@ struct_all!(StyleBoxShadow, Option<BoxShadowPreDisplayItem>);
 // missing StyleBorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct BoxShadowPreDisplayItem {
-    pub offset: [PixelValue;2],
+    pub offset: [PixelValue; 2],
     pub color: ColorU,
     pub blur_radius: PixelValue,
     pub spread_radius: PixelValue,
@@ -845,9 +917,7 @@ pub enum Direction {
 
 impl Direction {
     /// Calculates the points of the gradient stops for angled linear gradients
-    pub fn to_points(&self, rect: &LayoutRect)
-    -> (LayoutPoint, LayoutPoint)
-    {
+    pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
         match self {
             Direction::Angle(deg) => {
                 // note: assumes that the LayoutRect has positive sides
@@ -862,13 +932,15 @@ impl Direction {
                 let height_half = rect.size.height as usize / 2;
 
                 // hypotenuse_len is the length of the center of the rect to the corners
-                let hypotenuse_len = (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
+                let hypotenuse_len =
+                    (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
 
                 // The corner also serves to determine what quadrant we're in
                 // Get the quadrant (corner) the angle is in and get the degree associated
                 // with that corner.
 
-                let angle_to_top_left = (height_half as f64 / width_half as f64).atan().to_degrees();
+                let angle_to_top_left =
+                    (height_half as f64 / width_half as f64).atan().to_degrees();
 
                 // We need to calculate the angle from the center to the corner!
                 let ending_point_degrees = if deg < 90.0 {
@@ -880,7 +952,9 @@ impl Direction {
                 } else if deg < 270.0 {
                     // bottom right corner
                     270.0 - angle_to_top_left
-                } else /* deg > 270.0 && deg < 360.0 */ {
+                } else
+                /* deg > 270.0 && deg < 360.0 */
+                {
                     // top right corner
                     270.0 + angle_to_top_left
                 };
@@ -890,7 +964,8 @@ impl Direction {
 
                 // Searched_len is the distance between the center of the rect and the
                 // ending point of the gradient
-                let searched_len = (hypotenuse_len * degree_diff_to_corner.to_radians().cos()).abs();
+                let searched_len =
+                    (hypotenuse_len * degree_diff_to_corner.to_radians().cos()).abs();
 
                 // TODO: This searched_len is incorrect...
 
@@ -899,14 +974,18 @@ impl Direction {
                 let dx = deg.to_radians().sin() * searched_len as f32;
                 let dy = deg.to_radians().cos() * searched_len as f32;
 
-                let start_point_location = LayoutPoint { x: width_half as f32 + dx, y: height_half as f32 + dy };
-                let end_point_location = LayoutPoint { x: width_half as f32 - dx, y: height_half as f32 - dy };
+                let start_point_location = LayoutPoint {
+                    x: width_half as f32 + dx,
+                    y: height_half as f32 + dy,
+                };
+                let end_point_location = LayoutPoint {
+                    x: width_half as f32 - dx,
+                    y: height_half as f32 - dy,
+                };
 
                 (start_point_location, end_point_location)
-            },
-            Direction::FromTo(from, to) => {
-                (from.to_point(rect), to.to_point(rect))
             }
+            Direction::FromTo(from, to) => (from.to_point(rect), to.to_point(rect)),
         }
     }
 }
@@ -1000,7 +1079,6 @@ pub enum DirectionCorner {
 }
 
 impl DirectionCorner {
-
     pub fn opposite(&self) -> Self {
         use self::DirectionCorner::*;
         match *self {
@@ -1022,22 +1100,42 @@ impl DirectionCorner {
             (Left, Top) | (Top, Left) => Some(TopLeft),
             (Right, Bottom) | (Bottom, Right) => Some(BottomRight),
             (Left, Bottom) | (Bottom, Left) => Some(BottomLeft),
-            _ => { None }
+            _ => None,
         }
     }
 
-    pub fn to_point(&self, rect: &LayoutRect) -> LayoutPoint
-    {
+    pub fn to_point(&self, rect: &LayoutRect) -> LayoutPoint {
         use self::DirectionCorner::*;
         match *self {
-            Right       => LayoutPoint { x: rect.size.width,          y: rect.size.height / 2.0     },
-            Left        => LayoutPoint { x: 0.0,                      y: rect.size.height / 2.0     },
-            Top         => LayoutPoint { x: rect.size.width / 2.0,    y: 0.0                        },
-            Bottom      => LayoutPoint { x: rect.size.width / 2.0,    y: rect.size.height           },
-            TopRight    => LayoutPoint { x: rect.size.width,          y: 0.0                        },
-            TopLeft     => LayoutPoint { x: 0.0,                      y: 0.0                        },
-            BottomRight => LayoutPoint { x: rect.size.width,          y: rect.size.height           },
-            BottomLeft  => LayoutPoint { x: 0.0,                      y: rect.size.height           },
+            Right => LayoutPoint {
+                x: rect.size.width,
+                y: rect.size.height / 2.0,
+            },
+            Left => LayoutPoint {
+                x: 0.0,
+                y: rect.size.height / 2.0,
+            },
+            Top => LayoutPoint {
+                x: rect.size.width / 2.0,
+                y: 0.0,
+            },
+            Bottom => LayoutPoint {
+                x: rect.size.width / 2.0,
+                y: rect.size.height,
+            },
+            TopRight => LayoutPoint {
+                x: rect.size.width,
+                y: 0.0,
+            },
+            TopLeft => LayoutPoint { x: 0.0, y: 0.0 },
+            BottomRight => LayoutPoint {
+                x: rect.size.width,
+                y: rect.size.height,
+            },
+            BottomLeft => LayoutPoint {
+                x: 0.0,
+                y: rect.size.height,
+            },
         }
     }
 }
@@ -1351,7 +1449,7 @@ pub struct RectStyle {
     /// Text color
     pub font_color: Option<StyleTextColor>,
     /// Text alignment
-    pub text_align: Option<StyleTextAlignmentHorz,>,
+    pub text_align: Option<StyleTextAlignmentHorz>,
     /// Text overflow behaviour
     pub overflow: Option<LayoutOverflow>,
     /// `line-height` property
@@ -1365,7 +1463,6 @@ impl_pixel_value!(StyleLetterSpacing);
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]
 pub struct RectLayout {
-
     pub width: Option<LayoutWidth>,
     pub height: Option<LayoutHeight>,
     pub min_width: Option<LayoutMinWidth>,
@@ -1420,7 +1517,7 @@ impl StyleFontSize {
 #[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub struct StyleFontFamily {
     // fonts in order of precedence, i.e. "Webly Sleeky UI", "monospace", etc.
-    pub fonts: Vec<FontId>
+    pub fonts: Vec<FontId>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]

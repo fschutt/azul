@@ -1,7 +1,5 @@
+use dom::Dom;
 use std::sync::{Arc, Mutex};
-use {
-    dom::Dom,
-};
 
 #[cfg(not(test))]
 use window::WindowInfo;
@@ -18,9 +16,13 @@ pub trait Layout {
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
     #[cfg(not(test))]
-    fn layout(&self, window_id: WindowInfo<Self>) -> Dom<Self> where Self: Sized;
+    fn layout(&self, window_id: WindowInfo<Self>) -> Dom<Self>
+    where
+        Self: Sized;
     #[cfg(test)]
-    fn layout(&self) -> Dom<Self> where Self: Sized;
+    fn layout(&self) -> Dom<Self>
+    where
+        Self: Sized;
 }
 
 /// Convenience trait that allows the `app_state.modify()` - only implemented for
@@ -36,13 +38,21 @@ pub trait Layout {
 pub trait Modify<T> {
     /// Modifies the app state and then returns if the modification was successful
     /// Takes a FnMut that modifies the state
-    fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T);
+    fn modify<F>(&self, closure: F) -> bool
+    where
+        F: FnOnce(&mut T);
 }
 
 impl<T> Modify<T> for Arc<Mutex<T>> {
-    fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T) {
+    fn modify<F>(&self, closure: F) -> bool
+    where
+        F: FnOnce(&mut T),
+    {
         match self.lock().as_mut() {
-            Ok(lock) => { closure(&mut *lock); true },
+            Ok(lock) => {
+                closure(&mut *lock);
+                true
+            }
             Err(_) => false,
         }
     }
