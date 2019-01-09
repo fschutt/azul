@@ -1759,32 +1759,25 @@ fn push_background(
     }
 }
 
+struct Ratio {
+    width: f32,
+    height: f32
+}
+
 fn calculate_background_size(bg_size: StyleBackgroundSize, info: &PrimitiveInfo<LayoutPixel>, image_dimensions: &(f32, f32))
 -> TypedSize2D<f32, LayoutPixel>
 {
-    let rect_height = info.rect.size.height;
-    let rect_width = info.rect.size.width;
+    let original_ratios = Ratio {
+        width: info.rect.size.width / image_dimensions.0,
+        height: info.rect.size.height / image_dimensions.1
+    };
 
-    match bg_size {
-        StyleBackgroundSize::Contain => {
-            if rect_height > rect_width {
-                let bound_width = image_dimensions.1;
-                return TypedSize2D::new(rect_height, bound_width);
-            } else {
-                let bound_height = image_dimensions.1;
-                return TypedSize2D::new(bound_height, rect_width);
-            }
-        },
-        StyleBackgroundSize::Cover => {
-            if rect_height < rect_width {
-                let bound_width = image_dimensions.1;
-                return TypedSize2D::new(rect_height, bound_width);
-            } else {
-                let bound_height = image_dimensions.1;
-                return TypedSize2D::new(bound_height, rect_width);
-            }
-        }
-    }
+    let ratio = match bg_size {
+        StyleBackgroundSize::Contain => original_ratios.width.min(original_ratios.height),
+        StyleBackgroundSize::Cover => original_ratios.width.max(original_ratios.height)
+    };
+
+    TypedSize2D::new(image_dimensions.0 * ratio, image_dimensions.1 * ratio)
 }
 
 #[inline]
