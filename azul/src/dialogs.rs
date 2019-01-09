@@ -135,44 +135,10 @@ pub fn color_picker_dialog(title: &str, default_value: Option<ColorValue>)
     ::tinyfiledialogs::color_chooser_dialog(title, default)
 }
 
-// The difference between tinyfiledialogs and nfd is that nfd links
-// to a specific dialog at compile time, while tinyfiledialogs selects
-// the dialog at runtime from a set of specific dialogs (i.e. Mate, KDE,
-// dolphin, whatever). This (a) doesn't force the library user to choose
-// a specific dialog, (b) won't look non-native (GTK3 on a KDE env can
-// look jarring) and (c) doesn't require the user to install extra libraries
-//
-// The only reason why we don't use tinyfiledialogs everywhere is because
-// it doesn't handle unicode correctly (so if the user has öüä in his username,
-// it won't return a correct file path). However, tinyfiledialogs **does**
-// handle Unicode correctly on Linux. So the solution is to use tinyfiledialogs
-// on Linux (because of the dependency issue) and nfd everywhere else (because
-// of better Unicode)
-
 /// Open a single file, returns `None` if the user canceled the dialog.
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
-#[cfg(not(target_os = "linux"))]
-pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
--> Option<String>
-{
-    use nfd::{open_dialog, DialogType, Response};
-
-    let filter_list = filter_list.map(|list| list.join(";"));
-    let filter_list_2 = filter_list.as_ref().map(|x| &**x);
-
-    match open_dialog(filter_list_2, default_path, DialogType::SingleFile).unwrap() {
-        Response::Okay(file_path) => Some(file_path),
-        _ => None,
-    }
-}
-
-/// Open a single file, returns `None` if the user canceled the dialog.
-///
-/// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
-/// "doc" and "docx" files
-#[cfg(target_os = "linux")]
 pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
 -> Option<String>
 {
@@ -182,20 +148,6 @@ pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>
 }
 
 /// Open a directory, returns `None` if the user canceled the dialog
-#[cfg(not(target_os = "linux"))]
-pub fn open_directory_dialog(default_path: Option<&str>)
--> Option<String>
-{
-    use nfd::{open_dialog, DialogType, Response};
-
-    match open_dialog(None, default_path, DialogType::PickFolder).unwrap() {
-        Response::Okay(file_path) => Some(file_path),
-        _ => None,
-    }
-}
-
-/// Open a directory, returns `None` if the user canceled the dialog
-#[cfg(target_os = "linux")]
 pub fn open_directory_dialog(default_path: Option<&str>)
 -> Option<String>
 {
@@ -207,28 +159,6 @@ pub fn open_directory_dialog(default_path: Option<&str>)
 ///
 /// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
 /// "doc" and "docx" files
-#[cfg(not(target_os = "linux"))]
-pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
--> Option<Vec<String>>
-{
-    use nfd::{open_dialog, DialogType, Response};
-
-    let filter_list = filter_list.map(|list| list.join(";"));
-    let filter_list_2 = filter_list.as_ref().map(|x| &**x);
-
-    match open_dialog(filter_list_2, default_path, DialogType::MultipleFiles).unwrap() {
-        Response::Okay(file_path) => Some(vec![file_path]),
-        Response::OkayMultiple(paths) => Some(paths),
-        _ => None,
-    }
-}
-
-/// Open multiple files at once, returns `None` if the user canceled the dialog,
-/// otherwise returns the `Vec<String>` with the given file paths
-///
-/// Filters are the file extensions, i.e. `Some(&["doc", "docx"])` to only allow
-/// "doc" and "docx" files
-#[cfg(target_os = "linux")]
 pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>)
 -> Option<Vec<String>>
 {
@@ -238,20 +168,6 @@ pub fn open_multiple_files_dialog(default_path: Option<&str>, filter_list: Optio
 }
 
 /// Opens a save file dialog, returns `None` if the user canceled the dialog
-#[cfg(not(target_os = "linux"))]
-pub fn save_file_dialog(default_path: Option<&str>)
--> Option<String>
-{
-    use nfd::{open_dialog, DialogType, Response};
-
-    match open_dialog(None, default_path, DialogType::SaveFile).unwrap() {
-        Response::Okay(file_path) => Some(file_path),
-        _ => None,
-    }
-}
-
-/// Opens a save file dialog, returns `None` if the user canceled the dialog
-#[cfg(target_os = "linux")]
 pub fn save_file_dialog(default_path: Option<&str>)
 -> Option<String>
 {

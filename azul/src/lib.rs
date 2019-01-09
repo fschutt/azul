@@ -70,44 +70,41 @@
 #![deny(missing_copy_implementations)]
 #![allow(dead_code)]
 
-#[cfg_attr(feature = "svg", macro_use)]
-pub extern crate azul_glium as glium;
-pub extern crate gleam;
+#[macro_use(warn, error, lazy_static)]
+#[cfg_attr(feature = "svg", macro_use(implement_vertex, uniform))]
+pub extern crate azul_dependencies;
 
-#[macro_use]
-extern crate lazy_static;
-extern crate euclid;
-extern crate webrender;
-extern crate rusttype;
-extern crate app_units;
-extern crate unicode_normalization;
-extern crate tinyfiledialogs;
-extern crate clipboard2;
-extern crate font_loader;
+pub use azul_dependencies::glium as glium;
+pub use azul_dependencies::gleam as gleam;
+
+pub(crate) use azul_dependencies::euclid;
+pub(crate) use azul_dependencies::webrender;
+pub(crate) use azul_dependencies::rusttype;
+pub(crate) use azul_dependencies::app_units;
+pub(crate) use azul_dependencies::unicode_normalization;
+pub(crate) use azul_dependencies::tinyfiledialogs;
+pub(crate) use azul_dependencies::clipboard2;
+pub(crate) use azul_dependencies::font_loader;
 
 #[cfg(feature = "logging")]
-#[cfg_attr(feature = "logging", macro_use)]
-extern crate log;
+pub(crate) use azul_dependencies::log;
 #[cfg(feature = "svg")]
-extern crate stb_truetype;
+pub(crate) use azul_dependencies::stb_truetype;
 #[cfg(feature = "logging")]
-extern crate fern;
+pub(crate) use azul_dependencies::fern;
 #[cfg(feature = "logging")]
-extern crate backtrace;
+pub(crate) use azul_dependencies::backtrace;
 #[cfg(feature = "image_loading")]
-extern crate image;
-#[cfg(feature = "serde_serialization")]
-#[cfg_attr(feature = "serde_serialization", macro_use)]
-extern crate serde;
+pub(crate) use azul_dependencies::image;
 #[cfg(feature = "svg")]
-extern crate lyon;
+pub(crate) use azul_dependencies::lyon;
 #[cfg(feature = "svg_parsing")]
-extern crate usvg;
+pub(crate) use azul_dependencies::usvg;
 #[cfg(feature = "faster-hashing")]
-extern crate twox_hash;
+pub(crate) use azul_dependencies::twox_hash;
 
-#[cfg(not(target_os = "linux"))]
-extern crate nfd;
+// #[cfg(not(target_os = "linux"))]
+// use azul_dependencies::nfd;
 
 #[cfg(feature = "css-parser")]
 extern crate azul_css;
