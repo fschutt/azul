@@ -196,9 +196,10 @@ macro_rules! impl_pixel_value {($struct:ident) => (
     }
 )}
 
-pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);51] = [
+pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);52] = [
     (CssPropertyType::BorderRadius,     "border-radius"),
     (CssPropertyType::BackgroundColor,  "background-color"),
+    (CssPropertyType::BackgroundSize,   "background-size"),
     (CssPropertyType::TextColor,        "color"),
     (CssPropertyType::Background,       "background"),
     (CssPropertyType::FontSize,         "font-size"),
@@ -261,6 +262,7 @@ pub fn get_css_key_map() -> BTreeMap<&'static str, CssPropertyType> {
 pub enum CssPropertyType {
     BorderRadius,
     BackgroundColor,
+    BackgroundSize,
     TextColor,
     Background,
     FontSize,
@@ -364,6 +366,7 @@ impl CssPropertyType {
         match self {
             | BorderRadius
             | BackgroundColor
+            | BackgroundSize
             | TextColor
             | Background
             | TextAlign
@@ -390,6 +393,7 @@ impl fmt::Display for CssPropertyType {
 pub enum CssProperty {
     BorderRadius(StyleBorderRadius),
     BackgroundColor(StyleBackgroundColor),
+    BackgroundSize(StyleBackgroundSize),
     TextColor(StyleTextColor),
     Border(StyleBorder),
     Background(StyleBackground),
@@ -428,6 +432,7 @@ impl CssProperty {
         match &self {
             CssProperty::BorderRadius(_) => CssPropertyType::BorderRadius,
             CssProperty::BackgroundColor(_) => CssPropertyType::BackgroundColor,
+            CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::Border(_) => CssPropertyType::Border,
             CssProperty::Background(_) => CssPropertyType::Background,
@@ -473,6 +478,7 @@ impl_from!(StyleTextAlignmentHorz, CssProperty::TextAlign);
 impl_from!(StyleLineHeight, CssProperty::LineHeight);
 impl_from!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from!(StyleBackgroundColor, CssProperty::BackgroundColor);
+impl_from!(StyleBackgroundSize, CssProperty::BackgroundSize);
 impl_from!(StyleTextColor, CssProperty::TextColor);
 impl_from!(StyleCursor, CssProperty::Cursor);
 
@@ -616,6 +622,13 @@ impl Default for StyleBackgroundColor {
         // Transparent color
         StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 0 })
     }
+}
+
+/// Represents a `background-size` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum StyleBackgroundSize {
+    Contain,
+    Cover
 }
 
 /// Represents a `color` attribute
@@ -1336,6 +1349,8 @@ impl Default for StyleTextAlignmentVert {
 pub struct RectStyle {
     /// Background color of this rectangle
     pub background_color: Option<StyleBackgroundColor>,
+    /// Background size of this rectangle
+    pub background_size: Option<StyleBackgroundSize>,
     /// Shadow color
     pub box_shadow: Option<StyleBoxShadow>,
     /// Gradient (location) + stops
