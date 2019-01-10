@@ -11,7 +11,7 @@ use azul_css::{
     LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
     StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
     ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
-    GradientStopPre, RadialGradient, StyleBackgroundColor, StyleBackgroundSize,
+    GradientStopPre, RadialGradient, StyleBackgroundColor, StyleBackgroundSize, StyleBackgroundRepeat,
     DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradient,
     BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
 
@@ -64,6 +64,7 @@ pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<
         BorderRadius     => Ok(parse_style_border_radius(value)?.into()),
         BackgroundColor  => Ok(parse_style_background_color(value)?.into()),
         BackgroundSize   => Ok(parse_style_background_size(value)?.into()),
+        BackgroundRepeat => Ok(parse_style_background_repeat(value)?.into()),
         TextColor        => Ok(parse_style_text_color(value)?.into()),
         Background       => Ok(parse_style_background(value)?.into()),
         FontSize         => Ok(parse_style_font_size(value)?.into()),
@@ -1627,6 +1628,8 @@ pub struct RectStyle {
     pub background_color: Option<StyleBackgroundColor>,
     /// Background size of this rectangle
     pub background_size: Option<StyleBackgroundSize>,
+    /// Background repeat of this rectangle
+    pub background_repeat: Option<StyleBackgroundRepeat>,
     /// Shadow color
     pub box_shadow: Option<StyleBoxShadow>,
     /// Gradient (location) + stops
@@ -1817,6 +1820,12 @@ multi_type_parser!(parse_style_cursor, StyleCursor,
 multi_type_parser!(parse_style_background_size, StyleBackgroundSize,
                     ["contain", Contain],
                     ["cover", Cover]);
+
+multi_type_parser!(parse_style_background_repeat, StyleBackgroundRepeat,
+                    ["no-repeat", NoRepeat],
+                    ["repeat", Repeat],
+                    ["repeat-x", RepeatX],
+                    ["repeat-y", RepeatY]);
 
 multi_type_parser!(parse_layout_direction, LayoutDirection,
                     ["row", Row],
