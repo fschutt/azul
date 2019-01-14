@@ -634,7 +634,7 @@ impl Default for StyleBackgroundColor {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StyleBackgroundSize {
     Contain,
-    Cover
+    Cover,
 }
 
 /// Represents a `background-repeat` attribute
@@ -644,6 +644,12 @@ pub enum StyleBackgroundRepeat {
     Repeat,
     RepeatX,
     RepeatY,
+}
+
+impl Default for StyleBackgroundRepeat {
+    fn default() -> Self {
+        StyleBackgroundRepeat::Repeat
+    }
 }
 
 /// Represents a `color` attribute

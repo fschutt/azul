@@ -1745,6 +1745,8 @@ fn push_background(
         Image(style_image_id) => {
             // TODO: background-origin, background-position, background-repeat
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&style_image_id.0) {
+                use azul_css::StyleBackgroundRepeat::*;
+
                 let bounds = info.rect;
                 let image_dimensions = app_resources.images.get(image_id).and_then(|i| Some(i.get_dimensions()))
                     .unwrap_or((bounds.size.width, bounds.size.height)); // better than crashing...
@@ -1754,15 +1756,12 @@ fn push_background(
                     None => TypedSize2D::new(image_dimensions.0, image_dimensions.1)
                 };
 
-                let info = if let Some(repeat) = background_repeat {
-                    match repeat {
-                        StyleBackgroundRepeat::NoRepeat => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(size)),
-                        StyleBackgroundRepeat::Repeat => *info,
-                        StyleBackgroundRepeat::RepeatX => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(info.rect.size.width, size.height))),
-                        StyleBackgroundRepeat::RepeatY => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(size.width, info.rect.size.height))),
-                    }
-                } else {
-                    *info
+                let background_repeat = background_repeat.unwrap_or_default();
+                let info = match background_repeat {
+                    NoRepeat => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(size)),
+                    Repeat => *info,
+                    RepeatX => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(info.rect.size.width, size.height))),
+                    RepeatY => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(size.width, info.rect.size.height))),
                 };
 
                 push_image(&info, builder, app_resources, image_id, size);
