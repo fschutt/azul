@@ -168,6 +168,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         push_rectangles_into_displaylist(
             &laid_out_rectangles,
             window.internal.epoch,
+            window.state.size.hidpi_factor,
             rects_in_rendering_order,
             &mut scrollable_nodes,
             &mut window.scroll_states,
@@ -715,6 +716,7 @@ fn test_overflow_parsing() {
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     solved_rects: &NodeDataContainer<LayoutRect>,
     epoch: Epoch,
+    hidpi_factor: f64,
     content_grouped_rectangles: ContentGroupOrder,
     scrollable_nodes: &mut ScrolledNodes,
     scroll_states: &mut ScrollStates,
@@ -730,7 +732,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 
     for content_group in content_grouped_rectangles.groups {
         // Push the root of the node
-
         push_rectangles_into_displaylist_inner(content_group.root,
             solved_rects,
             epoch,
@@ -874,6 +875,7 @@ pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
     pub epoch: Epoch,
     pub rect_idx: NodeId,
     pub html_node: &'a NodeType<T>,
+    hidpi_factor: f64,
 }
 
 fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Option<ComplexClipRegion> {
@@ -906,7 +908,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     } = referenced_content;
 
     let DisplayListRectParams {
-        epoch, rect_idx, html_node,
+        epoch, rect_idx, html_node, hidpi_factor,
     } = rectangle;
 
     let rect = &display_rectangle_arena[rect_idx];
@@ -1103,7 +1105,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
 
-    let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
+    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.hidpi_factor);
 
     let texture;
 
@@ -1167,7 +1169,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
 {
     use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 
-    let bounds = HidpiAdjustedBounds::from_bounds(&referenced_mutable_content.fake_window, info.rect);
+    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.hidpi_factor);
 
     let new_dom;
 
@@ -1236,6 +1238,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     push_rectangles_into_displaylist(
         &laid_out_rectangles,
         rectangle.epoch,
+        rectangle.hidpi_factor,
         rects_in_rendering_order,
         &mut scrollable_nodes,
         &mut ScrollStates::new(),

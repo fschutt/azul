@@ -140,7 +140,7 @@ impl Facade for ReadOnlyWindow {
 }
 
 impl ReadOnlyWindow {
-
+/*
     pub fn get_physical_size(&self) -> (u32, u32) {
         let hidpi = self.get_hidpi_factor();
         self.inner.gl_window().get_inner_size().unwrap().to_physical(hidpi).into()
@@ -150,7 +150,7 @@ impl ReadOnlyWindow {
     pub fn get_hidpi_factor(&self) -> f64 {
         self.inner.gl_window().get_hidpi_factor()
     }
-
+*/
     // Since webrender is asynchronous, we can't let the user draw
     // directly onto the frame or the texture since that has to be timed
     // with webrender
@@ -805,7 +805,13 @@ impl<'a, T: Layout> Window<T> {
             WindowMonitorTarget::Custom(ref id) => id.clone(),
         };
 
-        let hidpi_factor = monitor.get_hidpi_factor();
+        let winit_hidpi_factor = monitor.get_hidpi_factor();
+
+        #[cfg(target_os = "linux")]
+        let hidpi_factor = linux_get_hidpi_factor(&monitor, &events_loop);
+        #[cfg(not(target_os = "linux"))]
+        let hidpi_factor = winit_hidpi_factor;
+
         options.state.size.hidpi_factor = hidpi_factor;
 
         let mut window = WindowBuilder::new()
@@ -895,7 +901,12 @@ impl<'a, T: Layout> Window<T> {
         if options.state.is_maximized && !options.state.is_fullscreen {
             gl_window.window().set_maximized(true);
         } else if !options.state.is_fullscreen {
-            gl_window.window().set_inner_size(options.state.size.dimensions);
+            let inner_size = LogicalSize::new(
+                options.state.size.dimensions.width / winit_hidpi_factor * hidpi_factor,
+                options.state.size.dimensions.height / winit_hidpi_factor * hidpi_factor
+            );
+            println!("setting inner size to: {:?}", inner_size);
+            gl_window.window().set_inner_size(inner_size);
         }
 
         /*#[cfg(debug_assertions)]
@@ -903,7 +914,7 @@ impl<'a, T: Layout> Window<T> {
         #[cfg(not(debug_assertions))]*/
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
-        let device_pixel_ratio = display.gl_window().get_hidpi_factor();
+        let device_pixel_ratio = options.state.size.hidpi_factor;
 
         // pre-caching shaders means to compile all shaders on startup
         // this can take significant time and should be only used for testing the shaders
@@ -1096,7 +1107,13 @@ impl<'a, T: Layout> Window<T> {
         }
 
         if let Some(dpi) = frame_event_info.new_dpi_factor {
-            self.state.size.hidpi_factor = dpi;
+            #[cfg(target_os = "linux")] {
+                self.state.size.hidpi_factor = linux_get_hidpi_factor(&self.display.gl_window().window().get_current_monitor(), &self.events_loop);
+            }
+            #[cfg(not(target_os = "linux"))] {
+                self.state.size.hidpi_factor = dpi;
+            }
+            frame_event_info.should_redraw_window = true;
         }
     }
 
@@ -1137,8 +1154,7 @@ pub struct HidpiAdjustedBounds {
 }
 
 impl HidpiAdjustedBounds {
-    pub fn from_bounds<T: Layout>(fake_window: &FakeWindow<T>, bounds: LayoutRect) -> Self {
-        let hidpi_factor = fake_window.read_only_window().get_hidpi_factor();
+    pub fn from_bounds(bounds: LayoutRect, hidpi_factor: f64) -> Self {
         let logical_size = LogicalSize::new(bounds.size.width as f64, bounds.size.height as f64);
         let physical_size = logical_size.to_physical(hidpi_factor);
 
@@ -1194,4 +1210,71 @@ fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags
     if old_flags.gpu_cache_dbg != new_flags.gpu_cache_dbg {
         r.set_debug_flag(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
     }
+}
+
+#[cfg(target_os = "linux")]
+fn get_xft_dpi() -> Option<f64>{
+    // TODO!
+    /*
+    #include <X11/Xlib.h>
+    #include <X11/Xatom.h>
+    #include <X11/Xresource.h>
+
+    double _glfwPlatformGetMonitorDPI(_GLFWmonitor* monitor)
+    {
+        char *resourceString = XResourceManagerString(_glfw.x11.display);
+        XrmDatabase db;
+        XrmValue value;
+        char *type = NULL;
+        double dpi = 0.0;
+
+        XrmInitialize(); /* Need to initialize the DB before calling Xrm* functions */
+
+        db = XrmGetStringDatabase(resourceString);
+
+        if (resourceString) {
+            printf("Entire DB:\n%s\n", resourceString);
+            if (XrmGetResource(db, "Xft.dpi", "String", &type, &value) == True) {
+                if (value.addr) {
+                    dpi = atof(value.addr);
+                }
+            }
+        }
+
+        printf("DPI: %f\n", dpi);
+        return dpi;
+    }
+    */
+    None
+}
+
+/// Return the DPI on X11 systems
+#[cfg(target_os = "linux")]
+fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f64 {
+
+    use std::env;
+    use std::process::Command;
+    use glium::glutin::os::unix::EventsLoopExt;
+
+    let winit_dpi = monitor.get_hidpi_factor();
+    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f64>().ok());
+    let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f64>().ok());
+
+    // Execute "gsettings get org.gnome.desktop.interface text-scaling-factor" and parse the output
+    let gsettings_dpi_factor =
+        Command::new("gsettings")
+            .arg("get")
+            .arg("org.gnome.desktop.interface")
+            .arg("text-scaling-factor")
+            .output().ok()
+            .map(|output| output.stdout)
+            .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
+            .map(|stdout_string| stdout_string.lines().collect::<String>())
+            .and_then(|gsettings_output| gsettings_output.parse::<f64>().ok());
+
+    // Wayland: Ignore Xft.dpi
+    let xft_dpi = if events_loop.is_x11() { get_xft_dpi() } else { None };
+
+    let options = [winit_hidpi_factor, qt_font_dpi, gsettings_dpi_factor, xft_dpi];
+    options.into_iter().filter_map(|x| *x).next().unwrap_or(winit_dpi)
 }
