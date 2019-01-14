@@ -149,7 +149,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             &mut resource_updates,
             app_resources,
             &window.internal.api,
-            window.state.size.dimensions,
+            window.state.size.get_reverse_logical_size(),
             LogicalPosition::new(0.0, 0.0)
         );
 
@@ -1208,7 +1208,10 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     let node_data = &arena.node_data;
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
-    let rect_size = LogicalSize::new(info.rect.size.width as f64, info.rect.size.height as f64);
+    let rect_size = LogicalSize::new(
+        info.rect.size.width as f64 / rectangle.window_size.hidpi_factor * rectangle.window_size.winit_hidpi_factor,
+        info.rect.size.height as f64 / rectangle.window_size.hidpi_factor * rectangle.window_size.winit_hidpi_factor,
+    );
     let rect_origin = LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64);
 
     let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
