@@ -238,7 +238,15 @@ impl WindowSize {
             self.dimensions.height / self.winit_hidpi_factor * self.hidpi_factor
         )
     }
+
+    pub fn get_reverse_logical_size(&self) -> LogicalSize {
+        LogicalSize::new(
+            self.dimensions.width / self.hidpi_factor * self.winit_hidpi_factor,
+            self.dimensions.height / self.hidpi_factor * self.winit_hidpi_factor,
+        )
+    }
 }
+
 impl Default for WindowSize {
     fn default() -> Self {
         Self {

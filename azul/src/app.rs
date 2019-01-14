@@ -887,8 +887,11 @@ fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
 
 /// Returns the (logical_size, physical_size) as LayoutSizes, which can then be passed to webrender
 fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
-    let logical_size = LayoutSize::new(size.dimensions.width as f32, size.dimensions.height as f32);
-    let physical_size = size.dimensions.to_physical(size.hidpi_factor);
+    let logical_size = LayoutSize::new(
+        (size.dimensions.width * size.winit_hidpi_factor) as f32,
+        (size.dimensions.height * size.winit_hidpi_factor)  as f32
+    );
+    let physical_size = size.dimensions.to_physical(size.winit_hidpi_factor);
     let physical_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
     (logical_size, physical_size)
 }
