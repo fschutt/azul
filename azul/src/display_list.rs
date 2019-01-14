@@ -24,9 +24,9 @@ use azul_css::{
     Css, StyleTextAlignmentHorz, LayoutPosition,CssProperty, LayoutOverflow,
     StyleFontSize, StyleBorderRadius, PixelValue, FloatValue, LayoutMargin,
     StyleTextColor, StyleBackground, StyleBoxShadow, StyleBackgroundColor,
-    StyleBackgroundSize, StyleBorder, BoxShadowPreDisplayItem, LayoutPadding, SizeMetric,
-    BoxShadowClipMode, FontId, StyleTextAlignmentVert, RectStyle, RectLayout,
-    ColorU as StyleColorU
+    StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder, BoxShadowPreDisplayItem,
+    LayoutPadding, SizeMetric, BoxShadowClipMode, FontId, StyleTextAlignmentVert,
+    RectStyle, RectLayout, ColorU as StyleColorU
 };
 use {
     FastHashMap,
@@ -916,7 +916,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
             &bounds,
             referenced_mutable_content.builder,
             bg,
-            rect.style.background_size,
+            &rect.style.background_size,
+            &rect.style.background_repeat,
             &referenced_mutable_content.app_resources);
     }
 
@@ -1691,7 +1692,8 @@ fn push_background(
     bounds: &TypedRect<f32, LayoutPixel>,
     builder: &mut DisplayListBuilder,
     background: &StyleBackground,
-    background_size: Option<StyleBackgroundSize>,
+    background_size: &Option<StyleBackgroundSize>,
+    background_repeat: &Option<StyleBackgroundRepeat>,
     app_resources: &AppResources)
 {
     use azul_css::StyleBackground::*;
@@ -1752,7 +1754,18 @@ fn push_background(
                     None => TypedSize2D::new(image_dimensions.0, image_dimensions.1)
                 };
 
-                push_image(info, builder, app_resources, image_id, size);
+                let info = if let Some(repeat) = background_repeat {
+                    match repeat {
+                        StyleBackgroundRepeat::NoRepeat => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(size)),
+                        StyleBackgroundRepeat::Repeat => *info,
+                        StyleBackgroundRepeat::RepeatX => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(info.rect.size.width, size.height))),
+                        StyleBackgroundRepeat::RepeatY => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(size.width, info.rect.size.height))),
+                    }
+                } else {
+                    *info
+                };
+
+                push_image(&info, builder, app_resources, image_id, size);
             }
         },
         NoBackground => { },
@@ -1764,7 +1777,7 @@ struct Ratio {
     height: f32
 }
 
-fn calculate_background_size(bg_size: StyleBackgroundSize, info: &PrimitiveInfo<LayoutPixel>, image_dimensions: &(f32, f32))
+fn calculate_background_size(bg_size: &StyleBackgroundSize, info: &PrimitiveInfo<LayoutPixel>, image_dimensions: &(f32, f32))
 -> TypedSize2D<f32, LayoutPixel>
 {
     let original_ratios = Ratio {
@@ -1803,7 +1816,7 @@ fn push_image(
             // This leads to lighter images, but that's just how things are right now
 
             builder.push_image(
-                    &info,
+                    info,
                     size,
                     LayoutSize::zero(),
                     ImageRendering::Auto,
@@ -1960,7 +1973,8 @@ fn populate_css_properties(
         match property {
             BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
             BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
-            BackgroundSize(c)   => { rect.style.background_size = Some(*c);                 },
+            BackgroundSize(s)   => { rect.style.background_size = Some(*s);                 },
+            BackgroundRepeat(r) => { rect.style.background_repeat = Some(*r);               },
             TextColor(t)        => { rect.style.font_color = Some(*t);                      },
             Border(b)           => { StyleBorder::merge(&mut rect.style.border, &b);        },
             Background(b)       => { rect.style.background = Some(b.clone());               },

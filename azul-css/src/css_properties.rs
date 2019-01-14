@@ -196,10 +196,11 @@ macro_rules! impl_pixel_value {($struct:ident) => (
     }
 )}
 
-pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);52] = [
+pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);53] = [
     (CssPropertyType::BorderRadius,     "border-radius"),
     (CssPropertyType::BackgroundColor,  "background-color"),
     (CssPropertyType::BackgroundSize,   "background-size"),
+    (CssPropertyType::BackgroundRepeat, "background-repeat"),
     (CssPropertyType::TextColor,        "color"),
     (CssPropertyType::Background,       "background"),
     (CssPropertyType::FontSize,         "font-size"),
@@ -263,6 +264,7 @@ pub enum CssPropertyType {
     BorderRadius,
     BackgroundColor,
     BackgroundSize,
+    BackgroundRepeat,
     TextColor,
     Background,
     FontSize,
@@ -367,6 +369,7 @@ impl CssPropertyType {
             | BorderRadius
             | BackgroundColor
             | BackgroundSize
+            | BackgroundRepeat
             | TextColor
             | Background
             | TextAlign
@@ -394,6 +397,7 @@ pub enum CssProperty {
     BorderRadius(StyleBorderRadius),
     BackgroundColor(StyleBackgroundColor),
     BackgroundSize(StyleBackgroundSize),
+    BackgroundRepeat(StyleBackgroundRepeat),
     TextColor(StyleTextColor),
     Border(StyleBorder),
     Background(StyleBackground),
@@ -433,6 +437,7 @@ impl CssProperty {
             CssProperty::BorderRadius(_) => CssPropertyType::BorderRadius,
             CssProperty::BackgroundColor(_) => CssPropertyType::BackgroundColor,
             CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
+            CssProperty::BackgroundRepeat(_) => CssPropertyType::BackgroundRepeat,
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::Border(_) => CssPropertyType::Border,
             CssProperty::Background(_) => CssPropertyType::Background,
@@ -479,6 +484,7 @@ impl_from!(StyleLineHeight, CssProperty::LineHeight);
 impl_from!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from!(StyleBackgroundColor, CssProperty::BackgroundColor);
 impl_from!(StyleBackgroundSize, CssProperty::BackgroundSize);
+impl_from!(StyleBackgroundRepeat, CssProperty::BackgroundRepeat);
 impl_from!(StyleTextColor, CssProperty::TextColor);
 impl_from!(StyleCursor, CssProperty::Cursor);
 
@@ -629,6 +635,15 @@ impl Default for StyleBackgroundColor {
 pub enum StyleBackgroundSize {
     Contain,
     Cover
+}
+
+/// Represents a `background-repeat` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum StyleBackgroundRepeat {
+    NoRepeat,
+    Repeat,
+    RepeatX,
+    RepeatY,
 }
 
 /// Represents a `color` attribute
@@ -1351,6 +1366,8 @@ pub struct RectStyle {
     pub background_color: Option<StyleBackgroundColor>,
     /// Background size of this rectangle
     pub background_size: Option<StyleBackgroundSize>,
+    /// Background repetition
+    pub background_repeat: Option<StyleBackgroundRepeat>,
     /// Shadow color
     pub box_shadow: Option<StyleBoxShadow>,
     /// Gradient (location) + stops
