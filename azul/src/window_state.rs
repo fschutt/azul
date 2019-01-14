@@ -223,17 +223,28 @@ pub struct WindowSize {
     pub dimensions: LogicalSize,
     /// DPI factor of the window
     pub hidpi_factor: f64,
+    /// (Internal only, unused): winit HiDPI factor
+    pub winit_hidpi_factor: f64,
     /// Minimum dimensions of the window
     pub min_dimensions: Option<LogicalSize>,
     /// Maximum dimensions of the window
     pub max_dimensions: Option<LogicalSize>,
 }
 
+impl WindowSize {
+    pub fn get_inner_logical_size(&self) -> LogicalSize {
+        LogicalSize::new(
+            self.dimensions.width / self.winit_hidpi_factor * self.hidpi_factor,
+            self.dimensions.height / self.winit_hidpi_factor * self.hidpi_factor
+        )
+    }
+}
 impl Default for WindowSize {
     fn default() -> Self {
         Self {
             dimensions: LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
             hidpi_factor: 1.0,
+            winit_hidpi_factor: 1.0,
             min_dimensions: None,
             max_dimensions: None,
         }

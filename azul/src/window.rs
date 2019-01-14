@@ -813,6 +813,7 @@ impl<'a, T: Layout> Window<T> {
         let hidpi_factor = winit_hidpi_factor;
 
         options.state.size.hidpi_factor = hidpi_factor;
+        options.state.size.winit_hidpi_factor = winit_hidpi_factor;
 
         let mut window = WindowBuilder::new()
             .with_title(options.state.title.clone())
@@ -901,12 +902,7 @@ impl<'a, T: Layout> Window<T> {
         if options.state.is_maximized && !options.state.is_fullscreen {
             gl_window.window().set_maximized(true);
         } else if !options.state.is_fullscreen {
-            let inner_size = LogicalSize::new(
-                options.state.size.dimensions.width / winit_hidpi_factor * hidpi_factor,
-                options.state.size.dimensions.height / winit_hidpi_factor * hidpi_factor
-            );
-            println!("setting inner size to: {:?}", inner_size);
-            gl_window.window().set_inner_size(inner_size);
+            gl_window.window().set_inner_size(options.state.size.get_inner_logical_size());
         }
 
         /*#[cfg(debug_assertions)]
@@ -1102,17 +1098,18 @@ impl<'a, T: Layout> Window<T> {
 
     pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &FrameEventInfo) {
 
+        if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
+            #[cfg(target_os = "linux")] {
+                self.state.size.hidpi_factor = linux_get_hidpi_factor(&self.display.gl_window().window().get_current_monitor(), &self.events_loop);
+            }
+        }
+
         if let Some(new_size) = frame_event_info.new_window_size {
             self.state.size.dimensions = new_size;
         }
 
         if let Some(dpi) = frame_event_info.new_dpi_factor {
-            #[cfg(target_os = "linux")] {
-                self.state.size.hidpi_factor = linux_get_hidpi_factor(&self.display.gl_window().window().get_current_monitor(), &self.events_loop);
-            }
-            #[cfg(not(target_os = "linux"))] {
-                self.state.size.hidpi_factor = dpi;
-            }
+            self.state.size.winit_hidpi_factor = dpi;
             frame_event_info.should_redraw_window = true;
         }
     }
