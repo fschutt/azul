@@ -160,7 +160,7 @@ pub(crate) fn prepare_image(image_decoded: DynamicImage)
         image::ImageRgba8(mut bytes) => {
             let mut pixels = bytes.into_raw();
             // no extra allocation necessary, but swizzling
-            for rgba in pixels.chunks_mut(3) {
+            for rgba in pixels.chunks_mut(4) {
                 let r = rgba[0];
                 let g = rgba[1];
                 let b = rgba[2];
