@@ -764,7 +764,9 @@ impl WindowState
             Event::WindowEvent { event, .. } => {
                 match event {
                     WindowEvent::CursorMoved { position, .. } => {
-                        self.mouse_state.cursor_pos = Some(*position);
+                        let world_pos_x = position.x / self.size.hidpi_factor * self.size.winit_hidpi_factor;
+                        let world_pos_y = position.y / self.size.hidpi_factor * self.size.winit_hidpi_factor;
+                        self.mouse_state.cursor_pos = Some(LogicalPosition::new(world_pos_x, world_pos_y));
                     },
                     WindowEvent::CursorLeft { .. } => {
                         self.mouse_state.cursor_pos = None;
