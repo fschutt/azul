@@ -17,7 +17,7 @@ use webrender::{
     api::{
         HitTestResult, HitTestFlags, DevicePixel,
         WorldPoint, LayoutSize, LayoutPoint,
-        Epoch, Transaction,
+        Epoch, Transaction, ImageFormat as RawImageFormat,
     },
 };
 #[cfg(feature = "image_loading")]
@@ -408,6 +408,17 @@ impl<T: Layout> App<T> {
         -> Result<Option<()>, ImageError>
     {
         self.app_state.add_image(id, data, image_type)
+    }
+
+    pub fn add_image_raw<S: Into<String>>(
+        &mut self,
+        id: S,
+        pixels: Vec<u8>,
+        image_dimensions: (u32, u32),
+        data_format: RawImageFormat
+    ) -> Option<()>
+    {
+        self.app_state.add_image_raw(id, pixels, image_dimensions, data_format)
     }
 
     /// Removes an image from the internal app resources.

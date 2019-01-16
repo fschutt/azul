@@ -10,6 +10,7 @@ use image::ImageError;
 use images::ImageType;
 use rusttype::Font;
 use azul_css::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing};
+use webrender::api::ImageFormat as RawImageFormat;
 use {
     FastHashMap,
     text_cache::TextId,
@@ -120,6 +121,17 @@ impl<T: Layout> AppState<T> {
         -> Result<Option<()>, ImageError>
     {
         self.resources.add_image(id, data, image_type)
+    }
+
+    pub fn add_image_raw<S: Into<String>>(
+        &mut self,
+        id: S,
+        pixels: Vec<u8>,
+        image_dimensions: (u32, u32),
+        data_format: RawImageFormat
+    ) -> Option<()>
+    {
+        self.resources.add_image_raw(id, pixels, image_dimensions, data_format)
     }
 
     /// Checks if an image is currently registered and ready-to-use

@@ -5,6 +5,7 @@ use std::{
     collections::hash_map::Entry::*,
 };
 use webrender::api::{FontKey, FontInstanceKey};
+pub use webrender::api::ImageFormat as RawImageFormat;
 #[cfg(feature = "image_loading")]
 use image::{self, ImageError};
 #[cfg(feature = "image_loading")]
@@ -96,6 +97,42 @@ impl AppResources {
                 let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
                 v.insert(ImageState::ReadyForUpload(images::prepare_image(decoded)?));
                 Ok(Some(()))
+            },
+        }
+    }
+
+    /// Add raw image data (directly from a Vec<u8>) in BRGA8 or A8 format
+    pub fn add_image_raw<S: Into<String>>(
+        &mut self,
+        id: S,
+        pixels: Vec<u8>,
+        image_dimensions: (u32, u32),
+        data_format: RawImageFormat
+    ) -> Option<()>
+    {
+        use images; // the module, not the crate!
+        use webrender::api::{ImageData, ImageDescriptor};
+
+        // TODO: Handle image decoding failure better!
+
+        let image_id = match self.css_ids_to_image_ids.entry(id.into()) {
+            Occupied(_) => return None,
+            Vacant(v) => {
+                let new_id = images::new_image_id();
+                v.insert(new_id)
+            },
+        };
+
+        let opaque = images::is_image_opaque(data_format, &pixels[..]);
+        let allow_mipmaps = true;
+        let descriptor = ImageDescriptor::new(image_dimensions.0 as i32, image_dimensions.1 as i32, data_format, opaque, allow_mipmaps);
+        let data = ImageData::new(pixels);
+
+        match self.images.entry(*image_id) {
+            Occupied(_) => None,
+            Vacant(v) => {
+                v.insert(ImageState::ReadyForUpload((data, descriptor)));
+                Some(())
             },
         }
     }
