@@ -251,13 +251,33 @@ pub enum CssPathPseudoSelector {
     /// `:last`
     Last,
     /// `:nth-child`
-    NthChild(usize),
+    NthChild(CssNthChildSelector),
     /// `:hover` - mouse is over element
     Hover,
     /// `:active` - mouse is pressed and over element
     Active,
     /// `:focus` - element has received focus
     Focus,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CssNthChildSelector {
+    Number(usize),
+    Even,
+    Odd,
+    Pattern { repeat: usize, offset: usize },
+}
+
+impl fmt::Display for CssNthChildSelector {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::CssNthChildSelector::*;
+        match &self {
+            Number(u) => write!(f, "{}", u),
+            Even => write!(f, "even"),
+            Odd => write!(f, "odd"),
+            Pattern { repeat, offset } => write!(f, "{}n + {}", repeat, offset),
+        }
+    }
 }
 
 impl fmt::Display for CssPathPseudoSelector {

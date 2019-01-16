@@ -17,7 +17,8 @@ use azul_css::{
     CssRuleBlock,
     CssPath,
     CssPathSelector,
-    CssPathPseudoSelector,
+    CssPathPseudoSelector::{self, *},
+    CssNthChildSelector::*,
     NodeTypePath,
     NodeTypePathParseError,
 };
@@ -81,48 +82,83 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
 
 fn pseudo_selector_from_str<'a>(data: &'a str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
     match data {
-        "first" => Ok(CssPathPseudoSelector::First),
-        "last" => Ok(CssPathPseudoSelector::Last),
-        "hover" => Ok(CssPathPseudoSelector::Hover),
-        "active" => Ok(CssPathPseudoSelector::Active),
-        "focus" => Ok(CssPathPseudoSelector::Focus),
-        other => {
-            // TODO: move this into a seperate function
-            if other.starts_with("nth-child") {
-                let mut nth_child = other.split("nth-child");
-                nth_child.next();
-                let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(other))?;
-                nth_child_string.trim();
-                if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
-                    return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(other));
-                }
-
-                // Should the string be empty, then the `starts_with` and `ends_with` won't succeed
-                let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
-                nth_child_string.trim();
-                let parsed = nth_child_string.parse::<usize>()?;
-                Ok(CssPathPseudoSelector::NthChild(parsed))
-            } else {
-                Err(CssPseudoSelectorParseError::UnknownSelector(other))
-            }
-        },
+        "first" => Ok(First),
+        "last" => Ok(Last),
+        "hover" => Ok(Hover),
+        "active" => Ok(Active),
+        "focus" => Ok(Focus),
+        nth_child if data.starts_with("nth-child") => parse_nth_child_selector(nth_child),
+        other => Err(CssPseudoSelectorParseError::UnknownSelector(other)),
     }
+}
+
+fn parse_nth_child_selector(input: &str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError> {
+    let mut nth_child = input.split("nth-child");
+    nth_child.next();
+    let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(input))?;
+    nth_child_string = nth_child_string.trim();
+    if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
+        return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(input));
+    }
+
+    // If this string is empty, `starts_with` and `ends_with` won't succeed
+    let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
+    nth_child_string = nth_child_string.trim();
+    // If the value is a number
+    if let Ok(number) = nth_child_string.parse::<usize>() {
+        return Ok(NthChild(Number(number)));
+    }
+    // If the value is not a number
+    match nth_child_string {
+        "even" => Ok(NthChild(Even)),
+        "odd" => Ok(NthChild(Odd)),
+        other => parse_nth_child_pattern(input, other)
+    }
+}
+
+fn parse_nth_child_pattern<'a>(selector: &'a str, nth_child_string: &str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
+    if !nth_child_string.contains("n") {
+        return Err(CssPseudoSelectorParseError::UnknownSelector(selector));
+    }
+
+    let repeat = nth_child_string.split("n").next()
+        .ok_or(CssPseudoSelectorParseError::UnknownSelector(selector))?
+        .parse::<usize>()?;
+
+    let offset = if nth_child_string.contains("+") {
+            nth_child_string.split("n").next()
+                .ok_or(CssPseudoSelectorParseError::UnknownSelector(selector))?
+                .split("+")
+                .next()
+                .ok_or(CssPseudoSelectorParseError::UnknownSelector(selector))?
+                .trim()
+                .parse::<usize>()?
+        } else {
+            0
+        };
+
+    Ok(NthChild(Pattern { repeat, offset }))
 }
 
 #[test]
 fn test_css_pseudo_selector_parse() {
     let ok_res = [
-        ("first", CssPathPseudoSelector::First),
-        ("last", CssPathPseudoSelector::Last),
-        ("nth-child(4)", CssPathPseudoSelector::NthChild(4)),
-        ("hover", CssPathPseudoSelector::Hover),
-        ("active", CssPathPseudoSelector::Active),
-        ("focus", CssPathPseudoSelector::Focus),
+        ("first", First),
+        ("last", Last),
+        ("hover", Hover),
+        ("active", Active),
+        ("focus", Focus),
+        ("nth-child(4)", NthChild(Number(4))),
+        ("nth-child(even)", NthChild(Even)),
+        ("nth-child(odd)", NthChild(Odd)),
+        ("nth-child(5n)", NthChild(Pattern { repeat: 5, offset: 0 })),
+        ("nth-child(2n+3)", NthChild(Pattern { repeat: 2, offset: 3 })),
     ];
 
     let err = [
         ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf")),
         ("", CssPseudoSelectorParseError::UnknownSelector("")),
+        ("nth-child(2n+)", CssPseudoSelectorParseError::UnknownSelector("nth-child(2n+")),
         ("nth-child(", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child(")),
         ("nth-child)", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child)")),
         // Can't test for ParseIntError because the fields are private.
@@ -181,7 +217,6 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
 fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) -> Result<Css, CssParseErrorInner<'a>> {
     use simplecss::{Token, Combinator};
-
 
     let mut css_blocks = Vec::new();
 
@@ -518,7 +553,7 @@ fn test_css_parse_1() {
                     // NOTE: This is technically wrong, the space between "#my_id"
                     // and ".my_class" is important, but gets ignored for now
                     CssPathSelector::Class(String::from("my_class")),
-                    CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
+                    CssPathSelector::PseudoSelector(First),
                 ],
             },
             declarations: vec![CssDeclaration::Static(CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
