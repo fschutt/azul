@@ -80,7 +80,8 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     UnclosedBracesNthChild(e) => format!(":nth-child has unclosed braces: ':{}'", e),
 }}
 
-fn pseudo_selector_from_str<'a>(data: &'a str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
+fn pseudo_selector_from_str(data: &str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError> {
+    println!("{}", data);
     match data {
         "first" => Ok(First),
         "last" => Ok(Last),
@@ -96,6 +97,7 @@ fn parse_nth_child_selector(input: &str) -> Result<CssPathPseudoSelector, CssPse
     let mut nth_child = input.split("nth-child");
     nth_child.next();
     let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(input))?;
+    println!("input = {}\nnth_child.collect::<Vec<&str>>() = {:?}\nnth_child_string = {}", input, nth_child.collect::<Vec<&str>>(), nth_child_string);
     nth_child_string = nth_child_string.trim();
     if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
         return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(input));
@@ -126,11 +128,8 @@ fn parse_nth_child_pattern<'a>(selector: &'a str, nth_child_string: &str) -> Res
         .parse::<usize>()?;
 
     let offset = if nth_child_string.contains("+") {
-            nth_child_string.split("n").next()
-                .ok_or(CssPseudoSelectorParseError::UnknownSelector(selector))?
-                .split("+")
-                .next()
-                .ok_or(CssPseudoSelectorParseError::UnknownSelector(selector))?
+            nth_child_string.split("+")
+                .collect::<Vec<&str>>()[1]
                 .trim()
                 .parse::<usize>()?
         } else {
@@ -158,7 +157,7 @@ fn test_css_pseudo_selector_parse() {
     let err = [
         ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf")),
         ("", CssPseudoSelectorParseError::UnknownSelector("")),
-        ("nth-child(2n+)", CssPseudoSelectorParseError::UnknownSelector("nth-child(2n+")),
+        ("nth-child(2+3)", CssPseudoSelectorParseError::UnknownSelector("nth-child(2+3)")),
         ("nth-child(", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child(")),
         ("nth-child)", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child)")),
         // Can't test for ParseIntError because the fields are private.
@@ -188,6 +187,7 @@ impl<'a> fmt::Display for CssParseError<'a> {
 
 pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     let mut tokenizer = Tokenizer::new(css_string);
+    println!("css_string = {}", css_string);
     match new_from_str_inner(css_string, &mut tokenizer) {
         Ok(css) => Ok(css),
         Err(e) => {
