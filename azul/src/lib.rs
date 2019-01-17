@@ -205,7 +205,7 @@ pub mod prelude {
     };
     pub use azul_css::*;
     pub use rusttype::Font;
-    pub use app_resources::AppResources;
+    pub use app_resources::{AppResources, RawImageFormat};
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::TextLayoutOptions;
