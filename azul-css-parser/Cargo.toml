@@ -17,7 +17,7 @@ autoexamples = false
 
 [dependencies]
 azul-css                = { path = "../azul-css",   default-features = false }
-simplecss               = { path = "../simplecss",      default-features = false }
+simplecss               = { git = "https://github.com/cubetastic33/simplecss", rev = "bc3096e7a99b425786fc1568a3bd7e4e3ad79b4e",      default-features = false }
 serde                   = { version = "1",          default-features = false, optional = true }
 
 [features]
