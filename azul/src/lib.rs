@@ -74,9 +74,8 @@
 #[cfg_attr(feature = "svg", macro_use(implement_vertex, uniform))]
 pub extern crate azul_dependencies;
 
-pub use azul_dependencies::glium as glium;
-pub use azul_dependencies::gleam as gleam;
-
+pub(crate) use azul_dependencies::glium as glium;
+pub(crate) use azul_dependencies::gleam as gleam;
 pub(crate) use azul_dependencies::euclid;
 pub(crate) use azul_dependencies::webrender;
 pub(crate) use azul_dependencies::rusttype;
