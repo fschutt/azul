@@ -71,7 +71,7 @@ version = "0.1.0"
 dependencies = [
  "azul-css 0.1.0",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "simplecss 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "simplecss 0.1.0",
 ]
 
 [[package]]
@@ -1432,7 +1432,6 @@ source = "git+https://github.com/maps4print/azul-dependencies?rev=27be4747dd0917
 [[package]]
 name = "simplecss"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "siphasher"
@@ -2033,7 +2032,6 @@ source = "git+https://github.com/maps4print/azul-dependencies?rev=27be4747dd0917
 "checksum shared_library 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "5a9e7e0f2bfae24d8a5b5a66c5b257a83c7412304311512a0c054cd5e619da11"
 "checksum sid 0.5.2 (git+https://github.com/maps4print/azul-dependencies?rev=27be4747dd0917f29d8742d385c66e1f37876f03)" = "<none>"
 "checksum simplecss 0.1.0 (git+https://github.com/maps4print/azul-dependencies?rev=27be4747dd0917f29d8742d385c66e1f37876f03)" = "<none>"
-"checksum simplecss 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "135685097a85a64067df36e28a243e94a94f76d829087ce0be34eeb014260c0e"
 "checksum siphasher 0.2.3 (git+https://github.com/maps4print/azul-dependencies?rev=27be4747dd0917f29d8742d385c66e1f37876f03)" = "<none>"
 "checksum slab 0.4.1 (git+https://github.com/maps4print/azul-dependencies?rev=27be4747dd0917f29d8742d385c66e1f37876f03)" = "<none>"
 "checksum smallvec 0.6.7 (git+https://github.com/maps4print/azul-dependencies?rev=27be4747dd0917f29d8742d385c66e1f37876f03)" = "<none>"

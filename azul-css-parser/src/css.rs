@@ -65,7 +65,7 @@ impl_from! { NodeTypePathParseError<'a>, CssParseErrorInner::NodeTypePath }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssPseudoSelectorParseError<'a> {
-    UnknownSelector(&'a str),
+    UnknownSelector(String),
     InvalidNthChild(ParseIntError),
     UnclosedBracesNthChild(&'a str),
 }
@@ -81,31 +81,18 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
 }}
 
 fn pseudo_selector_from_str(data: &str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError> {
-    println!("{}", data);
     match data {
         "first" => Ok(First),
         "last" => Ok(Last),
         "hover" => Ok(Hover),
         "active" => Ok(Active),
         "focus" => Ok(Focus),
-        nth_child if data.starts_with("nth-child") => parse_nth_child_selector(nth_child),
-        other => Err(CssPseudoSelectorParseError::UnknownSelector(other)),
+        other => Err(CssPseudoSelectorParseError::UnknownSelector(other.to_string())),
     }
 }
 
 fn parse_nth_child_selector(input: &str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError> {
-    let mut nth_child = input.split("nth-child");
-    nth_child.next();
-    let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(input))?;
-    println!("input = {}\nnth_child.collect::<Vec<&str>>() = {:?}\nnth_child_string = {}", input, nth_child.collect::<Vec<&str>>(), nth_child_string);
-    nth_child_string = nth_child_string.trim();
-    if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
-        return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(input));
-    }
-
-    // If this string is empty, `starts_with` and `ends_with` won't succeed
-    let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
-    nth_child_string = nth_child_string.trim();
+    let nth_child_string = input.trim();
     // If the value is a number
     if let Ok(number) = nth_child_string.parse::<usize>() {
         return Ok(NthChild(Number(number)));
@@ -114,29 +101,26 @@ fn parse_nth_child_selector(input: &str) -> Result<CssPathPseudoSelector, CssPse
     match nth_child_string {
         "even" => Ok(NthChild(Even)),
         "odd" => Ok(NthChild(Odd)),
-        other => parse_nth_child_pattern(input, other)
+        other => {
+            if !nth_child_string.contains("n") {
+                return Err(CssPseudoSelectorParseError::UnknownSelector(format!("nth-child({})", input)));
+            }
+
+            let repeat = nth_child_string.split("n").next()
+                .ok_or(CssPseudoSelectorParseError::UnknownSelector(format!("nth-child({})", input)))?
+                .parse::<usize>()?;
+
+            let offset = if nth_child_string.contains("+") {
+                    nth_child_string.split("+")
+                        .collect::<Vec<&str>>()[1]
+                        .trim()
+                        .parse::<usize>()?
+                } else {
+                    0
+                };
+            Ok(NthChild(Pattern { repeat, offset }))
+        }
     }
-}
-
-fn parse_nth_child_pattern<'a>(selector: &'a str, nth_child_string: &str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
-    if !nth_child_string.contains("n") {
-        return Err(CssPseudoSelectorParseError::UnknownSelector(selector));
-    }
-
-    let repeat = nth_child_string.split("n").next()
-        .ok_or(CssPseudoSelectorParseError::UnknownSelector(selector))?
-        .parse::<usize>()?;
-
-    let offset = if nth_child_string.contains("+") {
-            nth_child_string.split("+")
-                .collect::<Vec<&str>>()[1]
-                .trim()
-                .parse::<usize>()?
-        } else {
-            0
-        };
-
-    Ok(NthChild(Pattern { repeat, offset }))
 }
 
 #[test]
@@ -147,19 +131,11 @@ fn test_css_pseudo_selector_parse() {
         ("hover", Hover),
         ("active", Active),
         ("focus", Focus),
-        ("nth-child(4)", NthChild(Number(4))),
-        ("nth-child(even)", NthChild(Even)),
-        ("nth-child(odd)", NthChild(Odd)),
-        ("nth-child(5n)", NthChild(Pattern { repeat: 5, offset: 0 })),
-        ("nth-child(2n+3)", NthChild(Pattern { repeat: 2, offset: 3 })),
     ];
 
     let err = [
-        ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf")),
-        ("", CssPseudoSelectorParseError::UnknownSelector("")),
-        ("nth-child(2+3)", CssPseudoSelectorParseError::UnknownSelector("nth-child(2+3)")),
-        ("nth-child(", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child(")),
-        ("nth-child)", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child)")),
+        ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf".to_string())),
+        ("", CssPseudoSelectorParseError::UnknownSelector("".to_string())),
         // Can't test for ParseIntError because the fields are private.
         // This is an example on why you shouldn't use std::error::Error!
     ];
@@ -187,7 +163,6 @@ impl<'a> fmt::Display for CssParseError<'a> {
 
 pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     let mut tokenizer = Tokenizer::new(css_string);
-    println!("css_string = {}", css_string);
     match new_from_str_inner(css_string, &mut tokenizer) {
         Ok(css) => Ok(css),
         Err(e) => {
@@ -311,6 +286,12 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) ->
                             return Err(CssParseErrorInner::MalformedCss);
                         }
                         last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(pseudo_class)?));
+                    },
+                    Token::NthChildPseudoClass(nth_child) => {
+                        if parser_in_block {
+                            return Err(CssParseErrorInner::MalformedCss);
+                        }
+                        last_path.push(CssPathSelector::PseudoSelector(parse_nth_child_selector(nth_child)?));
                     },
                     Token::Declaration(key, val) => {
                         if !parser_in_block {
