@@ -7,7 +7,8 @@ use azul_css::{
     CssDeclaration,
     CssPath,
     CssPathSelector,
-    CssPathPseudoSelector
+    CssPathPseudoSelector,
+    CssNthChildSelector::*,
 };
 use {
     traits::Layout,
@@ -317,7 +318,7 @@ fn match_hover_selectors<'a, T: Layout>(
     btree_map
 }
 
-/// Matches a single groupt of items, panics on Children or DirectChildren selectors
+/// Matches a single group of items, panics on Children or DirectChildren selectors
 ///
 /// The intent is to "split" the CSS path into groups by selectors, then store and cache
 /// whether the direct or any parent has matched the path correctly
@@ -351,7 +352,13 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_no
                 if !html_node.is_last_child { return false; }
             },
             PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
-                if html_node.index_in_parent != *x { return false; }
+                match *x {
+                    Number(value) => if html_node.index_in_parent != value { return false; },
+                    Even => if html_node.index_in_parent % 2 == 0 { return false; },
+                    Odd => if html_node.index_in_parent % 2 == 1 { return false; },
+                    Pattern { repeat, offset } => if html_node.index_in_parent >= offset &&
+                        ((html_node.index_in_parent - offset) % repeat != 0) { return false; },
+                }
             },
             PseudoSelector(CssPathPseudoSelector::Hover) => {
                 if !html_node.is_hovered_over { return false; }

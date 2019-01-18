@@ -8,18 +8,10 @@ use simplecss::Tokenizer;
 
 use css_parser;
 pub use css_parser::CssParsingError;
-use azul_css::{
-    Css,
-    CssDeclaration,
-    DynamicCssProperty,
-    DynamicCssPropertyDefault,
-    CssPropertyType,
-    CssRuleBlock,
-    CssPath,
-    CssPathSelector,
-    CssPathPseudoSelector,
-    NodeTypePath,
-    NodeTypePathParseError,
+use azul_css::{ Css, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault,
+    CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
+    CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
+    NodeTypePath, NodeTypePathParseError,
 };
 
 /// Error that can happen during the parsing of a CSS value
@@ -41,7 +33,7 @@ pub enum CssParseErrorInner<'a> {
     /// `#div { width: {{ my_id }} /* no default case */ }`
     DynamicCssParseError(DynamicCssParseError<'a>),
     /// Error while parsing a pseudo selector (like `:aldkfja`)
-    PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
+    PseudoSelectorParseError(CssPseudoSelectorParseError),
     /// The path has to be either `*`, `div`, `p` or something like that
     NodeTypePath(NodeTypePathParseError<'a>),
     /// A certain property has an unknown key, for example: `alsdfkj: 500px` = `unknown CSS key "alsdfkj: 500px"`
@@ -59,38 +51,41 @@ impl_display!{ CssParseErrorInner<'a>, {
 }}
 
 impl_from! { DynamicCssParseError<'a>, CssParseErrorInner::DynamicCssParseError }
-impl_from! { CssPseudoSelectorParseError<'a>, CssParseErrorInner::PseudoSelectorParseError }
 impl_from! { NodeTypePathParseError<'a>, CssParseErrorInner::NodeTypePath }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CssPseudoSelectorParseError<'a> {
-    EmptyNthChild,
-    UnknownSelector(&'a str, Option<&'a str>),
-    InvalidNthChild(ParseIntError),
-    UnclosedBracesNthChild(&'a str),
+impl<'a> From<CssPseudoSelectorParseError> for CssParseErrorInner<'a> {
+    fn from(e: CssPseudoSelectorParseError) -> Self { CssParseErrorInner::PseudoSelectorParseError(e) }
 }
 
-impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CssPseudoSelectorParseError {
+    EmptyNthChild,
+    UnknownSelector(String),
+    InvalidNthChildPattern(String),
+    InvalidNthChild(ParseIntError),
+}
+
+impl From<ParseIntError> for CssPseudoSelectorParseError {
     fn from(e: ParseIntError) -> Self { CssPseudoSelectorParseError::InvalidNthChild(e) }
 }
 
-impl_display! { CssPseudoSelectorParseError<'a>, {
-    EmptyNthChild => format!("Empty :nth-child() selector - nth-child() must at least take one number, a pattern (such as \"2n+3\") or the values \"even\" or \"odd\"."),
-    UnknownSelector(selector, value) => {
-        let format_str = match value {
-            Some(v) => format!("{}({})", selector, v),
-            None => format!("{}", selector),
-        };
-        format!("Invalid CSS pseudo-selector: ':{}'", format_str)
-    },
+impl_display! { CssPseudoSelectorParseError, {
+    EmptyNthChild => format!("\
+        Empty :nth-child() selector - nth-child() must at least take a number, \
+        a pattern (such as \"2n+3\") or the values \"even\" or \"odd\"."
+    ),
+    UnknownSelector(selector) => format!("Invalid or unknown CSS pseudo-selector: ':{}'", selector),
+    InvalidNthChildPattern(selector) => format!(
+        "Invalid pseudo-selector :{} - value has to be a \
+        number, \"even\" or \"odd\" or a pattern such as \"2n+3\"", selector
+    ),
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
-    UnclosedBracesNthChild(e) => format!(":nth-child has unclosed braces: ':{}'", e),
 }}
 
 /// "selector" contains the actual selector such as "nth-child" while "value" contains
 /// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
-fn pseudo_selector_from_str<'a>(selector: &'a str, value: Option<&'a str>)
--> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>>
+fn pseudo_selector_from_str(selector: &str, value: Option<&str>)
+-> Result<CssPathPseudoSelector, CssPseudoSelectorParseError>
 {
     match selector {
         "first" => Ok(CssPathPseudoSelector::First),
@@ -101,28 +96,103 @@ fn pseudo_selector_from_str<'a>(selector: &'a str, value: Option<&'a str>)
         "nth-child" => {
             let value = value.ok_or(CssPseudoSelectorParseError::EmptyNthChild)?;
             let mut value = value.to_string();
-            value.trim();
-            let parsed = value.parse::<usize>()?;
+            let parsed = parse_nth_child_selector(&mut value)?;
             Ok(CssPathPseudoSelector::NthChild(parsed))
         },
-        _ => Err(CssPseudoSelectorParseError::UnknownSelector(selector, value)),
+        _ => {
+            let format_str = match value {
+                Some(v) => format!("{}({})", selector, v),
+                None => format!("{}", selector),
+            };
+            Err(CssPseudoSelectorParseError::UnknownSelector(format_str))
+        },
     }
+}
+
+/// Parses the inner value of the `:nth-child` selector, including numbers and patterns.
+///
+/// I.e.: `"2n+3"` -> `Pattern { repeat: 2, offset: 3 }`
+fn parse_nth_child_selector(value: &mut str) -> Result<CssNthChildSelector, CssPseudoSelectorParseError> {
+
+    value.trim();
+
+    if value.is_empty() {
+        return Err(CssPseudoSelectorParseError::EmptyNthChild);
+    }
+
+    if let Ok(number) = value.parse::<usize>() {
+        return Ok(Number(number));
+    }
+
+    // If the value is not a number
+    match value.as_ref() {
+        "even" => return Ok(Even),
+        "odd" => return Ok(Odd),
+        other => { },
+    }
+
+    parse_nth_child_pattern(value)
+}
+
+/// Parses the pattern between the braces of a "nth-child" (such as "2n+3").
+fn parse_nth_child_pattern(value: &mut str) -> Result<CssNthChildSelector, CssPseudoSelectorParseError> {
+
+    value.trim();
+
+    if value.is_empty() {
+        return Err(CssPseudoSelectorParseError::EmptyNthChild);
+    }
+
+    // TODO: Test for "+"
+    let repeat = value.split("n").next()
+        .ok_or(CssPseudoSelectorParseError::InvalidNthChildPattern(value.to_string()))?
+        .trim()
+        .parse::<usize>()?;
+
+    // In a "2n+3" form, the first .next() yields the "2n", the second .next() yields the "3"
+    let mut offset_iterator = value.split("+");
+
+    // has to succeed, since the string is verified to not be empty
+    offset_iterator.next().unwrap();
+
+    let offset = match offset_iterator.next() {
+        Some(offset_string) => {
+            offset_string.trim();
+            if offset_string.is_empty() {
+                return Err(CssPseudoSelectorParseError::InvalidNthChildPattern(value.to_string()));
+            } else {
+                offset_string.parse::<usize>()?
+            }
+        },
+        None => 0,
+    };
+
+    Ok(Pattern { repeat, offset })
 }
 
 #[test]
 fn test_css_pseudo_selector_parse() {
+
+    use self::CssPathPseudoSelector::*;
+    use self::CssPseudoSelectorParseError::*;
+
     let ok_res = [
-        (("first", None), CssPathPseudoSelector::First),
-        (("last", None), CssPathPseudoSelector::Last),
-        (("nth-child", Some("4")), CssPathPseudoSelector::NthChild(4)),
-        (("hover", None), CssPathPseudoSelector::Hover),
-        (("active", None), CssPathPseudoSelector::Active),
-        (("focus", None), CssPathPseudoSelector::Focus),
+        (("first", None), First),
+        (("last", None), Last),
+        (("hover", None), Hover),
+        (("active", None), Active),
+        (("focus", None), Focus),
+        (("nth-child", Some("4")), NthChild(Number(4))),
+        (("nth-child", Some("even")), NthChild(Even)),
+        (("nth-child", Some("odd")), NthChild(Odd)),
+        (("nth-child", Some("5n")), NthChild(Pattern { repeat: 5, offset: 0 })),
+        (("nth-child", Some("2n+3")), NthChild(Pattern { repeat: 2, offset: 3 })),
     ];
 
     let err = [
-        (("asdf", None), CssPseudoSelectorParseError::UnknownSelector("asdf", None)),
-        (("", None), CssPseudoSelectorParseError::UnknownSelector("", None)),
+        (("asdf", None), UnknownSelector(format!("asdf"))),
+        (("", None), UnknownSelector(format!(""))),
+        (("nth-child", Some("2n+")), InvalidNthChildPattern(format!("2n+"))),
         // Can't test for ParseIntError because the fields are private.
         // This is an example on why you shouldn't use std::error::Error!
     ];
@@ -179,7 +249,6 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
 fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) -> Result<Css, CssParseErrorInner<'a>> {
     use simplecss::{Token, Combinator};
-
 
     let mut css_blocks = Vec::new();
 
