@@ -458,6 +458,48 @@ impl WindowState
             Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
         };
 
+        fn mouse_enter<T: Layout>(
+            node_id: &NodeId,
+            hit_test_item: &HitTestItem,
+            target_on: On,
+            ui_state: &UiState<T>,
+            needs_hover_redraw: &mut bool,
+            needs_hover_relayout: &mut bool,
+        ) -> Option<(NodeId, DetermineCallbackResult<T>)> {
+
+            let tag_for_this_node = ui_state.node_ids_to_tag_ids.get(&node_id)?;
+
+            let default_callbacks = ui_state.tag_ids_to_default_callbacks
+                .get(&tag_for_this_node)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(on, _)| *on == target_on)
+                .collect();
+
+            let normal_callbacks = ui_state.tag_ids_to_callbacks
+                .get(&tag_for_this_node)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(on, _)| *on == target_on)
+                .collect();
+
+            let hit_test_item = hit_test_item.clone();
+            let callback_result = DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item };
+
+            if let Some((_, hover_group)) = ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node) {
+                // We definitely need to redraw (on any :hover) change
+                *needs_hover_redraw = true;
+                // Only set this to true if the :hover group actually affects the layout
+                if hover_group.affects_layout {
+                    *needs_hover_relayout = true;
+                }
+            }
+
+            Some((*node_id, callback_result))
+        }
+
         let mut nodes_with_callbacks = hit_test_result.items
             .iter()
             .filter_map(|item| hit_test_item_to_callback_result(item, ui_state, &events_vec))
@@ -467,55 +509,22 @@ impl WindowState
         let mut needs_hover_relayout = false;
 
         // Insert all On::MouseEnter events
-        for (mouse_enter_node_id, hit_test_item) in self.hovered_nodes.iter()
-            .cloned()
+        nodes_with_callbacks.extend(
+            self.hovered_nodes.iter()
             .filter(|current| previous_state.hovered_nodes.iter().find(|x| x.0 == current.0).is_none())
-        {
-            let tag_for_this_node = ui_state.node_ids_to_tag_ids.get(&mouse_enter_node_id).unwrap();
-
-            let default_callbacks = ui_state.tag_ids_to_default_callbacks
-                .get(&tag_for_this_node)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(on, _)| *on == On::MouseEnter)
-                .collect();
-
-            let normal_callbacks = ui_state.tag_ids_to_callbacks
-                .get(&tag_for_this_node)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(on, _)| *on == On::MouseEnter)
-                .collect();
-
-            let hit_test_item = hit_test_item.clone();
-            let callback_result = DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item };
-            nodes_with_callbacks.insert(mouse_enter_node_id, callback_result);
-
-            if let Some((_, hover_group)) = ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node) {
-                // We definitely need to redraw (on any :hover) change
-                needs_hover_redraw = true;
-                // Only set this to true if the :hover group actually affects the layout
-                if hover_group.affects_layout {
-                    needs_hover_relayout = true;
-                }
-            }
-        }
-/*
+            .filter_map(|(mouse_enter_node_id, hit_test_item)| {
+                mouse_enter(mouse_enter_node_id, hit_test_item, On::MouseEnter, &ui_state, &mut needs_hover_redraw, &mut needs_hover_relayout)
+            })
+        );
 
         // Insert all On::MouseLeave events
-        for mouse_leave_node_id in previous_state.hovered_nodes.iter().filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none()).map(|x| *x) {
-            nodes_with_callbacks.entry(mouse_leave_node_id)
-            .or_insert_with(||
-                DetermineCallbackResult {
-                    hit_test_item: HitTestItem,
-                    default_callbacks: BTreeMap<On, DefaultCallbackId>,
-                    normal_callbacks: BTreeMap<On, Callback<T>>,
-                }
-            )
-        }
-*/
+        nodes_with_callbacks.extend(
+            previous_state.hovered_nodes.iter()
+            .filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none())
+            .filter_map(|(mouse_enter_node_id, hit_test_item)| {
+                mouse_enter(mouse_enter_node_id, hit_test_item, On::MouseLeave, &ui_state, &mut needs_hover_redraw, &mut needs_hover_relayout)
+            })
+        );
 
         self.previous_window_state = Some(previous_state);
 
@@ -524,13 +533,6 @@ impl WindowState
             needs_relayout_anyways: needs_hover_relayout,
             nodes_with_callbacks,
         }
-/*
-DetermineCallbackResult<T: Layout> {
-    pub(crate) hit_test_item: HitTestItem,
-    pub(crate) default_callbacks: BTreeMap<On, DefaultCallbackId>,
-    pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
-}
-*/
     }
 
     pub(crate) fn update_keyboard_modifiers(&mut self, event: &Event) {
