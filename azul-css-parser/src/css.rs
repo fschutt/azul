@@ -64,7 +64,8 @@ impl_from! { NodeTypePathParseError<'a>, CssParseErrorInner::NodeTypePath }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssPseudoSelectorParseError<'a> {
-    UnknownSelector(&'a str),
+    EmptyNthChild,
+    UnknownSelector(&'a str, Option<&'a str>),
     InvalidNthChild(ParseIntError),
     UnclosedBracesNthChild(&'a str),
 }
@@ -74,67 +75,64 @@ impl<'a> From<ParseIntError> for CssPseudoSelectorParseError<'a> {
 }
 
 impl_display! { CssPseudoSelectorParseError<'a>, {
-    UnknownSelector(e) => format!("Invalid CSS pseudo-selector: ':{}'", e),
+    EmptyNthChild => format!("Empty :nth-child() selector - nth-child() must at least take one number, a pattern (such as \"2n+3\") or the values \"even\" or \"odd\"."),
+    UnknownSelector(selector, value) => {
+        let format_str = match value {
+            Some(v) => format!("{}({})", selector, v),
+            None => format!("{}", selector),
+        };
+        format!("Invalid CSS pseudo-selector: ':{}'", format_str)
+    },
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
     UnclosedBracesNthChild(e) => format!(":nth-child has unclosed braces: ':{}'", e),
 }}
 
-fn pseudo_selector_from_str<'a>(data: &'a str) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
-    match data {
+/// "selector" contains the actual selector such as "nth-child" while "value" contains
+/// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
+fn pseudo_selector_from_str<'a>(selector: &'a str, value: Option<&'a str>)
+-> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>>
+{
+    match selector {
         "first" => Ok(CssPathPseudoSelector::First),
         "last" => Ok(CssPathPseudoSelector::Last),
         "hover" => Ok(CssPathPseudoSelector::Hover),
         "active" => Ok(CssPathPseudoSelector::Active),
         "focus" => Ok(CssPathPseudoSelector::Focus),
-        other => {
-            // TODO: move this into a seperate function
-            if other.starts_with("nth-child") {
-                let mut nth_child = other.split("nth-child");
-                nth_child.next();
-                let mut nth_child_string = nth_child.next().ok_or(CssPseudoSelectorParseError::UnknownSelector(other))?;
-                nth_child_string.trim();
-                if !nth_child_string.starts_with("(") || !nth_child_string.ends_with(")") {
-                    return Err(CssPseudoSelectorParseError::UnclosedBracesNthChild(other));
-                }
-
-                // Should the string be empty, then the `starts_with` and `ends_with` won't succeed
-                let mut nth_child_string = &nth_child_string[1..nth_child_string.len() - 1];
-                nth_child_string.trim();
-                let parsed = nth_child_string.parse::<usize>()?;
-                Ok(CssPathPseudoSelector::NthChild(parsed))
-            } else {
-                Err(CssPseudoSelectorParseError::UnknownSelector(other))
-            }
+        "nth-child" => {
+            let value = value.ok_or(CssPseudoSelectorParseError::EmptyNthChild)?;
+            let mut value = value.to_string();
+            value.trim();
+            let parsed = value.parse::<usize>()?;
+            Ok(CssPathPseudoSelector::NthChild(parsed))
         },
+        _ => Err(CssPseudoSelectorParseError::UnknownSelector(selector, value)),
     }
 }
 
 #[test]
 fn test_css_pseudo_selector_parse() {
     let ok_res = [
-        ("first", CssPathPseudoSelector::First),
-        ("last", CssPathPseudoSelector::Last),
-        ("nth-child(4)", CssPathPseudoSelector::NthChild(4)),
-        ("hover", CssPathPseudoSelector::Hover),
-        ("active", CssPathPseudoSelector::Active),
-        ("focus", CssPathPseudoSelector::Focus),
+        (("first", None), CssPathPseudoSelector::First),
+        (("last", None), CssPathPseudoSelector::Last),
+        (("nth-child", Some("4")), CssPathPseudoSelector::NthChild(4)),
+        (("hover", None), CssPathPseudoSelector::Hover),
+        (("active", None), CssPathPseudoSelector::Active),
+        (("focus", None), CssPathPseudoSelector::Focus),
     ];
 
     let err = [
-        ("asdf", CssPseudoSelectorParseError::UnknownSelector("asdf")),
-        ("", CssPseudoSelectorParseError::UnknownSelector("")),
-        ("nth-child(", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child(")),
-        ("nth-child)", CssPseudoSelectorParseError::UnclosedBracesNthChild("nth-child)")),
+        (("asdf", None), CssPseudoSelectorParseError::UnknownSelector("asdf", None)),
+        (("", None), CssPseudoSelectorParseError::UnknownSelector("", None)),
         // Can't test for ParseIntError because the fields are private.
         // This is an example on why you shouldn't use std::error::Error!
     ];
 
-    for (s, a) in &ok_res {
-        assert_eq!(pseudo_selector_from_str(s), Ok(*a));
+    for ((selector, val), a) in &ok_res {
+        assert_eq!(pseudo_selector_from_str(selector, *val), Ok(*a));
     }
 
-    for (s, e) in &err {
-        assert_eq!(pseudo_selector_from_str(s), Err(e.clone()));
+    for ((selector, val), e) in &err {
+        assert_eq!(pseudo_selector_from_str(selector, *val), Err(e.clone()));
     }
 }
 
@@ -271,11 +269,11 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) ->
                         }
                         last_path.push(CssPathSelector::Children);
                     },
-                    Token::PseudoClass(pseudo_class) => {
+                    Token::PseudoClass { selector, value } => {
                         if parser_in_block {
                             return Err(CssParseErrorInner::MalformedCss);
                         }
-                        last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(pseudo_class)?));
+                        last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value)?));
                     },
                     Token::Declaration(key, val) => {
                         if !parser_in_block {
