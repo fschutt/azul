@@ -4,3 +4,4 @@ target/
 *.sublime-project
 .vscode/*
 *.log
+.idea/*
