@@ -171,7 +171,7 @@ pub struct WindowState {
     pub(crate) focused_node: Option<NodeId>,
     /// Currently hovered nodes, default to an empty Vec. Important for
     /// styling `:hover` elements.
-    pub(crate) hovered_nodes: Vec<NodeId>,
+    pub(crate) hovered_nodes: Vec<(NodeId, HitTestItem)>,
     /// Previous window state, used for determining mouseout, etc. events
     pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -250,6 +250,31 @@ pub(crate) struct DetermineCallbackResult<T: Layout> {
     pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
 }
 
+pub(crate) struct CallbacksOfHitTest<T: Layout> {
+    /// A BTreeMap where each item is already filtered by the proper hit-testing type,
+    /// meaning in order to get the proper callbacks, you simply have to iterate through
+    /// all node IDs
+    pub nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>>,
+    /// Whether the screen should be redrawn even if no Callback returns an `UpdateScreen::Redraw`.
+    /// This is necessary for `:hover` and `:active` mouseovers - otherwise the screen would
+    /// only update on the next resize.
+    pub needs_redraw_anyways: bool,
+    /// Same as `needs_redraw_anyways`, but for reusing the layout from the previous frame.
+    /// Each `:hover` and `:active` group stores whether it modifies the layout, as
+    /// a performance optimization.
+    pub needs_relayout_anyways: bool,
+}
+
+impl<T: Layout> Default for CallbacksOfHitTest<T> {
+    fn default() -> Self {
+        Self {
+            nodes_with_callbacks: BTreeMap::new(),
+            needs_redraw_anyways: false,
+            needs_relayout_anyways: false,
+        }
+    }
+}
+
 impl WindowState
 {
     pub fn get_mouse_state(&self) -> &MouseState {
@@ -268,14 +293,8 @@ impl WindowState
     ///
     /// This function also updates / mutates the current window state, so that
     /// the window state is updated for the next frame
-    ///
-    /// # Returns
-    ///
-    /// A BTreeMap where each item is already filtered by the proper hit-testing type,
-    /// meaning in order to get the proper callbacks, you simply have to iterate through
-    /// all node IDs
     pub(crate) fn determine_callbacks<T: Layout>(&mut self, hit_test_result: &HitTestResult, event: &Event, ui_state: &UiState<T>)
-    -> BTreeMap<NodeId, DetermineCallbackResult<T>>
+    -> CallbacksOfHitTest<T>
     {
         use std::collections::HashSet;
         use glium::glutin::{
@@ -283,7 +302,11 @@ impl WindowState
             MouseButton::*,
         };
 
-        let event = if let Event::WindowEvent { event, .. } = event { event } else { return BTreeMap::new(); };
+        let event = if let Event::WindowEvent { event, .. } = event {
+            event
+        } else {
+            return CallbacksOfHitTest::default();
+        };
 
         // store the current window state so we can set it in this.previous_window_state later on
         let mut previous_state = Box::new(self.clone());
@@ -402,9 +425,18 @@ impl WindowState
         }
 
         // Update all hovered nodes for creating new :hover tags
-        self.hovered_nodes = hit_test_result.items.iter().filter_map(|item| ui_state.tag_ids_to_node_ids.get(&item.tag.0)).cloned().collect();
+        self.hovered_nodes = hit_test_result.items.iter().filter_map(|hit_test_item| {
+            ui_state.tag_ids_to_node_ids
+            .get(&hit_test_item.tag.0)
+            .map(|node_id| (*node_id, hit_test_item.clone()))
+        }).collect();
 
-        fn hit_test_item_to_callback_result<T: Layout>(item: &HitTestItem, ui_state: &UiState<T>, events_vec: &HashSet<On>) -> Option<(NodeId, DetermineCallbackResult<T>)> {
+        fn hit_test_item_to_callback_result<T: Layout>(
+            item: &HitTestItem,
+            ui_state: &UiState<T>,
+            events_vec: &HashSet<On>)
+         -> Option<(NodeId, DetermineCallbackResult<T>)>
+         {
             let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
             let default_callbacks = ui_state.tag_ids_to_default_callbacks
                 .get(&item.tag.0)
@@ -421,20 +453,56 @@ impl WindowState
                 .into_iter()
                 .filter(|(on, _)| events_vec.contains(&on))
                 .collect();
+
             let hit_test_item = item.clone();
             Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
         };
 
-        let nodes_with_callbacks = hit_test_result.items
+        let mut nodes_with_callbacks = hit_test_result.items
             .iter()
             .filter_map(|item| hit_test_item_to_callback_result(item, ui_state, &events_vec))
-            .collect();
+            .collect::<BTreeMap<_, _>>();
 
-/*
+        let mut needs_hover_redraw = false;
+        let mut needs_hover_relayout = false;
+
         // Insert all On::MouseEnter events
-        for mouse_enter_node_id in self.hovered_nodes.iter().filter(|current| previous_state.hovered_nodes.iter().find(|x| x == current).is_none()).map(|x| *x) {
+        for (mouse_enter_node_id, hit_test_item) in self.hovered_nodes.iter()
+            .cloned()
+            .filter(|current| previous_state.hovered_nodes.iter().find(|x| x.0 == current.0).is_none())
+        {
+            let tag_for_this_node = ui_state.node_ids_to_tag_ids.get(&mouse_enter_node_id).unwrap();
 
+            let default_callbacks = ui_state.tag_ids_to_default_callbacks
+                .get(&tag_for_this_node)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(on, _)| *on == On::MouseEnter)
+                .collect();
+
+            let normal_callbacks = ui_state.tag_ids_to_callbacks
+                .get(&tag_for_this_node)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(on, _)| *on == On::MouseEnter)
+                .collect();
+
+            let hit_test_item = hit_test_item.clone();
+            let callback_result = DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item };
+            nodes_with_callbacks.insert(mouse_enter_node_id, callback_result);
+
+            if let Some((_, hover_group)) = ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node) {
+                // We definitely need to redraw (on any :hover) change
+                needs_hover_redraw = true;
+                // Only set this to true if the :hover group actually affects the layout
+                if hover_group.affects_layout {
+                    needs_hover_relayout = true;
+                }
+            }
         }
+/*
 
         // Insert all On::MouseLeave events
         for mouse_leave_node_id in previous_state.hovered_nodes.iter().filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none()).map(|x| *x) {
@@ -451,7 +519,11 @@ impl WindowState
 
         self.previous_window_state = Some(previous_state);
 
-        nodes_with_callbacks
+        CallbacksOfHitTest {
+            needs_redraw_anyways: needs_hover_redraw,
+            needs_relayout_anyways: needs_hover_relayout,
+            nodes_with_callbacks,
+        }
 /*
 DetermineCallbackResult<T: Layout> {
     pub(crate) hit_test_item: HitTestItem,

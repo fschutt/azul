@@ -2,14 +2,10 @@
 
 use std::collections::BTreeMap;
 use azul_css::{
-    Css,
-    CssContentGroup,
-    CssDeclaration,
-    CssPath,
-    CssPathSelector,
-    CssPathPseudoSelector,
-    CssNthChildSelector::*,
+    Css, CssContentGroup, CssDeclaration, CssPath,
+    CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
 };
+use webrender::api::HitTestItem;
 use {
     traits::Layout,
     ui_description::{UiDescription, StyledNode},
@@ -20,12 +16,12 @@ use {
 
 /// Has all the necessary information about the style CSS path
 pub(crate) struct HtmlCascadeInfo<'a, T: 'a + Layout> {
-    node_data: &'a NodeData<T>,
-    index_in_parent: usize,
-    is_last_child: bool,
-    is_hovered_over: bool,
-    is_focused: bool,
-    is_active: bool,
+    pub node_data: &'a NodeData<T>,
+    pub index_in_parent: usize,
+    pub is_last_child: bool,
+    pub is_hovered_over: bool,
+    pub is_focused: bool,
+    pub is_active: bool,
 }
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
@@ -199,7 +195,7 @@ pub(crate) fn construct_html_cascade_tree<'a, T: Layout>(
     node_hierarchy: &NodeHierarchy,
     node_depths_sorted: &[(usize, NodeId)],
     focused_item: Option<NodeId>,
-    hovered_items: &[NodeId],
+    hovered_items: &[(NodeId, HitTestItem)],
     is_mouse_down: bool)
 -> NodeDataContainer<HtmlCascadeInfo<'a, T>>
 {
@@ -217,7 +213,7 @@ pub(crate) fn construct_html_cascade_tree<'a, T: Layout>(
         // Note: :nth-child() starts at 1 instead of 0
         let index_in_parent = parent_id.preceding_siblings(node_hierarchy).count();
 
-        let is_parent_hovered_over = hovered_items.contains(parent_id);
+        let is_parent_hovered_over = hovered_items.iter().any(|item| item.0 == *parent_id);
         let parent_html_matcher = HtmlCascadeInfo {
             node_data: &input[*parent_id],
             index_in_parent: index_in_parent, // necessary for nth-child
@@ -230,7 +226,7 @@ pub(crate) fn construct_html_cascade_tree<'a, T: Layout>(
         nodes[parent_id.index()] = parent_html_matcher;
 
         for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
-            let is_child_hovered_over = hovered_items.contains(&child_id);
+            let is_child_hovered_over = hovered_items.iter().any(|item| item.0 == child_id);
             let child_html_matcher = HtmlCascadeInfo {
                 node_data: &input[child_id],
                 index_in_parent: child_idx + 1, // necessary for nth-child
@@ -382,7 +378,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
     ui_state: &UiState<T>,
     css: &Css,
     focused_node: Option<NodeId>,
-    hovered_nodes: &[NodeId],
+    hovered_nodes: &[(NodeId, HitTestItem)],
     is_mouse_down: bool,
 ) -> UiDescription<T>
 {

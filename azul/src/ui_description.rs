@@ -5,6 +5,7 @@ use std::{
     collections::BTreeMap,
 };
 use azul_css::{ Css, CssDeclaration, CssProperty };
+use webrender::api::HitTestItem;
 use {
     FastHashMap,
     id_tree::{Arena, NodeId},
@@ -84,7 +85,7 @@ impl<T: Layout> UiDescription<T> {
         ui_state: &mut UiState<T>,
         style: &Css,
         focused_node: Option<NodeId>,
-        hovered_nodes: &[NodeId],
+        hovered_nodes: &[(NodeId, HitTestItem)],
         is_mouse_down: bool,
     ) -> Self
     {
