@@ -11,16 +11,17 @@ struct MyDataModel;
 
 impl Layout for MyDataModel {
     fn layout(&self, info: WindowInfo<Self>) -> Dom<Self> {
-        Dom::new(NodeType::Div).with_id("wrapper")
-            .with_child(Dom::new(NodeType::Label(format!("Hello123"))).with_id("red"))
-            .with_child(Dom::new(NodeType::Div).with_id("sub-wrapper")
-                .with_child(Dom::new(NodeType::Div).with_id("yellow")
-                    .with_child(Dom::new(NodeType::Div).with_id("orange-1"))
-                    .with_child(Dom::new(NodeType::Div).with_id("orange-2"))
+        Dom::div().with_id("wrapper")
+            .with_child(Dom::label("Hello123").with_id("red"))
+            .with_child(Dom::div().with_id("sub-wrapper")
+                .with_child(Dom::div().with_id("yellow")
+                    .with_child(Dom::div().with_id("orange-1"))
+                    .with_child(Dom::div().with_id("orange-2"))
                 )
-                .with_child(Dom::new(NodeType::Div).with_id("grey"))
+                .with_child(Dom::div().with_id("grey"))
             )
-            .with_child(Dom::new(NodeType::Image(info.resources.get_image("Cat01").unwrap())).with_id("cat"))
+            .with_child(Dom::image(info.resources.get_image("Cat01").unwrap()).with_id("cat"))
+            .with_child((0..50).map(|i| Dom::label(format!("{}", i))).collect::<Dom<Self>>().with_id("rows"))
     }
 }
 

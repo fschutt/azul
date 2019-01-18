@@ -62,3 +62,11 @@
     box-shadow-bottom: 0px 0px 50px black inset;
     box-shadow-top: 0px 0px 50px black inset;
 }
+
+#rows {
+    background-color: green;
+}
+
+#rows:nth-child(even) {
+    background-color: red;
+}
