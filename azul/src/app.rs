@@ -701,7 +701,7 @@ fn call_callbacks<T: Layout>(
     // Run all default callbacks - **before** the user-defined callbacks are run!
     {
         let mut lock = app_state.data.lock().unwrap();
-        for (node_id, callback_results) in callbacks_filter_list.iter() {
+        for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
             let hit_item = &callback_results.hit_test_item;
             for default_callback_id in callback_results.default_callbacks.values() {
 
@@ -727,7 +727,7 @@ fn call_callbacks<T: Layout>(
         }
     } // release mutex
 
-    for (node_id, callback_results) in callbacks_filter_list.iter() {
+    for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
         let hit_item = &callback_results.hit_test_item;
         for callback in callback_results.normal_callbacks.values() {
 
@@ -744,6 +744,10 @@ fn call_callbacks<T: Layout>(
                 should_update_screen = UpdateScreen::Redraw;
             }
         }
+    }
+
+    if callbacks_filter_list.needs_redraw_anyways {
+        should_update_screen = UpdateScreen::Redraw;
     }
 
     app_state.windows[window_id.id].set_keyboard_state(&KeyboardState::default());
