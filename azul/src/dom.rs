@@ -393,6 +393,71 @@ pub enum On {
     FocusLost,
 }
 
+/// Sets the target for what events can reach the callbacks specifically.
+///
+/// Filtering events can happen on several layers, depending on
+/// if a DOM node is hovered over or actively focused. For example,
+/// for text input, you wouldn't want to use hovering, because that
+/// would mean that the user needs to hold the mouse over the text input
+/// in order to enter text. To solve this, the DOM needs to fire events
+/// for elements that are currently not part of the hit-test.
+/// `EventFilter` implements `From<On>` as a shorthand (so that you can opt-in
+/// to a more specific event) and use
+///
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum EventFilter {
+    /// Calls the attached callback when the mouse is actively over the
+    /// given element.
+    Hover(HoverEventFilter),
+    /// Inverse of `Hover` - calls the attached callback if the mouse is **not**
+    /// over the given element. This is particularly useful for popover menus
+    /// where you want to close the menu when the user clicks anywhere else but
+    /// the menu itself.
+    Not(NotEventFilter),
+    /// Calls the attached callback when the element is currently focused.
+    Focus(FocusEventFilter),
+    /// Calls the callback when anything related to the window is happening.
+    /// The "hit item" will be the root item of the DOM.
+    /// For example, this can be useful for tracking the mouse position
+    /// (in relation to the window). In difference to `Desktop`, this only
+    /// fires when the window is focused.
+    ///
+    /// This can also be good for capturing controller input, touch input
+    /// (i.e. global gestures that aren't attached to any component, but rather
+    /// the "window" itself).
+    Window(WindowEventFilter),
+    /// Calls the callback when anything on the desktop is happening, useful
+    /// for creating keyloggers (for example to implement a desktop search bar
+    /// like everything or Spotlight) - fires even when the window isn't focused.
+    Desktop(DesktopEventFilter),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum HoverEventFilter {
+    Wip,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum NotEventFilter {
+    Wip,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FocusEventFilter {
+    Wip,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum WindowEventFilter {
+    Wip,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DesktopEventFilter {
+    Wip,
+}
+
+/// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub struct NodeData<T: Layout> {
     /// `div`
     pub node_type: NodeType<T>,
