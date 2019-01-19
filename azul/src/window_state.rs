@@ -10,7 +10,7 @@ use glium::glutin::{
     MouseCursor, VirtualKeyCode, MouseScrollDelta,
     ModifiersState, dpi::{LogicalPosition, LogicalSize},
 };
-use webrender::api::{HitTestResult, HitTestItem};
+use webrender::api::HitTestItem;
 use {
     dom::{On, Callback, TabIndex},
     default_callbacks::DefaultCallbackId,
@@ -75,18 +75,25 @@ pub struct MouseState
 {
     /// Current mouse cursor type
     pub mouse_cursor_type: MouseCursor,
-    //// Where is the mouse cursor currently? Set to `None` if the window is not focused
+    /// Where is the mouse cursor currently? Set to `None` if the window is not focused
     pub cursor_pos: Option<LogicalPosition>,
-    //// Is the left mouse button down?
+    /// Is the left mouse button down?
     pub left_down: bool,
-    //// Is the right mouse button down?
+    /// Is the right mouse button down?
     pub right_down: bool,
-    //// Is the middle mouse button down?
+    /// Is the middle mouse button down?
     pub middle_down: bool,
     /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame
     pub scroll_x: f64,
     /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame
     pub scroll_y: f64,
+}
+
+impl MouseState {
+    /// Returns whether any mouse button (left, right or center) is currently held down
+    pub fn mouse_down(&self) -> bool {
+        self.right_down || self.left_down || self.middle_down
+    }
 }
 
 impl Default for MouseState {
@@ -293,8 +300,12 @@ impl WindowState
     ///
     /// This function also updates / mutates the current window state, so that
     /// the window state is updated for the next frame
-    pub(crate) fn determine_callbacks<T: Layout>(&mut self, hit_test_result: &HitTestResult, event: &Event, ui_state: &UiState<T>)
-    -> CallbacksOfHitTest<T>
+    pub(crate) fn determine_callbacks<T: Layout>(
+        &mut self,
+        hit_test_items: &[HitTestItem],
+        event: &Event,
+        ui_state: &UiState<T>
+    ) -> CallbacksOfHitTest<T>
     {
         use std::collections::HashSet;
         use glium::glutin::{
@@ -401,7 +412,7 @@ impl WindowState
         // Figure out if an item has received the onfocus or onfocusleave event
         let closest_item_with_focus_tab: Option<(NodeId, TabIndex)> = if event_was_mouse_down || event_was_mouse_release {
             // Find the first (closest to cursor in hierarchy) item that has a tabindex
-            hit_test_result.items.iter().rev().find_map(|item| ui_state.tab_index_tags.get(&item.tag.0)).cloned()
+            hit_test_items.iter().rev().find_map(|item| ui_state.tab_index_tags.get(&item.tag.0)).cloned()
         } else {
             None
         };
@@ -425,7 +436,7 @@ impl WindowState
         }
 
         // Update all hovered nodes for creating new :hover tags
-        self.hovered_nodes = hit_test_result.items.iter().filter_map(|hit_test_item| {
+        self.hovered_nodes = hit_test_items.iter().filter_map(|hit_test_item| {
             ui_state.tag_ids_to_node_ids
             .get(&hit_test_item.tag.0)
             .map(|node_id| (*node_id, hit_test_item.clone()))
@@ -500,7 +511,7 @@ impl WindowState
             Some((*node_id, callback_result))
         }
 
-        let mut nodes_with_callbacks = hit_test_result.items
+        let mut nodes_with_callbacks = hit_test_items
             .iter()
             .filter_map(|item| hit_test_item_to_callback_result(item, ui_state, &events_vec))
             .collect::<BTreeMap<_, _>>();
@@ -508,12 +519,28 @@ impl WindowState
         let mut needs_hover_redraw = false;
         let mut needs_hover_relayout = false;
 
+        // If the mouse is down, but was up previously or vice versa, that means
+        // that a :hover or :active state may be invalidated. In that case we need
+        // to redraw the screen anyways. Setting relayout to true here in order to
+        let event_is_click_or_release = self.mouse_state.mouse_down() != previous_state.mouse_state.mouse_down();
+        if event_is_click_or_release {
+            needs_hover_redraw = true;
+            needs_hover_relayout = true;
+        }
+
         // Insert all On::MouseEnter events
         nodes_with_callbacks.extend(
             self.hovered_nodes.iter()
             .filter(|current| previous_state.hovered_nodes.iter().find(|x| x.0 == current.0).is_none())
             .filter_map(|(mouse_enter_node_id, hit_test_item)| {
-                mouse_enter(mouse_enter_node_id, hit_test_item, On::MouseEnter, &ui_state, &mut needs_hover_redraw, &mut needs_hover_relayout)
+                mouse_enter(
+                    mouse_enter_node_id,
+                    hit_test_item,
+                    On::MouseEnter,
+                    &ui_state,
+                    &mut needs_hover_redraw,
+                    &mut needs_hover_relayout
+                )
             })
         );
 
@@ -522,7 +549,14 @@ impl WindowState
             previous_state.hovered_nodes.iter()
             .filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none())
             .filter_map(|(mouse_enter_node_id, hit_test_item)| {
-                mouse_enter(mouse_enter_node_id, hit_test_item, On::MouseLeave, &ui_state, &mut needs_hover_redraw, &mut needs_hover_relayout)
+                mouse_enter(
+                    mouse_enter_node_id,
+                    hit_test_item,
+                    On::MouseLeave,
+                    &ui_state,
+                    &mut needs_hover_redraw,
+                    &mut needs_hover_relayout
+                )
             })
         );
 

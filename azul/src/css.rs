@@ -1,4 +1,6 @@
+#[cfg(debug_assertions)]
 use std::time::Duration;
+#[cfg(debug_assertions)]
 use std::path::PathBuf;
 
 pub use azul_css::*;

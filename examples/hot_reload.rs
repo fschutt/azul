@@ -3,6 +3,7 @@
 extern crate azul;
 
 use azul::prelude::*;
+#[cfg(debug_assertions)]
 use std::time::Duration;
 
 const TEST_IMAGE: &[u8] = include_bytes!("../assets/images/cat_image.jpg");

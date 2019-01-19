@@ -28,6 +28,10 @@
     background-color: yellow;
 }
 
+#yellow:active {
+    background-color: red;
+}
+
 #yellow {
     background-color: #F5900E;
     height: 70px;
