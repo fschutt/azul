@@ -1,10 +1,11 @@
 use std::{
     mem,
     fmt,
-    time::Instant,
     io::Read,
     sync::{Arc, Mutex, PoisonError},
 };
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use glium::{
     SwapBuffersError,
     glutin::{
@@ -685,14 +686,11 @@ fn call_callbacks<T: Layout>(
     use dom::UpdateScreen;
     use window_state::{KeyboardState, MouseState};
 
-    let hit_test_results = match hit_test_results {
-        None => return,
-        Some(s) => s,
-    };
-
     let mut should_update_screen = UpdateScreen::DontRedraw;
 
-    let callbacks_filter_list = window.state.determine_callbacks(&hit_test_results, event, &ui_state_cache[window_id.id]);
+    let hit_test_items = hit_test_results.map(|h| h.items.clone()).unwrap_or_default();
+
+    let callbacks_filter_list = window.state.determine_callbacks(&hit_test_items, event, &ui_state_cache[window_id.id]);
 
     // TODO: this should be refactored - currently very stateful and error-prone!
     app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
@@ -709,7 +707,7 @@ fn call_callbacks<T: Layout>(
                     window: window_id.id,
                     hit_dom_node: *node_id,
                     ui_state: &ui_state_cache[window_id.id],
-                    hit_test_result: &hit_test_results,
+                    hit_test_items: &hit_test_items,
                     cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
                     cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
                 };
@@ -735,7 +733,7 @@ fn call_callbacks<T: Layout>(
                 window: window_id.id,
                 hit_dom_node: *node_id,
                 ui_state: &ui_state_cache[window_id.id],
-                hit_test_result: &hit_test_results,
+                hit_test_items: &hit_test_items,
                 cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
                 cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
             };

@@ -10,7 +10,7 @@ use std::{
 use webrender::{
     api::{
         LayoutRect, PipelineId, Epoch, ColorF, BuiltDisplayList, DocumentId,
-        RenderApi, ExternalScrollId, RenderNotifier, HitTestResult, DeviceIntSize,
+        RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
     },
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags,
     // renderer::RendererError; -- not currently public in WebRender
@@ -43,6 +43,7 @@ use {
     ui_state::UiState,
     display_list::ScrolledNodes,
 };
+pub use webrender::api::HitTestItem;
 
 /// azul-internal ID for a window
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
@@ -210,7 +211,8 @@ pub struct WindowEvent<'a, T: 'a + Layout> {
     pub hit_dom_node: NodeId,
     /// UiState containing the necessary data for testing what
     pub(crate) ui_state: &'a UiState<T>,
-    pub(crate) hit_test_result: &'a HitTestResult,
+    /// What items are currently being hit
+    pub(crate) hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: (f32, f32),
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -223,7 +225,7 @@ impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
             window: self.window,
             hit_dom_node: self.hit_dom_node,
             ui_state: self.ui_state,
-            hit_test_result: self.hit_test_result,
+            hit_test_items: self.hit_test_items,
             cursor_relative_to_item: self.cursor_relative_to_item,
             cursor_in_viewport: self.cursor_in_viewport,
         }
