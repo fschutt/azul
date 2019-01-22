@@ -15,7 +15,7 @@ impl Layout for List {
             NodeData {
                 node_type: NodeType::Label(item.to_string()),
                 classes: if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] },
-                callbacks: vec![(On::MouseDown, Callback(print_which_item_was_selected))],
+                callbacks: vec![(On::MouseDown.into(), Callback(print_which_item_was_selected))],
                 .. Default::default()
             }
         }).collect::<Dom<Self>>()
