@@ -548,13 +548,13 @@ pub struct NodeData<T: Layout> {
     /// `.myclass .otherclass`
     pub classes: Vec<String>,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
-    pub callbacks: Vec<(On, Callback<T>)>,
+    pub callbacks: Vec<(EventFilter, Callback<T>)>,
     /// Usually not set by the user directly - `FakeWindow::add_default_callback`
     /// returns a callback ID, so that we know which default callback(s) are attached
     /// to this node.
     ///
     /// This is only important if this node has any default callbacks.
-    pub default_callback_ids: Vec<(On, DefaultCallbackId)>,
+    pub default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>,
     /// Override certain dynamic styling properties in this frame. For this,
     /// these properties have to have a name (the ID).
     ///
@@ -997,7 +997,7 @@ impl<T: Layout> Dom<T> {
 
     /// Same as `event`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_callback(mut self, on: On, callback: Callback<T>) -> Self {
+    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: Callback<T>) -> Self {
         self.add_callback(on, callback);
         self
     }
@@ -1031,13 +1031,13 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn add_callback(&mut self, on: On, callback: Callback<T>) {
-        self.arena.borrow_mut().node_data[self.head].callbacks.push((on, callback));
+    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: Callback<T>) {
+        self.arena.borrow_mut().node_data[self.head].callbacks.push((on.into(), callback));
     }
 
     #[inline]
-    pub fn add_default_callback_id(&mut self, on: On, id: DefaultCallbackId) {
-        self.arena.borrow_mut().node_data[self.head].default_callback_ids.push((on, id));
+    pub fn add_default_callback_id<O: Into<EventFilter>>(&mut self, on: O, id: DefaultCallbackId) {
+        self.arena.borrow_mut().node_data[self.head].default_callback_ids.push((on.into(), id));
     }
 
     #[inline]

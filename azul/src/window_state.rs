@@ -12,7 +12,7 @@ use glium::glutin::{
 };
 use webrender::api::HitTestItem;
 use {
-    dom::{On, Callback, TabIndex},
+    dom::{On, EventFilter, Callback, TabIndex},
     default_callbacks::DefaultCallbackId,
     id_tree::NodeId,
     ui_state::UiState,
@@ -253,8 +253,8 @@ impl Default for WindowState {
 
 pub(crate) struct DetermineCallbackResult<T: Layout> {
     pub(crate) hit_test_item: HitTestItem,
-    pub(crate) default_callbacks: BTreeMap<On, DefaultCallbackId>,
-    pub(crate) normal_callbacks: BTreeMap<On, Callback<T>>,
+    pub(crate) default_callbacks: BTreeMap<EventFilter, DefaultCallbackId>,
+    pub(crate) normal_callbacks: BTreeMap<EventFilter, Callback<T>>,
 }
 
 pub(crate) struct CallbacksOfHitTest<T: Layout> {
@@ -323,28 +323,28 @@ impl WindowState
         let mut previous_state = Box::new(self.clone());
         previous_state.previous_window_state = None;
 
-        let mut events_vec = HashSet::<On>::new();
-        events_vec.insert(On::MouseOver);
+        let mut events_vec = HashSet::<EventFilter>::new();
+        events_vec.insert(On::MouseOver.into());
 
         match event {
             WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
-                events_vec.insert(On::MouseDown);
+                events_vec.insert(On::MouseDown.into());
                 match button {
                     Left => {
                         if !self.mouse_state.left_down {
-                            events_vec.insert(On::LeftMouseDown);
+                            events_vec.insert(On::LeftMouseDown.into());
                         }
                         self.mouse_state.left_down = true;
                     },
                     Right => {
                         if !self.mouse_state.right_down {
-                            events_vec.insert(On::RightMouseDown);
+                            events_vec.insert(On::RightMouseDown.into());
                         }
                         self.mouse_state.right_down = true;
                     },
                     Middle => {
                         if !self.mouse_state.middle_down {
-                            events_vec.insert(On::MiddleMouseDown);
+                            events_vec.insert(On::MiddleMouseDown.into());
                         }
                         self.mouse_state.middle_down = true;
                     },
@@ -355,22 +355,22 @@ impl WindowState
                 match button {
                     Left => {
                         if self.mouse_state.left_down {
-                            events_vec.insert(On::MouseUp);
-                            events_vec.insert(On::LeftMouseUp);
+                            events_vec.insert(On::MouseUp.into());
+                            events_vec.insert(On::LeftMouseUp.into());
                         }
                         self.mouse_state.left_down = false;
                     },
                     Right => {
                         if self.mouse_state.right_down {
-                            events_vec.insert(On::MouseUp);
-                            events_vec.insert(On::RightMouseUp);
+                            events_vec.insert(On::MouseUp.into());
+                            events_vec.insert(On::RightMouseUp.into());
                         }
                         self.mouse_state.right_down = false;
                     },
                     Middle => {
                         if self.mouse_state.middle_down {
-                            events_vec.insert(On::MouseUp);
-                            events_vec.insert(On::MiddleMouseUp);
+                            events_vec.insert(On::MouseUp.into());
+                            events_vec.insert(On::MiddleMouseUp.into());
                         }
                         self.mouse_state.middle_down = false;
                     },
@@ -378,27 +378,27 @@ impl WindowState
                 }
             },
             WindowEvent::MouseWheel { .. } => {
-                events_vec.insert(On::Scroll);
+                events_vec.insert(On::Scroll.into());
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(On::VirtualKeyDown);
+                events_vec.insert(On::VirtualKeyDown.into());
             },
             WindowEvent::ReceivedCharacter(c) => {
                 if !c.is_control() {
-                    events_vec.insert(On::TextInput);
+                    events_vec.insert(On::TextInput.into());
                 }
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(On::VirtualKeyUp);
+                events_vec.insert(On::VirtualKeyUp.into());
             },
             WindowEvent::HoveredFile(_) => {
-                events_vec.insert(On::HoveredFile);
+                events_vec.insert(On::HoveredFile.into());
             },
             WindowEvent::DroppedFile(_) => {
-                events_vec.insert(On::DroppedFile);
+                events_vec.insert(On::DroppedFile.into());
             },
             WindowEvent::HoveredFileCancelled => {
-                events_vec.insert(On::HoveredFileCancelled);
+                events_vec.insert(On::HoveredFileCancelled.into());
             },
             _ => { }
         }
@@ -423,16 +423,16 @@ impl WindowState
             self.focused_node = Some(new_focused_element_node_id);
             if previous_state.focused_node != Some(new_focused_element_node_id) {
                 if previous_state.focused_node.is_none() {
-                    events_vec.insert(On::FocusReceived);
+                    events_vec.insert(On::FocusReceived.into());
                 } else {
-                    events_vec.insert(On::FocusLost);
+                    events_vec.insert(On::FocusLost.into());
                 }
                 // else, if the last element = current element,
                 // then the focus is still on the same field
             }
         } else if event_was_mouse_release || event_was_mouse_down {
             self.focused_node = None;
-            events_vec.insert(On::FocusLost);
+            events_vec.insert(On::FocusLost.into());
         }
 
         // Update all hovered nodes for creating new :hover tags
@@ -445,7 +445,7 @@ impl WindowState
         fn hit_test_item_to_callback_result<T: Layout>(
             item: &HitTestItem,
             ui_state: &UiState<T>,
-            events_vec: &HashSet<On>)
+            events_vec: &HashSet<EventFilter>)
          -> Option<(NodeId, DetermineCallbackResult<T>)>
          {
             let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
@@ -454,7 +454,7 @@ impl WindowState
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|(on, _)| events_vec.contains(&on))
+                .filter(|(event_filter, _)| events_vec.contains(&event_filter))
                 .collect();
 
             let normal_callbacks = ui_state.tag_ids_to_callbacks
@@ -462,7 +462,7 @@ impl WindowState
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|(on, _)| events_vec.contains(&on))
+                .filter(|(event_filter, _)| events_vec.contains(&event_filter))
                 .collect();
 
             let hit_test_item = item.clone();
@@ -472,7 +472,7 @@ impl WindowState
         fn mouse_enter<T: Layout>(
             node_id: &NodeId,
             hit_test_item: &HitTestItem,
-            target_on: On,
+            target_event_filter: EventFilter,
             ui_state: &UiState<T>,
             needs_hover_redraw: &mut bool,
             needs_hover_relayout: &mut bool,
@@ -485,7 +485,7 @@ impl WindowState
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|(on, _)| *on == target_on)
+                .filter(|(event_filter, _)| *event_filter == target_event_filter)
                 .collect();
 
             let normal_callbacks = ui_state.tag_ids_to_callbacks
@@ -493,7 +493,7 @@ impl WindowState
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|(on, _)| *on == target_on)
+                .filter(|(event_filter, _)| *event_filter == target_event_filter)
                 .collect();
 
             let hit_test_item = hit_test_item.clone();
@@ -536,7 +536,7 @@ impl WindowState
                 mouse_enter(
                     mouse_enter_node_id,
                     hit_test_item,
-                    On::MouseEnter,
+                    On::MouseEnter.into(),
                     &ui_state,
                     &mut needs_hover_redraw,
                     &mut needs_hover_relayout
@@ -552,7 +552,7 @@ impl WindowState
                 mouse_enter(
                     mouse_enter_node_id,
                     hit_test_item,
-                    On::MouseLeave,
+                    On::MouseLeave.into(),
                     &ui_state,
                     &mut needs_hover_redraw,
                     &mut needs_hover_relayout
