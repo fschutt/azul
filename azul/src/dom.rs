@@ -432,29 +432,111 @@ pub enum EventFilter {
     Desktop(DesktopEventFilter),
 }
 
+impl From<On> for EventFilter {
+    fn from(input: On) -> EventFilter {
+        use self::On::*;
+        match input {
+            MouseOver            => EventFilter::Hover(HoverEventFilter::MouseOver),
+            MouseDown            => EventFilter::Hover(HoverEventFilter::MouseDown),
+            LeftMouseDown        => EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+            MiddleMouseDown      => EventFilter::Hover(HoverEventFilter::MiddleMouseDown),
+            RightMouseDown       => EventFilter::Hover(HoverEventFilter::RightMouseDown),
+            MouseUp              => EventFilter::Hover(HoverEventFilter::MouseUp),
+            LeftMouseUp          => EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+            MiddleMouseUp        => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
+            RightMouseUp         => EventFilter::Hover(HoverEventFilter::RightMouseUp),
+
+            MouseEnter           => EventFilter::Hover(HoverEventFilter::MouseOver),
+            MouseLeave           => EventFilter::Hover(HoverEventFilter::MouseOver),
+            Scroll               => EventFilter::Hover(HoverEventFilter::MouseOver),
+            TextInput            => EventFilter::Focus(FocusEventFilter::TextInput),            // focus!
+            VirtualKeyDown       => EventFilter::Window(WindowEventFilter::VirtualKeyDown),     // window!
+            VirtualKeyUp         => EventFilter::Window(WindowEventFilter::VirtualKeyUp),       // window!
+            HoveredFile          => EventFilter::Hover(HoverEventFilter::HoveredFile),
+            DroppedFile          => EventFilter::Hover(HoverEventFilter::DroppedFile),
+            HoveredFileCancelled => EventFilter::Hover(HoverEventFilter::HoveredFileCancelled),
+            FocusReceived        => EventFilter::Focus(FocusEventFilter::FocusReceived),        // focus!
+            FocusLost            => EventFilter::Focus(FocusEventFilter::FocusLost),            // focus!
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum HoverEventFilter {
-    Wip,
+    MouseOver,
+    MouseDown,
+    LeftMouseDown,
+    RightMouseDown,
+    MiddleMouseDown,
+    MouseUp,
+    LeftMouseUp,
+    RightMouseUp,
+    MiddleMouseUp,
+    MouseEnter,
+    MouseLeave,
+    Scroll,
+    TextInput,
+    VirtualKeyDown,
+    VirtualKeyUp,
+    HoveredFile,
+    DroppedFile,
+    HoveredFileCancelled,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NotEventFilter {
-    Wip,
+    Hover(HoverEventFilter),
+    Focus(FocusEventFilter),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FocusEventFilter {
-    Wip,
+    MouseOver,
+    MouseDown,
+    LeftMouseDown,
+    RightMouseDown,
+    MiddleMouseDown,
+    MouseUp,
+    LeftMouseUp,
+    RightMouseUp,
+    MiddleMouseUp,
+    MouseEnter,
+    MouseLeave,
+    Scroll,
+    TextInput,
+    VirtualKeyDown,
+    VirtualKeyUp,
+    FocusReceived,
+    FocusLost,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum WindowEventFilter {
-    Wip,
+    MouseOver,
+    MouseDown,
+    LeftMouseDown,
+    RightMouseDown,
+    MiddleMouseDown,
+    MouseUp,
+    LeftMouseUp,
+    RightMouseUp,
+    MiddleMouseUp,
+    MouseEnter,
+    MouseLeave,
+    Scroll,
+    TextInput,
+    VirtualKeyDown,
+    VirtualKeyUp,
+    HoveredFile,
+    DroppedFile,
+    HoveredFileCancelled,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DesktopEventFilter {
-    Wip,
+    DeviceAdded,
+    DeviceRemoved,
+    ControllerMotion,
 }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
