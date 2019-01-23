@@ -34,12 +34,29 @@ pub trait Layout {
 /// inside the closure, only use it to write or copy data in and out of the application
 /// state.
 pub trait Modify<T> {
+
     /// Modifies the app state and then returns if the modification was successful
     /// Takes a FnMut that modifies the state
     fn modify<F>(&self, closure: F) -> Option<()> where F: FnOnce(&mut T);
+
+    /// Same as `.modify`, but the closure can now copy some data out of the locked data model.
     fn modify_clone<F, S>(&self, closure: F) -> Option<S> where F: FnOnce(&mut T) -> S {
         let mut initial: Option<S> = None;
         self.modify(|lock| initial = Some(closure(lock)))?;
+        initial
+    }
+
+    /// Same as `.modify`, but the closure can now return `Option<()>`
+    fn modify_opt<F>(&self, closure: F) -> Option<()> where F: FnOnce(&mut T) -> Option<()> {
+        self.modify_clone(|lock| {
+            let result: Option<()> = closure(lock);
+            result
+        })?
+    }
+    /// Same as `.modify_opt`, but the closure returns `Option<S>` instead of `S`.
+    fn modify_opt_clone<F, S>(&self, closure: F) -> Option<S> where F: FnOnce(&mut T) -> Option<S> {
+        let mut initial: Option<S> = None;
+        self.modify(|lock| initial = closure(lock))?;
         initial
     }
 }
