@@ -29,12 +29,11 @@ use lyon::{
 };
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
-use webrender::api::{ColorF, GlyphInstance};
-use azul_css::ColorU;
 use rusttype::{Font, Glyph};
-use azul_css::{FontId, StyleFontSize};
+use azul_css::{FontId, ColorU, ColorF, StyleFontSize};
 use {
     FastHashMap,
+    prelude::GlyphInstance,
     dom::Texture,
     window::ReadOnlyWindow,
     app_resources::AppResources,
@@ -1988,10 +1987,6 @@ impl Svg {
         height: usize)
     -> Texture
     {
-        // TODO: Theoretically, this module (svg.rs) should stand on its
-        // own and not require these kinds of hacks
-        use css::webrender_translate::wr_translate_color_u;
-
         let texture_width = (width as f32 * self.multisampling_factor) as u32;
         let texture_height = (height as f32 * self.multisampling_factor) as u32;
 
@@ -2000,7 +1995,7 @@ impl Svg {
         // TODO: This currently doesn't work - only the first draw call is drawn
         // This is probably because either webrender or glium messes with the texture
         // in some way. Need to investigate.
-        let bg_col: ColorF = wr_translate_color_u(self.background_color).into();
+        let bg_col: ColorF = self.background_color.into();
 
         let z_index: f32 = 0.5;
         // let bbox_size = TypedSize2D::new(window_width as f32, window_height as f32);
@@ -2083,9 +2078,7 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
         zoom: f32,
         layer_transform: &SvgTransform)
 {
-    use css::webrender_translate::wr_translate_color_u;
-
-    let color: ColorF = wr_translate_color_u(color).into();
+    let color: ColorF = color.into();
 
     let (layer_rotation_center, layer_rotation_degrees) = layer_transform.rotation.unwrap_or_default();
     let (rotation_sin, rotation_cos) = layer_rotation_degrees.to_rotation();
