@@ -42,12 +42,12 @@ impl Layout for DragMeApp {
 }
 
 fn start_drag(state: &mut State, _event: Event) -> UpdateScreen {
-    state.data.modify(|data| data.is_dragging = true);
+    state.data.modify(|data| data.is_dragging = true)?;
     DontRedraw
 }
 
 fn stop_drag(state: &mut State, _event: Event) -> UpdateScreen {
-    state.data.modify(|data| data.is_dragging = false);
+    state.data.modify(|data| data.is_dragging = false)?;
     Redraw
 }
 

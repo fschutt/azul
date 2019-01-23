@@ -206,7 +206,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
         Event::Clear => {
             app_state.data.modify(|state| {
                 *state = Calculator::default();
-            });
+            })?;
             Redraw
         }
         Event::InvertSign => {
@@ -214,7 +214,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                 if !state.division_by_zero {
                     state.current_operand_stack.negative_number = !state.current_operand_stack.negative_number;
                 }
-            });
+            })?;
 
             Redraw
         }
@@ -235,7 +235,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                         state.current_operand_stack = OperandStack::from(result);
                     }
                 }
-            });
+            })?;
             Redraw
         }
         Event::EqualSign => {
@@ -261,7 +261,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                 }
                 state.current_operator = None;
                 state.last_event = Some(Event::EqualSign);
-            });
+            })?;
             Redraw
         }
         Event::Dot => {
@@ -275,7 +275,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                     }
                     state.current_operand_stack.stack.push(Number::Dot);
                 }
-            });
+            })?;
             Redraw
         }
         Event::Number(v) => {
@@ -321,7 +321,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                     _ => unreachable!(),
                 });
                 state.last_event = Some(operation);
-            });
+            })?;
 
             Redraw
         }
