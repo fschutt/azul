@@ -106,16 +106,15 @@ fn build_layers(
 fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: WindowEvent<MyAppData>) -> UpdateScreen {
     let (cursor_x, cursor_y) = event.cursor_relative_to_item;
 
-    let mut should_redraw = UpdateScreen::DontRedraw;
+    let mut should_redraw = DontRedraw;
 
     app_state.data.modify(|data| {
         if let Some(map) = data.map.as_mut() {
             for (k, v) in map.texts.iter() {
                 if v.get_bbox().contains_point(cursor_x, cursor_y) {
                     map.hovered_text = Some(*k);
-                    should_redraw = UpdateScreen::Redraw;
+                    should_redraw = Redraw;
                     break;
-
                 }
             }
         }
@@ -145,7 +144,7 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent<M
         }
     });
 
-    UpdateScreen::Redraw
+    Redraw
 }
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEvent<MyAppData>) -> UpdateScreen {
@@ -222,11 +221,9 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: WindowEv
                 pan_vert: 0.0,
             }));
 
-            Some(UpdateScreen::Redraw)
+            Some(Redraw)
         })
-        .unwrap_or_else(|| {
-            UpdateScreen::DontRedraw
-        })
+        .unwrap_or(DontRedraw)
 }
 
 fn main() {
