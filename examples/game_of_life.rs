@@ -152,14 +152,14 @@ fn tick(state: &mut Universe, _: &mut AppResources) -> (UpdateScreen, TerminateD
 
     state.board.cells = new_cells;
 
-    (UpdateScreen::Redraw, TerminateDaemon::Continue)
+    (Redraw, TerminateDaemon::Continue)
 }
 
 /// Callback that starts the main
 fn start_stop_game(app_state: &mut AppState<Universe>, _: WindowEvent<Universe>) -> UpdateScreen {
 
     if let Some(daemon) = {
-        let state = &mut app_state.data.lock().unwrap();
+        let state = &mut app_state.data.lock().ok()?;
         state.board = Board::new_random(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT);
 
         if state.game_is_running {
@@ -173,7 +173,7 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: WindowEvent<Universe>)
         app_state.add_daemon(daemon);
     }
 
-    UpdateScreen::Redraw
+    Redraw
 }
 
 fn main() {

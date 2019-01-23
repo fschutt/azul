@@ -243,7 +243,6 @@ impl<T: Layout> App<T> {
         use dom::Redraw;
 
         let mut ui_state_cache = {
-            let windows = &self.windows;
             let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
             for window_id in self.windows.keys() {

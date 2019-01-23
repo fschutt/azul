@@ -167,15 +167,8 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
     let mut row_iter = event.index_path_iter();
 
     // Figure out which row and column was clicked...
-    let clicked_col_idx = match row_iter.next() {
-        Some(s) => s,
-        None => return UpdateScreen::DontRedraw,
-    };
-
-    let clicked_row_idx = match row_iter.next() {
-        Some(s) => s,
-        None => return UpdateScreen::DontRedraw,
-    };
+    let clicked_col_idx = row_iter.next()?;
+    let clicked_row_idx = row_iter.next()?;
 
     // Figure out what button was clicked from the given row and column, filter bad events
     let event = match (clicked_row_idx, clicked_col_idx) {
@@ -203,7 +196,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
         (4, 1) => Event::Dot,
         (4, 2) => Event::EqualSign,
 
-        _ => return UpdateScreen::DontRedraw, // invalid item
+        _ => return DontRedraw, // invalid item
     };
 
     println!("got event: {:?}", event);
@@ -214,7 +207,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
             app_state.data.modify(|state| {
                 *state = Calculator::default();
             });
-            UpdateScreen::Redraw
+            Redraw
         }
         Event::InvertSign => {
             app_state.data.modify(|state| {
@@ -223,7 +216,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                 }
             });
 
-            UpdateScreen::Redraw
+            Redraw
         }
         Event::Percent => {
             app_state.data.modify(|state| {
@@ -243,7 +236,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                     }
                 }
             });
-            UpdateScreen::Redraw
+            Redraw
         }
         Event::EqualSign => {
             app_state.data.modify(|state| {
@@ -269,7 +262,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                 state.current_operator = None;
                 state.last_event = Some(Event::EqualSign);
             });
-            UpdateScreen::Redraw
+            Redraw
         }
         Event::Dot => {
             app_state.data.modify(|state| {
@@ -283,7 +276,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                     state.current_operand_stack.stack.push(Number::Dot);
                 }
             });
-            UpdateScreen::Redraw
+            Redraw
         }
         Event::Number(v) => {
             app_state.data.modify(|state| {
@@ -292,7 +285,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                 }
                 state.current_operand_stack.stack.push(Number::Value(v));
             });
-            UpdateScreen::Redraw
+            Redraw
         }
         operation => {
             app_state.data.modify(|state| {
@@ -330,7 +323,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: Win
                 state.last_event = Some(operation);
             });
 
-            UpdateScreen::Redraw
+            Redraw
         }
     }
 }
