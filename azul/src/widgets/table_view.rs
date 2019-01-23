@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use {
-    dom::{Dom, On, NodeData, NodeType, IFrameCallback, UpdateScreen},
+    dom::{Dom, On, NodeData, NodeType, IFrameCallback, UpdateScreen, DontRedraw},
     app_state::AppStateNoData,
     traits::Layout,
     window::WindowInfo,
@@ -173,7 +173,7 @@ impl TableViewState {
     -> UpdateScreen
     {
         println!("table was clicked");
-        UpdateScreen::DontRedraw
+        DontRedraw
     }
 }
 

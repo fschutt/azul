@@ -189,7 +189,7 @@ pub mod prelude {
     pub use dom::DomHash;
     pub use dom::{
         Dom, NodeType, NodeData, Callback, On,
-        UpdateScreen, Texture, GlTextureCallback,
+        UpdateScreen, Redraw, DontRedraw, Texture, GlTextureCallback,
         IFrameCallback, TabIndex,
     };
     pub use traits::{Layout, Modify};

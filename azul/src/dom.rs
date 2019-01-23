@@ -44,42 +44,22 @@ pub(crate) fn new_scroll_tag_id() -> ScrollTagId {
 pub struct DomHash(pub u64);
 
 /// A callback function has to return if the screen should
-/// be updated after the function has run.PartialEq
+/// be updated after the function has run.
 ///
-/// This is necessary for updating the screen only if it is absolutely necessary.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum UpdateScreen {
-    /// Redraw the screen
-    Redraw,
-    /// Don't redraw the screen
-    DontRedraw,
-}
-
-/// This exist so you can conveniently use the `?` and `.into()` for your own code
-///
-/// - `Some`: `Redraw`
-/// - `None`: `DontRedraw`
-impl<T> From<Option<T>> for UpdateScreen {
-    fn from(input: Option<T>) -> Self {
-        match input {
-            None => UpdateScreen::DontRedraw,
-            Some(_) => UpdateScreen::Redraw,
-        }
-    }
-}
-
-/// This exist so you can conveniently use the `?` and `.into()` for your own code
-///
-/// - `Ok` -> `Redraw`
-/// - `Err` -> `DontRedraw`
-impl<T, E> From<Result<T, E>> for UpdateScreen {
-    fn from(input: Result<T, E>) -> Self {
-        match input {
-            Ok(_) => UpdateScreen::DontRedraw,
-            Err(_) => UpdateScreen::Redraw,
-        }
-    }
-}
+/// NOTE: This is currently a typedef for `Option<()>`,
+/// so that you can use the `?` operator in callbacks
+/// (to simply not redraw if there is an error). This was an enum previously,
+/// but since Rust doesn't have a "custom try" operator, this led to a lot of
+/// usability problems. In the future, this might change back to an enum therefore
+/// the constants "Redraw" and "DontRedraw" are not capitalized, to minimize breakage.
+pub type UpdateScreen = Option<()>;
+/// After the callback is called, the screen needs to redraw
+/// (layout() function being called again).
+#[allow(non_upper_case_globals)]
+pub const Redraw: Option<()> = Some(());
+/// The screen does not need to redraw after the callback has been called.
+#[allow(non_upper_case_globals)]
+pub const DontRedraw: Option<()> = None;
 
 /// Stores a function pointer that is executed when the given UI element is hit
 ///

@@ -6,6 +6,7 @@ use std::{
     rc::Rc,
     marker::PhantomData,
     io::Error as IoError,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::{
     api::{
@@ -45,15 +46,17 @@ use {
 };
 pub use webrender::api::HitTestItem;
 
-/// azul-internal ID for a window
-#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub struct WindowId {
-    pub(crate) id: usize,
+static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
+
+fn new_window_id() -> WindowId {
+    WindowId { id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst) }
 }
 
-impl WindowId {
-    pub(crate) fn new(id: usize) -> Self { Self { id: id } }
-}
+/// Id that uniquely identifies one window.
+/// Because windows can be added and removed in any order, this ID
+/// is unique to one single window
+#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
+pub struct WindowId { id: usize }
 
 /// User-modifiable fake window
 #[derive(Clone)]
@@ -205,7 +208,7 @@ impl<T: Layout> fmt::Debug for FakeWindow<T> {
 pub struct WindowEvent<'a, T: 'a + Layout> {
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
-    pub window: usize,
+    pub window_id: &'a WindowId,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
@@ -222,7 +225,7 @@ pub struct WindowEvent<'a, T: 'a + Layout> {
 impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
     fn clone(&self) -> Self {
         Self {
-            window: self.window,
+            window_id: self.window_id,
             hit_dom_node: self.hit_dom_node,
             ui_state: self.ui_state,
             hit_test_items: self.hit_test_items,
@@ -532,6 +535,8 @@ impl Default for WindowMonitorTarget {
 
 /// Represents one graphical window to be rendered
 pub struct Window<T: Layout> {
+    /// Unique ID that can identify this window
+    pub(crate) id: WindowId,
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
     /// Current state of the window, stores the keyboard / mouse state,
@@ -856,6 +861,7 @@ impl<'a, T: Layout> Window<T> {
         css.sort_by_specificity();
 
         let window = Window {
+            id: new_window_id(),
             events_loop: events_loop,
             state: options.state,
             renderer: Some(renderer),
@@ -962,16 +968,14 @@ impl<'a, T: Layout> Window<T> {
         }
     }
 
-    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
+    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &FrameEventInfo) {
 
         if let Some(new_size) = frame_event_info.new_window_size {
             self.state.size.dimensions = new_size;
-            frame_event_info.should_redraw_window = true;
         }
 
         if let Some(dpi) = frame_event_info.new_dpi_factor {
             self.state.size.hidpi_factor = dpi;
-            frame_event_info.should_redraw_window = true;
         }
     }
 

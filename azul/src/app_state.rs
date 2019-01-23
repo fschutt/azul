@@ -1,6 +1,6 @@
 use std::{
     io::Read,
-    collections::hash_map::Entry::*,
+    collections::{BTreeMap, hash_map::Entry::*},
     sync::{Arc, Mutex},
     rc::Rc,
 };
@@ -14,9 +14,9 @@ use webrender::api::ImageFormat as RawImageFormat;
 use {
     FastHashMap,
     text_cache::TextId,
-    window::FakeWindow,
+    window::{FakeWindow, WindowId},
     task::Task,
-    dom::UpdateScreen,
+    dom::{UpdateScreen, Redraw, DontRedraw},
     traits::Layout,
     app_resources::AppResources,
     font::FontError,
@@ -56,7 +56,7 @@ pub struct AppState<T: Layout> {
     /// // Update the title
     /// window_state.state.title = "Hello";
     /// ```
-    pub windows: Vec<FakeWindow<T>>,
+    pub windows: BTreeMap<WindowId, FakeWindow<T>>,
     /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
     ///
     /// Accessing this field is often required to load new fonts or images, so instead of
@@ -76,7 +76,7 @@ pub struct AppState<T: Layout> {
 /// since they use a `StackCheckedPointer` instead.
 pub struct AppStateNoData<'a, T: 'a + Layout> {
     /// See [`AppState.windows`](./struct.AppState.html#structfield.windows)
-    pub windows: &'a Vec<FakeWindow<T>>,
+    pub windows: &'a BTreeMap<WindowId, FakeWindow<T>>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
 }
@@ -87,7 +87,7 @@ impl<T: Layout> AppState<T> {
     pub fn new(initial_data: T) -> Self {
         Self {
             data: Arc::new(Mutex::new(initial_data)),
-            windows: Vec::new(),
+            windows: BTreeMap::new(),
             resources: AppResources::default(),
             daemons: FastHashMap::default(),
             tasks: Vec::new(),
@@ -248,16 +248,16 @@ impl<T: Layout> AppState<T> {
     pub(crate) fn run_all_daemons(&mut self)
     -> UpdateScreen
     {
-        let mut should_update_screen = UpdateScreen::DontRedraw;
+        let mut should_update_screen = DontRedraw;
         let mut lock = self.data.lock().unwrap();
         let mut daemons_to_terminate = Vec::new();
 
         for (key, daemon) in self.daemons.iter_mut() {
             let (should_update, should_terminate) = daemon.invoke_callback_with_data(&mut lock, &mut self.resources);
 
-            if should_update == UpdateScreen::Redraw &&
-               should_update_screen == UpdateScreen::DontRedraw {
-                should_update_screen = UpdateScreen::Redraw;
+            if should_update == Redraw &&
+               should_update_screen == DontRedraw {
+                should_update_screen = Redraw;
             }
 
             if should_terminate == TerminateDaemon::Terminate {
@@ -297,9 +297,9 @@ impl<T: Layout> AppState<T> {
         }
 
         if old_count == new_count && daemons_is_empty {
-            UpdateScreen::DontRedraw
+            DontRedraw
         } else {
-            UpdateScreen::Redraw
+            Redraw
         }
     }
 

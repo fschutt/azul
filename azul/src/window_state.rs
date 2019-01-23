@@ -12,6 +12,7 @@ use glium::glutin::{
 };
 use webrender::api::HitTestItem;
 use {
+    app::FrameEventInfo,
     dom::{On, EventFilter, Callback, TabIndex},
     default_callbacks::DefaultCallbackId,
     id_tree::NodeId,
@@ -569,7 +570,25 @@ impl WindowState
         }
     }
 
-    pub(crate) fn update_keyboard_modifiers(&mut self, event: &Event) {
+    pub(crate) fn update_window_state(&mut self, events: &[Event], awakened_task: bool) -> (FrameEventInfo, bool) {
+        let mut frame_event_info = FrameEventInfo::default();
+        let mut should_window_close = false;
+
+        for event in events {
+            if window_should_close(event, &mut frame_event_info, awakened_task) {
+                should_window_close = true;
+            }
+            self.update_mouse_cursor_position(event);
+            self.update_scroll_state(event);
+            self.update_keyboard_modifiers(event);
+            self.update_keyboard_pressed_chars(event);
+            self.update_misc_events(event);
+        }
+
+        (frame_event_info, should_window_close)
+    }
+
+    fn update_keyboard_modifiers(&mut self, event: &Event) {
         let modifiers = match event {
             Event::WindowEvent { event, .. } => {
                 match event {
@@ -593,7 +612,7 @@ impl WindowState
     /// After the initial events are filtered, this will update the mouse
     /// cursor position, if the event is a `CursorMoved` and set it to `None`
     /// if the cursor has left the window
-    pub(crate) fn update_mouse_cursor_position(&mut self, event: &Event) {
+    fn update_mouse_cursor_position(&mut self, event: &Event) {
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
@@ -613,7 +632,7 @@ impl WindowState
         }
     }
 
-    pub(crate) fn update_scroll_state(&mut self, event: &Event) {
+    fn update_scroll_state(&mut self, event: &Event) {
         match event {
             Event::WindowEvent { event: WindowEvent::MouseWheel { delta, .. }, .. } => {
                 const LINE_DELTA: f64 = 38.0;
@@ -630,7 +649,7 @@ impl WindowState
     }
 
     /// Updates self.keyboard_state to reflect what characters are currently held down
-    pub(crate) fn update_keyboard_pressed_chars(&mut self, event: &Event) {
+    fn update_keyboard_pressed_chars(&mut self, event: &Event) {
         use glium::glutin::KeyboardInput;
 
         match event {
@@ -669,7 +688,7 @@ impl WindowState
 
     }
 
-    pub(crate) fn update_misc_events(&mut self, event: &Event) {
+    fn update_misc_events(&mut self, event: &Event) {
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
@@ -688,6 +707,62 @@ impl WindowState
             _ => { },
         }
     }
+}
+
+/// Pre-filters any events that are not handled by the framework yet, since it would be wasteful
+/// to process them. Modifies the `frame_event_info` so that the
+///
+/// `awakened_task` is a special field that should be set to true if the `Task`
+/// system fired a `WindowEvent::Awakened`.
+pub(crate) fn window_should_close(event: &Event, frame_event_info: &mut FrameEventInfo, awakened_task: bool)
+-> bool
+{
+    use glium::glutin::WindowEvent;
+
+    match event {
+        Event::WindowEvent { event, .. } => {
+            match event {
+                WindowEvent::CursorMoved { position, .. } => {
+                    frame_event_info.should_hittest = true;
+                    frame_event_info.cur_cursor_pos = *position;
+                },
+                WindowEvent::Resized(wh) => {
+                    frame_event_info.new_window_size = Some(*wh);
+                    frame_event_info.is_resize_event = true;
+                    frame_event_info.should_redraw_window = true;
+                },
+                WindowEvent::Refresh => {
+                    frame_event_info.should_redraw_window = true;
+                },
+                WindowEvent::HiDpiFactorChanged(dpi) => {
+                    frame_event_info.new_dpi_factor = Some(*dpi);
+                    frame_event_info.should_redraw_window = true;
+                },
+                WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                    // TODO: Callback the windows onclose method
+                    // (ex. for implementing a "do you really want to close" dialog)
+                    return true;
+                },
+                WindowEvent::KeyboardInput { .. } |
+                WindowEvent::ReceivedCharacter(_) |
+                WindowEvent::MouseWheel { .. } |
+                WindowEvent::MouseInput { .. } |
+                WindowEvent::Touch(_) => {
+                    frame_event_info.should_hittest = true;
+                },
+                _ => { },
+            }
+        },
+        Event::Awakened => {
+            frame_event_info.should_swap_window = true;
+            if awakened_task {
+                frame_event_info.should_redraw_window = true;
+            }
+        },
+        _ => { },
+    }
+
+    false
 }
 
 fn update_mouse_cursor(window: &Window, old: &MouseCursor, new: &MouseCursor) {
