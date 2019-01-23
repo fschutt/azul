@@ -106,43 +106,40 @@ fn build_layers(
 fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: WindowEvent<MyAppData>) -> UpdateScreen {
     let (cursor_x, cursor_y) = event.cursor_relative_to_item;
 
+    let data = app_state.lock().ok()?;
+    let map = data.map.as_mut()?;
+
     let mut should_redraw = DontRedraw;
 
-    app_state.data.modify(|data| {
-        if let Some(map) = data.map.as_mut() {
-            for (k, v) in map.texts.iter() {
-                if v.get_bbox().contains_point(cursor_x, cursor_y) {
-                    map.hovered_text = Some(*k);
-                    should_redraw = Redraw;
-                    break;
-                }
-            }
+    for (k, v) in map.texts.iter() {
+        if v.get_bbox().contains_point(cursor_x, cursor_y) {
+            map.hovered_text = Some(*k);
+            should_redraw = Redraw;
+            break;
         }
-    });
+    }
 
     should_redraw
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: WindowEvent<MyAppData>) -> UpdateScreen {
-    app_state.data.modify(|data| {
-        if let Some(map) = data.map.as_mut() {
+    let data = app_state.data.lock().ok()?;
+    let map = data.map.as_mut()?;
 
-            let mouse_state = app_state.windows[event.window].get_mouse_state();
-            let keyboard_state = app_state.windows[event.window].get_keyboard_state();
+    let mouse_state = app_state.windows.get(event.window_id)?.get_mouse_state();
+    let keyboard_state = app_state.windows.get(event.window_id)?.get_keyboard_state();
 
-            if keyboard_state.shift_down {
-                map.pan_horz += mouse_state.scroll_y;
-            } else if keyboard_state.ctrl_down {
-                if mouse_state.scroll_y.is_sign_positive() {
-                    map.zoom /= 2.0;
-                } else {
-                    map.zoom *= 2.0;
-                }
-            } else {
-                map.pan_vert += mouse_state.scroll_y;
-            }
+    if keyboard_state.shift_down {
+        map.pan_horz += mouse_state.scroll_y;
+    } else if keyboard_state.ctrl_down {
+        if mouse_state.scroll_y.is_sign_positive() {
+            map.zoom /= 2.0;
+        } else {
+            map.zoom *= 2.0;
         }
-    });
+    } else {
+        map.pan_vert += mouse_state.scroll_y;
+    }
 
     Redraw
 }
