@@ -3,7 +3,7 @@
 use std::ops::Range;
 use {
     traits::Layout,
-    dom::{Dom, On, NodeType, UpdateScreen},
+    dom::{Dom, On, NodeType, UpdateScreen, Redraw, DontRedraw},
     window::{FakeWindow, WindowEvent},
     prelude::{VirtualKeyCode},
     default_callbacks::{StackCheckedPointer, DefaultCallback, DefaultCallbackId},
@@ -100,7 +100,7 @@ impl TextInputState {
 
     pub fn on_virtual_key_down<T: Layout>(&mut self, app_state_no_data: AppStateNoData<T>, event: WindowEvent<T>) -> UpdateScreen {
 
-        let keyboard_state = app_state_no_data.windows[event.window].get_keyboard_state();
+        let keyboard_state = app_state_no_data.windows[event.window_id].get_keyboard_state();
 
         match keyboard_state.latest_virtual_keycode {
             Some(VirtualKeyCode::Back) => {
@@ -128,7 +128,7 @@ impl TextInputState {
                     },
                 }
 
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::Return) => {
                 // TODO: selection!
@@ -139,48 +139,48 @@ impl TextInputState {
                     None => {  },
                 }
                 */
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::Home) => {
                 self.cursor = 0;
                 self.selection = None;
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::End) => {
                 self.cursor = self.text.len();
                 self.selection = None;
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::A) if keyboard_state.ctrl_down => {
                 self.selection = Some(Selection::All);
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::Escape) => {
                 self.selection = None;
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::Right) => {
                 self.cursor = self.text.len().min(self.cursor.saturating_add(1));
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::Left) => {
                 self.cursor = (0.max(self.cursor.saturating_sub(1))).min(self.cursor.saturating_add(1));
-                UpdateScreen::Redraw
+                Redraw
             },
             Some(VirtualKeyCode::C) => {
                 // TODO: copy
-                UpdateScreen::DontRedraw
+                DontRedraw
             },
             Some(VirtualKeyCode::V) => {
                 // TODO: paste
-                UpdateScreen::DontRedraw
+                DontRedraw
             },
-            _ => UpdateScreen::DontRedraw,
+            _ => DontRedraw,
         }
     }
 
     pub fn on_text_input<T: Layout>(&mut self, app_state_no_data: AppStateNoData<T>, event: WindowEvent<T>) -> UpdateScreen {
-        let keyboard_state = app_state_no_data.windows[event.window].get_keyboard_state();
+        let keyboard_state = app_state_no_data.windows[event.window_id].get_keyboard_state();
         match keyboard_state.current_char {
             Some(c) => {
                 let selection = self.selection.clone();
@@ -203,9 +203,9 @@ impl TextInputState {
                         delete_selection(self, range, Some(c));
                     },
                 }
-                UpdateScreen::Redraw
+                Redraw
             },
-            None => UpdateScreen::DontRedraw,
+            None => DontRedraw,
         }
     }
 }

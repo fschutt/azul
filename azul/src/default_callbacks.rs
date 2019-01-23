@@ -187,7 +187,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use {
-    dom::{UpdateScreen},
+    dom::{UpdateScreen, DontRedraw},
     traits::Layout,
 };
 
@@ -273,7 +273,7 @@ impl<T: Layout> DefaultCallbackSystem<T> {
             #[cfg(feature = "logging")] {
                 warn!("Calling default callback with invalid ID {:?}", callback_id);
             }
-            UpdateScreen::DontRedraw
+            DontRedraw
         }
     }
 

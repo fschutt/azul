@@ -5,7 +5,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 use {
-    dom::UpdateScreen,
+    dom::{UpdateScreen, DontRedraw},
     app_resources::AppResources,
 };
 
@@ -129,13 +129,13 @@ impl<T> Daemon<T> {
         // Check if the daemons timeout is reached
         if let Some(max_timeout) = self.max_timeout {
             if Instant::now() - self.created > max_timeout {
-                return (UpdateScreen::DontRedraw, TerminateDaemon::Terminate);
+                return (DontRedraw, TerminateDaemon::Terminate);
             }
         }
 
         if let Some(run_every) = self.run_every {
             if Instant::now() - self.last_run < run_every {
-                return (UpdateScreen::DontRedraw, TerminateDaemon::Continue);
+                return (DontRedraw, TerminateDaemon::Continue);
             }
         }
 

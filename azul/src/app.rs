@@ -2,6 +2,7 @@ use std::{
     mem,
     fmt,
     io::Read,
+    collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
 };
 #[cfg(debug_assertions)]
@@ -48,7 +49,7 @@ type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 /// Graphical application that maintains some kind of application state
 pub struct App<T: Layout> {
     /// The graphical windows, indexed by ID
-    windows: Vec<Window<T>>,
+    windows: BTreeMap<WindowId, Window<T>>,
     /// The global application state
     pub app_state: AppState<T>,
 }
@@ -62,6 +63,7 @@ pub enum RuntimeError<T: Layout> {
     GlSwapError(SwapBuffersError),
     ArcUnlockError,
     MutexPoisonError(PoisonError<T>),
+    WindowIndexError,
 }
 
 impl<T: Layout> From<PoisonError<T>> for RuntimeError<T> {
@@ -80,10 +82,16 @@ impl<T: Layout> fmt::Debug for RuntimeError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RuntimeError::*;
         match self {
-            GlSwapError(e) => write!(f, "RuntimeError::GlSwapError({:?})", e),
-            ArcUnlockError => write!(f, "RuntimeError::ArcUnlockError"),
-            MutexPoisonError(e) => write!(f, "RuntimeError::MutexPoisonError({:?})", e),
+            GlSwapError(e) => write!(f, "Internal runtime error: Failed to swap GL display: {}", e),
+            ArcUnlockError => write!(f, "Internal runtime error: failed to unlock arc on application shutdown"),
+            MutexPoisonError(e) => write!(f, "Internal runtime error: Mutex poisoned (thread panicked unexpectedly): {}", e),
+            WindowIndexError => write!(f, "Internal runtime error: invalid window index"),
         }
+    }
+}
+impl<T: Layout> fmt::Display for RuntimeError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self))
     }
 }
 
@@ -169,7 +177,7 @@ impl<T: Layout> App<T> {
         }
 
         Self {
-            windows: Vec::new(),
+            windows: BTreeMap::new(),
             app_state: AppState::new(initial_data),
         }
     }
@@ -180,15 +188,15 @@ impl<T: Layout> App<T> {
     pub fn push_window(&mut self, window: Window<T>) {
         use default_callbacks::DefaultCallbackSystem;
 
-        // TODO: push_window doesn't work dynamically!
-
-        self.app_state.windows.push(FakeWindow {
+        let window_id = window.id;
+        let fake_window = FakeWindow {
             state: window.state.clone(),
             default_callbacks: DefaultCallbackSystem::new(),
             read_only_window: window.display.clone(),
-        });
+        };
 
-        self.windows.push(window);
+        self.app_state.windows.insert(window_id, fake_window);
+        self.windows.insert(window_id, window);
     }
 
     /// Start the rendering loop for the currently open windows
@@ -232,11 +240,26 @@ impl<T: Layout> App<T> {
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
 
         use std::{thread, time::{Duration, Instant}};
+        use dom::Redraw;
 
-        let mut ui_state_cache = Self::initialize_ui_state(&self.windows, &mut self.app_state);
-        let mut ui_description_cache = vec![UiDescription::default(); self.windows.len()];
-        let mut force_redraw_cache = vec![1_usize; self.windows.len()];
-        let mut awakened_task = vec![false; self.windows.len()];
+        let mut ui_state_cache = {
+            let windows = &self.windows;
+            let app_state = &mut self.app_state;
+            let mut ui_state_map = BTreeMap::new();
+            for window_id in self.windows.keys() {
+              ui_state_map.insert(*window_id, UiState::from_app_state(app_state, window_id)?);
+            }
+            ui_state_map
+        };
+        let mut ui_description_cache = self.windows.keys().map(|window_id| {
+            (*window_id, UiDescription::default())
+        }).collect();
+        let mut force_redraw_cache = self.windows.keys().map(|window_id| {
+            (*window_id, 1)
+        }).collect();
+        let mut awakened_task = self.windows.keys().map(|window_id| {
+            (*window_id, false)
+        }).collect();
 
         #[cfg(debug_assertions)]
         let mut last_style_reload = Instant::now();
@@ -246,134 +269,50 @@ impl<T: Layout> App<T> {
         while !self.windows.is_empty() {
 
             let time_start = Instant::now();
-            let mut closed_windows = Vec::<usize>::new();
-
+            let mut closed_windows = Vec::<WindowId>::new();
             let mut frame_was_resize = false;
 
-            'window_loop: for (idx, window) in self.windows.iter_mut().enumerate() {
+            'window_loop: for (window_id, mut window) in self.windows.iter_mut() {
+                let (event_was_resize, window_was_closed) =
+                render_single_window_content(
+                    &mut window,
+                    &window_id,
+                    &mut self.app_state,
+                    &mut ui_state_cache,
+                    &mut ui_description_cache,
+                    &mut force_redraw_cache,
+                    &mut awakened_task,
+                )?;
 
-                let window_id = WindowId { id: idx };
-                let mut frame_event_info = FrameEventInfo::default();
-
-                let mut events = Vec::new();
-                window.events_loop.poll_events(|e| events.push(e));
-                if events.is_empty() {
-                    continue 'window_loop;
-                }
-
-                for event in &events {
-                    if preprocess_event(event, &mut frame_event_info, awakened_task[idx]) == WindowCloseEvent::AboutToClose {
-                        closed_windows.push(idx);
-                        continue 'window_loop;
-                    }
-                    window.state.update_mouse_cursor_position(event);
-                    window.state.update_scroll_state(event);
-                    window.state.update_keyboard_modifiers(event);
-                    window.state.update_keyboard_pressed_chars(event);
-                    window.state.update_misc_events(event);
-                }
-
-                let mut hit_test_results = None;
-
-                if frame_event_info.should_hittest {
-                    for event in &events {
-                        hit_test_results = do_hit_test(&window);
-                        call_callbacks(
-                            hit_test_results.as_ref(),
-                            event,
-                            window,
-                            window_id,
-                            &mut frame_event_info,
-                            &ui_state_cache,
-                            &mut self.app_state
-                        );
-                    }
-                }
-
-                // Scroll for the scrolled amount for each node that registered a scroll state.
-                render_on_scroll(window, hit_test_results, &frame_event_info);
-
-                if frame_event_info.should_swap_window || frame_event_info.is_resize_event || force_redraw_cache[idx] > 0 {
-                    window.display.swap_buffers()?;
-                    if let Some(i) = force_redraw_cache.get_mut(idx) {
-                        if *i > 0 { *i -= 1 };
-                        if *i == 0 {
-                            clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
-                        }
-                    }
-                }
-
-                if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
-                    // This is a hack because during a resize event, winit eats the "awakened"
-                    // event. So what we do is that we call the layout-and-render again, to
-                    // trigger a second "awakened" event. So when the window is resized, the
-                    // layout function is called twice (the first event will be eaten by winit)
-                    //
-                    // This is a reported bug and should be fixed somewhere in July
-                    force_redraw_cache[idx] = 2;
+                if event_was_resize {
                     frame_was_resize = true;
                 }
-
-                // Update the window state that we got from the frame event (updates window dimensions and DPI)
-                window.update_from_external_window_state(&mut frame_event_info);
-                // Update the window state every frame that was set by the user
-                window.update_from_user_window_state(self.app_state.windows[idx].state.clone());
-                // Reset the scroll amount to 0 (for the next frame)
-                window.clear_scroll_state();
-
-                if frame_event_info.should_redraw_window || force_redraw_cache[idx] > 0 {
-
-                    // Call the Layout::layout() fn, get the DOM
-                    let window_id = WindowId { id: idx };
-                    ui_state_cache[idx] = UiState::from_app_state(&mut self.app_state, window_id);
-
-                    // Style the DOM (is_mouse_down, etc. necessary for styling :hover, :active + :focus nodes)
-                    let is_mouse_down = window.state.mouse_state.left_down      ||
-                                        window.state.mouse_state.middle_down    ||
-                                        window.state.mouse_state.right_down;
-
-                    ui_description_cache[idx] = UiDescription::match_css_to_dom(
-                        &mut ui_state_cache[idx],
-                        &window.css,
-                        window.state.focused_node,
-                        &window.state.hovered_nodes,
-                        is_mouse_down,
-                    );
-
-                    // render the window (webrender will send an Awakened event when the frame is done)
-                    let arc_mutex_t_clone = self.app_state.data.clone();
-
-                    render(
-                        arc_mutex_t_clone,
-                        &ui_description_cache[idx],
-                        &ui_state_cache[idx],
-                        &mut *window,
-                        &mut self.app_state.windows[idx],
-                        &mut self.app_state.resources);
-
-                    awakened_task[idx] = false;
+                if window_was_closed {
+                    closed_windows.push(*window_id);
                 }
+
             }
 
             #[cfg(debug_assertions)] {
-                hot_reload_css(&mut self.windows, &mut last_style_reload, &mut should_print_css_error, &mut awakened_task)
+                hot_reload_css(&mut self.windows, &mut last_style_reload, &mut should_print_css_error, &mut awakened_task)?;
             }
 
             // Close windows if necessary
             closed_windows.into_iter().for_each(|closed_window_id| {
-                ui_state_cache.remove(closed_window_id);
-                ui_description_cache.remove(closed_window_id);
-                force_redraw_cache.remove(closed_window_id);
-                self.windows.remove(closed_window_id);
+                ui_state_cache.remove(&closed_window_id);
+                ui_description_cache.remove(&closed_window_id);
+                force_redraw_cache.remove(&closed_window_id);
+                self.windows.remove(&closed_window_id);
             });
 
             let should_redraw_daemons = self.app_state.run_all_daemons();
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
 
-
-            if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == UpdateScreen::Redraw) {
-                self.windows.iter().for_each(|w| w.events_loop.create_proxy().wakeup().unwrap_or(()));
-                awakened_task = vec![true; self.windows.len()];
+            if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == Redraw) {
+                self.windows.iter().for_each(|(_, window)| window.events_loop.create_proxy().wakeup().unwrap_or(()));
+                awakened_task = self.windows.keys().map(|window_id| {
+                    (*window_id, true)
+                }).collect();
             } else if !frame_was_resize {
                 // Wait until 16ms have passed, but not during a resize event
                 let diff = time_start.elapsed();
@@ -385,15 +324,6 @@ impl<T: Layout> App<T> {
         }
 
         Ok(())
-    }
-
-    fn initialize_ui_state(windows: &[Window<T>], app_state: &mut AppState<T>)
-    -> Vec<UiState<T>>
-    {
-        windows.iter().enumerate().map(|(idx, _window)| {
-            let window_id = WindowId { id: idx };
-            UiState::from_app_state(app_state, window_id)
-        }).collect()
     }
 
     /// Add an image to the internal resources. Only available with
@@ -547,21 +477,136 @@ impl<T: Layout + Send + 'static> App<T> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum WindowCloseEvent {
-    AboutToClose,
-    NoCloseEvent,
+/// Render the contents of one single window. Returns
+/// (if the event was a resize event, if the window was closed)
+fn render_single_window_content<T: Layout>(
+    window: &mut Window<T>,
+    window_id: &WindowId,
+    app_state: &mut AppState<T>,
+    ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
+    ui_description_cache: &mut BTreeMap<WindowId, UiDescription<T>>,
+    force_redraw_cache: &mut BTreeMap<WindowId, usize>,
+    awakened_task: &mut BTreeMap<WindowId, bool>,
+) -> Result<(bool, bool), RuntimeError<T>>
+{
+    use dom::Redraw;
+    use self::RuntimeError::*;
+
+    let mut frame_was_resize = false;
+
+    let mut events = Vec::new();
+    window.events_loop.poll_events(|e| events.push(e));
+    if events.is_empty() {
+        return Ok((frame_was_resize, false));
+    }
+
+    let (mut frame_event_info, window_should_close) =
+        window.state.update_window_state(&events, awakened_task[window_id]);
+
+    if window_should_close {
+        return Ok((frame_was_resize, true));
+    }
+
+    let mut hit_test_results = None;
+
+    if frame_event_info.should_hittest {
+        for event in &events {
+            hit_test_results = do_hit_test(&window);
+            if call_callbacks(
+                hit_test_results.as_ref(),
+                event,
+                window,
+                &window_id,
+                &ui_state_cache[&window_id],
+                app_state
+            )? == Redraw {
+                frame_event_info.should_redraw_window = true;
+            }
+        }
+    }
+
+    // Scroll for the scrolled amount for each node that registered a scroll state.
+    render_on_scroll(window, hit_test_results, &frame_event_info);
+
+    if frame_event_info.should_swap_window || frame_event_info.is_resize_event || force_redraw_cache[window_id] > 0 {
+        window.display.swap_buffers()?;
+        if let Some(i) = force_redraw_cache.get_mut(window_id) {
+            if *i > 0 { *i -= 1 };
+            if *i == 0 {
+                clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
+            }
+        }
+    }
+
+    if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
+        // This is a hack because during a resize event, winit eats the "awakened"
+        // event. So what we do is that we call the layout-and-render again, to
+        // trigger a second "awakened" event. So when the window is resized, the
+        // layout function is called twice (the first event will be eaten by winit)
+        //
+        // This is a reported bug and should be fixed somewhere in July
+        *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
+        frame_was_resize = true;
+    }
+
+    // Update the window state that we got from the frame event (updates window dimensions and DPI)
+    // Sets frame_event_info.needs redraw if the event was a
+    window.update_from_external_window_state(&frame_event_info);
+    // Update the window state every frame that was set by the user
+    window.update_from_user_window_state(app_state.windows[&window_id].state.clone());
+    // Reset the scroll amount to 0 (for the next frame)
+    window.clear_scroll_state();
+
+    if frame_event_info.should_redraw_window || force_redraw_cache[window_id] > 0 {
+
+        // Call the Layout::layout() fn, get the DOM
+        *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
+            UiState::from_app_state(app_state, window_id)?;
+
+        // Style the DOM (is_mouse_down, etc. necessary for styling :hover, :active + :focus nodes)
+        let is_mouse_down = window.state.mouse_state.left_down      ||
+                            window.state.mouse_state.middle_down    ||
+                            window.state.mouse_state.right_down;
+
+        *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? = {
+            let mut ui_state = ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?;
+            UiDescription::match_css_to_dom(
+            &mut ui_state,
+            &window.css,
+            window.state.focused_node,
+            &window.state.hovered_nodes,
+            is_mouse_down,
+        )};
+
+        // render the window (webrender will send an Awakened event when the frame is done)
+        let arc_mutex_t_clone = app_state.data.clone();
+        let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
+        render(
+            arc_mutex_t_clone,
+            &ui_description_cache[window_id],
+            &ui_state_cache[window_id],
+            &mut *window,
+            &mut fake_window,
+            &mut app_state.resources);
+
+        *awakened_task.get_mut(window_id).ok_or(WindowIndexError)? = false;
+    }
+
+    // Window should not close
+    Ok((frame_was_resize, false))
 }
 
 /// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
 #[cfg(debug_assertions)]
 fn hot_reload_css<T: Layout>(
-    windows: &mut [Window<T>],
+    windows: &mut BTreeMap<WindowId, Window<T>>,
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
-    awakened_tasks: &mut [bool])
+    awakened_tasks: &mut BTreeMap<WindowId, bool>)
+-> Result<(), RuntimeError<T>>
 {
-    for (window_idx, window) in windows.iter_mut().enumerate() {
+    use self::RuntimeError::*;
+    for (window_id, window) in windows.iter_mut() {
         // Hot-reload a style if necessary
         let hot_reloader = match window.css_loader.as_mut() {
             None => continue,
@@ -571,7 +616,7 @@ fn hot_reload_css<T: Layout>(
         let should_reload = Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
 
         if !should_reload {
-            return;
+            return Ok(());
         }
 
         match hot_reloader.reload_style() {
@@ -579,11 +624,12 @@ fn hot_reload_css<T: Layout>(
                 new_css.sort_by_specificity();
                 window.css = new_css;
                 if !(*should_print_error) {
-                    println!("CSS parsed without errors, continuing hot-reloading.");
+                    println!("--- OK: CSS parsed without errors, continuing hot-reload.");
                 }
                 *last_style_reload = Instant::now();
                 window.events_loop.create_proxy().wakeup().unwrap_or(());
-                awakened_tasks[window_idx]  = true;
+                *awakened_tasks.get_mut(window_id).ok_or(WindowIndexError)? = true;
+
                 *should_print_error = true;
             },
             Err(why) => {
@@ -594,61 +640,8 @@ fn hot_reload_css<T: Layout>(
             },
         };
     }
-}
 
-/// Pre-filters any events that are not handled by the framework yet, since it would be wasteful
-/// to process them. Modifies the `frame_event_info`
-///
-/// `awakened_task` is a special field that should be set to true if the `Task`
-/// system fired a `WindowEvent::Awakened`.
-fn preprocess_event(event: &Event, frame_event_info: &mut FrameEventInfo, awakened_task: bool) -> WindowCloseEvent {
-    use glium::glutin::WindowEvent;
-
-    match event {
-        Event::WindowEvent { event, .. } => {
-            match event {
-                WindowEvent::CursorMoved { position, .. } => {
-                    frame_event_info.should_hittest = true;
-                    frame_event_info.cur_cursor_pos = *position;
-                },
-                WindowEvent::Resized(wh) => {
-                    frame_event_info.new_window_size = Some(*wh);
-                    frame_event_info.is_resize_event = true;
-                    frame_event_info.should_redraw_window = true;
-                },
-                WindowEvent::Refresh => {
-                    frame_event_info.should_redraw_window = true;
-                },
-                WindowEvent::HiDpiFactorChanged(dpi) => {
-                    frame_event_info.new_dpi_factor = Some(*dpi);
-                    frame_event_info.should_redraw_window = true;
-                },
-                WindowEvent::CloseRequested => {
-                    return WindowCloseEvent::AboutToClose;
-                },
-                WindowEvent::Destroyed => {
-                    return WindowCloseEvent::AboutToClose;
-                },
-                WindowEvent::KeyboardInput { .. } |
-                WindowEvent::ReceivedCharacter(_) |
-                WindowEvent::MouseWheel { .. } |
-                WindowEvent::MouseInput { .. } |
-                WindowEvent::Touch(_) => {
-                    frame_event_info.should_hittest = true;
-                },
-                _ => { },
-            }
-        },
-        Event::Awakened => {
-            frame_event_info.should_swap_window = true;
-            if awakened_task {
-                frame_event_info.should_redraw_window = true;
-            }
-        },
-        _ => { },
-    }
-
-    WindowCloseEvent::NoCloseEvent
+    Ok(())
 }
 
 /// Returns the currently hit-tested results, in back-to-front order
@@ -672,29 +665,33 @@ fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
     Some(hit_test_results)
 }
 
+/// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
 fn call_callbacks<T: Layout>(
     hit_test_results: Option<&HitTestResult>,
     event: &Event,
     window: &mut Window<T>,
-    window_id: WindowId,
-    info: &mut FrameEventInfo,
-    ui_state_cache: &[UiState<T>],
+    window_id: &WindowId,
+    ui_state: &UiState<T>,
     app_state: &mut AppState<T>)
+-> Result<UpdateScreen, RuntimeError<T>>
 {
     use app_state::AppStateNoData;
     use window::WindowEvent;
-    use dom::UpdateScreen;
+    use dom::{Redraw, DontRedraw};
     use window_state::{KeyboardState, MouseState};
+    use self::RuntimeError::*;
 
-    let mut should_update_screen = UpdateScreen::DontRedraw;
+    let mut should_update_screen = DontRedraw;
 
     let hit_test_items = hit_test_results.map(|h| h.items.clone()).unwrap_or_default();
 
-    let callbacks_filter_list = window.state.determine_callbacks(&hit_test_items, event, &ui_state_cache[window_id.id]);
+    let callbacks_filter_list = window.state.determine_callbacks(&hit_test_items, event, ui_state);
 
     // TODO: this should be refactored - currently very stateful and error-prone!
-    app_state.windows[window_id.id].set_keyboard_state(&window.state.keyboard_state);
-    app_state.windows[window_id.id].set_mouse_state(&window.state.mouse_state);
+    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
+        .set_keyboard_state(&window.state.keyboard_state);
+    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
+        .set_mouse_state(&window.state.mouse_state);
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
     {
@@ -704,9 +701,9 @@ fn call_callbacks<T: Layout>(
             for default_callback_id in callback_results.default_callbacks.values() {
 
                 let window_event = WindowEvent {
-                    window: window_id.id,
+                    window_id,
                     hit_dom_node: *node_id,
-                    ui_state: &ui_state_cache[window_id.id],
+                    ui_state,
                     hit_test_items: &hit_test_items,
                     cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
                     cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
@@ -718,8 +715,9 @@ fn call_callbacks<T: Layout>(
                 };
 
                 // safe unwrap, we have added the callback previously
-                if app_state.windows[window_id.id].default_callbacks.run_callback(&mut *lock, default_callback_id, app_state_no_data, window_event) == UpdateScreen::Redraw {
-                    should_update_screen = UpdateScreen::Redraw;
+                if app_state.windows[window_id].default_callbacks
+                    .run_callback(&mut *lock, default_callback_id, app_state_no_data, window_event) == Redraw {
+                    should_update_screen = Redraw;
                 }
             }
         }
@@ -730,30 +728,30 @@ fn call_callbacks<T: Layout>(
         for callback in callback_results.normal_callbacks.values() {
 
             let window_event = WindowEvent {
-                window: window_id.id,
+                window_id,
                 hit_dom_node: *node_id,
-                ui_state: &ui_state_cache[window_id.id],
+                ui_state: &ui_state,
                 hit_test_items: &hit_test_items,
                 cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
                 cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
             };
 
-            if (callback.0)(app_state, window_event) == UpdateScreen::Redraw {
-                should_update_screen = UpdateScreen::Redraw;
+            if (callback.0)(app_state, window_event) == Redraw {
+                should_update_screen = Redraw;
             }
         }
     }
 
     if callbacks_filter_list.needs_redraw_anyways {
-        should_update_screen = UpdateScreen::Redraw;
+        should_update_screen = Redraw;
     }
 
-    app_state.windows[window_id.id].set_keyboard_state(&KeyboardState::default());
-    app_state.windows[window_id.id].set_mouse_state(&MouseState::default());
+    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
+        .set_keyboard_state(&KeyboardState::default());
+    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
+        .set_mouse_state(&MouseState::default());
 
-    if should_update_screen == UpdateScreen::Redraw {
-        info.should_redraw_window = true;
-    }
+    Ok(should_update_screen)
 }
 
 fn render<T: Layout>(
