@@ -208,7 +208,7 @@ pub mod prelude {
     pub use app_resources::{AppResources, RawImageFormat};
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
-    pub use text_layout::TextLayoutOptions;
+    pub use text_layout::{TextLayoutOptions, GlyphInstance};
 
     #[cfg(any(feature = "css-parser", feature = "native-style"))]
     pub use css;
