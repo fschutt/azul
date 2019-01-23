@@ -69,7 +69,7 @@ impl Layout for DataModel {
 // View updates Model
 fn update_counter(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataModel>) -> UpdateScreen {
     app_state.data.modify(|state| state.counter += 1);
-    UpdateScreen::Redraw
+    Redraw
 }
 
 fn main() {
@@ -150,7 +150,7 @@ impl Layout for DataModel {
 
 fn print_text_field(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataModel>) -> UpdateScreen {
     println!("You've typed: {}", app_state.data.lock().unwrap().text_input.text);
-    UpdateScreen::DontRedraw
+    DontRedraw
 }
 ```
 
