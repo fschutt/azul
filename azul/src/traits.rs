@@ -36,14 +36,18 @@ pub trait Layout {
 pub trait Modify<T> {
     /// Modifies the app state and then returns if the modification was successful
     /// Takes a FnMut that modifies the state
-    fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T);
+    fn modify<F>(&self, closure: F) -> Option<()> where F: FnOnce(&mut T);
+    fn modify_clone<F, S>(&self, closure: F) -> Option<S> where F: FnOnce(&mut T) -> S {
+        let mut initial: Option<S> = None;
+        self.modify(|lock| initial = Some(closure(lock)))?;
+        initial
+    }
 }
 
 impl<T> Modify<T> for Arc<Mutex<T>> {
-    fn modify<F>(&self, closure: F) -> bool where F: FnOnce(&mut T) {
-        match self.lock().as_mut() {
-            Ok(lock) => { closure(&mut *lock); true },
-            Err(_) => false,
-        }
+    fn modify<F>(&self, closure: F) -> Option<()> where F: FnOnce(&mut T) {
+        let mut lock = self.lock().ok()?;
+        closure(&mut *lock);
+        Some(())
     }
 }
