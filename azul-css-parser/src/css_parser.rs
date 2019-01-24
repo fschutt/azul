@@ -14,6 +14,7 @@ use azul_css::{
     GradientStopPre, RadialGradient, StyleBackgroundColor, StyleBackgroundSize, StyleBackgroundRepeat,
     DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradient,
     BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
+    BackgroundType,
 
     SizeMetric, BoxShadowClipMode, ExtendMode, FontId,
 };
@@ -233,6 +234,7 @@ pub enum CssColorComponent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssColorParseError<'a> {
     InvalidColor(&'a str),
+    InvalidFunctionName(&'a str),
     InvalidColorComponent(u8),
     IntValueParseErr(ParseIntError),
     FloatValueParseErr(ParseFloatError),
@@ -240,9 +242,10 @@ pub enum CssColorParseError<'a> {
     MissingColorComponent(CssColorComponent),
     ExtraArguments(&'a str),
     UnclosedColor(&'a str),
+    EmptyInput,
     DirectionParseError(CssDirectionParseError<'a>),
     UnsupportedDirection(&'a str),
-    InvalidPercentage(&'a str),
+    InvalidPercentage(PercentageParseError),
 }
 
 impl<'a> fmt::Display for CssColorParseError<'a> {
@@ -250,12 +253,14 @@ impl<'a> fmt::Display for CssColorParseError<'a> {
         use self::CssColorParseError::*;
         match self {
             InvalidColor(i) => write!(f, "Invalid CSS color: \"{}\"", i),
+            InvalidFunctionName(i) => write!(f, "Invalid function name, expected one of: \"rgb\", \"rgba\", \"hsl\", \"hsla\" got: \"{}\"", i),
             InvalidColorComponent(i) => write!(f, "Invalid color component when parsing CSS color: \"{}\"", i),
             IntValueParseErr(e) => write!(f, "CSS color component: Value not in range between 00 - FF: \"{}\"", e),
             FloatValueParseErr(e) => write!(f, "CSS color component: Value cannot be parsed as floating point number: \"{}\"", e),
             FloatValueOutOfRange(v) => write!(f, "CSS color component: Value not in range between 0.0 - 1.0: \"{}\"", v),
             MissingColorComponent(c) => write!(f, "CSS color is missing {:?} component", c),
             ExtraArguments(a) => write!(f, "Extra argument to CSS color: \"{}\"", a),
+            EmptyInput => write!(f, "Empty color string."),
             UnclosedColor(i) => write!(f, "Unclosed color: \"{}\"", i),
             DirectionParseError(e) => write!(f, "Could not parse direction argument for CSS color: \"{}\"", e),
             UnsupportedDirection(d) => write!(f, "Unsupported direction type for CSS color: \"{}\"", d),
@@ -439,10 +444,14 @@ pub fn parse_pixel_value<'a>(input: &'a str)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PercentageParseError {
     ValueParseErr(ParseFloatError),
+    NoPercentSign
 }
 
+impl_from!(ParseFloatError, PercentageParseError::ValueParseErr);
+
 impl_display! { PercentageParseError, {
-    ValueParseErr(e) => format!("Could not parse percentage value: \"{}\"", e),
+    ValueParseErr(e) => format!("\"{}\"", e),
+    NoPercentSign => format!("No percent sign after number"),
 }}
 
 // Parse "1.2" or "120%" (similar to parse_pixel_value)
@@ -475,34 +484,30 @@ pub fn parse_percentage_value(input: &str)
 pub fn parse_css_color<'a>(input: &'a str)
 -> Result<ColorU, CssColorParseError<'a>>
 {
+    let input = input.trim();
     if input.starts_with('#') {
         parse_color_no_hash(&input[1..])
-    } else if input.starts_with("rgba(") {
-        if input.ends_with(")") {
-            parse_color_rgb(&input[5..input.len()-1], true)
-        } else {
-            Err(CssColorParseError::UnclosedColor(input))
-        }
-    } else if input.starts_with("rgb(") {
-        if input.ends_with(")") {
-            parse_color_rgb(&input[4..input.len()-1], false)
-        } else {
-            Err(CssColorParseError::UnclosedColor(input))
-        }
-    } else if input.starts_with("hsla(") {
-        if input.ends_with(")") {
-            parse_color_hsl(&input[5..input.len()-1], true)
-        } else {
-            Err(CssColorParseError::UnclosedColor(input))
-        }
-    } else if input.starts_with("hsl(") {
-        if input.ends_with(")") {
-            parse_color_hsl(&input[4..input.len()-1], false)
-        } else {
-            Err(CssColorParseError::UnclosedColor(input))
-        }
     } else {
-        parse_color_builtin(input)
+        use self::ParenthesisParseError::*;
+
+        match parse_parentheses(input, &["rgba", "rgb", "hsla", "hsl"]) {
+            Ok((stopword, inner_value)) => {
+                match stopword {
+                    "rgba" => parse_color_rgb(inner_value, true),
+                    "rgb" => parse_color_rgb(inner_value, false),
+                    "hsla" => parse_color_hsl(inner_value, true),
+                    "hsl" => parse_color_hsl(inner_value, false),
+                    _ => unreachable!(),
+                }
+            },
+            Err(e) => match e {
+                UnclosedBraces => Err(CssColorParseError::UnclosedColor(input)),
+                EmptyInput => Err(CssColorParseError::EmptyInput),
+                StopWordNotFound(stopword) => Err(CssColorParseError::InvalidFunctionName(stopword)),
+                NoClosingBraceFound => Err(CssColorParseError::UnclosedColor(input)),
+                NoOpeningBraceFound => parse_color_builtin(input),
+            },
+        }
     }
 }
 
@@ -771,9 +776,10 @@ pub fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
         if c.is_empty() {
             return Err(CssColorParseError::MissingColorComponent(which));
         }
-        parse_percentage(c)
-            .ok_or(CssColorParseError::InvalidPercentage(c))
-            .and_then(|p| Ok(p.get()))
+
+        let parsed_percent = parse_percentage(c).map_err(|e| CssColorParseError::InvalidPercentage(e))?;
+
+        Ok(parsed_percent.get())
     }
 
     /// Adapted from [https://en.wikipedia.org/wiki/HSL_and_HSV#Converting_to_RGB]
@@ -792,7 +798,6 @@ pub fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
             4 => (x, 0.0, c),
             5 => (c, 0.0, x),
             _ => {
-                println!("h is {}", h);
                 unreachable!();
             }
         };
@@ -1199,7 +1204,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssBackgroundParseError<'a> {
     Error(&'a str),
-    InvalidBackground(&'a str),
+    InvalidBackground(ParenthesisParseError<'a>),
     UnclosedGradient(&'a str),
     NoDirection(&'a str),
     TooFewGradientStops(&'a str),
@@ -1211,7 +1216,7 @@ pub enum CssBackgroundParseError<'a> {
 
 impl_display!{ CssBackgroundParseError<'a>, {
     Error(e) => e,
-    InvalidBackground(val) => format!("Invalid value: \"{}\"", val),
+    InvalidBackground(val) => format!("Invalid background value: \"{}\"", val),
     UnclosedGradient(val) => format!("Unclosed gradient: \"{}\"", val),
     NoDirection(val) => format!("Gradient has no direction: \"{}\"", val),
     TooFewGradientStops(val) => format!("Too few gradient-stops: \"{}\"", val),
@@ -1221,6 +1226,7 @@ impl_display!{ CssBackgroundParseError<'a>, {
     ImageParseError(e) => format!("Image parse error: {}", e),
 }}
 
+impl_from!(ParenthesisParseError<'a>, CssBackgroundParseError::InvalidBackground);
 impl_from!(CssDirectionParseError<'a>, CssBackgroundParseError::DirectionParseError);
 impl_from!(CssGradientStopParseError<'a>, CssBackgroundParseError::GradientParseError);
 impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
@@ -1230,44 +1236,92 @@ impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 pub fn parse_style_background<'a>(input: &'a str)
 -> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
-    use azul_css::BackgroundType;
+    let (background_type, brace_contents) = parse_parentheses(input, &[
+        "none", "linear-gradient", "repeating-linear-gradient",
+        "radial-gradient", "repeating-radial-gradient", "image"
+    ])?;
 
-    let mut input_iter = input.splitn(2, "(");
-    let first_item = input_iter.next();
-
-    let background_type = match first_item {
-        Some("none") => { return Ok(StyleBackground::NoBackground); },
-        Some("linear-gradient") => BackgroundType::LinearGradient,
-        Some("repeating-linear-gradient") => BackgroundType::RepeatingLinearGradient,
-        Some("radial-gradient") => BackgroundType::RadialGradient,
-        Some("repeating-radial-gradient") => BackgroundType::RepeatingRadialGradient,
-        Some("image") => BackgroundType::Image,
-        _ => { return Err(CssBackgroundParseError::InvalidBackground(first_item.unwrap())); } // failure here
+    let background_type = match background_type {
+        "none" => { return Ok(StyleBackground::NoBackground); },
+        "linear-gradient" => BackgroundType::LinearGradient,
+        "repeating-linear-gradient" => BackgroundType::RepeatingLinearGradient,
+        "radial-gradient" => BackgroundType::RadialGradient,
+        "repeating-radial-gradient" => BackgroundType::RepeatingRadialGradient,
+        "image" => BackgroundType::Image,
+        _ => unreachable!(),
     };
 
-    let next_item = match input_iter.next() {
-        Some(s) => { s },
-        None => return Err(CssBackgroundParseError::InvalidBackground(input)),
-    };
+    parse_gradient(brace_contents, background_type)
+}
 
-    let mut brace_iter = next_item.rsplitn(2, ')');
-    brace_iter.next(); // important
-    let brace_contents = brace_iter.clone().next();
+/// Given a string, returns how many characters need to be skipped
+fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
 
-    if brace_contents.is_none() {
-        // invalid or empty brace
-        return Err(CssBackgroundParseError::UnclosedGradient(input));
+    let mut depth = 0;
+    let mut last_character = 0;
+    let mut character_was_found = false;
+
+    if input.is_empty() {
+        return None;
     }
 
-    // brace_contents contains "red, yellow, etc"
-    let brace_contents = brace_contents.unwrap();
+    for (idx, ch) in input.char_indices() {
+        last_character = idx;
+        match ch {
+            '(' => { depth += 1; },
+            ')' => { depth -= 1; },
+            c => {
+                if c == target_char && depth == 0 {
+                    character_was_found = true;
+                    break;
+                }
+            },
+        }
+    }
+
+    if last_character == 0 {
+        // No more split by `,`
+        None
+    } else {
+        Some((last_character, character_was_found))
+    }
+}
+
+// parses a single gradient such as "to right, 50px"
+pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
+-> Result<StyleBackground, CssBackgroundParseError<'a>>
+{
+    let input = input.trim();
+
     if background_type == BackgroundType::Image {
-        let image = parse_image(brace_contents)?;
+        let image = parse_image(input)?;
         return Ok(image.into());
     }
 
-    let mut brace_iterator = brace_contents.split(',');
+    // Splittin the input by "," doesn't work since rgba() might contain commas
+    let mut comma_separated_items = Vec::<&str>::new();
+    let mut current_input = &input[..];
 
+    'outer: loop {
+        let (skip_next_braces_result, character_was_found) =
+        match skip_next_braces(&current_input, ',') {
+            Some(s) => s,
+            None => break 'outer,
+        };
+        let new_push_item = if character_was_found {
+            &current_input[..skip_next_braces_result]
+        } else {
+            &current_input[..]
+        };
+        let new_current_input = &current_input[(skip_next_braces_result + 1)..];
+        comma_separated_items.push(new_push_item);
+        current_input = new_current_input;
+        if !character_was_found {
+            break 'outer;
+        }
+    }
+
+    let mut brace_iterator = comma_separated_items.iter();
     let mut gradient_stop_count = brace_iterator.clone().count();
 
     // "50deg", "to right bottom", etc.
@@ -1323,7 +1377,44 @@ pub fn parse_style_background<'a>(input: &'a str)
         color_stops.push(parse_gradient_stop(stop)?);
     }
 
-    // correct percentages
+    normalize_color_stops(&mut color_stops);
+
+    match background_type {
+        BackgroundType::LinearGradient => {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
+                direction: direction,
+                extend_mode: ExtendMode::Clamp,
+                stops: color_stops,
+            }))
+        },
+        BackgroundType::RepeatingLinearGradient => {
+            Ok(StyleBackground::LinearGradient(LinearGradient {
+                direction: direction,
+                extend_mode: ExtendMode::Repeat,
+                stops: color_stops,
+            }))
+        },
+        BackgroundType::RadialGradient => {
+            Ok(StyleBackground::RadialGradient(RadialGradient {
+                shape: shape,
+                extend_mode: ExtendMode::Clamp,
+                stops: color_stops,
+            }))
+        },
+        BackgroundType::RepeatingRadialGradient => {
+            Ok(StyleBackground::RadialGradient(RadialGradient {
+                shape: shape,
+                extend_mode: ExtendMode::Repeat,
+                stops: color_stops,
+            }))
+        },
+        BackgroundType::Image => unreachable!(),
+    }
+}
+
+// Normalize the percentages of the parsed color stops
+pub fn normalize_color_stops(color_stops: &mut Vec<GradientStopPre>) {
+
     let mut last_stop = PercentageValue::new(0.0);
     let mut increase_stop_cnt: Option<f32> = None;
 
@@ -1376,38 +1467,6 @@ pub fn parse_style_background<'a>(input: &'a str)
                 }
             }
         }
-    }
-
-    match background_type {
-        BackgroundType::LinearGradient => {
-            Ok(StyleBackground::LinearGradient(LinearGradient {
-                direction: direction,
-                extend_mode: ExtendMode::Clamp,
-                stops: color_stops,
-            }))
-        },
-        BackgroundType::RepeatingLinearGradient => {
-            Ok(StyleBackground::LinearGradient(LinearGradient {
-                direction: direction,
-                extend_mode: ExtendMode::Repeat,
-                stops: color_stops,
-            }))
-        },
-        BackgroundType::RadialGradient => {
-            Ok(StyleBackground::RadialGradient(RadialGradient {
-                shape: shape,
-                extend_mode: ExtendMode::Clamp,
-                stops: color_stops,
-            }))
-        },
-        BackgroundType::RepeatingRadialGradient => {
-            Ok(StyleBackground::RadialGradient(RadialGradient {
-                shape: shape,
-                extend_mode: ExtendMode::Repeat,
-                stops: color_stops,
-            }))
-        },
-        BackgroundType::Image => unreachable!(),
     }
 }
 
@@ -1462,40 +1521,64 @@ pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuo
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssGradientStopParseError<'a> {
     Error(&'a str),
+    Percentage(PercentageParseError),
     ColorParseError(CssColorParseError<'a>),
 }
 
 impl_display!{ CssGradientStopParseError<'a>, {
     Error(e) => e,
+    Percentage(e) => format!("Failed to parse offset percentage: {}", e),
     ColorParseError(e) => format!("{}", e),
 }}
+
+impl_from!(CssColorParseError<'a>, CssGradientStopParseError::ColorParseError);
+
 
 // parses "red" , "red 5%"
 pub fn parse_gradient_stop<'a>(input: &'a str)
 -> Result<GradientStopPre, CssGradientStopParseError<'a>>
 {
-    let mut input_iter = input.split_whitespace();
-    let first_item = input_iter.next().ok_or(CssGradientStopParseError::Error(input))?;
-    let color = parse_css_color(first_item).map_err(|e| CssGradientStopParseError::ColorParseError(e))?;
-    let second_item = match input_iter.next() {
-        None => return Ok(GradientStopPre { offset: None, color: color }),
-        Some(s) => s,
+    use self::CssGradientStopParseError::*;
+
+    let input = input.trim();
+
+    // If we'd split by whitespace left-to-right, then an input such as "rgba(0, 0, 0, 0) 40%, "
+    // wouldn't parse, since it would split at the first whitespace, independent of the parentheses,
+    // i.e. "rgba(0,". To fix that, we simply parse left-to-right.
+    let (color_str, percentage_str) = match input.rfind(char::is_whitespace) {
+        Some(last_whitespace) => {
+            if input[..last_whitespace].find('(').is_some() {
+                if input[..last_whitespace].find(')').is_some() {
+                    // rgba() with whitespace
+                    (&input[..last_whitespace], Some(&input[(last_whitespace + 1)..]))
+                } else {
+                    // rgba(), no percentage
+                    (&input[..last_whitespace], None)
+                }
+            } else {
+                // #abc + percentage_value
+                (&input[..last_whitespace], None)
+            }
+        },
+        None => (input, None) // #abc, no percentage value
     };
-    let percentage = parse_percentage(second_item);
-    Ok(GradientStopPre { offset: percentage, color: color })
+
+    let color = parse_css_color(color_str)?;
+    let offset = match percentage_str {
+        None => None,
+        Some(s) => Some(parse_percentage(s).map_err(|e| Percentage(e))?)
+    };
+
+    Ok(GradientStopPre { offset, color: color })
 }
 
 // parses "5%" -> 5
 pub fn parse_percentage(input: &str)
--> Option<PercentageValue>
+-> Result<PercentageValue, PercentageParseError>
 {
-    let mut input_iter = input.rsplitn(2, '%');
-    let perc = input_iter.next();
-    if perc.is_none() {
-        None
-    } else {
-        Some(PercentageValue::new(input_iter.next()?.parse::<f32>().ok()?))
-    }
+    let percent_location = input.rfind('%').ok_or(PercentageParseError::NoPercentSign)?;
+    let input = &input[..percent_location];
+    Ok(PercentageValue::new(input.parse::<f32>()?))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1783,6 +1866,68 @@ pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, Cs
     Ok(StyleFontFamily {
         fonts: fonts,
     })
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+pub enum ParenthesisParseError<'a> {
+    UnclosedBraces,
+    NoOpeningBraceFound,
+    NoClosingBraceFound,
+    StopWordNotFound(&'a str),
+    EmptyInput,
+}
+
+impl_display!{ ParenthesisParseError<'a>, {
+    UnclosedBraces => format!("Unclosed parenthesis"),
+    NoOpeningBraceFound => format!("Expected value in parenthesis (missing \"(\")"),
+    NoClosingBraceFound => format!("Missing closing parenthesis (missing \")\")"),
+    StopWordNotFound(e) => format!("Stopword not found, found: \"{}\"", e),
+    EmptyInput => format!("Empty parenthesis"),
+}}
+
+/// Checks wheter a given input is enclosed in parentheses, prefixed
+/// by a certain number of stopwords.
+///
+/// On success, returns what the stopword was + the string inside the braces
+/// on failure returns None.
+///
+/// ```rust
+/// # use azul_css_parser::parse_parentheses;
+/// # use azul_css_parser::ParenthesisParseError::*;
+/// // Search for the nearest "abc()" brace
+/// assert_eq!(parse_parentheses("abc(def(g))", &["abc"]), Ok(("abc", "def(g)")));
+/// assert_eq!(parse_parentheses("abc(def(g))", &["def"]), Err(StopWordNotFound("abc")));
+/// assert_eq!(parse_parentheses("def(ghi(j))", &["def"]), Ok(("def", "ghi(j)")));
+/// assert_eq!(parse_parentheses("abc(def(g))", &["abc", "def"]), Ok(("abc", "def(g)")));
+/// ```
+pub fn parse_parentheses<'a>(
+    input: &'a str,
+    stopwords: &[&'static str])
+-> Result<(&'static str, &'a str), ParenthesisParseError<'a>>
+{
+    use self::ParenthesisParseError::*;
+
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(EmptyInput);
+    }
+
+    let first_open_brace = input.find('(').ok_or(NoOpeningBraceFound)?;
+    let found_stopword = &input[..first_open_brace];
+
+    // CSS does not allow for space between the ( and the stopword, so no .trim() here
+    let mut validated_stopword = None;
+    for stopword in stopwords {
+        if found_stopword == *stopword {
+            validated_stopword = Some(stopword);
+            break;
+        }
+    }
+
+    let validated_stopword = validated_stopword.ok_or(StopWordNotFound(found_stopword))?;
+    let last_closing_brace = input.rfind(')').ok_or(NoClosingBraceFound)?;
+
+    Ok((validated_stopword, &input[(first_open_brace + 1)..last_closing_brace]))
 }
 
 multi_type_parser!(parse_style_cursor, StyleCursor,
@@ -2088,7 +2233,8 @@ mod css_tests {
                     offset: Some(PercentageValue::new(100.0)),
                     color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                 }],
-            })));
+            })
+        ));
     }
 
     #[test]
@@ -2125,11 +2271,29 @@ mod css_tests {
         })));
     }
 
+    #[test]
+    fn test_parse_linear_gradient_7() {
+        assert_eq!(parse_style_background("linear-gradient(to right, rgba(255,0, 0,1) 0%,rgba(0,0,0, 0) 100%)"),
+            Ok(StyleBackground::LinearGradient(LinearGradient {
+                direction: Direction::FromTo(DirectionCorner::Left, DirectionCorner::Right),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(PercentageValue::new(0.0)),
+                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(100.0)),
+                    color: ColorU { r: 0, g: 0, b: 0, a: 0 },
+                }],
+            })
+        ));
+    }
+
 /*  These tests currently fail because linear-gradient splits on commas, which are included in some
  *  kinds of css color specifiers.
 
     #[test]
-    fn test_parse_linear_gradient_7() {
+    fn test_parse_linear_gradient_8() {
         assert_eq!(parse_style_background("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(10.0)),
@@ -2364,12 +2528,12 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_color_28() {
-        assert_eq!(parse_css_color("hsla(240deg, 0, 0%, 0.5)"), Err(CssColorParseError::InvalidPercentage("0")));
+        assert_eq!(parse_css_color("hsla(240deg, 0, 0%, 0.5)"), Err(CssColorParseError::InvalidPercentage(PercentageParseError::NoPercentSign)));
     }
 
     #[test]
     fn test_parse_css_color_29() {
-        assert_eq!(parse_css_color("hsla(240deg, 0%, 0, 0.5)"), Err(CssColorParseError::InvalidPercentage("0")));
+        assert_eq!(parse_css_color("hsla(240deg, 0%, 0, 0.5)"), Err(CssColorParseError::InvalidPercentage(PercentageParseError::NoPercentSign)));
     }
 
     #[test]
