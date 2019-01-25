@@ -426,9 +426,9 @@ impl From<On> for EventFilter {
             MiddleMouseUp        => EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
             RightMouseUp         => EventFilter::Hover(HoverEventFilter::RightMouseUp),
 
-            MouseEnter           => EventFilter::Hover(HoverEventFilter::MouseOver),
-            MouseLeave           => EventFilter::Hover(HoverEventFilter::MouseOver),
-            Scroll               => EventFilter::Hover(HoverEventFilter::MouseOver),
+            MouseEnter           => EventFilter::Hover(HoverEventFilter::MouseEnter),
+            MouseLeave           => EventFilter::Hover(HoverEventFilter::MouseLeave),
+            Scroll               => EventFilter::Hover(HoverEventFilter::Scroll),
             TextInput            => EventFilter::Focus(FocusEventFilter::TextInput),            // focus!
             VirtualKeyDown       => EventFilter::Window(WindowEventFilter::VirtualKeyDown),     // window!
             VirtualKeyUp         => EventFilter::Window(WindowEventFilter::VirtualKeyUp),       // window!
