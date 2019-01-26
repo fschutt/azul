@@ -21,7 +21,7 @@ autoexamples = false
 azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
 azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
-azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "2e1783aa8f2217ba4882437ac85fd65477adfd08" }
+azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "055034bd642496cf91730a3fb4bcf3250da47772" }
 
 [features]
 # The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
