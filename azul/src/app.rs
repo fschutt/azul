@@ -704,8 +704,8 @@ fn call_callbacks<T: Layout>(
                     hit_dom_node: *node_id,
                     ui_state,
                     hit_test_items: &hit_test_items,
-                    cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
-                    cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
+                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
                 };
 
                 let app_state_no_data = AppStateNoData {
@@ -731,8 +731,8 @@ fn call_callbacks<T: Layout>(
                 hit_dom_node: *node_id,
                 ui_state: &ui_state,
                 hit_test_items: &hit_test_items,
-                cursor_relative_to_item: (hit_item.point_relative_to_item.x, hit_item.point_relative_to_item.y),
-                cursor_in_viewport: (hit_item.point_in_viewport.x, hit_item.point_in_viewport.y),
+                cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
             };
 
             if (callback.0)(app_state, window_event) == Redraw {

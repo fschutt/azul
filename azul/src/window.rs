@@ -217,9 +217,9 @@ pub struct WindowEvent<'a, T: 'a + Layout> {
     /// What items are currently being hit
     pub(crate) hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
-    pub cursor_relative_to_item: (f32, f32),
+    pub cursor_relative_to_item: Option<(f32, f32)>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    pub cursor_in_viewport: (f32, f32),
+    pub cursor_in_viewport: Option<(f32, f32)>,
 }
 
 impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
