@@ -43,16 +43,13 @@ pub struct UiState<T: Layout> {
     // There are two maps per event, one for the regular callbacks and one for
     // the default callbacks. This is done for consistency, since otherwise the
     // event filtering logic gets much more complicated than it already is.
-    //
-    // For hover, focus and not callbacks, you'll need to lookup in
-    // the TagId -> NodeId map what the node ID is.
 
-    pub hover_callbacks:                BTreeMap<TagId, BTreeMap<HoverEventFilter, Callback<T>>>,
-    pub hover_default_callbacks:        BTreeMap<TagId, BTreeMap<HoverEventFilter, DefaultCallbackId>>,
-    pub focus_callbacks:                BTreeMap<TagId, BTreeMap<FocusEventFilter, Callback<T>>>,
-    pub focus_default_callbacks:        BTreeMap<TagId, BTreeMap<FocusEventFilter, DefaultCallbackId>>,
-    pub not_callbacks:                  BTreeMap<TagId, BTreeMap<NotEventFilter, Callback<T>>>,
-    pub not_default_callbacks:          BTreeMap<TagId, BTreeMap<NotEventFilter, DefaultCallbackId>>,
+    pub hover_callbacks:                BTreeMap<NodeId, BTreeMap<HoverEventFilter, Callback<T>>>,
+    pub hover_default_callbacks:        BTreeMap<NodeId, BTreeMap<HoverEventFilter, DefaultCallbackId>>,
+    pub focus_callbacks:                BTreeMap<NodeId, BTreeMap<FocusEventFilter, Callback<T>>>,
+    pub focus_default_callbacks:        BTreeMap<NodeId, BTreeMap<FocusEventFilter, DefaultCallbackId>>,
+    pub not_callbacks:                  BTreeMap<NodeId, BTreeMap<NotEventFilter, Callback<T>>>,
+    pub not_default_callbacks:          BTreeMap<NodeId, BTreeMap<NotEventFilter, DefaultCallbackId>>,
     pub window_callbacks:               BTreeMap<NodeId, BTreeMap<WindowEventFilter, Callback<T>>>,
     pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallbackId>>,
     pub desktop_callbacks:              BTreeMap<NodeId, BTreeMap<DesktopEventFilter, Callback<T>>>,
