@@ -1127,6 +1127,7 @@ impl<T: Layout> Dom<T> {
                 }
             };
             (
+                $node_id:ident,
                 $data_source:expr,
                 $event_filter:ident,
                 $callback_type:ty,
@@ -1139,8 +1140,8 @@ impl<T: Layout> Dom<T> {
                 .collect();
 
                 if !node_hover_callbacks.is_empty() {
+                    $final_callback_list.insert($node_id, node_hover_callbacks);
                     let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
-                    $final_callback_list.insert(tag_id, node_hover_callbacks);
                     $node_tag_id = Some(tag_id);
                 }
             };
@@ -1165,6 +1166,7 @@ impl<T: Layout> Dom<T> {
 
                     // Filter and insert HoverEventFilter callbacks
                     filter_and_insert_callbacks!(
+                        node_id,
                         data.callbacks,
                         HoverEventFilter,
                         Callback<T>,
@@ -1175,6 +1177,7 @@ impl<T: Layout> Dom<T> {
 
                     // Filter and insert FocusEventFilter callbacks
                     filter_and_insert_callbacks!(
+                        node_id,
                         data.callbacks,
                         FocusEventFilter,
                         Callback<T>,
@@ -1184,6 +1187,7 @@ impl<T: Layout> Dom<T> {
                     );
 
                     filter_and_insert_callbacks!(
+                        node_id,
                         data.callbacks,
                         NotEventFilter,
                         Callback<T>,
@@ -1215,6 +1219,7 @@ impl<T: Layout> Dom<T> {
 
                     // Filter and insert HoverEventFilter callbacks
                     filter_and_insert_callbacks!(
+                        node_id,
                         data.default_callback_ids,
                         HoverEventFilter,
                         DefaultCallbackId,
@@ -1225,6 +1230,7 @@ impl<T: Layout> Dom<T> {
 
                     // Filter and insert FocusEventFilter callbacks
                     filter_and_insert_callbacks!(
+                        node_id,
                         data.default_callback_ids,
                         FocusEventFilter,
                         DefaultCallbackId,
@@ -1234,6 +1240,7 @@ impl<T: Layout> Dom<T> {
                     );
 
                     filter_and_insert_callbacks!(
+                        node_id,
                         data.default_callback_ids,
                         NotEventFilter,
                         DefaultCallbackId,

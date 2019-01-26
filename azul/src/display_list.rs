@@ -1133,7 +1133,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     // TODO: Right now, no focusing, hovering or :active allowed in iframes!
     let is_mouse_down = false;
     let focused_node = None;
-    let hovered_nodes = [];
+    let hovered_nodes = BTreeMap::new();
 
     let mut ui_state = new_dom.into_ui_state();
     let ui_description = UiDescription::<T>::match_css_to_dom(&mut ui_state, &referenced_content.css, focused_node, &hovered_nodes, is_mouse_down);

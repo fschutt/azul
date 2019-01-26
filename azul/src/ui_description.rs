@@ -73,7 +73,8 @@ impl<T: Layout> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
-        Self::match_css_to_dom(&mut default_dom.into_ui_state(), &Css::default(), None, &[], false)
+        let hovered_nodes = BTreeMap::new();
+        Self::match_css_to_dom(&mut default_dom.into_ui_state(), &Css::default(), None, &hovered_nodes, false)
     }
 }
 
@@ -85,7 +86,7 @@ impl<T: Layout> UiDescription<T> {
         ui_state: &mut UiState<T>,
         style: &Css,
         focused_node: Option<NodeId>,
-        hovered_nodes: &[(NodeId, HitTestItem)],
+        hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
         is_mouse_down: bool,
     ) -> Self
     {

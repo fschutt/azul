@@ -13,7 +13,11 @@ use glium::glutin::{
 use webrender::api::HitTestItem;
 use {
     app::FrameEventInfo,
-    dom::{On, EventFilter, Callback, TabIndex},
+    dom::{
+        On, EventFilter, Callback, TabIndex,
+        HoverEventFilter, FocusEventFilter, NotEventFilter,
+        WindowEventFilter, DesktopEventFilter,
+    },
     default_callbacks::DefaultCallbackId,
     id_tree::NodeId,
     ui_state::UiState,
@@ -179,7 +183,7 @@ pub struct WindowState {
     pub(crate) focused_node: Option<NodeId>,
     /// Currently hovered nodes, default to an empty Vec. Important for
     /// styling `:hover` elements.
-    pub(crate) hovered_nodes: Vec<(NodeId, HitTestItem)>,
+    pub(crate) hovered_nodes: BTreeMap<NodeId, HitTestItem>,
     /// Previous window state, used for determining mouseout, etc. events
     pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -235,7 +239,7 @@ impl Default for WindowState {
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
             focused_node: None,
-            hovered_nodes: Vec::new(),
+            hovered_nodes: BTreeMap::new(),
             hovered_file: None,
             previous_window_state: None,
             title: DEFAULT_TITLE.into(),
@@ -308,101 +312,15 @@ impl WindowState
         ui_state: &UiState<T>
     ) -> CallbacksOfHitTest<T>
     {
-        use std::collections::HashSet;
-        use glium::glutin::{
-            Event, WindowEvent, KeyboardInput,
-            MouseButton::*,
-        };
-        use dom::HoverEventFilter;
-
         // TODO: Check for desktop or window event!
-        let event = if let Event::WindowEvent { event, .. } = event {
-            event
-        } else {
-            return CallbacksOfHitTest::default();
-        };
+        let event = if let Event::WindowEvent { event, .. } = event { event } else { return CallbacksOfHitTest::default(); };
 
-        // store the current window state so we can set it in this.previous_window_state later on
+        // Store the current window state so we can set it in this.previous_window_state later on
         let mut previous_state = Box::new(self.clone());
         previous_state.previous_window_state = None;
 
-        // NOTE: We collect the Hover events first, then collect
-        let mut events_vec = HashSet::<HoverEventFilter>::new();
-
-        match event {
-            WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
-                events_vec.insert(HoverEventFilter::MouseDown);
-                match button {
-                    Left => {
-                        if !self.mouse_state.left_down {
-                            events_vec.insert(HoverEventFilter::LeftMouseDown);
-                        }
-                        self.mouse_state.left_down = true;
-                    },
-                    Right => {
-                        if !self.mouse_state.right_down {
-                            events_vec.insert(HoverEventFilter::RightMouseDown);
-                        }
-                        self.mouse_state.right_down = true;
-                    },
-                    Middle => {
-                        if !self.mouse_state.middle_down {
-                            events_vec.insert(HoverEventFilter::MiddleMouseDown);
-                        }
-                        self.mouse_state.middle_down = true;
-                    },
-                    _ => { }
-                }
-            },
-            WindowEvent::MouseInput { state: ElementState::Released, button, .. } => {
-                events_vec.insert(HoverEventFilter::MouseUp);
-                match button {
-                    Left => {
-                        if self.mouse_state.left_down {
-                            events_vec.insert(HoverEventFilter::LeftMouseUp);
-                        }
-                        self.mouse_state.left_down = false;
-                    },
-                    Right => {
-                        if self.mouse_state.right_down {
-                            events_vec.insert(HoverEventFilter::RightMouseUp);
-                        }
-                        self.mouse_state.right_down = false;
-                    },
-                    Middle => {
-                        if self.mouse_state.middle_down {
-                            events_vec.insert(HoverEventFilter::MiddleMouseUp);
-                        }
-                        self.mouse_state.middle_down = false;
-                    },
-                    _ => { }
-                }
-            },
-            WindowEvent::MouseWheel { .. } => {
-                events_vec.insert(HoverEventFilter::Scroll);
-            },
-            WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(HoverEventFilter::VirtualKeyDown);
-            },
-            WindowEvent::ReceivedCharacter(c) => {
-                if !c.is_control() {
-                    events_vec.insert(HoverEventFilter::TextInput);
-                }
-            },
-            WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(HoverEventFilter::VirtualKeyUp);
-            },
-            WindowEvent::HoveredFile(_) => {
-                events_vec.insert(HoverEventFilter::HoveredFile);
-            },
-            WindowEvent::DroppedFile(_) => {
-                events_vec.insert(HoverEventFilter::DroppedFile);
-            },
-            WindowEvent::HoveredFileCancelled => {
-                events_vec.insert(HoverEventFilter::HoveredFileCancelled);
-            },
-            _ => { }
-        }
+        // Get what HoverEventFilter events are relevant for the current event
+        let current_hover_events = get_hit_events(self, event);
 
         // desktop, window, not(hover, focus), hover, focus
 
@@ -412,14 +330,62 @@ impl WindowState
         // TODO: If the current mouse is down, but the event
         // wasn't a click, that means it was a drag
 
-        // Figure out if an item has received the onfocus or onfocusleave event
-        let closest_item_with_focus_tab: Option<(NodeId, TabIndex)> = if event_was_mouse_down || event_was_mouse_release {
-            // Find the first (closest to cursor in hierarchy) item that has a tabindex
-            hit_test_items.iter().rev().find_map(|item| ui_state.tab_index_tags.get(&item.tag.0)).cloned()
-        } else {
-            None
-        };
+        // Figure out what the hovered NodeIds are
+        let new_hit_node_ids: BTreeMap<NodeId, HitTestItem> = hit_test_items.iter().filter_map(|hit_test_item| {
+            ui_state.tag_ids_to_node_ids
+            .get(&hit_test_item.tag.0)
+            .map(|node_id| (*node_id, hit_test_item.clone()))
+        }).collect();
 
+        // Figure out what the current focused NodeId is
+        let mut closest_item_with_focus_tab: Option<(NodeId, TabIndex)> = None;
+        if event_was_mouse_down || event_was_mouse_release {
+            // Find the first (closest to cursor in hierarchy) item that has a tabindex
+            closest_item_with_focus_tab = hit_test_items
+            .iter()
+            .rev()
+            .find_map(|item| ui_state.tab_index_tags.get(&item.tag.0))
+            .cloned();
+        }
+
+        // BTreeMap<NodeId, DetermineCallbackResult<T>>
+        let mut nodes_with_callbacks = BTreeMap::new();
+
+        for (hover_node_id, hit_test_item) in new_hit_node_ids.iter() {
+
+            // BTreeMap<HoverEventFilter, Callback<T>>
+            let mut normal_hover_callbacks = BTreeMap::new();
+
+            // Insert all normal Hover events
+            if let Some(ui_state_hover_event_filters) = ui_state.hover_callbacks.get(hover_node_id) {
+                for current_hover_event in &current_hover_events {
+                    if let Some(callback) = ui_state_hover_event_filters.get(current_hover_event) {
+                        normal_hover_callbacks.insert(EventFilter::Hover(*current_hover_event), *callback);
+                    }
+                }
+            }
+
+            // Insert all default Hover events
+            let mut default_hover_callbacks = BTreeMap::new();
+            if let Some(ui_state_hover_default_event_filters) = ui_state.hover_default_callbacks.get(hover_node_id) {
+                for current_hover_event in &current_hover_events {
+                    if let Some(callback_id) = ui_state_hover_default_event_filters.get(current_hover_event) {
+                        default_hover_callbacks.insert(EventFilter::Hover(*current_hover_event), *callback_id);
+                    }
+                }
+            }
+
+            if !default_hover_callbacks.is_empty() && !normal_hover_callbacks.is_empty() {
+                let callback_result = DetermineCallbackResult {
+                    hit_test_item: hit_test_item.clone(),
+                    default_callbacks: default_hover_callbacks,
+                    normal_callbacks: normal_hover_callbacks,
+                };
+                nodes_with_callbacks.insert(*hover_node_id, callback_result);
+            }
+        }
+
+        /*
         if let Some((new_focused_element_node_id, _)) = closest_item_with_focus_tab {
             // Update the current window states focus element, regardless of
             // whether an On::FocusReceived or a On::FocusLost
@@ -437,21 +403,13 @@ impl WindowState
             self.focused_node = None;
             events_vec.insert(On::FocusLost.into());
         }
-
-        // Update all hovered nodes for creating new :hover tags
-        let new_hit_node_ids = hit_test_items.iter().filter_map(|hit_test_item| {
-            ui_state.tag_ids_to_node_ids
-            .get(&hit_test_item.tag.0)
-            .map(|node_id| (*node_id, hit_test_item.clone()))
-        }).collect();
-
-        self.hovered_nodes = new_hit_node_ids;
-
+        */
+/*
         let mut nodes_with_callbacks = hit_test_items
             .iter()
             .filter_map(|item| hit_test_item_to_callback_result(item, ui_state, &events_vec))
             .collect::<BTreeMap<_, _>>();
-
+*/
         let mut needs_hover_redraw = false;
         let mut needs_hover_relayout = false;
 
@@ -464,10 +422,22 @@ impl WindowState
             needs_hover_relayout = true;
         }
 
+        // Collect all On::MouseEnter nodes
+        let onmouseenter_nodes: BTreeMap<NodeId, HitTestItem> = new_hit_node_ids.iter()
+            .filter(|(current_node_id, _)| previous_state.hovered_nodes.get(current_node_id).is_none())
+            .map(|(x, y)| (*x, y.clone()))
+            .collect();
+
+        // Collect all On::MouseLeave nodes
+        let onmouseleave_nodes: BTreeMap<NodeId, HitTestItem> = previous_state.hovered_nodes.iter()
+            .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
+            .map(|(x, y)| (*x, y.clone()))
+            .collect();
+
+/*
         // Insert all On::MouseEnter events
         nodes_with_callbacks.extend(
-            self.hovered_nodes.iter()
-            .filter(|current| previous_state.hovered_nodes.iter().find(|x| x.0 == current.0).is_none())
+            onmouseenter_nodes
             .filter_map(|(mouse_enter_node_id, hit_test_item)| {
                 mouse_enter(
                     mouse_enter_node_id,
@@ -482,8 +452,7 @@ impl WindowState
 
         // Insert all On::MouseLeave events
         nodes_with_callbacks.extend(
-            previous_state.hovered_nodes.iter()
-            .filter(|prev| self.hovered_nodes.iter().find(|x| x == prev).is_none())
+            onmouseleave_nodes
             .filter_map(|(mouse_enter_node_id, hit_test_item)| {
                 mouse_enter(
                     mouse_enter_node_id,
@@ -495,7 +464,8 @@ impl WindowState
                 )
             })
         );
-
+*/
+        self.hovered_nodes = new_hit_node_ids;
         self.previous_window_state = Some(previous_state);
 
         CallbacksOfHitTest {
@@ -644,6 +614,96 @@ impl WindowState
     }
 }
 
+// For a window event, returns a hashset of all events that the Hover
+// callbacks have to be called on.
+fn get_hit_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSet<HoverEventFilter> {
+
+    use glium::glutin::{
+        Event, WindowEvent, KeyboardInput,
+        MouseButton::*,
+    };
+
+    let mut events_vec = HashSet::<HoverEventFilter>::new();
+    events_vec.insert(HoverEventFilter::MouseOver);
+
+    match event {
+        WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
+            events_vec.insert(HoverEventFilter::MouseDown);
+            match button {
+                Left => {
+                    if !window_state.mouse_state.left_down {
+                        events_vec.insert(HoverEventFilter::LeftMouseDown);
+                    }
+                    window_state.mouse_state.left_down = true;
+                },
+                Right => {
+                    if !window_state.mouse_state.right_down {
+                        events_vec.insert(HoverEventFilter::RightMouseDown);
+                    }
+                    window_state.mouse_state.right_down = true;
+                },
+                Middle => {
+                    if !window_state.mouse_state.middle_down {
+                        events_vec.insert(HoverEventFilter::MiddleMouseDown);
+                    }
+                    window_state.mouse_state.middle_down = true;
+                },
+                _ => { }
+            }
+        },
+        WindowEvent::MouseInput { state: ElementState::Released, button, .. } => {
+            events_vec.insert(HoverEventFilter::MouseUp);
+            match button {
+                Left => {
+                    if window_state.mouse_state.left_down {
+                        events_vec.insert(HoverEventFilter::LeftMouseUp);
+                    }
+                    window_state.mouse_state.left_down = false;
+                },
+                Right => {
+                    if window_state.mouse_state.right_down {
+                        events_vec.insert(HoverEventFilter::RightMouseUp);
+                    }
+                    window_state.mouse_state.right_down = false;
+                },
+                Middle => {
+                    if window_state.mouse_state.middle_down {
+                        events_vec.insert(HoverEventFilter::MiddleMouseUp);
+                    }
+                    window_state.mouse_state.middle_down = false;
+                },
+                _ => { }
+            }
+        },
+        WindowEvent::MouseWheel { .. } => {
+            events_vec.insert(HoverEventFilter::Scroll);
+        },
+        WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
+            events_vec.insert(HoverEventFilter::VirtualKeyDown);
+        },
+        WindowEvent::ReceivedCharacter(c) => {
+            if !c.is_control() {
+                events_vec.insert(HoverEventFilter::TextInput);
+            }
+        },
+        WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
+            events_vec.insert(HoverEventFilter::VirtualKeyUp);
+        },
+        WindowEvent::HoveredFile(_) => {
+            events_vec.insert(HoverEventFilter::HoveredFile);
+        },
+        WindowEvent::DroppedFile(_) => {
+            events_vec.insert(HoverEventFilter::DroppedFile);
+        },
+        WindowEvent::HoveredFileCancelled => {
+            events_vec.insert(HoverEventFilter::HoveredFileCancelled);
+        },
+        _ => { }
+    }
+    events_vec
+}
+
+/*
 fn hit_test_item_to_callback_result<T: Layout>(
     item: &HitTestItem,
     ui_state: &UiState<T>,
@@ -712,6 +772,7 @@ fn mouse_enter<T: Layout>(
 
     Some((*node_id, callback_result))
 }
+*/
 
 /// Pre-filters any events that are not handled by the framework yet, since it would be wasteful
 /// to process them. Modifies the `frame_event_info` so that the
