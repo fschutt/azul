@@ -498,6 +498,32 @@ pub enum HoverEventFilter {
     HoveredFileCancelled,
 }
 
+impl HoverEventFilter {
+    pub(crate) fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
+        use self::HoverEventFilter::*;
+        match self {
+            MouseOver => Some(FocusEventFilter::MouseOver),
+            MouseDown => Some(FocusEventFilter::MouseDown),
+            LeftMouseDown => Some(FocusEventFilter::LeftMouseDown),
+            RightMouseDown => Some(FocusEventFilter::RightMouseDown),
+            MiddleMouseDown => Some(FocusEventFilter::MiddleMouseDown),
+            MouseUp => Some(FocusEventFilter::MouseUp),
+            LeftMouseUp => Some(FocusEventFilter::LeftMouseUp),
+            RightMouseUp => Some(FocusEventFilter::RightMouseUp),
+            MiddleMouseUp => Some(FocusEventFilter::MiddleMouseUp),
+            MouseEnter => Some(FocusEventFilter::MouseEnter),
+            MouseLeave => Some(FocusEventFilter::MouseLeave),
+            Scroll => Some(FocusEventFilter::Scroll),
+            TextInput => Some(FocusEventFilter::TextInput),
+            VirtualKeyDown => Some(FocusEventFilter::VirtualKeyDown),
+            VirtualKeyUp => Some(FocusEventFilter::VirtualKeyDown),
+            HoveredFile => None,
+            DroppedFile => None,
+            HoveredFileCancelled => None,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NotEventFilter {
     Hover(HoverEventFilter),

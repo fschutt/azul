@@ -14,9 +14,8 @@ use webrender::api::HitTestItem;
 use {
     app::FrameEventInfo,
     dom::{
-        On, EventFilter, Callback, TabIndex,
-        HoverEventFilter, FocusEventFilter, NotEventFilter,
-        WindowEventFilter, DesktopEventFilter,
+        EventFilter, Callback,
+        HoverEventFilter, FocusEventFilter,
     },
     default_callbacks::DefaultCallbackId,
     id_tree::NodeId,
@@ -257,9 +256,29 @@ impl Default for WindowState {
 }
 
 pub(crate) struct DetermineCallbackResult<T: Layout> {
-    pub(crate) hit_test_item: HitTestItem,
+    pub(crate) hit_test_item: Option<HitTestItem>,
     pub(crate) default_callbacks: BTreeMap<EventFilter, DefaultCallbackId>,
     pub(crate) normal_callbacks: BTreeMap<EventFilter, Callback<T>>,
+}
+
+impl<T: Layout> Default for DetermineCallbackResult<T> {
+    fn default() -> Self {
+        DetermineCallbackResult {
+            hit_test_item: None,
+            default_callbacks: BTreeMap::new(),
+            normal_callbacks: BTreeMap::new(),
+        }
+    }
+}
+
+impl<T: Layout> Clone for DetermineCallbackResult<T> {
+    fn clone(&self) -> Self {
+        DetermineCallbackResult {
+            hit_test_item: self.hit_test_item.clone(),
+            default_callbacks: self.default_callbacks.clone(),
+            normal_callbacks: self.normal_callbacks.clone(),
+        }
+    }
 }
 
 pub(crate) struct CallbacksOfHitTest<T: Layout> {
@@ -321,8 +340,7 @@ impl WindowState
 
         // Get what HoverEventFilter events are relevant for the current event
         let current_hover_events = get_hit_events(self, event);
-
-        // desktop, window, not(hover, focus), hover, focus
+        let current_focus_events = get_focus_events(&current_hover_events);
 
         let event_was_mouse_down = if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = event { true } else { false };
         let event_was_mouse_release = if let WindowEvent::MouseInput { state: ElementState::Released, .. } = event { true } else { false };
@@ -338,22 +356,21 @@ impl WindowState
         }).collect();
 
         // Figure out what the current focused NodeId is
-        let mut closest_item_with_focus_tab: Option<(NodeId, TabIndex)> = None;
         if event_was_mouse_down || event_was_mouse_release {
             // Find the first (closest to cursor in hierarchy) item that has a tabindex
-            closest_item_with_focus_tab = hit_test_items
-            .iter()
-            .rev()
+            let closest_focus_node = hit_test_items.iter().rev()
             .find_map(|item| ui_state.tab_index_tags.get(&item.tag.0))
             .cloned();
+            // Even if the focused node is None, we still have to update self.focused_node!
+            self.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| node_id);
         }
 
         // BTreeMap<NodeId, DetermineCallbackResult<T>>
-        let mut nodes_with_callbacks = BTreeMap::new();
+        let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>> = BTreeMap::new();
 
         for (hover_node_id, hit_test_item) in new_hit_node_ids.iter() {
 
-            // BTreeMap<HoverEventFilter, Callback<T>>
+            // BTreeMap<EventFilter, Callback<T>>
             let mut normal_hover_callbacks = BTreeMap::new();
 
             // Insert all normal Hover events
@@ -365,8 +382,10 @@ impl WindowState
                 }
             }
 
-            // Insert all default Hover events
+            // BTreeMap<EventFilter, DefaultCallbackId>
             let mut default_hover_callbacks = BTreeMap::new();
+
+            // Insert all default Hover events
             if let Some(ui_state_hover_default_event_filters) = ui_state.hover_default_callbacks.get(hover_node_id) {
                 for current_hover_event in &current_hover_events {
                     if let Some(callback_id) = ui_state_hover_default_event_filters.get(current_hover_event) {
@@ -376,40 +395,109 @@ impl WindowState
             }
 
             if !default_hover_callbacks.is_empty() && !normal_hover_callbacks.is_empty() {
-                let callback_result = DetermineCallbackResult {
-                    hit_test_item: hit_test_item.clone(),
-                    default_callbacks: default_hover_callbacks,
-                    normal_callbacks: normal_hover_callbacks,
-                };
+
+                let mut callback_result = nodes_with_callbacks.get(hover_node_id)
+                .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+
+                callback_result.hit_test_item = Some(hit_test_item.clone());
+                callback_result.normal_callbacks.extend(normal_hover_callbacks.into_iter());
+                callback_result.default_callbacks.extend(default_hover_callbacks.into_iter());
+
                 nodes_with_callbacks.insert(*hover_node_id, callback_result);
             }
         }
 
-        /*
-        if let Some((new_focused_element_node_id, _)) = closest_item_with_focus_tab {
-            // Update the current window states focus element, regardless of
-            // whether an On::FocusReceived or a On::FocusLost
-            self.focused_node = Some(new_focused_element_node_id);
-            if previous_state.focused_node != Some(new_focused_element_node_id) {
-                if previous_state.focused_node.is_none() {
-                    events_vec.insert(On::FocusReceived.into());
-                } else {
-                    events_vec.insert(On::FocusLost.into());
+        // For the current focused node, insert all normal Focus events
+        if let Some(current_focused_node) = &self.focused_node {
+
+            // BTreeMap<EventFilter, Callback<T>>
+            let mut normal_focus_callbacks = BTreeMap::new();
+
+            // Insert all normal Hover events
+            if let Some(ui_state_focus_event_filters) = ui_state.focus_callbacks.get(current_focused_node) {
+                for current_focus_event in &current_focus_events {
+                    if let Some(callback) = ui_state_focus_event_filters.get(current_focus_event) {
+                        normal_focus_callbacks.insert(EventFilter::Focus(*current_focus_event), *callback);
+                    }
                 }
-                // else, if the last element = current element,
-                // then the focus is still on the same field
             }
-        } else if event_was_mouse_release || event_was_mouse_down {
-            self.focused_node = None;
-            events_vec.insert(On::FocusLost.into());
+
+            // BTreeMap<EventFilter, DefaultCallbackId>
+            let mut default_focus_callbacks = BTreeMap::new();
+
+            // Insert all default Hover events
+            if let Some(ui_state_focus_default_event_filters) = ui_state.focus_default_callbacks.get(current_focused_node) {
+                for current_focus_event in &current_focus_events {
+                    if let Some(callback_id) = ui_state_focus_default_event_filters.get(current_focus_event) {
+                        default_focus_callbacks.insert(EventFilter::Focus(*current_focus_event), *callback_id);
+                    }
+                }
+            }
+
+            if !default_focus_callbacks.is_empty() && !normal_focus_callbacks.is_empty() {
+                let mut callback_result = nodes_with_callbacks.get(current_focused_node)
+                .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+
+                callback_result.normal_callbacks.extend(normal_focus_callbacks.into_iter());
+                callback_result.default_callbacks.extend(default_focus_callbacks.into_iter());
+
+                nodes_with_callbacks.insert(*current_focused_node, callback_result);
+            }
         }
-        */
-/*
-        let mut nodes_with_callbacks = hit_test_items
-            .iter()
-            .filter_map(|item| hit_test_item_to_callback_result(item, ui_state, &events_vec))
-            .collect::<BTreeMap<_, _>>();
-*/
+
+        // If the last focused node and the current focused node aren't the same,
+        // submit a FocusLost for the last node and a FocusReceived for the current one.
+        let mut focus_received_lost_events: BTreeMap<NodeId, FocusEventFilter> = BTreeMap::new();
+        match (self.focused_node, previous_state.focused_node) {
+            (Some(cur), None) => {
+                focus_received_lost_events.insert(cur, FocusEventFilter::FocusReceived);
+            },
+            (None, Some(prev)) => {
+                focus_received_lost_events.insert(prev, FocusEventFilter::FocusLost);
+            },
+            (Some(cur), Some(prev)) => {
+                if cur != prev {
+                    focus_received_lost_events.insert(cur, FocusEventFilter::FocusReceived);
+                    focus_received_lost_events.insert(prev, FocusEventFilter::FocusLost);
+                }
+            }
+            (None, None) => { },
+        }
+
+        // Insert FocusReceived / FocusLost
+        for (node_id, focus_event) in &focus_received_lost_events {
+
+            // BTreeMap<EventFilter, Callback<T>>
+            let mut normal_focus_callbacks = BTreeMap::new();
+
+            // Insert all normal Hover events
+            if let Some(ui_state_focus_event_filters) = ui_state.focus_callbacks.get(node_id) {
+                if let Some(callback) = ui_state_focus_event_filters.get(focus_event) {
+                    normal_focus_callbacks.insert(EventFilter::Focus(*focus_event), *callback);
+                }
+            }
+
+            // BTreeMap<EventFilter, DefaultCallbackId>
+            let mut default_focus_callbacks = BTreeMap::new();
+
+            // Insert all default Hover events
+            if let Some(ui_state_focus_default_event_filters) = ui_state.focus_default_callbacks.get(node_id) {
+                if let Some(callback_id) = ui_state_focus_default_event_filters.get(focus_event) {
+                    default_focus_callbacks.insert(EventFilter::Focus(*focus_event), *callback_id);
+                }
+            }
+
+            if !default_focus_callbacks.is_empty() && !normal_focus_callbacks.is_empty() {
+                let mut callback_result = nodes_with_callbacks.get(node_id)
+                .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+
+                callback_result.normal_callbacks.extend(normal_focus_callbacks.into_iter());
+                callback_result.default_callbacks.extend(default_focus_callbacks.into_iter());
+
+                nodes_with_callbacks.insert(*node_id, callback_result);
+            }
+        }
+
         let mut needs_hover_redraw = false;
         let mut needs_hover_relayout = false;
 
@@ -422,49 +510,95 @@ impl WindowState
             needs_hover_relayout = true;
         }
 
-        // Collect all On::MouseEnter nodes
+        macro_rules! mouse_enter {
+            ($node_id:expr, $hit_test_item:expr, $event_filter:ident) => ({
+
+                let node_is_focused = self.focused_node == Some($node_id);
+
+                // BTreeMap<EventFilter, Callback<T>>
+                let mut normal_callbacks = BTreeMap::new();
+
+                // Insert all normal Hover(MouseEnter) events
+                if let Some(ui_state_hover_event_filters) = ui_state.hover_callbacks.get(&$node_id) {
+                    if let Some(callback) = ui_state_hover_event_filters.get(&HoverEventFilter::$event_filter) {
+                        normal_callbacks.insert(EventFilter::Hover(HoverEventFilter::$event_filter), *callback);
+                    }
+                }
+
+                // Insert all normal Focus(MouseEnter) events
+                if node_is_focused {
+                    if let Some(ui_state_focus_event_filters) = ui_state.focus_callbacks.get(&$node_id) {
+                        if let Some(callback) = ui_state_focus_event_filters.get(&FocusEventFilter::$event_filter) {
+                            normal_callbacks.insert(EventFilter::Focus(FocusEventFilter::$event_filter), *callback);
+                        }
+                    }
+                }
+
+                // BTreeMap<EventFilter, DefaultCallbackId>
+                let mut default_callbacks = BTreeMap::new();
+
+                // Insert all default Hover(MouseEnter) events
+                if let Some(ui_state_hover_default_event_filters) = ui_state.hover_default_callbacks.get(&$node_id) {
+                    if let Some(callback_id) = ui_state_hover_default_event_filters.get(&HoverEventFilter::$event_filter) {
+                        default_callbacks.insert(EventFilter::Hover(HoverEventFilter::$event_filter), *callback_id);
+                    }
+                }
+
+                // Insert all default Focus(MouseEnter) events
+                if node_is_focused {
+                    if let Some(ui_state_focus_default_event_filters) = ui_state.focus_default_callbacks.get(&$node_id) {
+                        if let Some(callback_id) = ui_state_focus_default_event_filters.get(&FocusEventFilter::$event_filter) {
+                            default_callbacks.insert(EventFilter::Focus(FocusEventFilter::$event_filter), *callback_id);
+                        }
+                    }
+                }
+
+                if !default_callbacks.is_empty() && !normal_callbacks.is_empty() {
+                    let mut callback_result = nodes_with_callbacks.get(&$node_id)
+                    .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+
+                    callback_result.hit_test_item = Some($hit_test_item);
+                    callback_result.normal_callbacks.extend(normal_callbacks.into_iter());
+                    callback_result.default_callbacks.extend(default_callbacks.into_iter());
+
+                    nodes_with_callbacks.insert($node_id, callback_result);
+                }
+
+                if let Some((_, hover_group)) = ui_state.node_ids_to_tag_ids.get(&$node_id).and_then(|tag_for_this_node| {
+                    ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node)
+                }) {
+                    // We definitely need to redraw (on any :hover) change
+                    needs_hover_redraw = true;
+                    // Only set this to true if the :hover group actually affects the layout
+                    if hover_group.affects_layout {
+                        needs_hover_relayout = true;
+                    }
+                }
+            })
+        }
+
+        // Collect all On::MouseEnter nodes (for both hover and focus events)
         let onmouseenter_nodes: BTreeMap<NodeId, HitTestItem> = new_hit_node_ids.iter()
             .filter(|(current_node_id, _)| previous_state.hovered_nodes.get(current_node_id).is_none())
             .map(|(x, y)| (*x, y.clone()))
             .collect();
 
-        // Collect all On::MouseLeave nodes
+        // Insert Focus(MouseEnter) and Hover(MouseEnter)
+        for (node_id, hit_test_item) in onmouseenter_nodes {
+            mouse_enter!(node_id, hit_test_item, MouseEnter);
+        }
+
+        // Collect all On::MouseLeave nodes (for both hover and focus events)
         let onmouseleave_nodes: BTreeMap<NodeId, HitTestItem> = previous_state.hovered_nodes.iter()
             .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
             .map(|(x, y)| (*x, y.clone()))
             .collect();
 
-/*
-        // Insert all On::MouseEnter events
-        nodes_with_callbacks.extend(
-            onmouseenter_nodes
-            .filter_map(|(mouse_enter_node_id, hit_test_item)| {
-                mouse_enter(
-                    mouse_enter_node_id,
-                    hit_test_item,
-                    On::MouseEnter.into(),
-                    &ui_state,
-                    &mut needs_hover_redraw,
-                    &mut needs_hover_relayout
-                )
-            })
-        );
+        // Insert Focus(MouseEnter) and Hover(MouseEnter)
+        for (node_id, hit_test_item) in onmouseleave_nodes {
+            mouse_enter!(node_id, hit_test_item, MouseLeave);
+        }
 
-        // Insert all On::MouseLeave events
-        nodes_with_callbacks.extend(
-            onmouseleave_nodes
-            .filter_map(|(mouse_enter_node_id, hit_test_item)| {
-                mouse_enter(
-                    mouse_enter_node_id,
-                    hit_test_item,
-                    On::MouseLeave.into(),
-                    &ui_state,
-                    &mut needs_hover_redraw,
-                    &mut needs_hover_relayout
-                )
-            })
-        );
-*/
         self.hovered_nodes = new_hit_node_ids;
         self.previous_window_state = Some(previous_state);
 
@@ -560,7 +694,9 @@ impl WindowState
         match event {
             Event::WindowEvent { event, .. } => {
                 match event {
-                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, .. } => {
+                    WindowEvent::KeyboardInput {
+                        input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, ..
+                    } => {
                         if let Some(vk) = virtual_keycode {
                             self.keyboard_state.current_virtual_keycodes.insert(*vk);
                             self.keyboard_state.latest_virtual_keycode = Some(*vk);
@@ -572,7 +708,9 @@ impl WindowState
                     WindowEvent::ReceivedCharacter(c) => {
                         self.keyboard_state.current_char = Some(*c);
                     },
-                    WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, .. } => {
+                    WindowEvent::KeyboardInput {
+                        input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, ..
+                    } => {
                         if let Some(vk) = virtual_keycode {
                             self.keyboard_state.current_virtual_keycodes.remove(vk);
                             self.keyboard_state.latest_virtual_keycode = None;
@@ -614,12 +752,16 @@ impl WindowState
     }
 }
 
+fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
+    input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
+}
+
 // For a window event, returns a hashset of all events that the Hover
 // callbacks have to be called on.
 fn get_hit_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSet<HoverEventFilter> {
 
     use glium::glutin::{
-        Event, WindowEvent, KeyboardInput,
+        WindowEvent, KeyboardInput,
         MouseButton::*,
     };
 
@@ -678,7 +820,9 @@ fn get_hit_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSe
         WindowEvent::MouseWheel { .. } => {
             events_vec.insert(HoverEventFilter::Scroll);
         },
-        WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
+        WindowEvent::KeyboardInput {
+            input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, ..
+        } => {
             events_vec.insert(HoverEventFilter::VirtualKeyDown);
         },
         WindowEvent::ReceivedCharacter(c) => {
@@ -686,7 +830,9 @@ fn get_hit_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSe
                 events_vec.insert(HoverEventFilter::TextInput);
             }
         },
-        WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
+        WindowEvent::KeyboardInput {
+            input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, ..
+        } => {
             events_vec.insert(HoverEventFilter::VirtualKeyUp);
         },
         WindowEvent::HoveredFile(_) => {
@@ -702,77 +848,6 @@ fn get_hit_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSe
     }
     events_vec
 }
-
-/*
-fn hit_test_item_to_callback_result<T: Layout>(
-    item: &HitTestItem,
-    ui_state: &UiState<T>,
-    events_vec: &HashSet<EventFilter>)
- -> Option<(NodeId, DetermineCallbackResult<T>)>
-{
-    let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
-    let default_callbacks = ui_state.tag_ids_to_default_callbacks
-        .get(&item.tag.0)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(event_filter, _)| events_vec.contains(&event_filter))
-        .collect();
-
-    let normal_callbacks = ui_state.tag_ids_to_callbacks
-        .get(&item.tag.0)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(event_filter, _)| events_vec.contains(&event_filter))
-        .collect();
-
-    let hit_test_item = item.clone();
-    Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
-}
-
-fn mouse_enter<T: Layout>(
-    node_id: &NodeId,
-    hit_test_item: &HitTestItem,
-    target_event_filter: EventFilter,
-    ui_state: &UiState<T>,
-    needs_hover_redraw: &mut bool,
-    needs_hover_relayout: &mut bool,
-) -> Option<(NodeId, DetermineCallbackResult<T>)> {
-
-    let tag_for_this_node = ui_state.node_ids_to_tag_ids.get(&node_id)?;
-
-    let default_callbacks = ui_state.tag_ids_to_default_callbacks
-        .get(&tag_for_this_node)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(event_filter, _)| *event_filter == target_event_filter)
-        .collect();
-
-    let normal_callbacks = ui_state.tag_ids_to_callbacks
-        .get(&tag_for_this_node)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(event_filter, _)| *event_filter == target_event_filter)
-        .collect();
-
-    let hit_test_item = hit_test_item.clone();
-    let callback_result = DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item };
-
-    if let Some((_, hover_group)) = ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node) {
-        // We definitely need to redraw (on any :hover) change
-        *needs_hover_redraw = true;
-        // Only set this to true if the :hover group actually affects the layout
-        if hover_group.affects_layout {
-            *needs_hover_relayout = true;
-        }
-    }
-
-    Some((*node_id, callback_result))
-}
-*/
 
 /// Pre-filters any events that are not handled by the framework yet, since it would be wasteful
 /// to process them. Modifies the `frame_event_info` so that the
