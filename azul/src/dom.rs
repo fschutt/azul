@@ -412,40 +412,39 @@ pub enum EventFilter {
     Desktop(DesktopEventFilter),
 }
 
+/// Creates a function inside an impl <enum type> block that returns a single
+/// variant if the enum is that variant.
+///
+/// ```rust
+/// enum A {
+///    Abc(AbcType),
+/// }
+///
+/// struct AbcType { }
+///
+/// impl A {
+///     // fn as_abc_type(&self) -> Option<AbcType>
+///     get_single_enum_type!(as_abc_type, A::Abc(AbcType));
+/// }
+/// ```
+macro_rules! get_single_enum_type {
+    ($fn_name:ident, $enum_name:ident::$variant:ident($return_type:ty)) => (
+        fn $fn_name(&self) -> Option<$return_type> {
+            use self::$enum_name::*;
+            match self {
+                $variant(e) => Some(*e),
+                _ => None,
+            }
+        }
+    )
+}
+
 impl EventFilter {
-
-    /// Returns whether this event filter is for a "hover" or "focus" event
-    fn is_hover_or_focus(&self) -> bool {
-        use self::EventFilter::*;
-        match self {
-            Hover(_) | Focus(_) => true,
-            _ => false,
-        }
-    }
-
-    fn as_not_event_filter(&self) -> Option<NotEventFilter> {
-        use self::EventFilter::*;
-        match self {
-            Not(e) => Some(*e),
-            _ => None,
-        }
-    }
-
-    fn as_window_event_filter(&self) -> Option<WindowEventFilter> {
-        use self::EventFilter::*;
-        match self {
-            Window(e) => Some(*e),
-            _ => None,
-        }
-    }
-
-    fn as_desktop_event_filter(&self) -> Option<DesktopEventFilter> {
-        use self::EventFilter::*;
-        match self {
-            Desktop(e) => Some(*e),
-            _ => None,
-        }
-    }
+    get_single_enum_type!(as_hover_event_filter, EventFilter::Hover(HoverEventFilter));
+    get_single_enum_type!(as_focus_event_filter, EventFilter::Focus(FocusEventFilter));
+    get_single_enum_type!(as_not_event_filter, EventFilter::Not(NotEventFilter));
+    get_single_enum_type!(as_window_event_filter, EventFilter::Window(WindowEventFilter));
+    get_single_enum_type!(as_desktop_event_filter, EventFilter::Desktop(DesktopEventFilter));
 }
 
 impl From<On> for EventFilter {
@@ -1086,10 +1085,6 @@ impl<T: Layout> Dom<T> {
         // It is assumed that the DOM returned by the user has exactly one root node
         // with no further siblings and that the root node is the Node with the ID 0.
 
-        // All nodes that have regular (user-defined) callbacks
-        let mut tag_ids_to_callbacks = BTreeMap::new();
-        // All nodes that have a default callback
-        let mut tag_ids_to_default_callbacks = BTreeMap::new();
         // All tags that have can be focused (necessary for hit-testing)
         let mut tab_index_tags = BTreeMap::new();
         // All tags that have can be dragged & dropped (necessary for hit-testing)
@@ -1102,12 +1097,54 @@ impl<T: Layout> Dom<T> {
         // Which nodes have extra dynamic CSS overrides?
         let mut dynamic_css_overrides = BTreeMap::new();
 
+        let mut hover_callbacks = BTreeMap::new();
+        let mut hover_default_callbacks = BTreeMap::new();
+        let mut focus_callbacks = BTreeMap::new();
+        let mut focus_default_callbacks = BTreeMap::new();
         let mut not_callbacks = BTreeMap::new();
         let mut not_default_callbacks = BTreeMap::new();
         let mut window_callbacks = BTreeMap::new();
         let mut window_default_callbacks = BTreeMap::new();
         let mut desktop_callbacks = BTreeMap::new();
         let mut desktop_default_callbacks = BTreeMap::new();
+
+        // data.callbacks, HoverEventFilter, Callback<T>, as_hover_event_filter, hover_callbacks, <node_tag_id> (optional)
+        macro_rules! filter_and_insert_callbacks {
+            (
+                    $node_id:ident,
+                    $data_source:expr,
+                    $event_filter:ident,
+                    $callback_type:ty,
+                    $filter_func:ident,
+                    $final_callback_list:ident,
+            ) => {
+                let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
+                .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, *cb)))
+                .collect();
+
+                if !node_hover_callbacks.is_empty() {
+                    $final_callback_list.insert($node_id, node_hover_callbacks);
+                }
+            };
+            (
+                $data_source:expr,
+                $event_filter:ident,
+                $callback_type:ty,
+                $filter_func:ident,
+                $final_callback_list:ident,
+                $node_tag_id:ident,
+            ) => {
+                let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
+                .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, *cb)))
+                .collect();
+
+                if !node_hover_callbacks.is_empty() {
+                    let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
+                    $final_callback_list.insert(tag_id, node_hover_callbacks);
+                    $node_tag_id = Some(tag_id);
+                }
+            };
+        }
 
         // Reset the tag
         TAG_ID.swap(1, Ordering::SeqCst);
@@ -1126,85 +1163,102 @@ impl<T: Layout> Dom<T> {
                 // Optimization since on most nodes, the callbacks will be empty
                 if !data.callbacks.is_empty() {
 
-                    // Filter out all nodes that don't have any Hover or Focus callbacks
-                    // since those nodes don't need to be incorporated into the hit test.
-                    let node_hover_and_focus_callbacks: BTreeMap<EventFilter, Callback<T>> = data.callbacks.iter()
-                    .filter(|(event_filter, _)| event_filter.is_hover_or_focus())
-                    .cloned().collect();
+                    // Filter and insert HoverEventFilter callbacks
+                    filter_and_insert_callbacks!(
+                        data.callbacks,
+                        HoverEventFilter,
+                        Callback<T>,
+                        as_hover_event_filter,
+                        hover_callbacks,
+                        node_tag_id,
+                    );
 
-                    // Hover and focus callbacks are the only event filters that need a tag to
-                    // be generated for hit-testing
-                    if !node_hover_and_focus_callbacks.is_empty() {
-                        let tag_id = new_tag_id();
-                        tag_ids_to_callbacks.insert(tag_id, node_hover_and_focus_callbacks);
-                        node_tag_id = Some(tag_id);
-                    }
+                    // Filter and insert FocusEventFilter callbacks
+                    filter_and_insert_callbacks!(
+                        data.callbacks,
+                        FocusEventFilter,
+                        Callback<T>,
+                        as_focus_event_filter,
+                        focus_callbacks,
+                        node_tag_id,
+                    );
 
-                    let node_not_callbacks: BTreeMap<NotEventFilter, Callback<T>> = data.callbacks.iter()
-                    .filter_map(|(event_filter, cb)| event_filter.as_not_event_filter().map(|not_evt| (not_evt, *cb)))
-                    .collect();
+                    filter_and_insert_callbacks!(
+                        data.callbacks,
+                        NotEventFilter,
+                        Callback<T>,
+                        as_not_event_filter,
+                        not_callbacks,
+                        node_tag_id,
+                    );
 
-                    if !node_not_callbacks.is_empty() {
-                        not_callbacks.insert(node_id, node_not_callbacks);
-                    }
+                    filter_and_insert_callbacks!(
+                        node_id,
+                        data.callbacks,
+                        WindowEventFilter,
+                        Callback<T>,
+                        as_window_event_filter,
+                        window_callbacks,
+                    );
 
-                    let node_window_callbacks: BTreeMap<WindowEventFilter, Callback<T>> = data.callbacks.iter()
-                    .filter_map(|(event_filter, cb)| event_filter.as_window_event_filter().map(|not_evt| (not_evt, *cb)))
-                    .collect();
-
-                    if !node_window_callbacks.is_empty() {
-                        window_callbacks.insert(node_id, node_window_callbacks);
-                    }
-
-                    let node_desktop_callbacks: BTreeMap<DesktopEventFilter, Callback<T>> = data.callbacks.iter()
-                    .filter_map(|(event_filter, cb)| event_filter.as_desktop_event_filter().map(|not_evt| (not_evt, *cb)))
-                    .collect();
-
-                    if !node_desktop_callbacks.is_empty() {
-                        desktop_callbacks.insert(node_id, node_desktop_callbacks);
-                    }
+                    filter_and_insert_callbacks!(
+                        node_id,
+                        data.callbacks,
+                        DesktopEventFilter,
+                        Callback<T>,
+                        as_desktop_event_filter,
+                        desktop_callbacks,
+                    );
                 }
 
                 if !data.default_callback_ids.is_empty() {
 
-                    // Filter out all nodes that don't have any Hover or Focus callbacks
-                    // since those nodes don't need to be incorporated into the hit test.
-                    let node_default_hover_and_focus_callbacks:  BTreeMap<EventFilter, DefaultCallbackId> =
-                        data.default_callback_ids.iter()
-                        .filter(|(event_filter, _)| event_filter.is_hover_or_focus())
-                        .cloned().collect();
+                    // Filter and insert HoverEventFilter callbacks
+                    filter_and_insert_callbacks!(
+                        data.default_callback_ids,
+                        HoverEventFilter,
+                        DefaultCallbackId,
+                        as_hover_event_filter,
+                        hover_default_callbacks,
+                        node_tag_id,
+                    );
 
-                    // Hover and focus callbacks are the only event filters that need a tag to
-                    // be generated for hit-testing
-                    if !node_default_hover_and_focus_callbacks.is_empty() {
-                        let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
-                        tag_ids_to_default_callbacks.insert(tag_id, node_default_hover_and_focus_callbacks);
-                        node_tag_id = Some(tag_id);
-                    }
+                    // Filter and insert FocusEventFilter callbacks
+                    filter_and_insert_callbacks!(
+                        data.default_callback_ids,
+                        FocusEventFilter,
+                        DefaultCallbackId,
+                        as_focus_event_filter,
+                        focus_default_callbacks,
+                        node_tag_id,
+                    );
 
-                    let node_default_not_callbacks: BTreeMap<NotEventFilter, DefaultCallbackId>  = data.default_callback_ids.iter()
-                    .filter_map(|(event_filter, cb)| event_filter.as_not_event_filter().map(|not_evt| (not_evt, *cb)))
-                    .collect();
+                    filter_and_insert_callbacks!(
+                        data.default_callback_ids,
+                        NotEventFilter,
+                        DefaultCallbackId,
+                        as_not_event_filter,
+                        not_default_callbacks,
+                        node_tag_id,
+                    );
 
-                    if !node_default_not_callbacks.is_empty() {
-                        not_default_callbacks.insert(node_id, node_default_not_callbacks);
-                    }
+                    filter_and_insert_callbacks!(
+                        node_id,
+                        data.default_callback_ids,
+                        WindowEventFilter,
+                        DefaultCallbackId,
+                        as_window_event_filter,
+                        window_default_callbacks,
+                    );
 
-                    let node_default_window_callbacks: BTreeMap<WindowEventFilter, DefaultCallbackId> = data.default_callback_ids.iter()
-                    .filter_map(|(event_filter, cb)| event_filter.as_window_event_filter().map(|not_evt| (not_evt, *cb)))
-                    .collect();
-
-                    if !node_default_window_callbacks.is_empty() {
-                        window_default_callbacks.insert(node_id, node_default_window_callbacks);
-                    }
-
-                    let node_default_desktop_callbacks: BTreeMap<DesktopEventFilter, DefaultCallbackId> = data.default_callback_ids.iter()
-                    .filter_map(|(event_filter, cb)| event_filter.as_desktop_event_filter().map(|not_evt| (not_evt, *cb)))
-                    .collect();
-
-                    if !node_default_desktop_callbacks.is_empty() {
-                        desktop_default_callbacks.insert(node_id, node_default_desktop_callbacks);
-                    }
+                    filter_and_insert_callbacks!(
+                        node_id,
+                        data.default_callback_ids,
+                        DesktopEventFilter,
+                        DefaultCallbackId,
+                        as_desktop_event_filter,
+                        desktop_default_callbacks,
+                    );
                 }
 
                 if data.draggable {
@@ -1232,21 +1286,27 @@ impl<T: Layout> Dom<T> {
         }
 
         UiState {
+
             dom: self,
-            tag_ids_to_callbacks,
-            tag_ids_to_default_callbacks,
+            dynamic_css_overrides,
+            tag_ids_to_hover_active_states: BTreeMap::new(),
+
             tab_index_tags,
             draggable_tags,
             node_ids_to_tag_ids,
             tag_ids_to_node_ids,
-            dynamic_css_overrides,
-            tag_ids_to_hover_active_states: BTreeMap::new(),
+
+            hover_callbacks,
+            hover_default_callbacks,
+            focus_callbacks,
+            focus_default_callbacks,
             not_callbacks,
             not_default_callbacks,
             window_callbacks,
             window_default_callbacks,
             desktop_callbacks,
             desktop_default_callbacks,
+
         }
     }
 }
