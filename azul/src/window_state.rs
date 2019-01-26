@@ -313,7 +313,9 @@ impl WindowState
             Event, WindowEvent, KeyboardInput,
             MouseButton::*,
         };
+        use dom::HoverEventFilter;
 
+        // TODO: Check for desktop or window event!
         let event = if let Event::WindowEvent { event, .. } = event {
             event
         } else {
@@ -324,28 +326,28 @@ impl WindowState
         let mut previous_state = Box::new(self.clone());
         previous_state.previous_window_state = None;
 
-        let mut events_vec = HashSet::<EventFilter>::new();
-        events_vec.insert(On::MouseOver.into());
+        // NOTE: We collect the Hover events first, then collect
+        let mut events_vec = HashSet::<HoverEventFilter>::new();
 
         match event {
             WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
-                events_vec.insert(On::MouseDown.into());
+                events_vec.insert(HoverEventFilter::MouseDown);
                 match button {
                     Left => {
                         if !self.mouse_state.left_down {
-                            events_vec.insert(On::LeftMouseDown.into());
+                            events_vec.insert(HoverEventFilter::LeftMouseDown);
                         }
                         self.mouse_state.left_down = true;
                     },
                     Right => {
                         if !self.mouse_state.right_down {
-                            events_vec.insert(On::RightMouseDown.into());
+                            events_vec.insert(HoverEventFilter::RightMouseDown);
                         }
                         self.mouse_state.right_down = true;
                     },
                     Middle => {
                         if !self.mouse_state.middle_down {
-                            events_vec.insert(On::MiddleMouseDown.into());
+                            events_vec.insert(HoverEventFilter::MiddleMouseDown);
                         }
                         self.mouse_state.middle_down = true;
                     },
@@ -353,25 +355,23 @@ impl WindowState
                 }
             },
             WindowEvent::MouseInput { state: ElementState::Released, button, .. } => {
+                events_vec.insert(HoverEventFilter::MouseUp);
                 match button {
                     Left => {
                         if self.mouse_state.left_down {
-                            events_vec.insert(On::MouseUp.into());
-                            events_vec.insert(On::LeftMouseUp.into());
+                            events_vec.insert(HoverEventFilter::LeftMouseUp);
                         }
                         self.mouse_state.left_down = false;
                     },
                     Right => {
                         if self.mouse_state.right_down {
-                            events_vec.insert(On::MouseUp.into());
-                            events_vec.insert(On::RightMouseUp.into());
+                            events_vec.insert(HoverEventFilter::RightMouseUp);
                         }
                         self.mouse_state.right_down = false;
                     },
                     Middle => {
                         if self.mouse_state.middle_down {
-                            events_vec.insert(On::MouseUp.into());
-                            events_vec.insert(On::MiddleMouseUp.into());
+                            events_vec.insert(HoverEventFilter::MiddleMouseUp);
                         }
                         self.mouse_state.middle_down = false;
                     },
@@ -379,30 +379,32 @@ impl WindowState
                 }
             },
             WindowEvent::MouseWheel { .. } => {
-                events_vec.insert(On::Scroll.into());
+                events_vec.insert(HoverEventFilter::Scroll);
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(On::VirtualKeyDown.into());
+                events_vec.insert(HoverEventFilter::VirtualKeyDown);
             },
             WindowEvent::ReceivedCharacter(c) => {
                 if !c.is_control() {
-                    events_vec.insert(On::TextInput.into());
+                    events_vec.insert(HoverEventFilter::TextInput);
                 }
             },
             WindowEvent::KeyboardInput { input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, .. } => {
-                events_vec.insert(On::VirtualKeyUp.into());
+                events_vec.insert(HoverEventFilter::VirtualKeyUp);
             },
             WindowEvent::HoveredFile(_) => {
-                events_vec.insert(On::HoveredFile.into());
+                events_vec.insert(HoverEventFilter::HoveredFile);
             },
             WindowEvent::DroppedFile(_) => {
-                events_vec.insert(On::DroppedFile.into());
+                events_vec.insert(HoverEventFilter::DroppedFile);
             },
             WindowEvent::HoveredFileCancelled => {
-                events_vec.insert(On::HoveredFileCancelled.into());
+                events_vec.insert(HoverEventFilter::HoveredFileCancelled);
             },
             _ => { }
         }
+
+        // desktop, window, not(hover, focus), hover, focus
 
         let event_was_mouse_down = if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = event { true } else { false };
         let event_was_mouse_release = if let WindowEvent::MouseInput { state: ElementState::Released, .. } = event { true } else { false };
@@ -437,80 +439,13 @@ impl WindowState
         }
 
         // Update all hovered nodes for creating new :hover tags
-        self.hovered_nodes = hit_test_items.iter().filter_map(|hit_test_item| {
+        let new_hit_node_ids = hit_test_items.iter().filter_map(|hit_test_item| {
             ui_state.tag_ids_to_node_ids
             .get(&hit_test_item.tag.0)
             .map(|node_id| (*node_id, hit_test_item.clone()))
         }).collect();
 
-        fn hit_test_item_to_callback_result<T: Layout>(
-            item: &HitTestItem,
-            ui_state: &UiState<T>,
-            events_vec: &HashSet<EventFilter>)
-         -> Option<(NodeId, DetermineCallbackResult<T>)>
-         {
-            let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
-            let default_callbacks = ui_state.tag_ids_to_default_callbacks
-                .get(&item.tag.0)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(event_filter, _)| events_vec.contains(&event_filter))
-                .collect();
-
-            let normal_callbacks = ui_state.tag_ids_to_callbacks
-                .get(&item.tag.0)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(event_filter, _)| events_vec.contains(&event_filter))
-                .collect();
-
-            let hit_test_item = item.clone();
-            Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
-        };
-
-        fn mouse_enter<T: Layout>(
-            node_id: &NodeId,
-            hit_test_item: &HitTestItem,
-            target_event_filter: EventFilter,
-            ui_state: &UiState<T>,
-            needs_hover_redraw: &mut bool,
-            needs_hover_relayout: &mut bool,
-        ) -> Option<(NodeId, DetermineCallbackResult<T>)> {
-
-            let tag_for_this_node = ui_state.node_ids_to_tag_ids.get(&node_id)?;
-
-            let default_callbacks = ui_state.tag_ids_to_default_callbacks
-                .get(&tag_for_this_node)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(event_filter, _)| *event_filter == target_event_filter)
-                .collect();
-
-            let normal_callbacks = ui_state.tag_ids_to_callbacks
-                .get(&tag_for_this_node)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|(event_filter, _)| *event_filter == target_event_filter)
-                .collect();
-
-            let hit_test_item = hit_test_item.clone();
-            let callback_result = DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item };
-
-            if let Some((_, hover_group)) = ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node) {
-                // We definitely need to redraw (on any :hover) change
-                *needs_hover_redraw = true;
-                // Only set this to true if the :hover group actually affects the layout
-                if hover_group.affects_layout {
-                    *needs_hover_relayout = true;
-                }
-            }
-
-            Some((*node_id, callback_result))
-        }
+        self.hovered_nodes = new_hit_node_ids;
 
         let mut nodes_with_callbacks = hit_test_items
             .iter()
@@ -707,6 +642,75 @@ impl WindowState
             _ => { },
         }
     }
+}
+
+fn hit_test_item_to_callback_result<T: Layout>(
+    item: &HitTestItem,
+    ui_state: &UiState<T>,
+    events_vec: &HashSet<EventFilter>)
+ -> Option<(NodeId, DetermineCallbackResult<T>)>
+{
+    let item_node_id = ui_state.tag_ids_to_node_ids.get(&item.tag.0)?;
+    let default_callbacks = ui_state.tag_ids_to_default_callbacks
+        .get(&item.tag.0)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(event_filter, _)| events_vec.contains(&event_filter))
+        .collect();
+
+    let normal_callbacks = ui_state.tag_ids_to_callbacks
+        .get(&item.tag.0)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(event_filter, _)| events_vec.contains(&event_filter))
+        .collect();
+
+    let hit_test_item = item.clone();
+    Some((*item_node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item }))
+}
+
+fn mouse_enter<T: Layout>(
+    node_id: &NodeId,
+    hit_test_item: &HitTestItem,
+    target_event_filter: EventFilter,
+    ui_state: &UiState<T>,
+    needs_hover_redraw: &mut bool,
+    needs_hover_relayout: &mut bool,
+) -> Option<(NodeId, DetermineCallbackResult<T>)> {
+
+    let tag_for_this_node = ui_state.node_ids_to_tag_ids.get(&node_id)?;
+
+    let default_callbacks = ui_state.tag_ids_to_default_callbacks
+        .get(&tag_for_this_node)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(event_filter, _)| *event_filter == target_event_filter)
+        .collect();
+
+    let normal_callbacks = ui_state.tag_ids_to_callbacks
+        .get(&tag_for_this_node)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(event_filter, _)| *event_filter == target_event_filter)
+        .collect();
+
+    let hit_test_item = hit_test_item.clone();
+    let callback_result = DetermineCallbackResult { default_callbacks, normal_callbacks, hit_test_item };
+
+    if let Some((_, hover_group)) = ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node) {
+        // We definitely need to redraw (on any :hover) change
+        *needs_hover_redraw = true;
+        // Only set this to true if the :hover group actually affects the layout
+        if hover_group.affects_layout {
+            *needs_hover_relayout = true;
+        }
+    }
+
+    Some((*node_id, callback_result))
 }
 
 /// Pre-filters any events that are not handled by the framework yet, since it would be wasteful

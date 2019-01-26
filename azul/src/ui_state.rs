@@ -8,10 +8,9 @@ use {
     FastHashMap,
     window::{WindowInfo, WindowId},
     traits::Layout,
-    dom::{Callback, Dom, EventFilter, TabIndex},
+    dom::{Callback, Dom, TagId, EventFilter, NotEventFilter, WindowEventFilter, DesktopEventFilter, TabIndex},
     app_state::AppState,
     id_tree::NodeId,
-    dom::TagId,
     style::HoverGroup,
     default_callbacks::DefaultCallbackId,
 };
@@ -31,6 +30,17 @@ pub struct UiState<T: Layout> {
     pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
     pub tag_ids_to_hover_active_states: BTreeMap<TagId, (NodeId, HoverGroup)>,
+    /// Not-callbacks (callbacks that fire when an item is NOT hovered or focused)
+    /// are seperated from the DOM, since they don't create hit-testable tag IDs themselves
+    pub not_callbacks: BTreeMap<NodeId, BTreeMap<NotEventFilter, Callback<T>>>,
+    pub not_default_callbacks: BTreeMap<NodeId, BTreeMap<NotEventFilter, DefaultCallbackId>>,
+    /// Callbacks that are fired on window events (not attached to any item,
+    /// but to the whole window), are seperated from the DOM itself
+    pub window_callbacks: BTreeMap<NodeId, BTreeMap<WindowEventFilter, Callback<T>>>,
+    pub window_default_callbacks: BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallbackId>>,
+    /// Same as `window_callbacks`, but for desktop events
+    pub desktop_callbacks: BTreeMap<NodeId, BTreeMap<DesktopEventFilter, Callback<T>>>,
+    pub desktop_default_callbacks: BTreeMap<NodeId, BTreeMap<DesktopEventFilter, DefaultCallbackId>>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {
@@ -45,6 +55,12 @@ impl<T: Layout> fmt::Debug for UiState<T> {
                 \tnode_ids_to_tag_ids: {:?} \
                 \ttag_ids_to_node_ids: {:?} \
                 \ttag_ids_to_hover_active_states: {:?} \
+                \tnot_callbacks: {:?} \
+                \tnot_default_callbacks: {:?} \
+                \twindow_callbacks: {:?} \
+                \twindow_default_callbacks: {:?} \
+                \tdesktop_callbacks: {:?} \
+                \tdesktop_default_callbacks: {:?} \
             }}",
             self.dom,
             self.tag_ids_to_callbacks,
@@ -53,7 +69,13 @@ impl<T: Layout> fmt::Debug for UiState<T> {
             self.draggable_tags,
             self.node_ids_to_tag_ids,
             self.tag_ids_to_node_ids,
-            self.tag_ids_to_hover_active_states
+            self.tag_ids_to_hover_active_states,
+            self.not_callbacks,
+            self.not_default_callbacks,
+            self.window_callbacks,
+            self.window_default_callbacks,
+            self.desktop_callbacks,
+            self.desktop_default_callbacks,
         )
     }
 }
@@ -101,12 +123,4 @@ impl<T: Layout> UiState<T> {
             self.tag_ids_to_hover_active_states.insert(hover_tag, (*hover_node_id, *hover_group));
         }
     }
-}
-
-// Empty test, for some reason codecov doesn't detect any files (and therefore
-// doesn't report codecov % correctly) except if they have at least one test in
-// the file. This is an empty test, which should be updated later on
-#[test]
-fn __codecov_test_ui_state_file() {
-
 }
