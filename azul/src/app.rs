@@ -700,6 +700,7 @@ fn call_callbacks<T: Layout>(
             for default_callback_id in callback_results.default_callbacks.values() {
 
                 let window_event = CallbackInfo {
+                    focus: None,
                     window_id,
                     hit_dom_node: *node_id,
                     ui_state,
@@ -727,6 +728,7 @@ fn call_callbacks<T: Layout>(
         for callback in callback_results.normal_callbacks.values() {
 
             let window_event = CallbackInfo {
+                focus: None,
                 window_id,
                 hit_dom_node: *node_id,
                 ui_state: &ui_state,
