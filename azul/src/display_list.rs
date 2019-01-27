@@ -1758,10 +1758,28 @@ fn push_background(
 
                 let background_repeat = background_repeat.unwrap_or_default();
                 let info = match background_repeat {
-                    NoRepeat => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(size)),
+                    NoRepeat => LayoutPrimitiveInfo::with_clip_rect(
+                        info.rect,
+                        TypedRect::new(
+                            info.rect.origin,
+                            TypedSize2D::new(info.rect.size.width + size.width, size.height),
+                        ),
+                    ),
                     Repeat => *info,
-                    RepeatX => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(info.rect.size.width, size.height))),
-                    RepeatY => LayoutPrimitiveInfo::with_clip_rect(info.rect, TypedRect::from_size(TypedSize2D::new(size.width, info.rect.size.height))),
+                    RepeatX => LayoutPrimitiveInfo::with_clip_rect(
+                        info.rect,
+                        TypedRect::new(
+                            info.rect.origin,
+                            TypedSize2D::new(info.rect.size.width, size.height),
+                        ),
+                    ),
+                    RepeatY => LayoutPrimitiveInfo::with_clip_rect(
+                        info.rect,
+                        TypedRect::new(
+                            info.rect.origin,
+                            TypedSize2D::new(size.width, info.rect.size.height),
+                        ),
+                    ),
                 };
 
                 push_image(&info, builder, app_resources, image_id, size);
