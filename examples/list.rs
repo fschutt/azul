@@ -22,7 +22,7 @@ impl Layout for List {
     }
 }
 
-fn print_which_item_was_selected(app_state: &mut AppState<List>, event: CallbackInfo<List>) -> UpdateScreen {
+fn print_which_item_was_selected(app_state: &mut AppState<List>, event: &mut CallbackInfo<List>) -> UpdateScreen {
 
     let selected = event.index_path_iter().next();
 

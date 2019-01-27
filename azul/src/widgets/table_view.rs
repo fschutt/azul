@@ -74,7 +74,7 @@ impl TableView {
         }
     }
 
-    fn table_view_on_click<T: Layout>(ptr: &StackCheckedPointer<T>, data: AppStateNoData<T>, event: CallbackInfo<T>)
+    fn table_view_on_click<T: Layout>(ptr: &StackCheckedPointer<T>, data: AppStateNoData<T>, event: &mut CallbackInfo<T>)
     -> UpdateScreen
     {
         unsafe { ptr.invoke_mut(TableViewState::on_click, data, event) }
@@ -169,7 +169,7 @@ impl TableViewState {
     pub fn on_click<T: Layout>(
         &mut self,
         _app_state: AppStateNoData<T>,
-        _window_event: CallbackInfo<T>)
+        _window_event: &mut CallbackInfo<T>)
     -> UpdateScreen
     {
         println!("table was clicked");

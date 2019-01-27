@@ -156,7 +156,7 @@ fn tick(state: &mut Universe, _: &mut AppResources) -> (UpdateScreen, TerminateD
 }
 
 /// Callback that starts the main
-fn start_stop_game(app_state: &mut AppState<Universe>, _: CallbackInfo<Universe>) -> UpdateScreen {
+fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Universe>) -> UpdateScreen {
 
     if let Some(daemon) = {
         let state = &mut app_state.data.lock().ok()?;

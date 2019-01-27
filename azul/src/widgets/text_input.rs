@@ -90,15 +90,15 @@ impl TextInput {
 
 impl TextInputState {
 
-    fn on_virtual_key_down_private<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: CallbackInfo<T>) -> UpdateScreen {
+    fn on_virtual_key_down_private<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: &mut CallbackInfo<T>) -> UpdateScreen {
         unsafe { data.invoke_mut(Self::on_virtual_key_down, app_state_no_data, window_event) }
     }
 
-    fn on_text_input_private<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: CallbackInfo<T>) -> UpdateScreen {
+    fn on_text_input_private<T: Layout>(data: &StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: &mut CallbackInfo<T>) -> UpdateScreen {
         unsafe { data.invoke_mut(Self::on_text_input, app_state_no_data, window_event) }
     }
 
-    pub fn on_virtual_key_down<T: Layout>(&mut self, app_state_no_data: AppStateNoData<T>, event: CallbackInfo<T>) -> UpdateScreen {
+    pub fn on_virtual_key_down<T: Layout>(&mut self, app_state_no_data: AppStateNoData<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
 
         let keyboard_state = app_state_no_data.windows[event.window_id].get_keyboard_state();
 
@@ -179,7 +179,7 @@ impl TextInputState {
         }
     }
 
-    pub fn on_text_input<T: Layout>(&mut self, app_state_no_data: AppStateNoData<T>, event: CallbackInfo<T>) -> UpdateScreen {
+    pub fn on_text_input<T: Layout>(&mut self, app_state_no_data: AppStateNoData<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
         let keyboard_state = app_state_no_data.windows[event.window_id].get_keyboard_state();
         match keyboard_state.current_char {
             Some(c) => {

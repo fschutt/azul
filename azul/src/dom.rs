@@ -67,7 +67,7 @@ pub const DontRedraw: Option<()> = None;
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
 /// an `UpdateScreen::Redraw` from the function
-pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, CallbackInfo<T>) -> UpdateScreen);
+pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for Callback<T>
 

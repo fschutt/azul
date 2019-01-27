@@ -163,7 +163,7 @@ impl OperandStack {
     }
 }
 
-fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: CallbackInfo<Calculator>) -> UpdateScreen {
+fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
     let mut row_iter = event.index_path_iter();
 
     // Figure out which row and column was clicked...

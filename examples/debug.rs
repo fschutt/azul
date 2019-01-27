@@ -103,7 +103,7 @@ fn build_layers(
 }
 
 // Check what text was hovered over
-fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: CallbackInfo<MyAppData>) -> UpdateScreen {
+fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
     let (cursor_x, cursor_y) = event.cursor_relative_to_item;
 
     let data = app_state.lock().ok()?;
@@ -122,7 +122,7 @@ fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: CallbackInfo<M
     should_redraw
 }
 
-fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: CallbackInfo<MyAppData>) -> UpdateScreen {
+fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
     let data = app_state.data.lock().ok()?;
     let map = data.map.as_mut()?;
 
@@ -144,7 +144,7 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: CallbackInfo<
     Redraw
 }
 
-fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: CallbackInfo<MyAppData>) -> UpdateScreen {
+fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
 
     let font_id = FontId::BuiltinFont(String::from("sans-serif"));
     let font_size = StyleFontSize::px(10.0);

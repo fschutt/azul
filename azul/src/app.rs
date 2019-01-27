@@ -699,7 +699,7 @@ fn call_callbacks<T: Layout>(
             let hit_item = &callback_results.hit_test_item;
             for default_callback_id in callback_results.default_callbacks.values() {
 
-                let window_event = CallbackInfo {
+                let mut window_event = CallbackInfo {
                     focus: None,
                     window_id,
                     hit_dom_node: *node_id,
@@ -716,7 +716,7 @@ fn call_callbacks<T: Layout>(
 
                 // safe unwrap, we have added the callback previously
                 if app_state.windows[window_id].default_callbacks
-                    .run_callback(&mut *lock, default_callback_id, app_state_no_data, window_event) == Redraw {
+                    .run_callback(&mut *lock, default_callback_id, app_state_no_data, &mut window_event) == Redraw {
                     should_update_screen = Redraw;
                 }
             }
@@ -727,7 +727,7 @@ fn call_callbacks<T: Layout>(
         let hit_item = &callback_results.hit_test_item;
         for callback in callback_results.normal_callbacks.values() {
 
-            let window_event = CallbackInfo {
+            let mut window_event = CallbackInfo {
                 focus: None,
                 window_id,
                 hit_dom_node: *node_id,
@@ -737,7 +737,7 @@ fn call_callbacks<T: Layout>(
                 cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
             };
 
-            if (callback.0)(app_state, window_event) == Redraw {
+            if (callback.0)(app_state, &mut window_event) == Redraw {
                 should_update_screen = Redraw;
             }
         }
