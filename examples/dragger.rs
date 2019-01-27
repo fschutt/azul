@@ -9,7 +9,7 @@ struct DragMeApp {
     is_dragging: bool,
 }
 
-type Event<'a> = WindowEvent<'a, DragMeApp>;
+type Event<'a> = CallbackInfo<'a, DragMeApp>;
 type State = AppState<DragMeApp>;
 
 impl Layout for DragMeApp {

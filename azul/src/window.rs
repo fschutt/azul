@@ -203,9 +203,9 @@ impl<T: Layout> fmt::Debug for FakeWindow<T> {
     }
 }
 
-/// Window event that is passed to the user when a callback is invoked
+/// Information about the callback that is passed to the callback whenever a callback is invoked
 #[derive(Debug)]
-pub struct WindowEvent<'a, T: 'a + Layout> {
+pub struct CallbackInfo<'a, T: 'a + Layout> {
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'a WindowId,
@@ -222,7 +222,7 @@ pub struct WindowEvent<'a, T: 'a + Layout> {
     pub cursor_in_viewport: Option<(f32, f32)>,
 }
 
-impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
+impl<'a, T: 'a + Layout> Clone for CallbackInfo<'a, T> {
     fn clone(&self) -> Self {
         Self {
             window_id: self.window_id,
@@ -235,12 +235,12 @@ impl<'a, T: 'a + Layout> Clone for WindowEvent<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Layout> Copy for WindowEvent<'a, T> { }
+impl<'a, T: 'a + Layout> Copy for CallbackInfo<'a, T> { }
 
 
 pub struct IndexPathIterator<'a, 'b: 'a, T: 'b + Layout> {
     current_item: NodeId,
-    event: &'a WindowEvent<'b, T>,
+    event: &'a CallbackInfo<'b, T>,
 }
 
 impl<'a, 'b, T: 'a + Layout> IndexPathIterator<'a, 'b, T> {
@@ -261,7 +261,7 @@ impl<'a, 'b, T: 'a + Layout> Iterator for IndexPathIterator<'a, 'b, T> {
     }
 }
 
-impl<'a, T: 'a + Layout> WindowEvent<'a, T> {
+impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
 
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the index in the parent, until it gets to the root component.

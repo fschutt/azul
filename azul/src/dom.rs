@@ -12,7 +12,7 @@ use azul_css::{ NodeTypePath, CssProperty };
 use {
     ui_state::UiState,
     FastHashMap,
-    window::{WindowEvent, WindowInfo},
+    window::{CallbackInfo, WindowInfo},
     images::{ImageId, ImageState},
     text_cache::TextId,
     traits::Layout,
@@ -67,7 +67,7 @@ pub const DontRedraw: Option<()> = None;
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
 /// an `UpdateScreen::Redraw` from the function
-pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, WindowEvent<T>) -> UpdateScreen);
+pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, CallbackInfo<T>) -> UpdateScreen);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for Callback<T>
 
@@ -405,7 +405,7 @@ pub enum EventFilter {
     /// This can also be good for capturing controller input, touch input
     /// (i.e. global gestures that aren't attached to any component, but rather
     /// the "window" itself).
-    Window(WindowEventFilter),
+    Window(CallbackInfoFilter),
     /// Calls the callback when anything on the desktop is happening, useful
     /// for creating keyloggers (for example to implement a desktop search bar
     /// like everything or Spotlight) - fires even when the window isn't focused.
@@ -443,7 +443,7 @@ impl EventFilter {
     get_single_enum_type!(as_hover_event_filter, EventFilter::Hover(HoverEventFilter));
     get_single_enum_type!(as_focus_event_filter, EventFilter::Focus(FocusEventFilter));
     get_single_enum_type!(as_not_event_filter, EventFilter::Not(NotEventFilter));
-    get_single_enum_type!(as_window_event_filter, EventFilter::Window(WindowEventFilter));
+    get_single_enum_type!(as_window_event_filter, EventFilter::Window(CallbackInfoFilter));
     get_single_enum_type!(as_desktop_event_filter, EventFilter::Desktop(DesktopEventFilter));
 }
 
@@ -465,8 +465,8 @@ impl From<On> for EventFilter {
             MouseLeave           => EventFilter::Hover(HoverEventFilter::MouseLeave),
             Scroll               => EventFilter::Hover(HoverEventFilter::Scroll),
             TextInput            => EventFilter::Focus(FocusEventFilter::TextInput),            // focus!
-            VirtualKeyDown       => EventFilter::Window(WindowEventFilter::VirtualKeyDown),     // window!
-            VirtualKeyUp         => EventFilter::Window(WindowEventFilter::VirtualKeyUp),       // window!
+            VirtualKeyDown       => EventFilter::Window(CallbackInfoFilter::VirtualKeyDown),     // window!
+            VirtualKeyUp         => EventFilter::Window(CallbackInfoFilter::VirtualKeyUp),       // window!
             HoveredFile          => EventFilter::Hover(HoverEventFilter::HoveredFile),
             DroppedFile          => EventFilter::Hover(HoverEventFilter::DroppedFile),
             HoveredFileCancelled => EventFilter::Hover(HoverEventFilter::HoveredFileCancelled),
@@ -552,7 +552,7 @@ pub enum FocusEventFilter {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum WindowEventFilter {
+pub enum CallbackInfoFilter {
     MouseOver,
     MouseDown,
     LeftMouseDown,
@@ -1225,7 +1225,7 @@ impl<T: Layout> Dom<T> {
                     filter_and_insert_callbacks!(
                         node_id,
                         data.callbacks,
-                        WindowEventFilter,
+                        CallbackInfoFilter,
                         Callback<T>,
                         as_window_event_filter,
                         window_callbacks,
@@ -1278,7 +1278,7 @@ impl<T: Layout> Dom<T> {
                     filter_and_insert_callbacks!(
                         node_id,
                         data.default_callback_ids,
-                        WindowEventFilter,
+                        CallbackInfoFilter,
                         DefaultCallbackId,
                         as_window_event_filter,
                         window_default_callbacks,
