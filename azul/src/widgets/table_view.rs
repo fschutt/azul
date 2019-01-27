@@ -7,7 +7,7 @@ use {
     traits::Layout,
     window::WindowInfo,
     default_callbacks::{StackCheckedPointer, DefaultCallback},
-    window::{HidpiAdjustedBounds, WindowEvent, FakeWindow},
+    window::{HidpiAdjustedBounds, CallbackInfo, FakeWindow},
 };
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -74,7 +74,7 @@ impl TableView {
         }
     }
 
-    fn table_view_on_click<T: Layout>(ptr: &StackCheckedPointer<T>, data: AppStateNoData<T>, event: WindowEvent<T>)
+    fn table_view_on_click<T: Layout>(ptr: &StackCheckedPointer<T>, data: AppStateNoData<T>, event: CallbackInfo<T>)
     -> UpdateScreen
     {
         unsafe { ptr.invoke_mut(TableViewState::on_click, data, event) }
@@ -169,7 +169,7 @@ impl TableViewState {
     pub fn on_click<T: Layout>(
         &mut self,
         _app_state: AppStateNoData<T>,
-        _window_event: WindowEvent<T>)
+        _window_event: CallbackInfo<T>)
     -> UpdateScreen
     {
         println!("table was clicked");

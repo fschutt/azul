@@ -58,12 +58,12 @@ impl Layout for MyDataModel {
     }
 }
 
-fn reset_connection(app_state: &mut AppState<MyDataModel>, _event: WindowEvent<MyDataModel>) -> UpdateScreen {
+fn reset_connection(app_state: &mut AppState<MyDataModel>, _event: CallbackInfo<MyDataModel>) -> UpdateScreen {
     app_state.data.modify(|state| state.connection_status = ConnectionStatus::NotConnected)?;
     Redraw
 }
 
-fn start_connection(app_state: &mut AppState<MyDataModel>, _event: WindowEvent<MyDataModel>) -> UpdateScreen {
+fn start_connection(app_state: &mut AppState<MyDataModel>, _event: CallbackInfo<MyDataModel>) -> UpdateScreen {
     let status = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
     app_state.data.modify(|state| state.connection_status = status)?;
     app_state.add_task(connect_to_db_async, &[]);

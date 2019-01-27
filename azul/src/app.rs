@@ -675,7 +675,7 @@ fn call_callbacks<T: Layout>(
 -> Result<UpdateScreen, RuntimeError<T>>
 {
     use app_state::AppStateNoData;
-    use window::WindowEvent;
+    use window::CallbackInfo;
     use dom::{Redraw, DontRedraw};
     use window_state::{KeyboardState, MouseState};
     use self::RuntimeError::*;
@@ -699,7 +699,7 @@ fn call_callbacks<T: Layout>(
             let hit_item = &callback_results.hit_test_item;
             for default_callback_id in callback_results.default_callbacks.values() {
 
-                let window_event = WindowEvent {
+                let window_event = CallbackInfo {
                     window_id,
                     hit_dom_node: *node_id,
                     ui_state,
@@ -726,7 +726,7 @@ fn call_callbacks<T: Layout>(
         let hit_item = &callback_results.hit_test_item;
         for callback in callback_results.normal_callbacks.values() {
 
-            let window_event = WindowEvent {
+            let window_event = CallbackInfo {
                 window_id,
                 hit_dom_node: *node_id,
                 ui_state: &ui_state,
