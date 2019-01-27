@@ -184,7 +184,7 @@ impl<T: Layout> AppState<T> {
     ///      }
     /// }
     ///
-    /// fn my_callback(app_state: &mut AppState<MyAppData>, event: CallbackInfo<MyAppData>) -> UpdateScreen {
+    /// fn my_callback(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
     ///     /// Here you can add your font at runtime to the app_state
     ///     app_state.add_font(FontId::ExternalFont("Webly Sleeky UI".into()), &mut TEST_FONT).unwrap();
     ///     DontRedraw

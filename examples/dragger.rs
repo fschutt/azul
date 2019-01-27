@@ -41,17 +41,17 @@ impl Layout for DragMeApp {
     }
 }
 
-fn start_drag(state: &mut State, _event: Event) -> UpdateScreen {
+fn start_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
     state.data.modify(|data| data.is_dragging = true)?;
     DontRedraw
 }
 
-fn stop_drag(state: &mut State, _event: Event) -> UpdateScreen {
+fn stop_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
     state.data.modify(|data| data.is_dragging = false)?;
     Redraw
 }
 
-fn update_drag(state: &mut State, event: Event) -> UpdateScreen {
+fn update_drag(state: &mut State, event: &mut Event) -> UpdateScreen {
     let mouse_state = state.windows.get(event.window_id)?.state.get_mouse_state();
     if state.data.lock().unwrap().is_dragging {
         let cursor_pos = mouse_state.cursor_pos.unwrap_or(LogicalPosition::new(0.0, 0.0));

@@ -67,7 +67,7 @@ impl Layout for DataModel {
 }
 
 // View updates Model
-fn update_counter(app_state: &mut AppState<DataModel>, _event: CallbackInfo<DataModel>) -> UpdateScreen {
+fn update_counter(app_state: &mut AppState<DataModel>, _event: &mut CallbackInfo<DataModel>) -> UpdateScreen {
     app_state.data.modify(|state| state.counter += 1);
     Redraw
 }
@@ -148,7 +148,7 @@ impl Layout for DataModel {
     }
 }
 
-fn print_text_field(app_state: &mut AppState<DataModel>, _event: CallbackInfo<DataModel>) -> UpdateScreen {
+fn print_text_field(app_state: &mut AppState<DataModel>, _event: &mut CallbackInfo<DataModel>) -> UpdateScreen {
     println!("You've typed: {}", app_state.data.lock().unwrap().text_input.text);
     DontRedraw
 }
@@ -202,7 +202,7 @@ are very easy to test:
 fn test_it_should_increase_the_counter() {
     let mut initial_state = AppState::new(DataModel { counter: 0 });
     let expected_state = AppState::new(DataModel { counter: 1 });
-    update_counter(&mut initial_state, CallbackInfo::mock());
+    update_counter(&mut initial_state, &mut CallbackInfo::mock());
     assert_eq!(initial_state, expected_state);
 }
 ```
