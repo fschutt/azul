@@ -25,6 +25,7 @@ mod hot_reloader;
 
 pub use css::{
     new_from_str,
+    parse_css_path,
     CssParseError,
 };
 

@@ -50,6 +50,12 @@ impl_display!{ CssParseErrorInner<'a>, {
     UnknownPropertyKey(k, v) => format!("Unknown CSS key: \"{}: {}\"", k, v),
 }}
 
+impl<'a> From<CssSyntaxError> for CssParseErrorInner<'a> {
+    fn from(e: CssSyntaxError) -> Self {
+        CssParseErrorInner::ParseError(e)
+    }
+}
+
 impl_from! { DynamicCssParseError<'a>, CssParseErrorInner::DynamicCssParseError }
 impl_from! { NodeTypePathParseError<'a>, CssParseErrorInner::NodeTypePath }
 impl_from! { CssPseudoSelectorParseError<'a>, CssParseErrorInner::PseudoSelectorParseError }
@@ -242,6 +248,101 @@ pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssPathParseError<'a> {
+    EmptyPath,
+    /// Invalid item encountered in string (for example a "{", "}")
+    InvalidTokenEncountered(&'a str),
+    UnexpectedEndOfStream(&'a str),
+    SyntaxError(CssSyntaxError),
+    /// The path has to be either `*`, `div`, `p` or something like that
+    NodeTypePath(NodeTypePathParseError<'a>),
+    /// Error while parsing a pseudo selector (like `:aldkfja`)
+    PseudoSelectorParseError(CssPseudoSelectorParseError<'a>),
+}
+
+impl_from! { NodeTypePathParseError<'a>, CssPathParseError::NodeTypePath }
+impl_from! { CssPseudoSelectorParseError<'a>, CssPathParseError::PseudoSelectorParseError }
+
+impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
+    fn from(e: CssSyntaxError) -> Self {
+        CssPathParseError::SyntaxError(e)
+    }
+}
+
+/// Parses a CSS path from a string (only the path,.no commas allowed)
+///
+/// ```rust
+/// # extern crate azul_css;
+/// # extern crate azul_css_parser;
+/// # use azul_css_parser::parse_css_path;
+/// # use azul_css::{
+/// #     CssPathSelector::*, CssPathPseudoSelector::*, CssPath,
+/// #     NodeTypePath::*, CssNthChildSelector::*
+/// # };
+///
+/// assert_eq!(
+///     parse_css_path("* div #my_id > .class:nth-child(2)"),
+///     Ok(CssPath { selectors: vec![
+///          Global,
+///          Type(Div),
+///          Children,
+///          Id("my_id".to_string()),
+///          DirectChildren,
+///          Class("class".to_string()),
+///          PseudoSelector(NthChild(Number(2))),
+///     ]})
+/// );
+/// ```
+pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'a>> {
+    use simplecss::{Token, Combinator};
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(CssPathParseError::EmptyPath);
+    }
+    let mut tokenizer = Tokenizer::new(input);
+    let mut selectors = Vec::new();
+
+    loop {
+        let token = tokenizer.parse_next()?;
+        match token {
+            Token::UniversalSelector => {
+                selectors.push(CssPathSelector::Global);
+            },
+            Token::TypeSelector(div_type) => {
+                selectors.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
+            },
+            Token::IdSelector(id) => {
+                selectors.push(CssPathSelector::Id(id.to_string()));
+            },
+            Token::ClassSelector(class) => {
+                selectors.push(CssPathSelector::Class(class.to_string()));
+            },
+            Token::Combinator(Combinator::GreaterThan) => {
+                selectors.push(CssPathSelector::DirectChildren);
+            },
+            Token::Combinator(Combinator::Space) => {
+                selectors.push(CssPathSelector::Children);
+            },
+            Token::PseudoClass { selector, value } => {
+                selectors.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value)?));
+            },
+            Token::EndOfStream => {
+                break;
+            }
+            _ => {
+                return Err(CssPathParseError::InvalidTokenEncountered(input));
+            }
+        }
+    }
+
+    if !selectors.is_empty() {
+        Ok(CssPath { selectors })
+    } else {
+        Err(CssPathParseError::EmptyPath)
+    }
+}
+
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
 fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) -> Result<Css, CssParseErrorInner<'a>> {
     use simplecss::{Token, Combinator};
@@ -263,103 +364,96 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) ->
 
     let css_property_map = azul_css::get_css_key_map();
     loop {
-        let tokenize_result = tokenizer.parse_next();
-        match tokenize_result {
-            Ok(token) => {
-                match token {
-                    Token::BlockStart => {
-                        if parser_in_block {
-                            // multi-nested CSS blocks are currently not supported
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        parser_in_block = true;
-                        block_nesting += 1;
-                        current_paths.push(last_path.clone());
-                        last_path.clear();
-                    },
-                    Token::Comma => {
-                        current_paths.push(last_path.clone());
-                        last_path.clear();
-                    },
-                    Token::BlockEnd => {
-                        block_nesting -= 1;
-                        if !parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        parser_in_block = false;
-                        for path in current_paths.drain(..) {
-                            css_blocks.push(CssRuleBlock {
-                                path: CssPath { selectors: path },
-                                declarations: current_rules.clone(),
-                            })
-                        }
-                        current_rules.clear();
-                        last_path.clear(); // technically unnecessary, but just to be sure
-                    },
-
-                    // tokens that adjust the last_path
-                    Token::UniversalSelector => {
-                        if parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        last_path.push(CssPathSelector::Global);
-                    },
-                    Token::TypeSelector(div_type) => {
-                        if parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
-                    },
-                    Token::IdSelector(id) => {
-                        if parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        last_path.push(CssPathSelector::Id(id.to_string()));
-                    },
-                    Token::ClassSelector(class) => {
-                        if parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        last_path.push(CssPathSelector::Class(class.to_string()));
-                    },
-                    Token::Combinator(Combinator::GreaterThan) => {
-                        if parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        last_path.push(CssPathSelector::DirectChildren);
-                    },
-                    Token::Combinator(Combinator::Space) => {
-                        if parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        last_path.push(CssPathSelector::Children);
-                    },
-                    Token::PseudoClass { selector, value } => {
-                        if parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-                        last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value)?));
-                    },
-                    Token::Declaration(key, val) => {
-                        if !parser_in_block {
-                            return Err(CssParseErrorInner::MalformedCss);
-                        }
-
-                        let parsed_key = CssPropertyType::from_str(key, &css_property_map)
-                            .ok_or(CssParseErrorInner::UnknownPropertyKey(key, val))?;
-
-                        current_rules.push(determine_static_or_dynamic_css_property(parsed_key, val)?);
-                    },
-                    Token::EndOfStream => {
-                        break;
-                    },
-                    _ => {
-                        // attributes, lang-attributes and @keyframes are not supported
-                    }
+        let token = tokenizer.parse_next()?;
+        match token {
+            Token::BlockStart => {
+                if parser_in_block {
+                    // multi-nested CSS blocks are currently not supported
+                    return Err(CssParseErrorInner::MalformedCss);
                 }
+                parser_in_block = true;
+                block_nesting += 1;
+                current_paths.push(last_path.clone());
+                last_path.clear();
             },
-            Err(e) => {
-                return Err(CssParseErrorInner::ParseError(e));
+            Token::Comma => {
+                current_paths.push(last_path.clone());
+                last_path.clear();
+            },
+            Token::BlockEnd => {
+                block_nesting -= 1;
+                if !parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                parser_in_block = false;
+                for path in current_paths.drain(..) {
+                    css_blocks.push(CssRuleBlock {
+                        path: CssPath { selectors: path },
+                        declarations: current_rules.clone(),
+                    })
+                }
+                current_rules.clear();
+                last_path.clear(); // technically unnecessary, but just to be sure
+            },
+
+            // tokens that adjust the last_path
+            Token::UniversalSelector => {
+                if parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                last_path.push(CssPathSelector::Global);
+            },
+            Token::TypeSelector(div_type) => {
+                if parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
+            },
+            Token::IdSelector(id) => {
+                if parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                last_path.push(CssPathSelector::Id(id.to_string()));
+            },
+            Token::ClassSelector(class) => {
+                if parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                last_path.push(CssPathSelector::Class(class.to_string()));
+            },
+            Token::Combinator(Combinator::GreaterThan) => {
+                if parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                last_path.push(CssPathSelector::DirectChildren);
+            },
+            Token::Combinator(Combinator::Space) => {
+                if parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                last_path.push(CssPathSelector::Children);
+            },
+            Token::PseudoClass { selector, value } => {
+                if parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+                last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value)?));
+            },
+            Token::Declaration(key, val) => {
+                if !parser_in_block {
+                    return Err(CssParseErrorInner::MalformedCss);
+                }
+
+                let parsed_key = CssPropertyType::from_str(key, &css_property_map)
+                    .ok_or(CssParseErrorInner::UnknownPropertyKey(key, val))?;
+
+                current_rules.push(determine_static_or_dynamic_css_property(parsed_key, val)?);
+            },
+            Token::EndOfStream => {
+                break;
+            },
+            _ => {
+                // attributes, lang-attributes and @keyframes are not supported
             }
         }
     }
