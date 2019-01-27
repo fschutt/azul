@@ -41,6 +41,7 @@ use {
     ui_state::UiState,
     ui_description::UiDescription,
     daemon::Daemon,
+    focus::FocusTarget,
 };
 
 type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
@@ -511,16 +512,20 @@ fn render_single_window_content<T: Layout>(
     if frame_event_info.should_hittest {
         for event in &events {
             hit_test_results = do_hit_test(&window);
-            if call_callbacks(
+            let callback_result = call_callbacks(
                 hit_test_results.as_ref(),
                 event,
                 window,
                 &window_id,
                 &ui_state_cache[&window_id],
                 app_state
-            )? == Redraw {
+            )?;
+
+            if callback_result.should_update_screen == Redraw {
                 frame_event_info.should_redraw_window = true;
             }
+
+            window.state.pending_focus_target = callback_result.callbacks_overwrites_focus;
         }
     }
 
@@ -664,6 +669,11 @@ fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
     Some(hit_test_results)
 }
 
+struct CallCallbackReturn {
+    pub should_update_screen: UpdateScreen,
+    pub callbacks_overwrites_focus: Option<FocusTarget>,
+}
+
 /// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
 fn call_callbacks<T: Layout>(
     hit_test_results: Option<&HitTestResult>,
@@ -672,7 +682,7 @@ fn call_callbacks<T: Layout>(
     window_id: &WindowId,
     ui_state: &UiState<T>,
     app_state: &mut AppState<T>)
--> Result<UpdateScreen, RuntimeError<T>>
+-> Result<CallCallbackReturn, RuntimeError<T>>
 {
     use app_state::AppStateNoData;
     use window::CallbackInfo;
@@ -691,6 +701,8 @@ fn call_callbacks<T: Layout>(
         .set_keyboard_state(&window.state.keyboard_state);
     app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
         .set_mouse_state(&window.state.mouse_state);
+
+    let mut callbacks_overwrites_focus = None;
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
     {
@@ -715,9 +727,13 @@ fn call_callbacks<T: Layout>(
                 };
 
                 // safe unwrap, we have added the callback previously
-                if app_state.windows[window_id].default_callbacks
-                    .run_callback(&mut *lock, default_callback_id, app_state_no_data, &mut window_event) == Redraw {
+                if app_state.windows[window_id].default_callbacks.run_callback(&mut *lock, default_callback_id, app_state_no_data, &mut window_event) == Redraw {
                     should_update_screen = Redraw;
+                }
+
+                // Overwrite the focus from the window event
+                if let Some(new_focus) = window_event.focus {
+                    callbacks_overwrites_focus = Some(new_focus);
                 }
             }
         }
@@ -740,6 +756,10 @@ fn call_callbacks<T: Layout>(
             if (callback.0)(app_state, &mut window_event) == Redraw {
                 should_update_screen = Redraw;
             }
+
+            if let Some(new_focus) = window_event.focus {
+                callbacks_overwrites_focus = Some(new_focus);
+            }
         }
     }
 
@@ -752,7 +772,10 @@ fn call_callbacks<T: Layout>(
     app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
         .set_mouse_state(&MouseState::default());
 
-    Ok(should_update_screen)
+    Ok(CallCallbackReturn {
+        should_update_screen,
+        callbacks_overwrites_focus,
+    })
 }
 
 fn render<T: Layout>(
