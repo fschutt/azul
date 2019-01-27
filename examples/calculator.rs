@@ -28,7 +28,7 @@ struct Calculator {
 }
 
 impl Layout for Calculator {
-    fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
         fn numpad_btn(label: &str, class: &str) -> Dom<Calculator> {
             Dom::label(label)
                 .with_class(class)

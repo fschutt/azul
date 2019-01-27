@@ -10,7 +10,7 @@ struct List {
 const CUSTOM_CSS: &str = ".selected { background-color: black; color: white; }";
 
 impl Layout for List {
-    fn layout(&self, _: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
         self.items.iter().enumerate().map(|(idx, item)| {
             NodeData {
                 node_type: NodeType::Label(item.to_string()),

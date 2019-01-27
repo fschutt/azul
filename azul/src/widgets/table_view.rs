@@ -5,7 +5,7 @@ use {
     dom::{Dom, On, NodeData, NodeType, IFrameCallback, UpdateScreen, DontRedraw},
     app_state::AppStateNoData,
     traits::Layout,
-    window::WindowInfo,
+    window::LayoutInfo,
     default_callbacks::{StackCheckedPointer, DefaultCallback},
     window::{HidpiAdjustedBounds, CallbackInfo, FakeWindow},
 };
@@ -81,7 +81,7 @@ impl TableView {
     }
 }
 
-fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
+fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: LayoutInfo<T>, dimensions: HidpiAdjustedBounds)
 -> Dom<T>
 {
     unsafe { ptr.invoke_mut_iframe(TableViewState::render, info, dimensions) }
@@ -89,7 +89,7 @@ fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: WindowIn
 
 
 impl TableViewState {
-    pub fn render<T: Layout>(state: &mut TableViewState, _info: WindowInfo<T>, dimensions: HidpiAdjustedBounds)
+    pub fn render<T: Layout>(state: &mut TableViewState, _info: LayoutInfo<T>, dimensions: HidpiAdjustedBounds)
     -> Dom<T>
     {
         let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;

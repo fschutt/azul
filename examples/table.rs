@@ -9,7 +9,7 @@ struct TableDemo {
 }
 
 impl Layout for TableDemo {
-    fn layout(&self, info: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, info: LayoutInfo<Self>) -> Dom<Self> {
         TableView::new().dom(&self.table_state, &self, info.window)
     }
 }

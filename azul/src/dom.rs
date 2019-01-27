@@ -12,7 +12,7 @@ use azul_css::{ NodeTypePath, CssProperty };
 use {
     ui_state::UiState,
     FastHashMap,
-    window::{CallbackInfo, WindowInfo},
+    window::{CallbackInfo, LayoutInfo},
     images::{ImageId, ImageState},
     text_cache::TextId,
     traits::Layout,
@@ -105,7 +105,7 @@ impl<T: Layout> Eq for Callback<T> { }
 impl<T: Layout> Copy for Callback<T> { }
 
 
-pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Option<Texture>);
+pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for GlTextureCallback<T>
 
@@ -136,7 +136,7 @@ impl<T: Layout> PartialEq for GlTextureCallback<T> {
 impl<T: Layout> Eq for GlTextureCallback<T> { }
 impl<T: Layout> Copy for GlTextureCallback<T> { }
 
-pub struct IFrameCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, WindowInfo<T>, HidpiAdjustedBounds) -> Dom<T>);
+pub struct IFrameCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>);
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for IFrameCallback<T>
 

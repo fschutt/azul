@@ -16,7 +16,7 @@ impl Default for TestCrudApp {
 }
 
 impl Layout for TestCrudApp {
-    fn layout(&self, info: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, info: LayoutInfo<Self>) -> Dom<Self> {
         TextInput::new()
         .bind(info.window, &self.text_input, &self)
         .dom(&self.text_input)

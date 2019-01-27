@@ -4,7 +4,7 @@ use {
 };
 
 #[cfg(not(test))]
-use window::WindowInfo;
+use window::LayoutInfo;
 
 /// The core trait that has to be implemented for the app model to provide a
 /// Model -> View serialization.
@@ -18,7 +18,7 @@ pub trait Layout {
     /// recalculates the layout. This is done on each frame (except there are shortcuts
     /// when the DOM doesn't have to be recalculated).
     #[cfg(not(test))]
-    fn layout(&self, window_id: WindowInfo<Self>) -> Dom<Self> where Self: Sized;
+    fn layout(&self, window_id: LayoutInfo<Self>) -> Dom<Self> where Self: Sized;
     #[cfg(test)]
     fn layout(&self) -> Dom<Self> where Self: Sized;
 }

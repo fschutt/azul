@@ -43,7 +43,7 @@
 //! struct MyDataModel { }
 //!
 //! impl Layout for MyDataModel {
-//!     fn layout(&self, _: WindowInfo<Self>) -> Dom<Self> {
+//!     fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
 //!         Dom::new(NodeType::Div)
 //!     }
 //! }
@@ -195,7 +195,7 @@ pub mod prelude {
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
                      MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
-                     WindowMonitorTarget, RendererType, CallbackInfo, WindowInfo, ReadOnlyWindow};
+                     WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow};
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
