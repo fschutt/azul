@@ -55,7 +55,7 @@ struct DataModel {
 
 impl Layout for DataModel {
     // Model renders View
-    fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
         let label = Label::new(format!("{}", self.counter)).dom();
         let button = Button::with_label("Update counter").dom()
             .with_callback(On::MouseUp, Callback(update_counter));
@@ -67,7 +67,7 @@ impl Layout for DataModel {
 }
 
 // View updates Model
-fn update_counter(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataModel>) -> UpdateScreen {
+fn update_counter(app_state: &mut AppState<DataModel>, _event: CallbackInfo<DataModel>) -> UpdateScreen {
     app_state.data.modify(|state| state.counter += 1);
     Redraw
 }
@@ -96,7 +96,7 @@ like this:
 
 ```rust
 impl Layout for DataModel {
-    fn layout(&self, _info: WindowInfo<Self>) -> Dom<DataModel> {
+    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<DataModel> {
         match self.state {
             LoginScreen => {
                 Dom::new(NodeType::Div).with_id("login_screen")
@@ -137,7 +137,7 @@ struct DataModel {
 }
 
 impl Layout for DataModel {
-    fn layout(&self, info: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, info: LayoutInfo<Self>) -> Dom<Self> {
         // Create a new text input field
         TextInput::new()
         // ... bind it to self.text_input - will automatically update
@@ -148,7 +148,7 @@ impl Layout for DataModel {
     }
 }
 
-fn print_text_field(app_state: &mut AppState<DataModel>, _event: WindowEvent<DataModel>) -> UpdateScreen {
+fn print_text_field(app_state: &mut AppState<DataModel>, _event: CallbackInfo<DataModel>) -> UpdateScreen {
     println!("You've typed: {}", app_state.data.lock().unwrap().text_input.text);
     DontRedraw
 }
@@ -202,7 +202,7 @@ are very easy to test:
 fn test_it_should_increase_the_counter() {
     let mut initial_state = AppState::new(DataModel { counter: 0 });
     let expected_state = AppState::new(DataModel { counter: 1 });
-    update_counter(&mut initial_state, WindowEvent::mock());
+    update_counter(&mut initial_state, CallbackInfo::mock());
     assert_eq!(initial_state, expected_state);
 }
 ```
