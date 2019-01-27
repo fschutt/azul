@@ -188,7 +188,7 @@ impl Drop for ReadOnlyWindow {
     }
 }
 
-pub struct WindowInfo<'a, 'b, T: 'b + Layout> {
+pub struct LayoutInfo<'a, 'b, T: 'b + Layout> {
     pub window: &'b mut FakeWindow<T>,
     pub resources: &'a AppResources,
 }

@@ -41,7 +41,7 @@ struct Board {
 
 impl Layout for Universe {
 
-    fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
 
         let (dead_cells, alive_cells) = count_dead_and_alive_cells(&self.board.cells);
 

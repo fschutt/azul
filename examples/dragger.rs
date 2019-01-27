@@ -13,7 +13,7 @@ type Event<'a> = CallbackInfo<'a, DragMeApp>;
 type State = AppState<DragMeApp>;
 
 impl Layout for DragMeApp {
-    fn layout(&self, _: WindowInfo<DragMeApp>) -> Dom<Self> {
+    fn layout(&self, _: LayoutInfo<DragMeApp>) -> Dom<Self> {
 
         let mut left = Dom::new(NodeType::Div).with_id("blue");
 

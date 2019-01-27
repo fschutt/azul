@@ -25,7 +25,7 @@ struct MyDataModel {
 }
 
 impl Layout for MyDataModel {
-    fn layout(&self, _info: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
 
         use self::ConnectionStatus::*;
 

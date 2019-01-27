@@ -41,7 +41,7 @@ pub struct Map {
 }
 
 impl Layout for MyAppData {
-    fn layout(&self, _info: WindowInfo<Self>)
+    fn layout(&self, _info: LayoutInfo<Self>)
     -> Dom<MyAppData>
     {
         if let Some(map) = &self.map {
@@ -63,11 +63,11 @@ fn gl_texture_dom(map: &Map, data: &MyAppData) -> Dom<MyAppData> {
         .with_callback(On::MouseOver, Callback(check_hovered_font))
 }
 
-fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: WindowInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
+fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: LayoutInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
     unsafe { ptr.invoke_mut_texture(render_map, window_info, dimensions) }
 }
 
-fn render_map(map: &mut Map, info: WindowInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
+fn render_map(map: &mut Map, info: LayoutInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
     Some(
          Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
             .with_pan(map.pan_horz as f32, map.pan_vert as f32)

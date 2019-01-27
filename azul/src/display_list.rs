@@ -44,7 +44,7 @@ use {
     images::ImageId,
     text_cache::TextInfo,
     compositor::new_opengl_texture_id,
-    window::{Window, WindowInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
+    window::{Window, LayoutInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
 };
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -1058,7 +1058,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     {
         // Make sure that the app data is locked before invoking the callback
         let _lock = referenced_mutable_content.app_data.0.lock().unwrap();
-        texture = (texture_callback.0)(&texture_stack_ptr, WindowInfo {
+        texture = (texture_callback.0)(&texture_stack_ptr, LayoutInfo {
             window: &mut *referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
         }, bounds);
@@ -1123,7 +1123,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         // Make sure that the app data is locked before invoking the callback
         let _lock = referenced_mutable_content.app_data.0.lock().unwrap();
 
-        let window_info = WindowInfo {
+        let window_info = LayoutInfo {
             window: referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
         };

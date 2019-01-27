@@ -178,7 +178,7 @@ impl<T: Layout> AppState<T> {
     /// struct MyAppData { }
     ///
     /// impl Layout for MyAppData {
-    ///      fn layout(&self, _window_id: WindowInfo<MyAppData>) -> Dom<MyAppData> {
+    ///      fn layout(&self, _window_id: LayoutInfo<MyAppData>) -> Dom<MyAppData> {
     ///          Dom::new(NodeType::Div)
     ///             .with_callback(On::MouseEnter, Callback(my_callback))
     ///      }

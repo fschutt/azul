@@ -6,7 +6,7 @@ use azul_css::CssProperty;
 use {
     app::RuntimeError,
     FastHashMap,
-    window::{WindowInfo, WindowId},
+    window::{LayoutInfo, WindowId},
     traits::Layout,
     dom::{Callback, Dom, TagId, TabIndex,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
@@ -111,7 +111,7 @@ impl<T: Layout> UiState<T> {
         use app::RuntimeError::*;
 
         let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
-        let window_info = WindowInfo {
+        let window_info = LayoutInfo {
             window: &mut fake_window,
             resources: &app_state.resources,
         };

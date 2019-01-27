@@ -9,7 +9,7 @@ struct List {
 }
 
 impl Layout for List {
-    fn layout(&self, _: WindowInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
 
         let child_nodes = self.items.iter().enumerate().map(|(idx, item)| {
             NodeData {

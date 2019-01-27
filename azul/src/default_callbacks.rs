@@ -18,7 +18,7 @@ mod stack_checked_pointer {
         dom::{UpdateScreen, Dom, Texture},
         default_callbacks::DefaultCallbackType,
         app_state::AppStateNoData,
-        window::{CallbackInfo, WindowInfo, HidpiAdjustedBounds},
+        window::{CallbackInfo, LayoutInfo, HidpiAdjustedBounds},
     };
 
     /// A `StackCheckedPointer` is a type-erased, non-boxed pointer to a
@@ -77,8 +77,8 @@ mod stack_checked_pointer {
 
         pub unsafe fn invoke_mut_iframe<U: Sized>(
             &self,
-            callback: fn(&mut U, WindowInfo<T>, HidpiAdjustedBounds) -> Dom<T>,
-            window_info: WindowInfo<T>,
+            callback: fn(&mut U, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>,
+            window_info: LayoutInfo<T>,
             dimensions: HidpiAdjustedBounds)
         -> Dom<T>
         {
@@ -87,8 +87,8 @@ mod stack_checked_pointer {
 
         pub unsafe fn invoke_mut_texture<U: Sized>(
             &self,
-            callback: fn(&mut U, WindowInfo<T>, HidpiAdjustedBounds) -> Option<Texture>,
-            window_info: WindowInfo<T>,
+            callback: fn(&mut U, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>,
+            window_info: LayoutInfo<T>,
             dimensions: HidpiAdjustedBounds)
         -> Option<Texture>
         {
