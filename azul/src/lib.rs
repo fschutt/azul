@@ -115,6 +115,8 @@ mod macros;
 
 /// Global application state, wrapping resources and app state
 pub mod app;
+/// Focus tracking / input tracking related functions
+pub mod focus;
 /// Wrapper for the application data & application state
 pub mod app_state;
 /// Font & image resource handling, lookup and caching

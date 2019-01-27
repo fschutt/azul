@@ -27,6 +27,7 @@ pub use css::{
     new_from_str,
     parse_css_path,
     CssParseError,
+    CssPathParseError,
 };
 
 pub use css_parser::*;

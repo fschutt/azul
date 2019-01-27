@@ -43,6 +43,7 @@ use {
     default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
     ui_state::UiState,
     display_list::ScrolledNodes,
+    focus::FocusTarget,
 };
 pub use webrender::api::HitTestItem;
 
@@ -204,8 +205,10 @@ impl<T: Layout> fmt::Debug for FakeWindow<T> {
 }
 
 /// Information about the callback that is passed to the callback whenever a callback is invoked
-#[derive(Debug)]
 pub struct CallbackInfo<'a, T: 'a + Layout> {
+    /// The callback can change the focus - note that the focus is set before the
+    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
+    pub focus: Option<FocusTarget>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'a WindowId,
@@ -225,6 +228,7 @@ pub struct CallbackInfo<'a, T: 'a + Layout> {
 impl<'a, T: 'a + Layout> Clone for CallbackInfo<'a, T> {
     fn clone(&self) -> Self {
         Self {
+            focus: self.focus.clone(),
             window_id: self.window_id,
             hit_dom_node: self.hit_dom_node,
             ui_state: self.ui_state,
@@ -235,8 +239,27 @@ impl<'a, T: 'a + Layout> Clone for CallbackInfo<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Layout> Copy for CallbackInfo<'a, T> { }
-
+impl<'a, T: 'a + Layout> fmt::Debug for CallbackInfo<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CallbackInfo {{ \
+            focus: {:?}, \
+            window_id: {:?}, \
+            hit_dom_node: {:?}, \
+            ui_state: {:?}, \
+            hit_test_items: {:?}, \
+            cursor_relative_to_item: {:?}, \
+            cursor_in_viewport: {:?}, \
+        }}",
+        self.focus,
+        self.window_id,
+        self.hit_dom_node,
+        self.ui_state,
+        self.hit_test_items,
+        self.cursor_relative_to_item,
+        self.cursor_in_viewport,
+        )
+    }
+}
 
 pub struct IndexPathIterator<'a, 'b: 'a, T: 'b + Layout> {
     current_item: NodeId,
