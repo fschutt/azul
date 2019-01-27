@@ -12,6 +12,7 @@ use {
     dom::NodeData,
     ui_state::UiState,
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
+    focus::FocusTarget,
 };
 
 /// Has all the necessary information about the style CSS path
@@ -459,4 +460,44 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
         selected_hover_nodes,
     }
+}
+
+/// Update the WindowStates focus node in case the previous
+/// frames callbacks set the focus to a specific node
+///
+/// Takes the `WindowState.pending_focus_target` and `WindowState.focused_node`
+/// and updates the `WindowState.focused_node` accordingly.
+/// Should be called before ``
+fn update_focus_from_callbacks<'a, T: 'a + Layout>(
+    pending_focus_target: &mut Option<FocusTarget>,
+    focused_node: &mut Option<NodeId>,
+    node_hierarchy: &NodeHierarchy,
+    // TODO: How do we know that the current focused node doesn't mess with the results?
+    html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>,
+) {
+    let new_focus_target = match pending_focus_target {
+        Some(s) => s.clone(),
+        None => return,
+    };
+
+    match new_focus_target {
+        FocusTarget::Id(node_id) => {
+            if html_node_tree.len() < node_id.index() {
+                *focused_node = Some(node_id);
+            } else {
+                warn!("Focusing on node with invalid ID: {}", node_id);
+            }
+        },
+        FocusTarget::NoFocus => { *focused_node = None; },
+        FocusTarget::Path(css_path) => {
+            if let Some(new_focused_node_id) = html_node_tree.linear_iter()
+            .find(|node_id| matches_html_element(&css_path, *node_id, &node_hierarchy, &html_node_tree)) {
+                 *focused_node = Some(new_focused_node_id);
+            } else {
+                warn!("Could not find focus node for path: {}", css_path);
+            }
+        },
+    }
+
+    *pending_focus_target = None;
 }

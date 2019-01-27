@@ -21,6 +21,7 @@ use {
     id_tree::NodeId,
     ui_state::UiState,
     traits::Layout,
+    focus::FocusTarget,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -185,6 +186,8 @@ pub struct WindowState {
     pub(crate) hovered_nodes: BTreeMap<NodeId, HitTestItem>,
     /// Previous window state, used for determining mouseout, etc. events
     pub(crate) previous_window_state: Option<Box<WindowState>>,
+    /// Whether there is a focus field overwrite from the last callback calls.
+    pub(crate) pending_focus_target: Option<FocusTarget>,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
     /// Used for performance monitoring and displaying frame times (rendering-only).
     pub debug_state: DebugState,
@@ -241,6 +244,7 @@ impl Default for WindowState {
             hovered_nodes: BTreeMap::new(),
             hovered_file: None,
             previous_window_state: None,
+            pending_focus_target: None,
             title: DEFAULT_TITLE.into(),
             position: None,
             size: WindowSize::default(),
