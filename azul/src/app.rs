@@ -577,7 +577,8 @@ fn render_single_window_content<T: Layout>(
             UiDescription::match_css_to_dom(
             &mut ui_state,
             &window.css,
-            window.state.focused_node,
+            &mut window.state.focused_node,
+            &mut window.state.pending_focus_target,
             &window.state.hovered_nodes,
             is_mouse_down,
         )};

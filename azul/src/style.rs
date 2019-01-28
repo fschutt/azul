@@ -378,7 +378,8 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_no
 pub(crate) fn match_dom_selectors<T: Layout>(
     ui_state: &UiState<T>,
     css: &Css,
-    focused_node: Option<NodeId>,
+    focused_node: &mut Option<NodeId>,
+    pending_focus_target: &mut Option<FocusTarget>,
     hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
     is_mouse_down: bool,
 ) -> UiDescription<T>
@@ -392,13 +393,22 @@ pub(crate) fn match_dom_selectors<T: Layout>(
 
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
-    let html_tree = construct_html_cascade_tree(
+    let mut html_tree = construct_html_cascade_tree(
         &arena_borrow.node_data,
         &arena_borrow.node_layout,
         &non_leaf_nodes,
-        focused_node,
+        *focused_node,
         hovered_nodes,
         is_mouse_down,
+    );
+
+    // Update the current focused field if the callbacks of the
+    // previous frame has overridden the focus field
+    update_focus_from_callbacks(
+        pending_focus_target,
+        focused_node,
+        &arena_borrow.node_layout,
+        &mut html_tree,
     );
 
     for (_depth, parent_id) in non_leaf_nodes {
@@ -472,8 +482,7 @@ fn update_focus_from_callbacks<'a, T: 'a + Layout>(
     pending_focus_target: &mut Option<FocusTarget>,
     focused_node: &mut Option<NodeId>,
     node_hierarchy: &NodeHierarchy,
-    // TODO: How do we know that the current focused node doesn't mess with the results?
-    html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>,
+    html_node_tree: &mut NodeDataContainer<HtmlCascadeInfo<'a, T>>,
 ) {
     let new_focus_target = match pending_focus_target {
         Some(s) => s.clone(),
@@ -497,6 +506,13 @@ fn update_focus_from_callbacks<'a, T: 'a + Layout>(
                 warn!("Could not find focus node for path: {}", css_path);
             }
         },
+    }
+
+    if let Some(focused_node) = focused_node {
+        for html_node in &mut html_node_tree.internal {
+            html_node.is_focused = false;
+        }
+        html_node_tree[*focused_node].is_focused = true;
     }
 
     *pending_focus_target = None;
