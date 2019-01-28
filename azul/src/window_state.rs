@@ -4,6 +4,7 @@
 use std::{
     collections::{HashSet, BTreeMap},
     path::PathBuf,
+    fmt,
 };
 use glium::glutin::{
     Window, Event, WindowEvent, KeyboardInput, ScanCode, ElementState,
@@ -14,7 +15,7 @@ use webrender::api::HitTestItem;
 use {
     app::FrameEventInfo,
     dom::{
-        EventFilter, Callback,
+        EventFilter, Callback, NotEventFilter,
         HoverEventFilter, FocusEventFilter,
     },
     default_callbacks::DefaultCallbackId,
@@ -300,6 +301,12 @@ pub(crate) struct CallbacksOfHitTest<T: Layout> {
     pub needs_relayout_anyways: bool,
 }
 
+impl<T: Layout> fmt::Debug for DetermineCallbackResult<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}, {:?}, {:?}", self.hit_test_item, self.default_callbacks, self.normal_callbacks)
+    }
+}
+
 impl<T: Layout> Default for CallbacksOfHitTest<T> {
     fn default() -> Self {
         Self {
@@ -335,6 +342,8 @@ impl WindowState
         ui_state: &UiState<T>
     ) -> CallbacksOfHitTest<T>
     {
+        use std::collections::BTreeSet;
+
         // TODO: Check for desktop or window event!
         let event = if let Event::WindowEvent { event, .. } = event { event } else { return CallbacksOfHitTest::default(); };
 
@@ -372,7 +381,7 @@ impl WindowState
         // BTreeMap<NodeId, DetermineCallbackResult<T>>
         let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>> = BTreeMap::new();
 
-        for (hover_node_id, hit_test_item) in new_hit_node_ids.iter() {
+        for (hover_node_id, hit_test_item) in &new_hit_node_ids {
 
             // BTreeMap<EventFilter, Callback<T>>
             let mut normal_hover_callbacks = BTreeMap::new();
@@ -398,16 +407,13 @@ impl WindowState
                 }
             }
 
-            if !default_hover_callbacks.is_empty() && !normal_hover_callbacks.is_empty() {
-
-                let mut callback_result = nodes_with_callbacks.get(hover_node_id)
-                .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+            if !(default_hover_callbacks.is_empty() && normal_hover_callbacks.is_empty()) {
+                let mut callback_result = nodes_with_callbacks.entry(*hover_node_id)
+                .or_insert_with(|| DetermineCallbackResult::default());
 
                 callback_result.hit_test_item = Some(hit_test_item.clone());
                 callback_result.normal_callbacks.extend(normal_hover_callbacks.into_iter());
                 callback_result.default_callbacks.extend(default_hover_callbacks.into_iter());
-
-                nodes_with_callbacks.insert(*hover_node_id, callback_result);
             }
         }
 
@@ -438,14 +444,13 @@ impl WindowState
                 }
             }
 
-            if !default_focus_callbacks.is_empty() && !normal_focus_callbacks.is_empty() {
-                let mut callback_result = nodes_with_callbacks.get(current_focused_node)
-                .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+            if !(default_focus_callbacks.is_empty() && normal_focus_callbacks.is_empty()) {
+
+                let mut callback_result = nodes_with_callbacks.entry(*current_focused_node)
+                .or_insert_with(|| DetermineCallbackResult::default());
 
                 callback_result.normal_callbacks.extend(normal_focus_callbacks.into_iter());
                 callback_result.default_callbacks.extend(default_focus_callbacks.into_iter());
-
-                nodes_with_callbacks.insert(*current_focused_node, callback_result);
             }
         }
 
@@ -491,14 +496,13 @@ impl WindowState
                 }
             }
 
-            if !default_focus_callbacks.is_empty() && !normal_focus_callbacks.is_empty() {
-                let mut callback_result = nodes_with_callbacks.get(node_id)
-                .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+            if !(default_focus_callbacks.is_empty() && normal_focus_callbacks.is_empty()) {
+
+                let mut callback_result = nodes_with_callbacks.entry(*node_id)
+                .or_insert_with(|| DetermineCallbackResult::default());
 
                 callback_result.normal_callbacks.extend(normal_focus_callbacks.into_iter());
                 callback_result.default_callbacks.extend(default_focus_callbacks.into_iter());
-
-                nodes_with_callbacks.insert(*node_id, callback_result);
             }
         }
 
@@ -557,15 +561,14 @@ impl WindowState
                     }
                 }
 
-                if !default_callbacks.is_empty() && !normal_callbacks.is_empty() {
-                    let mut callback_result = nodes_with_callbacks.get(&$node_id)
-                    .map(|x| x.clone()).unwrap_or_else(|| DetermineCallbackResult::default());
+                if !(default_callbacks.is_empty() && normal_callbacks.is_empty()) {
+
+                    let mut callback_result = nodes_with_callbacks.entry($node_id)
+                    .or_insert_with(|| DetermineCallbackResult::default());
 
                     callback_result.hit_test_item = Some($hit_test_item);
                     callback_result.normal_callbacks.extend(normal_callbacks.into_iter());
                     callback_result.default_callbacks.extend(default_callbacks.into_iter());
-
-                    nodes_with_callbacks.insert($node_id, callback_result);
                 }
 
                 if let Some((_, hover_group)) = ui_state.node_ids_to_tag_ids.get(&$node_id).and_then(|tag_for_this_node| {
@@ -602,6 +605,66 @@ impl WindowState
         for (node_id, hit_test_item) in onmouseleave_nodes {
             mouse_enter!(node_id, hit_test_item, MouseLeave);
         }
+
+        // Insert all Not-callbacks, we need to filter out all Hover and Focus callbacks
+        // and then look at what callbacks were currently
+
+        // In order to create the Not Events we have to record which events were fired and on what nodes
+        // Then we need to go through the events and fire them if the event was present, but the NodeID was not
+        let mut reverse_event_hover_normal_list = BTreeMap::<HoverEventFilter, BTreeSet<NodeId>>::new();
+        let mut reverse_event_focus_normal_list = BTreeMap::<FocusEventFilter, BTreeSet<NodeId>>::new();
+        let mut reverse_event_hover_default_list = BTreeMap::<HoverEventFilter, BTreeSet<NodeId>>::new();
+        let mut reverse_event_focus_default_list = BTreeMap::<FocusEventFilter, BTreeSet<NodeId>>::new();
+
+        for (node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, .. }) in &nodes_with_callbacks {
+            for event_filter in normal_callbacks.keys() {
+                match event_filter {
+                    EventFilter::Hover(h) => {
+                        reverse_event_hover_normal_list.entry(*h).or_insert_with(|| BTreeSet::new()).insert(*node_id);
+                    },
+                    EventFilter::Focus(f) => {
+                        reverse_event_focus_normal_list.entry(*f).or_insert_with(|| BTreeSet::new()).insert(*node_id);
+                    },
+                    _ => { },
+                }
+            }
+            for event_filter in default_callbacks.keys() {
+                match event_filter {
+                    EventFilter::Hover(h) => {
+                        reverse_event_hover_default_list.entry(*h).or_insert_with(|| BTreeSet::new()).insert(*node_id);
+                    },
+                    EventFilter::Focus(f) => {
+                        reverse_event_focus_default_list.entry(*f).or_insert_with(|| BTreeSet::new()).insert(*node_id);
+                    },
+                    _ => { },
+                }
+            }
+        }
+
+        // Insert NotEventFilter callbacks
+        for (node_id, not_event_filter_callback_list) in &ui_state.not_callbacks {
+            for (event_filter, event_callback) in not_event_filter_callback_list {
+                // If we have the event filter, but we don't have the NodeID, then insert the callback
+                match event_filter {
+                    NotEventFilter::Hover(h) => {
+                        if let Some(on_node_ids) = reverse_event_hover_normal_list.get(&h) {
+                            if !on_node_ids.contains(node_id) {
+                                nodes_with_callbacks.entry(*node_id)
+                                .or_insert_with(|| DetermineCallbackResult::default())
+                                .normal_callbacks.insert(EventFilter::Not(*event_filter), *event_callback);
+                            }
+                        }
+                        // TODO: Same thing for default callbacks here
+                    },
+                    NotEventFilter::Focus(f) => {
+                        // TODO: Same thing for focus
+                    }
+                }
+            }
+        }
+
+        println!("nodes_with_callbacks: {:#?}", nodes_with_callbacks);
+        println!("---------");
 
         self.hovered_nodes = new_hit_node_ids;
         self.previous_window_state = Some(previous_state);
