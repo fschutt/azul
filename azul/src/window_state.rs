@@ -643,6 +643,9 @@ impl WindowState
             }
         }
 
+        println!("ui_state.not_callbacks: {:?}", ui_state.not_callbacks);
+        println!("reverse_event_hover_normal_list: {:?}", reverse_event_hover_normal_list);
+
         // Insert NotEventFilter callbacks
         for (node_id, not_event_filter_callback_list) in &ui_state.not_callbacks {
             for (event_filter, event_callback) in not_event_filter_callback_list {

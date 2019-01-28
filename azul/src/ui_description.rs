@@ -14,6 +14,7 @@ use {
     dom::NodeData,
     ui_state::UiState,
     style::HoverGroup,
+    focus::FocusTarget,
 };
 
 pub struct UiDescription<T: Layout> {
@@ -74,7 +75,17 @@ impl<T: Layout> Default for UiDescription<T> {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
         let hovered_nodes = BTreeMap::new();
-        Self::match_css_to_dom(&mut default_dom.into_ui_state(), &Css::default(), None, &hovered_nodes, false)
+        let is_mouse_down = false;
+        let mut focused_node = None;
+        let mut focus_target = None;
+        Self::match_css_to_dom(
+            &mut default_dom.into_ui_state(),
+            &Css::default(),
+            &mut focused_node,
+            &mut focus_target,
+            &hovered_nodes,
+            is_mouse_down,
+        )
     }
 }
 
@@ -85,12 +96,21 @@ impl<T: Layout> UiDescription<T> {
     pub fn match_css_to_dom(
         ui_state: &mut UiState<T>,
         style: &Css,
-        focused_node: Option<NodeId>,
+        focused_node: &mut Option<NodeId>,
+        pending_focus_target: &mut Option<FocusTarget>,
         hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
         is_mouse_down: bool,
     ) -> Self
     {
-        let ui_description = ::style::match_dom_selectors(ui_state, &style, focused_node, hovered_nodes, is_mouse_down);
+        let ui_description = ::style::match_dom_selectors(
+            ui_state,
+            &style,
+            focused_node,
+            pending_focus_target,
+            hovered_nodes,
+            is_mouse_down
+        );
+
         // Important: Create all the tags for the :hover and :active selectors
         ui_state.create_tags_for_hover_nodes(&ui_description.selected_hover_nodes);
         ui_description
