@@ -10,7 +10,7 @@ use {
     traits::Layout,
     dom::{Callback, Dom, TagId, TabIndex,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
-        CallbackInfoFilter, DesktopEventFilter
+        WindowEventFilter, DesktopEventFilter
     },
     app_state::AppState,
     id_tree::NodeId,
@@ -50,8 +50,8 @@ pub struct UiState<T: Layout> {
     pub focus_default_callbacks:        BTreeMap<NodeId, BTreeMap<FocusEventFilter, DefaultCallbackId>>,
     pub not_callbacks:                  BTreeMap<NodeId, BTreeMap<NotEventFilter, Callback<T>>>,
     pub not_default_callbacks:          BTreeMap<NodeId, BTreeMap<NotEventFilter, DefaultCallbackId>>,
-    pub window_callbacks:               BTreeMap<NodeId, BTreeMap<CallbackInfoFilter, Callback<T>>>,
-    pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<CallbackInfoFilter, DefaultCallbackId>>,
+    pub window_callbacks:               BTreeMap<NodeId, BTreeMap<WindowEventFilter, Callback<T>>>,
+    pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallbackId>>,
     pub desktop_callbacks:              BTreeMap<NodeId, BTreeMap<DesktopEventFilter, Callback<T>>>,
     pub desktop_default_callbacks:      BTreeMap<NodeId, BTreeMap<DesktopEventFilter, DefaultCallbackId>>,
 }

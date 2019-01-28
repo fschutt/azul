@@ -26,11 +26,19 @@ impl Layout for DragMeApp {
 
         // The dragger is 0px wide, but has an absolutely positioned rectangle
         // inside of it, which can be dragged
-        let dragger = Dom::new(NodeType::Div).with_id("dragger").with_child(
-            Dom::div().with_id("dragger_handle_container").with_child(
-                Dom::div().with_id("dragger_handle").with_callback(On::MouseDown, Callback(start_drag))
-            )
-        );
+        let dragger =
+            Dom::div()
+            .with_id("dragger")
+            .with_child(
+                Dom::div()
+                .with_id("dragger_handle_container")
+                .with_child(
+                    Dom::div()
+                    .with_id("dragger_handle")
+                    .with_callback(On::MouseDown, Callback(start_drag))
+                    .with_callback(EventFilter::Not(NotEventFilter::Hover(HoverEventFilter::MouseDown)), Callback(click_outside_drag))
+                )
+            );
 
         Dom::new(NodeType::Div).with_id("container")
             .with_callback(On::MouseOver, Callback(update_drag))
@@ -41,7 +49,13 @@ impl Layout for DragMeApp {
     }
 }
 
+fn click_outside_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
+    println!("click outside drag!");
+    DontRedraw
+}
+
 fn start_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
+    println!("start dragging!");
     state.data.modify(|data| data.is_dragging = true)?;
     DontRedraw
 }
@@ -52,6 +66,7 @@ fn stop_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
 }
 
 fn update_drag(state: &mut State, event: &mut Event) -> UpdateScreen {
+    println!("update drag!");
     let mouse_state = state.windows.get(event.window_id)?.state.get_mouse_state();
     if state.data.lock().unwrap().is_dragging {
         let cursor_pos = mouse_state.cursor_pos.unwrap_or(LogicalPosition::new(0.0, 0.0));

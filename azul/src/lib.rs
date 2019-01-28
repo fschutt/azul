@@ -188,11 +188,11 @@ pub mod prelude {
     pub use azul_css::ColorU;
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
-    pub use dom::DomHash;
     pub use dom::{
-        Dom, NodeType, NodeData, Callback, On,
+        Dom, DomHash, NodeType, NodeData, Callback, On,
         UpdateScreen, Redraw, DontRedraw, Texture, GlTextureCallback,
-        IFrameCallback, TabIndex,
+        IFrameCallback, TabIndex, EventFilter, HoverEventFilter, FocusEventFilter,
+        NotEventFilter, WindowEventFilter, DesktopEventFilter,
     };
     pub use traits::{Layout, Modify};
     pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
