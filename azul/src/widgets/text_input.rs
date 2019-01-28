@@ -3,7 +3,10 @@
 use std::ops::Range;
 use {
     traits::Layout,
-    dom::{Dom, On, NodeType, UpdateScreen, Redraw, DontRedraw},
+    dom::{
+        Dom, EventFilter, FocusEventFilter,
+        UpdateScreen, Redraw, DontRedraw, TabIndex,
+    },
     window::{FakeWindow, CallbackInfo},
     prelude::{VirtualKeyCode},
     default_callbacks::{StackCheckedPointer, DefaultCallback, DefaultCallbackId},
@@ -77,14 +80,18 @@ impl TextInput {
 
     pub fn dom<T: Layout>(&self, field: &TextInputState) -> Dom<T> {
 
-        let mut parent_div = Dom::new(NodeType::Div).with_class("__azul-native-input-text");
+        let mut parent_div =
+            Dom::div()
+            .with_class("__azul-native-input-text")
+            .with_tab_index(TabIndex::Auto);
 
         if let Some((text_input_callback, vk_callback)) = self.on_text_input_callback {
-            parent_div.add_default_callback_id(On::TextInput, text_input_callback);
-            parent_div.add_default_callback_id(On::VirtualKeyDown, vk_callback);
+            parent_div.add_default_callback_id(EventFilter::Focus(FocusEventFilter::TextInput), text_input_callback);
+            parent_div.add_default_callback_id(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), vk_callback);
         }
 
-        parent_div.with_child(Dom::new(NodeType::Label(field.text.clone())).with_class("__azul-native-input-text-label"))
+        let label = Dom::label(field.text.clone()).with_class("__azul-native-input-text-label");
+        parent_div.with_child(label)
     }
 }
 
@@ -180,7 +187,9 @@ impl TextInputState {
     }
 
     pub fn on_text_input<T: Layout>(&mut self, app_state_no_data: AppStateNoData<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
+
         let keyboard_state = app_state_no_data.windows[event.window_id].get_keyboard_state();
+
         match keyboard_state.current_char {
             Some(c) => {
                 let selection = self.selection.clone();

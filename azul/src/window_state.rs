@@ -370,10 +370,12 @@ impl WindowState
 
         // Figure out what the current focused NodeId is
         if event_was_mouse_down || event_was_mouse_release {
+
             // Find the first (closest to cursor in hierarchy) item that has a tabindex
             let closest_focus_node = hit_test_items.iter().rev()
             .find_map(|item| ui_state.tab_index_tags.get(&item.tag.0))
             .cloned();
+
             // Even if the focused node is None, we still have to update self.focused_node!
             self.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| node_id);
         }
@@ -663,8 +665,8 @@ impl WindowState
             }
         }
 
-        println!("nodes_with_callbacks: {:#?}", nodes_with_callbacks);
-        println!("---------");
+        // println!("nodes_with_callbacks: {:#?}", nodes_with_callbacks);
+        // println!("---------");
 
         self.hovered_nodes = new_hit_node_ids;
         self.previous_window_state = Some(previous_state);
