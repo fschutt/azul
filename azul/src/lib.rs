@@ -125,6 +125,8 @@ pub mod app_resources;
 pub mod css;
 /// Daemon / timer system
 pub mod daemon;
+/// XML-based DOM serialization
+pub mod xml;
 /// Handles default callbacks (such as an automatic text field update) via unsafe code
 pub mod default_callbacks;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
