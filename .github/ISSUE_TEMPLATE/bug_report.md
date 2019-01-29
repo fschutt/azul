@@ -31,12 +31,6 @@ List the steps to reproduce your issue **below** this comment
 -->
 
 
-## Expected Behavior
-
-
-## Actual Behavior
-
-
 ## Additional Information
 <!--
 Place any additional information, configuration, or data that might be necessary
