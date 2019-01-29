@@ -888,7 +888,7 @@ impl<T: Layout> FromIterator<NodeType<T>> for Dom<T> {
 
 impl<T: Layout> Dom<T> {
 
-    /// Creates an empty DOM
+    /// Creates an empty DOM with a give `NodeType`.
     #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
         Self::with_capacity(node_type, 0)
@@ -1062,6 +1062,12 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
+    pub fn is_draggable(mut self, draggable: bool) -> Self {
+        self.set_draggable(draggable);
+        self
+    }
+
+    #[inline]
     pub fn add_id<S: Into<String>>(&mut self, id: S) {
         self.arena.borrow_mut().node_data[self.head].ids.push(id.into());
     }
@@ -1091,11 +1097,19 @@ impl<T: Layout> Dom<T> {
         self.arena.borrow_mut().node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
     }
 
+    #[inline]
+    pub fn set_draggable(&mut self, draggable: bool) {
+        self.arena.borrow_mut().node_data[self.head].draggable = draggable;
+    }
+
     /// Prints a debug formatted version of the DOM for easier debugging
     pub fn debug_dump(&self) {
         println!("{}", self.arena.borrow().print_tree(|t| format!("{}", t)));
     }
 
+    /// The UiState contains all the tags (for hit-testing) as well as the mapping
+    /// from Hit-testing tags to NodeIds (which are important for filtering input events
+    /// and routing input events to the callbacks).
     pub(crate) fn into_ui_state(self) -> UiState<T> {
 
         // NOTE: Originally it was allowed to create a DOM with
