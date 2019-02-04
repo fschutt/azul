@@ -64,6 +64,7 @@ pub enum RuntimeError<T: Layout> {
     GlSwapError(SwapBuffersError),
     ArcUnlockError,
     MutexPoisonError(PoisonError<T>),
+    MutexLockError,
     WindowIndexError,
 }
 
@@ -83,13 +84,15 @@ impl<T: Layout> fmt::Debug for RuntimeError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RuntimeError::*;
         match self {
-            GlSwapError(e) => write!(f, "Internal runtime error: Failed to swap GL display: {}", e),
-            ArcUnlockError => write!(f, "Internal runtime error: failed to unlock arc on application shutdown"),
-            MutexPoisonError(e) => write!(f, "Internal runtime error: Mutex poisoned (thread panicked unexpectedly): {}", e),
-            WindowIndexError => write!(f, "Internal runtime error: invalid window index"),
+            GlSwapError(e) => write!(f, "Failed to swap GL display: {}", e),
+            ArcUnlockError => write!(f, "Failed to unlock arc on application shutdown"),
+            MutexPoisonError(e) => write!(f, "Mutex poisoned (thread panicked unexpectedly): {}", e),
+            MutexLockError => write!(f, "Failed to lock application state mutex"),
+            WindowIndexError => write!(f, "Invalid window index"),
         }
     }
 }
+
 impl<T: Layout> fmt::Display for RuntimeError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", format!("{:?}", self))
@@ -140,6 +143,9 @@ pub struct AppConfig {
     /// gets logged to stdout and the logging file (only if logging is enabled).
     #[cfg(feature = "logging")]
     pub enable_logging_on_panic: bool,
+    /// (STUB) Whether keyboard navigation should be enabled (default: true).
+    /// Currently not implemented.
+    pub enable_tab_navigation: bool,
 }
 
 impl Default for AppConfig {
@@ -153,6 +159,7 @@ impl Default for AppConfig {
             enable_visual_panic_hook: true,
             #[cfg(feature = "logging")]
             enable_logging_on_panic: true,
+            enable_tab_navigation: true,
         }
     }
 }
@@ -621,7 +628,7 @@ fn hot_reload_css<T: Layout>(
         let should_reload = Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
 
         if !should_reload {
-            return Ok(());
+            continue;
         }
 
         match hot_reloader.reload_style() {
@@ -652,17 +659,14 @@ fn hot_reload_css<T: Layout>(
 /// Returns the currently hit-tested results, in back-to-front order
 fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
 
-    let cursor_location = window.state.mouse_state.cursor_pos.and_then(|pos| Some(WorldPoint::new(pos.x as f32, pos.y as f32)))?;
+    let cursor_location = window.state.mouse_state.cursor_pos.map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
 
     let mut hit_test_results = window.internal.api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
         cursor_location,
-        HitTestFlags::FIND_ALL);
-
-    if hit_test_results.items.is_empty() {
-        return None;
-    }
+        HitTestFlags::FIND_ALL
+    );
 
     // Execute callbacks back-to-front, not front-to-back
     hit_test_results.items.reverse();
@@ -707,12 +711,13 @@ fn call_callbacks<T: Layout>(
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
     {
-        let mut lock = app_state.data.lock().unwrap();
+        let mut lock = app_state.data.lock().map_err(|_| RuntimeError::MutexLockError)?;
+
         for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
             let hit_item = &callback_results.hit_test_item;
             for default_callback_id in callback_results.default_callbacks.values() {
 
-                let mut window_event = CallbackInfo {
+                let mut callback_info = CallbackInfo {
                     focus: None,
                     window_id,
                     hit_dom_node: *node_id,
@@ -727,24 +732,28 @@ fn call_callbacks<T: Layout>(
                     resources: &mut app_state.resources,
                 };
 
-                // safe unwrap, we have added the callback previously
-                if app_state.windows[window_id].default_callbacks.run_callback(&mut *lock, default_callback_id, app_state_no_data, &mut window_event) == Redraw {
+                if app_state.windows[window_id].default_callbacks.run_callback(
+                    &mut *lock,
+                    default_callback_id,
+                    app_state_no_data,
+                    &mut callback_info
+                ) == Redraw {
                     should_update_screen = Redraw;
                 }
 
-                // Overwrite the focus from the window event
-                if let Some(new_focus) = window_event.focus {
+                // Overwrite the focus from the callback info
+                if let Some(new_focus) = callback_info.focus {
                     callbacks_overwrites_focus = Some(new_focus);
                 }
             }
         }
-    } // release mutex
+    }
 
     for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
         let hit_item = &callback_results.hit_test_item;
         for callback in callback_results.normal_callbacks.values() {
 
-            let mut window_event = CallbackInfo {
+            let mut callback_info = CallbackInfo {
                 focus: None,
                 window_id,
                 hit_dom_node: *node_id,
@@ -754,11 +763,11 @@ fn call_callbacks<T: Layout>(
                 cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
             };
 
-            if (callback.0)(app_state, &mut window_event) == Redraw {
+            if (callback.0)(app_state, &mut callback_info) == Redraw {
                 should_update_screen = Redraw;
             }
 
-            if let Some(new_focus) = window_event.focus {
+            if let Some(new_focus) = callback_info.focus {
                 callbacks_overwrites_focus = Some(new_focus);
             }
         }
@@ -858,14 +867,11 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 /// hit-testing and rendering - called on pure scroll events, since it's
 /// significantly less CPU-intensive to just render the last display list instead of
 /// re-layouting on every single scroll event.
-///
-/// If `hit_test_results`
 fn render_on_scroll<T: Layout>(
     window: &mut Window<T>,
     hit_test_results: Option<HitTestResult>,
     frame_event_info: &FrameEventInfo)
 {
-
     const SCROLL_THRESHOLD: f64 = 0.5; // px
 
     let hit_test_results = match hit_test_results {

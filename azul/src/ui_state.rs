@@ -43,7 +43,6 @@ pub struct UiState<T: Layout> {
     // There are two maps per event, one for the regular callbacks and one for
     // the default callbacks. This is done for consistency, since otherwise the
     // event filtering logic gets much more complicated than it already is.
-
     pub hover_callbacks:                BTreeMap<NodeId, BTreeMap<HoverEventFilter, Callback<T>>>,
     pub hover_default_callbacks:        BTreeMap<NodeId, BTreeMap<HoverEventFilter, DefaultCallbackId>>,
     pub focus_callbacks:                BTreeMap<NodeId, BTreeMap<FocusEventFilter, Callback<T>>>,

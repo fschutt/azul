@@ -8,7 +8,7 @@ use std::{
 };
 use glium::glutin::{
     Window, Event, WindowEvent, KeyboardInput, ScanCode, ElementState,
-    MouseCursor, VirtualKeyCode, MouseScrollDelta,
+    MouseCursor, VirtualKeyCode, MouseScrollDelta, AxisId,
     ModifiersState, dpi::{LogicalPosition, LogicalSize},
 };
 use webrender::api::HitTestItem;
@@ -16,7 +16,7 @@ use {
     app::FrameEventInfo,
     dom::{
         EventFilter, Callback, NotEventFilter,
-        HoverEventFilter, FocusEventFilter,
+        HoverEventFilter, FocusEventFilter, WindowEventFilter, DesktopEventFilter,
     },
     default_callbacks::DefaultCallbackId,
     id_tree::NodeId,
@@ -189,6 +189,8 @@ pub struct WindowState {
     pub(crate) previous_window_state: Option<Box<WindowState>>,
     /// Whether there is a focus field overwrite from the last callback calls.
     pub(crate) pending_focus_target: Option<FocusTarget>,
+    /// What the last motion was in case a controller was used.
+    pub(crate) last_motion: Option<(AxisId, f64)>,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
     /// Used for performance monitoring and displaying frame times (rendering-only).
     pub debug_state: DebugState,
@@ -246,6 +248,7 @@ impl Default for WindowState {
             hovered_file: None,
             previous_window_state: None,
             pending_focus_target: None,
+            last_motion: None,
             title: DEFAULT_TITLE.into(),
             position: None,
             size: WindowSize::default(),
@@ -331,6 +334,10 @@ impl WindowState
         self.hovered_file.as_ref()
     }
 
+    pub fn get_last_motion(&self) -> Option<(AxisId, f64)> {
+        self.last_motion
+    }
+
     /// Determine which event / which callback(s) should be called and in which order
     ///
     /// This function also updates / mutates the current window state, so that
@@ -344,15 +351,24 @@ impl WindowState
     {
         use std::collections::BTreeSet;
 
-        // TODO: Check for desktop or window event!
-        let event = if let Event::WindowEvent { event, .. } = event { event } else { return CallbacksOfHitTest::default(); };
-
         // Store the current window state so we can set it in this.previous_window_state later on
         let mut previous_state = Box::new(self.clone());
         previous_state.previous_window_state = None;
 
-        // Get what HoverEventFilter events are relevant for the current event
-        let current_hover_events = get_hit_events(self, event);
+        let mut needs_hover_redraw = false;
+        let mut needs_hover_relayout = false;
+
+        // BTreeMap<NodeId, DetermineCallbackResult<T>>
+        let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>> = BTreeMap::new();
+
+        let current_desktop_events = get_desktop_events(self, event);
+
+        // TODO: process desktop events properly!
+        let event = if let Event::WindowEvent { event, .. } = event { event } else { return CallbacksOfHitTest::default(); };
+
+        let current_window_events = get_window_events(self, event);
+
+        let current_hover_events = get_hover_events(&current_window_events);
         let current_focus_events = get_focus_events(&current_hover_events);
 
         let event_was_mouse_down = if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = event { true } else { false };
@@ -380,80 +396,107 @@ impl WindowState
             self.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| node_id);
         }
 
-        // BTreeMap<NodeId, DetermineCallbackResult<T>>
-        let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>> = BTreeMap::new();
+        macro_rules! insert_only_non_empty_callbacks {
+            ($node_id:expr, $hit_test_item:expr, $normal_hover_callbacks:expr, $default_hover_callbacks:expr) => ({
+                if !($normal_hover_callbacks.is_empty() && $normal_hover_callbacks.is_empty()) {
+                    let mut callback_result = nodes_with_callbacks.entry(*$node_id)
+                    .or_insert_with(|| DetermineCallbackResult::default());
 
-        for (hover_node_id, hit_test_item) in &new_hit_node_ids {
-
-            // BTreeMap<EventFilter, Callback<T>>
-            let mut normal_hover_callbacks = BTreeMap::new();
-
-            // Insert all normal Hover events
-            if let Some(ui_state_hover_event_filters) = ui_state.hover_callbacks.get(hover_node_id) {
-                for current_hover_event in &current_hover_events {
-                    if let Some(callback) = ui_state_hover_event_filters.get(current_hover_event) {
-                        normal_hover_callbacks.insert(EventFilter::Hover(*current_hover_event), *callback);
+                    let item: Option<HitTestItem> = $hit_test_item;
+                    if let Some(hit_test_item) = item {
+                        callback_result.hit_test_item = Some(hit_test_item);
                     }
+                    callback_result.normal_callbacks.extend($normal_hover_callbacks.into_iter());
+                    callback_result.default_callbacks.extend($default_hover_callbacks.into_iter());
                 }
-            }
-
-            // BTreeMap<EventFilter, DefaultCallbackId>
-            let mut default_hover_callbacks = BTreeMap::new();
-
-            // Insert all default Hover events
-            if let Some(ui_state_hover_default_event_filters) = ui_state.hover_default_callbacks.get(hover_node_id) {
-                for current_hover_event in &current_hover_events {
-                    if let Some(callback_id) = ui_state_hover_default_event_filters.get(current_hover_event) {
-                        default_hover_callbacks.insert(EventFilter::Hover(*current_hover_event), *callback_id);
-                    }
-                }
-            }
-
-            if !(default_hover_callbacks.is_empty() && normal_hover_callbacks.is_empty()) {
-                let mut callback_result = nodes_with_callbacks.entry(*hover_node_id)
-                .or_insert_with(|| DetermineCallbackResult::default());
-
-                callback_result.hit_test_item = Some(hit_test_item.clone());
-                callback_result.normal_callbacks.extend(normal_hover_callbacks.into_iter());
-                callback_result.default_callbacks.extend(default_hover_callbacks.into_iter());
-            }
+            })
         }
 
-        // For the current focused node, insert all normal Focus events
+        // Inserts the events from a given NodeId and an Option<HitTestItem> into the nodes_with_callbacks
+        macro_rules! insert_callbacks {(
+            $node_id:expr,
+            $hit_test_item:expr,
+            $hover_callbacks:ident,
+            $hover_default_callbacks:ident,
+            $current_hover_events:ident,
+            $event_filter:ident
+        ) => ({
+                // BTreeMap<EventFilter, Callback<T>>
+                let mut normal_hover_callbacks = BTreeMap::new();
+
+                // Insert all normal Hover events
+                if let Some(ui_state_hover_event_filters) = ui_state.$hover_callbacks.get($node_id) {
+                    for current_hover_event in &$current_hover_events {
+                        if let Some(callback) = ui_state_hover_event_filters.get(current_hover_event) {
+                            normal_hover_callbacks.insert(EventFilter::$event_filter(*current_hover_event), *callback);
+                        }
+                    }
+                }
+
+                // BTreeMap<EventFilter, DefaultCallbackId>
+                let mut default_hover_callbacks = BTreeMap::new();
+
+                // Insert all default Hover events
+                if let Some(ui_state_hover_default_event_filters) = ui_state.$hover_default_callbacks.get($node_id) {
+                    for current_hover_event in &$current_hover_events {
+                        if let Some(callback_id) = ui_state_hover_default_event_filters.get(current_hover_event) {
+                            default_hover_callbacks.insert(EventFilter::$event_filter(*current_hover_event), *callback_id);
+                        }
+                    }
+                }
+
+                insert_only_non_empty_callbacks!($node_id, $hit_test_item, normal_hover_callbacks, default_hover_callbacks);
+            })
+        }
+
+        // Insert all normal desktop events
+        for (desktop_node_id, desktop_callbacks) in &ui_state.desktop_callbacks {
+            let normal_desktop_callbacks = desktop_callbacks.iter()
+                .filter(|(current_desktop_event, _)| current_desktop_events.contains(current_desktop_event))
+                .map(|(current_desktop_event, callback)| (EventFilter::Desktop(*current_desktop_event), *callback))
+                .collect::<BTreeMap<_, _>>();
+            let default_desktop_callbacks = BTreeMap::<EventFilter, DefaultCallbackId>::new();
+            insert_only_non_empty_callbacks!(desktop_node_id, None, normal_desktop_callbacks, default_desktop_callbacks);
+        }
+
+        // Insert all default desktop events
+        for (desktop_node_id, desktop_callbacks) in &ui_state.desktop_default_callbacks {
+            let normal_desktop_callbacks = BTreeMap::<EventFilter, Callback<T>>::new();
+            let default_desktop_callbacks = desktop_callbacks.iter()
+                .filter(|(current_desktop_event, _)| current_desktop_events.contains(current_desktop_event))
+                .map(|(current_desktop_event, callback)| (EventFilter::Desktop(*current_desktop_event), *callback))
+                .collect::<BTreeMap<_, _>>();
+            insert_only_non_empty_callbacks!(desktop_node_id, None, normal_desktop_callbacks, default_desktop_callbacks);
+        }
+
+        // Insert all normal window events
+        for (window_node_id, window_callbacks) in &ui_state.window_callbacks {
+            let normal_window_callbacks = window_callbacks.iter()
+                .filter(|(current_window_event, _)| current_window_events.contains(current_window_event))
+                .map(|(current_window_event, callback)| (EventFilter::Window(*current_window_event), *callback))
+                .collect::<BTreeMap<_, _>>();
+            let default_window_callbacks = BTreeMap::<EventFilter, DefaultCallbackId>::new();
+            insert_only_non_empty_callbacks!(window_node_id, None, normal_window_callbacks, default_window_callbacks);
+        }
+
+        // Insert all default window events
+        for (window_node_id, window_callbacks) in &ui_state.window_default_callbacks {
+            let normal_window_callbacks = BTreeMap::<EventFilter, Callback<T>>::new();
+            let default_window_callbacks = window_callbacks.iter()
+                .filter(|(current_window_event, _)| current_window_events.contains(current_window_event))
+                .map(|(current_window_event, callback)| (EventFilter::Window(*current_window_event), *callback))
+                .collect::<BTreeMap<_, _>>();
+            insert_only_non_empty_callbacks!(window_node_id, None, normal_window_callbacks, default_window_callbacks);
+        }
+
+        // Insert (normal + default) hover events
+        for (hover_node_id, hit_test_item) in &new_hit_node_ids {
+            insert_callbacks!(hover_node_id, Some(hit_test_item.clone()), hover_callbacks, hover_default_callbacks, current_hover_events, Hover);
+        }
+
+        // Insert (normal + default) focus events
         if let Some(current_focused_node) = &self.focused_node {
-
-            // BTreeMap<EventFilter, Callback<T>>
-            let mut normal_focus_callbacks = BTreeMap::new();
-
-            // Insert all normal Hover events
-            if let Some(ui_state_focus_event_filters) = ui_state.focus_callbacks.get(current_focused_node) {
-                for current_focus_event in &current_focus_events {
-                    if let Some(callback) = ui_state_focus_event_filters.get(current_focus_event) {
-                        normal_focus_callbacks.insert(EventFilter::Focus(*current_focus_event), *callback);
-                    }
-                }
-            }
-
-            // BTreeMap<EventFilter, DefaultCallbackId>
-            let mut default_focus_callbacks = BTreeMap::new();
-
-            // Insert all default Hover events
-            if let Some(ui_state_focus_default_event_filters) = ui_state.focus_default_callbacks.get(current_focused_node) {
-                for current_focus_event in &current_focus_events {
-                    if let Some(callback_id) = ui_state_focus_default_event_filters.get(current_focus_event) {
-                        default_focus_callbacks.insert(EventFilter::Focus(*current_focus_event), *callback_id);
-                    }
-                }
-            }
-
-            if !(default_focus_callbacks.is_empty() && normal_focus_callbacks.is_empty()) {
-
-                let mut callback_result = nodes_with_callbacks.entry(*current_focused_node)
-                .or_insert_with(|| DetermineCallbackResult::default());
-
-                callback_result.normal_callbacks.extend(normal_focus_callbacks.into_iter());
-                callback_result.default_callbacks.extend(default_focus_callbacks.into_iter());
-            }
+            insert_callbacks!(current_focused_node, None, focus_callbacks, focus_default_callbacks, current_focus_events, Focus);
         }
 
         // If the last focused node and the current focused node aren't the same,
@@ -477,39 +520,9 @@ impl WindowState
 
         // Insert FocusReceived / FocusLost
         for (node_id, focus_event) in &focus_received_lost_events {
-
-            // BTreeMap<EventFilter, Callback<T>>
-            let mut normal_focus_callbacks = BTreeMap::new();
-
-            // Insert all normal Hover events
-            if let Some(ui_state_focus_event_filters) = ui_state.focus_callbacks.get(node_id) {
-                if let Some(callback) = ui_state_focus_event_filters.get(focus_event) {
-                    normal_focus_callbacks.insert(EventFilter::Focus(*focus_event), *callback);
-                }
-            }
-
-            // BTreeMap<EventFilter, DefaultCallbackId>
-            let mut default_focus_callbacks = BTreeMap::new();
-
-            // Insert all default Hover events
-            if let Some(ui_state_focus_default_event_filters) = ui_state.focus_default_callbacks.get(node_id) {
-                if let Some(callback_id) = ui_state_focus_default_event_filters.get(focus_event) {
-                    default_focus_callbacks.insert(EventFilter::Focus(*focus_event), *callback_id);
-                }
-            }
-
-            if !(default_focus_callbacks.is_empty() && normal_focus_callbacks.is_empty()) {
-
-                let mut callback_result = nodes_with_callbacks.entry(*node_id)
-                .or_insert_with(|| DetermineCallbackResult::default());
-
-                callback_result.normal_callbacks.extend(normal_focus_callbacks.into_iter());
-                callback_result.default_callbacks.extend(default_focus_callbacks.into_iter());
-            }
+            let current_focus_leave_events = [focus_event.clone()];
+            insert_callbacks!(node_id, None, focus_callbacks, focus_default_callbacks, current_focus_leave_events, Focus);
         }
-
-        let mut needs_hover_redraw = false;
-        let mut needs_hover_relayout = false;
 
         // If the mouse is down, but was up previously or vice versa, that means
         // that a :hover or :active state may be invalidated. In that case we need
@@ -818,101 +831,122 @@ impl WindowState
     }
 }
 
-fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
-    input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
+
+fn get_desktop_events(window_state: &mut WindowState, event: &Event) -> HashSet<DesktopEventFilter> {
+
+    use glium::glutin::DeviceEvent;
+
+    let mut events_vec = HashSet::<DesktopEventFilter>::new();
+
+    window_state.last_motion = None;
+    match event {
+        Event::Awakened => { events_vec.insert(DesktopEventFilter::Awakened); },
+        Event::Suspended(true) => { events_vec.insert(DesktopEventFilter::AppSuspended); },
+        Event::Suspended(false) => { events_vec.insert(DesktopEventFilter::AppResumed); },
+        Event::DeviceEvent { event: DeviceEvent::Added, .. } => { events_vec.insert(DesktopEventFilter::DeviceAdded); },
+        Event::DeviceEvent { event: DeviceEvent::Removed, .. } => { events_vec.insert(DesktopEventFilter::DeviceRemoved); },
+        Event::DeviceEvent { event: DeviceEvent::Motion { axis, value }, .. } => {
+            window_state.last_motion = Some((*axis, *value));
+            events_vec.insert(DesktopEventFilter::ControllerMotion);
+        },
+        _ => { },
+    }
+
+    events_vec
 }
 
-// For a window event, returns a hashset of all events that the Hover
-// callbacks have to be called on.
-fn get_hit_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSet<HoverEventFilter> {
-
+fn get_window_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSet<WindowEventFilter> {
     use glium::glutin::{
         WindowEvent, KeyboardInput,
         MouseButton::*,
     };
 
-    let mut events_vec = HashSet::<HoverEventFilter>::new();
-    events_vec.insert(HoverEventFilter::MouseOver);
+    let mut events_vec = HashSet::<WindowEventFilter>::new();
 
     match event {
         WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
-            events_vec.insert(HoverEventFilter::MouseDown);
+            events_vec.insert(WindowEventFilter::MouseDown);
             match button {
                 Left => {
-                    if !window_state.mouse_state.left_down {
-                        events_vec.insert(HoverEventFilter::LeftMouseDown);
-                    }
+                    events_vec.insert(WindowEventFilter::LeftMouseDown);
                     window_state.mouse_state.left_down = true;
                 },
                 Right => {
-                    if !window_state.mouse_state.right_down {
-                        events_vec.insert(HoverEventFilter::RightMouseDown);
-                    }
+                    events_vec.insert(WindowEventFilter::RightMouseDown);
                     window_state.mouse_state.right_down = true;
                 },
                 Middle => {
-                    if !window_state.mouse_state.middle_down {
-                        events_vec.insert(HoverEventFilter::MiddleMouseDown);
-                    }
+                    events_vec.insert(WindowEventFilter::MiddleMouseDown);
                     window_state.mouse_state.middle_down = true;
                 },
                 _ => { }
             }
         },
         WindowEvent::MouseInput { state: ElementState::Released, button, .. } => {
-            events_vec.insert(HoverEventFilter::MouseUp);
+            events_vec.insert(WindowEventFilter::MouseUp);
             match button {
                 Left => {
-                    if window_state.mouse_state.left_down {
-                        events_vec.insert(HoverEventFilter::LeftMouseUp);
-                    }
+                    events_vec.insert(WindowEventFilter::LeftMouseUp);
                     window_state.mouse_state.left_down = false;
                 },
                 Right => {
-                    if window_state.mouse_state.right_down {
-                        events_vec.insert(HoverEventFilter::RightMouseUp);
-                    }
+                    events_vec.insert(WindowEventFilter::RightMouseUp);
                     window_state.mouse_state.right_down = false;
                 },
                 Middle => {
-                    if window_state.mouse_state.middle_down {
-                        events_vec.insert(HoverEventFilter::MiddleMouseUp);
-                    }
+                    events_vec.insert(WindowEventFilter::MiddleMouseUp);
                     window_state.mouse_state.middle_down = false;
                 },
                 _ => { }
             }
         },
         WindowEvent::MouseWheel { .. } => {
-            events_vec.insert(HoverEventFilter::Scroll);
+            events_vec.insert(WindowEventFilter::Scroll);
         },
         WindowEvent::KeyboardInput {
             input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, ..
         } => {
-            events_vec.insert(HoverEventFilter::VirtualKeyDown);
+            events_vec.insert(WindowEventFilter::VirtualKeyDown);
         },
         WindowEvent::ReceivedCharacter(c) => {
             if !c.is_control() {
-                events_vec.insert(HoverEventFilter::TextInput);
+                events_vec.insert(WindowEventFilter::TextInput);
             }
         },
         WindowEvent::KeyboardInput {
             input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, ..
         } => {
-            events_vec.insert(HoverEventFilter::VirtualKeyUp);
+            events_vec.insert(WindowEventFilter::VirtualKeyUp);
         },
         WindowEvent::HoveredFile(_) => {
-            events_vec.insert(HoverEventFilter::HoveredFile);
+            events_vec.insert(WindowEventFilter::HoveredFile);
         },
         WindowEvent::DroppedFile(_) => {
-            events_vec.insert(HoverEventFilter::DroppedFile);
+            events_vec.insert(WindowEventFilter::DroppedFile);
         },
         WindowEvent::HoveredFileCancelled => {
-            events_vec.insert(HoverEventFilter::HoveredFileCancelled);
+            events_vec.insert(WindowEventFilter::HoveredFileCancelled);
+        },
+        WindowEvent::CursorMoved { .. } => {
+            events_vec.insert(WindowEventFilter::MouseOver);
+        },
+        WindowEvent::CursorEntered { .. } => {
+            events_vec.insert(WindowEventFilter::MouseEnter);
+        },
+        WindowEvent::CursorLeft { .. } => {
+            events_vec.insert(WindowEventFilter::MouseLeave);
         },
         _ => { }
     }
     events_vec
+}
+
+fn get_hover_events(input: &HashSet<WindowEventFilter>) -> HashSet<HoverEventFilter> {
+    input.iter().filter_map(|window_event| window_event.to_hover_event_filter()).collect()
+}
+
+fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
+    input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
 }
 
 /// Pre-filters any events that are not handled by the framework yet, since it would be wasteful

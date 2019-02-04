@@ -573,11 +573,41 @@ pub enum WindowEventFilter {
     HoveredFileCancelled,
 }
 
+impl WindowEventFilter {
+    pub(crate) fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
+        use self::WindowEventFilter::*;
+        match self {
+            MouseOver => Some(HoverEventFilter::MouseOver),
+            MouseDown => Some(HoverEventFilter::MouseDown),
+            LeftMouseDown => Some(HoverEventFilter::LeftMouseDown),
+            RightMouseDown => Some(HoverEventFilter::RightMouseDown),
+            MiddleMouseDown => Some(HoverEventFilter::MiddleMouseDown),
+            MouseUp => Some(HoverEventFilter::MouseUp),
+            LeftMouseUp => Some(HoverEventFilter::LeftMouseUp),
+            RightMouseUp => Some(HoverEventFilter::RightMouseUp),
+            MiddleMouseUp => Some(HoverEventFilter::MiddleMouseUp),
+            Scroll => Some(HoverEventFilter::Scroll),
+            TextInput => Some(HoverEventFilter::TextInput),
+            VirtualKeyDown => Some(HoverEventFilter::VirtualKeyDown),
+            VirtualKeyUp => Some(HoverEventFilter::VirtualKeyDown),
+            HoveredFile => Some(HoverEventFilter::HoveredFile),
+            DroppedFile => Some(HoverEventFilter::DroppedFile),
+            HoveredFileCancelled => Some(HoverEventFilter::HoveredFileCancelled),
+            // MouseEnter and MouseLeave on the **window** does not mean a mouseenter and a mouseleave on the hovered element
+            MouseEnter => None,
+            MouseLeave => None,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DesktopEventFilter {
     DeviceAdded,
     DeviceRemoved,
     ControllerMotion,
+    AppSuspended,
+    AppResumed,
+    Awakened,
 }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
