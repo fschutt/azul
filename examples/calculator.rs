@@ -47,8 +47,7 @@ impl Layout for Calculator {
 
         let result = if self.division_by_zero {
             String::from("Cannot divide by zero.")
-        }
-		else {
+        } else {
             self.current_operand_stack.get_display()
         };
 
@@ -70,6 +69,8 @@ impl Layout for Calculator {
                             .with_child(numpad_btn("=", "orange")),
                     ),
             )
+            .with_callback(EventFilter::Window(WindowEventFilter::TextInput), Callback(handle_text_input))
+            .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), Callback(handle_virtual_key_input))
     }
 }
 
@@ -199,7 +200,47 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mu
         _ => return DontRedraw, // invalid item
     };
 
-    println!("got event: {:?}", event);
+    println!("Got event via mouse input: {:?}", event);
+    process_event(app_state, event)
+}
+
+fn handle_text_input(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
+    let current_key = app_state.windows[event.window_id].state.get_keyboard_state().current_char?;
+    let event = match current_key {
+        '0' => Event::Number(0),
+        '1' => Event::Number(1),
+        '2' => Event::Number(2),
+        '3' => Event::Number(3),
+        '4' => Event::Number(4),
+        '5' => Event::Number(5),
+        '6' => Event::Number(6),
+        '7' => Event::Number(7),
+        '8' => Event::Number(8),
+        '9' => Event::Number(9),
+        '*' => Event::Multiply,
+        '-' => Event::Subtract,
+        '+' => Event::Plus,
+        '/' => Event::Divide,
+        '%' => Event::Percent,
+        '.' | ',' => Event::Dot,
+        _ => return DontRedraw,
+    };
+
+    println!("Got event via keyboard input: {:?}", event);
+    process_event(app_state, event)
+}
+
+fn handle_virtual_key_input(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
+    let current_key = app_state.windows[event.window_id].state.get_keyboard_state().latest_virtual_keycode?;
+    let event = match current_key {
+        VirtualKeyCode::Return => Event::EqualSign,
+        VirtualKeyCode::Back => Event::Clear,
+        _ => return DontRedraw,
+    };
+    process_event(app_state, event)
+}
+
+fn process_event(app_state: &mut AppState<Calculator>, event: Event) -> UpdateScreen {
 
     // Act on the event accordingly
     match event {
@@ -246,7 +287,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mu
                 if let Some(Event::EqualSign) = state.last_event {
                     state.expression = format!("{} =", state.current_operand_stack.get_display());
                 }
-				else {
+                else {
                     state.expression.push_str(&format!("{} =", state.current_operand_stack.get_display()));
                     if let Some(operation) = &state.last_event.clone() {
                         if let Some(operand) = state.current_operator.clone() {
@@ -299,7 +340,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mu
                 if let Some(Event::EqualSign) = state.last_event {
                     state.current_operator = Some(state.current_operand_stack.clone());
                 }
-				else if let Some(last_operation) = &state.last_event.clone() {
+                else if let Some(last_operation) = &state.last_event.clone() {
                     if let Some(operand) = state.current_operator.clone() {
                         let num = state.current_operand_stack.get_number();
                         let op = operand.get_number();
@@ -307,9 +348,9 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mu
                             Some(r) => state.current_operator = Some(OperandStack::from(r)),
                             None => state.division_by_zero = true,
                         }
-					}
+                    }
                 }
-				else {
+                else {
                     state.current_operator = Some(state.current_operand_stack.clone());
                 }
                 state.current_operand_stack = OperandStack::default();
