@@ -370,7 +370,6 @@ struct ContentGroupOrder {
     groups: Vec<ContentGroup>,
 }
 
-
 fn determine_rendering_order<'a>(
     node_hierarchy: &NodeHierarchy,
     rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
@@ -436,22 +435,22 @@ fn determine_rendering_order_inner<'a>(
 
         if next_node_id.clone().inner_value() != root_id {
             match next_node_id {
-                NodeEdge::Start(start_tag) => {
-                    let rect_node = &rectangles[start_tag];
+                NodeEdge::Start(node_id) => {
+                    let rect_node = &rectangles[node_id];
                     let position = rect_node.layout.position.unwrap_or_default();
                     if position == LayoutPosition::Absolute {
                         // For now, ignore the node and put it aside for later
-                        absolute_node_ids.push((depth, start_tag));
+                        absolute_node_ids.push((depth, node_id));
                         // Skip this sub-tree and go straight to the next sibling
                         // Since the tree is positioned absolute, we'll worry about it later
-                        current_node_edge = NodeEdge::End(start_tag);
+                        current_node_edge = NodeEdge::End(node_id);
                         should_continue_loop = false;
                     } else {
                         // TODO: Overflow hidden in horizontal / vertical direction
                         let node_is_overflow_hidden = node_needs_to_clip_children(&rect_node.style);
                         let node_needs_to_scroll_children = false; // TODO
                         root_group.node_ids.push(RenderableNodeId {
-                            node_id: start_tag,
+                            node_id,
                             clip_children: node_is_overflow_hidden,
                             scrolls_children: node_needs_to_scroll_children,
                         });
@@ -472,8 +471,8 @@ fn determine_rendering_order_inner<'a>(
 
     content_groups.push(root_group);
 
-    // Note: Currently reversed order, so that earlier absolute items are drawn
-    // on top of later absolute items
+    // Note: Currently reversed order, so that earlier absolute
+    // items are drawn on top of later absolute items
     for (absolute_depth, absolute_node_id) in absolute_node_ids.into_iter().rev() {
         determine_rendering_order_inner(node_hierarchy, rectangles, layouted_rects, absolute_depth, absolute_node_id, content_groups);
     }
@@ -694,59 +693,26 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 
     for content_group in content_grouped_rectangles.groups {
         // Push the root of the node
-        fn push_rect<'a,'b,'c,'d,'e,'f, T: Layout>(
-            item: RenderableNodeId,
-            solved_rects_data: &NodeDataContainer<LayoutRect>,
-            epoch: Epoch,
-            scrollable_nodes: &mut ScrolledNodes,
-            referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
-            referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
-            clip_stack: &mut Vec<NodeId>)
-        {
-            let html_node = &referenced_content.node_data[item.node_id];
-            let solved_rect = solved_rects_data[item.node_id];
-            let rectangle = DisplayListRectParams {
-                epoch,
-                rect_idx: item.node_id,
-                html_node: &html_node.node_type,
-            };
 
-            displaylist_handle_rect(solved_rect, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
-
-            if item.clip_children {
-                if let Some(last_child) = referenced_content.node_hierarchy[item.node_id].last_child {
-                    let styled_node = &referenced_content.display_rectangle_arena[item.node_id];
-                    let solved_rect = solved_rects_data[item.node_id];
-                    let clip = get_clip_region(solved_rect, &styled_node)
-                        .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
-                    let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
-                    referenced_mutable_content.builder.push_clip_id(clip_id);
-                    clip_stack.push(last_child);
-                }
-            }
-
-            if clip_stack.last().cloned() == Some(item.node_id) {
-                referenced_mutable_content.builder.pop_clip_id();
-                clip_stack.pop();
-            }
-        }
-
-        push_rect(content_group.root,
-                  solved_rects,
-                  epoch,
-                  scrollable_nodes,
-                  referenced_content,
-                  referenced_mutable_content,
-                  &mut clip_stack);
+        push_rectangles_into_displaylist_inner(content_group.root,
+            solved_rects,
+            epoch,
+            scrollable_nodes,
+            referenced_content,
+            referenced_mutable_content,
+            &mut clip_stack
+        );
 
         for item in content_group.node_ids {
-            push_rect(item,
-                      solved_rects,
-                      epoch,
-                      scrollable_nodes,
-                      referenced_content,
-                      referenced_mutable_content,
-                      &mut clip_stack);
+            push_rectangles_into_displaylist_inner(
+                item,
+                solved_rects,
+                epoch,
+                scrollable_nodes,
+                referenced_content,
+                referenced_mutable_content,
+                &mut clip_stack
+            );
         }
     }
 /*
@@ -820,6 +786,43 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         }
     }
 */
+}
+
+fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
+    item: RenderableNodeId,
+    solved_rects_data: &NodeDataContainer<LayoutRect>,
+    epoch: Epoch,
+    scrollable_nodes: &mut ScrolledNodes,
+    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
+    clip_stack: &mut Vec<NodeId>)
+{
+    let html_node = &referenced_content.node_data[item.node_id];
+    let solved_rect = solved_rects_data[item.node_id];
+    let rectangle = DisplayListRectParams {
+        epoch,
+        rect_idx: item.node_id,
+        html_node: &html_node.node_type,
+    };
+
+    displaylist_handle_rect(solved_rect, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
+
+    if item.clip_children {
+        if let Some(last_child) = referenced_content.node_hierarchy[item.node_id].last_child {
+            let styled_node = &referenced_content.display_rectangle_arena[item.node_id];
+            let solved_rect = solved_rects_data[item.node_id];
+            let clip = get_clip_region(solved_rect, &styled_node)
+                .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
+            let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
+            referenced_mutable_content.builder.push_clip_id(clip_id);
+            clip_stack.push(last_child);
+        }
+    }
+
+    if clip_stack.last().cloned() == Some(item.node_id) {
+        referenced_mutable_content.builder.pop_clip_id();
+        clip_stack.pop();
+    }
 }
 
 /// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
