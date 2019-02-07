@@ -1774,7 +1774,7 @@ fn push_background(
                         info.rect,
                         TypedRect::new(
                             info.rect.origin,
-                            TypedSize2D::new(info.rect.size.width + size.width, size.height),
+                            TypedSize2D::new(size.width, size.height),
                         ),
                     ),
                     Repeat => *info,
