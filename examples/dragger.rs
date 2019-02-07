@@ -49,7 +49,7 @@ impl Layout for DragMeApp {
     }
 }
 
-fn click_outside_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
+fn click_outside_drag(_state: &mut State, _event: &mut Event) -> UpdateScreen {
     println!("click outside drag!");
     DontRedraw
 }

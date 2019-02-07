@@ -92,6 +92,14 @@ pub struct Node {
     pub last_child: Option<NodeId>,
 }
 
+impl Node {
+    pub fn has_parent(&self) -> bool { self.parent.is_some() }
+    pub fn has_previous_sibling(&self) -> bool { self.previous_sibling.is_some() }
+    pub fn has_next_sibling(&self) -> bool { self.next_sibling.is_some() }
+    pub fn has_first_child(&self) -> bool { self.first_child.is_some() }
+    pub fn has_last_child(&self) -> bool { self.last_child.is_some() }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct Arena<T> {
     pub(crate) node_layout: NodeHierarchy,

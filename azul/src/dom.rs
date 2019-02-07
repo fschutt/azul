@@ -1474,7 +1474,7 @@ fn test_dom_sibling_1() {
     }
 
     let dom = TestLayout{ }.layout();
-    let arena = dom.arena.borrow();
+    let arena = &dom.arena;
 
     assert_eq!(NodeId::new(0), dom.root);
 
@@ -1525,7 +1525,7 @@ fn test_dom_from_iter_1() {
     }
 
     let dom = TestLayout{ }.layout();
-    let arena = dom.arena.borrow();
+    let arena = &dom.arena;
 
     // We need to have 6 nodes:
     //
@@ -1579,7 +1579,7 @@ fn test_zero_size_dom() {
         .map(|_| NodeData { node_type: NodeType::Div, .. Default::default() })
         .collect::<Dom<TestLayout>>();
 
-    assert!(null_dom.arena.borrow().len() == 1);
+    assert!(null_dom.arena.len() == 1);
 
     null_dom.add_class("hello"); // should not panic
     null_dom.add_id("id-hello"); // should not panic

@@ -33,7 +33,6 @@ use azul_css::HotReloadHandler;
 use {
     FastHashMap,
     dom::{Texture, Callback, NodeData, NodeType},
-    daemon::{Daemon, DaemonId},
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
     compositor::Compositor,
@@ -264,26 +263,31 @@ impl<'a, T: 'a + Layout> fmt::Debug for CallbackInfo<'a, T> {
     }
 }
 
-/// Iterator that, starting from a
-pub struct IndexPathIterator<'a> {
+/// Iterator that, starting from a certain starting point, returns the
+/// parent node until it gets to the root node.
+pub struct ParentNodesIterator<'a> {
     current_item: NodeId,
     node_hierarchy: &'a NodeHierarchy,
 }
 
-impl<'a> IndexPathIterator<'a> {
+impl<'a> ParentNodesIterator<'a> {
 
     /// Returns what node ID the iterator is currently processing
     pub fn current_node(&self) -> NodeId {
         self.current_item
     }
 
-    /// Returns the offset into the parent of the current node
-    pub fn current_index_in_parent(&self) -> usize {
-        self.node_hierarchy.get_index_in_parent(self.current_item)
+    /// Returns the offset into the parent of the current node or None if the item has no parent
+    pub fn current_index_in_parent(&self) -> Option<usize> {
+        if self.node_hierarchy[self.current_item].has_parent() {
+            Some(self.node_hierarchy.get_index_in_parent(self.current_item))
+        } else {
+            None
+        }
     }
 }
 
-impl<'a> Iterator for IndexPathIterator<'a> {
+impl<'a> Iterator for ParentNodesIterator<'a> {
     type Item = NodeId;
 
     /// For each item in the current item path, returns the index of the item in the parent
@@ -297,9 +301,9 @@ impl<'a> Iterator for IndexPathIterator<'a> {
 impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
 
     /// Creates an iterator that starts at the current DOM node and continouusly
-    /// returns the index in the parent, until it gets to the root component.
-    pub fn index_path_iter<'b>(&'b self) -> IndexPathIterator<'b> {
-        IndexPathIterator {
+    /// returns the parent NodeId, until it gets to the root component.
+    pub fn parent_nodes<'b>(&'b self) -> ParentNodesIterator<'b> {
+        ParentNodesIterator {
             current_item: self.hit_dom_node,
             node_hierarchy: &self.ui_state.dom.arena.node_layout,
         }
@@ -339,6 +343,26 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
         self.ui_state.dom.arena.node_data.internal.get(node_id.index())
     }
 
+    /// Returns the index of the target NodeId (the target that received the event)
+    /// in the targets parent or None if the target is the root node
+    pub fn target_index_in_parent(&self) -> Option<usize> {
+        if self.get_node(self.hit_dom_node)?.parent.is_some() {
+            Some(self.ui_state.dom.arena.node_layout.get_index_in_parent(self.hit_dom_node))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the parent of the given `NodeId` or None if the target is the root node.
+    pub fn parent(&self, node_id: NodeId) -> Option<NodeId> {
+        self.get_node(node_id)?.parent
+    }
+
+    /// Returns the parent of the current target or None if the target is the root node.
+    pub fn target_parent(&self) -> Option<NodeId> {
+        self.parent(self.hit_dom_node)
+    }
+
     /// Checks whether the target of the CallbackInfo has a certain node type
     pub fn target_is_node_type(&self, node_type: NodeType<T>) -> bool {
         if let Some(self_node) = self.get_node_content(self.hit_dom_node) {
@@ -369,7 +393,7 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
     /// Traverses up the hierarchy, checks whether any parent has a certain ID,
     /// the returns that parent
     pub fn any_parent_has_id(&self, id: &str) -> Option<NodeId> {
-        self.index_path_iter().find(|parent_id| {
+        self.parent_nodes().find(|parent_id| {
             if let Some(self_node) = self.get_node_content(*parent_id) {
                 self_node.has_id(id)
             } else {
@@ -380,7 +404,7 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
 
     /// Traverses up the hierarchy, checks whether any parent has a certain class
     pub fn any_parent_has_class(&self, class: &str) -> Option<NodeId> {
-        self.index_path_iter().find(|parent_id| {
+        self.parent_nodes().find(|parent_id| {
             if let Some(self_node) = self.get_node_content(*parent_id) {
                 self_node.has_class(class)
             } else {
@@ -655,8 +679,6 @@ pub struct Window<T: Layout> {
     pub(crate) display: Rc<Display>,
     /// The `WindowInternal` allows us to solve some borrowing issues
     pub(crate) internal: WindowInternal,
-    /// Currently running animations / transitions
-    pub(crate) animations: FastHashMap<DaemonId, Daemon<AnimationState>>,
     /// States of scrolling animations, updated every frame
     pub(crate) scroll_states: ScrollStates,
     // The background thread that is running for this window.
@@ -681,9 +703,6 @@ pub struct Window<T: Layout> {
     /// ```
     marker: PhantomData<T>,
 }
-
-#[derive(Debug, Copy, Clone)]
-pub struct AnimationState { }
 
 pub(crate) struct ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
 
@@ -970,7 +989,6 @@ impl<'a, T: Layout> Window<T> {
             css,
             #[cfg(debug_assertions)]
             css_loader: None,
-            animations: FastHashMap::default(),
             scroll_states: ScrollStates::new(),
             internal: WindowInternal {
                 api: api,
