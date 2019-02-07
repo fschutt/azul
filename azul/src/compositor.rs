@@ -20,6 +20,7 @@ pub fn new_opengl_texture_id() -> usize {
 }
 
 lazy_static! {
+
     /// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
     /// as WebRender needs it for drawing. To transparently do this, we store the epoch that the
     /// texture was originally created with, and check, **after we have drawn the frame**,

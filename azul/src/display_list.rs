@@ -65,7 +65,10 @@ pub(crate) struct DisplayList<'a, T: Layout + 'a> {
 
 impl<'a, T: Layout + 'a> fmt::Debug for DisplayList<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DisplayList {{ ui_descr: {:?}, rectangles: {:?} }}", self.ui_descr, self.rectangles)
+        write!(f,
+            "DisplayList {{ ui_descr: {:?}, rectangles: {:?} }}",
+            self.ui_descr, self.rectangles
+        )
     }
 }
 
@@ -119,119 +122,10 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         }
     }
 
-    /// Looks if any new images need to be uploaded and stores the in the image resources
-    fn update_resources(
-        api: &RenderApi,
-        app_resources: &mut AppResources,
-        resource_updates: &mut Vec<ResourceUpdate>)
-    {
-        Self::update_image_resources(api, app_resources, resource_updates);
-        Self::update_font_resources(api, app_resources, resource_updates);
-    }
-
-    fn update_image_resources(
-        api: &RenderApi,
-        app_resources: &mut AppResources,
-        resource_updates: &mut Vec<ResourceUpdate>)
-    {
-        use images::{ImageState, ImageInfo};
-
-        let mut updated_images = Vec::<(ImageId, (ImageData, ImageDescriptor))>::new();
-        let mut to_delete_images = Vec::<(ImageId, Option<ImageKey>)>::new();
-
-        // possible performance bottleneck (duplicated cloning) !!
-        for (key, value) in app_resources.images.iter() {
-            match *value {
-                ImageState::ReadyForUpload(ref d) => {
-                    updated_images.push((key.clone(), d.clone()));
-                },
-                ImageState::Uploaded(_) => { },
-                ImageState::AboutToBeDeleted((ref k, _)) => {
-                    to_delete_images.push((key.clone(), k.clone()));
-                }
-            }
-        }
-
-        // Remove any images that should be deleted
-        for (resource_key, image_key) in to_delete_images.into_iter() {
-            if let Some(image_key) = image_key {
-                resource_updates.push(ResourceUpdate::DeleteImage(image_key));
-            }
-            app_resources.images.remove(&resource_key);
-        }
-
-        // Upload all remaining images to the GPU only if the haven't been
-        // uploaded yet
-        for (resource_key, (data, descriptor)) in updated_images.into_iter() {
-
-            let key = api.generate_image_key();
-            resource_updates.push(ResourceUpdate::AddImage(
-                AddImage { key, descriptor, data, tiling: None }
-            ));
-
-            *app_resources.images.get_mut(&resource_key).unwrap() =
-                ImageState::Uploaded(ImageInfo {
-                    key: key,
-                    descriptor: descriptor
-            });
-        }
-    }
-
-    // almost the same as update_image_resources, but fonts
-    // have two HashMaps that need to be updated
-    fn update_font_resources(
-        api: &RenderApi,
-        app_resources: &mut AppResources,
-        resource_updates: &mut Vec<ResourceUpdate>)
-    {
-        use font::FontState;
-        use azul_css::FontId;
-
-        let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
-        let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
-
-        for (key, value) in app_resources.font_data.borrow().iter() {
-            match &*(*value.2).borrow() {
-                FontState::ReadyForUpload(ref bytes) => {
-                    updated_fonts.push((key.clone(), bytes.clone()));
-                },
-                FontState::Uploaded(_) => { },
-                FontState::AboutToBeDeleted(ref font_key) => {
-                    let to_delete_font_instances = font_key.and_then(|f_key| {
-                        let to_delete_font_instances = app_resources.fonts[&f_key].values().cloned().collect();
-                        Some((f_key.clone(), to_delete_font_instances))
-                    });
-                    to_delete_fonts.push((key.clone(), to_delete_font_instances));
-                }
-            }
-        }
-
-        // Delete the complete font. Maybe a more granular option to
-        // keep the font data in memory should be added later
-        for (resource_key, to_delete_instances) in to_delete_fonts.into_iter() {
-            if let Some((font_key, font_instance_keys)) = to_delete_instances {
-                for instance in font_instance_keys {
-                    resource_updates.push(ResourceUpdate::DeleteFontInstance(instance));
-                }
-                resource_updates.push(ResourceUpdate::DeleteFont(font_key));
-                app_resources.fonts.remove(&font_key);
-            }
-            app_resources.font_data.borrow_mut().remove(&resource_key);
-        }
-
-        // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
-        for (resource_key, data) in updated_fonts.into_iter() {
-            let key = api.generate_font_key();
-            resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
-            let mut borrow_mut = app_resources.font_data.borrow_mut();
-            *borrow_mut.get_mut(&resource_key).unwrap().2.borrow_mut() = FontState::Uploaded(key);
-        }
-    }
-
     /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
     pub(crate) fn into_display_list_builder(
         &self,
-        app_data: Arc<Mutex<T>>,
+        app_data_access: &mut Arc<Mutex<T>>,
         window: &mut Window<T>,
         fake_window: &mut FakeWindow<T>,
         app_resources: &mut AppResources)
@@ -239,14 +133,13 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     {
         use glium::glutin::dpi::LogicalSize;
 
-        let mut app_data_access = AppDataAccess(app_data);
         let mut resource_updates = Vec::<ResourceUpdate>::new();
         let arena = self.ui_descr.ui_descr_arena.borrow();
         let node_hierarchy = &arena.node_layout;
         let node_data = &arena.node_data;
 
         // Upload image and font resources
-        Self::update_resources(&window.internal.api, app_resources, &mut resource_updates);
+        update_resources(&window.internal.api, app_resources, &mut resource_updates);
 
         let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
             node_hierarchy,
@@ -288,7 +181,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 word_cache: &word_cache,
             },
             &mut DisplayListParametersMut {
-                app_data: &mut app_data_access,
+                app_data: app_data_access,
                 app_resources,
                 fake_window,
                 builder: &mut builder,
@@ -300,6 +193,115 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         &window.internal.api.update_resources(resource_updates);
 
         (builder, scrollable_nodes)
+    }
+}
+
+/// Looks if any new images need to be uploaded and stores the in the image resources
+fn update_resources(
+    api: &RenderApi,
+    app_resources: &mut AppResources,
+    resource_updates: &mut Vec<ResourceUpdate>)
+{
+    update_image_resources(api, app_resources, resource_updates);
+    update_font_resources(api, app_resources, resource_updates);
+}
+
+fn update_image_resources(
+    api: &RenderApi,
+    app_resources: &mut AppResources,
+    resource_updates: &mut Vec<ResourceUpdate>)
+{
+    use images::{ImageState, ImageInfo};
+
+    let mut updated_images = Vec::<(ImageId, (ImageData, ImageDescriptor))>::new();
+    let mut to_delete_images = Vec::<(ImageId, Option<ImageKey>)>::new();
+
+    // possible performance bottleneck (duplicated cloning) !!
+    for (key, value) in app_resources.images.iter() {
+        match *value {
+            ImageState::ReadyForUpload(ref d) => {
+                updated_images.push((key.clone(), d.clone()));
+            },
+            ImageState::Uploaded(_) => { },
+            ImageState::AboutToBeDeleted((ref k, _)) => {
+                to_delete_images.push((key.clone(), k.clone()));
+            }
+        }
+    }
+
+    // Remove any images that should be deleted
+    for (resource_key, image_key) in to_delete_images.into_iter() {
+        if let Some(image_key) = image_key {
+            resource_updates.push(ResourceUpdate::DeleteImage(image_key));
+        }
+        app_resources.images.remove(&resource_key);
+    }
+
+    // Upload all remaining images to the GPU only if the haven't been
+    // uploaded yet
+    for (resource_key, (data, descriptor)) in updated_images.into_iter() {
+
+        let key = api.generate_image_key();
+        resource_updates.push(ResourceUpdate::AddImage(
+            AddImage { key, descriptor, data, tiling: None }
+        ));
+
+        *app_resources.images.get_mut(&resource_key).unwrap() =
+            ImageState::Uploaded(ImageInfo {
+                key: key,
+                descriptor: descriptor
+        });
+    }
+}
+
+// almost the same as update_image_resources, but fonts
+// have two HashMaps that need to be updated
+fn update_font_resources(
+    api: &RenderApi,
+    app_resources: &mut AppResources,
+    resource_updates: &mut Vec<ResourceUpdate>)
+{
+    use font::FontState;
+    use azul_css::FontId;
+
+    let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
+    let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
+
+    for (key, value) in app_resources.font_data.borrow().iter() {
+        match &*(*value.2).borrow() {
+            FontState::ReadyForUpload(ref bytes) => {
+                updated_fonts.push((key.clone(), bytes.clone()));
+            },
+            FontState::Uploaded(_) => { },
+            FontState::AboutToBeDeleted(ref font_key) => {
+                let to_delete_font_instances = font_key.and_then(|f_key| {
+                    let to_delete_font_instances = app_resources.fonts[&f_key].values().cloned().collect();
+                    Some((f_key.clone(), to_delete_font_instances))
+                });
+                to_delete_fonts.push((key.clone(), to_delete_font_instances));
+            }
+        }
+    }
+
+    // Delete the complete font. Maybe a more granular option to
+    // keep the font data in memory should be added later
+    for (resource_key, to_delete_instances) in to_delete_fonts.into_iter() {
+        if let Some((font_key, font_instance_keys)) = to_delete_instances {
+            for instance in font_instance_keys {
+                resource_updates.push(ResourceUpdate::DeleteFontInstance(instance));
+            }
+            resource_updates.push(ResourceUpdate::DeleteFont(font_key));
+            app_resources.fonts.remove(&font_key);
+        }
+        app_resources.font_data.borrow_mut().remove(&resource_key);
+    }
+
+    // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
+    for (resource_key, data) in updated_fonts.into_iter() {
+        let key = api.generate_font_key();
+        resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
+        let mut borrow_mut = app_resources.font_data.borrow_mut();
+        *borrow_mut.get_mut(&resource_key).unwrap().2.borrow_mut() = FontState::Uploaded(key);
     }
 }
 
@@ -377,7 +379,16 @@ fn determine_rendering_order<'a>(
 ) -> ContentGroupOrder
 {
     let mut content_groups = Vec::new();
-    determine_rendering_order_inner(node_hierarchy, rectangles, layouted_rects, 0, NodeId::new(0), &mut content_groups);
+
+    determine_rendering_order_inner(
+        node_hierarchy,
+        rectangles,
+        layouted_rects,
+        0, // depth of this node
+        NodeId::new(0),
+        &mut content_groups
+    );
+
     ContentGroupOrder { groups: content_groups }
 }
 
@@ -543,8 +554,17 @@ fn do_the_layout<'a,'b, T: Layout>(
         }
     }).collect();
 
-    let preferred_widths = node_data.transform(|node, _| node.node_type.get_preferred_width(&app_resources.images));
-    let solved_widths = solve_flex_layout_width(node_hierarchy, &display_rects, preferred_widths, rect_size.width as f32);
+    let preferred_widths = node_data.transform(|node, _| {
+        node.node_type.get_preferred_width(&app_resources.images)
+    });
+
+    let solved_widths = solve_flex_layout_width(
+        node_hierarchy,
+        &display_rects,
+        preferred_widths,
+        rect_size.width as f32,
+    );
+
     let preferred_heights = node_data.transform(|node, id| {
         use text_layout::TextSizePx;
         node.node_type.get_preferred_height_based_on_width(
@@ -554,7 +574,13 @@ fn do_the_layout<'a,'b, T: Layout>(
             word_cache.get(&id).and_then(|e| Some(e.1)),
         ).and_then(|text_size| Some(text_size.0))
     });
-    let solved_heights = solve_flex_layout_height(node_hierarchy, &solved_widths, preferred_heights, rect_size.height as f32);
+
+    let solved_heights = solve_flex_layout_height(
+        node_hierarchy,
+        &solved_widths,
+        preferred_heights,
+        rect_size.height as f32,
+    );
 
     let x_positions = get_x_positions(&solved_widths, node_hierarchy, rect_offset);
     let y_positions = get_y_positions(&solved_heights, &solved_widths, node_hierarchy, rect_offset);
@@ -562,7 +588,10 @@ fn do_the_layout<'a,'b, T: Layout>(
     let layouted_arena = node_data.transform(|node, node_id| {
         LayoutRect::new(
             LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
-            LayoutSize::new(solved_widths.solved_widths[node_id].total(), solved_heights.solved_heights[node_id].total())
+            LayoutSize::new(
+                solved_widths.solved_widths[node_id].total(),
+                solved_heights.solved_heights[node_id].total(),
+            )
         )
     });
 
@@ -604,12 +633,11 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
     pipeline_id: PipelineId,
 ) -> ScrolledNodes {
 
-    // let arena = &display_list.ui_descr.ui_descr_arena.borrow();
     let mut nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
 
     for (_, parent) in parents {
-        let parent_rect = &layouted_rects.get(*parent).unwrap();
+
         let mut children_sum_rect = None;
 
         for child in parent.children(&node_hierarchy) {
@@ -617,28 +645,37 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
             children_sum_rect = Some(old.union(&layouted_rects[child]));
         }
 
-        if let Some(children_sum_rect) = children_sum_rect {
-            if !children_sum_rect.contains_rect(parent_rect) {
-                let dom_hash = dom_rects[*parent].calculate_node_data_hash();
-                // Create an external scroll id. This id is required to preserve scroll state accross multiple frames.
-                let external_scroll_id  = ExternalScrollId(dom_hash.0, pipeline_id);
+        let children_sum_rect = match children_sum_rect {
+            None => continue,
+            Some(sum) => sum,
+        };
 
-                // Create a unique scroll tag for hit-testing
-                let scroll_tag = match display_list_rects.get(*parent).and_then(|node| node.tag) {
-                    Some(existing_tag) => ScrollTagId(existing_tag),
-                    None => new_scroll_tag_id(),
-                };
+        let parent_rect = &layouted_rects.get(*parent).unwrap();
 
-                tags_to_node_ids.insert(scroll_tag, *parent);
-                nodes.insert(*parent, OverflowingScrollNode {
-                    parent_rect: *parent_rect.clone(),
-                    child_rect: children_sum_rect,
-                    parent_external_scroll_id: external_scroll_id,
-                    parent_dom_hash: dom_hash,
-                    scroll_tag_id: scroll_tag,
-                });
-            }
+        if children_sum_rect.contains_rect(parent_rect) {
+            continue;
         }
+
+        let parent_dom_hash = dom_rects[*parent].calculate_node_data_hash();
+
+        // Create an external scroll id. This id is required to preserve its
+        // scroll state accross multiple frames.
+        let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, pipeline_id);
+
+        // Create a unique scroll tag for hit-testing
+        let scroll_tag_id = match display_list_rects.get(*parent).and_then(|node| node.tag) {
+            Some(existing_tag) => ScrollTagId(existing_tag),
+            None => new_scroll_tag_id(),
+        };
+
+        tags_to_node_ids.insert(scroll_tag_id, *parent);
+        nodes.insert(*parent, OverflowingScrollNode {
+            parent_rect: *parent_rect.clone(),
+            child_rect: children_sum_rect,
+            parent_external_scroll_id,
+            parent_dom_hash,
+            scroll_tag_id,
+        });
     }
 
     ScrolledNodes { overflowing_nodes: nodes, tags_to_node_ids }
@@ -805,7 +842,13 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
         html_node: &html_node.node_type,
     };
 
-    displaylist_handle_rect(solved_rect, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
+    displaylist_handle_rect(
+        solved_rect,
+        scrollable_nodes,
+        rectangle,
+        referenced_content,
+        referenced_mutable_content
+    );
 
     if item.clip_children {
         if let Some(last_child) = referenced_content.node_hierarchy[item.node_id].last_child {
@@ -824,10 +867,6 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
         clip_stack.pop();
     }
 }
-
-/// Lazy-lock the Arc<Mutex<T>> - if it is already locked, just construct
-/// a `&'a mut T`, if not, push the
-pub(crate) struct AppDataAccess<T: Layout>(Arc<Mutex<T>>);
 
 /// Parameters that apply to a single rectangle / div node
 #[derive(Copy, Clone)]
@@ -1060,7 +1099,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
 
     {
         // Make sure that the app data is locked before invoking the callback
-        let _lock = referenced_mutable_content.app_data.0.lock().unwrap();
+        let _lock = referenced_mutable_content.app_data.lock().unwrap();
         texture = (texture_callback.0)(&texture_stack_ptr, LayoutInfo {
             window: &mut *referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
@@ -1124,7 +1163,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
 
     {
         // Make sure that the app data is locked before invoking the callback
-        let _lock = referenced_mutable_content.app_data.0.lock().unwrap();
+        let _lock = referenced_mutable_content.app_data.lock().unwrap();
 
         let window_info = LayoutInfo {
             window: referenced_mutable_content.fake_window,
@@ -1229,7 +1268,7 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
 struct DisplayListParametersMut<'a, T: 'a + Layout> {
     /// Needs to be present, because the dom_to_displaylist_builder
     /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
-    pub app_data: &'a mut AppDataAccess<T>,
+    pub app_data: &'a mut Arc<Mutex<T>>,
     /// The original, top-level display list builder that we need to push stuff into
     pub builder: &'a mut DisplayListBuilder,
     /// The app resources, so that a sub-DOM / iframe can register fonts and images

@@ -100,7 +100,10 @@ mod stack_checked_pointer {
 
     impl<T: Layout> fmt::Debug for StackCheckedPointer<T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "StackCheckedPointer {{ internal: 0x{:x}, marker: {:?} }}", self.internal as usize, self.marker)
+            write!(f,
+                "StackCheckedPointer {{ internal: 0x{:x}, marker: {:?} }}",
+                self.internal as usize, self.marker
+            )
         }
     }
 
