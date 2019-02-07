@@ -165,11 +165,13 @@ impl OperandStack {
 }
 
 fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
-    let mut row_iter = event.index_path_iter();
+
+    let mut row_iter = event.parent_nodes();
+    row_iter.next()?;
 
     // Figure out which row and column was clicked...
-    let clicked_col_idx = row_iter.next()?;
-    let clicked_row_idx = row_iter.next()?;
+    let clicked_col_idx = event.target_index_in_parent()?;
+    let clicked_row_idx = row_iter.current_index_in_parent()?;
 
     // Figure out what button was clicked from the given row and column, filter bad events
     let event = match (clicked_row_idx, clicked_col_idx) {
