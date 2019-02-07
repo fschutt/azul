@@ -16,11 +16,13 @@ use {
     text_cache::TextId,
     traits::Layout,
     app_state::AppState,
-    id_tree::{NodeId, Node, Arena, NodeHierarchy, NodeDataContainer},
+    id_tree::{Arena, NodeDataContainer},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
     text_layout::{Words, FontMetrics, TextSizePx},
 };
+
+pub use id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 

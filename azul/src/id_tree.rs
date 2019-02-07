@@ -108,7 +108,7 @@ pub struct Arena<T> {
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct NodeHierarchy {
-    pub internal: Vec<Node>,
+    pub(crate) internal: Vec<Node>,
 }
 
 impl NodeHierarchy {
@@ -174,7 +174,7 @@ impl NodeHierarchy {
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct NodeDataContainer<T> {
-    pub internal: Vec<T>,
+    pub(crate) internal: Vec<T>,
 }
 
 impl Index<NodeId> for NodeHierarchy {
