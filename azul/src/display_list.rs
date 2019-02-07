@@ -1893,9 +1893,12 @@ struct Ratio {
     height: f32
 }
 
-fn calculate_background_size(bg_size: &StyleBackgroundSize, info: &PrimitiveInfo<LayoutPixel>, image_dimensions: &(f32, f32))
--> TypedSize2D<f32, LayoutPixel>
-{
+fn calculate_background_size(
+    bg_size: &StyleBackgroundSize,
+    info: &PrimitiveInfo<LayoutPixel>,
+    image_dimensions: &(f32, f32)
+) -> TypedSize2D<f32, LayoutPixel> {
+
     let original_ratios = Ratio {
         width: info.rect.size.width / image_dimensions.0,
         height: info.rect.size.height / image_dimensions.1
@@ -1920,30 +1923,19 @@ fn push_image(
 {
     use images::ImageState::*;
 
-    let image_info = app_resources.images.get(image_id)?;
-
-    match image_info {
-        Uploaded(image_info) => {
-
-            // NOTE: The webrender gamma hack doesn't apply to images,
-            // since webrender has no way of easily coloring images
-            // without using stacking contexts.
-            //
-            // This leads to lighter images, but that's just how things are right now
-
-            builder.push_image(
-                    info,
-                    size,
-                    LayoutSize::zero(),
-                    ImageRendering::Auto,
-                    AlphaType::PremultipliedAlpha,
-                    image_info.key,
-                    ColorF::WHITE);
-        },
-        _ => { },
+    if let Uploaded(image_info) = app_resources.images.get(image_id)? {
+        builder.push_image(
+            info,
+            size,
+            LayoutSize::zero(),
+            ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
+            image_info.key,
+            ColorF::WHITE,
+        );
     }
 
-    // TODO: determine if image has overflown its container
+    // TODO: determine if the image has overflown its container
     None
 }
 
