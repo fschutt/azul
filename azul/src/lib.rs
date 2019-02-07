@@ -187,6 +187,7 @@ type FastHashSet<T> = ::std::collections::HashSet<T>;
 
 /// Quick exports of common types
 pub mod prelude {
+    pub use id_tree::NodeHierarchy;
     pub use azul_css::ColorU;
     pub use app::{App, AppConfig};
     pub use app_state::AppState;

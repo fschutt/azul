@@ -157,6 +157,11 @@ impl NodeHierarchy {
         non_leaf_nodes
     }
 
+    /// Returns the index in the parent node of a certain NodeId
+    /// (starts at 0, i.e. the first node has the index of 0).
+    pub fn get_index_in_parent(&self, node_id: NodeId) -> usize {
+        node_id.preceding_siblings(&self).count() - 1
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
