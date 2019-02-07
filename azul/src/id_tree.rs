@@ -124,6 +124,39 @@ impl NodeHierarchy {
             position: 0,
         }
     }
+
+    /// Returns the `(depth, NodeId)` of all parent nodes (i.e. nodes that have a
+    /// `first_child`), in depth sorted order, (i.e. `NodeId(0)` with a depth of 0) is
+    /// the first element.
+    ///
+    /// Runtime: O(n) max
+    pub fn get_parents_sorted_by_depth(&self) -> Vec<(usize, NodeId)> {
+
+        let mut non_leaf_nodes = Vec::new();
+        let mut current_children = vec![(0, NodeId::new(0))];
+        let mut next_children = Vec::new();
+        let mut depth = 1;
+
+        loop {
+            for id in &current_children {
+                for child_id in id.1.children(self).filter(|id| self[*id].first_child.is_some()) {
+                    next_children.push((depth, child_id));
+                }
+            }
+
+            non_leaf_nodes.extend(&mut current_children.drain(..));
+
+            if next_children.is_empty() {
+                break;
+            } else {
+                current_children.extend(&mut next_children.drain(..));
+                depth += 1;
+            }
+        }
+
+        non_leaf_nodes
+    }
+
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]

@@ -101,6 +101,7 @@ impl<T: Layout> fmt::Debug for UiState<T> {
 }
 
 impl<T: Layout> UiState<T> {
+
     #[allow(unused_imports, unused_variables)]
     pub(crate) fn from_app_state(app_state: &mut AppState<T>, window_id: &WindowId)
     -> Result<Self, RuntimeError<T>>
@@ -130,7 +131,7 @@ impl<T: Layout> UiState<T> {
         Ok(dom.into_ui_state())
     }
 
-    pub fn create_tags_for_hover_nodes(&mut self, hover_nodes: &BTreeMap<NodeId, HoverGroup>) {
+    pub(crate) fn create_tags_for_hover_nodes(&mut self, hover_nodes: &BTreeMap<NodeId, HoverGroup>) {
         use dom::new_tag_id;
         for (hover_node_id, hover_group) in hover_nodes {
             let hover_tag = match self.node_ids_to_tag_ids.get(hover_node_id) {

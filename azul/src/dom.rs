@@ -1,7 +1,6 @@
 use std::{
     fmt,
     rc::Rc,
-    cell::RefCell,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
@@ -823,12 +822,27 @@ impl<T: Layout> NodeData<T> {
             .. Default::default()
         }
     }
+
+    /// Checks whether this node is of the given node type (div, image, text)
+    pub fn is_node_type(&self, searched_type: NodeType<T>) -> bool {
+        self.node_type == searched_type
+    }
+
+    /// Checks whether this node has the searched ID attached
+    pub fn has_id(&self, id: &str) -> bool {
+        self.ids.iter().any(|self_id| self_id == id)
+    }
+
+    /// Checks whether this node has the searched class attached
+    pub fn has_class(&self, class: &str) -> bool {
+        self.classes.iter().any(|self_class| self_class == class)
+    }
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[derive(Clone, PartialEq, Eq)]
 pub struct Dom<T: Layout> {
-    pub(crate) arena: Rc<RefCell<Arena<NodeData<T>>>>,
+    pub(crate) arena: Arena<NodeData<T>>,
     pub(crate) root: NodeId,
     pub(crate) head: NodeId,
 }
@@ -902,10 +916,10 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
         Dom {
             head: NodeId::new(0),
             root: NodeId::new(0),
-            arena: Rc::new(RefCell::new(Arena {
+            arena: Arena {
                 node_data: NodeDataContainer::new(node_data),
                 node_layout: NodeHierarchy::new(node_layout),
-            })),
+            },
         }
     }
 }
@@ -962,7 +976,7 @@ impl<T: Layout> Dom<T> {
     /// Returns the number of nodes in this DOM
     #[inline]
     pub fn len(&self) -> usize {
-        self.arena.borrow().len()
+        self.arena.len()
     }
 
     /// Creates an empty DOM with space reserved for `cap` nodes
@@ -971,20 +985,20 @@ impl<T: Layout> Dom<T> {
         let mut arena = Arena::with_capacity(cap.saturating_add(1));
         let root = arena.new_node(NodeData::new(node_type));
         Self {
-            arena: Rc::new(RefCell::new(arena)),
+            arena: arena,
             root: root,
             head: root,
         }
     }
 
     /// Adds a child DOM to the current DOM
-    pub fn add_child(&mut self, child: Self) {
+    pub fn add_child(&mut self, mut child: Self) {
 
         // Note: for a more readable Python version of this algorithm,
         // see: https://gist.github.com/fschutt/4b3bd9a2654b548a6eb0b6a8623bdc8a#file-dow_new_2-py-L65-L107
 
-        let self_len = self.arena.borrow().len();
-        let child_len = child.arena.borrow().len();
+        let self_len = self.arena.len();
+        let child_len = child.arena.len();
 
         if child_len == 0 {
             // No nodes to append, nothing to do
@@ -998,8 +1012,8 @@ impl<T: Layout> Dom<T> {
             return;
         }
 
-        let mut self_arena = self.arena.borrow_mut();
-        let mut child_arena = child.arena.borrow_mut();
+        let self_arena = &mut self.arena;
+        let child_arena = &mut child.arena;
 
         let mut last_sibling = None;
 
@@ -1049,7 +1063,7 @@ impl<T: Layout> Dom<T> {
         self_arena.node_layout[self.head].first_child.get_or_insert(NodeId::new(self_len));
         self_arena.node_layout[self.head].last_child = Some(last_sibling.unwrap() + self_len);
 
-        (&mut *self_arena).append_arena(&mut child_arena);
+        (&mut *self_arena).append_arena(child_arena);
     }
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
@@ -1099,42 +1113,42 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn add_id<S: Into<String>>(&mut self, id: S) {
-        self.arena.borrow_mut().node_data[self.head].ids.push(id.into());
+        self.arena.node_data[self.head].ids.push(id.into());
     }
 
     #[inline]
     pub fn add_class<S: Into<String>>(&mut self, class: S) {
-        self.arena.borrow_mut().node_data[self.head].classes.push(class.into());
+        self.arena.node_data[self.head].classes.push(class.into());
     }
 
     #[inline]
     pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: Callback<T>) {
-        self.arena.borrow_mut().node_data[self.head].callbacks.push((on.into(), callback));
+        self.arena.node_data[self.head].callbacks.push((on.into(), callback));
     }
 
     #[inline]
     pub fn add_default_callback_id<O: Into<EventFilter>>(&mut self, on: O, id: DefaultCallbackId) {
-        self.arena.borrow_mut().node_data[self.head].default_callback_ids.push((on.into(), id));
+        self.arena.node_data[self.head].default_callback_ids.push((on.into(), id));
     }
 
     #[inline]
     pub fn add_tab_index(&mut self, tab_index: TabIndex) {
-        self.arena.borrow_mut().node_data[self.head].tab_index = Some(tab_index);
+        self.arena.node_data[self.head].tab_index = Some(tab_index);
     }
 
     #[inline]
     pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: CssProperty) {
-        self.arena.borrow_mut().node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
+        self.arena.node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
     }
 
     #[inline]
     pub fn set_draggable(&mut self, draggable: bool) {
-        self.arena.borrow_mut().node_data[self.head].draggable = draggable;
+        self.arena.node_data[self.head].draggable = draggable;
     }
 
     /// Prints a debug formatted version of the DOM for easier debugging
     pub fn debug_dump(&self) {
-        println!("{}", self.arena.borrow().print_tree(|t| format!("{}", t)));
+        println!("{}", self.arena.print_tree(|t| format!("{}", t)));
     }
 
     /// The UiState contains all the tags (for hit-testing) as well as the mapping
@@ -1221,7 +1235,7 @@ impl<T: Layout> Dom<T> {
         TAG_ID.swap(1, Ordering::SeqCst);
 
         {
-            let arena = &self.arena.borrow();
+            let arena = &self.arena;
 
             debug_assert!(arena.node_layout[NodeId::new(0)].next_sibling.is_none());
 
