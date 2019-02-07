@@ -32,7 +32,7 @@ use azul_css::Css;
 use azul_css::HotReloadHandler;
 use {
     FastHashMap,
-    dom::{Texture, Callback, NodeData},
+    dom::{Texture, Callback, NodeData, NodeType},
     daemon::{Daemon, DaemonId},
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
@@ -264,26 +264,33 @@ impl<'a, T: 'a + Layout> fmt::Debug for CallbackInfo<'a, T> {
     }
 }
 
-pub struct IndexPathIterator<'a, 'b: 'a, T: 'b + Layout> {
+/// Iterator that, starting from a
+pub struct IndexPathIterator<'a> {
     current_item: NodeId,
-    event: &'a CallbackInfo<'b, T>,
+    node_hierarchy: &'a NodeHierarchy,
 }
 
-impl<'a, 'b, T: 'a + Layout> IndexPathIterator<'a, 'b, T> {
+impl<'a> IndexPathIterator<'a> {
+
     /// Returns what node ID the iterator is currently processing
     pub fn current_node(&self) -> NodeId {
         self.current_item
     }
+
+    /// Returns the offset into the parent of the current node
+    pub fn current_index_in_parent(&self) -> usize {
+        self.node_hierarchy.get_index_in_parent(self.current_item)
+    }
 }
 
-impl<'a, 'b, T: 'a + Layout> Iterator for IndexPathIterator<'a, 'b, T> {
-    type Item = usize;
+impl<'a> Iterator for IndexPathIterator<'a> {
+    type Item = NodeId;
 
     /// For each item in the current item path, returns the index of the item in the parent
-    fn next(&mut self) -> Option<usize> {
-        let (new_index, new_parent) = self.event.get_index_in_parent(self.current_item)?;
+    fn next(&mut self) -> Option<NodeId> {
+        let new_parent = self.node_hierarchy[self.current_item].parent?;
         self.current_item = new_parent;
-        Some(new_index)
+        Some(new_parent)
     }
 }
 
@@ -291,10 +298,10 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
 
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the index in the parent, until it gets to the root component.
-    pub fn index_path_iter<'b>(&'b self) -> IndexPathIterator<'a, 'b, T> {
+    pub fn index_path_iter<'b>(&'b self) -> IndexPathIterator<'b> {
         IndexPathIterator {
             current_item: self.hit_dom_node,
-            event: &self,
+            node_hierarchy: &self.ui_state.dom.arena.node_layout,
         }
     }
 
@@ -310,14 +317,14 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
         }
 
         let parent = node_layout[node_id].parent?;
-        Some((node_id.preceding_siblings(&node_layout).count() - 1, parent))
+        Some((node_layout.get_index_in_parent(node_id), parent))
     }
 
     // Functions that are may be called from the user callback
     // - the `CallbackInfo` contains a `&mut UiState`, which can be
     // used to query DOM information when the callbacks are run
 
-    /// Returns
+    /// Returns the hierarchy of the given node ID
     pub fn get_node<'b>(&'b self, node_id: NodeId) -> Option<&'b Node> {
         self.ui_state.dom.arena.node_layout.internal.get(node_id.index())
     }
@@ -330,6 +337,56 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
     /// Returns the node content of a specific node
     pub fn get_node_content<'b>(&'b self, node_id: NodeId) -> Option<&'b NodeData<T>> {
         self.ui_state.dom.arena.node_data.internal.get(node_id.index())
+    }
+
+    /// Checks whether the target of the CallbackInfo has a certain node type
+    pub fn target_is_node_type(&self, node_type: NodeType<T>) -> bool {
+        if let Some(self_node) = self.get_node_content(self.hit_dom_node) {
+            self_node.is_node_type(node_type)
+        } else {
+            false
+        }
+    }
+
+    /// Checks whether the target of the CallbackInfo has a certain ID
+    pub fn target_has_id(&self, id: &str) -> bool {
+        if let Some(self_node) = self.get_node_content(self.hit_dom_node) {
+            self_node.has_id(id)
+        } else {
+            false
+        }
+    }
+
+    /// Checks whether the target of the CallbackInfo has a certain class
+    pub fn target_has_class(&self, class: &str) -> bool {
+        if let Some(self_node) = self.get_node_content(self.hit_dom_node) {
+            self_node.has_class(class)
+        } else {
+            false
+        }
+    }
+
+    /// Traverses up the hierarchy, checks whether any parent has a certain ID,
+    /// the returns that parent
+    pub fn any_parent_has_id(&self, id: &str) -> Option<NodeId> {
+        self.index_path_iter().find(|parent_id| {
+            if let Some(self_node) = self.get_node_content(*parent_id) {
+                self_node.has_id(id)
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Traverses up the hierarchy, checks whether any parent has a certain class
+    pub fn any_parent_has_class(&self, class: &str) -> Option<NodeId> {
+        self.index_path_iter().find(|parent_id| {
+            if let Some(self_node) = self.get_node_content(*parent_id) {
+                self_node.has_class(class)
+            } else {
+                false
+            }
+        })
     }
 }
 
