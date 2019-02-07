@@ -22,6 +22,8 @@ azul-css                = { version = "0.1.0",                path = "../azul-cs
 azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
 azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "055034bd642496cf91730a3fb4bcf3250da47772" }
+serde_derive            = { version = "1",                    optional = true }
+serde                   = { version = "1",                    optional = true }
 
 [features]
 # The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
@@ -49,8 +51,8 @@ svg_parsing = ["azul-dependencies/svg_parsing", "svg"]
 # dependency and use a bit of extra runtime.
 icon_loading = ["azul-dependencies/icon_loading"]
 # For serializing / deserializing CSS colors using serde
-serde_serialization = ["azul-dependencies/serde_serialization"]
-serde_serialization_css = ["css-parser", "azul-css-parser/serde_serialization"]
+serde_serialization = ["azul-dependencies/serde_serialization", "serde_derive", "serde"]
+serde_serialization_css = ["css-parser", "azul-css-parser/serde_serialization", "serde_serialization"]
 # twox-hash imports the rand crate, which takes a long time to compile
 # If azul isn't using XXHash, it uses the std-library provided hash algorithm
 #
