@@ -202,10 +202,15 @@ pub(crate) mod webrender_translate {
     // NOTE: Reverse direction: Translate from webrender::LayoutRect to css::LayoutRect
     #[inline(always)]
     pub fn wr_translate_border_details(input: CssBorderDetails) -> WrBorderDetails {
-        let zero_border_side = WrBorderSide { color: WrColorU { r: 0, g: 0, b: 0, a: 0 }.into(), style: WrBorderStyle::None };
+        let zero_border_side = WrBorderSide {
+            color: WrColorU { r: 0, g: 0, b: 0, a: 0 }.into(),
+            style: WrBorderStyle::None
+        };
+
         match input {
             CssBorderDetails::Normal(normal) => WrBorderDetails::Normal(wr_translate_normal_border(normal)),
-            // TODO: Do 9patch border properly - currently this can't be reached since there is no parsing for 9patch border yet!
+            // TODO: Do 9patch border properly - currently this can't be reached since there
+            // is no parsing for 9patch border yet!
             CssBorderDetails::NinePatch(_) => WrBorderDetails::Normal(WrNormalBorder {
                 left: zero_border_side,
                 right: zero_border_side,

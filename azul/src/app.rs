@@ -504,21 +504,26 @@ fn render_single_window_content<T: Layout>(
     let mut events = Vec::new();
     window.events_loop.poll_events(|e| events.push(e));
     if events.is_empty() {
-        return Ok((frame_was_resize, false));
+        let window_should_close = false;
+        return Ok((frame_was_resize, window_should_close));
     }
 
     let (mut frame_event_info, window_should_close) =
         window.state.update_window_state(&events, awakened_task[window_id]);
 
     if window_should_close {
-        return Ok((frame_was_resize, true));
+        let window_should_close = true;
+        return Ok((frame_was_resize, window_should_close));
     }
 
     let mut hit_test_results = None;
 
     if frame_event_info.should_hittest {
+
+        hit_test_results = do_hit_test(&window);
+
         for event in &events {
-            hit_test_results = do_hit_test(&window);
+
             let callback_result = call_callbacks(
                 hit_test_results.as_ref(),
                 event,
@@ -574,38 +579,35 @@ fn render_single_window_content<T: Layout>(
         *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
             UiState::from_app_state(app_state, window_id)?;
 
-        // Style the DOM (is_mouse_down, etc. necessary for styling :hover, :active + :focus nodes)
-        let is_mouse_down = window.state.mouse_state.left_down      ||
-                            window.state.mouse_state.middle_down    ||
-                            window.state.mouse_state.right_down;
+        // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
+        let is_mouse_down = window.state.mouse_state.mouse_down();
 
-        *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? = {
-            let mut ui_state = ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?;
+        *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
             UiDescription::match_css_to_dom(
-            &mut ui_state,
-            &window.css,
-            &mut window.state.focused_node,
-            &mut window.state.pending_focus_target,
-            &window.state.hovered_nodes,
-            is_mouse_down,
-        )};
+                ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
+                &window.css,
+                &mut window.state.focused_node,
+                &mut window.state.pending_focus_target,
+                &window.state.hovered_nodes,
+                is_mouse_down,
+            );
 
-        // render the window (webrender will send an Awakened event when the frame is done)
-        let arc_mutex_t_clone = app_state.data.clone();
+        // Render the window (webrender will send an Awakened event when the frame is done)
         let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
         render(
-            arc_mutex_t_clone,
+            &mut app_state.data,
             &ui_description_cache[window_id],
             &ui_state_cache[window_id],
             &mut *window,
             &mut fake_window,
-            &mut app_state.resources);
+            &mut app_state.resources,
+        );
 
         *awakened_task.get_mut(window_id).ok_or(WindowIndexError)? = false;
     }
 
-    // Window should not close
-    Ok((frame_was_resize, false))
+    let window_should_close = false;
+    Ok((frame_was_resize, window_should_close))
 }
 
 /// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
@@ -659,7 +661,8 @@ fn hot_reload_css<T: Layout>(
 /// Returns the currently hit-tested results, in back-to-front order
 fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
 
-    let cursor_location = window.state.mouse_state.cursor_pos.map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
+    let cursor_location = window.state.mouse_state.cursor_pos
+        .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
 
     let mut hit_test_results = window.internal.api.hit_test(
         window.internal.document_id,
@@ -789,7 +792,7 @@ fn call_callbacks<T: Layout>(
 }
 
 fn render<T: Layout>(
-    app_data: Arc<Mutex<T>>,
+    app_data: &mut Arc<Mutex<T>>,
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
     window: &mut Window<T>,
