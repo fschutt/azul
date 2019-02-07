@@ -915,41 +915,48 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         rect: bounds,
         clip_rect: bounds,
         is_backface_visible: false,
-        tag: rect.tag.and_then(|tag| Some((tag, 0))).or({
-            scrollable_nodes.overflowing_nodes.get(&rect_idx).and_then(|scrolled| Some((scrolled.scroll_tag_id.0, 0)))
+        tag: rect.tag.map(|tag| (tag, 0)).or({
+            scrollable_nodes.overflowing_nodes
+            .get(&rect_idx)
+            .map(|scrolled| (scrolled.scroll_tag_id.0, 0))
         }),
     };
 
-    let clip_region_id = get_clip_region(bounds, &rect).and_then(|clip| {
-        Some(referenced_mutable_content.builder.define_clip(bounds, vec![clip], None))
-    });
+    let clip_region_id = get_clip_region(bounds, &rect).map(|clip|
+        referenced_mutable_content.builder.define_clip(bounds, vec![clip], None)
+    );
 
     // Push the "outset" box shadow, before the clip is active
     push_box_shadow(
         referenced_mutable_content.builder,
         &rect.style,
         &bounds,
-        BoxShadowClipMode::Outset);
+        BoxShadowClipMode::Outset,
+    );
 
     if let Some(id) = clip_region_id {
         referenced_mutable_content.builder.push_clip_id(id);
     }
 
-
-    // If the rect is hit-testing relevant, we need to push a rect anyway. Otherwise the hit-testing gets confused
+    // If the rect is hit-testing relevant, we need to push a rect anyway.
+    // Otherwise the hit-testing gets confused
     if let Some(bg_col) = &rect.style.background_color {
         // The background color won't be seen anyway, so don't push a
         // background color if we do have a background already
         if rect.style.background.is_none() {
-            push_rect(&info,
-                      referenced_mutable_content.builder,
-                      bg_col);
+            push_rect(
+                &info,
+                referenced_mutable_content.builder,
+                bg_col,
+            );
         }
     } else if info.tag.is_some() {
         const TRANSPARENT_BG: StyleBackgroundColor = StyleBackgroundColor(StyleColorU { r: 0, g: 0, b: 0, a: 0 });
-        push_rect(&info,
-                  referenced_mutable_content.builder,
-                  &TRANSPARENT_BG);
+        push_rect(
+            &info,
+            referenced_mutable_content.builder,
+            &TRANSPARENT_BG,
+        );
     }
 
     if let Some(bg) = &rect.style.background {
@@ -960,7 +967,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
             bg,
             &rect.style.background_size,
             &rect.style.background_repeat,
-            &referenced_mutable_content.app_resources);
+            &referenced_mutable_content.app_resources,
+        );
     }
 
     if let Some(ref border) = rect.style.border {
@@ -968,7 +976,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
             &info,
             referenced_mutable_content.builder,
             &border,
-            &rect.style.border_radius);
+            &rect.style.border_radius,
+        );
     }
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
@@ -992,19 +1001,20 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         let words = word_cache.0.get(&rect_idx)?;
 
         // Adjust the bounds by the padding
-        let mut text_bounds = rect.layout.padding.as_ref().and_then(|padding| {
-            Some(subtract_padding(&bounds, padding))
-        }).unwrap_or(bounds);
+        let mut text_bounds = rect.layout.padding
+            .as_ref()
+            .map(|padding| subtract_padding(&bounds, padding))
+            .unwrap_or(bounds);
 
         text_bounds.size.width = text_bounds.size.width.max(0.0);
         text_bounds.size.height = text_bounds.size.height.max(0.0);
 
-        let text_clip_region_id = rect.layout.padding.and_then(|_|
-            Some(builder.define_clip(text_bounds, vec![ComplexClipRegion {
+        let text_clip_region_id = rect.layout.padding.map(|_|
+            builder.define_clip(text_bounds, vec![ComplexClipRegion {
                 rect: text_bounds,
                 radii: BorderRadius::zero(),
                 mode: ClipMode::Clip,
-            }], None))
+            }], None)
         );
 
         if let Some(text_clip_id) = text_clip_region_id {
@@ -1668,7 +1678,14 @@ fn push_box_shadow(
             }
         }
 
-        push_box_shadow_inner(builder, &Some(*current_shadow), border_radius, &shadow_bounds, clip_rect, shadow_type);
+        push_box_shadow_inner(
+            builder,
+            &Some(*current_shadow),
+            border_radius,
+            &shadow_bounds,
+            clip_rect,
+            shadow_type
+        );
     }
 
     // Box-shadow can be applied to each corner separately. This means, in practice
@@ -1703,8 +1720,10 @@ fn push_box_shadow(
                  _ => return, // reachable, but invalid box-shadow
             };
 
-            push_single_box_shadow_edge(builder, current_shadow, bounds, border_radius, shadow_type,
-                                        top, bottom, left, right);
+            push_single_box_shadow_edge(
+                builder, current_shadow, bounds, border_radius, shadow_type,
+                top, bottom, left, right
+            );
         },
         // Two shadows in opposite directions:
         //
@@ -1712,27 +1731,49 @@ fn push_box_shadow(
         // box-shadow-bottom: 0px 0px 5px blue;
         ShouldPushShadow::PushTwoShadows => {
             match (top, left, bottom, right) {
-                (Some(Some(t)), None, Some(Some(b)), right) => {
-                    push_single_box_shadow_edge(builder, t, bounds, border_radius, shadow_type,
-                                                top, &None, &None, &None);
-                    push_single_box_shadow_edge(builder, b, bounds, border_radius, shadow_type,
-                                                &None, bottom, &None, &None);
 
+                // top + bottom box-shadow pair
+                (Some(Some(t)), None, Some(Some(b)), right) => {
+                    push_single_box_shadow_edge(
+                        builder, t, bounds, border_radius, shadow_type,
+                        top, &None, &None, &None
+                    );
+                    push_single_box_shadow_edge(
+                        builder, b, bounds, border_radius, shadow_type,
+                        &None, bottom, &None, &None
+                    );
                 },
+                // left + right box-shadow pair
                 (None, Some(Some(l)), None, Some(Some(r))) => {
-                    push_single_box_shadow_edge(builder, l, bounds, border_radius, shadow_type,
-                                                &None, &None, left, &None);
-                    push_single_box_shadow_edge(builder, r, bounds, border_radius, shadow_type,
-                                                &None, &None, &None, right);
+                    push_single_box_shadow_edge(
+                        builder, l, bounds, border_radius, shadow_type,
+                        &None, &None, left, &None
+                    );
+                    push_single_box_shadow_edge(
+                        builder, r, bounds, border_radius, shadow_type,
+                        &None, &None, &None, right
+                    );
                 }
                 _ => return, // reachable, but invalid
             }
         },
         ShouldPushShadow::PushAllShadows => {
+
             // Assumes that all box shadows are the same, so just use the top shadow
             let top_shadow = top.unwrap();
-            let clip_rect = top_shadow.as_ref().and_then(|top_shadow| Some(get_clip_rect(top_shadow, bounds))).unwrap_or(*bounds);
-            push_box_shadow_inner(builder, &top_shadow, border_radius, bounds, clip_rect, shadow_type);
+            let clip_rect = top_shadow
+                .as_ref()
+                .map(|top_shadow| get_clip_rect(top_shadow, bounds))
+                .unwrap_or(*bounds);
+
+            push_box_shadow_inner(
+                builder,
+                &top_shadow,
+                border_radius,
+                bounds,
+                clip_rect,
+                shadow_type
+            );
         }
     }
 }
@@ -1747,7 +1788,7 @@ fn push_background(
     background_repeat: &Option<StyleBackgroundRepeat>,
     app_resources: &AppResources)
 {
-    use azul_css::StyleBackground::*;
+    use azul_css::{Shape, StyleBackground::*};
     use css::webrender_translate::{
         wr_translate_color_u, wr_translate_extend_mode, wr_translate_layout_point,
         wr_translate_layout_rect,
@@ -1755,9 +1796,7 @@ fn push_background(
 
     match background {
         RadialGradient(gradient) => {
-            use azul_css::Shape;
-
-            let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
+            let stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap().get(),
                     color: wr_translate_color_u(gradient_pre.color).into(),
@@ -1773,30 +1812,31 @@ fn push_background(
                     TypedSize2D::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
                 },
             };
+
             let gradient = builder.create_radial_gradient(center, radius, stops, wr_translate_extend_mode(gradient.extend_mode));
             builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         LinearGradient(gradient) => {
 
-            let mut stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
+            let stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
                 GradientStop {
                     offset: gradient_pre.offset.unwrap().get() / 100.0,
                     color: wr_translate_color_u(gradient_pre.color).into(),
                 }).collect();
 
-            let (mut begin_pt, mut end_pt) = gradient.direction.to_points(&wr_translate_layout_rect(*bounds));
+            let (begin_pt, end_pt) = gradient.direction.to_points(&wr_translate_layout_rect(*bounds));
             let gradient = builder.create_gradient(
-                    wr_translate_layout_point(begin_pt),
-                    wr_translate_layout_point(end_pt),
-                    stops,
-                    wr_translate_extend_mode(gradient.extend_mode));
+                wr_translate_layout_point(begin_pt),
+                wr_translate_layout_point(end_pt),
+                stops,
+                wr_translate_extend_mode(gradient.extend_mode),
+            );
 
             builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
         },
         Image(style_image_id) => {
             // TODO: background-origin, background-position, background-repeat
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&style_image_id.0) {
-                use azul_css::StyleBackgroundRepeat::*;
 
                 let bounds = info.rect;
                 let image_dimensions = app_resources.images.get(image_id).and_then(|i| Some(i.get_dimensions()))
@@ -1808,35 +1848,43 @@ fn push_background(
                 };
 
                 let background_repeat = background_repeat.unwrap_or_default();
-                let info = match background_repeat {
-                    NoRepeat => LayoutPrimitiveInfo::with_clip_rect(
-                        info.rect,
-                        TypedRect::new(
-                            info.rect.origin,
-                            TypedSize2D::new(size.width, size.height),
-                        ),
-                    ),
-                    Repeat => *info,
-                    RepeatX => LayoutPrimitiveInfo::with_clip_rect(
-                        info.rect,
-                        TypedRect::new(
-                            info.rect.origin,
-                            TypedSize2D::new(info.rect.size.width, size.height),
-                        ),
-                    ),
-                    RepeatY => LayoutPrimitiveInfo::with_clip_rect(
-                        info.rect,
-                        TypedRect::new(
-                            info.rect.origin,
-                            TypedSize2D::new(size.width, info.rect.size.height),
-                        ),
-                    ),
-                };
-
-                push_image(&info, builder, app_resources, image_id, size);
+                let background_repeat_info = get_background_repeat_info(&info, background_repeat, size);
+                push_image(&background_repeat_info, builder, app_resources, image_id, size);
             }
         },
         NoBackground => { },
+    }
+}
+
+fn get_background_repeat_info(
+    info: &LayoutPrimitiveInfo,
+    background_repeat: StyleBackgroundRepeat,
+    background_size: TypedSize2D<f32, LayoutPixel>,
+) -> LayoutPrimitiveInfo {
+    use azul_css::StyleBackgroundRepeat::*;
+    match background_repeat {
+        NoRepeat => LayoutPrimitiveInfo::with_clip_rect(
+            info.rect,
+            TypedRect::new(
+                info.rect.origin,
+                TypedSize2D::new(background_size.width, background_size.height),
+            ),
+        ),
+        Repeat => *info,
+        RepeatX => LayoutPrimitiveInfo::with_clip_rect(
+            info.rect,
+            TypedRect::new(
+                info.rect.origin,
+                TypedSize2D::new(info.rect.size.width, background_size.height),
+            ),
+        ),
+        RepeatY => LayoutPrimitiveInfo::with_clip_rect(
+            info.rect,
+            TypedRect::new(
+                info.rect.origin,
+                TypedSize2D::new(background_size.width, info.rect.size.height),
+            ),
+        ),
     }
 }
 
