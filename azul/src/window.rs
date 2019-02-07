@@ -32,7 +32,7 @@ use azul_css::Css;
 use azul_css::HotReloadHandler;
 use {
     FastHashMap,
-    dom::{Texture, Callback},
+    dom::{Texture, Callback, NodeData},
     daemon::{Daemon, DaemonId},
     window_state::{WindowState, MouseState, KeyboardState, DebugState},
     traits::Layout,
@@ -40,10 +40,13 @@ use {
     app::FrameEventInfo,
     app_resources::AppResources,
     id_tree::NodeId,
-    default_callbacks::{DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
+    default_callbacks::{
+        DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId
+    },
     ui_state::UiState,
     display_list::ScrolledNodes,
     focus::FocusTarget,
+    id_tree::{Node, NodeHierarchy},
 };
 pub use webrender::api::HitTestItem;
 
@@ -250,13 +253,13 @@ impl<'a, T: 'a + Layout> fmt::Debug for CallbackInfo<'a, T> {
             cursor_relative_to_item: {:?}, \
             cursor_in_viewport: {:?}, \
         }}",
-        self.focus,
-        self.window_id,
-        self.hit_dom_node,
-        self.ui_state,
-        self.hit_test_items,
-        self.cursor_relative_to_item,
-        self.cursor_in_viewport,
+            self.focus,
+            self.window_id,
+            self.hit_dom_node,
+            self.ui_state,
+            self.hit_test_items,
+            self.cursor_relative_to_item,
+            self.cursor_in_viewport,
         )
     }
 }
@@ -300,8 +303,7 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
     ///
     /// Note: Index is 0-based (first item has the index of 0)
     pub fn get_index_in_parent(&self, node_id: NodeId) -> Option<(usize, NodeId)> {
-        let arena_borrow = self.ui_state.dom.arena.borrow();
-        let node_layout = &arena_borrow.node_layout;
+        let node_layout = &self.ui_state.dom.arena.node_layout;
 
         if node_id.index() > node_layout.len() {
             return None; // node_id out of range
@@ -309,6 +311,25 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
 
         let parent = node_layout[node_id].parent?;
         Some((node_id.preceding_siblings(&node_layout).count() - 1, parent))
+    }
+
+    // Functions that are may be called from the user callback
+    // - the `CallbackInfo` contains a `&mut UiState`, which can be
+    // used to query DOM information when the callbacks are run
+
+    /// Returns
+    pub fn get_node<'b>(&'b self, node_id: NodeId) -> Option<&'b Node> {
+        self.ui_state.dom.arena.node_layout.internal.get(node_id.index())
+    }
+
+    /// Returns the node hierarchy (DOM tree order)
+    pub fn get_node_hierarchy<'b>(&'b self) -> &'b NodeHierarchy {
+        &self.ui_state.dom.arena.node_layout
+    }
+
+    /// Returns the node content of a specific node
+    pub fn get_node_content<'b>(&'b self, node_id: NodeId) -> Option<&'b NodeData<T>> {
+        self.ui_state.dom.arena.node_data.internal.get(node_id.index())
     }
 }
 

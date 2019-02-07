@@ -697,7 +697,7 @@ pub(crate) fn solve_flex_layout_width<'a>(
 {
     let layout_only_arena = display_rectangles.transform(|node, _| node.layout);
     let mut width_calculated_arena = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_widths);
-    let non_leaf_nodes_sorted_by_depth = get_non_leaf_nodes_sorted_by_depth(&node_hierarchy);
+    let non_leaf_nodes_sorted_by_depth = node_hierarchy.get_parents_sorted_by_depth();
     width_calculated_arena.bubble_preferred_widths_to_parents(node_hierarchy, &layout_only_arena, &non_leaf_nodes_sorted_by_depth);
     width_calculated_arena.apply_flex_grow(node_hierarchy, &layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_width);
     let solved_widths = width_calculated_arena.transform(|node, _| node.solved_result());
@@ -718,38 +718,6 @@ pub(crate) fn solve_flex_layout_height(
     height_calculated_arena.apply_flex_grow(node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, window_height);
     let solved_heights = height_calculated_arena.transform(|node, _| node.solved_result());
     SolvedHeightLayout { solved_heights }
-}
-
-/// Returns the `(depth, NodeId)` of all non-leaf nodes (i.e. nodes that have a
-/// `first_child`), in depth sorted order, (i.e. `NodeId(0)` with a depth of 0) is
-/// the first element.
-///
-/// Runtime: O(n) max
-pub(crate) fn get_non_leaf_nodes_sorted_by_depth(node_layout: &NodeHierarchy) -> Vec<(usize, NodeId)> {
-
-    let mut non_leaf_nodes = Vec::new();
-    let mut current_children = vec![(0, NodeId::new(0))];
-    let mut next_children = Vec::new();
-    let mut depth = 1;
-
-    loop {
-        for id in &current_children {
-            for child_id in id.1.children(node_layout).filter(|id| node_layout[*id].first_child.is_some()) {
-                next_children.push((depth, child_id));
-            }
-        }
-
-        non_leaf_nodes.extend(&mut current_children.drain(..));
-
-        if next_children.is_empty() {
-            break;
-        } else {
-            current_children.extend(&mut next_children.drain(..));
-            depth += 1;
-        }
-    }
-
-    non_leaf_nodes
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -1268,7 +1236,7 @@ mod layout_tests {
         // -- Section 2: Test that size-bubbling works:
         //
         // Size-bubbling should take the 40px padding and "bubble" it towards the
-        let non_leaf_nodes_sorted_by_depth = get_non_leaf_nodes_sorted_by_depth(&node_hierarchy);
+        let non_leaf_nodes_sorted_by_depth = node_hierarchy.get_parents_sorted_by_depth();
 
         // ID 5 has no child, so it's not returned, same as 3 and 4
         assert_eq!(non_leaf_nodes_sorted_by_depth, vec![
@@ -1278,7 +1246,6 @@ mod layout_tests {
         ]);
 
         width_filled_out_data.bubble_preferred_widths_to_parents(&node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth);
-
 
         // This step shouldn't have touched the flex_grow_px
         for node in &width_filled_out_data.internal {

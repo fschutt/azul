@@ -384,18 +384,16 @@ pub(crate) fn match_dom_selectors<T: Layout>(
     is_mouse_down: bool,
 ) -> UiDescription<T>
 {
-    use ui_solver::get_non_leaf_nodes_sorted_by_depth;
-    use std::collections::BTreeMap;
+    use std::{cell::RefCell, rc::Rc, collections::BTreeMap};
 
     let root = ui_state.dom.root;
-    let arena_borrow = &*ui_state.dom.arena.borrow();
-    let non_leaf_nodes = get_non_leaf_nodes_sorted_by_depth(&arena_borrow.node_layout);
+    let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();
 
     let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
     let mut html_tree = construct_html_cascade_tree(
-        &arena_borrow.node_data,
-        &arena_borrow.node_layout,
+        &ui_state.dom.arena.node_data,
+        &ui_state.dom.arena.node_layout,
         &non_leaf_nodes,
         *focused_node,
         hovered_nodes,
@@ -407,7 +405,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
     update_focus_from_callbacks(
         pending_focus_target,
         focused_node,
-        &arena_borrow.node_layout,
+        &ui_state.dom.arena.node_layout,
         &mut html_tree,
     );
 
@@ -418,15 +416,17 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         // Iterate through all CSS rules, test if they match
         // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
         // so the cost of this should be insignificant.
-        for applying_rule in css.rules.iter().filter(|rule| matches_html_element(&rule.path, parent_id, &arena_borrow.node_layout, &html_tree)) {
+        for applying_rule in css.rules.iter().filter(|rule| {
+            matches_html_element(&rule.path, parent_id, &ui_state.dom.arena.node_layout, &html_tree)
+        }) {
             parent_rules.css_constraints.extend(applying_rule.declarations.clone());
         }
 
         let inheritable_rules: Vec<CssDeclaration> = parent_rules.css_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
 
         // For children: inherit from parents - filter children that themselves are not parents!
-        for child_id in parent_id.children(&arena_borrow.node_layout) {
-            let child_node = &arena_borrow.node_layout[child_id];
+        for child_id in parent_id.children(&ui_state.dom.arena.node_layout) {
+            let child_node = &ui_state.dom.arena.node_layout[child_id];
             match child_node.first_child {
                 None => {
 
@@ -436,7 +436,9 @@ pub(crate) fn match_dom_selectors<T: Layout>(
                     // Iterate through all style rules, test if they match
                     // This is technically O(n ^ 2), however, there are usually not that many style blocks,
                     // so the cost of this should be insignificant.
-                    for applying_rule in css.rules.iter().filter(|rule| matches_html_element(&rule.path, child_id, &arena_borrow.node_layout, &html_tree)) {
+                    for applying_rule in css.rules.iter().filter(|rule| {
+                        matches_html_element(&rule.path, child_id, &ui_state.dom.arena.node_layout, &html_tree)
+                    }) {
                         child_rules.extend(applying_rule.declarations.clone());
                     }
 
@@ -454,16 +456,25 @@ pub(crate) fn match_dom_selectors<T: Layout>(
 
     // In order to hit-test :hover and :active nodes, need to select them first
     // (to insert their TagId later)
-    let selected_hover_nodes = match_hover_selectors(collect_hover_groups(css), &arena_borrow.node_layout, &html_tree);
+    let selected_hover_nodes = match_hover_selectors(
+        collect_hover_groups(css),
+        &ui_state.dom.arena.node_layout,
+        &html_tree
+    );
 
     UiDescription {
-        // Note: this clone is necessary, otherwise,
-        // we wouldn't be able to update the UiState
+
+        // NOTE: this clone is necessary, otherwise we wouldn't be able to
+        // update the UiState
         //
         // WARNING: The UIState can modify the `arena` with its copy of the Rc !
         // Be careful about appending things to the arena, since that could modify
         // the UiDescription without you knowing!
-        ui_descr_arena: ui_state.dom.arena.clone(),
+        //
+        // NOTE: This deep-clones the entire arena, which may be a
+        // performance-sensitive operation!
+
+        ui_descr_arena: Rc::new(RefCell::new(ui_state.dom.arena.clone())),
         ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),
