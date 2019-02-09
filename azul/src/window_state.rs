@@ -398,7 +398,7 @@ impl WindowState
 
         macro_rules! insert_only_non_empty_callbacks {
             ($node_id:expr, $hit_test_item:expr, $normal_hover_callbacks:expr, $default_hover_callbacks:expr) => ({
-                if !($normal_hover_callbacks.is_empty() && $normal_hover_callbacks.is_empty()) {
+                if !($normal_hover_callbacks.is_empty() && $default_hover_callbacks.is_empty()) {
                     let mut callback_result = nodes_with_callbacks.entry(*$node_id)
                     .or_insert_with(|| DetermineCallbackResult::default());
 
