@@ -10,7 +10,7 @@ use std::{
 };
 use webrender::{
     api::{
-        LayoutRect, PipelineId, Epoch, ColorF, BuiltDisplayList, DocumentId,
+        LayoutRect, PipelineId, Epoch, BuiltDisplayList, DocumentId,
         RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
     },
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags,
@@ -27,7 +27,7 @@ use glium::{
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
-use azul_css::Css;
+use azul_css::{Css, ColorF};
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
 use {
@@ -451,7 +451,7 @@ impl<T: Layout> Default for WindowCreateOptions<T> {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
-            background: ColorF::new(1.0, 1.0, 1.0, 1.0),
+            background: ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
             clear_stencil: None,
             clear_depth: None,
             update_mode: UpdateMode::default(),
@@ -912,13 +912,15 @@ impl<'a, T: Layout> Window<T> {
         // this exists because RendererOptions isn't Clone-able
         fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
             use webrender::ProgramCache;
+            use css::webrender_translate::wr_translate_color_f;
+
             RendererOptions {
                 resource_override_path: None,
                 precache_flags: PRECACHE_SHADER_FLAGS,
                 device_pixel_ratio: device_pixel_ratio,
                 enable_subpixel_aa: true,
                 enable_aa: true,
-                clear_color: clear_color,
+                clear_color: clear_color.map(wr_translate_color_f),
                 cached_programs: Some(ProgramCache::new(None)),
                 renderer_kind: if native {
                     RendererKind::Native

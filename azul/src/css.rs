@@ -127,6 +127,14 @@ pub(crate) mod webrender_translate {
         WrColorU { r: input.r, g: input.g, b: input.b, a: input.a }
     }
 
+    use webrender::api::ColorF as WrColorF;
+    use azul_css::ColorF as CssColorF;
+
+    #[inline(always)]
+    pub fn wr_translate_color_f(input: CssColorF) -> WrColorF {
+        WrColorF { r: input.r, g: input.g, b: input.b, a: input.a }
+    }
+
     use azul_css::BorderRadius as CssBorderRadius;
     use webrender::api::BorderRadius as WrBorderRadius;
 
