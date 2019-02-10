@@ -565,11 +565,20 @@ fn render_single_window_content<T: Layout>(
         frame_was_resize = true;
     }
 
-    if frame_event_info.is_resize_event {
-        // Resize gl window
-        let gl_window = window.display.gl_window();
-        let size = gl_window.get_inner_size().unwrap().to_physical(gl_window.get_hidpi_factor());
-        gl_window.resize(size);
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        if frame_event_info.is_resize_event {
+            // Resize gl window
+            let gl_window = window.display.gl_window();
+            let size = gl_window.get_inner_size().unwrap().to_physical(gl_window.get_hidpi_factor());
+            gl_window.resize(size);
+        }
     }
 
     // Update the window state that we got from the frame event (updates window dimensions and DPI)
