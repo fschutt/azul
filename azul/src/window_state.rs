@@ -15,7 +15,7 @@ use webrender::api::HitTestItem;
 use {
     app::FrameEventInfo,
     dom::{
-        EventFilter, Callback, NotEventFilter,
+        EventFilter, Callback, NotEventFilter, UpdateScreen,
         HoverEventFilter, FocusEventFilter, WindowEventFilter, DesktopEventFilter,
     },
     default_callbacks::DefaultCallbackId,
@@ -23,6 +23,8 @@ use {
     ui_state::UiState,
     traits::Layout,
     focus::FocusTarget,
+    app_state::AppState,
+    window::CallbackInfo,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -1009,4 +1011,64 @@ fn update_mouse_cursor(window: &Window, old: &MouseCursor, new: &MouseCursor) {
     if *old != *new {
         window.set_cursor(*new);
     }
+}
+
+/// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AcceleratorKey {
+    Ctrl,
+    Alt,
+    Shift,
+    Key(VirtualKeyCode),
+}
+
+impl AcceleratorKey {
+    /// Checks if the current keyboard state contains the given char or modifier,
+    /// i.e. if the keyboard state currently has the shift key pressed and the
+    /// accelerator key is `Shift`, evaluates to true, otherwise to false.
+    pub fn matches(&self, keyboard_state: &KeyboardState) -> bool {
+        use self::AcceleratorKey::*;
+        match self {
+            Ctrl => keyboard_state.ctrl_down,
+            Alt => keyboard_state.alt_down,
+            Shift => keyboard_state.shift_down,
+            Key(k) => keyboard_state.current_virtual_keycodes.contains(k),
+        }
+    }
+}
+
+/// Utility function that, given the current keyboard state and a list of
+/// keyboard accelerators + callbacks, checks what callback can be invoked
+/// and the first matching callback. This leads to very readable
+/// (but still type checked) code like this:
+///
+/// ```no_run,ignore
+/// use azul::prelude::{AcceleratorKey::*, VirtualKeyCode::*};
+///
+/// fn my_callback<T: Layout>(app_state: &mut AppState<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
+///     keymap(app_state, event, &[
+///         [vec![Ctrl, S], save_document],
+///         [vec![Ctrl, N], create_new_document],
+///         [vec![Ctrl, O], open_new_file],
+///         [vec![Ctrl, Shift, N], create_new_window],
+///     ])
+/// }
+/// ```
+pub fn keymap<T: Layout>(
+    app_state: &mut AppState<T>,
+    event: &mut CallbackInfo<T>,
+    events: &[(Vec<AcceleratorKey>, fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen)]
+) -> UpdateScreen {
+
+    let keyboard_state = app_state.windows[event.window_id].get_keyboard_state().clone();
+
+    events
+        .iter()
+        .filter(|(keymap_character, _)| {
+            keymap_character
+                .iter()
+                .all(|keymap_char| keymap_char.matches(&keyboard_state))
+        })
+        .next()
+        .and_then(|(_, callback)| (callback)(app_state, event))
 }

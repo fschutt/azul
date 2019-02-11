@@ -203,10 +203,12 @@ pub mod prelude {
         NotEventFilter, WindowEventFilter, DesktopEventFilter,
     };
     pub use traits::{Layout, Modify};
-    pub use window::{MonitorIter, Window, WindowCreateOptions, WindowId,
-                     MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
-                     WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow};
-    pub use window_state::{WindowState, KeyboardState, MouseState, DebugState};
+    pub use window::{
+        MonitorIter, Window, WindowCreateOptions, WindowId,
+        MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
+        WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow
+    };
+    pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};
     pub use images::{ImageType, ImageId};
     pub use text_cache::{TextCache, TextId};
     pub use glium::glutin::{
