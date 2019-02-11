@@ -303,20 +303,20 @@ impl SvgCache {
         let new_svg_id = new_svg_layer_id();
         let old_svg_id = svg_id;
 
-        if let Some(vertices_indices) = self.gpu_ready_to_upload_cache.get(&old_svg_id) {
-            self.gpu_ready_to_upload_cache.insert(new_svg_id, vertices_indices.clone());
+        if let Some(vertices_indices) = self.gpu_ready_to_upload_cache.get(&old_svg_id).cloned() {
+            self.gpu_ready_to_upload_cache.insert(new_svg_id, vertices_indices);
         }
 
-        if let Some(stroke_vertices_indices) = self.stroke_gpu_ready_to_upload_cache.get(&old_svg_id) {
-            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, stroke_vertices_indices.clone());
+        if let Some(stroke_vertices_indices) = self.stroke_gpu_ready_to_upload_cache.get(&old_svg_id).cloned() {
+            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, stroke_vertices_indices);
         }
 
-        if let Some(vertices_indices) = self.vertex_index_buffer_cache.get(&old_svg_id) {
-            self.vertex_index_buffer_cache.insert(new_svg_id, vertices_indices.clone());
+        if let Some(vertices_indices) = self.vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned() {
+            self.vertex_index_buffer_cache.borrow_mut().insert(new_svg_id, vertices_indices);
         }
 
-        if let Some(stroke_vertices_indices) = self.stroke_vertex_index_buffer_cache.get(&old_svg_id) {
-            self.stroke_vertex_index_buffer_cache.insert(new_svg_id, stroke_vertices_indices.clone());
+        if let Some(stroke_vertices_indices) = self.stroke_vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned() {
+            self.stroke_vertex_index_buffer_cache.borrow_mut().insert(new_svg_id, stroke_vertices_indices);
         }
 
         new_svg_id
@@ -811,7 +811,7 @@ impl SvgStyle {
 
     /// Replaces the scale value with the new x and y values - or initializes it to the new value
     pub fn set_scale(&mut self, scale_factor_x: f32, scale_factor_y: f32) {
-        self.transform.scale = Some(SvgScaleFactor { x: new_scale_x, y: new_scale_y });
+        self.transform.scale = Some(SvgScaleFactor { x: scale_factor_x, y: scale_factor_y });
     }
 
     /// Replaces the rotation value with the new rotation values - or initializes it, if set to None
