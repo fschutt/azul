@@ -157,8 +157,6 @@ pub mod widgets;
 pub mod window;
 /// Window state handling, event filtering
 pub mod window_state;
-/// DOM styling module
-pub mod style;
 
 /// UI Description & display list handling (webrender)
 mod ui_description;
@@ -179,6 +177,8 @@ mod compositor;
 mod logging;
 /// Flexbox-based UI solver
 mod ui_solver;
+/// DOM styling module
+mod style;
 
 // Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
 

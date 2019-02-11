@@ -738,6 +738,13 @@ pub struct SvgStyle {
 
 impl SvgStyle {
 
+    /// If the style already has a translation, adds the new translation,
+    /// otherwise initializes the value to the new translation
+    pub fn translate(&mut self, x_px: f32, y_px: f32) {
+        let (cur_x, cur_y) = self.transform.translation.and_then(|t| Some((t.x, t.y))).unwrap_or((0.0, 0.0));
+        self.transform.translation = Some(SvgTranslation { x: cur_x + x_px, y: cur_y + y_px });
+    }
+
     /// If the style already has a rotation, adds the rotation, otherwise sets the rotation
     ///
     /// Input is in degrees.
@@ -745,14 +752,6 @@ impl SvgStyle {
         let current_rotation = self.transform.rotation.and_then(|r| Some(r.1.to_degrees())).unwrap_or(0.0);
         let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
         self.transform.rotation = Some((current_rotation_point, SvgRotation::degrees(current_rotation + degrees)));
-    }
-
-    /// If the style already has a rotation, adds the rotation, otherwise sets the rotation point to the new value
-    pub fn move_rotation_point(&mut self, rotation_point_x: f32, rotation_point_y: f32) {
-        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
-        let current_rotation = self.transform.rotation.unwrap_or_default().1;
-        let new_rotation_point = SvgRotationPoint { x: current_rotation_point.x + rotation_point_x, y: current_rotation_point.y + rotation_point_y };
-        self.transform.rotation = Some((new_rotation_point, current_rotation));
     }
 
     /// If the style already has a scale, adds the rotation, otherwise sets the scale.
@@ -764,11 +763,36 @@ impl SvgStyle {
         self.transform.scale = Some(SvgScaleFactor { x: new_scale_x, y: new_scale_y });
     }
 
-    /// If the style already has a translation, adds the new translation,
-    /// otherwise initializes the value to the new translation
-    pub fn translate(&mut self, x_px: f32, y_px: f32) {
-        let (cur_x, cur_y) = self.transform.translation.and_then(|t| Some((t.x, t.y))).unwrap_or((0.0, 0.0));
-        self.transform.translation = Some(SvgTranslation { x: cur_x + x_px, y: cur_y + y_px });
+    /// If the style already has a rotation, adds the rotation, otherwise sets the rotation point to the new value
+    pub fn move_rotation_point(&mut self, rotation_point_x: f32, rotation_point_y: f32) {
+        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        let current_rotation = self.transform.rotation.unwrap_or_default().1;
+        let new_rotation_point = SvgRotationPoint { x: current_rotation_point.x + rotation_point_x, y: current_rotation_point.y + rotation_point_y };
+        self.transform.rotation = Some((new_rotation_point, current_rotation));
+    }
+
+    /// Replaces the translation value with the new x and y values - or initializes it to the new value
+    pub fn set_translation(&mut self, x_px: f32, y_px: f32) {
+        self.transform.translation = Some(SvgTranslation { x: x_px, y: y_px });
+    }
+
+    /// Replaces the rotation value with the new rotation values - or initializes it, if set to None
+    pub fn set_rotation(&mut self, degrees: f32) {
+        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        let new_rotation = SvgRotation { degrees };
+        self.transform.rotation = Some((current_rotation_point, new_rotation));
+    }
+
+    /// Replaces the scale value with the new x and y values - or initializes it to the new value
+    pub fn set_scale(&mut self, scale_factor_x: f32, scale_factor_y: f32) {
+        self.transform.scale = Some(SvgScaleFactor { x: new_scale_x, y: new_scale_y });
+    }
+
+    /// Replaces the rotation value with the new rotation values - or initializes it, if set to None
+    pub fn set_rotation_point(&mut self, rotation_point_x: f32, rotation_point_y: f32) {
+        let current_rotation = self.transform.rotation.unwrap_or_default().1;
+        let new_rotation_point = SvgRotationPoint { x: rotation_point_x, y: rotation_point_y };
+        self.transform.rotation = Some((new_rotation_point, current_rotation));
     }
 }
 
