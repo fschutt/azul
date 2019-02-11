@@ -296,6 +296,32 @@ impl SvgCache {
         stroke_rmut.clear();
     }
 
+    /// Creates a new, identical, copied instance of the given layer - duplicates
+    /// the object in GPU memory, but this way re-tesselation can be avoided.
+    pub fn clone_layer(&mut self, svg_id: SvgLayerId) -> SvgLayerId {
+
+        let new_svg_id = new_svg_layer_id();
+        let old_svg_id = svg_id;
+
+        if let Some(vertices_indices) = self.gpu_ready_to_upload_cache.get(&old_svg_id) {
+            self.gpu_ready_to_upload_cache.insert(new_svg_id, vertices_indices.clone());
+        }
+
+        if let Some(stroke_vertices_indices) = self.stroke_gpu_ready_to_upload_cache.get(&old_svg_id) {
+            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, stroke_vertices_indices.clone());
+        }
+
+        if let Some(vertices_indices) = self.vertex_index_buffer_cache.get(&old_svg_id) {
+            self.vertex_index_buffer_cache.insert(new_svg_id, vertices_indices.clone());
+        }
+
+        if let Some(stroke_vertices_indices) = self.stroke_vertex_index_buffer_cache.get(&old_svg_id) {
+            self.stroke_vertex_index_buffer_cache.insert(new_svg_id, stroke_vertices_indices.clone());
+        }
+
+        new_svg_id
+    }
+
     /// Parses an input source, parses the SVG, adds the shapes as layers into
     /// the registry, returns the IDs of the added shapes, in the order that they appeared in the Svg
     #[cfg(feature = "svg_parsing")]
