@@ -537,7 +537,12 @@ fn render_single_window_content<T: Layout>(
                 frame_event_info.should_redraw_window = true;
             }
 
-            window.state.pending_focus_target = callback_result.callbacks_overwrites_focus;
+            // Note: Don't set `pending_focus_target` directly here, because otherwise
+            // callbacks that return `Some()` would get immediately overwritten again
+            // by callbacks that return `None`.
+            if let Some(overwrites_focus) = callback_result.callbacks_overwrites_focus {
+                window.state.pending_focus_target = Some(overwrites_focus);
+            }
         }
     }
 
@@ -693,8 +698,14 @@ fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
     Some(hit_test_results)
 }
 
+/// Struct returned from the `call_callbacks()` function -
+/// returns important information from the callbacks
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct CallCallbackReturn {
+    /// Whether one or more callbacks say to redraw the screen or not
     pub should_update_screen: UpdateScreen,
+    /// Whether one or more callbacks have messed with the current
+    /// focused element i.e. via `.clear_focus()` or similar.
     pub callbacks_overwrites_focus: Option<FocusTarget>,
 }
 
