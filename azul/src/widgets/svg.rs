@@ -311,11 +311,14 @@ impl SvgCache {
             self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, stroke_vertices_indices);
         }
 
-        if let Some(vertices_indices) = self.vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned() {
+        // Needs to be on a separate line, otherwise it would get a BorrowMut error!
+        let vertices_indices_clone = self.vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned();
+        if let Some(vertices_indices) = vertices_indices_clone {
             self.vertex_index_buffer_cache.borrow_mut().insert(new_svg_id, vertices_indices);
         }
 
-        if let Some(stroke_vertices_indices) = self.stroke_vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned() {
+        let stroke_vertices_indices_clone = self.stroke_vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned();
+        if let Some(stroke_vertices_indices) = stroke_vertices_indices_clone {
             self.stroke_vertex_index_buffer_cache.borrow_mut().insert(new_svg_id, stroke_vertices_indices);
         }
 
