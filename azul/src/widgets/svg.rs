@@ -1744,6 +1744,14 @@ impl SvgBbox {
     }
 }
 
+#[test]
+fn translate_bbox() {
+    let mut bbox = SvgBbox(TypedRect::zero());
+    bbox.translate(200.0, 300.0);
+    assert_eq!(bbox.0.origin.x, 200.0);
+    assert_eq!(bbox.0.origin.y, 300.0);
+}
+
 pub fn is_point_in_shape(point: (f32, f32), shape: &[(f32, f32)]) -> bool {
     if shape.len() < 3 {
         // Shape must at least have 3 points, i.e. be a triangle
