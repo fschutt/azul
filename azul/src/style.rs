@@ -495,6 +495,8 @@ fn update_focus_from_callbacks<'a, T: 'a + Layout>(
     node_hierarchy: &NodeHierarchy,
     html_node_tree: &mut NodeDataContainer<HtmlCascadeInfo<'a, T>>,
 ) {
+    // `pending_focus_target` is `None` in most cases, since usually the callbacks
+    // don't mess with the current focused item.
     let new_focus_target = match pending_focus_target {
         Some(s) => s.clone(),
         None => return,
@@ -519,10 +521,13 @@ fn update_focus_from_callbacks<'a, T: 'a + Layout>(
         },
     }
 
+    // Set all items to None, no matter what - this takes care of clearing the current
+    // focused item, in case the `pending_focus_target` is set to `Some(FocusTarget::NoFocus)`.
+    for html_node in &mut html_node_tree.internal {
+        html_node.is_focused = false;
+    }
+
     if let Some(focused_node) = focused_node {
-        for html_node in &mut html_node_tree.internal {
-            html_node.is_focused = false;
-        }
         html_node_tree[*focused_node].is_focused = true;
     }
 
