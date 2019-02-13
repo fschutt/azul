@@ -340,6 +340,14 @@ impl WindowState
         self.last_motion
     }
 
+    /// Returns the window state of the previous frame, useful for calculating
+    /// metrics for dragging motions. Note that you can't call this function
+    /// recursively - calling `get_previous_window_state()` on the returned
+    /// `WindowState` will yield a `None` value.
+    pub fn get_previous_window_state(&self) -> Option<&Box<WindowState>> {
+        self.previous_window_state.as_ref()
+    }
+
     /// Determine which event / which callback(s) should be called and in which order
     ///
     /// This function also updates / mutates the current window state, so that
