@@ -1878,7 +1878,10 @@ impl SvgText {
     }
 
     pub fn get_bbox(&self) -> SvgBbox {
-        self.text_layout.get_bbox(&self.placement)
+        let mut bbox = self.text_layout.get_bbox(&self.placement);
+        let translation = self.style.transform.translation.unwrap_or_default();
+        bbox.translate(translation.x, translation.y);
+        bbox
     }
 }
 
