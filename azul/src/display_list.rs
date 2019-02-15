@@ -44,7 +44,7 @@ use {
     images::ImageId,
     text_cache::TextInfo,
     compositor::new_opengl_texture_id,
-    window::{Window, WindowInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
+    window::{Window, LayoutInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
     window_state::WindowSize,
 };
 
@@ -732,22 +732,38 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     let mut clip_stack = Vec::new();
 
     for content_group in content_grouped_rectangles.groups {
-        // Push the root of the node
-        push_rectangles_into_displaylist_inner(content_group.root,
-            solved_rects,
+        let rectangle = DisplayListRectParams {
             epoch,
+            rect_idx: content_group.root.node_id,
+            html_node: &referenced_content.node_data[content_group.root.node_id].node_type,
+            window_size,
+        };
+
+        // Push the root of the node
+        push_rectangles_into_displaylist_inner(
+            content_group.root,
+            solved_rects,
             scrollable_nodes,
+            &rectangle,
             referenced_content,
             referenced_mutable_content,
             &mut clip_stack
         );
 
         for item in content_group.node_ids {
+
+            let rectangle = DisplayListRectParams {
+                epoch,
+                rect_idx: item.node_id,
+                html_node: &referenced_content.node_data[item.node_id].node_type,
+                window_size,
+            };
+
             push_rectangles_into_displaylist_inner(
                 item,
                 solved_rects,
-                epoch,
                 scrollable_nodes,
+                &rectangle,
                 referenced_content,
                 referenced_mutable_content,
                 &mut clip_stack
@@ -830,19 +846,13 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
     item: RenderableNodeId,
     solved_rects_data: &NodeDataContainer<LayoutRect>,
-    epoch: Epoch,
     scrollable_nodes: &mut ScrolledNodes,
+    rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
-    clip_stack: &mut Vec<NodeId>)
-{
-    let html_node = &referenced_content.node_data[item.node_id];
-    let solved_rect = solved_rects_data[item.node_id];
-    let rectangle = DisplayListRectParams {
-        epoch,
-        rect_idx: item.node_id,
-        html_node: &html_node.node_type,
-    };
+    clip_stack: &mut Vec<NodeId>,
+) {
+    let solved_rect = solved_rects_data[rectangle.rect_idx];
 
     displaylist_handle_rect(
         solved_rect,
@@ -853,9 +863,9 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
     );
 
     if item.clip_children {
-        if let Some(last_child) = referenced_content.node_hierarchy[item.node_id].last_child {
-            let styled_node = &referenced_content.display_rectangle_arena[item.node_id];
-            let solved_rect = solved_rects_data[item.node_id];
+        if let Some(last_child) = referenced_content.node_hierarchy[rectangle.rect_idx].last_child {
+            let styled_node = &referenced_content.display_rectangle_arena[rectangle.rect_idx];
+            let solved_rect = solved_rects_data[rectangle.rect_idx];
             let clip = get_clip_region(solved_rect, &styled_node)
                 .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
             let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
@@ -864,7 +874,7 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
         }
     }
 
-    if clip_stack.last().cloned() == Some(item.node_id) {
+    if clip_stack.last().cloned() == Some(rectangle.rect_idx) {
         referenced_mutable_content.builder.pop_clip_id();
         clip_stack.pop();
     }
@@ -895,7 +905,7 @@ fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Optio
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     bounds: LayoutRect,
     scrollable_nodes: &mut ScrolledNodes,
-    rectangle: DisplayListRectParams<'a, T>,
+    rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'g, T>)
 {
@@ -912,7 +922,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         epoch, rect_idx, html_node, window_size,
     } = rectangle;
 
-    let rect = &display_rectangle_arena[rect_idx];
+    let rect = &display_rectangle_arena[*rect_idx];
 
     let info = LayoutPrimitiveInfo {
         rect: bounds,
@@ -1095,12 +1105,12 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     }
 }
 
-fn push_opengl_texture<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
+fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
-    rectangle: DisplayListRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'g, T>,
+    rectangle: &DisplayListRectParams<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> Option<OverflowInfo>
 {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
@@ -1159,13 +1169,13 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     None
 }
 
-fn push_iframe<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
+fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
     parent_scrollable_nodes: &mut ScrolledNodes,
-    rectangle: DisplayListRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'g, T>,
+    rectangle: &DisplayListRectParams<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> Option<OverflowInfo>
 {
     use glium::glutin::dpi::{LogicalPosition, LogicalSize};
