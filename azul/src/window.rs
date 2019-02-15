@@ -1096,7 +1096,7 @@ impl<'a, T: Layout> Window<T> {
         }
     }
 
-    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &FrameEventInfo) {
+    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
 
         if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
             #[cfg(target_os = "linux")] {

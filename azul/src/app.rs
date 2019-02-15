@@ -588,7 +588,7 @@ fn render_single_window_content<T: Layout>(
 
     // Update the window state that we got from the frame event (updates window dimensions and DPI)
     // Sets frame_event_info.needs redraw if the event was a
-    window.update_from_external_window_state(&frame_event_info);
+    window.update_from_external_window_state(&mut frame_event_info);
     // Update the window state every frame that was set by the user
     window.update_from_user_window_state(app_state.windows[&window_id].state.clone());
     // Reset the scroll amount to 0 (for the next frame)
