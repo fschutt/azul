@@ -228,7 +228,7 @@ pub enum CssPathSelector {
     /// Represents the `>` selector
     DirectChildren,
     /// Represents the ` ` selector
-    Children
+    Children,
 }
 
 impl Default for CssPathSelector {
@@ -397,7 +397,7 @@ fn test_specificity_sort() {
     use self::CssPathSelector::*;
     use NodeTypePath::*;
 
-    let mut input_style = Css {
+    let mut input_style = Stylesheet {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
             CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
@@ -410,7 +410,7 @@ fn test_specificity_sort() {
 
     input_style.sort_by_specificity();
 
-    let expected_style = Css {
+    let expected_style = Stylesheet {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
             CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },

@@ -688,7 +688,7 @@ fn test_css_parse_1() {
         }
     ];
 
-    assert_eq!(parsed_css, expected_css_rules.into());
+    assert_eq!(parsed_css, Css { stylesheets: vec![expected_css_rules.into()] });
 }
 
 #[test]
@@ -706,9 +706,11 @@ fn test_css_simple_selector_parse() {
         Class("new".into())
     ];
     assert_eq!(new_from_str(css).unwrap(), Css {
-        rules: vec![CssRuleBlock {
-            path: CssPath { selectors: parsed },
-            declarations: Vec::new(),
+        stylesheets: vec![Stylesheet {
+            rules: vec![CssRuleBlock {
+                path: CssPath { selectors: parsed },
+                declarations: Vec::new(),
+            }],
         }],
     });
 }
@@ -721,7 +723,7 @@ mod stylesheet_parse {
 
     fn test_css(css: &str, expected: Vec<CssRuleBlock>) {
         let css = new_from_str(css).unwrap();
-        assert_eq!(css, expected.into());
+        assert_eq!(css, Css { stylesheets: vec![expected.into()] });
     }
 
     // Tests that an element with a single class always gets the CSS element applied properly
@@ -806,5 +808,43 @@ fn test_multiple_rules() {
         CssRuleBlock { path: CssPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
     ];
 
-    assert_eq!(parsed_css, expected_rules.into());
+    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()] });
+}
+
+#[test]
+fn test_case_issue_93() {
+
+    use azul_css::*;
+    use self::CssPathSelector::*;
+
+    let parsed_css = new_from_str("
+        .tabwidget-tab-label {
+          color: #FFFFFF;
+        }
+
+        .tabwidget-tab.active .tabwidget-tab-label {
+          color: #000000;
+        }
+
+        .tabwidget-tab.active .tabwidget-tab-close {
+          color: #FF0000;
+        }
+    ").unwrap();
+
+    fn declaration(classes: &[CssPathSelector], color: ColorU) -> CssRuleBlock {
+        CssRuleBlock {
+            path: CssPath { selectors: classes.to_vec() },
+            declarations: vec![
+                CssDeclaration::Static(CssProperty::TextColor(StyleTextColor(color))),
+            ],
+        }
+    }
+
+    let expected_rules = vec![
+        declaration(&[Class("tabwidget-tab-label".into())], ColorU { r: 255, g: 255, b: 255, a: 255 }),
+        declaration(&[Class("tabwidget-tab".into()), Class("active".into()), Children, Class("tabwidget-tab-label".into())], ColorU { r: 0, g: 0, b: 0, a: 255 }),
+        declaration(&[Class("tabwidget-tab".into()), Class("active".into()), Children, Class("tabwidget-tab-close".into())], ColorU { r: 255, g: 0, b: 0, a: 255 }),
+    ];
+
+    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()] });
 }
