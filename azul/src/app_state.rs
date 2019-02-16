@@ -74,23 +74,13 @@ pub struct AppStateNoData<'a, T: 'a + Layout> {
     pub windows: &'a BTreeMap<WindowId, FakeWindow<T>>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
+    /// Currently running daemons (polling functions, run on the main thread)
+    pub(crate) daemons: FastHashMap<DaemonId, Daemon<T>>,
+    /// Currently running tasks (asynchronous functions running each on a different thread)
+    pub(crate) tasks: Vec<Task<T>>,
 }
 
-impl<T: Layout> AppState<T> {
-
-    /// Creates a new `AppState`
-    pub fn new(initial_data: T) -> Self {
-        Self {
-            data: Arc::new(Mutex::new(initial_data)),
-            windows: BTreeMap::new(),
-            resources: AppResources::default(),
-            daemons: FastHashMap::default(),
-            tasks: Vec::new(),
-        }
-    }
-
-    // -- AppState impl
-
+macro_rules! impl_deamon_api {() => (
     /// Insert a daemon into the list of active daemons.
     /// Replaces the existing daemon if called with the same DaemonId.
     pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) {
@@ -123,6 +113,26 @@ impl<T: Layout> AppState<T> {
     pub fn add_task(&mut self, task: Task<T>) {
         self.tasks.push(task);
     }
+)}
+
+impl<'a, T: 'a + Layout> AppStateNoData<'a, T> {
+    impl_deamon_api!();
+}
+
+impl<T: Layout> AppState<T> {
+
+    /// Creates a new `AppState`
+    pub fn new(initial_data: T) -> Self {
+        Self {
+            data: Arc::new(Mutex::new(initial_data)),
+            windows: BTreeMap::new(),
+            resources: AppResources::default(),
+            daemons: FastHashMap::default(),
+            tasks: Vec::new(),
+        }
+    }
+
+    impl_deamon_api!();
 
     /// Run all currently registered daemons
     #[must_use]
