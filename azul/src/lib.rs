@@ -90,6 +90,7 @@ pub(crate) use azul_dependencies::unicode_normalization;
 pub(crate) use azul_dependencies::tinyfiledialogs;
 pub(crate) use azul_dependencies::clipboard2;
 pub(crate) use azul_dependencies::font_loader;
+pub(crate) use azul_dependencies::xmlparser;
 
 #[cfg(feature = "logging")]
 pub(crate) use azul_dependencies::log;

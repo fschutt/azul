@@ -1,10 +1,12 @@
 //! Module for parsing and loading a `Dom<T>` from a XML file
 
-use std::collections::BTreeMap;
+use std::{fmt, collections::BTreeMap};
 use {
     dom::{Dom, Callback},
     traits::Layout,
 };
+use xmlparser::Tokenizer;
+pub use xmlparser::{Error as XmlError, TokenType, TextPos, StreamError};
 
 /// Error that can happen during hot-reload -
 /// stringified, since it is only used for printing and is not exposed in the public API
@@ -22,54 +24,88 @@ pub type XmlAttributeKey = String;
 /// Value of an attribute, such as the "blue" in `<button color="blue">Hello</button>`.
 pub type XmlAttributeValue = String;
 
-/// Represents one tag
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct XmlNode {
-    pub tag_name: XmlTagName,
-    pub attributes: BTreeMap<XmlAttributeKey, XmlAttributeValue>,
-    pub children: Vec<XmlNode>,
-    pub content: Option<XmlNodeContent>,
-}
-
-/// Parses an XML style sheet and returns the root XML nodes
-/// (which, recursively, contain all children in a tree-like fashion)
-fn parse_tree(_input: &str) -> Result<XmlNode, XmlParseError> {
-    Ok(XmlNode::default())
-}
-
 /// Trait that has to be implemented by all types
 pub trait XmlComponent<T: Layout> {
-    /// Given a li
-    fn render_dom(&self, node: &XmlNode) -> Result<Dom<T>, SyntaxError>;
+    /// Given a root node and a component map, returns a DOM or a syntax error
+    fn render_dom(&self, node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, SyntaxError>;
     /// Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(&self, node: &XmlNode) -> Result<String, CompileError>;
+    fn compile_to_rust_code(&self, node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError>;
 }
 
-/*
-impl<T: Layout> XmlComponent for Spreadsheet {
-    fn render_dom() -> Dom<T> {
-        let columns = kv.get("cols").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
-        let rows = kv.get("rows").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
-        Ok(Spreadsheet::new(columns, rows).dom())
-    }
-
-    fn compile_to_rust_code(kv: &HashMap<String, String>) -> Result<String, String> {
-        let columns = kv.get("cols").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
-        let rows = kv.get("rows").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
-        format!("Spreadsheet::new({}, {}).dom()", columns, rows)
-    }
+/// Represents one XML node tag
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct XmlNode {
+    /// Type of the node
+    pub tag_name: XmlTagName,
+    /// Attributes of an XML node
+    pub attributes: BTreeMap<XmlAttributeKey, XmlAttributeValue>,
+    /// Direct children of this node
+    pub children: Vec<XmlNode>,
 }
-*/
 
 pub struct XmlComponentMap<T: Layout> {
     components: BTreeMap<String, Box<XmlComponent<T>>>,
     callbacks: BTreeMap<String, Callback<T>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+impl<T: Layout> XmlComponentMap<T> {
+    pub fn register_callback<S: Into<String>>(&mut self, id: S, callback: Callback<T>) {
+        self.callbacks.insert(id.into(), callback);
+    }
+}
+
+#[derive(Debug)]
 pub enum XmlParseError {
+    /// No `<app></app>` root component present
+    NoRootComponent,
     /// The DOM can only have one root component, not multiple.
     MultipleRootComponents,
+    /// **Note**: Sadly, the error type can only be a string because xmlparser
+    /// returns all errors as strings. There is an open PR to fix
+    /// this deficiency, but since the XML parsing is only needed for
+    /// hot-reloading and compiling, it doesn't matter that much.
+    ParseError(XmlError),
+}
+
+impl fmt::Display for XmlParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::XmlParseError::*;
+        match self {
+            NoRootComponent => write!(f, "No <app></app> component present - empty DOM"),
+            MultipleRootComponents => write!(f, "Multiple <app/> components present, only one root node is allowed"),
+            ParseError(e) => write!(f, "XML parsing error: {}", e),
+        }
+    }
+}
+
+/// Parses the XML string into an XML tree, returns
+/// the root `<app></app>` node, with the children attached to it.
+pub fn parse_xml(xml: &str) -> Result<XmlNode, XmlParseError> {
+
+    let root_node = XmlNode {
+        tag_name: "app".into(),
+        attributes: BTreeMap::new(),
+        children: Vec::new(),
+    };
+
+    let mut tokenizer = Tokenizer::from(xml);
+    tokenizer.enable_fragment_mode();
+
+    for token in tokenizer {
+        use xmlparser::Token::*;
+        use xmlparser::ElementEnd::*;
+        let token = token.map_err(|e| XmlParseError::ParseError(e))?;
+        match token {
+            ElementStart(_, open_value) => { println!("element start: {}", open_value); },
+            ElementEnd(Empty) => { println!("element />"); },
+            ElementEnd(Close(_, close_value)) => { println!("element end: {}", close_value); },
+            Attribute((_, key), value) => { println!("attribute: {} - {}", key, value);},
+            Text(t) => { println!("text: {}", t); }
+            _ => { },
+        }
+    }
+
+    Ok(root_node)
 }
 
 /*
