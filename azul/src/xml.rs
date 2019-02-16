@@ -33,7 +33,7 @@ pub trait XmlComponent<T: Layout> {
 }
 
 /// Represents one XML node tag
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct XmlNode {
     /// Type of the node
     pub tag_name: XmlTagName,
@@ -41,6 +41,8 @@ pub struct XmlNode {
     pub attributes: BTreeMap<XmlAttributeKey, XmlAttributeValue>,
     /// Direct children of this node
     pub children: Vec<XmlNode>,
+    /// String content of the node, i.e the "Hello" in `<p>Hello</p>`
+    pub text: Option<String>,
 }
 
 pub struct XmlComponentMap<T: Layout> {
@@ -65,6 +67,8 @@ pub enum XmlParseError {
     /// this deficiency, but since the XML parsing is only needed for
     /// hot-reloading and compiling, it doesn't matter that much.
     ParseError(XmlError),
+    /// Invalid hierarchy close tags, i.e `<app></p></app>`
+    MalformedHierarchy(String, String),
 }
 
 impl fmt::Display for XmlParseError {
@@ -74,6 +78,7 @@ impl fmt::Display for XmlParseError {
             NoRootComponent => write!(f, "No <app></app> component present - empty DOM"),
             MultipleRootComponents => write!(f, "Multiple <app/> components present, only one root node is allowed"),
             ParseError(e) => write!(f, "XML parsing error: {}", e),
+            MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got, expected),
         }
     }
 }
@@ -82,25 +87,73 @@ impl fmt::Display for XmlParseError {
 /// the root `<app></app>` node, with the children attached to it.
 pub fn parse_xml(xml: &str) -> Result<XmlNode, XmlParseError> {
 
-    let root_node = XmlNode {
+    use xmlparser::Token::*;
+    use xmlparser::ElementEnd::*;
+    use self::XmlParseError::*;
+
+    let mut root_node = XmlNode {
         tag_name: "app".into(),
         attributes: BTreeMap::new(),
         children: Vec::new(),
+        text: None,
     };
 
     let mut tokenizer = Tokenizer::from(xml);
     tokenizer.enable_fragment_mode();
 
+    let mut stack = Vec::new();
+
     for token in tokenizer {
-        use xmlparser::Token::*;
-        use xmlparser::ElementEnd::*;
-        let token = token.map_err(|e| XmlParseError::ParseError(e))?;
+
+        let token = token.map_err(|e| ParseError(e))?;
         match token {
-            ElementStart(_, open_value) => { println!("element start: {}", open_value); },
-            ElementEnd(Empty) => { println!("element />"); },
-            ElementEnd(Close(_, close_value)) => { println!("element end: {}", close_value); },
-            Attribute((_, key), value) => { println!("attribute: {} - {}", key, value);},
-            Text(t) => { println!("text: {}", t); }
+            ElementStart(_, open_value) => {
+                stack.push(XmlNode {
+                    tag_name: open_value.to_str().into(),
+                    attributes: BTreeMap::new(),
+                    children: Vec::new(),
+                    text: None,
+                });
+            },
+            ElementEnd(Empty) => {
+                if let Some(top) = stack.pop() {
+                    if stack.is_empty() {
+                        // element is a top-level element
+                        root_node.children.push(top);
+                    } else {
+                        // element has a parent, this is hard
+                    }
+                }
+            },
+            ElementEnd(Close(_, close_value)) => {
+                if let Some(last) = stack.pop() {
+                    let close_value = close_value.to_str();
+                    if last.tag_name != close_value {
+                        return Err(MalformedHierarchy(close_value.into(), last.tag_name.clone()));
+                    }
+                    if stack.is_empty() {
+                        // element is a top-level element
+                        root_node.children.push(last);
+                    } else {
+                        // element has a parent, this is hard
+                    }
+                }
+            },
+            Attribute((_, key), value) => {
+                if let Some(last) = stack.last_mut() {
+                    last.attributes.insert(key.to_str().into(), value.to_str().into());
+                }
+            },
+            Text(t) => {
+                if let Some(last) = stack.last_mut() {
+                    if let Some(s) = last.text.as_mut() {
+                        s.push_str(t.to_str());
+                    }
+                    if last.text.is_none() {
+                        last.text = Some(t.to_str().into());
+                    }
+                }
+            }
             _ => { },
         }
     }
