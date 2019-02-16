@@ -121,5 +121,6 @@ const TEST_XML: &str = "
 */
 
 fn main() {
-    azul::xml::parse_xml(TEST_XML).unwrap();
+    let xml = azul::xml::parse_xml(TEST_XML).unwrap();
+    println!("xml: {:#?}", xml);
 }
