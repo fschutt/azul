@@ -6,11 +6,19 @@ use std::fmt;
 /// i.e. blocks of key-value pairs associated with a selector path.
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Css {
+    /// One CSS stylesheet can hold more than one sub-stylesheet:
+    /// For example, when overriding native styles, the `.sort_by_specificy()` function
+    /// should not mix the two stylesheets during sorting.
+    pub stylesheets: Vec<Stylesheet>,
+}
+
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct Stylesheet {
     /// The style rules making up the document - for example, de-duplicated CSS rules
     pub rules: Vec<CssRuleBlock>,
 }
 
-impl std::convert::From<Vec<CssRuleBlock>> for Css {
+impl From<Vec<CssRuleBlock>> for Stylesheet {
     fn from(rules: Vec<CssRuleBlock>) -> Self {
         Self { rules }
     }
@@ -296,15 +304,66 @@ impl fmt::Display for CssPathPseudoSelector {
 
 impl Css {
 
-    /// Creates a new stylesheet with no style rules.
+    /// Creates a new, empty CSS with no stylesheets
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// Combines two parsed stylesheets into one,
-    /// appending the rules of `other` after the rules of `self`.
-    pub fn append(&mut self, mut other: Self) {
-        self.rules.append(&mut other.rules);
+    pub fn append(&mut self, css: Self) {
+        for stylesheet in css.stylesheets {
+            self.append_stylesheet(stylesheet);
+        }
+    }
+
+    pub fn append_stylesheet(&mut self, styles: Stylesheet) {
+        self.stylesheets.push(styles);
+    }
+
+    pub fn sort_by_specificity(&mut self) {
+        for stylesheet in &mut self.stylesheets {
+            stylesheet.sort_by_specificity()
+        }
+    }
+
+    pub fn rules<'a>(&'a self) -> RuleIterator<'a> {
+        RuleIterator {
+            current_stylesheet: 0,
+            current_rule: 0,
+            css: self,
+        }
+    }
+}
+
+pub struct RuleIterator<'a> {
+    current_stylesheet: usize,
+    current_rule: usize,
+    css: &'a Css,
+}
+
+impl<'a> Iterator for RuleIterator<'a> {
+    type Item = &'a CssRuleBlock;
+    fn next(&mut self) -> Option<&'a CssRuleBlock> {
+        let current_stylesheet = self.css.stylesheets.get(self.current_stylesheet)?;
+        match current_stylesheet.rules.get(self.current_rule) {
+            Some(s) => {
+                self.current_rule += 1;
+                Some(s)
+            },
+            None => {
+                self.current_rule = 0;
+                self.current_stylesheet += 1;
+                self.next()
+            }
+        }
+    }
+}
+
+
+impl Stylesheet {
+
+    /// Creates a new stylesheet with no style rules.
+    pub fn new() -> Self {
+        Default::default()
     }
 
     /// Sort the style rules by their weight, so that the rules are applied in the correct order.
