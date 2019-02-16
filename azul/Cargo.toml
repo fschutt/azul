@@ -21,7 +21,7 @@ autoexamples = false
 azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
 azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
-azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "055034bd642496cf91730a3fb4bcf3250da47772" }
+azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "009eab6903820aadc9f30d6c76e104843a1e3253" }
 serde_derive            = { version = "1",                    optional = true }
 serde                   = { version = "1",                    optional = true }
 
@@ -120,4 +120,9 @@ required-features = []
 [[example]]
 name = "game_of_life"
 path = "../examples/game_of_life.rs"
+required-features = []
+
+[[example]]
+name = "xml"
+path = "../examples/xml.rs"
 required-features = []
