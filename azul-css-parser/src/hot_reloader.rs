@@ -29,15 +29,14 @@ impl HotReloader {
 impl HotReloadHandler for HotReloader {
     fn reload_style(&mut self) -> Result<Css, String> {
         use std::fs;
+        use css;
+
+        let file_name = self.file_path.file_name().map(|os_str| os_str.to_string_lossy()).unwrap_or_default();
 
         let reloaded_css = fs::read_to_string(&self.file_path)
-            .map_err(|e| format!("Io error: \"{}\" when loading file \"{}\"", e, self.file_path.to_str().unwrap_or("")))?;
+            .map_err(|e| format!("Io error: Could not load \"{}\" when loading file: \"{}\"", file_name, e))?;
 
-        ::css::new_from_str(&reloaded_css)
-            .map_err(|e| {
-                let file_name = self.file_path.file_name().and_then(|os_str| Some(os_str.to_string_lossy())).unwrap_or_default();
-                format!("{}: {}", file_name, e)
-            })
+        css::new_from_str(&reloaded_css).map_err(|e| format!("{}: {}", file_name, e))
     }
 
     fn get_reload_interval(&self) -> Duration {

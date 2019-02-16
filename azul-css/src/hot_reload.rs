@@ -40,10 +40,14 @@ impl HotReloadOverrideHandler {
 
 impl HotReloadHandler for HotReloadOverrideHandler {
     fn reload_style(&mut self) -> Result<Css, String> {
-        let reloaded_css = self.hot_reloader.reload_style()?;
-        let mut base = self.base_style.clone();
-        base.append(reloaded_css);
-        Ok(base)
+        let mut css = Css::new();
+        for stylesheet in self.base_style.clone().stylesheets {
+            css.append_stylesheet(stylesheet);
+        }
+        for stylesheet in self.hot_reloader.reload_style()?.stylesheets {
+            css.append_stylesheet(stylesheet);
+        }
+        Ok(css)
     }
 
     fn get_reload_interval(&self) -> Duration {

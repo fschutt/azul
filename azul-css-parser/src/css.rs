@@ -8,7 +8,9 @@ use simplecss::Tokenizer;
 
 use css_parser;
 pub use css_parser::CssParsingError;
-use azul_css::{ Css, CssDeclaration, DynamicCssProperty, DynamicCssPropertyDefault,
+use azul_css::{
+    Css, CssDeclaration, Stylesheet,
+    DynamicCssProperty, DynamicCssPropertyDefault,
     CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
     CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
     NodeTypePath, NodeTypePathParseError,
@@ -223,7 +225,11 @@ impl<'a> fmt::Display for CssParseError<'a> {
 pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     let mut tokenizer = Tokenizer::new(css_string);
     match new_from_str_inner(css_string, &mut tokenizer) {
-        Ok(css) => Ok(css),
+        Ok(stylesheet) => Ok(Css {
+            stylesheets: vec![
+                stylesheet
+            ],
+        }),
         Err(e) => {
             let error_location = tokenizer.pos().saturating_sub(1);
             let line_number: usize = css_string[0..error_location].lines().count();
@@ -344,7 +350,7 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
 }
 
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
-fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) -> Result<Css, CssParseErrorInner<'a>> {
+fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) -> Result<Stylesheet, CssParseErrorInner<'a>> {
     use simplecss::{Token, Combinator};
 
     let mut css_blocks = Vec::new();

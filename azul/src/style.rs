@@ -272,7 +272,7 @@ fn collect_hover_groups(css: &Css) -> BTreeMap<CssPath, HoverGroup> {
 
     // Filter out all :hover and :active rules, since we need to create tags
     // for them after the main CSS styling has been done
-    css.rules.iter().filter_map(|rule_block| {
+    css.rules().filter_map(|rule_block| {
         let pos = rule_block.path.selectors.iter().position(|x| *x == hover_rule || *x == active_rule)?;
         if rule_block.declarations.is_empty() {
             return None;
@@ -416,7 +416,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         // Iterate through all CSS rules, test if they match
         // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
         // so the cost of this should be insignificant.
-        for applying_rule in css.rules.iter().filter(|rule| {
+        for applying_rule in css.rules().filter(|rule| {
             matches_html_element(&rule.path, parent_id, &ui_state.dom.arena.node_layout, &html_tree)
         }) {
             parent_rules.css_constraints.extend(applying_rule.declarations.clone());
@@ -436,7 +436,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
                     // Iterate through all style rules, test if they match
                     // This is technically O(n ^ 2), however, there are usually not that many style blocks,
                     // so the cost of this should be insignificant.
-                    for applying_rule in css.rules.iter().filter(|rule| {
+                    for applying_rule in css.rules().filter(|rule| {
                         matches_html_element(&rule.path, child_id, &ui_state.dom.arena.node_layout, &html_tree)
                     }) {
                         child_rules.extend(applying_rule.declarations.clone());
