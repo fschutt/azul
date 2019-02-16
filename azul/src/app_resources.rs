@@ -1,6 +1,9 @@
 use std::{
+    fmt,
     rc::Rc,
     cell::RefCell,
+    path::PathBuf,
+    io::Error as IoError,
     collections::hash_map::Entry::*,
 };
 use webrender::api::{FontKey, FontInstanceKey};
@@ -22,6 +25,63 @@ use {
 };
 
 pub type CssImageId = String;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ImageSource {
+    /// The image is embedded inside the binary file
+    Embedded(&'static [u8]),
+    File(PathBuf),
+}
+
+#[derive(Debug)]
+pub enum ImageReloadError {
+    Io(IoError, PathBuf),
+}
+
+impl Clone for ImageReloadError {
+    fn clone(&self) -> Self {
+        use self::ImageReloadError::*;
+        match self {
+            Io(err, path) => Io(IoError::new(err.kind(), "Io Error"), path.clone()),
+        }
+    }
+}
+
+impl fmt::Display for ImageReloadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::ImageReloadError::*;
+        match self {
+            Io(err, path_buf) =>
+            write!(
+                f, "Could not load \"{}\" - IO error: {}",
+                path_buf.as_path().to_string_lossy(), err
+            ),
+        }
+    }
+}
+
+impl ImageSource {
+
+    /// Creates an image source from a `&static [u8]`.
+    pub fn new_from_static(bytes: &'static [u8]) -> Self {
+        ImageSource::Embedded(bytes)
+    }
+
+    /// Creates an image source from a file
+    pub fn new_from_file<I: Into<PathBuf>>(file_path: I) -> Self {
+        ImageSource::File(file_path.into())
+    }
+
+    /// Returns the bytes of the font
+    pub(crate) fn get_bytes(&self) -> Result<Vec<u8>, ImageReloadError> {
+        use std::fs;
+        use self::ImageSource::*;
+        match self {
+            Embedded(bytes) => Ok(bytes.to_vec()),
+            File(file_path) => fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone())),
+        }
+    }
+}
 
 /// Stores the resources for the application, souch as fonts, images and cached
 /// texts, also clipboard strings
