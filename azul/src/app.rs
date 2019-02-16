@@ -583,11 +583,14 @@ fn call_callbacks<T: Layout>(
     app_state: &mut AppState<T>)
 -> Result<CallCallbackReturn, RuntimeError<T>>
 {
-    use app_state::AppStateNoData;
-    use window::CallbackInfo;
-    use dom::{Redraw, DontRedraw};
-    use window_state::{KeyboardState, MouseState};
-    use self::RuntimeError::*;
+    use {
+        FastHashMap,
+        app_state::AppStateNoData,
+        window::CallbackInfo,
+        dom::{Redraw, DontRedraw},
+        window_state::{KeyboardState, MouseState},
+        self::RuntimeError::*,
+    };
 
     let mut should_update_screen = DontRedraw;
 
@@ -602,6 +605,9 @@ fn call_callbacks<T: Layout>(
         .set_mouse_state(&window.state.mouse_state);
 
     let mut callbacks_overwrites_focus = None;
+
+    let mut default_daemons = FastHashMap::default();
+    let mut default_tasks = Vec::new();
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
     {
@@ -621,19 +627,24 @@ fn call_callbacks<T: Layout>(
                     cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
                 };
 
-                let app_state_no_data = AppStateNoData {
+                let mut app_state_no_data = AppStateNoData {
                     windows: &app_state.windows,
                     resources: &mut app_state.resources,
+                    daemons: FastHashMap::default(),
+                    tasks: Vec::new(),
                 };
 
                 if app_state.windows[window_id].default_callbacks.run_callback(
                     &mut *lock,
                     default_callback_id,
-                    app_state_no_data,
+                    &mut app_state_no_data,
                     &mut callback_info
                 ) == Redraw {
                     should_update_screen = Redraw;
                 }
+
+                default_daemons.extend(app_state_no_data.daemons.into_iter());
+                default_tasks.extend(app_state_no_data.tasks.into_iter());
 
                 // Overwrite the focus from the callback info
                 if let Some(new_focus) = callback_info.focus {
@@ -641,6 +652,15 @@ fn call_callbacks<T: Layout>(
                 }
             }
         }
+    }
+
+    // If the default callbacks have started daemons or tasks, add them to the main app state
+    for (daemon_id, daemon) in default_daemons {
+        app_state.add_daemon(daemon_id, daemon);
+    }
+
+    for task in default_tasks {
+        app_state.add_task(task);
     }
 
     for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {

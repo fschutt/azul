@@ -3,8 +3,8 @@
 use app_state::AppStateNoData;
 use window::CallbackInfo;
 
-pub type DefaultCallbackType<T, U> = fn(&mut U, app_state_no_data: AppStateNoData<T>, window_event: &mut CallbackInfo<T>) -> UpdateScreen;
-pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, app_state_no_data: AppStateNoData<T>, window_event: &mut CallbackInfo<T>) -> UpdateScreen;
+pub type DefaultCallbackType<T, U> = fn(&mut U, app_state_no_data: &mut AppStateNoData<T>, window_event: &mut CallbackInfo<T>) -> UpdateScreen;
+pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, app_state_no_data: &mut AppStateNoData<T>, window_event: &mut CallbackInfo<T>) -> UpdateScreen;
 
 mod stack_checked_pointer {
 
@@ -67,7 +67,7 @@ mod stack_checked_pointer {
         pub unsafe fn invoke_mut<U: Sized>(
             &self,
             callback: DefaultCallbackType<T, U>,
-            app_state_no_data: AppStateNoData<T>,
+            app_state_no_data: &mut AppStateNoData<T>,
             window_event: &mut CallbackInfo<T>)
         -> UpdateScreen
         {
@@ -186,7 +186,7 @@ pub use self::stack_checked_pointer::StackCheckedPointer;
 use std::{
     collections::BTreeMap,
     fmt,
-    hash::{Hash, Hasher},
+    hash::Hasher,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use {
@@ -205,35 +205,7 @@ pub(crate) fn get_new_unique_default_callback_id() -> DefaultCallbackId {
 
 pub struct DefaultCallback<T: Layout>(pub DefaultCallbackTypeUnchecked<T>);
 
-// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for DefaultCallback<T>
-
-impl<T: Layout> fmt::Debug for DefaultCallback<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DefaultCallback @ 0x{:x}", self.0 as usize)
-    }
-}
-
-impl<T: Layout> Clone for DefaultCallback<T> {
-    fn clone(&self) -> Self {
-        DefaultCallback(self.0.clone())
-    }
-}
-
-impl<T: Layout> Hash for DefaultCallback<T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
-        state.write_usize(self.0 as usize);
-    }
-}
-
-impl<T: Layout> PartialEq for DefaultCallback<T> {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.0 as usize == rhs.0 as usize
-    }
-}
-
-impl<T: Layout> Eq for DefaultCallback<T> { }
-
-impl<T: Layout> Copy for DefaultCallback<T> { }
+impl_callback_bounded!(DefaultCallback<T: Layout>);
 
 pub(crate) struct DefaultCallbackSystem<T: Layout> {
     callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
@@ -266,7 +238,7 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         &self,
         _app_data: &mut T,
         callback_id: &DefaultCallbackId,
-        app_state_no_data: AppStateNoData<T>,
+        app_state_no_data: &mut AppStateNoData<T>,
         window_event: &mut CallbackInfo<T>)
     -> UpdateScreen
     {
