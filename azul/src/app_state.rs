@@ -1,6 +1,5 @@
 use std::{
-    io::Read,
-    collections::{BTreeMap, hash_map::Entry::*},
+    collections::BTreeMap,
     sync::{Arc, Mutex},
     rc::Rc,
 };
@@ -9,7 +8,7 @@ use image::ImageError;
 #[cfg(feature = "image_loading")]
 use images::ImageType;
 use rusttype::Font;
-use azul_css::{FontId, StyleFontSize, PixelValue, StyleLetterSpacing};
+use azul_css::{FontId, PixelValue, StyleLetterSpacing};
 use webrender::api::ImageFormat as RawImageFormat;
 use {
     FastHashMap,
@@ -22,6 +21,7 @@ use {
     font::FontError,
     error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
+    images::ImageId,
 };
 
 /// Wrapper for your application data, stores the data, windows and resources, as
@@ -94,165 +94,24 @@ impl<T: Layout> AppState<T> {
         }
     }
 
-    /// Add an image to the internal resources.
-    ///
-    /// ## Arguments
-    ///
-    /// - `id`: A stringified ID (hash) for the image. It's recommended to use the
-    ///         file path as the hash, maybe combined with a timestamp or a hash
-    ///         of the file contents if the image will change.
-    /// - `data`: The data of the image - can be a File, a network stream, etc.
-    /// - `image_type`: If you know the type of image that you are adding, it is
-    ///                 recommended to specify it. In case you don't know, use
-    ///                 [`ImageType::GuessImageFormat`]
-    ///
-    /// ## Returns
-    ///
-    /// - `Ok(Some(()))` if an image with the same ID already exists.
-    /// - `Ok(None)` if the image was added, but didn't exist previously.
-    /// - `Err(e)` if the image couldn't be decoded
-    ///
-    /// **NOTE:** This function blocks the current thread.
-    ///
-    /// [`ImageType::GuessImageFormat`]: ../prelude/enum.ImageType.html#variant.GuessImageFormat
-    ///
-    #[cfg(feature = "image_loading")]
-    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
-        -> Result<Option<()>, ImageError>
-    {
-        self.resources.add_image(id, data, image_type)
+    // -- AppState impl
+
+    /// Insert a daemon into the list of active daemons.
+    /// Replaces the existing daemon if called with the same DaemonId.
+    pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) {
+        self.daemons.insert(id, daemon);
     }
 
-    pub fn add_image_raw<S: Into<String>>(
-        &mut self,
-        id: S,
-        pixels: Vec<u8>,
-        image_dimensions: (u32, u32),
-        data_format: RawImageFormat
-    ) -> Option<()>
-    {
-        self.resources.add_image_raw(id, pixels, image_dimensions, data_format)
+    pub fn has_daemon(&self, daemon_id: &DaemonId) -> bool {
+        self.get_daemon(daemon_id).is_some()
     }
 
-    /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S)
-        -> bool
-    {
-        self.resources.has_image(id)
+    pub fn get_daemon(&self, daemon_id: &DaemonId) -> Option<Daemon<T>> {
+        self.daemons.get(&daemon_id).cloned()
     }
 
-    /// Removes an image from the internal app resources.
-    /// Returns `Some` if the image existed and was removed.
-    /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
-        -> Option<()>
-    {
-        self.resources.delete_image(id)
-    }
-
-    /// Add a font (TTF or OTF) to the internal resources
-    ///
-    /// ## Arguments
-    ///
-    /// - `id`: The stringified ID of the font to add, e.g. `"Helvetica-Bold"`.
-    /// - `data`: The bytes of the .ttf or .otf font file. Can be anything
-    ///    that is read-able, i.e. a File, a network stream, etc.
-    ///
-    /// ## Returns
-    ///
-    /// - `Ok(Some(()))` if an font with the same ID already exists.
-    /// - `Ok(None)` if the font was added, but didn't exist previously.
-    /// - `Err(e)` if the font couldn't be decoded
-    ///
-    /// ## Example
-    ///
-    /// This function exists so you can add functions to the app-internal state
-    /// at runtime in a [`Callback`](../dom/enum.Callback.html) function.
-    ///
-    /// Here is an example of how to add a font at runtime (when the app is already running):
-    ///
-    /// ```
-    /// # use azul::prelude::*;
-    /// const TEST_FONT: &[u8] = include_bytes!("../../assets/fonts/weblysleekuil.ttf");
-    ///
-    /// struct MyAppData { }
-    ///
-    /// impl Layout for MyAppData {
-    ///      fn layout(&self, _window_id: LayoutInfo<MyAppData>) -> Dom<MyAppData> {
-    ///          Dom::new(NodeType::Div)
-    ///             .with_callback(On::MouseEnter, Callback(my_callback))
-    ///      }
-    /// }
-    ///
-    /// fn my_callback(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
-    ///     /// Here you can add your font at runtime to the app_state
-    ///     app_state.add_font(FontId::ExternalFont("Webly Sleeky UI".into()), &mut TEST_FONT).unwrap();
-    ///     DontRedraw
-    /// }
-    /// ```
-    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
-        -> Result<Option<()>, FontError>
-    {
-        self.resources.add_font(id, data)
-    }
-
-    /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font(&self, id: &FontId)
-        -> bool
-    {
-        self.resources.has_font(id)
-    }
-
-    /// Returns the font if the font is present
-    pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
-        self.resources.get_font(id)
-    }
-
-    /// Deletes a font from the internal app resources.
-    ///
-    /// ## Arguments
-    ///
-    /// - `id`: The stringified ID of the font to remove, e.g. `"Helvetica-Bold"`.
-    ///
-    pub fn delete_font(&mut self, id: &FontId) {
-        self.resources.delete_font(id)
-    }
-
-    /// Create a daemon. Does nothing if a daemon already exists.
-    ///
-    /// If the daemon was inserted, returns true, otherwise false
-    pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) -> bool {
-        match self.daemons.entry(id) {
-            Occupied(_) => false,
-            Vacant(v) => { v.insert(daemon); true },
-        }
-    }
-
-    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S) -> TextId {
-        self.resources.add_text_uncached(text)
-    }
-
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>) -> TextId {
-        let font_size = StyleFontSize(font_size);
-        self.resources.add_text_cached(text, font_id, font_size, letter_spacing)
-    }
-
-    pub fn delete_text(&mut self, id: TextId) {
-        self.resources.delete_text(id);
-    }
-
-    pub fn clear_all_texts(&mut self) {
-        self.resources.clear_all_texts();
-    }
-
-    /// Get the contents of the system clipboard as a string
-    pub fn get_clipboard_string(&mut self) -> Result<String, ClipboardError> {
-        self.resources.get_clipboard_string()
-    }
-
-    /// Set the contents of the system clipboard as a string
-    pub fn set_clipboard_string(&mut self, contents: String) -> Result<(), ClipboardError> {
-        self.resources.set_clipboard_string(contents)
+    pub fn delete_daemon(&mut self, daemon_id: &DaemonId) -> Option<Daemon<T>> {
+        self.daemons.remove(daemon_id)
     }
 
     /// Custom tasks can be used when the `AppState` isn't `Send`. For example
@@ -266,17 +125,11 @@ impl<T: Layout> AppState<T> {
     ///
     /// While you can't modify the `SvgCache` from a different thread, you can
     /// modify other things in the `AppState` and leave the SVG cache alone.
-    pub fn add_custom_task<U: Send + 'static>(
-        &mut self,
-        data: &Arc<Mutex<U>>,
-        callback: fn(Arc<Mutex<U>>, Arc<()>),
-        after_completion_deamons: &[Daemon<T>])
-    {
-        let task = Task::new(data, callback).then(after_completion_deamons);
+    pub fn add_task(&mut self, task: Task<T>) {
         self.tasks.push(task);
     }
 
-        /// Run all currently registered daemons
+    /// Run all currently registered daemons
     #[must_use]
     pub(crate) fn run_all_daemons(&mut self)
     -> UpdateScreen
@@ -325,8 +178,8 @@ impl<T: Layout> AppState<T> {
         let new_count = self.tasks.len();
 
         // Start all the daemons that should run after the completion of the task
-        for daemon in daemons_to_add {
-            self.add_daemon(daemon);
+        for (daemon_id, daemon) in daemons_to_add {
+            self.add_daemon(daemon_id, daemon);
         }
 
         if old_count == new_count && daemons_is_empty {
@@ -337,14 +190,7 @@ impl<T: Layout> AppState<T> {
     }
 }
 
-impl<T: Layout + Send + 'static> AppState<T> {
-    /// Add a task that has access to the entire `AppState`.
-    pub fn add_task(
-        &mut self,
-        callback: fn(Arc<Mutex<T>>, Arc<()>),
-        after_completion_deamons: &[Daemon<T>])
-    {
-        let task = Task::new(&self.data, callback).then(after_completion_deamons);
-        self.tasks.push(task);
-    }
-}
+image_api!(AppState::resources);
+font_api!(AppState::resources);
+text_api!(AppState::resources);
+clipboard_api!(AppState::resources);

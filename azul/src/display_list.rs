@@ -547,7 +547,7 @@ fn do_the_layout<'a,'b, T: Layout>(
                 Some((id, (get_words_cached(&text_id,
                     &font,
                     &font_id,
-                    &font_size,
+                    &font_size.0,
                     font_metrics.font_size_no_line_height,
                     font_metrics.letter_spacing,
                     &mut app_resources.text_cache).clone(), font_metrics)))

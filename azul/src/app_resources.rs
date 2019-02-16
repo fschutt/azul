@@ -1,5 +1,4 @@
 use std::{
-    io::Read,
     rc::Rc,
     cell::RefCell,
     collections::hash_map::Entry::*,
@@ -14,13 +13,15 @@ use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use rusttype::Font;
-use azul_css::{StyleFontSize, FontId, StyleLetterSpacing};
+use azul_css::{PixelValue, FontId, StyleLetterSpacing};
 use {
     text_layout::{split_text_into_words, TextSizePx},
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
     images::{ImageId, ImageState},
 };
+
+pub type CssImageId = String;
 
 /// Stores the resources for the application, souch as fonts, images and cached
 /// texts, also clipboard strings
@@ -31,7 +32,7 @@ pub struct AppResources {
     /// When looking up images, there are two sources: Either the indirect way via using a
     /// CssImageId (which is a String) or a direct ImageId. The indirect way requires one
     /// extra lookup (to map from the stringified ID to the actual image ID).
-    pub(crate) css_ids_to_image_ids: FastHashMap<String, ImageId>,
+    pub(crate) css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,
     /// The actual image cache, does NOT store the image data, only stores it temporarily
     /// while it is being uploaded to the GPU via webrender.
     pub(crate) images: FastHashMap<ImageId, ImageState>,
@@ -67,82 +68,75 @@ impl Default for AppResources {
 impl AppResources {
 
     /// Returns the IDs of all currently loaded fonts in `self.font_data`
-    pub fn get_loaded_fonts(&self) -> Vec<FontId> {
+    pub fn get_loaded_font_ids(&self) -> Vec<FontId> {
         self.font_data.borrow().keys().cloned().collect()
     }
 
-    /// See [`AppState::add_image()`](../app_state/struct.AppState.html#method.add_image)
+    pub fn get_loaded_image_ids(&self) -> Vec<ImageId> {
+        self.images.keys().cloned().collect()
+    }
+
+    pub fn get_loaded_css_ids(&self) -> Vec<CssImageId> {
+        self.css_ids_to_image_ids.keys().cloned().collect()
+    }
+
+    pub fn get_loaded_text_ids(&self) -> Vec<TextId> {
+        let mut text_ids = Vec::new();
+        text_ids.extend(self.text_cache.string_cache.keys().cloned());
+        text_ids.extend(self.text_cache.layouted_strings_cache.keys().cloned());
+        text_ids
+    }
+
+    // -- ImageId cache
+
+
     #[cfg(feature = "image_loading")]
-    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
-        -> Result<Option<()>, ImageError>
-    {
-        use images; // the module, not the crate!
-
-        // TODO: Handle image decoding failure better!
-
-        let image_id = match self.css_ids_to_image_ids.entry(id.into()) {
-            Occupied(_) => return Ok(None),
+    pub fn add_image<I: Into<Vec<u8>>>(&mut self, id: ImageId, data: I) -> Result<(), ImageError> {
+        match self.images.entry(id) {
+            Occupied(_) => Ok(()),
             Vacant(v) => {
-                let new_id = images::new_image_id();
-                v.insert(new_id)
-            },
-        };
-
-        match self.images.entry(*image_id) {
-            Occupied(_) => Ok(None),
-            Vacant(v) => {
-                let mut image_data = Vec::<u8>::new();
-                data.read_to_end(&mut image_data).map_err(|e| ImageError::IoError(e))?;
-                let image_format = image_type.into_image_format(&image_data)?;
-                let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
-                v.insert(ImageState::ReadyForUpload(images::prepare_image(decoded)?));
-                Ok(Some(()))
+                v.insert(decode_image_data(data)?);
+                Ok(())
             },
         }
     }
 
     /// Add raw image data (directly from a Vec<u8>) in BRGA8 or A8 format
-    pub fn add_image_raw<S: Into<String>>(
-        &mut self,
-        id: S,
-        pixels: Vec<u8>,
-        image_dimensions: (u32, u32),
-        data_format: RawImageFormat
-    ) -> Option<()>
-    {
+    ///
+    /// ### Returns
+    ///
+    /// - Some(()) if the image was inserted correctly
+    /// - `None` if the ImageId already exists (you have to delete the image first using `.delete_image()`)
+    pub fn add_image_raw(&mut self, image_id: ImageId, pixels: Vec<u8>, image_dimensions: (u32, u32), data_format: RawImageFormat) -> Option<()> {
+
         use images; // the module, not the crate!
         use webrender::api::{ImageData, ImageDescriptor};
 
-        // TODO: Handle image decoding failure better!
-
-        let image_id = match self.css_ids_to_image_ids.entry(id.into()) {
-            Occupied(_) => return None,
-            Vacant(v) => {
-                let new_id = images::new_image_id();
-                v.insert(new_id)
-            },
-        };
-
-        let opaque = images::is_image_opaque(data_format, &pixels[..]);
-        let allow_mipmaps = true;
-        let descriptor = ImageDescriptor::new(image_dimensions.0 as i32, image_dimensions.1 as i32, data_format, opaque, allow_mipmaps);
-        let data = ImageData::new(pixels);
-
-        match self.images.entry(*image_id) {
+        match self.images.entry(image_id) {
             Occupied(_) => None,
             Vacant(v) => {
+                let opaque = images::is_image_opaque(data_format, &pixels[..]);
+                let allow_mipmaps = true;
+                let descriptor = ImageDescriptor::new(
+                    image_dimensions.0 as i32,
+                    image_dimensions.1 as i32,
+                    data_format,
+                    opaque,
+                    allow_mipmaps
+                );
+                let data = ImageData::new(pixels);
                 v.insert(ImageState::ReadyForUpload((data, descriptor)));
                 Some(())
             },
         }
     }
 
-    /// See [`AppState::delete_image()`](../app_state/struct.AppState.html#method.delete_image)
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
-        -> Option<()>
-    {
-        let image_id = self.css_ids_to_image_ids.remove(id.as_ref())?;
+    /// See [`AppState::has_image()`](../app_state/struct.AppState.html#method.has_image)
+    pub fn has_image(&self, image_id: &ImageId) -> bool {
+        self.images.get(&image_id).is_some()
+    }
 
+    pub fn delete_image(&mut self, image_id: ImageId) -> Option<()> {
         match self.images.get_mut(&image_id) {
             None => None,
             Some(v) => {
@@ -160,68 +154,39 @@ impl AppResources {
         }
     }
 
-    /// See [`AppState::has_image()`](../app_state/struct.AppState.html#method.has_image)
-    pub fn has_image<S: AsRef<str>>(&self, id: S)
-        -> bool
-    {
-        let image_id = match self.get_image(id) {
-            None => return false,
-            Some(s) => s,
-        };
-
-        self.images.get(&image_id).is_some()
+    pub fn add_css_image_id<S: Into<String>>(&mut self, css_id: S) -> ImageId {
+        *self.css_ids_to_image_ids.entry(css_id.into()).or_insert_with(|| ImageId::new())
     }
 
-    /// Returns the image ID looked up from a string
-    pub fn get_image<S: AsRef<str>>(&self, id: S)
-        -> Option<ImageId>
-    {
-        self.css_ids_to_image_ids.get(id.as_ref()).and_then(|id| Some(*id))
+    pub fn has_css_image_id<S: AsRef<str>>(&self, css_id: S) -> bool {
+        self.get_css_image_id(css_id).is_some()
     }
 
-    /// See [`AppState::add_font()`](./struct.AppState.html#method.add_font)
-    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
-        -> Result<Option<()>, FontError>
-    {
+    /// Returns the ImageId for a given CSS ID - the CSS ID is what you added your image as:
+    ///
+    /// ```no_run,ignore
+    /// let image_id = app_resources.add_image("test", include_bytes!("./my_image.ttf"));
+    /// ```
+    pub fn get_css_image_id<S: AsRef<str>>(&self, css_id: S) -> Option<ImageId> {
+        self.css_ids_to_image_ids.get(css_id.as_ref()).cloned()
+    }
+
+    pub fn delete_css_image_id<S: AsRef<str>>(&mut self, css_id: S) -> Option<ImageId> {
+        self.css_ids_to_image_ids.remove(css_id.as_ref())
+    }
+
+    // -- FontId cache
+
+    pub fn add_font<I: Into<Vec<u8>>>(&mut self, id: FontId, font_data_bytes: I) -> Result<Option<()>, FontError> {
         use font;
 
         match self.font_data.borrow_mut().entry(id) {
             Occupied(_) => Ok(None),
             Vacant(v) => {
-                let mut font_data = Vec::<u8>::new();
-                data.read_to_end(&mut font_data).map_err(|e| FontError::IoError(e))?;
+                let font_data = font_data_bytes.into();
                 let (parsed_font, fd) = font::rusttype_load_font(font_data.clone(), None)?;
                 v.insert((Rc::new(parsed_font), Rc::new(fd), Rc::new(RefCell::new(FontState::ReadyForUpload(font_data)))));
                 Ok(Some(()))
-            },
-        }
-    }
-
-    /// Search for a builtin font on the users computer, validate and return it
-    fn get_builtin_font(id: String) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
-    {
-        use font_loader::system_fonts::{self, FontPropertyBuilder};
-        use font::rusttype_load_font;
-
-        let (font_bytes, idx) = system_fonts::get(&FontPropertyBuilder::new().family(&id).build())?;
-        let (f, b) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok()?;
-        Some((f, b, FontState::ReadyForUpload(font_bytes)))
-    }
-
-    /// Internal API - we want the user to get the first two fields of the
-    fn get_font_internal(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontState>>)> {
-        match id {
-            FontId::BuiltinFont(b) => {
-                if self.font_data.borrow().get(id).is_none() {
-                    let (font, font_bytes, font_state) = Self::get_builtin_font(b.clone())?;
-                    self.font_data.borrow_mut().insert(id.clone(), (Rc::new(font), Rc::new(font_bytes), Rc::new(RefCell::new(font_state))));
-                }
-                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
-            },
-            FontId::ExternalFont(_) => {
-                // For external fonts, we assume that the application programmer has
-                // already loaded them, so we don't try to fallback to system fonts.
-                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
             },
         }
     }
@@ -238,16 +203,11 @@ impl AppResources {
     }
 
     /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
-    pub fn has_font(&self, id: &FontId)
-        -> bool
-    {
+    pub fn has_font(&self, id: &FontId) -> bool {
         self.font_data.borrow().get(id).is_some()
     }
 
-    /// See [`AppState::delete_font()`](./struct.AppState.html#method.delete_font)
-    pub fn delete_font(&mut self, id: &FontId)
-        -> Option<()>
-    {
+    pub fn delete_font(&mut self, id: &FontId) -> Option<()> {
         // TODO: can fonts that haven't been uploaded yet be deleted?
         let mut to_delete_font_key = None;
 
@@ -264,11 +224,11 @@ impl AppResources {
         Some(())
     }
 
+    // -- TextId cache
+
     /// Adds a string to the internal text cache, but only store it as a string,
     /// without caching the layout of the string.
-    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
-    -> TextId
-    {
+    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S) -> TextId {
         self.text_cache.add_text(text)
     }
 
@@ -276,9 +236,13 @@ impl AppResources {
     /// them in a text cache, together with the actual string
     ///
     /// This leads to a faster layout cycle, but has an upfront performance cost
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: StyleFontSize, letter_spacing: Option<StyleLetterSpacing>)
-    -> TextId
-    {
+    pub fn add_text_cached<S: Into<String>>(
+        &mut self,
+        text: S,
+        font_id: &FontId,
+        font_size: PixelValue,
+        letter_spacing: Option<StyleLetterSpacing>
+    ) -> TextId {
         // First, insert the text into the text cache
         let id = self.add_text_uncached(text);
         self.cache_text(id, font_id.clone(), font_size, letter_spacing);
@@ -288,11 +252,11 @@ impl AppResources {
     /// Promotes an uncached text (i.e. a text that was added via `add_text_uncached`)
     /// to a cached text by calculating the font metrics for the uncached text.
     /// This will not delete the original text!
-    pub fn cache_text(&mut self, id: TextId, font: FontId, size: StyleFontSize, letter_spacing: Option<StyleLetterSpacing>) {
+    pub fn cache_text(&mut self, id: TextId, font: FontId, size: PixelValue, letter_spacing: Option<StyleLetterSpacing>) {
         // We need to assume that the actual string contents have already been stored in self.text_cache
         // Otherwise, how would the TextId be valid?
         let text = self.text_cache.string_cache.get(&id).expect("Invalid text Id");
-        let font_size_no_line_height = TextSizePx(size.0.to_pixels());
+        let font_size_no_line_height = TextSizePx(size.to_pixels());
         let rusttype_font = self.get_font(&font).expect("Invalid font ID");
         let words = split_text_into_words(text.as_ref(), &rusttype_font.0, font_size_no_line_height, letter_spacing);
 
@@ -300,6 +264,11 @@ impl AppResources {
             .entry(id).or_insert_with(|| FastHashMap::default())
             .entry(font).or_insert_with(|| FastHashMap::default())
             .insert(size, words);
+    }
+
+    /// Removes a string from both the string cache and the layouted text cache
+    pub fn delete_text(&mut self, id: TextId) {
+        self.text_cache.delete_text(id);
     }
 
     /// Removes a string from the string cache, but not the layouted text cache
@@ -312,27 +281,64 @@ impl AppResources {
         self.text_cache.delete_layouted_text(id);
     }
 
-    /// Removes a string from both the string cache and the layouted text cache
-    pub fn delete_text(&mut self, id: TextId) {
-        self.text_cache.delete_text(id);
-    }
-
     /// Empties the entire internal text cache, invalidating all `TextId`s. Use with care.
     pub fn clear_all_texts(&mut self) {
         self.text_cache.clear_all_texts();
     }
 
+    // -- Clipboard
+
     /// Returns the contents of the system clipboard
-    pub fn get_clipboard_string(&self)
-    -> Result<String, ClipboardError>
-    {
+    pub fn get_clipboard_string(&self) -> Result<String, ClipboardError> {
         self.clipboard.get_string_contents()
     }
 
     /// Sets the contents of the system clipboard - currently only strings are supported
-    pub fn set_clipboard_string(&mut self, contents: String)
-    -> Result<(), ClipboardError>
-    {
-        self.clipboard.set_string_contents(contents)
+    pub fn set_clipboard_string<S: Into<String>>(&mut self, contents: S) -> Result<(), ClipboardError> {
+        self.clipboard.set_string_contents(contents.into())
     }
+
+    // -- Helper functions
+
+    /// Internal API - we want the user to get the first two fields of the
+    fn get_font_internal(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontState>>)> {
+        match id {
+            FontId::BuiltinFont(b) => {
+                if self.font_data.borrow().get(id).is_none() {
+                    let (font, font_bytes, font_state) = get_builtin_font(b)?;
+                    self.font_data.borrow_mut().insert(id.clone(), (Rc::new(font), Rc::new(font_bytes), Rc::new(RefCell::new(font_state))));
+                }
+                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
+            },
+            FontId::ExternalFont(_) => {
+                // For external fonts, we assume that the application programmer has
+                // already loaded them, so we don't try to fallback to system fonts.
+                self.font_data.borrow().get(id).and_then(|(font, bytes, state)| Some((font.clone(), bytes.clone(), state.clone())))
+            },
+        }
+    }
+}
+
+/// Search for a builtin font on the users computer, validate and return it
+fn get_builtin_font(id: &str) -> Option<(::rusttype::Font<'static>, Vec<u8>, FontState)>
+{
+    use font_loader::system_fonts::{self, FontPropertyBuilder};
+    use font::rusttype_load_font;
+
+    let (font_bytes, idx) = system_fonts::get(&FontPropertyBuilder::new().family(id).build())?;
+    let (f, b) = rusttype_load_font(font_bytes.clone(), Some(idx)).ok()?;
+    Some((f, b, FontState::ReadyForUpload(font_bytes)))
+}
+
+#[cfg(feature = "image_loading")]
+fn decode_image_data<I: Into<Vec<u8>>>(image_data: I)
+-> Result<(ImageData, ImageDescriptor), ImageError>
+{
+    use image; // the crate
+    use images; // the module
+
+    let image_data = image_data.into();
+    let image_format = image_type.into_image_format(&image_data)?;
+    let decoded = image::load_from_memory_with_format(&image_data, image::guess_format(data)?)?;
+    Ok(ImageState::ReadyForUpload(images::prepare_image(decoded)?))
 }

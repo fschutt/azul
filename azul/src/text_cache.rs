@@ -1,5 +1,5 @@
 use std::sync::atomic::{Ordering, AtomicUsize};
-use azul_css::{FontId, StyleFontSize};
+use azul_css::{FontId, PixelValue};
 use {
     FastHashMap,
     text_layout::Words,
@@ -32,9 +32,9 @@ pub struct TextCache {
     /// Caches the layout of the strings / words.
     ///
     /// TextId -> FontId (to look up by font)
-    /// FontId -> StyleFontSize (to categorize by size within a font)
-    /// StyleFontSize -> layouted words (to cache the glyph widths on a per-font-size basis)
-    pub layouted_strings_cache: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<StyleFontSize, Words>>>,
+    /// FontId -> PixelValue (to categorize by size within a font)
+    /// PixelValue -> layouted words (to cache the glyph widths on a per-font-size basis)
+    pub layouted_strings_cache: FastHashMap<TextId, FastHashMap<FontId, FastHashMap<PixelValue, Words>>>,
 }
 
 impl TextCache {

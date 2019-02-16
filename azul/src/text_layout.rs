@@ -4,7 +4,7 @@ use webrender::api::LayoutPixel;
 use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
 use rusttype::{Font, Scale, GlyphId};
 use azul_css::{
-    StyleTextAlignmentHorz, StyleFontSize, StyleBackgroundColor, StyleLetterSpacing,
+    StyleTextAlignmentHorz, PixelValue, StyleFontSize, StyleBackgroundColor, StyleLetterSpacing,
     FontId, StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow
 };
 use {
@@ -384,7 +384,7 @@ pub(crate) fn get_words_cached<'a>(
     text_id: &TextId,
     font: &Font<'a>,
     font_id: &FontId,
-    font_size: &StyleFontSize,
+    font_size: &PixelValue,
     font_size_no_line_height: TextSizePx,
     letter_spacing: Option<StyleLetterSpacing>,
     text_cache: &'a mut TextCache)
@@ -424,7 +424,7 @@ pub(crate) fn get_words_cached<'a>(
             let font_size_map = &text_cache.layouted_strings_cache[&text_id][&font_id];
             let (old_font_size, next_words_for_font) = font_size_map.iter().next().unwrap();
             let mut words_cloned: Words = next_words_for_font.clone();
-            let scale_factor = font_size.0.to_pixels() / old_font_size.0.to_pixels();
+            let scale_factor = font_size.to_pixels() / old_font_size.to_pixels();
 
             scale_words(&mut words_cloned, scale_factor);
             words_cloned
