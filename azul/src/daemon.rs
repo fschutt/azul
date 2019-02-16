@@ -21,13 +21,20 @@ pub enum TerminateDaemon {
 static MAX_DAEMON_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Generate a new, unique DaemonId
-pub fn new_daemon_id() -> DaemonId {
+fn new_daemon_id() -> DaemonId {
     DaemonId(MAX_DAEMON_ID.fetch_add(1, Ordering::SeqCst))
 }
 
 /// ID for uniquely identifying a daemon
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct DaemonId(usize);
+
+impl DaemonId {
+    /// Generates a new, unique `DaemonId`.
+    pub fn new() -> Self {
+        new_daemon_id()
+    }
+}
 
 /// A `Daemon` is a function that is run on every frame.
 ///
@@ -38,110 +45,96 @@ pub struct DaemonId(usize);
 /// They are fast enough to run under 16ms, so they can run on the main thread.
 /// A daemon can also act as a timer, so that a function is called every X duration.
 pub struct Daemon<T> {
-    created: Instant,
-    last_run: Instant,
-    run_every: Option<Duration>,
-    max_timeout: Option<Duration>,
-    callback: DaemonCallback<T>,
-    pub(crate) id: DaemonId,
+    /// Stores when the daemon was created (usually acquired by `Instant::now()`)
+    pub created: Instant,
+    /// When the daemon was last called (`None` only when the daemon hasn't been called yet).
+    pub last_run: Option<Instant>,
+    /// If the daemon shouldn't start instantly, but rather be delayed by a certain timeframe
+    pub delay: Option<Duration>,
+    /// How frequently the daemon should run
+    /// (i.e. `Some(Duration::from_millis(16))` to run the timer every 16ms).
+    /// If set to `None`, (default value) will execute the timer on every frame,
+    /// might be  performance intensive.
+    pub interval: Option<Duration>,
+    /// When to stop the daemon (for example, you can stop the
+    /// execution after 5s using `Some(Duration::from_secs(5))`).
+    pub timeout: Option<Duration>,
+    /// Callback to be called for this daemon
+    pub callback: DaemonCallback<T>,
 }
+
+pub type DaemonCallbackType<T> = fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon);
 
 /// Callback that can runs on every frame on the main thread - can modify the app data model
-pub struct DaemonCallback<T>(pub fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon));
+pub struct DaemonCallback<T>(pub DaemonCallbackType<T>);
 
-// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for DaemonCallback<T>
-
-impl<T> fmt::Debug for DaemonCallback<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DaemonCallback @ 0x{:x}", self.0 as usize)
-    }
-}
-
-impl<T> Clone for DaemonCallback<T> {
-    fn clone(&self) -> Self {
-        DaemonCallback(self.0.clone())
-    }
-}
-
-impl<T> Hash for DaemonCallback<T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
-        state.write_usize(self.0 as usize);
-    }
-}
-
-impl<T> PartialEq for DaemonCallback<T> {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.0 as usize == rhs.0 as usize
-    }
-}
-
-impl<T> Eq for DaemonCallback<T> { }
-
-impl<T> Copy for DaemonCallback<T> { }
+impl_callback!(DaemonCallback<T>);
 
 impl<T> Daemon<T> {
-    /// Create a daemon with a unique ID
-    pub fn unique(callback: DaemonCallback<T>) -> Self {
-        Self::with_id(callback, new_daemon_id())
-    }
 
-    /// Create a daemon with an existing ID.
-    ///
-    /// The reason you might want this is to immediately replace one daemon
-    /// with another one, or merge several daemons together.
-    pub fn with_id(callback: DaemonCallback<T>, id: DaemonId) -> Self {
+    /// Create a new daemon
+    pub fn new(callback: DaemonCallback<T>,) -> Self {
         Daemon {
             created: Instant::now(),
-            last_run: Instant::now(),
-            run_every: None,
-            max_timeout: None,
+            last_run: None,
+            delay: None,
+            interval: None,
+            timeout: None,
             callback,
-            id,
         }
+    }
+
+    /// Delays the daemon to not start immediately but rather
+    /// start after a certain time frame has elapsed.
+    #[inline]
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = Some(delay);
+        self
+    }
+
+    /// Converts the daemon into a timer, running the function only
+    /// if the given `Duration` has elapsed since the last run
+    #[inline]
+    pub fn with_interval(mut self, interval: Duration) -> Self {
+        self.interval = Some(interval);
+        self
     }
 
     /// Converts the daemon into a countdown, by giving it a maximum duration
     /// (counted from the creation of the Daemon, not the first use).
-    pub fn with_timeout(self, timeout: Duration) -> Self {
-        Self {
-            max_timeout: Some(timeout),
-            .. self
-        }
+    #[inline]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
     }
 
-    /// Converts the daemon into a timer, running the function only if the given
-    /// `Duration` has elapsed since the last run
-    pub fn run_every(self, every: Duration) -> Self {
-        Self {
-            run_every: Some(every),
-            last_run: self.last_run - every,
-            .. self
-        }
-    }
-
-    /// Crate-internal: Invokes the daemon if the timer and the max_timeout allow it to
+    /// Crate-internal: Invokes the daemon if the timer and
+    /// the `self.timeout` allow it to
     pub(crate) fn invoke_callback_with_data(
         &mut self,
         data: &mut T,
         app_resources: &mut AppResources)
     -> (UpdateScreen, TerminateDaemon)
     {
+        let instant_now = Instant::now();
+        let delay = self.delay.unwrap_or_else(|| Duration::from_millis(0));
+
         // Check if the daemons timeout is reached
-        if let Some(max_timeout) = self.max_timeout {
-            if Instant::now() - self.created > max_timeout {
+        if let Some(timeout) = self.timeout {
+            if instant_now - self.created > timeout {
                 return (DontRedraw, TerminateDaemon::Terminate);
             }
         }
 
-        if let Some(run_every) = self.run_every {
-            if Instant::now() - self.last_run < run_every {
+        if let Some(interval) = self.interval {
+            if instant_now - (self.last_run.unwrap_or(instant_now) + delay) < interval {
                 return (DontRedraw, TerminateDaemon::Continue);
             }
         }
 
         let res = (self.callback.0)(data, app_resources);
 
-        self.last_run = Instant::now();
+        self.last_run = Some(instant_now);
 
         res
     }
@@ -151,55 +144,50 @@ impl<T> Daemon<T> {
 
 impl<T> fmt::Debug for Daemon<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Daemon {{ \
-            created: {:?}, \
-            run_every: {:?}, \
-            last_run: {:?}, \
-            max_timeout: {:?}, \
-            callback: {:?}, \
-            id: {:?}, \
-        }}",
-        self.created,
-        self.run_every,
-        self.last_run,
-        self.max_timeout,
-        self.callback,
-        self.id)
+        write!(f,
+            "Daemon {{ \
+                created: {:?}, \
+                last_run: {:?}, \
+                delay: {:?}, \
+                interval: {:?}, \
+                timeout: {:?}, \
+                callback: {:?}, \
+            }}",
+            self.created,
+            self.last_run,
+            self.delay,
+            self.interval,
+            self.timeout,
+            self.callback,
+        )
     }
 }
 
 impl<T> Clone for Daemon<T> {
     fn clone(&self) -> Self {
-        Daemon {
-            created: self.created,
-            run_every: self.run_every,
-            last_run: self.last_run,
-            max_timeout: self.max_timeout,
-            callback: self.callback,
-            id: self.id,
-        }
+        Daemon { .. *self }
     }
 }
 
 impl<T> Hash for Daemon<T> {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
         self.created.hash(state);
-        self.run_every.hash(state);
         self.last_run.hash(state);
-        self.max_timeout.hash(state);
+        self.delay.hash(state);
+        self.interval.hash(state);
+        self.timeout.hash(state);
         self.callback.hash(state);
-        self.id.hash(state);
     }
 }
 
 impl<T> PartialEq for Daemon<T> {
     fn eq(&self, rhs: &Self) -> bool {
         self.created == rhs.created &&
-        self.run_every == rhs.run_every &&
         self.last_run == rhs.last_run &&
-        self.max_timeout == rhs.max_timeout &&
-        self.callback == rhs.callback &&
-        self.id == rhs.id
+        self.delay == rhs.delay &&
+        self.interval == rhs.interval &&
+        self.timeout == rhs.timeout &&
+        self.callback == rhs.callback
     }
 }
 

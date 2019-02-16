@@ -359,19 +359,13 @@ impl<T: Layout> App<T> {
         self.app_state.add_image_raw(id, pixels, image_dimensions, data_format)
     }
 
-    /// Removes an image from the internal app resources.
-    /// Returns `Some` if the image existed and was removed.
-    /// If the given ID doesn't exist, this function does nothing and returns `None`.
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S)
-        -> Option<()>
-    {
+    /// Removes an image from the internal app resources. Does nothing if the image ID didn't exist.
+    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) {
         self.app_state.delete_image(id)
     }
 
     /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S)
-        -> bool
-    {
+    pub fn has_image<S: AsRef<str>>(&mut self, id: S) -> bool {
         self.app_state.has_image(id)
     }
 
@@ -379,19 +373,14 @@ impl<T: Layout> App<T> {
     ///
     /// ## Returns
     ///
-    /// - `Ok(Some(()))` if an font with the same ID already exists.
-    /// - `Ok(None)` if the font was added, but didn't exist previously.
+    /// - `Ok(())` if an font with the same ID already exists.
     /// - `Err(e)` if the font couldn't be decoded
-    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R)
-        -> Result<Option<()>, FontError>
-    {
+    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R) -> Result<(), FontError> {
         self.app_state.add_font(id, data)
     }
 
     /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font(&mut self, id: &FontId)
-        -> bool
-    {
+    pub fn has_font(&mut self, id: &FontId) -> bool {
         self.app_state.has_font(id)
     }
 
@@ -401,20 +390,7 @@ impl<T: Layout> App<T> {
     ///
     /// - `id`: The stringified ID of the font to remove, e.g. `"Helvetica-Bold"`.
     ///
-    /// ## Returns
-    ///
-    /// - `Some(())` if if the image existed and was successfully removed
-    /// - `None` if the given ID doesn't exist. In that case, the function does
-    ///    nothing.
-    ///
-    /// Wrapper function for [`AppState::delete_font`]. After this function has been
-    /// called, you can be sure that the renderer doesn't know about your font anymore.
-    /// This also means that the font needs to be re-parsed if you want to add it again.
-    /// Use with care.
-    ///
-    /// [`AppState::delete_font`]: ../app_state/struct.AppState.html#method.delete_font
     pub fn delete_font(&mut self, id: &FontId)
-        -> Option<()>
     {
         self.app_state.delete_font(id)
     }
@@ -422,10 +398,8 @@ impl<T: Layout> App<T> {
     /// Create a daemon. Does nothing if a daemon with the function pointer location already exists.
     ///
     /// If the daemon was inserted, returns true, otherwise false
-    pub fn add_daemon(&mut self, daemon: Daemon<T>)
-        -> bool
-    {
-        self.app_state.add_daemon(daemon)
+    pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) -> bool {
+        self.app_state.add_daemon(id, daemon)
     }
 
     pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)

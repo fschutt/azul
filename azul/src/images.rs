@@ -28,6 +28,12 @@ pub(crate) fn new_image_id() -> ImageId {
     }
 }
 
+impl ImageId {
+    pub fn new() -> Self {
+        new_image_id()
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ImageType {
     Bmp,
