@@ -203,6 +203,7 @@ impl<T: Layout> AppState<T> {
         self.resources.has_font(id)
     }
 
+    /// Returns the font if the font is present
     pub fn get_font(&self, id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
         self.resources.get_font(id)
     }
@@ -213,37 +214,69 @@ impl<T: Layout> AppState<T> {
     ///
     /// - `id`: The stringified ID of the font to remove, e.g. `"Helvetica-Bold"`.
     ///
-    /// ## Returns
-    ///
-    /// - `Some(())` if if the image existed and was successfully removed
-    /// - `None` if the given ID doesn't exist. In that case, the function does
-    ///    nothing.
-    ///
-    /// After this function has been
-    /// called, you can be sure that the renderer doesn't know about your font anymore.
-    /// This also means that the font needs to be re-parsed if you want to add it again.
-    /// Use with care.
-    ///
-    /// You can also call this function on an `App` struct, see [`App::add_font`].
-    ///
-    /// [`App::add_font`]: ../app/struct.App.html#method.add_font
-    pub fn delete_font(&mut self, id: &FontId)
-        -> Option<()>
-    {
+    pub fn delete_font(&mut self, id: &FontId) {
         self.resources.delete_font(id)
     }
 
     /// Create a daemon. Does nothing if a daemon already exists.
     ///
     /// If the daemon was inserted, returns true, otherwise false
-    pub fn add_daemon(&mut self, daemon: Daemon<T>) -> bool {
-        match self.daemons.entry(daemon.id) {
+    pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) -> bool {
+        match self.daemons.entry(id) {
             Occupied(_) => false,
             Vacant(v) => { v.insert(daemon); true },
         }
     }
 
-    /// Run all currently registered daemons
+    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S) -> TextId {
+        self.resources.add_text_uncached(text)
+    }
+
+    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>) -> TextId {
+        let font_size = StyleFontSize(font_size);
+        self.resources.add_text_cached(text, font_id, font_size, letter_spacing)
+    }
+
+    pub fn delete_text(&mut self, id: TextId) {
+        self.resources.delete_text(id);
+    }
+
+    pub fn clear_all_texts(&mut self) {
+        self.resources.clear_all_texts();
+    }
+
+    /// Get the contents of the system clipboard as a string
+    pub fn get_clipboard_string(&mut self) -> Result<String, ClipboardError> {
+        self.resources.get_clipboard_string()
+    }
+
+    /// Set the contents of the system clipboard as a string
+    pub fn set_clipboard_string(&mut self, contents: String) -> Result<(), ClipboardError> {
+        self.resources.set_clipboard_string(contents)
+    }
+
+    /// Custom tasks can be used when the `AppState` isn't `Send`. For example
+    /// `SvgCache` isn't thread-safe, since it has to interact with OpenGL, so
+    /// it can't be sent to other threads safely.
+    ///
+    /// What you can do instead, is take a part of your application data, wrap
+    /// that in an `Arc<Mutex<>>` and push a task that takes it onto the queue.
+    /// This way you can modify a part of the application state on a different
+    /// thread, while not requiring that everything is thread-safe.
+    ///
+    /// While you can't modify the `SvgCache` from a different thread, you can
+    /// modify other things in the `AppState` and leave the SVG cache alone.
+    pub fn add_custom_task<U: Send + 'static>(
+        &mut self,
+        data: &Arc<Mutex<U>>,
+        callback: fn(Arc<Mutex<U>>, Arc<()>),
+        after_completion_deamons: &[Daemon<T>])
+    {
+        let task = Task::new(data, callback).then(after_completion_deamons);
+        self.tasks.push(task);
+    }
+
+        /// Run all currently registered daemons
     #[must_use]
     pub(crate) fn run_all_daemons(&mut self)
     -> UpdateScreen
@@ -301,62 +334,6 @@ impl<T: Layout> AppState<T> {
         } else {
             Redraw
         }
-    }
-
-    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
-    -> TextId
-    {
-        self.resources.add_text_uncached(text)
-    }
-
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>)
-    -> TextId
-    {
-        let font_size = StyleFontSize(font_size);
-        self.resources.add_text_cached(text, font_id, font_size, letter_spacing)
-    }
-
-    pub fn delete_text(&mut self, id: TextId) {
-        self.resources.delete_text(id);
-    }
-
-    pub fn clear_all_texts(&mut self) {
-        self.resources.clear_all_texts();
-    }
-
-    /// Get the contents of the system clipboard as a string
-    pub fn get_clipboard_string(&mut self)
-    -> Result<String, ClipboardError>
-    {
-        self.resources.get_clipboard_string()
-    }
-
-    /// Set the contents of the system clipboard as a string
-    pub fn set_clipboard_string(&mut self, contents: String)
-    -> Result<(), ClipboardError>
-    {
-        self.resources.set_clipboard_string(contents)
-    }
-
-    /// Custom tasks can be used when the `AppState` isn't `Send`. For example
-    /// `SvgCache` isn't thread-safe, since it has to interact with OpenGL, so
-    /// it can't be sent to other threads safely.
-    ///
-    /// What you can do instead, is take a part of your application data, wrap
-    /// that in an `Arc<Mutex<>>` and push a task that takes it onto the queue.
-    /// This way you can modify a part of the application state on a different
-    /// thread, while not requiring that everything is thread-safe.
-    ///
-    /// While you can't modify the `SvgCache` from a different thread, you can
-    /// modify other things in the `AppState` and leave the SVG cache alone.
-    pub fn add_custom_task<U: Send + 'static>(
-        &mut self,
-        data: &Arc<Mutex<U>>,
-        callback: fn(Arc<Mutex<U>>, Arc<()>),
-        after_completion_deamons: &[Daemon<T>])
-    {
-        let task = Task::new(data, callback).then(after_completion_deamons);
-        self.tasks.push(task);
     }
 }
 

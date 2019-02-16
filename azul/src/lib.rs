@@ -228,4 +228,3 @@ pub mod prelude {
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
 }
-

@@ -62,112 +62,23 @@ pub const Redraw: Option<()> = Some(());
 #[allow(non_upper_case_globals)]
 pub const DontRedraw: Option<()> = None;
 
+pub type CallbackType<T> = fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
 /// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
 /// an `UpdateScreen::Redraw` from the function
-pub struct Callback<T: Layout>(pub fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen);
+pub struct Callback<T: Layout>(pub CallbackType<T>);
+impl_callback_bounded!(Callback<T: Layout>);
 
-// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for Callback<T>
+pub type GlTextureCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>;
+pub struct GlTextureCallback<T: Layout>(pub GlTextureCallbackType<T>);
+impl_callback_bounded!(GlTextureCallback<T: Layout>);
 
-impl<T: Layout> fmt::Debug for Callback<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Callback @ 0x{:x}", self.0 as usize)
-    }
-}
-
-impl<T: Layout> Clone for Callback<T> {
-    fn clone(&self) -> Self {
-        Callback(self.0.clone())
-    }
-}
-
-/// As a hashing function, we use the function pointer casted to a usize
-/// as a unique ID for the function. This way, we can hash and compare DOM nodes
-/// (to create diffs between two states). Comparing usizes is more efficient
-/// than re-creating the whole DOM and serves as a caching mechanism.
-impl<T: Layout> Hash for Callback<T> {
-  fn hash<H>(&self, state: &mut H) where H: Hasher {
-    state.write_usize(self.0 as usize);
-  }
-}
-
-/// Basically compares the function pointers and types for equality
-impl<T: Layout> PartialEq for Callback<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    self.0 as usize == rhs.0 as usize
-  }
-}
-
-impl<T: Layout> Eq for Callback<T> { }
-
-impl<T: Layout> Copy for Callback<T> { }
-
-
-pub struct GlTextureCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>);
-
-// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for GlTextureCallback<T>
-
-impl<T: Layout> fmt::Debug for GlTextureCallback<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "GlTextureCallback @ 0x{:x}", self.0 as usize)
-    }
-}
-
-impl<T: Layout> Clone for GlTextureCallback<T> {
-    fn clone(&self) -> Self {
-        GlTextureCallback(self.0.clone())
-    }
-}
-
-impl<T: Layout> Hash for GlTextureCallback<T> {
-  fn hash<H>(&self, state: &mut H) where H: Hasher {
-    state.write_usize(self.0 as usize);
-  }
-}
-
-impl<T: Layout> PartialEq for GlTextureCallback<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    self.0 as usize == rhs.0 as usize
-  }
-}
-
-impl<T: Layout> Eq for GlTextureCallback<T> { }
-impl<T: Layout> Copy for GlTextureCallback<T> { }
-
-pub struct IFrameCallback<T: Layout>(pub fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>);
-
-// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for IFrameCallback<T>
-
-impl<T: Layout> fmt::Debug for IFrameCallback<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "IFrameCallback @ 0x{:x}", self.0 as usize)
-    }
-}
-
-impl<T: Layout> Clone for IFrameCallback<T> {
-    fn clone(&self) -> Self {
-        IFrameCallback(self.0.clone())
-    }
-}
-
-impl<T: Layout> Hash for IFrameCallback<T> {
-  fn hash<H>(&self, state: &mut H) where H: Hasher {
-    state.write_usize(self.0 as usize);
-  }
-}
-
-impl<T: Layout> PartialEq for IFrameCallback<T> {
-  fn eq(&self, rhs: &Self) -> bool {
-    self.0 as usize == rhs.0 as usize
-  }
-}
-
-impl<T: Layout> Eq for IFrameCallback<T> { }
-
-impl<T: Layout> Copy for IFrameCallback<T> { }
+pub type IFrameCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>;
+pub struct IFrameCallback<T: Layout>(pub IFrameCallbackType<T>);
+impl_callback_bounded!(IFrameCallback<T: Layout>);
 
 
 /// List of core DOM node types built-into by `azul`.
