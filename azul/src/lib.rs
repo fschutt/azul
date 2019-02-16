@@ -209,7 +209,7 @@ pub mod prelude {
         WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow
     };
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};
-    pub use images::{ImageType, ImageId};
+    pub use images::ImageId;
     pub use text_cache::{TextCache, TextId};
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},

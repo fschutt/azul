@@ -4,23 +4,18 @@ use std::{
     sync::{Arc, Mutex, Weak},
     thread::{spawn, JoinHandle},
 };
-use daemon::Daemon;
+use daemon::{Daemon, DaemonId};
 
 pub struct Task<T> {
     // Task is in progress
     join_handle: Option<JoinHandle<()>>,
     dropcheck: Weak<()>,
     /// Daemons that run directly after completion of this task
-    pub(crate) after_completion_daemons: Vec<Daemon<T>>
+    pub(crate) after_completion_daemons: Vec<(DaemonId, Daemon<T>)>
 }
 
 impl<T> Task<T> {
-    pub fn new<U>(
-        app_state: &Arc<Mutex<U>>,
-        callback: fn(Arc<Mutex<U>>, Arc<()>))
-    -> Self
-    where U: Send + 'static
-    {
+    pub fn new<U: Send + 'static>(app_state: &Arc<Mutex<U>>, callback: fn(Arc<Mutex<U>>, Arc<()>)) -> Self {
         let thread_check = Arc::new(());
         let thread_weak = Arc::downgrade(&thread_check);
         let app_state_clone = app_state.clone();
@@ -37,12 +32,15 @@ impl<T> Task<T> {
     }
 
     /// Returns true if the task has been finished, false otherwise
-    pub fn is_finished(&self) -> bool {
+    pub(crate) fn is_finished(&self) -> bool {
         self.dropcheck.upgrade().is_none()
     }
 
+    /// Stores daemons that will run after the task has finished.
+    ///
+    /// Often necessary to "clean up" or copy data from the background task into the UI.
     #[inline]
-    pub fn then(mut self, deamons: &[Daemon<T>]) -> Self {
+    pub fn then(mut self, deamons: &[(DaemonId, Daemon<T>)]) -> Self {
         self.after_completion_daemons.extend(deamons.iter().cloned());
         self
     }

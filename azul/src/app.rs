@@ -1,7 +1,7 @@
 use std::{
     mem,
     fmt,
-    io::Read,
+    rc::Rc,
     collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
 };
@@ -22,6 +22,7 @@ use webrender::{
         Epoch, Transaction, ImageFormat as RawImageFormat,
     },
 };
+use rusttype::Font;
 #[cfg(feature = "image_loading")]
 use image::ImageError;
 #[cfg(feature = "logging")]
@@ -40,8 +41,10 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
-    daemon::Daemon,
+    daemon::{Daemon, DaemonId},
+    images::ImageId,
     focus::FocusTarget,
+    task::Task,
 };
 
 type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
@@ -333,130 +336,17 @@ impl<T: Layout> App<T> {
         Ok(())
     }
 
-    /// Add an image to the internal resources. Only available with
-    /// `--feature="image_loading"` (on by default)
-    ///
-    /// ## Returns
-    ///
-    /// - `Ok(Some(()))` if an image with the same ID already exists.
-    /// - `Ok(None)` if the image was added, but didn't exist previously.
-    /// - `Err(e)` if the image couldn't be decoded
-    #[cfg(feature = "image_loading")]
-    pub fn add_image<S: Into<String>, R: Read>(&mut self, id: S, data: &mut R, image_type: ImageType)
-        -> Result<Option<()>, ImageError>
-    {
-        self.app_state.add_image(id, data, image_type)
-    }
-
-    pub fn add_image_raw<S: Into<String>>(
-        &mut self,
-        id: S,
-        pixels: Vec<u8>,
-        image_dimensions: (u32, u32),
-        data_format: RawImageFormat
-    ) -> Option<()>
-    {
-        self.app_state.add_image_raw(id, pixels, image_dimensions, data_format)
-    }
-
-    /// Removes an image from the internal app resources. Does nothing if the image ID didn't exist.
-    pub fn delete_image<S: AsRef<str>>(&mut self, id: S) {
-        self.app_state.delete_image(id)
-    }
-
-    /// Checks if an image is currently registered and ready-to-use
-    pub fn has_image<S: AsRef<str>>(&mut self, id: S) -> bool {
-        self.app_state.has_image(id)
-    }
-
-    /// Add a font (TTF or OTF) as a resource, identified by ID
-    ///
-    /// ## Returns
-    ///
-    /// - `Ok(())` if an font with the same ID already exists.
-    /// - `Err(e)` if the font couldn't be decoded
-    pub fn add_font<R: Read>(&mut self, id: FontId, data: &mut R) -> Result<(), FontError> {
-        self.app_state.add_font(id, data)
-    }
-
-    /// Checks if a font is currently registered and ready-to-use
-    pub fn has_font(&mut self, id: &FontId) -> bool {
-        self.app_state.has_font(id)
-    }
-
-    /// Deletes a font from the internal app resources.
-    ///
-    /// ## Arguments
-    ///
-    /// - `id`: The stringified ID of the font to remove, e.g. `"Helvetica-Bold"`.
-    ///
-    pub fn delete_font(&mut self, id: &FontId)
-    {
-        self.app_state.delete_font(id)
-    }
-
-    /// Create a daemon. Does nothing if a daemon with the function pointer location already exists.
-    ///
-    /// If the daemon was inserted, returns true, otherwise false
-    pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) -> bool {
-        self.app_state.add_daemon(id, daemon)
-    }
-
-    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S)
-    -> TextId
-    {
-        self.app_state.add_text_uncached(text)
-    }
-
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>)
-    -> TextId
-    {
-        self.app_state.add_text_cached(text, font_id, font_size, letter_spacing)
-    }
-
-    pub fn delete_text(&mut self, id: TextId) {
-        self.app_state.delete_text(id);
-    }
-
-    pub fn clear_all_texts(&mut self) {
-        self.app_state.clear_all_texts();
-    }
-
-    /// Get the contents of the system clipboard as a string
-    pub fn get_clipboard_string(&mut self)
-    -> Result<String, ClipboardError>
-    {
-        self.app_state.get_clipboard_string()
-    }
-
-    /// Set the contents of the system clipboard as a string
-    pub fn set_clipboard_string(&mut self, contents: String)
-    -> Result<(), ClipboardError>
-    {
-        self.app_state.set_clipboard_string(contents)
-    }
-
-    /// See `AppState::add_custom_task`.
-    pub fn add_custom_task<U: Send + 'static>(
-        &mut self,
-        data: &Arc<Mutex<U>>,
-        callback: fn(Arc<Mutex<U>>, Arc<()>),
-        after_completion_deamons: &[Daemon<T>])
-    {
-        self.app_state.add_custom_task(data, callback, after_completion_deamons);
+    /// See `AppState::add_task`.
+    pub fn add_task(&mut self, task: Task<T>) {
+        self.app_state.add_task(task);
     }
 }
 
-impl<T: Layout + Send + 'static> App<T> {
-    /// See `AppState::add_ask`.
-    pub fn add_task(
-        &mut self,
-        callback: fn(Arc<Mutex<T>>, Arc<()>),
-        after_completion_callbacks: &[Daemon<T>])
-    {
-        self.app_state.add_task(callback, after_completion_callbacks);
-    }
-}
+image_api!(App::app_state);
+font_api!(App::app_state);
+text_api!(App::app_state);
+clipboard_api!(App::app_state);
+daemon_api!(App::app_state);
 
 /// Render the contents of one single window. Returns
 /// (if the event was a resize event, if the window was closed)

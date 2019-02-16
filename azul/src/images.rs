@@ -1,9 +1,6 @@
 //! Module for loading and handling images
 
-use std::{
-    path::Path,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{
     ImageFormat as WebrenderImageFormat,
     ImageData, ImageDescriptor, ImageKey
@@ -34,6 +31,7 @@ impl ImageId {
     }
 }
 
+/*
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ImageType {
     Bmp,
@@ -49,7 +47,7 @@ pub enum ImageType {
     /// Try to guess the image format, unknown data
     GuessImageFormat,
 }
-
+*/
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ImageInfo {
     pub(crate) key: ImageKey,
@@ -78,6 +76,7 @@ impl ImageState {
     }
 }
 
+/*
 impl ImageType {
 
     #[cfg(feature = "image_loading")]
@@ -100,40 +99,10 @@ impl ImageType {
         }
     }
 }
+*/
 
 // The next three functions are taken from:
 // https://github.com/christolliday/limn/blob/master/core/src/resources/image.rs
-
-/// Convenience function to get the image type from a path
-///
-/// This function looks at the extension of the image. However, this
-/// extension could be wrong, i.e. a user labeling a PNG as a JPG and so on.
-/// If you don't know the format of the image, simply use Image::GuessImageType
-/// - which will guess the type of the image from the magic header in the
-/// actual image data.
-pub fn get_image_type_from_extension(path: &Path) -> Option<ImageType> {
-    let ext = path.extension().and_then(|s| s.to_str())
-                  .map_or(String::new(), |s| s.to_ascii_lowercase());
-
-    match &ext[..] {
-        "jpg" |
-        "jpeg" => Some(ImageType::Jpeg),
-        "png"  => Some(ImageType::Png),
-        "gif"  => Some(ImageType::Gif),
-        "webp" => Some(ImageType::WebP),
-        "tif" |
-        "tiff" => Some(ImageType::Tiff),
-        "tga" => Some(ImageType::Tga),
-        "bmp" => Some(ImageType::Bmp),
-        "ico" => Some(ImageType::Ico),
-        "hdr" => Some(ImageType::Hdr),
-        "pbm" |
-        "pam" |
-        "ppm" |
-        "pgm" => Some(ImageType::Pnm),
-        _ => None,
-    }
-}
 
 #[cfg(feature = "image_loading")]
 pub(crate) fn prepare_image(image_decoded: DynamicImage)
