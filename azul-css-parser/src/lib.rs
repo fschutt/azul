@@ -6,7 +6,7 @@
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
 )]
 
-#![deny(unused_must_use)]
+#![warn(unused_must_use)]
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
 #![allow(unused_variables)]
