@@ -160,6 +160,8 @@ fn tick(state: &mut Universe, _: &mut AppResources) -> (UpdateScreen, TerminateD
 /// Callback that starts the main
 fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Universe>) -> UpdateScreen {
 
+    use std::time::Duration;
+
     if let Some(daemon) = {
         let state = &mut app_state.data.lock().ok()?;
         state.board = Board::new_random(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT);
@@ -167,12 +169,13 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Univ
         if state.game_is_running {
             None
         } else {
-            let daemon = Daemon::unique(DaemonCallback(tick)).run_every(std::time::Duration::from_millis(200));
+            let daemon = Daemon::new(DaemonCallback(tick)).with_interval(Duration::from_millis(200));
+
             state.game_is_running = true;
             Some(daemon)
         }
     }{
-        app_state.add_daemon(daemon);
+        app_state.add_daemon(DaemonId::new(), daemon);
     }
 
     Redraw

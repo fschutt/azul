@@ -66,8 +66,9 @@ fn reset_connection(app_state: &mut AppState<MyDataModel>, _event: &mut Callback
 fn start_connection(app_state: &mut AppState<MyDataModel>, _event: &mut CallbackInfo<MyDataModel>) -> UpdateScreen {
     let status = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
     app_state.data.modify(|state| state.connection_status = status)?;
-    app_state.add_task(connect_to_db_async, &[]);
-    app_state.add_daemon(Daemon::unique(DaemonCallback(timer_daemon)));
+    let task = Task::new(&app_state.data, connect_to_db_async);
+    app_state.add_task(task);
+    app_state.add_daemon(DaemonId::new(), Daemon::new(DaemonCallback(timer_daemon)));
     Redraw
 }
 
