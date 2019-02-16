@@ -397,7 +397,7 @@ fn main() {
     }
 
     let mut app = App::new(Calculator::default(), AppConfig::default());
-    app.add_font(FontId::ExternalFont("KoHo-Light".into()), &mut FONT.clone()).unwrap();
+    app.add_font(FontId::ExternalFont("KoHo-Light".into()), FONT).unwrap();
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
     let window = Window::new(WindowCreateOptions::default(), css).unwrap();
     app.run(window).unwrap();
