@@ -180,7 +180,9 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
             },
             Attribute((_, key), value) => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    last.attributes.insert(key.to_str().to_string().to_lowercase(), value.to_str().to_string().to_lowercase());
+                    let lowercase_key = key.to_str().to_string().to_lowercase();
+                    let lowercase_value = value.to_str().to_string().to_lowercase();
+                    last.attributes.insert(lowercase_key, lowercase_value);
                 }
             },
             Text(t) => {
@@ -275,9 +277,10 @@ pub struct XmlComponentMap<T: Layout> {
 
 impl<T: Layout> Default for XmlComponentMap<T> {
     fn default() -> Self {
-        Self {
-            components: BTreeMap::new(),
-        }
+        let mut map = Self { components: BTreeMap::new() };
+        map.register_component("div", Box::new(DivRenderer { }));
+        map.register_component("p", Box::new(TextRenderer { }));
+        map
     }
 }
 
@@ -353,7 +356,11 @@ fn expand_component(node: XmlNode, component_map: &BTreeMap<&String, &Vec<XmlNod
     }
 }
 
-pub(crate) fn render_dom_from_app_node<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+pub(crate) fn render_dom_from_app_node<T: Layout>(
+    app_node: &XmlNode,
+    component_map: &XmlComponentMap<T>
+) -> Result<Dom<T>, XmlParseError> {
+
     // Don't actually render the <app></app> node itself
     let mut dom = Dom::div();
     for child_node in &app_node.children {
@@ -363,7 +370,12 @@ pub(crate) fn render_dom_from_app_node<T: Layout>(app_node: &XmlNode, component_
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error
-fn render_dom_from_app_node_inner<T: Layout>(xml_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+fn render_dom_from_app_node_inner<T: Layout>(
+    xml_node: &XmlNode,
+    component_map: &XmlComponentMap<T>
+) -> Result<Dom<T>, XmlParseError> {
+
+    use dom::TabIndex;
 
     let self_node_renderer = component_map.components.get(&xml_node.node_type)
         .ok_or(XmlParseError::UnknownComponent(xml_node.node_type.clone()))?;
@@ -371,9 +383,78 @@ fn render_dom_from_app_node_inner<T: Layout>(xml_node: &XmlNode, component_map: 
     let mut dom = self_node_renderer.render_dom(&xml_node.attributes, &xml_node.text)
         .map_err(|e| XmlParseError::RenderDomError(xml_node.node_type.clone(), e))?;
 
+    if let Some(ids) = xml_node.attributes.get("id") {
+        for id in ids.split_whitespace() {
+            dom.add_id(id);
+        }
+    }
+
+    if let Some(classes) = xml_node.attributes.get("class") {
+        for class in classes.split_whitespace() {
+            dom.add_class(class);
+        }
+    }
+
+    if let Some(drag) = xml_node.attributes.get("draggable") {
+        match drag.as_ref() {
+            "true" => dom.set_draggable(true),
+            "false" => dom.set_draggable(false),
+            _ => { },
+        }
+    }
+
+    if let Some(focusable) = xml_node.attributes.get("focusable") {
+        match focusable.as_ref() {
+            "true" => dom.set_tab_index(TabIndex::Auto),
+            "false" => dom.set_tab_index(TabIndex::Auto),
+            _ => { },
+        }
+    }
+
+    if let Some(tab_index) = xml_node.attributes.get("tabindex").and_then(|val| val.parse::<isize>().ok()) {
+        match tab_index {
+            0 => dom.set_tab_index(TabIndex::Auto),
+            i if i > 0 => dom.set_tab_index(TabIndex::OverrideInParent(i as usize)),
+            _ => dom.set_tab_index(TabIndex::NoKeyboardFocus),
+        }
+    }
+
     for child_node in &xml_node.children {
         dom.add_child(render_dom_from_app_node_inner(child_node, component_map)?);
     }
 
     Ok(dom)
+}
+
+/// Render for a `div` component
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DivRenderer { }
+
+impl<T: Layout> XmlComponent<T> for DivRenderer {
+
+    fn render_dom(&self, _: &XmlAttributeMap, _: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
+        Ok(Dom::div())
+    }
+
+    fn compile_to_rust_code(&self, _: &XmlAttributeMap, _: &XmlTextContent) -> Result<String, CompileError> {
+        Ok("Dom::div()".into())
+    }
+}
+
+/// Render for a `p` component
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TextRenderer { }
+
+impl<T: Layout> XmlComponent<T> for TextRenderer {
+
+    fn render_dom(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
+        Ok(Dom::label(content.clone().unwrap_or_default()))
+    }
+
+    fn compile_to_rust_code(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<String, CompileError> {
+        Ok(match content {
+            Some(s) => format!("Dom::label(\"{}\")", s.trim()),
+            None => format!("Dom::label(\"\")"),
+        })
+    }
 }

@@ -1,0 +1,48 @@
+* {
+    color: white;
+    background-color: #222;
+    font-size: 16px;
+}
+
+#start_screen {
+    flex-direction: row;
+}
+
+#new_project_btn {
+    background-color: blue;
+    color: white;
+    border-radius: 4px;
+    background: linear-gradient(to right, #da4453, #89216b);
+    box-shadow: 0px 5px 10px black;
+    font-size: 30px;
+}
+
+#new_project_btn:hover {
+    background-color: green;
+}
+
+#new_project_btn:active {
+    background-color: red;
+}
+
+#project_btn_container {
+    flex-direction: row;
+    height: 70px;
+    padding: 10px;
+}
+
+#last_projects_column {
+    max-width: 300px;
+}
+
+#map_preview_container {
+    padding: 20px;
+}
+
+#map_preview {
+    background: linear-gradient(300deg, #03001e, #7303c0, #ec38bc, #fdeff9);
+}
+
+#last_projects_header {
+    line-height: 1.5;
+}
