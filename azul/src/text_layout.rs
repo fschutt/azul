@@ -755,7 +755,14 @@ fn words_to_left_aligned_glyphs<'a>(
 {
     let words = &words.items;
 
-    let FontMetrics { space_width, tab_width, vertical_advance, font_size_no_line_height, letter_spacing, .. } = *font_metrics;
+    let FontMetrics {
+        space_width,
+        tab_width,
+        vertical_advance,
+        font_size_no_line_height,
+        letter_spacing,
+        ..
+    } = *font_metrics;
 
     // left_aligned_glyphs stores the X and Y coordinates of the positioned glyphs
     let mut left_aligned_glyphs = Vec::<GlyphInstance>::new();
@@ -812,7 +819,12 @@ fn words_to_left_aligned_glyphs<'a>(
                     // vertical_advance is in px
                     let mut new_glyph = *glyph;
                     let push_x = word_caret;
-                    let push_y = (current_line_num + 1) as f32 * vertical_advance.0;
+                    let push_y = if current_line_num == 0 {
+                        // First line: don't add the line height
+                        font_size_no_line_height.0
+                    } else {
+                        (current_line_num + 1) as f32 * vertical_advance.0
+                    };
 
                     new_glyph.point.x += push_x;
                     new_glyph.point.y += push_y / PT_TO_PX; // note: new_glyph.point seems to be in pt, not px!
@@ -1024,7 +1036,7 @@ pub type RemainingSpaceToRight = f32;
 /// Returned result from the `layout_text` function
 #[derive(Debug, Clone)]
 pub struct LayoutTextResult {
-    /// The words, broken into
+    /// The words, broken up by whitespace
     pub words: Words,
     /// Left-aligned glyphs
     pub layouted_glyphs: Vec<GlyphInstance>,
