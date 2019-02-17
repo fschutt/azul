@@ -35,7 +35,8 @@ use {
     FastHashMap,
     prelude::GlyphInstance,
     dom::Texture,
-    window::ReadOnlyWindow,
+    window::FakeWindow,
+    traits::Layout,
     app_resources::AppResources,
     text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
 };
@@ -2043,14 +2044,16 @@ impl Svg {
     /// The final texture will be width * height large. Note that width and height
     /// need to be multiplied with the current `HiDPI` factor, otherwise the texture
     /// will be blurry on HiDPI screens. This isn't done automatically.
-    pub fn render_svg(
+    pub fn render_svg<T: Layout>(
         &self,
         svg_cache: &SvgCache,
-        window: &ReadOnlyWindow,
+        window: &FakeWindow<T>,
         width: usize,
-        height: usize)
-    -> Texture
+        height: usize
+    ) -> Texture
     {
+        let read_only_window = window.read_only_window();
+
         let texture_width = (width as f32 * self.multisampling_factor) as u32;
         let texture_height = (height as f32 * self.multisampling_factor) as u32;
 
@@ -2064,7 +2067,7 @@ impl Svg {
         let z_index: f32 = 0.5;
         // let bbox_size = TypedSize2D::new(window_width as f32, window_height as f32);
         let bbox_size = TypedSize2D::new(texture_width as f32, texture_height as f32);
-        let shader = svg_cache.init_shader(window);
+        let shader = svg_cache.init_shader(&read_only_window);
 
         let hidpi = window.get_hidpi_factor() as f32;
         let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom };
@@ -2075,7 +2078,7 @@ impl Svg {
             .. Default::default()
         };
 
-        let tex = window.create_texture(texture_width, texture_height);
+        let tex = read_only_window.create_texture(texture_width, texture_height);
 
         {
 
@@ -2090,19 +2093,19 @@ impl Svg {
             };
 
             let fill_vi = match &layer {
-                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(window, layer_id),
+                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(&read_only_window, layer_id),
                 SvgLayerResource::Direct(d) => d.fill.as_ref().and_then(|f| {
-                    let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
-                    let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
+                    let vertex_buffer = VertexBuffer::new(&read_only_window, &f.vertices).unwrap();
+                    let index_buffer = IndexBuffer::new(&read_only_window, PrimitiveType::TrianglesList, &f.indices).unwrap();
                     Some(Rc::new((vertex_buffer, index_buffer)))
                 }),
             };
 
             let stroke_vi = match &layer {
-                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(window, layer_id),
+                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&read_only_window, layer_id),
                 SvgLayerResource::Direct(d) => d.stroke.as_ref().and_then(|f| {
-                    let vertex_buffer = VertexBuffer::new(window, &f.vertices).unwrap();
-                    let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, &f.indices).unwrap();
+                    let vertex_buffer = VertexBuffer::new(&read_only_window, &f.vertices).unwrap();
+                    let index_buffer = IndexBuffer::new(&read_only_window, PrimitiveType::TrianglesList, &f.indices).unwrap();
                     Some(Rc::new((vertex_buffer, index_buffer)))
                 }),
             };

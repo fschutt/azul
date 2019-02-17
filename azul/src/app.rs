@@ -27,8 +27,6 @@ use rusttype::Font;
 use image::ImageError;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
-#[cfg(feature = "image_loading")]
-use images::ImageType;
 use azul_css::{FontId, PixelValue, StyleLetterSpacing};
 use {
     error::{FontError, ClipboardError},
