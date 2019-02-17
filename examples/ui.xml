@@ -1,7 +1,7 @@
 <component name='start-screen'>
     <div id='start_screen'>
         <div id='last_projects_column'>
-             <p id='last_projects_header'>LAST PROJECTS</p>
+             <p id='last_projects_header'>You can hot-reload this UI, see /examples/ui.xml</p>
              <div id='project_btn_container'>
                 <p id='new_project_btn' onleftmouseup='menu_new_project'>+</p>
                 <p id='open_project_btn' onleftmouseup='menu_open_project'>Open project</p>
@@ -22,6 +22,7 @@
     <div id='start_screen_wrapper'>
         <start-screen />
     </div>
+<!--
     <calendar
         selectedDate='01.01.2018'
         minimumDate='01.01.1970'
@@ -38,4 +39,5 @@
             <textinput placeholder='Type here...' />
         </section>
     </form>
+-->
 </app>

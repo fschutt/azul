@@ -593,6 +593,9 @@ pub enum TabIndex {
     OverrideInParent(usize),
     /// Set the global tabindex order, independe
     Global(usize),
+    /// Elements can be focused in callbacks, but are not accessible via
+    /// keyboard / tab navigation
+    NoKeyboardFocus,
 }
 
 impl Default for TabIndex {
@@ -1042,7 +1045,7 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
-        self.add_tab_index(tab_index);
+        self.set_tab_index(tab_index);
         self
     }
 
@@ -1073,13 +1076,13 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn add_tab_index(&mut self, tab_index: TabIndex) {
-        self.arena.node_data[self.head].tab_index = Some(tab_index);
+    pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: CssProperty) {
+        self.arena.node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: CssProperty) {
-        self.arena.node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
+    pub fn set_tab_index(&mut self, tab_index: TabIndex) {
+        self.arena.node_data[self.head].tab_index = Some(tab_index);
     }
 
     #[inline]
