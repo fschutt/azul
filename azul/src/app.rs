@@ -252,6 +252,7 @@ impl<T: Layout> App<T> {
 
         use std::{thread, time::{Duration, Instant}};
         use dom::Redraw;
+        use self::RuntimeError::*;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
@@ -261,15 +262,9 @@ impl<T: Layout> App<T> {
             }
             ui_state_map
         };
-        let mut ui_description_cache = self.windows.keys().map(|window_id| {
-            (*window_id, UiDescription::default())
-        }).collect();
-        let mut force_redraw_cache = self.windows.keys().map(|window_id| {
-            (*window_id, 2)
-        }).collect();
-        let mut awakened_task = self.windows.keys().map(|window_id| {
-            (*window_id, false)
-        }).collect();
+        let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect();
+        let mut force_redraw_cache = self.windows.keys().map(|window_id| (*window_id, 2)).collect();
+        let mut awakened_task = self.windows.keys().map(|window_id| (*window_id, false)).collect();
 
         #[cfg(debug_assertions)]
         let mut last_style_reload = Instant::now();
@@ -300,7 +295,6 @@ impl<T: Layout> App<T> {
                 if window_was_closed {
                     closed_windows.push(*window_id);
                 }
-
             }
 
             #[cfg(debug_assertions)] {
@@ -317,13 +311,18 @@ impl<T: Layout> App<T> {
 
             let should_redraw_daemons = self.app_state.run_all_daemons();
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
+            let should_redraw_daemons_or_tasks = [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
 
-            if [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == Redraw) {
+            if should_redraw_daemons_or_tasks {
                 self.windows.iter().for_each(|(_, window)| window.events_loop.create_proxy().wakeup().unwrap_or(()));
                 awakened_task = self.windows.keys().map(|window_id| {
                     (*window_id, true)
                 }).collect();
-            } else if !frame_was_resize {
+                for window_id in self.windows.keys() {
+                    *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
+                }
+            }
+            if !frame_was_resize {
                 // Wait until 16ms have passed, but not during a resize event
                 let diff = time_start.elapsed();
                 const FRAME_TIME: Duration = Duration::from_millis(16);
@@ -362,11 +361,17 @@ fn render_single_window_content<T: Layout>(
 {
     use dom::Redraw;
     use self::RuntimeError::*;
+    use glium::glutin::WindowEvent;
 
     let mut frame_was_resize = false;
-
     let mut events = Vec::new();
-    window.events_loop.poll_events(|e| events.push(e));
+
+    window.events_loop.poll_events(|e| match e {
+        // Filter out all events that are uninteresting or unnecessary
+        Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
+        _ => { events.push(e); },
+    });
+
     if events.is_empty() {
         let window_should_close = false;
         return Ok((frame_was_resize, window_should_close));
@@ -413,18 +418,6 @@ fn render_single_window_content<T: Layout>(
     // Scroll for the scrolled amount for each node that registered a scroll state.
     render_on_scroll(window, hit_test_results, &frame_event_info);
 
-    if frame_event_info.should_swap_window || frame_event_info.is_resize_event || force_redraw_cache[window_id] > 0 {
-        if frame_event_info.is_resize_event || force_redraw_cache[window_id] == 1 {
-            window.display.swap_buffers()?;
-        }
-        if let Some(i) = force_redraw_cache.get_mut(window_id) {
-            if *i > 0 { *i -= 1 };
-            if *i == 1 {
-                clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
-            }
-        }
-    }
-
     if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
         // This is a hack because during a resize event, winit eats the "awakened"
         // event. So what we do is that we call the layout-and-render again, to
@@ -436,14 +429,7 @@ fn render_single_window_content<T: Layout>(
         frame_was_resize = true;
     }
 
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    {
+    #[cfg(target_os = "linux")] {
         if frame_event_info.is_resize_event {
             // Resize gl window
             let gl_window = window.display.gl_window();
@@ -460,36 +446,55 @@ fn render_single_window_content<T: Layout>(
     // Reset the scroll amount to 0 (for the next frame)
     window.clear_scroll_state();
 
-    if frame_event_info.should_redraw_window || force_redraw_cache[window_id] > 0 {
+    // Call the Layout::layout() fn, get the DOM
+    *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
+        UiState::from_app_state(app_state, window_id)?;
 
-        // Call the Layout::layout() fn, get the DOM
-        *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-            UiState::from_app_state(app_state, window_id)?;
+    // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
+    let is_mouse_down = window.state.mouse_state.mouse_down();
 
-        // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
-        let is_mouse_down = window.state.mouse_state.mouse_down();
-
-        *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-            UiDescription::match_css_to_dom(
-                ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
-                &window.css,
-                &mut window.state.focused_node,
-                &mut window.state.pending_focus_target,
-                &window.state.hovered_nodes,
-                is_mouse_down,
-            );
-
-        // Render the window (webrender will send an Awakened event when the frame is done)
-        let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
-        render(
-            &mut app_state.data,
-            &ui_description_cache[window_id],
-            &ui_state_cache[window_id],
-            &mut *window,
-            &mut fake_window,
-            &mut app_state.resources,
+    *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
+        UiDescription::match_css_to_dom(
+            ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
+            &window.css,
+            &mut window.state.focused_node,
+            &mut window.state.pending_focus_target,
+            &window.state.hovered_nodes,
+            is_mouse_down,
         );
 
+    // Render the window (webrender will send an Awakened event when the frame is done)
+    let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
+    render(
+        &mut app_state.data,
+        &ui_description_cache[window_id],
+        &ui_state_cache[window_id],
+        &mut *window,
+        &mut fake_window,
+        &mut app_state.resources,
+    );
+
+    // NOTE: render() blocks on rendering, so swapping the buffer has to happen after rendering!
+    if frame_event_info.should_redraw_window || frame_event_info.is_resize_event || awakened_task[window_id] || force_redraw_cache[window_id] > 0 {
+        if frame_event_info.should_redraw_window || frame_event_info.is_resize_event || awakened_task[window_id] || force_redraw_cache[window_id] == 1 {
+            window.display.swap_buffers()?;
+            // The initial setup can lead to flickering / flasthing during startup, this
+            // prevents flickering on startup
+            if window.create_options.state.is_visible && window.state.is_visible {
+                window.display.gl_window().window().show();
+                window.state.is_visible = true;
+                window.create_options.state.is_visible = false;
+            }
+        }
+        if let Some(i) = force_redraw_cache.get_mut(window_id) {
+            if *i > 0 { *i -= 1 };
+            if *i == 1 {
+                clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
+            }
+        }
+    }
+
+    if force_redraw_cache[window_id] == 1 || frame_event_info.is_resize_event || awakened_task[window_id] {
         *awakened_task.get_mut(window_id).ok_or(WindowIndexError)? = false;
     }
 
