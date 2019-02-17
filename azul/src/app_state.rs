@@ -5,8 +5,6 @@ use std::{
 };
 #[cfg(feature = "image_loading")]
 use image::ImageError;
-#[cfg(feature = "image_loading")]
-use images::ImageType;
 use rusttype::Font;
 use azul_css::{FontId, PixelValue, StyleLetterSpacing};
 use webrender::api::ImageFormat as RawImageFormat;

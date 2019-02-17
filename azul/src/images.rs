@@ -7,8 +7,7 @@ use webrender::api::{
 };
 #[cfg(feature = "image_loading")]
 use image::{
-    self, ImageResult, ImageFormat,
-    ImageError, DynamicImage, GenericImageView,
+    self, ImageError, DynamicImage, GenericImageView,
 };
 
 static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -31,23 +30,6 @@ impl ImageId {
     }
 }
 
-/*
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum ImageType {
-    Bmp,
-    Gif,
-    Hdr,
-    Ico,
-    Jpeg,
-    Png,
-    Pnm,
-    Tga,
-    Tiff,
-    WebP,
-    /// Try to guess the image format, unknown data
-    GuessImageFormat,
-}
-*/
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ImageInfo {
     pub(crate) key: ImageKey,
@@ -75,31 +57,6 @@ impl ImageState {
         }
     }
 }
-
-/*
-impl ImageType {
-
-    #[cfg(feature = "image_loading")]
-    pub(crate) fn into_image_format(&self, data: &[u8]) -> ImageResult<ImageFormat> {
-        use self::ImageType::*;
-        match *self {
-            Bmp => Ok(ImageFormat::BMP),
-            Gif => Ok(ImageFormat::GIF),
-            Hdr => Ok(ImageFormat::HDR),
-            Ico => Ok(ImageFormat::ICO),
-            Jpeg => Ok(ImageFormat::JPEG),
-            Png => Ok(ImageFormat::PNG),
-            Pnm => Ok(ImageFormat::PNM),
-            Tga => Ok(ImageFormat::TGA),
-            Tiff => Ok(ImageFormat::TIFF),
-            WebP => Ok(ImageFormat::WEBP),
-            GuessImageFormat => {
-                image::guess_format(data)
-            }
-        }
-    }
-}
-*/
 
 // The next three functions are taken from:
 // https://github.com/christolliday/limn/blob/master/core/src/resources/image.rs

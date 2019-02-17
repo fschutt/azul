@@ -6,12 +6,10 @@ use std::{
     io::Error as IoError,
     collections::hash_map::Entry::*,
 };
-use webrender::api::{FontKey, FontInstanceKey};
+use webrender::api::{FontKey, ImageData, ImageDescriptor, FontInstanceKey};
 pub use webrender::api::ImageFormat as RawImageFormat;
 #[cfg(feature = "image_loading")]
-use image::{self, ImageError};
-#[cfg(feature = "image_loading")]
-use images::ImageType;
+use image::ImageError;
 use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
@@ -155,7 +153,7 @@ impl AppResources {
         match self.images.entry(id) {
             Occupied(_) => Ok(()),
             Vacant(v) => {
-                v.insert(decode_image_data(data)?);
+                v.insert(ImageState::ReadyForUpload(decode_image_data(data)?));
                 Ok(())
             },
         }
@@ -170,7 +168,6 @@ impl AppResources {
     pub fn add_image_raw(&mut self, image_id: ImageId, pixels: Vec<u8>, image_dimensions: (u32, u32), data_format: RawImageFormat) -> Option<()> {
 
         use images; // the module, not the crate!
-        use webrender::api::{ImageData, ImageDescriptor};
 
         match self.images.entry(image_id) {
             Occupied(_) => None,
@@ -398,7 +395,7 @@ fn decode_image_data<I: Into<Vec<u8>>>(image_data: I)
     use images; // the module
 
     let image_data = image_data.into();
-    let image_format = image_type.into_image_format(&image_data)?;
-    let decoded = image::load_from_memory_with_format(&image_data, image::guess_format(data)?)?;
-    Ok(ImageState::ReadyForUpload(images::prepare_image(decoded)?))
+    let image_format = image::guess_format(&image_data)?;
+    let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
+    Ok(images::prepare_image(decoded)?)
 }

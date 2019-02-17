@@ -72,7 +72,7 @@ fn render_map(map: &mut Map, info: LayoutInfo<MyAppData>, dimensions: HidpiAdjus
          Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
             .with_pan(map.pan_horz as f32, map.pan_vert as f32)
             .with_zoom(map.zoom as f32)
-            .render_svg(&map.cache, &info.window.read_only_window(),
+            .render_svg(&map.cache, &info.window,
                         dimensions.physical_size.width as usize,
                         dimensions.physical_size.height  as usize
             )
