@@ -127,7 +127,11 @@ impl<T> Daemon<T> {
         }
 
         if let Some(interval) = self.interval {
-            if instant_now - (self.last_run.unwrap_or(instant_now) + delay) < interval {
+            let last_run = match self.last_run {
+                Some(s) => s,
+                None => self.created + delay,
+            };
+            if instant_now - last_run < interval {
                 return (DontRedraw, TerminateDaemon::Continue);
             }
         }

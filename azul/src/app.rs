@@ -314,6 +314,7 @@ impl<T: Layout> App<T> {
             let should_redraw_daemons_or_tasks = [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
 
             if should_redraw_daemons_or_tasks {
+                println!("should redraw daemons!!!");
                 self.windows.iter().for_each(|(_, window)| window.events_loop.create_proxy().wakeup().unwrap_or(()));
                 awakened_task = self.windows.keys().map(|window_id| {
                     (*window_id, true)
@@ -322,6 +323,7 @@ impl<T: Layout> App<T> {
                     *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
                 }
             }
+
             if !frame_was_resize {
                 // Wait until 16ms have passed, but not during a resize event
                 let diff = time_start.elapsed();
