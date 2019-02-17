@@ -1060,6 +1060,32 @@ pub struct TextLayoutOptions {
     pub vert_alignment: StyleTextAlignmentVert,
 }
 
+impl LayoutTextResult {
+
+    /// Returns the index of what character was hit by the x and y coordinates.
+    ///
+    /// The x and y values have to be relative to the top left corner of the
+    /// LayoutTextResult and must be axis aligned (i.e no rotation or anything
+    /// is calculated, assumed that the text is a regular, horizontal text string
+    /// without any rotation).
+    pub fn get_hit_glyph_idx(&self, x: f32, y: f32) -> Option<usize> {
+        use webrender::api::{LayoutSize, LayoutRect, LayoutPoint};
+        let font_size_no_line_height = self.font_metrics.font_size_no_line_height;
+
+        // NOTE: This is shit, will not fire for the last character of
+        // the string
+        self.layouted_glyphs.iter().zip(self.layouted_glyphs.iter().skip(1))
+        .position(|(glyph, next_glyph)| {
+            let x_diff = next_glyph.point - glyph.point;
+            let rect = LayoutRect::new(
+                glyph.point,
+                LayoutSize::new(x_diff.x, font_size_no_line_height.0)
+            );
+            rect.contains(&LayoutPoint::new(x, y))
+        })
+    }
+}
+
 /// Layout a string of text horizontally, given a font with its metrics.
 pub fn layout_text<'a>(
     text: &str,
