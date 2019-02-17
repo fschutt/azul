@@ -125,7 +125,7 @@ impl fmt::Display for XmlParseError {
 /// ```rust
 /// # use azul::xml::{XmlNode, parse_xml};
 /// assert_eq!(
-///     parse_xml("<app><p /><div id='thing' /></app>").unwrap(),
+///     parse_xml_string("<app><p /><div id='thing' /></app>").unwrap(),
 ///     vec![
 ///          XmlNode::new("app").with_children(vec![
 ///             XmlNode::new("p"),
