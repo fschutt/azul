@@ -73,14 +73,14 @@ impl_callback!(DaemonCallback<T>);
 impl<T> Daemon<T> {
 
     /// Create a new daemon
-    pub fn new(callback: DaemonCallback<T>,) -> Self {
+    pub fn new(callback: DaemonCallbackType<T>,) -> Self {
         Daemon {
             created: Instant::now(),
             last_run: None,
             delay: None,
             interval: None,
             timeout: None,
-            callback,
+            callback: DaemonCallback(callback),
         }
     }
 
