@@ -2,7 +2,7 @@
 
 use std::{fmt, collections::BTreeMap};
 use {
-    dom::{Dom, Callback},
+    dom::Dom,
     traits::Layout,
 };
 use xmlparser::Tokenizer;
@@ -24,19 +24,19 @@ pub type XmlAttributeKey = String;
 /// Value of an attribute, such as the "blue" in `<button color="blue">Hello</button>`.
 pub type XmlAttributeValue = String;
 
-/// Trait that has to be implemented by all types
+/// Specifies a component that reacts to a parsed XML tree and a list of XML components
 pub trait XmlComponent<T: Layout> {
     /// Given a root node and a component map, returns a DOM or a syntax error
-    fn render_dom(&self, node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, SyntaxError>;
+    fn render_dom(&self, node: &XmlNode) -> Result<Dom<T>, SyntaxError>;
     /// Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(&self, node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError>;
+    fn compile_to_rust_code(&self, node: &XmlNode) -> Result<String, CompileError>;
 }
 
 /// Represents one XML node tag
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct XmlNode {
     /// Type of the node
-    pub tag_name: XmlTagName,
+    pub node_type: XmlTagName,
     /// Attributes of an XML node
     pub attributes: BTreeMap<XmlAttributeKey, XmlAttributeValue>,
     /// Direct children of this node
@@ -47,14 +47,14 @@ pub struct XmlNode {
 
 impl XmlNode {
 
-    pub fn new(tag_name: &str) -> Self {
+    pub fn new<S: Into<String>>(node_type: S) -> Self {
         Self {
-            tag_name: tag_name.into(),
+            node_type: node_type.into(),
             .. Default::default()
         }
     }
 
-    pub fn with_attribute(mut self, key: &str, value: &str) -> Self {
+    pub fn with_attribute<S: Into<String>>(mut self, key: S, value: S) -> Self {
         self.attributes.insert(key.into(), value.into());
         self
     }
@@ -63,16 +63,10 @@ impl XmlNode {
         self.children = children;
         self
     }
-}
 
-pub struct XmlComponentMap<T: Layout> {
-    components: BTreeMap<String, Box<XmlComponent<T>>>,
-    callbacks: BTreeMap<String, Callback<T>>,
-}
-
-impl<T: Layout> XmlComponentMap<T> {
-    pub fn register_callback<S: Into<String>>(&mut self, id: S, callback: Callback<T>) {
-        self.callbacks.insert(id.into(), callback);
+    pub fn with_text<S: Into<String>>(mut self, text: S) -> Self {
+        self.text = Some(text.into());
+        self
     }
 }
 
@@ -81,6 +75,9 @@ pub enum XmlParseError {
     NoRootComponent,
     /// The DOM can only have one root component, not multiple.
     MultipleRootComponents,
+    /// A `<component>` node does not have a `name` attribute.
+    ComponentWithoutName,
+    UnknownComponent(String),
     /// **Note**: Sadly, the error type can only be a string because xmlparser
     /// returns all errors as strings. There is an open PR to fix
     /// this deficiency, but since the XML parsing is only needed for
@@ -103,6 +100,8 @@ impl fmt::Display for XmlParseError {
             MultipleRootComponents => write!(f, "Multiple <app/> components present, only one root node is allowed"),
             ParseError(e) => write!(f, "XML parsing error: {}", e),
             MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got, expected),
+            ComponentWithoutName => write!(f, "Found <component/> tag with out a \"name\" attribute, component must have a name"),
+            UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name)
         }
     }
 }
@@ -152,7 +151,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
                     let children_len = current_parent.children.len();
                     current_parent.children.push(XmlNode {
-                        tag_name: open_value.to_str().into(),
+                        node_type: open_value.to_str().to_string().to_lowercase(),
                         attributes: BTreeMap::new(),
                         children: Vec::new(),
                         text: None,
@@ -164,17 +163,17 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
                 current_hierarchy.pop();
             },
             ElementEnd(Close(_, close_value)) => {
-                let close_value = close_value.to_str();
+                let close_value = close_value.to_str().to_string().to_lowercase();
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    if last.tag_name != close_value {
-                        return Err(MalformedHierarchy(close_value.into(), last.tag_name.clone()));
+                    if last.node_type != close_value {
+                        return Err(MalformedHierarchy(close_value, last.node_type.clone()));
                     }
                 }
                 current_hierarchy.pop();
             },
             Attribute((_, key), value) => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    last.attributes.insert(key.to_str().into(), value.to_str().into());
+                    last.attributes.insert(key.to_str().to_string().to_lowercase(), value.to_str().to_string().to_lowercase());
                 }
             },
             Text(t) => {
@@ -246,20 +245,97 @@ fn test_xml_get_item() {
         XmlNode::new("j"),
     ]);
 
-    assert_eq!(&get_item(&[], &mut tree).unwrap().tag_name, "component");
-    assert_eq!(&get_item(&[0], &mut tree).unwrap().tag_name, "a");
-    assert_eq!(&get_item(&[0, 0], &mut tree).unwrap().tag_name, "b");
-    assert_eq!(&get_item(&[0, 1], &mut tree).unwrap().tag_name, "c");
-    assert_eq!(&get_item(&[0, 2], &mut tree).unwrap().tag_name, "d");
-    assert_eq!(&get_item(&[0, 3], &mut tree).unwrap().tag_name, "e");
-    assert_eq!(&get_item(&[1], &mut tree).unwrap().tag_name, "f");
-    assert_eq!(&get_item(&[1, 0], &mut tree).unwrap().tag_name, "g");
-    assert_eq!(&get_item(&[1, 0, 0], &mut tree).unwrap().tag_name, "h");
-    assert_eq!(&get_item(&[1, 1], &mut tree).unwrap().tag_name, "i");
-    assert_eq!(&get_item(&[2], &mut tree).unwrap().tag_name, "j");
+    assert_eq!(&get_item(&[], &mut tree).unwrap().node_type, "component");
+    assert_eq!(&get_item(&[0], &mut tree).unwrap().node_type, "a");
+    assert_eq!(&get_item(&[0, 0], &mut tree).unwrap().node_type, "b");
+    assert_eq!(&get_item(&[0, 1], &mut tree).unwrap().node_type, "c");
+    assert_eq!(&get_item(&[0, 2], &mut tree).unwrap().node_type, "d");
+    assert_eq!(&get_item(&[0, 3], &mut tree).unwrap().node_type, "e");
+    assert_eq!(&get_item(&[1], &mut tree).unwrap().node_type, "f");
+    assert_eq!(&get_item(&[1, 0], &mut tree).unwrap().node_type, "g");
+    assert_eq!(&get_item(&[1, 0, 0], &mut tree).unwrap().node_type, "h");
+    assert_eq!(&get_item(&[1, 1], &mut tree).unwrap().node_type, "i");
+    assert_eq!(&get_item(&[2], &mut tree).unwrap().node_type, "j");
 
     assert_eq!(get_item(&[123213], &mut tree), None);
     assert_eq!(get_item(&[0, 1, 2], &mut tree), None);
+}
+
+/// Holds all XML components - builtin components
+pub struct XmlComponentMap<T: Layout> {
+    components: BTreeMap<String, Box<XmlComponent<T>>>,
+}
+
+impl<T: Layout> XmlComponentMap<T> {
+    pub fn register_component<S: Into<String>>(&mut self, id: S, component: Box<XmlComponent<T>>) {
+        self.components.insert(id.into(), component);
+    }
+}
+
+/// Expands / instantiates all XML `<component />`s in the `<app />`
+pub fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
+
+    // Find the root <app /> node
+    let mut root_node: XmlNode = get_app_node(root_nodes)?;
+    let component_map = get_xml_components(root_nodes)?;
+
+    if component_map.is_empty() {
+        return Ok(root_node);
+    }
+
+    // Search all nodes of the app, expand them to the proper component
+    for child in &mut root_node.children {
+        *child = expand_component(child.clone(), &component_map);
+    }
+
+    Ok(root_node)
+}
+
+/// Find the one and only <app /> node, return error if
+/// there is no app node or there are multiple app nodes
+fn get_app_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
+    let app_node: Vec<&XmlNode> = root_nodes.iter().filter(|node| &node.node_type == "app").collect();
+    match app_node.len() {
+        0 => return Err(XmlParseError::NoRootComponent),
+        1 => Ok(app_node[0].clone()),
+        _ => return Err(XmlParseError::MultipleRootComponents),
+    }
+}
+
+/// Filter all <component /> nodes, error when a component doesn't have a name attribute
+fn get_xml_components(root_nodes: &[XmlNode]) -> Result<BTreeMap<&String, &Vec<XmlNode>>, XmlParseError> {
+    root_nodes
+    .iter()
+    .filter(|node| &node.node_type == "component")
+    .map(|component| {
+        match component.attributes.get("name") {
+            None => Err(XmlParseError::ComponentWithoutName),
+            Some(s) => Ok((s, &component.children)),
+        }
+    })
+    .collect()
+}
+
+/// Expands the node to a
+fn expand_component(node: XmlNode, component_map: &BTreeMap<&String, &Vec<XmlNode>>) -> XmlNode {
+    match component_map.get(&node.node_type) {
+        Some(s) => {
+            // Turn the node to a div node with the original nodes attributes,
+            // replace the children by the components children
+            XmlNode {
+                node_type: "div".into(),
+                attributes: node.attributes.clone(),
+                children: s.iter().map(|node| expand_component(node.clone(), component_map)).collect(),
+                text: node.text,
+            }
+        },
+        None => {
+            XmlNode {
+                children: node.children.iter().map(|n| expand_component(n.clone(), component_map)).collect(),
+                .. node
+            }
+        },
+    }
 }
 
 /*
