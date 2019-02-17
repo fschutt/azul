@@ -24,12 +24,15 @@ pub type XmlAttributeKey = String;
 /// Value of an attribute, such as the "blue" in `<button color="blue">Hello</button>`.
 pub type XmlAttributeValue = String;
 
+pub type XmlAttributeMap = BTreeMap<XmlAttributeKey, XmlAttributeValue>;
+pub type XmlTextContent = Option<String>;
+
 /// Specifies a component that reacts to a parsed XML tree and a list of XML components
 pub trait XmlComponent<T: Layout> {
     /// Given a root node and a component map, returns a DOM or a syntax error
-    fn render_dom(&self, node: &XmlNode) -> Result<Dom<T>, SyntaxError>;
+    fn render_dom(&self, attributes: &XmlAttributeMap, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError>;
     /// Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(&self, node: &XmlNode) -> Result<String, CompileError>;
+    fn compile_to_rust_code(&self, attributes: &XmlAttributeMap, content: &XmlTextContent) -> Result<String, CompileError>;
 }
 
 /// Represents one XML node tag
@@ -38,11 +41,11 @@ pub struct XmlNode {
     /// Type of the node
     pub node_type: XmlTagName,
     /// Attributes of an XML node
-    pub attributes: BTreeMap<XmlAttributeKey, XmlAttributeValue>,
+    pub attributes: XmlAttributeMap,
     /// Direct children of this node
     pub children: Vec<XmlNode>,
     /// String content of the node, i.e the "Hello" in `<p>Hello</p>`
-    pub text: Option<String>,
+    pub text: XmlTextContent,
 }
 
 impl XmlNode {
@@ -85,7 +88,10 @@ pub enum XmlParseError {
     ParseError(XmlError),
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
     MalformedHierarchy(String, String),
+    /// A component raised an error while rendering the DOM - holds the component name + error string
+    RenderDomError(String, String),
 }
+
 impl fmt::Debug for XmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
@@ -101,7 +107,8 @@ impl fmt::Display for XmlParseError {
             ParseError(e) => write!(f, "XML parsing error: {}", e),
             MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got, expected),
             ComponentWithoutName => write!(f, "Found <component/> tag with out a \"name\" attribute, component must have a name"),
-            UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name)
+            UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name),
+            RenderDomError(name, e) => write!(f, "Component \"{}\" raised an error while rendering DOM: \"{}\"", name, e),
         }
     }
 }
@@ -266,6 +273,14 @@ pub struct XmlComponentMap<T: Layout> {
     components: BTreeMap<String, Box<XmlComponent<T>>>,
 }
 
+impl<T: Layout> Default for XmlComponentMap<T> {
+    fn default() -> Self {
+        Self {
+            components: BTreeMap::new(),
+        }
+    }
+}
+
 impl<T: Layout> XmlComponentMap<T> {
     pub fn register_component<S: Into<String>>(&mut self, id: S, component: Box<XmlComponent<T>>) {
         self.components.insert(id.into(), component);
@@ -273,7 +288,7 @@ impl<T: Layout> XmlComponentMap<T> {
 }
 
 /// Expands / instantiates all XML `<component />`s in the `<app />`
-pub fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
+pub(crate) fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
 
     // Find the root <app /> node
     let mut root_node: XmlNode = get_app_node(root_nodes)?;
@@ -316,7 +331,7 @@ fn get_xml_components(root_nodes: &[XmlNode]) -> Result<BTreeMap<&String, &Vec<X
     .collect()
 }
 
-/// Expands the node to a
+/// Expands a single node during hot-reload to a DOM tree (warning: recursive!)
 fn expand_component(node: XmlNode, component_map: &BTreeMap<&String, &Vec<XmlNode>>) -> XmlNode {
     match component_map.get(&node.node_type) {
         Some(s) => {
@@ -338,11 +353,27 @@ fn expand_component(node: XmlNode, component_map: &BTreeMap<&String, &Vec<XmlNod
     }
 }
 
-/*
-pub fn dom_from_xml<T: Layout>(
-    xml: &str,
-    component_map: &XmlComponentMap<T>
-) -> Result<Dom<T>, XmlParseError> {
-
+pub(crate) fn render_dom_from_app_node<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+    // Don't actually render the <app></app> node itself
+    let mut dom = Dom::div();
+    for child_node in &app_node.children {
+        dom.add_child(render_dom_from_app_node_inner(child_node, component_map)?);
+    }
+    Ok(dom)
 }
-*/
+
+/// Takes a single (expanded) app node and renders the DOM or returns an error
+fn render_dom_from_app_node_inner<T: Layout>(xml_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+
+    let self_node_renderer = component_map.components.get(&xml_node.node_type)
+        .ok_or(XmlParseError::UnknownComponent(xml_node.node_type.clone()))?;
+
+    let mut dom = self_node_renderer.render_dom(&xml_node.attributes, &xml_node.text)
+        .map_err(|e| XmlParseError::RenderDomError(xml_node.node_type.clone(), e))?;
+
+    for child_node in &xml_node.children {
+        dom.add_child(render_dom_from_app_node_inner(child_node, component_map)?);
+    }
+
+    Ok(dom)
+}
