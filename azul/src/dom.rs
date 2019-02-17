@@ -1,6 +1,7 @@
 use std::{
     fmt,
     rc::Rc,
+    path::Path,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
@@ -20,6 +21,7 @@ use {
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
     text_layout::{Words, FontMetrics, TextSizePx},
+    xml::{XmlParseError, XmlComponentMap},
 };
 
 pub use id_tree::{NodeHierarchy, Node, NodeId};
@@ -849,6 +851,32 @@ impl<T: Layout> Dom<T> {
     #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
         Self::with_capacity(node_type, 0)
+    }
+
+    /// Parses and loads a DOM from an XML string
+    pub fn from_xml(xml: &str, component_map: &XmlComponentMap<T>) -> Result<Self, XmlParseError> {
+        use xml;
+        let parsed_xml = xml::parse_xml_string(xml)?;
+        let expanded_xml = xml::expand_xml_components(&parsed_xml)?;
+        xml::render_dom_from_app_node(&expanded_xml, component_map)
+    }
+
+    /// For hot-reloading only: Reloads a DOM from an XML file
+    ///
+    /// This function deliberately never fails: In an error case, the
+    /// error gets rendered as a `NodeType::Label`.
+    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &XmlComponentMap<T>) -> Self {
+        use std::fs;
+
+        let xml = match fs::read_to_string(file_path) {
+            Ok(xml) => xml,
+            Err(e) => return Dom::label(format!("{}", e)),
+        };
+
+        match Self::from_xml(&xml, component_map) {
+            Ok(o) => o,
+            Err(e) => Dom::label(format!("{}", e)),
+        }
     }
 
     /// Shorthand for `Dom::new(NodeType::Div)`.

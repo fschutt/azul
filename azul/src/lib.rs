@@ -223,7 +223,7 @@ pub mod prelude {
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
     pub use task::Task;
-
+    pub use xml::{XmlComponent, XmlComponentMap};
     #[cfg(any(feature = "css-parser", feature = "native-style"))]
     pub use css;
 
