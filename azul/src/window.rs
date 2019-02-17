@@ -664,6 +664,9 @@ pub struct Window<T: Layout> {
     pub(crate) id: WindowId,
     // TODO: technically, having one EventsLoop for all windows is sufficient
     pub(crate) events_loop: EventsLoop,
+    /// Stores the create_options: necessary because by default, the window is hidden
+    /// and only gets shown after the first redraw.
+    pub(crate) create_options: WindowCreateOptions<T>,
     /// Current state of the window, stores the keyboard / mouse state,
     /// visibility of the window, etc. of the LAST frame. The user never sets this
     /// field directly, but rather sets the WindowState he wants to have for the NEXT frame,
@@ -793,7 +796,7 @@ pub(crate) struct WindowInternal {
 impl<'a, T: Layout> Window<T> {
 
     /// Creates a new window
-    pub fn new(mut options: WindowCreateOptions<T>, mut css: Css) -> Result<Self, WindowCreateError> {
+    pub fn new(options: WindowCreateOptions<T>, mut css: Css) -> Result<Self, WindowCreateError> {
 
         use self::RendererType::*;
         use webrender::WrShaders;
@@ -812,14 +815,15 @@ impl<'a, T: Layout> Window<T> {
         #[cfg(not(target_os = "linux"))]
         let hidpi_factor = winit_hidpi_factor;
 
-        options.state.size.hidpi_factor = hidpi_factor;
-        options.state.size.winit_hidpi_factor = winit_hidpi_factor;
+        let mut state = options.state.clone();
+        state.size.hidpi_factor = hidpi_factor;
+        state.size.winit_hidpi_factor = winit_hidpi_factor;
 
         let mut window = WindowBuilder::new()
             .with_title(options.state.title.clone())
             .with_maximized(options.state.is_maximized)
             .with_decorations(options.state.has_decorations)
-            .with_visibility(options.state.is_visible)
+            .with_visibility(false)
             .with_transparency(options.state.is_transparent)
             .with_multitouch();
 /*
@@ -835,12 +839,12 @@ impl<'a, T: Layout> Window<T> {
         // TODO: Add all the extensions for X11 / Mac / Windows,
         // like setting the taskbar icon, setting the titlebar icon, etc.
 
-        if let Some(icon) = options.window_icon {
+        if let Some(icon) = options.window_icon.clone() {
             window = window.with_window_icon(Some(icon));
         }
 
         #[cfg(target_os = "windows")] {
-            if let Some(icon) = options.taskbar_icon {
+            if let Some(icon) = options.taskbar_icon.clone() {
                 use glium::glutin::os::windows::WindowBuilderExt;
                 window = window.with_taskbar_icon(Some(icon));
             }
@@ -992,7 +996,8 @@ impl<'a, T: Layout> Window<T> {
         let window = Window {
             id: new_window_id(),
             events_loop: events_loop,
-            state: options.state,
+            create_options: options,
+            state: state,
             renderer: Some(renderer),
             display: Rc::new(display),
             css,

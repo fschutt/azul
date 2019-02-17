@@ -1002,9 +1002,9 @@ pub(crate) fn window_should_close(event: &Event, frame_event_info: &mut FrameEve
                     frame_event_info.is_resize_event = true;
                     frame_event_info.should_redraw_window = true;
                 },
-                WindowEvent::Refresh => {
-                    frame_event_info.should_redraw_window = true;
-                },
+                // WindowEvent::Refresh => {
+                //     frame_event_info.should_redraw_window = true;
+                // },
                 WindowEvent::HiDpiFactorChanged(dpi) => {
                     frame_event_info.new_dpi_factor = Some(*dpi);
                     frame_event_info.should_redraw_window = true;

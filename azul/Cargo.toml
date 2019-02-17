@@ -126,3 +126,8 @@ required-features = []
 name = "xml"
 path = "../examples/xml.rs"
 required-features = []
+
+[[example]]
+name = "opengl"
+path = "../examples/opengl.rs"
+required-features = []
