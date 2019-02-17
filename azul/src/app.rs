@@ -265,7 +265,7 @@ impl<T: Layout> App<T> {
             (*window_id, UiDescription::default())
         }).collect();
         let mut force_redraw_cache = self.windows.keys().map(|window_id| {
-            (*window_id, 1)
+            (*window_id, 2)
         }).collect();
         let mut awakened_task = self.windows.keys().map(|window_id| {
             (*window_id, false)
@@ -414,10 +414,12 @@ fn render_single_window_content<T: Layout>(
     render_on_scroll(window, hit_test_results, &frame_event_info);
 
     if frame_event_info.should_swap_window || frame_event_info.is_resize_event || force_redraw_cache[window_id] > 0 {
-        window.display.swap_buffers()?;
+        if frame_event_info.is_resize_event || force_redraw_cache[window_id] == 1 {
+            window.display.swap_buffers()?;
+        }
         if let Some(i) = force_redraw_cache.get_mut(window_id) {
             if *i > 0 { *i -= 1 };
-            if *i == 0 {
+            if *i == 1 {
                 clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
             }
         }
