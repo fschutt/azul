@@ -92,8 +92,9 @@ impl TableViewState {
     pub fn render<T: Layout>(state: &mut TableViewState, _info: LayoutInfo<T>, dimensions: HidpiAdjustedBounds)
     -> Dom<T>
     {
-        let necessary_columns = (dimensions.logical_size.width as f32 / state.column_width).ceil() as usize;
-        let necessary_rows = (dimensions.logical_size.height as f32 / state.row_height).ceil() as usize;
+        let logical_size = dimensions.get_logical_size();
+        let necessary_columns = (logical_size.width as f32 / state.column_width).ceil() as usize;
+        let necessary_rows = (logical_size.height as f32 / state.row_height).ceil() as usize;
 
         // div.__azul-native-table-container
         //     |-> div.__azul-native-table-column (Column 0)

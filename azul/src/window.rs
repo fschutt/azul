@@ -1150,21 +1150,32 @@ impl<T: Layout> Drop for Window<T> {
 // width and height of their container to calculate their content
 #[derive(Debug, Copy, Clone)]
 pub struct HidpiAdjustedBounds {
-    pub logical_size: LogicalSize,
-    pub physical_size: PhysicalSize,
-    pub hidpi_factor: f64,
+    logical_size: LogicalSize,
+    hidpi_factor: f64,
+    winit_hidpi_factor: f64,
 }
 
 impl HidpiAdjustedBounds {
-    pub fn from_bounds(bounds: LayoutRect, hidpi_factor: f64) -> Self {
+    pub fn from_bounds(bounds: LayoutRect, hidpi_factor: f64, winit_hidpi_factor: f64) -> Self {
         let logical_size = LogicalSize::new(bounds.size.width as f64, bounds.size.height as f64);
-        let physical_size = logical_size.to_physical(hidpi_factor);
-
         Self {
             logical_size,
-            physical_size,
             hidpi_factor,
+            winit_hidpi_factor,
         }
+    }
+
+    pub fn get_physical_size(&self) -> PhysicalSize {
+        self.get_logical_size().to_physical(self.winit_hidpi_factor)
+    }
+
+    pub fn get_logical_size(&self) -> LogicalSize {
+        // NOTE: hidpi factor, not winit_hidpi_factor!
+        LogicalSize::new(self.logical_size.width * self.hidpi_factor, self.logical_size.height * self.hidpi_factor)
+    }
+
+    pub fn get_hidpi_factor(&self) -> f64 {
+        self.hidpi_factor
     }
 }
 
