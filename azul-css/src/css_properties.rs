@@ -271,6 +271,8 @@ pub enum CssPropertyType {
     FontFamily,
     TextAlign,
     LetterSpacing,
+    WordSpacing,
+    TabWidth,
     LineHeight,
     Cursor,
     Width,
@@ -407,6 +409,8 @@ pub enum CssProperty {
     LetterSpacing(StyleLetterSpacing),
     BoxShadow(StyleBoxShadow),
     LineHeight(StyleLineHeight),
+    WordSpacing(StyleWordSpacing),
+    TabWidth(StyleTabWidth),
     Cursor(StyleCursor),
     Width(LayoutWidth),
     Height(LayoutHeight),
@@ -445,6 +449,8 @@ impl CssProperty {
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
             CssProperty::TextAlign(_) => CssPropertyType::TextAlign,
             CssProperty::LetterSpacing(_) => CssPropertyType::LetterSpacing,
+            CssProperty::WordSpacing(_) => CssPropertyType::WordSpacing,
+            CssProperty::TabWidth(_) => CssPropertyType::TabWidth,
             CssProperty::BoxShadow(_) => CssPropertyType::BoxShadow,
             CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
             CssProperty::Cursor(_) => CssPropertyType::Cursor,
@@ -481,6 +487,8 @@ impl_from!(StyleFontSize, CssProperty::FontSize);
 impl_from!(StyleFontFamily, CssProperty::FontFamily);
 impl_from!(StyleTextAlignmentHorz, CssProperty::TextAlign);
 impl_from!(StyleLineHeight, CssProperty::LineHeight);
+impl_from!(StyleTabWidth, CssProperty::TabWidth);
+impl_from!(StyleWordSpacing, CssProperty::WordSpacing);
 impl_from!(StyleLetterSpacing, CssProperty::LetterSpacing);
 impl_from!(StyleBackgroundColor, CssProperty::BackgroundColor);
 impl_from!(StyleBackgroundSize, CssProperty::BackgroundSize);
@@ -1151,9 +1159,15 @@ pub enum LayoutDirection {
 /// Represents a `line-height` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct StyleLineHeight(pub PercentageValue);
+/// Represents a `tab-width` attribute
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub struct StyleTabWidth(pub PercentageValue);
 /// Represents a `letter-spacing` attribute
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub struct StyleLetterSpacing(pub PixelValue);
+/// Represents a `word-spacing` attribute
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub struct StyleWordSpacing(pub PixelValue);
 
 /// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
 /// makes decisions based on horizontal / vertical direction easier to write.
@@ -1394,11 +1408,16 @@ pub struct RectStyle {
     pub overflow: Option<LayoutOverflow>,
     /// `line-height` property
     pub line_height: Option<StyleLineHeight>,
-    /// `letter-spacing` property (modifies the width and height)
+    /// `letter-spacing` property
     pub letter_spacing: Option<StyleLetterSpacing>,
+    /// `word-spacing` property
+    pub word_spacing: Option<StyleLetterSpacing>,
+    /// `tab-width` property
+    pub tab_width: Option<StyleTabWidth>,
 }
 
 impl_pixel_value!(StyleLetterSpacing);
+impl_pixel_value!(StyleWordSpacing);
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]

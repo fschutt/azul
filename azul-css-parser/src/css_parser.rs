@@ -7,7 +7,7 @@ use azul_css::{
     LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent, Shape,
     LayoutWrap, LayoutDirection, LayoutPosition, CssProperty, LayoutOverflow,
     StyleFontFamily, StyleFontSize, StyleLineHeight, LayoutFlexShrink, LayoutFlexGrow,
-    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, StyleCursor,
+    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, StyleCursor, StyleWordSpacing, StyleTabWidth,
     LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
     StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
     ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
@@ -71,6 +71,8 @@ pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<
         FontSize         => Ok(parse_style_font_size(value)?.into()),
         FontFamily       => Ok(parse_style_font_family(value)?.into()),
         LetterSpacing    => Ok(parse_style_letter_spacing(value)?.into()),
+        WordSpacing      => Ok(parse_style_word_spacing(value)?.into()),
+        TabWidth         => Ok(parse_style_tab_width(value)?.into()),
         LineHeight       => Ok(parse_style_line_height(value)?.into()),
         Cursor           => Ok(parse_style_cursor(value)?.into()),
 
@@ -1738,6 +1740,7 @@ pub struct RectStyle {
 }
 
 typed_pixel_value_parser!(parse_style_letter_spacing, StyleLetterSpacing);
+typed_pixel_value_parser!(parse_style_word_spacing, StyleWordSpacing);
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]
@@ -1811,6 +1814,12 @@ pub fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, 
         Ok(o) => Ok(LayoutFlexShrink(o)),
         Err(e) => Err(FlexShrinkParseError::ParseFloat(e, input)),
     }
+}
+
+pub fn parse_style_tab_width(input: &str)
+-> Result<StyleTabWidth, PercentageParseError>
+{
+    parse_percentage_value(input).and_then(|e| Ok(StyleTabWidth(e)))
 }
 
 pub fn parse_style_line_height(input: &str)

@@ -209,7 +209,7 @@ impl<T: Layout> NodeType<T> {
     ) -> Option<TextSizePx>
     {
         use self::NodeType::*;
-        use azul_css::{LayoutOverflow, TextOverflowBehaviour, TextOverflowBehaviourInner};
+        use text_layout::get_vertical_height_for_words;
 
         match self {
             Image(i) => image_cache.get(i).and_then(|image_state| {
@@ -218,10 +218,9 @@ impl<T: Layout> NodeType<T> {
             }),
             Label(_) | Text(_) => {
                 let (words, font) = (words?, font_metrics?);
-                let vertical_info = words.get_vertical_height(&LayoutOverflow {
-                    horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Scroll),
-                    .. Default::default()
-                }, &font, div_width);
+                // TODO: The div_width needs to take into account whether the current div
+                // is overflow:visible (so that the text can overflow the parent rect)!
+                let vertical_info = get_vertical_height_for_words(words, &font, Some(div_width));
                 Some(vertical_info.vertical_height)
             }
             _ => None,
