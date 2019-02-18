@@ -16,7 +16,6 @@ use std::{
 enum ConnectionStatus {
     NotConnected,
     Connected,
-    Error(String),
     InProgress(Instant, Duration),
 }
 
@@ -33,7 +32,6 @@ impl Layout for MyDataModel {
             ConnectionStatus::NotConnected       => format!("Not connected!"),
             ConnectionStatus::Connected          => format!("You are connected!"),
             ConnectionStatus::InProgress(_, d)   => format!("Loading... {}.{:02}s", d.as_secs(), d.subsec_millis()),
-            ConnectionStatus::Error(e)           => format!("There was an error: {}", e),
         };
 
         let mut dom = Dom::new(NodeType::Div)
@@ -46,7 +44,7 @@ impl Layout for MyDataModel {
 
                 dom.add_child(button);
             },
-            Error(_) | Connected => {
+            Connected => {
                 let button = Button::with_label(format!("{}\nRetry?", status)).dom()
                                 .with_callback(On::MouseUp, Callback(reset_connection));
                 dom.add_child(button);
@@ -68,7 +66,7 @@ fn start_connection(app_state: &mut AppState<MyDataModel>, _event: &mut Callback
     app_state.data.modify(|state| state.connection_status = status)?;
     let task = Task::new(&app_state.data, connect_to_db_async);
     app_state.add_task(task);
-    app_state.add_daemon(DaemonId::new(), Daemon::new(DaemonCallback(timer_daemon)));
+    app_state.add_daemon(DaemonId::new(), Daemon::new(timer_daemon));
     Redraw
 }
 

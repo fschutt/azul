@@ -88,14 +88,16 @@ impl Words {
     {
         use self::SemanticWordItem::*;
 
-        let FontMetrics { space_width, tab_width, vertical_advance, .. } = *font_metrics;
+        let FontMetrics { space_width, tab_width, vertical_advance, font_size_no_line_height, .. } = *font_metrics;
 
         if overflow.allows_horizontal_overflow() {
             // If we can overflow horizontally, we only need to sum up the `Return`
             // characters, since the actual length of the line doesn't matter
             let number_of_returns = self.items.iter().filter(|w| w.is_return()).count();
             VerticalTextInfo {
-                vertical_height: vertical_advance * number_of_returns as f32,
+                // The first line doesn't have a line height, therefore it doesn't use the
+                // vertical_advance (which includes the line height)
+                vertical_height: (vertical_advance * number_of_returns as f32) + font_size_no_line_height,
                 max_hor_len: None
             }
         } else {
@@ -103,8 +105,7 @@ impl Words {
             // is essentially the same thing as we do in the actual text layout stage
             let mut max_line_cursor: f32 = 0.0;
             let mut cur_line_cursor = 0.0;
-            // Start at line 1 because we always have one line and not zero.
-            let mut cur_line = 1;
+            let mut cur_line = 0;
 
             for w in &self.items {
                 match w {
@@ -128,7 +129,9 @@ impl Words {
 
             VerticalTextInfo {
                 max_hor_len: Some(TextSizePx(cur_line_cursor)),
-                vertical_height: vertical_advance * cur_line as f32,
+                // The first line doesn't have a line height, therefore it doesn't use the
+                // vertical_advance (which includes the line height)
+                vertical_height: (vertical_advance * cur_line as f32) + font_size_no_line_height,
             }
         }
     }
@@ -819,15 +822,12 @@ fn words_to_left_aligned_glyphs<'a>(
                     // vertical_advance is in px
                     let mut new_glyph = *glyph;
                     let push_x = word_caret;
-                    let push_y = if current_line_num == 0 {
-                        // First line: don't add the line height
-                        font_size_no_line_height.0
-                    } else {
-                        (current_line_num + 1) as f32 * vertical_advance.0
-                    };
+
+                    // First line doesn't have a line height
+                    let push_y = (vertical_advance * current_line_num as f32) + font_size_no_line_height;
 
                     new_glyph.point.x += push_x;
-                    new_glyph.point.y += push_y / PT_TO_PX; // note: new_glyph.point seems to be in pt, not px!
+                    new_glyph.point.y += push_y.0 / PT_TO_PX; // note: new_glyph.point seems to be in pt, not px!
 
                     left_aligned_glyphs.push(new_glyph);
                 }
