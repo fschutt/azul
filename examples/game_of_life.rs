@@ -169,10 +169,8 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Univ
         if state.game_is_running {
             None
         } else {
-            let daemon = Daemon::new(DaemonCallback(tick)).with_interval(Duration::from_millis(200));
-
             state.game_is_running = true;
-            Some(daemon)
+            Some(Daemon::new(tick).with_interval(Duration::from_millis(200)))
         }
     }{
         app_state.add_daemon(DaemonId::new(), daemon);

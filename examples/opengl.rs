@@ -20,9 +20,10 @@ fn render_my_texture(
     hi_dpi_bounds: HidpiAdjustedBounds)
 -> Option<Texture>
 {
+    let physical_size = hi_dpi_bounds.get_physical_size();
     let texture = info.window.read_only_window().create_texture(
-        hi_dpi_bounds.physical_size.width as u32,
-        hi_dpi_bounds.physical_size.height as u32
+        physical_size.width as u32,
+        physical_size.height as u32
     );
 
     texture.as_surface().clear_color(0.0, 1.0, 0.0, 1.0);
