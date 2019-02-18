@@ -1116,7 +1116,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
 
-    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.window_size.hidpi_factor);
+    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.window_size.hidpi_factor, rectangle.window_size.winit_hidpi_factor);
 
     let texture;
 
@@ -1137,9 +1137,15 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
 
     let texture = texture?;
 
+    let texture_width = texture.inner.width() as f32;
+    let texture_height = texture.inner.height() as f32;
+
     let opaque = false;
-    let allow_mipmaps = true;
-    let descriptor = ImageDescriptor::new(info.rect.size.width as i32, info.rect.size.height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
+    let allow_mipmaps = false;
+
+    // Note: The ImageDescriptor has no effect
+    // on how large the image appears on-screen
+    let descriptor = ImageDescriptor::new(texture_width as i32, texture_height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
     let key = referenced_content.render_api.generate_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
@@ -1159,12 +1165,13 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
 
     referenced_mutable_content.builder.push_image(
         &info,
-        LayoutSize::new(texture.inner.width() as f32, texture.inner.height() as f32),
+        LayoutSize::new(texture_width, texture_height),
         LayoutSize::zero(),
         ImageRendering::Auto,
         AlphaType::Alpha,
         key,
-        ColorF::WHITE);
+        ColorF::WHITE
+    );
 
     None
 }
@@ -1180,7 +1187,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
 {
     use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 
-    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.window_size.hidpi_factor);
+    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.window_size.hidpi_factor, rectangle.window_size.hidpi_factor);
 
     let new_dom;
 

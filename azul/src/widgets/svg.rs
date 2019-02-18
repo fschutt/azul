@@ -2070,8 +2070,10 @@ impl Svg {
         let shader = svg_cache.init_shader(&read_only_window);
 
         let hidpi = window.get_hidpi_factor() as f32;
-        let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom };
+
+        let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom } * self.multisampling_factor;
         let pan = if self.enable_hidpi { (self.pan.0 * hidpi, self.pan.1 * hidpi) } else { self.pan };
+        let pan = (pan.0 * self.multisampling_factor, pan.1 * self.multisampling_factor);
 
         let draw_options = DrawParameters {
             primitive_restart_index: true,
