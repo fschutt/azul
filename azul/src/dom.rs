@@ -187,45 +187,6 @@ impl<T: Layout> NodeType<T> {
             IFrame(_) => NodeTypePath::IFrame,
         }
     }
-
-    /// Returns the preferred width, for example for an image, that would be the
-    /// original width (an image always wants to take up the original space)
-    pub(crate) fn get_preferred_width(&self, image_cache: &FastHashMap<ImageId, ImageState>) -> Option<f32> {
-        use self::NodeType::*;
-        match self {
-            Image(i) => image_cache.get(i).and_then(|image_state| Some(image_state.get_dimensions().0)),
-            Label(_) | Text(_) => /* TODO: Calculate the minimum width for the text? */ None,
-            _ => None,
-        }
-    }
-
-    /// Given a certain width, returns the
-    pub(crate) fn get_preferred_height_based_on_width(
-        &self,
-        div_width: TextSizePx,
-        image_cache: &FastHashMap<ImageId, ImageState>,
-        words: Option<&Words>,
-        font_metrics: Option<FontMetrics>,
-    ) -> Option<TextSizePx>
-    {
-        use self::NodeType::*;
-        use text_layout::get_vertical_height_for_words;
-
-        match self {
-            Image(i) => image_cache.get(i).and_then(|image_state| {
-                let (image_original_height, image_original_width) = image_state.get_dimensions();
-                Some(div_width * (image_original_width / image_original_height))
-            }),
-            Label(_) | Text(_) => {
-                let (words, font) = (words?, font_metrics?);
-                // TODO: The div_width needs to take into account whether the current div
-                // is overflow:visible (so that the text can overflow the parent rect)!
-                let vertical_info = get_vertical_height_for_words(words, &font, Some(div_width));
-                Some(vertical_info.vertical_height)
-            }
-            _ => None,
-        }
-    }
 }
 
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.

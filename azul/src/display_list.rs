@@ -724,11 +724,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>)
 {
-/* -- disabled scrolling temporarily due to z-indexing problems
-    // A stack containing all the nodes which have a scroll clip pushed to the builder.
-    let mut stack: Vec<NodeId> = vec![];
-*/
-
     let mut clip_stack = Vec::new();
 
     for content_group in content_grouped_rectangles.groups {
@@ -770,77 +765,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
             );
         }
     }
-/*
-    for (z_index, rects) in z_ordered_rectangles.0.into_iter() {
-        for rect_idx in rects {
-            let html_node = &arena[rect_idx];
-            let rectangle = DisplayListRectParams {
-                epoch,
-                rect_idx,
-                html_node: &html_node.node_type,
-            };
-
-            let styled_node = &referenced_content.display_rectangle_arena[rect_idx];
-            let solved_rect = solved_rects[rect_idx];
-
-            displaylist_handle_rect(solved_rect, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content);
-/*
-            // If the current node is a parent that has overflow:hidden set, push
-            // the clip ID and the last child into the stack
-            if html_node.last_child.is_some() {
-                if node_needs_to_clip_children(&styled_node.style) {
-
-                }
-            }
-
-            // If the current node is the last child of the parent and the parent has
-            // overflow:hidden set, pop the last clip id
-            if clip_stack.last().cloned() == Some(rect_idx) {
-                referenced_mutable_content.builder.pop_clip_id();
-                clip_stack.pop();
-            }
-*/
-/* -- disabled scrolling temporarily due to z-indexing problems
-            if let Some(OverflowingScrollNode { parent_external_scroll_id, parent_rect, child_rect, .. }) = scrollable_nodes.overflowing_nodes.get(&rect_idx) {
-
-                // The unwraps on the following line must succeed, as if we have no children, we can't have a scrollable content.
-                stack.push(rect_idx.children(&arena).last().unwrap());
-
-                // Create a new scroll state for each node that is not present in the scroll states already.
-                // The arena containing the actual dom maps 1:1 to the arena containing the rectangles, so we
-                // can use the NodeIds from the layouted rectangles to access the NodeData corresponding
-                // to each Rectangle in the NodeData arena.
-                //
-                // This next unwrap is fine since we are sure the looked up NodeId exists in the arena!
-                scroll_states.ensure_initialized_scroll_state(
-                    *parent_external_scroll_id,
-                    child_rect.size.width - parent_rect.size.width,
-                    child_rect.size.height - parent_rect.size.height
-                );
-
-                // Set the scrolling clip
-                let clip_id = referenced_mutable_content.builder.define_scroll_frame(
-                    Some(*parent_external_scroll_id),
-                    *child_rect,
-                    *parent_rect,
-                    vec![],
-                    None,
-                    ScrollSensitivity::ScriptAndInputEvents,
-                );
-
-                referenced_mutable_content.builder.push_clip_id(clip_id);
-            }
-
-            if let Some(&child_idx) = stack.last() {
-                if child_idx == rect_idx {
-                    stack.pop();
-                    referenced_mutable_content.builder.pop_clip_id();
-                }
-            }
-*/
-        }
-    }
-*/
 }
 
 fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
@@ -954,15 +878,11 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     // If the rect is hit-testing relevant, we need to push a rect anyway.
     // Otherwise the hit-testing gets confused
     if let Some(bg_col) = &rect.style.background_color {
-        // The background color won't be seen anyway, so don't push a
-        // background color if we do have a background already
-        if rect.style.background.is_none() {
-            push_rect(
-                &info,
-                referenced_mutable_content.builder,
-                bg_col,
-            );
-        }
+        push_rect(
+            &info,
+            referenced_mutable_content.builder,
+            bg_col,
+        );
     } else if info.tag.is_some() {
         const TRANSPARENT_BG: StyleBackgroundColor = StyleBackgroundColor(StyleColorU { r: 0, g: 0, b: 0, a: 0 });
         push_rect(
@@ -995,21 +915,15 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
 
-    let scrollbar_style = ScrollbarInfo {
-        width: TextSizePx(17.0),
-        padding: TextSizePx(2.0),
-        background_color: StyleBackgroundColor(StyleColorU { r: 241, g: 241, b: 241, a: 255 }),
-        triangle_color: StyleBackgroundColor(StyleColorU { r: 163, g: 163, b: 163, a: 255 }),
-        bar_color: StyleBackgroundColor(StyleColorU { r: 193, g: 193, b: 193, a: 255 }),
-    };
+    let scrollbar_style = ScrollbarInfo::default();
 
     // The only thing changed between TextId and String is
     //`TextInfo::Cached` vs `TextInfo::Uncached` - reduce code duplication
-    let push_text_wrapper = |
+    fn push_text_wrapper(
         text_info: &TextInfo,
         builder: &mut DisplayListBuilder,
         app_resources: &mut AppResources,
-        resource_updates: &mut Vec<ResourceUpdate>|
+        resource_updates: &mut Vec<ResourceUpdate>)
     {
         let words = word_cache.0.get(&rect_idx)?;
 
@@ -1034,7 +948,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
             builder.push_clip_id(text_clip_id);
         }
 
-        let overflow = push_text(
+        push_text(
             &info,
             text_info,
             builder,
@@ -1046,13 +960,12 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
             horz_alignment,
             vert_alignment,
             &scrollbar_style,
-            &words.0);
+            &words.0
+        );
 
         if text_clip_region_id.is_some() {
             builder.pop_clip_id();
         }
-
-        overflow
     };
 
     // Handle the special content of the node, return if it overflows in the vertical direction
@@ -1083,22 +996,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         referenced_mutable_content.builder,
         &rect.style,
         &bounds,
-        BoxShadowClipMode::Inset);
-
-    // Push scrollbars if necessary
-    if let Some(overflow) = &overflow_result {
-        // If the rectangle should have a scrollbar, push a scrollbar onto the display list
-        if rect.style.overflow.unwrap_or_default().allows_vertical_scrollbar() {
-            if let TextOverflow::IsOverflowing(amount_vert) = overflow.text_overflow.vertical {
-                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
-            }
-        }
-        if rect.style.overflow.unwrap_or_default().allows_horizontal_scrollbar() {
-            if let TextOverflow::IsOverflowing(amount_horz) = overflow.text_overflow.horizontal {
-                push_scrollbar(referenced_mutable_content.builder, &overflow.text_overflow, &scrollbar_style, &bounds, &rect.style.border)
-            }
-        }
-    }
+        BoxShadowClipMode::Inset
+    );
 
     if clip_region_id.is_some() {
         referenced_mutable_content.builder.pop_clip_id();
@@ -1315,7 +1214,6 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
     pub pipeline_id: PipelineId,
 }
 
-#[inline]
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
@@ -1325,101 +1223,68 @@ fn push_rect(
     builder.push_rect(&info, wr_translate_color_u(color.0).into());
 }
 
-struct OverflowInfo {
-    pub text_overflow: TextOverflowPass2,
-}
-
-/// Note: automatically pushes the scrollbars on the parent,
-/// this should be refined later
-#[inline]
 fn push_text(
     info: &PrimitiveInfo<LayoutPixel>,
-    text: &TextInfo,
     builder: &mut DisplayListBuilder,
-    style: &RectStyle,
-    app_resources: &mut AppResources,
-    render_api: &RenderApi,
-    bounds: &TypedRect<f32, LayoutPixel>,
-    resource_updates: &mut Vec<ResourceUpdate>,
+    word_positions: &WordPositions,
+    scaled_words: &ScaledWords,
     horz_alignment: StyleTextAlignmentHorz,
     vert_alignment: StyleTextAlignmentVert,
-    scrollbar_info: &ScrollbarInfo,
-    words: &Words)
--> Option<OverflowInfo>
-{
-    use text_layout::{self, TextLayoutOptions};
+    font_instance_key: FontInstanceKey,
+    font_color: ColorU,
+) {
+    use text_layout::{self, get_layouted_glyphs};
     use css::webrender_translate::wr_translate_color_u;
 
-    if text.is_empty_text(&*app_resources) {
-        return None;
-    }
-
-    let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
-    let font_size = style.font_size.unwrap_or(*DEFAULT_FONT_SIZE);
-    let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
-    let overflow_behaviour = style.overflow.unwrap_or_default();
-
-    let text_layout_options = TextLayoutOptions {
+    let rect_offset = info.rect.origin;
+    let bounding_size_height_px = rect.info.size.height;
+    let glyphs = get_layouted_glyphs(
+        word_positions,
+        scaled_words,
         horz_alignment,
         vert_alignment,
-        line_height: style.line_height,
-        letter_spacing: style.letter_spacing,
-    };
-
-    let (positioned_glyphs, text_overflow) = text_layout::get_glyphs(
-        words,
-        app_resources,
-        bounds,
-        &font_id,
-        &font_size,
-        &text_layout_options,
-        text,
-        &overflow_behaviour,
-        scrollbar_info
+        rect_offset,
+        bounding_size_height_px
     );
+
+    let font_color = wr_translate_color_u(font_color.unwrap_or(DEFAULT_FONT_COLOR).0).into();
 
     // WARNING: Do not enable FontInstanceFlags::FONT_SMOOTHING or FontInstanceFlags::FORCE_AUTOHINT -
     // they seem to interfere with the text layout thereby messing with the actual text layout.
-    let font_color = wr_translate_color_u(style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0).into();
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
     flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
-    let options = GlyphOptions {
+    builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(GlyphOptions {
         render_mode: FontRenderMode::Subpixel,
         flags: flags,
-    };
-
-    builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(options));
-
-    Some(OverflowInfo { text_overflow })
+    }));
 }
 
 /// Adds a scrollbar to the left or bottom side of a rectangle.
-/// TODO: make styling configurable (like the width / style of the scrollbar)
 fn push_scrollbar(
+    info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    scrollbar_info: &TextOverflowPass2,
-    scrollbar_style: &ScrollbarInfo,
-    bounds: &TypedRect<f32, LayoutPixel>,
-    border: &Option<StyleBorder>)
-{
+    scrollbar_style: &ScrollbarStyle,
+    scrollbar_offset_percent: f32,
+    scrollbar_size: f32,
+) {
     use euclid::TypedPoint2D;
 
-    // The border is inside the rectangle - subtract the border width on the left and bottom side,
-    // so that the scrollbar is laid out correctly
+    // The border is inside the rectangle - subtract the border width
+    // on the left and bottom side, so that the scrollbar is laid out correctly
     let mut bounds = *bounds;
+
     if let Some(StyleBorder { left: Some(l), bottom: Some(b), .. }) = border {
         bounds.size.width -= l.border_width.to_pixels();
         bounds.size.height -= b.border_width.to_pixels();
     }
 
     // Background of scrollbar (vertical)
-    let scrollbar_vertical_background = TypedRect::<f32, LayoutPixel> {
-        origin: TypedPoint2D::new(bounds.origin.x + bounds.size.width - scrollbar_style.width.0, bounds.origin.y),
-        size: TypedSize2D::new(scrollbar_style.width.0, bounds.size.height),
-    };
+    let scrollbar_vertical_background = LayoutRect::new(
+        LayoutPoint::new(bounds.origin.x + bounds.size.width - scrollbar_style.width.0, bounds.origin.y),
+        LayoutSize::new(scrollbar_style.width.0, bounds.size.height),
+    );
 
     let scrollbar_vertical_background_info = PrimitiveInfo {
         rect: scrollbar_vertical_background,

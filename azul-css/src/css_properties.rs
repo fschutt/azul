@@ -196,7 +196,7 @@ macro_rules! impl_pixel_value {($struct:ident) => (
     }
 )}
 
-pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);53] = [
+pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);55] = [
     (CssPropertyType::BorderRadius,     "border-radius"),
     (CssPropertyType::BackgroundColor,  "background-color"),
     (CssPropertyType::BackgroundSize,   "background-size"),
@@ -208,6 +208,8 @@ pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);53] = [
     (CssPropertyType::TextAlign,        "text-align"),
     (CssPropertyType::LetterSpacing,    "letter-spacing"),
     (CssPropertyType::LineHeight,       "line-height"),
+    (CssPropertyType::WordSpacing,      "word-spacing"),
+    (CssPropertyType::TabWidth,         "tab-width"),
     (CssPropertyType::Cursor,           "cursor"),
     (CssPropertyType::Width,            "width"),
     (CssPropertyType::Height,           "height"),
@@ -718,8 +720,8 @@ pub struct LayoutMargin {
 /// Wrapper for the `overflow-{x,y}` + `overflow` property
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct LayoutOverflow {
-    pub horizontal: TextOverflowBehaviour,
-    pub vertical: TextOverflowBehaviour,
+    pub horizontal: Option<Overflow>,
+    pub vertical: Option<Overflow>,
 }
 
 impl LayoutOverflow {
@@ -727,8 +729,8 @@ impl LayoutOverflow {
     // "merges" two LayoutOverflow properties
     pub fn merge(a: &mut Option<Self>, b: &Self) {
 
-        fn merge_property(p: &mut TextOverflowBehaviour, other: &TextOverflowBehaviour) {
-            if *other == TextOverflowBehaviour::NotModified {
+        fn merge_property(p: &mut Option<Overflow>, other: &Option<Overflow>) {
+            if *other == None {
                 return;
             }
             *p = *other;
@@ -742,21 +744,12 @@ impl LayoutOverflow {
         }
     }
 
-    pub fn allows_horizontal_overflow(&self) -> bool {
-        self.horizontal.can_overflow()
+    pub fn needs_horizontal_scrollbar(&self, currently_overflowing_horz: bool) -> bool {
+        self.horizontal.unwrap_or_default().needs_scrollbar(currently_overflowing_horz)
     }
 
-    pub fn allows_vertical_overflow(&self) -> bool {
-        self.vertical.can_overflow()
-    }
-
-    // If this overflow setting should show the horizontal scrollbar
-    pub fn allows_horizontal_scrollbar(&self) -> bool {
-        self.allows_horizontal_overflow()
-    }
-
-    pub fn allows_vertical_scrollbar(&self) -> bool {
-        self.allows_vertical_overflow()
+    pub fn needs_vertical_scrollbar(&self, currently_overflowing_vert: bool) -> bool {
+        self.vertical.unwrap_or_default().needs_scrollbar(currently_overflowing_vert)
     }
 }
 
@@ -1285,55 +1278,10 @@ pub enum LayoutAlignContent {
     SpaceAround,
 }
 
-/// Represents a `overflow` attribute
-///
-/// NOTE: This is split into `NotModified` and `Modified`
-/// in order to be able to "merge" `overflow-x` and `overflow-y`
-/// into one property.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TextOverflowBehaviour {
-    NotModified,
-    Modified(TextOverflowBehaviourInner),
-}
-
-impl TextOverflowBehaviour {
-    pub fn can_overflow(&self) -> bool {
-        use self::TextOverflowBehaviour::*;
-        use self::TextOverflowBehaviourInner::*;
-        match self {
-            Modified(m) => match m {
-                Scroll | Auto => true,
-                Hidden | Visible => false,
-            },
-            // default: allow horizontal overflow
-            NotModified => false,
-        }
-    }
-
-    pub fn clips_children(&self) -> bool {
-        use self::TextOverflowBehaviour::*;
-        use self::TextOverflowBehaviourInner::*;
-        match self {
-            Modified(m) => match m {
-                Scroll | Auto | Hidden => true,
-                Visible => false,
-            },
-            // default: allow horizontal overflow
-            NotModified => false,
-        }
-    }
-}
-
-impl Default for TextOverflowBehaviour {
-    fn default() -> Self {
-        TextOverflowBehaviour::NotModified
-    }
-}
-
 /// Represents a `overflow-x` or `overflow-y` property, see
 /// [`TextOverflowBehaviour`](./struct.TextOverflowBehaviour.html) - default: `Auto`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TextOverflowBehaviourInner {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Overflow {
     /// Always shows a scroll bar, overflows on scroll
     Scroll,
     /// Does not show a scroll bar by default, only when text is overflowing
@@ -1344,9 +1292,32 @@ pub enum TextOverflowBehaviourInner {
     Visible,
 }
 
-impl Default for TextOverflowBehaviourInner {
+impl Default for Overflow {
     fn default() -> Self {
-        TextOverflowBehaviourInner::Auto
+        Overflow::Auto
+    }
+}
+
+impl Overflow {
+
+    /// Returns whether this overflow value needs to display the scrollbars.
+    ///
+    /// - `overflow:scroll` always shows the scrollbar
+    /// - `overflow:auto` only shows the scrollbar when the content is currently overflowing
+    /// - `overflow:hidden` and `overflow:visible` do not show any scrollbars
+    pub fn needs_scrollbar(&self, currently_overflowing: bool) -> bool {
+        use self::Overflow::*;
+        match self {
+            Scroll => true,
+            Auto => currently_overflowing,
+            Hidden | Visible => false,
+        }
+    }
+
+    /// Returns whether this is an `overflow:visible` node
+    /// (the only overflow type that doesn't clip its children)
+    pub fn is_overflow_visible(&self) -> bool {
+        *self == Overflow::Visible
     }
 }
 
