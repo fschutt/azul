@@ -1020,6 +1020,81 @@ pub(crate) fn get_y_positions(
     arena
 }
 
+use {
+    FastHashMap,
+    dom::NodeType,
+    text_layout::{TextSizePx, Words, FontMetrics},
+    images::{ImageId, ImageState},
+    traits::Layout,
+};
+
+/// Returns the preferred width, for example for an image, that would be the
+/// original width (an image always wants to take up the original space)
+pub(crate) fn get_preferred_width<T: Layout>(
+        node_type: &NodeType<T>,
+        image_cache: &FastHashMap<ImageId, ImageState>
+) -> Option<f32> {
+    use dom::NodeType::*;
+    match node_type {
+        Image(i) => image_cache.get(i).and_then(|image_state| Some(image_state.get_dimensions().0)),
+        Label(_) | Text(_) => /* TODO: Calculate the minimum width for the text? */ None,
+        _ => None,
+    }
+}
+
+pub(crate) struct PreferredHeight {
+    Image { original_dimensions: (f32, f32), current_height: },
+    Text(PositionedWords)
+}
+
+impl PreferredHeight {
+    pub fn get_content_size(&self) -> f32 {
+
+    }
+}
+
+/// Given a certain width, returns the preferred height.
+///
+/// Note that this is not the final height of the div,
+/// just the preferred height / content height
+pub(crate) fn get_preferred_height_based_on_width(
+    node_type: &NodeType,
+    node_id: &NodeId,
+    div_width: TextSizePx,
+    image_cache: &FastHashMap<ImageId, ImageState>,
+    word_cache: &WordCache,
+    text_layout_options: &TextLayoutOptions,
+) -> Option<TextSizePx>
+{
+    use dom::NodeType::*;
+    use text_layout::get_vertical_height_for_words;
+
+    /*
+        words: &Words,
+        scaled_words: &ScaledWords,
+        text_layout_options: &TextLayoutOptions,
+        font_size: TextSizePx,
+        layout_overflow: LayoutOverflow,
+        scrollbar_style: ScrollbarStyle,
+    */
+
+    match node_type {
+        Image(i) => image_cache.get(i).and_then(|image_state| {
+            let (image_original_height, image_original_width) = image_state.get_dimensions();
+            Some(div_width * (image_original_width / image_original_height))
+        }),
+        Label(_) | Text(_) => {
+
+            let (words, font) = (words?, font_metrics?);
+            // TODO: The div_width needs to take into account whether the current div
+            // is overflow:visible (so that the text can overflow the parent rect)!
+            let vertical_info = get_vertical_height_for_words(words, &font, Some(div_width));
+            Some(vertical_info.vertical_height)
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod layout_tests {
 

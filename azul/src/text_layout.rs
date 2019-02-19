@@ -1,7 +1,7 @@
 #![allow(unused_variables, dead_code)]
 
+use std::ops::{Mul, Add, Sub};
 use webrender::api::RenderApi;
-use euclid::TypedPoint2D;
 use rusttype::{Font, Scale};
 use azul_css::{
     StyleTextAlignmentHorz, StyleFontSize, StyleBackgroundColor,
@@ -20,7 +20,10 @@ pub type WordIndex = usize;
 pub type GlyphIndex = usize;
 pub type LineLength = f32;
 
-use std::ops::{Mul, Add, Sub};
+const DEFAULT_LINE_HEIGHT: f32 = 1.0;
+const DEFAULT_CHAR_SPACING: f32 = 0.0;
+const DEFAULT_LETTER_SPACING: f32 = 0.0;
+const DEFAULT_TAB_WIDTH: usize = 4;
 
 impl Mul<f32> for TextSizePx {
     type Output = Self;
@@ -134,6 +137,46 @@ pub(crate) struct WordPositions {
     /// Index of the word at which the line breaks + length of line
     /// (useful for text selection + horizontal centering)
     pub line_breaks: Vec<(WordIndex, LineLength)>,
+    /// Whether or not the word positions are already accounting for
+    /// the scrollbar space
+    pub scrollbars: Option<ReservedScrollbarSpace>,
+    /// The overflow value
+    pub overflow: LayoutOverflow,
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub struct ScrollbarStyle {
+    /// Vertical scrollbar style, if any
+    pub horizontal: Option<ScrollbarInfo>,
+    /// Horizontal scrollbar style, if any
+    pub vertical: Option<ScrollbarInfo>,
+}
+
+/// Layout options that can impact the flow of word positions
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextLayoutOptions {
+    /// Multiplier for the line height
+    pub line_height: Option<StyleLineHeight>,
+    /// Additional spacing between glyphs
+    pub letter_spacing: Option<TextSizePx>,
+    /// Additional spacing between words
+    pub word_spacing: Option<TextSizePx>,
+    /// How many spaces should a tab character emulate?
+    pub tab_width: Option<usize>,
+    /// Width that was used to layout these words originally
+    /// (whether the text is unbounded or not).
+    pub max_horizontal_width: Option<TextSizePx>,
+    /// Pixel amount of "leading", into the first line
+    pub leading: Option<TextSizePx>,
+    /// This is more important for inline text layout where items can punch "holes"
+    /// into the text flow, for example an image that floats to the right.
+    ///
+    /// TODO: Currently unused!
+    pub holes: Vec<LayoutRect>,
+    /// Horizontal text aligment
+    pub horz_alignment: StyleTextAlignmentHorz,
+    /// Vertical text aligment
+    pub vert_alignment: StyleTextAlignmentVert,
 }
 
 fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWords)
@@ -178,32 +221,8 @@ pub struct LayoutedGlyphs {
     pub glyphs: Vec<GlyphInstance>,
 }
 
-/// Returned struct for the pass-1 text run test.
-///
-/// Once the text is parsed and split into words + normalized, we can calculate
-/// (without looking at the text itself), if the text overflows the parent rectangle,
-/// in order to determine if we need to show a scroll bar.
-#[derive(Debug, Clone)]
-struct TextOverflowPrePass {
-    /// Is the text overflowing in the horizontal direction?
-    horizontal: TextOverflow,
-    /// Is the text overflowing in the vertical direction?
-    vertical: TextOverflow,
-}
-
-/// In the case that we do overflow the rectangle (in any direction),
-/// we need to now re-calculate the positions for the words (because of the reduced available
-/// space that is now taken up by the scrollbars).
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct TextOverflowPass {
-    /// Is the text overflowing in the horizontal direction?
-    pub(crate) horizontal: TextOverflow,
-    /// Is the text overflowing in the vertical direction?
-    pub(crate) vertical: TextOverflow,
-}
-
 /// These metrics are important for showing the scrollbars
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum TextOverflow {
     /// Text is overflowing, by how much?
     /// Necessary for determining the size of the scrollbar
@@ -214,19 +233,39 @@ pub(crate) enum TextOverflow {
 }
 
 /// Holds info necessary for layouting / styling scrollbars
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) struct ScrollbarInfo {
     /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
     /// of the scrollbar in pixels
     pub(crate) width: TextSizePx,
     /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
     pub(crate) padding: TextSizePx,
-    /// Style of the scrollbar (how to draw it)
-    pub(crate) bar_color: StyleBackgroundColor,
-    /// How to draw the "up / down" arrows
-    pub(crate) triangle_color: StyleBackgroundColor,
-    /// Style of the scrollbar background
-    pub(crate) background_color: StyleBackgroundColor,
+    /// Style of the scrollbar background (-webkit-scrollbar)
+    pub(crate) scrollbar_background: RectStyle,
+    /// Style of the scrollbar tracker (-webkit-scrollbar-track)
+    pub(crate) track_style: RectStyle,
+    /// Style of the scrollbar thumbs (the "up" / "down" arrows), (-webkit-scrollbar-thumb)
+    pub(crate) thumb_style: RectStyle,
+}
+
+impl Default for ScrollbarInfo {
+    fn default() -> Self {
+        ScrollbarInfo {
+            width: TextSizePx(17.0),
+            padding: TextSizePx(2.0),
+            scrollbar_background: RectStyle {
+                background_color: Some(StyleBackgroundColor(StyleColorU { r: 241, g: 241, b: 241, a: 255 })),
+                .. Default::default()
+            },
+            track_style: RectStyle {
+                background_color: Some(StyleBackgroundColor(StyleColorU { r: 193, g: 193, b: 193, a: 255 })),
+                .. Default::default()
+            },
+            thumb_style: RectStyle {
+                background_color: Some(StyleBackgroundColor(StyleColorU { r: 163, g: 163, b: 163, a: 255 })),
+            },
+        }
+    }
 }
 
 pub(crate) fn word_item_is_return(item: &Word) -> bool {
@@ -234,7 +273,7 @@ pub(crate) fn word_item_is_return(item: &Word) -> bool {
 }
 
 /// Given a width, returns the vertical height and width of the text
-pub fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutSize {
+pub(crate) fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutSize {
     word_positions.content_size
 }
 
@@ -246,7 +285,7 @@ pub(crate) fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
     }
 }
 
-fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {
+pub(crate) fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {
     let content_size = word_positions.content_size;
     if bounding_size_height_px > content_size.height {
         TextOverflow::InBounds(TextSizePx(bounding_size_height_px - content_size.height))
@@ -419,17 +458,12 @@ pub(crate) fn position_words(
     scaled_words: &ScaledWords,
     text_layout_options: &TextLayoutOptions,
     font_size: TextSizePx,
-    vertical_scrollbar: Option<&ScrollbarInfo>,
-    horizontal_scrollbar: Option<&ScrollbarInfo>,
+    layout_overflow: LayoutOverflow,
+    scrollbar_style: ScrollbarStyle,
 ) -> WordPositions {
     // TODO: Handle scrollbar / content size adjustment!
     position_words_inner(words, scaled_words, text_layout_options, font_size)
 }
-
-const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-const DEFAULT_CHAR_SPACING: f32 = 0.0;
-const DEFAULT_LETTER_SPACING: f32 = 0.0;
-const DEFAULT_TAB_WIDTH: usize = 4;
 
 pub(crate) fn position_words_inner(
     words: &Words,
@@ -857,33 +891,6 @@ pub struct LayoutTextResult {
     pub font_metrics: FontMetrics,
 }
 
-/// Layout options that can impact the flow of word positions
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct TextLayoutOptions {
-    /// Multiplier for the line height
-    pub line_height: Option<StyleLineHeight>,
-    /// Additional spacing between glyphs
-    pub letter_spacing: Option<TextSizePx>,
-    /// Additional spacing between words
-    pub word_spacing: Option<TextSizePx>,
-    /// How many spaces should a tab character emulate?
-    pub tab_width: Option<usize>,
-    /// Width that was used to layout these words originally
-    /// (whether the text is unbounded or not).
-    pub max_horizontal_width: Option<TextSizePx>,
-    /// Pixel amount of "leading", into the first line
-    pub leading: Option<TextSizePx>,
-    /// This is more important for inline text layout where items can punch "holes"
-    /// into the text flow, for example an image that floats to the right.
-    ///
-    /// TODO: Currently unused!
-    pub holes: Vec<LayoutRect>,
-    /// Horizontal text aligment
-    pub horz_alignment: StyleTextAlignmentHorz,
-    /// Vertical text aligment
-    pub vert_alignment: StyleTextAlignmentVert,
-}
-
 impl LayoutTextResult {
 
     /// Returns the index of what character was hit by the x and y coordinates.
@@ -931,25 +938,4 @@ pub fn layout_text<'a>(
     LayoutTextResult {
         words, layouted_glyphs, line_breaks, min_width, min_height, font_metrics: *font_metrics,
     }
-}
-
-#[test]
-fn test_it_should_add_origin() {
-    let mut instances = vec![
-        GlyphInstance {
-            index: 20,
-            point: TypedPoint2D::new(0.0, 0.0),
-        },
-        GlyphInstance {
-            index: 40,
-            point: TypedPoint2D::new(20.0, 10.0),
-        },
-    ];
-
-    add_origin(&mut instances, 13.0, 0.0);
-
-    assert_eq!(instances[0].point.x as usize, 13);
-    assert_eq!(instances[0].point.y as usize, 0);
-    assert_eq!(instances[1].point.x as usize, 33);
-    assert_eq!(instances[1].point.y as usize, 10);
 }
