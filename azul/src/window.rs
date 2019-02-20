@@ -13,7 +13,7 @@ use webrender::{
         LayoutRect, PipelineId, Epoch, BuiltDisplayList, DocumentId,
         RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
     },
-    Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags,
+    Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
     // renderer::RendererError; -- not currently public in WebRender
 };
 use glium::{
@@ -27,7 +27,7 @@ use glium::{
     backend::{Context, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
-use azul_css::{Css, ColorF};
+use azul_css::{Css, ColorF, ColorU};
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
 use {
@@ -676,8 +676,6 @@ pub struct Window<T: Layout> {
     ///
     /// This field is initialized from the `WindowCreateOptions`.
     pub(crate) state: WindowState,
-    /// The WebRender renderer
-    pub(crate) renderer: Option<Renderer>,
     /// The display, i.e. the window
     pub(crate) display: Rc<Display>,
     /// The `WindowInternal` allows us to solve some borrowing issues
@@ -787,37 +785,21 @@ impl Default for ScrollState {
 pub(crate) struct WindowInternal {
     pub(crate) last_display_list_builder: BuiltDisplayList,
     pub(crate) last_scrolled_nodes: ScrolledNodes,
-    pub(crate) api: RenderApi,
     pub(crate) epoch: Epoch,
     pub(crate) pipeline_id: PipelineId,
     pub(crate) document_id: DocumentId,
 }
 
+// TODO: Right now it's not very ergonomic to cache shaders between
+// renderers - notify webrender about this.
+const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
+
 impl<'a, T: Layout> Window<T> {
 
     /// Creates a new window
-    pub fn new(options: WindowCreateOptions<T>, mut css: Css) -> Result<Self, WindowCreateError> {
-
-        use self::RendererType::*;
-        use webrender::WrShaders;
+    pub(crate) fn new(render_api: &RenderApi, options: WindowCreateOptions<T>, mut css: Css) -> Result<Self, WindowCreateError> {
 
         let events_loop = EventsLoop::new();
-
-        let monitor = match options.monitor {
-            WindowMonitorTarget::Primary => events_loop.get_primary_monitor(),
-            WindowMonitorTarget::Custom(ref id) => id.clone(),
-        };
-
-        let winit_hidpi_factor = monitor.get_hidpi_factor();
-
-        #[cfg(target_os = "linux")]
-        let hidpi_factor = linux_get_hidpi_factor(&monitor, &events_loop);
-        #[cfg(not(target_os = "linux"))]
-        let hidpi_factor = winit_hidpi_factor;
-
-        let mut state = options.state.clone();
-        state.size.hidpi_factor = hidpi_factor;
-        state.size.winit_hidpi_factor = winit_hidpi_factor;
 
         let mut window = WindowBuilder::new()
             .with_title(options.state.title.clone())
@@ -826,11 +808,7 @@ impl<'a, T: Layout> Window<T> {
             .with_visibility(false)
             .with_transparency(options.state.is_transparent)
             .with_multitouch();
-/*
-        events_loop.create_proxy().execute_in_thread(|_| {
 
-        });
-*/
         // TODO: Update winit to have:
         //      .with_always_on_top(options.state.is_always_on_top)
         //
@@ -848,17 +826,11 @@ impl<'a, T: Layout> Window<T> {
                 use glium::glutin::os::windows::WindowBuilderExt;
                 window = window.with_taskbar_icon(Some(icon));
             }
-        }
 
-        #[cfg(target_os = "windows")] {
             if options.no_redirection_bitmap {
                 use glium::glutin::os::windows::WindowBuilderExt;
                 window = window.with_no_redirection_bitmap(true);
             }
-        }
-
-        if options.state.is_fullscreen {
-            window = window.with_fullscreen(Some(monitor));
         }
 
         if let Some(min_dim) = options.state.size.min_dimensions {
@@ -869,35 +841,17 @@ impl<'a, T: Layout> Window<T> {
             window = window.with_max_dimensions(max_dim);
         }
 
-        fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
-            // See #33 - specifying a specific OpenGL version
-            // makes winit crash on older Intel drivers, which is why we
-            // don't specify a specific OpenGL version here
-            let mut builder = ContextBuilder::new();
-
-            /*#[cfg(debug_assertions)] {
-                builder = builder.with_gl_debug_flag(true);
-            }
-
-            #[cfg(not(debug_assertions))] {*/
-                builder = builder.with_gl_debug_flag(false);
-            // }
-
-            if vsync {
-                builder = builder.with_vsync(true);
-            }
-            if srgb {
-                builder = builder.with_srgb(true);
-            }
-
-            builder
-        }
+        let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&window, &events_loop);
+        let mut state = options.state.clone();
+        state.size.hidpi_factor = hidpi_factor;
+        state.size.winit_hidpi_factor = winit_hidpi_factor;
 
         // Only create a context with VSync and SRGB if the context creation works
-        let gl_window = GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
-            .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
-            .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
-            .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))?;
+        let gl_window = create_gl_window(window, &events_loop)?;
+
+        if options.state.is_fullscreen {
+            gl_window.window().set_fullscreen(Some(gl_window.window().get_current_monitor()));
+        }
 
         if let Some(pos) = options.state.position {
             gl_window.window().set_position(pos);
@@ -909,103 +863,38 @@ impl<'a, T: Layout> Window<T> {
             gl_window.window().set_inner_size(options.state.size.get_inner_logical_size());
         }
 
-        /*#[cfg(debug_assertions)]
-        let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
-        #[cfg(not(debug_assertions))]*/
+        // #[cfg(debug_assertions)]
+        // let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
+        // #[cfg(not(debug_assertions))]
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
-
         let device_pixel_ratio = options.state.size.hidpi_factor;
-
-        // pre-caching shaders means to compile all shaders on startup
-        // this can take significant time and should be only used for testing the shaders
-        const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::EMPTY;
-
-        // this exists because RendererOptions isn't Clone-able
-        fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
-            use webrender::ProgramCache;
-            use css::webrender_translate::wr_translate_color_f;
-
-            RendererOptions {
-                resource_override_path: None,
-                precache_flags: PRECACHE_SHADER_FLAGS,
-                device_pixel_ratio: device_pixel_ratio,
-                enable_subpixel_aa: true,
-                enable_aa: true,
-                clear_color: clear_color.map(wr_translate_color_f),
-                cached_programs: Some(ProgramCache::new(None)),
-                renderer_kind: if native {
-                    RendererKind::Native
-                } else {
-                    RendererKind::OSMesa
-                },
-                .. RendererOptions::default()
-            }
-        }
 
         let framebuffer_size = {
             let (width, height): (u32, u32) = display.gl_window().get_inner_size().unwrap().to_physical(hidpi_factor).into();
             DeviceIntSize::new(width as i32, height as i32)
         };
 
-        let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-
-        let gl = get_gl_context(&display)?;
-
-        let opts_native = get_renderer_opts(true, device_pixel_ratio as f32, Some(options.background));
-        let opts_osmesa = get_renderer_opts(false, device_pixel_ratio as f32, Some(options.background));
-
-        // TODO: Right now it's not very ergonomic to cache shaders between
-        // renderers - notify webrender about this.
-        const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
-
-        let (mut renderer, sender) = match options.renderer_type {
-            Hardware => {
-                // force hardware renderer
-                Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
-            },
-            Software => {
-                // force software renderer
-                Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
-            },
-            Default => {
-                // try hardware first, fall back to software
-                if let Ok(r) = Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
-                    r
-                } else {
-                    Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
-                }
-            }
-        };
-
-        let api = sender.create_api();
-        let document_id = api.add_document(framebuffer_size, 0);
+        let document_id = render_api.add_document(framebuffer_size, 0);
         let epoch = Epoch(0);
         let pipeline_id = PipelineId(0, 0);
+        let window_id = new_window_id();
 
-        /*
-        let (sender, receiver) = channel();
-        let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
-        */
-
-        renderer.set_external_image_handler(Box::new(Compositor::default()));
-
-        set_webrender_debug_flags(&mut renderer, &DebugState::default(), &options.state.debug_state);
+        // let (sender, receiver) = channel();
+        // let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
 
         css.sort_by_specificity();
 
         let window = Window {
-            id: new_window_id(),
-            events_loop: events_loop,
+            id: window_id,
             create_options: options,
             state: state,
-            renderer: Some(renderer),
             display: Rc::new(display),
+            events_loop: events_loop,
             css,
             #[cfg(debug_assertions)]
             css_loader: None,
             scroll_states: ScrollStates::new(),
             internal: WindowInternal {
-                api: api,
                 epoch: epoch,
                 pipeline_id: pipeline_id,
                 document_id: document_id,
@@ -1126,6 +1015,172 @@ impl<'a, T: Layout> Window<T> {
     }
 }
 
+/// Since the rendering is single-threaded anyways, the renderer is shared across windows.
+/// Second, in order to use the font-related functions on the `RenderApi`, we need to
+/// store the RenderApi somewhere in the AppResources. However, the `RenderApi` is bound
+/// to a window (because OpenGLs function pointer is bound to a window).
+///
+/// This means that on startup (when calling App::new()), azul creates a fake, hidden display
+/// that handles all the rendering, outputs the rendered frames onto a texture, so that the
+/// other windows can use said texture. This is also important for animations and multi-window
+/// apps later on, but for now the only reason is so that `AppResources::add_font()` has
+/// the proper access to the `RenderApi`
+pub(crate) struct FakeDisplay {
+    /// Main render API that can be used to register and un-register fonts and images
+    pub(crate) render_api: RenderApi,
+    /// Main renderer, responsible for rendering all windows
+    renderer: Option<Renderer>,
+    /// Fake / invisible display, only used because OpenGL is tied to a display context
+    /// (offscreen rendering is not supported out-of-the-box on many platforms)
+    hidden_display: Display,
+    /// TODO: Not sure if we even need this, the events loop isn't important
+    /// for a window that is never shown
+    hidden_events_loop: EventsLoop,
+}
+
+impl FakeDisplay {
+
+    /// Creates a new render + a new display
+    pub(crate) fn new(renderer_type: RendererType, debug_state: &DebugState, background: Option<ColorU>) -> Result<Self, WindowCreateError> {
+
+        let events_loop = EventsLoop::new();
+        let window = WindowBuilder::new().with_dimensions(0, 0).with_visibility(false);
+        let (dpi_factor, _) = get_hidpi_factor(&window, &events_loop);
+        let mut gl_window = create_gl_window(window, &events_loop)?;
+        gl_window.window().set_visibility(false);
+
+        let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
+        let gl = get_gl_context(&display)?;
+        let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
+        let (renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor, background);
+
+        renderer.set_external_image_handler(Box::new(Compositor::default()));
+        set_webrender_debug_flags(&mut renderer, &DebugState::default(), &debug_state);
+
+        Ok(Self {
+            render_api,
+            renderer: Some(renderer),
+            hidden_display: display,
+            hidden_events_loop: events_loop,
+        })
+    }
+}
+
+impl Drop for FakeDisplay {
+    fn drop(&mut self) {
+        let renderer = self.renderer.take().unwrap();
+        renderer.deinit();
+    }
+}
+
+/// Returns the actual hidpi factor and the winit DPI factor for the current window
+fn get_hidpi_factor<T: Layout>(window: &Window<T>, events_loop: &EventsLoop) -> (f32, f32) {
+    let monitor = window.get_current_monitor();
+    let winit_hidpi_factor = monitor.get_hidpi_factor();
+
+    #[cfg(target_os = "linux")] {
+        (linux_get_hidpi_factor(&monitor, &events_loop), winit_hidpi_factor)
+    }
+    #[cfg(not(target_os = "linux"))] {
+        (winit_hidpi_factor, winit_hidpi_factor)
+    }
+}
+
+use glium::glutin::Window as GliumWindow;
+
+fn create_gl_window(window: &GliumWindow, events_loop: &EventsLoop) -> Result<GlWindow, WindowCreateError> {
+    GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
+        .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
+        .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
+        .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop)).into()
+}
+
+fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
+    // See #33 - specifying a specific OpenGL version
+    // makes winit crash on older Intel drivers, which is why we
+    // don't specify a specific OpenGL version here
+    let mut builder = ContextBuilder::new();
+
+    /*#[cfg(debug_assertions)] {
+        builder = builder.with_gl_debug_flag(true);
+    }
+
+    #[cfg(not(debug_assertions))] {*/
+        builder = builder.with_gl_debug_flag(false);
+    // }
+
+    if vsync {
+        builder = builder.with_vsync(true);
+    }
+    if srgb {
+        builder = builder.with_srgb(true);
+    }
+
+    builder
+}
+
+// This exists because RendererOptions isn't Clone-able
+fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
+    use webrender::ProgramCache;
+    use css::webrender_translate::wr_translate_color_f;
+
+    // pre-caching shaders means to compile all shaders on startup
+    // this can take significant time and should be only used for testing the shaders
+    const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::EMPTY;
+
+    RendererOptions {
+        resource_override_path: None,
+        precache_flags: PRECACHE_SHADER_FLAGS,
+        device_pixel_ratio: device_pixel_ratio,
+        enable_subpixel_aa: true,
+        enable_aa: true,
+        clear_color: clear_color.map(wr_translate_color_f),
+        cached_programs: Some(ProgramCache::new(None)),
+        renderer_kind: if native {
+            RendererKind::Native
+        } else {
+            RendererKind::OSMesa
+        },
+        .. RendererOptions::default()
+    }
+}
+
+fn create_renderer(
+    gl: Rc<Gl>,
+    notifier: Box<Notifier>,
+    renderer_type: RendererType,
+    device_pixel_ratio: f32,
+    background_color: Option<ColorU>,
+) -> Result<(Renderer, RenderApi), WindowCreateError> {
+
+    use self::RendererType::*;
+
+    let opts_native = get_renderer_opts(true, device_pixel_ratio, background_color);
+    let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, background_color);
+
+    let (renderer, sender) = match renderer_type {
+        Hardware => {
+            // force hardware renderer
+            Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
+        },
+        Software => {
+            // force software renderer
+            Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+        },
+        Default => {
+            // try hardware first, fall back to software
+            match Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
+                Ok(r) => r,
+                Err(_) => Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+            }
+        }
+    };
+
+    let api = sender.create_api();
+
+    Ok((renderer, api))
+}
+
 pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateError> {
     match display.gl_window().get_api() {
         glutin::Api::OpenGl => Ok(unsafe {
@@ -1135,14 +1190,6 @@ pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateEr
             gl::GlesFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
         }),
         glutin::Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
-    }
-}
-
-impl<T: Layout> Drop for Window<T> {
-    fn drop(&mut self) {
-        // self.background_thread.take().unwrap().join();
-        let renderer = self.renderer.take().unwrap();
-        renderer.deinit();
     }
 }
 

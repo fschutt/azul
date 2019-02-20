@@ -11,7 +11,8 @@ use webrender::api::ImageFormat as RawImageFormat;
 use {
     FastHashMap,
     text_cache::TextId,
-    window::{FakeWindow, WindowId},
+    app::AppConfig,
+    window::{FakeWindow, WindowId, WindowCreateError},
     task::Task,
     dom::{UpdateScreen, Redraw, DontRedraw},
     traits::Layout,
@@ -120,11 +121,11 @@ impl<'a, T: 'a + Layout> AppStateNoData<'a, T> {
 impl<T: Layout> AppState<T> {
 
     /// Creates a new `AppState`
-    pub fn new(initial_data: T) -> Self {
+    pub fn new(initial_data: T, config: &AppConfig) -> Result<Self, WindowCreateError> {
         Self {
             data: Arc::new(Mutex::new(initial_data)),
             windows: BTreeMap::new(),
-            resources: AppResources::default(),
+            resources: AppResources::new(config)?,
             daemons: FastHashMap::default(),
             tasks: Vec::new(),
         }

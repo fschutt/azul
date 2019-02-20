@@ -27,11 +27,14 @@ use rusttype::Font;
 use image::ImageError;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
-use azul_css::{FontId, PixelValue, StyleLetterSpacing};
+use azul_css::{FontId, Css, ColorU, PixelValue, StyleLetterSpacing};
 use {
     error::{FontError, ClipboardError},
-    window::{Window, WindowId, FakeWindow, ScrollStates},
-    window_state::WindowSize,
+    window::{
+        Window, WindowId, FakeWindow, ScrollStates,
+        WindowCreateError, WindowCreateOptions, RendererType,
+    },
+    window_state::{WindowSize, DebugState},
     text_cache::TextId,
     dom::{ScrollTagId, UpdateScreen},
     app_resources::AppResources,
@@ -54,6 +57,8 @@ pub struct App<T: Layout> {
     windows: BTreeMap<WindowId, Window<T>>,
     /// The global application state
     pub app_state: AppState<T>,
+    /// Application configuration, whether to enable logging, etc.
+    pub config: AppConfig,
 }
 
 /// Error returned by the `.run()` function
@@ -147,6 +152,12 @@ pub struct AppConfig {
     /// (STUB) Whether keyboard navigation should be enabled (default: true).
     /// Currently not implemented.
     pub enable_tab_navigation: bool,
+    /// Whether to force a hardware or software renderer
+    pub renderer_type: RendererType,
+    /// Debug state for all windows
+    pub debug_state: DebugState,
+    /// Background color for all windows
+    pub background_color: Option<ColorU>,
 }
 
 impl Default for AppConfig {
@@ -161,6 +172,9 @@ impl Default for AppConfig {
             #[cfg(feature = "logging")]
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
+            renderer_type: RendererType::default(),
+            debug_state: DebugState::default(),
+            background: None,
         }
     }
 }
@@ -169,7 +183,7 @@ impl<T: Layout> App<T> {
 
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
-    pub fn new(initial_data: T, config: AppConfig) -> Self {
+    pub fn new(initial_data: T, config: AppConfig) -> Result<Self, WindowCreateError> {
         #[cfg(feature = "logging")] {
             if let Some(log_level) = config.enable_logging {
                 ::logging::set_up_logging(config.log_file_path, log_level);
@@ -187,8 +201,14 @@ impl<T: Layout> App<T> {
 
         Self {
             windows: BTreeMap::new(),
-            app_state: AppState::new(initial_data),
+            app_state: AppState::new(initial_data, &config)?,
+            config,
         }
+    }
+
+    /// Creates a new window
+    pub fn create_window(&self, options: WindowCreateOptions<T>, mut css: Css) -> Result<Window<T>, WindowCreateError> {
+        Window::new(&self.app_resources.fake_display.render_api, options, css)
     }
 
     /// Spawn a new window on the screen. Note that this should only be used to

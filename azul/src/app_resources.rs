@@ -14,71 +14,123 @@ use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use rusttype::Font;
-use azul_css::{PixelValue, FontId, StyleLetterSpacing};
+use azul_css::{PixelValue, StyleLetterSpacing};
 use {
     text_layout::{split_text_into_words, TextSizePx},
     text_cache::{TextId, TextCache},
     font::{FontState, FontError},
     images::{ImageId, ImageState},
+    window::{FakeDisplay, WindowCreateError},
+    app::AppConfig,
 };
 
 pub type CssImageId = String;
+pub type CssFontId = String;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ImageSource {
-    /// The image is embedded inside the binary file
-    Embedded(&'static [u8]),
-    File(PathBuf),
+static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ImageId {
+    id: usize,
 }
 
-#[derive(Debug)]
-pub enum ImageReloadError {
-    Io(IoError, PathBuf),
-}
-
-impl Clone for ImageReloadError {
-    fn clone(&self) -> Self {
-        use self::ImageReloadError::*;
-        match self {
-            Io(err, path) => Io(IoError::new(err.kind(), "Io Error"), path.clone()),
+impl ImageId {
+    pub(crate) fn new() -> Self {
+        let unique_id = IMAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+        Self {
+            id: unique_id,
         }
     }
 }
 
-impl fmt::Display for ImageReloadError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::ImageReloadError::*;
-        match self {
-            Io(err, path_buf) =>
-            write!(
-                f, "Could not load \"{}\" - IO error: {}",
-                path_buf.as_path().to_string_lossy(), err
-            ),
+static FONT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontId {
+    id: usize,
+}
+
+impl FontId {
+    pub(crate) fn new() -> Self {
+        let unique_id = FONT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+        Self {
+            id: unique_id,
         }
     }
 }
 
-impl ImageSource {
+/// Since the code for "FontSource" and "ImageSource" is pretty much the same
+/// this generates the different structs for "FontSource", "FontReloadError",
+/// "ImageSource" and "ImageReloadError"
+macro_rules! external_data_source {($image_source:ident, $image_reload_error:ident) => (
 
-    /// Creates an image source from a `&static [u8]`.
-    pub fn new_from_static(bytes: &'static [u8]) -> Self {
-        ImageSource::Embedded(bytes)
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum $image_source {
+        /// The image is embedded inside the binary file
+        Embedded(&'static [u8]),
+        File(PathBuf),
     }
 
-    /// Creates an image source from a file
-    pub fn new_from_file<I: Into<PathBuf>>(file_path: I) -> Self {
-        ImageSource::File(file_path.into())
+    #[derive(Debug)]
+    pub enum $image_reload_error {
+        Io(IoError, PathBuf),
     }
 
-    /// Returns the bytes of the font
-    pub(crate) fn get_bytes(&self) -> Result<Vec<u8>, ImageReloadError> {
-        use std::fs;
-        use self::ImageSource::*;
-        match self {
-            Embedded(bytes) => Ok(bytes.to_vec()),
-            File(file_path) => fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone())),
+    impl Clone for $image_reload_error {
+        fn clone(&self) -> Self {
+            use self::$image_reload_error::*;
+            match self {
+                Io(err, path) => Io(IoError::new(err.kind(), "Io Error"), path.clone()),
+            }
         }
     }
+
+    impl fmt::Display for $image_reload_error {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use self::$image_reload_error::*;
+            match self {
+                Io(err, path_buf) =>
+                write!(
+                    f, "Could not load \"{}\" - IO error: {}",
+                    path_buf.as_path().to_string_lossy(), err
+                ),
+            }
+        }
+    }
+
+    impl $image_source {
+
+        /// Creates an image source from a `&static [u8]`.
+        pub fn new_from_static(bytes: &'static [u8]) -> Self {
+            $image_source::Embedded(bytes)
+        }
+
+        /// Creates an image source from a file
+        pub fn new_from_file<I: Into<PathBuf>>(file_path: I) -> Self {
+            $image_source::File(file_path.into())
+        }
+
+        /// Returns the bytes of the font
+        pub(crate) fn get_bytes(&self) -> Result<Vec<u8>, ImageReloadError> {
+            use std::fs;
+            use self::$image_source::*;
+            match self {
+                Embedded(bytes) => Ok(bytes.to_vec()),
+                File(file_path) => fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone())),
+            }
+        }
+    }
+)}
+
+external_data_source!(ImageSource, ImageReloadError);
+external_data_source!(FontSource, FontReloadError);
+
+/// Raw
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawImage {
+    pixels: Vec<u8>,
+    image_dimensions: (u32, u32),
+    data_format: RawImageFormat,
 }
 
 /// Stores the resources for the application, souch as fonts, images and cached
@@ -87,39 +139,52 @@ impl ImageSource {
 /// Images and fonts can be references across window contexts (not yet tested,
 /// but should work).
 pub struct AppResources {
-    /// When looking up images, there are two sources: Either the indirect way via using a
-    /// CssImageId (which is a String) or a direct ImageId. The indirect way requires one
-    /// extra lookup (to map from the stringified ID to the actual image ID).
+    /// The CssImageId is the string used in the CSS, i.e. "my_image" -> ImageId(4)
     pub(crate) css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,
-    /// The actual image cache, does NOT store the image data, only stores it temporarily
-    /// while it is being uploaded to the GPU via webrender.
-    pub(crate) images: FastHashMap<ImageId, ImageState>,
-    // Fonts are trickier to handle than images.
-    // First, we duplicate the font - webrender wants the raw font data,
-    // but we also need access to the font metrics. So we first parse the font
-    // to make sure that nothing is going wrong. In the next draw call, we
-    // upload the font and replace the FontState with the newly created font key
-    pub(crate) font_data: RefCell<FastHashMap<FontId, (Rc<Font<'static>>, Rc<Vec<u8>>, Rc<RefCell<FontState>>)>>,
-    // After we've looked up the FontKey in the font_data map, we can then access
-    // the font instance key (if there is any). If there is no font instance key,
-    // we first need to create one.
-    pub(crate) fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
+    /// Stores where the images were loaded from
+    pub(crate) images: FastHashMap<ImageId, ImageSource>,
+    /// Raw images are the same as
+    pub(crate) raw_images: FastHashMap<ImageId, RawImage>,
+    /// Same as CssImageId -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
+    pub(crate) css_ids_to_font_ids: FastHashMap<CssFontId, FontId>,
+    /// Stores where the fonts were loaded from
+    pub(crate) fonts: FastHashMap<FontId, FontSource>,
+    /// If a font does not get used for one frame, the corresponding instance key gets
+    /// deleted. If a FontId has no FontInstanceKeys anymore, the font key gets deleted.
+    ///
+    /// The only thing remaining in memory permanently is the FontSource (which is only
+    /// the string of the file path where the font was loaded from, so no huge memory pressure).
+    /// The reason for this agressive strategy is that the
+    pub(crate) last_frame_font_keys: FastHashMap<FontId, FastHashMap<Au, FontInstanceKey>>,
+    /// Same thing for images: If the image isn't displayed, it is deleted from memory, only
+    /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
+    ///
+    /// This way the image can be re-loaded if necessary but doesn't have to reside in memory at all times.
+    pub(crate) last_frame_image_keys: FastHashSet<ImageId>,
     /// Stores long texts across frames
     pub(crate) text_cache: TextCache,
+    /// In order to properly load / unload fonts and images as well as share resources
+    /// between windows, this field stores the (application-global) Renderer.
+    pub(crate) fake_display: FakeDisplay,
     /// Keyboard clipboard storage and retrieval functionality
     clipboard: SystemClipboard,
 }
 
-impl Default for AppResources {
-    fn default() -> Self {
-        Self {
+impl AppResources {
+    /// Creates a new renderer (the renderer manages the resources and is therfore tied to the resources).
+    fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
+        Ok(Self {
             css_ids_to_image_ids: FastHashMap::default(),
-            fonts: FastHashMap::default(),
-            font_data: RefCell::new(FastHashMap::default()),
             images: FastHashMap::default(),
+            raw_images: FastHashMap::default(),
+            css_ids_to_font_ids: FastHashMap::default(),
+            fonts: FastHashMap::default(),
+            last_frame_font_keys: FastHashMap::default(),
+            last_frame_image_keys: FastHashSet::default(),
             text_cache: TextCache::default(),
+            fake_display: FakeDisplay::new(app_config.renderer_type, &app_config.debug_state, app_config.background_color)?,
             clipboard: SystemClipboard::new().unwrap(),
-        }
+        })
     }
 }
 
@@ -134,8 +199,12 @@ impl AppResources {
         self.images.keys().cloned().collect()
     }
 
-    pub fn get_loaded_css_ids(&self) -> Vec<CssImageId> {
+    pub fn get_loaded_css_image_ids(&self) -> Vec<CssImageId> {
         self.css_ids_to_image_ids.keys().cloned().collect()
+    }
+
+    pub fn get_loaded_css_font_ids(&self) -> Vec<CssFontId> {
+        self.css_ids_to_font_ids.keys().cloned().collect()
     }
 
     pub fn get_loaded_text_ids(&self) -> Vec<TextId> {
@@ -147,15 +216,21 @@ impl AppResources {
 
     // -- ImageId cache
 
-
+    /// Add an image from a PNG, JPEG or other - note that for specialized image formats,
+    /// you have to enable them as features in the Cargo.toml file.
+    ///
+    /// ### Returns
+    ///
+    /// - `Some(())` if the image was inserted correctly
+    /// - `None` if the ImageId already exists (you have to delete the image first using `.delete_image()`)
     #[cfg(feature = "image_loading")]
-    pub fn add_image<I: Into<Vec<u8>>>(&mut self, id: ImageId, data: I) -> Result<(), ImageError> {
-        match self.images.entry(id) {
-            Occupied(_) => Ok(()),
+    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) -> Option<()> {
+        match self.images.entry(image_id) {
+            Occupied(_) => None,
             Vacant(v) => {
-                v.insert(ImageState::ReadyForUpload(decode_image_data(data)?));
-                Ok(())
-            },
+                v.insert(image_source);
+                Some(())
+            }
         }
     }
 
@@ -163,34 +238,24 @@ impl AppResources {
     ///
     /// ### Returns
     ///
-    /// - Some(()) if the image was inserted correctly
+    /// - `Some(())` if the image was inserted correctly
     /// - `None` if the ImageId already exists (you have to delete the image first using `.delete_image()`)
-    pub fn add_image_raw(&mut self, image_id: ImageId, pixels: Vec<u8>, image_dimensions: (u32, u32), data_format: RawImageFormat) -> Option<()> {
+    pub fn add_image_raw(&mut self, image_id: ImageId, image: RawImage) -> Option<()> {
 
         use images; // the module, not the crate!
 
-        match self.images.entry(image_id) {
+        match self.raw_images.entry(image_id) {
             Occupied(_) => None,
             Vacant(v) => {
-                let opaque = images::is_image_opaque(data_format, &pixels[..]);
-                let allow_mipmaps = true;
-                let descriptor = ImageDescriptor::new(
-                    image_dimensions.0 as i32,
-                    image_dimensions.1 as i32,
-                    data_format,
-                    opaque,
-                    allow_mipmaps
-                );
-                let data = ImageData::new(pixels);
-                v.insert(ImageState::ReadyForUpload((data, descriptor)));
+                v.insert(image);
                 Some(())
-            },
+            }
         }
     }
 
     /// See [`AppState::has_image()`](../app_state/struct.AppState.html#method.has_image)
     pub fn has_image(&self, image_id: &ImageId) -> bool {
-        self.images.get(&image_id).is_some()
+        self.images.get(image_id).is_some()
     }
 
     pub fn delete_image(&mut self, image_id: ImageId) -> Option<()> {
@@ -398,4 +463,114 @@ fn decode_image_data<I: Into<Vec<u8>>>(image_data: I)
     let image_format = image::guess_format(&image_data)?;
     let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
     Ok(images::prepare_image(decoded)?)
+}
+
+
+/// Looks if any new images need to be uploaded and stores the in the image resources
+fn update_resources(
+    api: &RenderApi,
+    app_resources: &mut AppResources,
+    resource_updates: &mut Vec<ResourceUpdate>)
+{
+    update_image_resources(api, app_resources, resource_updates);
+    update_font_resources(api, app_resources, resource_updates);
+}
+
+fn update_image_resources(
+    api: &RenderApi,
+    app_resources: &mut AppResources,
+    resource_updates: &mut Vec<ResourceUpdate>)
+{
+    use images::{ImageState, ImageInfo};
+
+    let mut updated_images = Vec::<(ImageId, (ImageData, ImageDescriptor))>::new();
+    let mut to_delete_images = Vec::<(ImageId, Option<ImageKey>)>::new();
+
+    // possible performance bottleneck (duplicated cloning) !!
+    for (key, value) in app_resources.images.iter() {
+        match *value {
+            ImageState::ReadyForUpload(ref d) => {
+                updated_images.push((key.clone(), d.clone()));
+            },
+            ImageState::Uploaded(_) => { },
+            ImageState::AboutToBeDeleted((ref k, _)) => {
+                to_delete_images.push((key.clone(), k.clone()));
+            }
+        }
+    }
+
+    // Remove any images that should be deleted
+    for (resource_key, image_key) in to_delete_images.into_iter() {
+        if let Some(image_key) = image_key {
+            resource_updates.push(ResourceUpdate::DeleteImage(image_key));
+        }
+        app_resources.images.remove(&resource_key);
+    }
+
+    // Upload all remaining images to the GPU only if the haven't been
+    // uploaded yet
+    for (resource_key, (data, descriptor)) in updated_images.into_iter() {
+
+        let key = api.generate_image_key();
+        resource_updates.push(ResourceUpdate::AddImage(
+            AddImage { key, descriptor, data, tiling: None }
+        ));
+
+        *app_resources.images.get_mut(&resource_key).unwrap() =
+            ImageState::Uploaded(ImageInfo {
+                key: key,
+                descriptor: descriptor
+        });
+    }
+}
+
+// almost the same as update_image_resources, but fonts
+// have two HashMaps that need to be updated
+fn update_font_resources(
+    api: &RenderApi,
+    app_resources: &mut AppResources,
+    resource_updates: &mut Vec<ResourceUpdate>)
+{
+    use font::FontState;
+    use azul_css::FontId;
+
+    let mut updated_fonts = Vec::<(FontId, Vec<u8>)>::new();
+    let mut to_delete_fonts = Vec::<(FontId, Option<(FontKey, Vec<FontInstanceKey>)>)>::new();
+
+    for (key, value) in app_resources.font_data.borrow().iter() {
+        match &*(*value.2).borrow() {
+            FontState::ReadyForUpload(ref bytes) => {
+                updated_fonts.push((key.clone(), bytes.clone()));
+            },
+            FontState::Uploaded(_) => { },
+            FontState::AboutToBeDeleted(ref font_key) => {
+                let to_delete_font_instances = font_key.and_then(|f_key| {
+                    let to_delete_font_instances = app_resources.fonts[&f_key].values().cloned().collect();
+                    Some((f_key.clone(), to_delete_font_instances))
+                });
+                to_delete_fonts.push((key.clone(), to_delete_font_instances));
+            }
+        }
+    }
+
+    // Delete the complete font. Maybe a more granular option to
+    // keep the font data in memory should be added later
+    for (resource_key, to_delete_instances) in to_delete_fonts.into_iter() {
+        if let Some((font_key, font_instance_keys)) = to_delete_instances {
+            for instance in font_instance_keys {
+                resource_updates.push(ResourceUpdate::DeleteFontInstance(instance));
+            }
+            resource_updates.push(ResourceUpdate::DeleteFont(font_key));
+            app_resources.fonts.remove(&font_key);
+        }
+        app_resources.font_data.borrow_mut().remove(&resource_key);
+    }
+
+    // Upload all remaining fonts to the GPU only if the haven't been uploaded yet
+    for (resource_key, data) in updated_fonts.into_iter() {
+        let key = api.generate_font_key();
+        resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, data, 0))); // TODO: use the index better?
+        let mut borrow_mut = app_resources.font_data.borrow_mut();
+        *borrow_mut.get_mut(&resource_key).unwrap().2.borrow_mut() = FontState::Uploaded(key);
+    }
 }
