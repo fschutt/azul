@@ -1023,76 +1023,199 @@ pub(crate) fn get_y_positions(
 use {
     FastHashMap,
     dom::NodeType,
-    text_layout::{TextSizePx, Words, FontMetrics},
-    images::{ImageId, ImageState},
+    text_layout::{TextSizePx, WordPositions},
     traits::Layout,
 };
 
 /// Returns the preferred width, for example for an image, that would be the
 /// original width (an image always wants to take up the original space)
 pub(crate) fn get_preferred_width<T: Layout>(
+        app_resources: &AppResources,
+        positioned_words: &BTreeMap<NodeId, PositionedWords>,
+        node_id: NodeId,
         node_type: &NodeType<T>,
-        image_cache: &FastHashMap<ImageId, ImageState>
 ) -> Option<f32> {
     use dom::NodeType::*;
     match node_type {
-        Image(i) => image_cache.get(i).and_then(|image_state| Some(image_state.get_dimensions().0)),
-        Label(_) | Text(_) => /* TODO: Calculate the minimum width for the text? */ None,
+        Image(image_id) => app_resources.get_dimensions_for_image(image_id),
+        Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.content_size.width),
         _ => None,
     }
 }
 
-pub(crate) struct PreferredHeight {
-    Image { original_dimensions: (f32, f32), current_height: },
-    Text(PositionedWords)
+pub(crate) enum PreferredHeight {
+    Image { original_dimensions: (f32, f32), current_height: f32 },
+    Text(WordPositions)
 }
 
 impl PreferredHeight {
+    /// Returns the preferred size of the div content.
+    /// Note that this can be larger than the actual div content!
     pub fn get_content_size(&self) -> f32 {
-
+        use self::PreferredHeight::*;
+        match self {
+            Image { current_height, .. } => current_height,
+            Text(word_positions) => word_positions.content_size.height,
+        }
     }
 }
 
-/// Given a certain width, returns the preferred height.
-///
-/// Note that this is not the final height of the div,
-/// just the preferred height / content height
-pub(crate) fn get_preferred_height_based_on_width(
-    node_type: &NodeType,
-    node_id: &NodeId,
-    div_width: TextSizePx,
-    image_cache: &FastHashMap<ImageId, ImageState>,
-    word_cache: &WordCache,
-    text_layout_options: &TextLayoutOptions,
-) -> Option<TextSizePx>
+use app_units::{Au, AU_PER_PX};
+use azul_css::{StyleFontSize, RectStyle};
+use std::collections::BTreeMap;
+use webrender::api::LayoutRect;
+use {
+    dom::NodeData,
+    app_resources::AppResources,
+    text_layout::Words,
+};
+
+pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
+    Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32)
+}
+
+pub(crate) fn get_font_id(rect_style: &RectStyle) -> String {
+    let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0)).clone();
+    font_id.map(|f| f.0).unwrap_or(DEFAULT_FONT_ID.to_string())
+}
+
+pub(crate) fn get_font_size(rect_style: &RectStyle) -> Au {
+    font_size_to_au(rect_style.font_size.unwrap_or(*DEFAULT_FONT_SIZE))
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct PositionedRectangle {
+    bounds: LayoutRect,
+    /// Size of the content, for example if a div contains an image,
+    /// that image can be bigger than the actual rect
+    content: Option<LayoutRect>,
+}
+
+pub struct LayoutResult {
+    pub rects: NodeDataContainer<PositionedRectangle>,
+    pub word_cache: BTreeMap<NodeId, Words>,
+    pub word_cache: BTreeMap<NodeId, PositionedWords>,
+    pub node_depths: Vec<(usize, NodeId)>,
+}
+
+/// At this point in time, all font keys, image keys, etc. have to be already submitted in the RenderAPI!
+pub(crate) fn do_the_layout<'a,'b, T: Layout>(
+    node_hierarchy: &NodeHierarchy,
+    node_data: &NodeDataContainer<NodeData<T>>,
+    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+    app_resources: &'b mut AppResources,
+    rect_size: LayoutSize,
+    rect_offset: LayoutPoint,
+) -> LayoutResult
 {
-    use dom::NodeType::*;
-    use text_layout::get_vertical_height_for_words;
+    use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
 
-    /*
-        words: &Words,
-        scaled_words: &ScaledWords,
-        text_layout_options: &TextLayoutOptions,
-        font_size: TextSizePx,
-        layout_overflow: LayoutOverflow,
-        scrollbar_style: ScrollbarStyle,
-    */
+    let render_api = &app_resources.fake_display.render_api;
 
-    match node_type {
-        Image(i) => image_cache.get(i).and_then(|image_state| {
-            let (image_original_height, image_original_width) = image_state.get_dimensions();
-            Some(div_width * (image_original_width / image_original_height))
-        }),
-        Label(_) | Text(_) => {
+    // Break all strings into words and / or resolve the TextIds
+    let word_cache = create_word_cache(&app_resources, node_data);
+    // Scale the words to the correct size
+    let scaled_words = create_scaled_words(&app_resources, node_hierarchy, node_data, display_rects);
+    // Layout all words as if there was no o
 
-            let (words, font) = (words?, font_metrics?);
-            // TODO: The div_width needs to take into account whether the current div
-            // is overflow:visible (so that the text can overflow the parent rect)!
-            let vertical_info = get_vertical_height_for_words(words, &font, Some(div_width));
-            Some(vertical_info.vertical_height)
+    let preferred_content_widths = node_data.transform(|node, _| {
+        node.node_type.get_preferred_width(&app_resources.images)
+    });
+
+    let solved_widths = solve_flex_layout_width(
+        node_hierarchy,
+        &display_rects,
+        preferred_widths,
+        rect_size.width as f32,
+    );
+
+    // Get the height of the content
+    let preferred_heights = node_data.transform(|node, id| {
+        let width_of_div = solved_widths.solved_widths[id].total();
+
+        /*
+            words: &Words,
+            scaled_words: &ScaledWords,
+            text_layout_options: &TextLayoutOptions,
+            font_size: TextSizePx,
+            layout_overflow: LayoutOverflow,
+            scrollbar_style: ScrollbarStyle,
+        */
+
+        match node.node_type {
+            Image(i) => app_ image_cache.get(i).and_then(|image_state| {
+                let (image_original_height, image_original_width) = image_state.get_dimensions();
+                Some(div_width * (image_original_width / image_original_height))
+            }),
+            Label(_) | Text(_) => {
+
+                let (words, font) = (words?, font_metrics?);
+                // TODO: The div_width needs to take into account whether the current div
+                // is overflow:visible (so that the text can overflow the parent rect)!
+                let vertical_info = get_vertical_height_for_words(words, &font, Some(div_width));
+                Some(vertical_info.vertical_height)
+            }
+            _ => None,
         }
-        _ => None,
+
+        node.node_type.get_preferred_height_based_on_width(
+            TextSizePx(),
+            &app_resources.images,
+            WRONG_HEIGHT
+            // NOTE: This is wrong, the word cache height is not the final height!
+            50.0, 50.0
+        ).and_then(|text_size| Some(text_size.0))
+    });
+
+    let solved_heights = solve_flex_layout_height(
+        node_hierarchy,
+        &solved_widths,
+        preferred_heights,
+        rect_size.height as f32,
+    );
+
+    let x_positions = get_x_positions(&solved_widths, node_hierarchy, rect_offset);
+    let y_positions = get_y_positions(&solved_heights, &solved_widths, node_hierarchy, rect_offset);
+
+    let layouted_arena = node_data.transform(|node, node_id| {
+        LayoutRect::new(
+            LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
+            LayoutSize::new(
+                solved_widths.solved_widths[node_id].total(),
+                solved_heights.solved_heights[node_id].total(),
+            )
+        )
+    });
+
+    LayoutResult {
+        rects: layouted_arena,
+        word_cache: word_cache,
+        node_depths: solved_widths.non_leaf_nodes_sorted_by_depth,
     }
+}
+
+fn create_word_cache<T: Layout>(
+    app_resources: &AppResources,
+    node_data: &NodeDataContainer<NodeData<T>>,
+) -> BTreeMap<NodeId, Words>
+{
+    use text_layout::split_text_into_words;
+    node_data
+    .linear_iter()
+    .filter_map(|node_id| {
+        match &node_data[node_id].node_type {
+            NodeType::Label(string) => Some((node_id, split_text_into_words(string))),
+            NodeType::Text(text_id) => app_resources.get_text(text_id).map(|words| (node_id, words.clone())),
+            _ => None,
+        }
+    }).collect()
+}
+
+fn create_scaled_words(
+
+) -> BTreeMap<NodeId, ScaledWords>
+{
+
 }
 
 #[cfg(test)]

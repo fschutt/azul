@@ -12,9 +12,9 @@ use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 use webrender::api::{
     LayoutPixel, RenderApi, FontInstanceKey,
     DisplayListBuilder, PrimitiveInfo, GradientStop, ColorF, PipelineId, Epoch,
-    ImageData, ImageKey, ImageDescriptor, ResourceUpdate, AddImage, AddFontInstance,
-    AddFont, BorderRadius, ClipMode, LayoutPoint, LayoutSize,
-    GlyphOptions, LayoutRect, BorderSide, FontKey, ExternalScrollId,
+    ImageData, ImageDescriptor, ResourceUpdate, AddImage, AddFontInstance,
+    BorderRadius, ClipMode, LayoutPoint, LayoutSize,
+    GlyphOptions, LayoutRect, BorderSide, ExternalScrollId,
     NormalBorder, ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
     ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode, BorderDetails,
@@ -26,7 +26,7 @@ use azul_css::{
     StyleTextColor, StyleBackground, StyleBoxShadow, StyleBackgroundColor,
     StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder, BoxShadowPreDisplayItem,
     LayoutPadding, SizeMetric, BoxShadowClipMode, FontId, StyleTextAlignmentVert,
-    RectStyle, RectLayout, ColorU as StyleColorU
+    RectStyle, RectLayout, ColorU as StyleColorU, DynamicCssPropertyDefault,
 };
 use {
     FastHashMap,
@@ -40,9 +40,10 @@ use {
         IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
-    text_layout::{TextOverflowPass2, ScrollbarInfo, Words, FontMetrics},
-    images::ImageId,
+    ui_solver::do_the_layout,
+    text_layout::{ScrollbarInfo, ScrollbarStyle, WordPositions, ScaledWords},
     text_cache::TextInfo,
+    app_resources::ImageId,
     compositor::new_opengl_texture_id,
     window::{Window, LayoutInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
     window_state::WindowSize,
@@ -139,9 +140,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let node_hierarchy = &arena.node_layout;
         let node_data = &arena.node_data;
 
-        // Upload image and font resources
-        update_resources(&window.internal.api, app_resources, &mut resource_updates);
-
         let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
             node_hierarchy,
             node_data,
@@ -152,6 +150,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             window.state.size.get_reverse_logical_size(),
             LogicalPosition::new(0.0, 0.0)
         );
+
+        // TODO: After the layout has been done, call all IFrameCallbacks and get and insert their font keys / image keys
 
         let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
             node_hierarchy, &self.rectangles, node_data, &laid_out_rectangles,
@@ -380,115 +380,6 @@ fn determine_rendering_order_inner<'a>(
     for (absolute_depth, absolute_node_id) in absolute_node_ids.into_iter().rev() {
         determine_rendering_order_inner(node_hierarchy, rectangles, layouted_rects, absolute_depth, absolute_node_id, content_groups);
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct WordCache(BTreeMap<NodeId, (Words, FontMetrics)>);
-
-fn do_the_layout<'a,'b, T: Layout>(
-    node_hierarchy: &NodeHierarchy,
-    node_data: &NodeDataContainer<NodeData<T>>,
-    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    resource_updates: &mut Vec<ResourceUpdate>,
-    app_resources: &'b mut AppResources,
-    render_api: &RenderApi,
-    rect_size: LogicalSize,
-    rect_offset: LogicalPosition)
--> (NodeDataContainer<LayoutRect>, Vec<(usize, NodeId)>, WordCache)
-{
-    use text_layout::{split_text_into_words, get_words_cached};
-    use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
-
-    let word_cache: BTreeMap<NodeId, (Words, FontMetrics)> = node_hierarchy
-    .linear_iter()
-    .filter_map(|id| {
-        let (font, font_metrics, font_id, font_size) = match node_data[id].node_type {
-            NodeType::Label(_) | NodeType::Text(_) => {
-                use text_layout::TextLayoutOptions;
-
-                let rect = &display_rects[id];
-                let style = &rect.style;
-                let font_id = style.font_family.as_ref()?.fonts.get(0)?.clone();
-                let font_size = style.font_size.unwrap_or(*DEFAULT_FONT_SIZE);
-                let font_size_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-                let font_instance_key = push_font(&font_id, font_size_app_units, resource_updates, app_resources, render_api)?;
-                let overflow_behaviour = style.overflow.unwrap_or(LayoutOverflow::default());
-                let font = app_resources.get_font(&font_id)?;
-                let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
-
-                let text_layout_options = TextLayoutOptions {
-                    horz_alignment,
-                    vert_alignment,
-                    line_height: style.line_height,
-                    letter_spacing: style.letter_spacing,
-                };
-                let font_metrics = FontMetrics::new(&font.0, &font_size, &text_layout_options);
-
-                (font.0, font_metrics, font_id, font_size)
-            },
-            _ => return None,
-        };
-
-        match &node_data[id].node_type {
-            NodeType::Label(ref string_to_render) => {
-                Some((id, (split_text_into_words(&string_to_render, &font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing), font_metrics)))
-            },
-            NodeType::Text(text_id) => {
-                // Cloning the words here due to lifetime problems
-                Some((id, (get_words_cached(&text_id,
-                    &font,
-                    &font_id,
-                    &font_size.0,
-                    font_metrics.font_size_no_line_height,
-                    font_metrics.letter_spacing,
-                    &mut app_resources.text_cache).clone(), font_metrics)))
-            },
-            _ => None,
-        }
-    }).collect();
-
-    let preferred_widths = node_data.transform(|node, _| {
-        node.node_type.get_preferred_width(&app_resources.images)
-    });
-
-    let solved_widths = solve_flex_layout_width(
-        node_hierarchy,
-        &display_rects,
-        preferred_widths,
-        rect_size.width as f32,
-    );
-
-    let preferred_heights = node_data.transform(|node, id| {
-        use text_layout::TextSizePx;
-        node.node_type.get_preferred_height_based_on_width(
-            TextSizePx(solved_widths.solved_widths[id].total()),
-            &app_resources.images,
-            word_cache.get(&id).and_then(|e| Some(&e.0)),
-            word_cache.get(&id).and_then(|e| Some(e.1)),
-        ).and_then(|text_size| Some(text_size.0))
-    });
-
-    let solved_heights = solve_flex_layout_height(
-        node_hierarchy,
-        &solved_widths,
-        preferred_heights,
-        rect_size.height as f32,
-    );
-
-    let x_positions = get_x_positions(&solved_widths, node_hierarchy, rect_offset);
-    let y_positions = get_y_positions(&solved_heights, &solved_widths, node_hierarchy, rect_offset);
-
-    let layouted_arena = node_data.transform(|node, node_id| {
-        LayoutRect::new(
-            LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
-            LayoutSize::new(
-                solved_widths.solved_widths[node_id].total(),
-                solved_heights.solved_heights[node_id].total(),
-            )
-        )
-    });
-
-    (layouted_arena, solved_widths.non_leaf_nodes_sorted_by_depth, WordCache(word_cache))
 }
 
 #[derive(Default, Debug, Clone)]
@@ -973,8 +864,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
-) -> Option<OverflowInfo>
-{
+) {
     use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 
     let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.window_size.hidpi_factor, rectangle.window_size.hidpi_factor);
@@ -1124,12 +1014,12 @@ fn push_text(
     font_instance_key: FontInstanceKey,
     font_color: ColorU,
 ) {
-    use text_layout::{self, get_layouted_glyphs};
+    use text_layout::get_layouted_glyphs;
     use css::webrender_translate::wr_translate_color_u;
 
     let rect_offset = info.rect.origin;
-    let bounding_size_height_px = rect.info.size.height;
-    let glyphs = get_layouted_glyphs(
+    let bounding_size_height_px = info.rect.size.height;
+    let layouted_glyphs = get_layouted_glyphs(
         word_positions,
         scaled_words,
         horz_alignment,
@@ -1146,163 +1036,10 @@ fn push_text(
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
     flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
-    builder.push_text(&info, &positioned_glyphs, font_instance_key, font_color, Some(GlyphOptions {
+    builder.push_text(&info, &layouted_glyphs.glyphs, font_instance_key, font_color, Some(GlyphOptions {
         render_mode: FontRenderMode::Subpixel,
         flags: flags,
     }));
-}
-
-/// Adds a scrollbar to the left or bottom side of a rectangle.
-fn push_scrollbar(
-    info: &PrimitiveInfo<LayoutPixel>,
-    builder: &mut DisplayListBuilder,
-    scrollbar_style: &ScrollbarStyle,
-    scrollbar_offset_percent: f32,
-    scrollbar_size: f32,
-) {
-    use euclid::TypedPoint2D;
-
-    // The border is inside the rectangle - subtract the border width
-    // on the left and bottom side, so that the scrollbar is laid out correctly
-    let mut bounds = *bounds;
-
-    if let Some(StyleBorder { left: Some(l), bottom: Some(b), .. }) = border {
-        bounds.size.width -= l.border_width.to_pixels();
-        bounds.size.height -= b.border_width.to_pixels();
-    }
-
-    // Background of scrollbar (vertical)
-    let scrollbar_vertical_background = LayoutRect::new(
-        LayoutPoint::new(bounds.origin.x + bounds.size.width - scrollbar_style.width.0, bounds.origin.y),
-        LayoutSize::new(scrollbar_style.width.0, bounds.size.height),
-    );
-
-    let scrollbar_vertical_background_info = PrimitiveInfo {
-        rect: scrollbar_vertical_background,
-        clip_rect: bounds,
-        is_backface_visible: false,
-        tag: None, // TODO: for hit testing
-    };
-
-    push_rect(&scrollbar_vertical_background_info, builder, &scrollbar_style.background_color);
-
-    // Actual scroll bar
-    let scrollbar_vertical_bar = TypedRect::<f32, LayoutPixel> {
-        origin: TypedPoint2D::new(
-            bounds.origin.x + bounds.size.width - scrollbar_style.width.0 + scrollbar_style.padding.0,
-            bounds.origin.y + scrollbar_style.width.0),
-        size: TypedSize2D::new(
-            scrollbar_style.width.0 - (scrollbar_style.padding.0 * 2.0),
-            bounds.size.height - (scrollbar_style.width.0 * 2.0)),
-    };
-
-    let scrollbar_vertical_bar_info = PrimitiveInfo {
-        rect: scrollbar_vertical_bar,
-        clip_rect: bounds,
-        is_backface_visible: false,
-        tag: None, // TODO: for hit testing
-    };
-
-    push_rect(&scrollbar_vertical_bar_info, builder, &scrollbar_style.bar_color);
-
-    // Triangle top
-    let mut scrollbar_triangle_rect = TypedRect::<f32, LayoutPixel> {
-        origin: TypedPoint2D::new(
-            bounds.origin.x + bounds.size.width - scrollbar_style.width.0 + scrollbar_style.padding.0,
-            bounds.origin.y + scrollbar_style.padding.0),
-        size: TypedSize2D::new(
-            scrollbar_style.width.0 - (scrollbar_style.padding.0 * 2.0),
-            scrollbar_style.width.0 - (scrollbar_style.padding.0 * 2.0)),
-    };
-
-    scrollbar_triangle_rect.origin.x += scrollbar_triangle_rect.size.width / 4.0;
-    scrollbar_triangle_rect.origin.y += scrollbar_triangle_rect.size.height / 4.0;
-    scrollbar_triangle_rect.size.width /= 2.0;
-    scrollbar_triangle_rect.size.height /= 2.0;
-
-    push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointUp);
-
-    // Triangle bottom
-    scrollbar_triangle_rect.origin.y += bounds.size.height - scrollbar_style.width.0 + scrollbar_style.padding.0;
-    push_triangle(&scrollbar_triangle_rect, builder, &scrollbar_style.triangle_color, TriangleDirection::PointDown);
-}
-
-enum TriangleDirection {
-    PointUp,
-    PointDown,
-    PointRight,
-    PointLeft,
-}
-
-fn push_triangle(
-    bounds: &TypedRect<f32, LayoutPixel>,
-    builder: &mut DisplayListBuilder,
-    background_color: &StyleBackgroundColor,
-    direction: TriangleDirection)
-{
-    use self::TriangleDirection::*;
-    use webrender::api::{LayoutSideOffsets, BorderRadius};
-    use css::webrender_translate::wr_translate_color_u;
-
-    // see: https://css-tricks.com/snippets/css/css-triangle/
-    // uses the "3d effect" for making a triangle
-
-    let triangle_rect_info = PrimitiveInfo {
-        rect: *bounds,
-        clip_rect: *bounds,
-        is_backface_visible: false,
-        tag: None,
-    };
-
-    const TRANSPARENT: ColorU = ColorU { r: 0, b: 0, g: 0, a: 0 };
-
-    // make all borders but one transparent
-    let [b_left, b_right, b_top, b_bottom] = match direction {
-        PointUp         => [
-            (TRANSPARENT, BorderStyle::Hidden),
-            (TRANSPARENT, BorderStyle::Hidden),
-            (TRANSPARENT, BorderStyle::Hidden),
-            (wr_translate_color_u(background_color.0), BorderStyle::Solid)
-        ],
-        PointDown       => [
-            (TRANSPARENT, BorderStyle::Hidden),
-            (TRANSPARENT, BorderStyle::Hidden),
-            (wr_translate_color_u(background_color.0), BorderStyle::Solid),
-            (TRANSPARENT, BorderStyle::Hidden)
-        ],
-        PointLeft       => [
-            (TRANSPARENT, BorderStyle::Hidden),
-            (wr_translate_color_u(background_color.0), BorderStyle::Solid),
-            (TRANSPARENT, BorderStyle::Hidden),
-            (TRANSPARENT, BorderStyle::Hidden)
-        ],
-        PointRight      => [
-            (wr_translate_color_u(background_color.0), BorderStyle::Solid),
-            (TRANSPARENT, BorderStyle::Hidden),
-            (TRANSPARENT, BorderStyle::Hidden),
-            (TRANSPARENT, BorderStyle::Hidden)
-        ],
-    };
-
-    let border_details = BorderDetails::Normal(NormalBorder {
-        left:   BorderSide { color: b_left.0.into(),         style: b_left.1   },
-        right:  BorderSide { color: b_right.0.into(),        style: b_right.1  },
-        top:    BorderSide { color: b_top.0.into(),          style: b_top.1    },
-        bottom: BorderSide { color: b_bottom.0.into(),       style: b_bottom.1 },
-        radius: BorderRadius::zero(),
-        do_aa: true,
-    });
-
-    // make the borders half the width / height of the rectangle,
-    // so that the border looks like a triangle
-    let left = bounds.size.width / 2.0;
-    let top = bounds.size.height / 2.0;
-    let bottom = top;
-    let right = left;
-
-    let border_widths = LayoutSideOffsets::new(top, right, bottom, left);
-
-    builder.push_border(&triangle_rect_info, border_widths, border_details);
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
@@ -1698,12 +1435,9 @@ fn push_image(
     builder: &mut DisplayListBuilder,
     app_resources: &AppResources,
     image_id: &ImageId,
-    size: TypedSize2D<f32, LayoutPixel>)
--> Option<OverflowInfo>
-{
-    use images::ImageState::*;
-
-    if let Uploaded(image_info) = app_resources.images.get(image_id)? {
+    size: TypedSize2D<f32, LayoutPixel>
+) {
+    if let Some(image_info) = app_resources.get_image_info(image_id) {
         builder.push_image(
             info,
             size,
@@ -1714,9 +1448,6 @@ fn push_image(
             ColorF::WHITE,
         );
     }
-
-    // TODO: determine if the image has overflown its container
-    None
 }
 
 #[inline]
@@ -1855,65 +1586,7 @@ fn populate_css_properties(
     node_id: NodeId,
     css_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
 {
-    use azul_css::CssProperty::{self, *};
-
-    fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
-        match property {
-            BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
-            BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
-            BackgroundSize(s)   => { rect.style.background_size = Some(*s);                 },
-            BackgroundRepeat(r) => { rect.style.background_repeat = Some(*r);               },
-            TextColor(t)        => { rect.style.font_color = Some(*t);                      },
-            Border(b)           => { StyleBorder::merge(&mut rect.style.border, &b);        },
-            Background(b)       => { rect.style.background = Some(b.clone());               },
-            FontSize(f)         => { rect.style.font_size = Some(*f);                       },
-            FontFamily(f)       => { rect.style.font_family = Some(f.clone());              },
-            LetterSpacing(l)    => { rect.style.letter_spacing = Some(*l);                  },
-            Overflow(o)         => { LayoutOverflow::merge(&mut rect.style.overflow, &o);   },
-            TextAlign(ta)       => { rect.style.text_align = Some(*ta);                     },
-            BoxShadow(b)        => { StyleBoxShadow::merge(&mut rect.style.box_shadow, b);  },
-            LineHeight(lh)      => { rect.style.line_height = Some(*lh);                    },
-
-            Width(w)            => { rect.layout.width = Some(*w);                          },
-            Height(h)           => { rect.layout.height = Some(*h);                         },
-            MinWidth(mw)        => { rect.layout.min_width = Some(*mw);                     },
-            MinHeight(mh)       => { rect.layout.min_height = Some(*mh);                    },
-            MaxWidth(mw)        => { rect.layout.max_width = Some(*mw);                     },
-            MaxHeight(mh)       => { rect.layout.max_height = Some(*mh);                    },
-
-            Position(p)         => { rect.layout.position = Some(*p);                       },
-            Top(t)              => { rect.layout.top = Some(*t);                            },
-            Bottom(b)           => { rect.layout.bottom = Some(*b);                         },
-            Right(r)            => { rect.layout.right = Some(*r);                          },
-            Left(l)             => { rect.layout.left = Some(*l);                           },
-
-            Padding(p)          => { LayoutPadding::merge(&mut rect.layout.padding, &p);    },
-            Margin(m)           => { LayoutMargin::merge(&mut rect.layout.margin, &m);      },
-
-            FlexGrow(g)         => { rect.layout.flex_grow = Some(*g)                       },
-            FlexShrink(s)       => { rect.layout.flex_shrink = Some(*s)                     },
-            FlexWrap(w)         => { rect.layout.wrap = Some(*w);                           },
-            FlexDirection(d)    => { rect.layout.direction = Some(*d);                      },
-            JustifyContent(j)   => { rect.layout.justify_content = Some(*j);                },
-            AlignItems(a)       => { rect.layout.align_items = Some(*a);                    },
-            AlignContent(a)     => { rect.layout.align_content = Some(*a);                  },
-            Cursor(_)           => { /* cursor neither affects layout nor styling */        },
-        }
-    }
-
-    use azul_css::DynamicCssPropertyDefault;
-
-    // Assert that the types of two properties matches
-    fn property_type_matches(a: &CssProperty, b: &DynamicCssPropertyDefault) -> bool {
-        use std::mem::discriminant;
-        use azul_css::DynamicCssPropertyDefault::*;
-        match b {
-            Exact(e) => discriminant(a) == discriminant(e),
-            Auto => true, // "auto" always matches
-        }
-    }
-
-    // Apply / static / dynamic properties
+    // Apply static / dynamic properties
     for constraint in &rect.styled_node.css_constraints {
         use azul_css::CssDeclaration::*;
         match constraint {
@@ -1937,5 +1610,62 @@ fn populate_css_properties(
                 }
             }
         }
+    }
+}
+
+// Assert that the types of two properties matches
+fn property_type_matches(a: &CssProperty, b: &DynamicCssPropertyDefault) -> bool {
+    use std::mem::discriminant;
+    use azul_css::DynamicCssPropertyDefault::*;
+    match b {
+        Exact(e) => discriminant(a) == discriminant(e),
+        Auto => true, // "auto" always matches
+    }
+}
+
+fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
+
+    use azul_css::CssProperty::*;
+
+    match property {
+        BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
+        BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
+        BackgroundSize(s)   => { rect.style.background_size = Some(*s);                 },
+        BackgroundRepeat(r) => { rect.style.background_repeat = Some(*r);               },
+        TextColor(t)        => { rect.style.font_color = Some(*t);                      },
+        Border(b)           => { StyleBorder::merge(&mut rect.style.border, &b);        },
+        Background(b)       => { rect.style.background = Some(b.clone());               },
+        FontSize(f)         => { rect.style.font_size = Some(*f);                       },
+        FontFamily(f)       => { rect.style.font_family = Some(f.clone());              },
+        LetterSpacing(l)    => { rect.style.letter_spacing = Some(*l);                  },
+        Overflow(o)         => { LayoutOverflow::merge(&mut rect.style.overflow, &o);   },
+        TextAlign(ta)       => { rect.style.text_align = Some(*ta);                     },
+        BoxShadow(b)        => { StyleBoxShadow::merge(&mut rect.style.box_shadow, b);  },
+        LineHeight(lh)      => { rect.style.line_height = Some(*lh);                    },
+
+        Width(w)            => { rect.layout.width = Some(*w);                          },
+        Height(h)           => { rect.layout.height = Some(*h);                         },
+        MinWidth(mw)        => { rect.layout.min_width = Some(*mw);                     },
+        MinHeight(mh)       => { rect.layout.min_height = Some(*mh);                    },
+        MaxWidth(mw)        => { rect.layout.max_width = Some(*mw);                     },
+        MaxHeight(mh)       => { rect.layout.max_height = Some(*mh);                    },
+
+        Position(p)         => { rect.layout.position = Some(*p);                       },
+        Top(t)              => { rect.layout.top = Some(*t);                            },
+        Bottom(b)           => { rect.layout.bottom = Some(*b);                         },
+        Right(r)            => { rect.layout.right = Some(*r);                          },
+        Left(l)             => { rect.layout.left = Some(*l);                           },
+
+        Padding(p)          => { LayoutPadding::merge(&mut rect.layout.padding, &p);    },
+        Margin(m)           => { LayoutMargin::merge(&mut rect.layout.margin, &m);      },
+
+        FlexGrow(g)         => { rect.layout.flex_grow = Some(*g)                       },
+        FlexShrink(s)       => { rect.layout.flex_shrink = Some(*s)                     },
+        FlexWrap(w)         => { rect.layout.wrap = Some(*w);                           },
+        FlexDirection(d)    => { rect.layout.direction = Some(*d);                      },
+        JustifyContent(j)   => { rect.layout.justify_content = Some(*j);                },
+        AlignItems(a)       => { rect.layout.align_items = Some(*a);                    },
+        AlignContent(a)     => { rect.layout.align_content = Some(*a);                  },
+        Cursor(_)           => { /* cursor neither affects layout nor styling */        },
     }
 }

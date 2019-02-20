@@ -1,6 +1,7 @@
 //! Types and methods used to describe the style of an application
 use css_properties::{CssProperty, CssPropertyType};
 use std::fmt;
+use std::collections::HashMap;
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.

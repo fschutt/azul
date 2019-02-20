@@ -482,6 +482,30 @@ fn render_single_window_content<T: Layout>(
             is_mouse_down,
         );
 
+    // Scan the styled DOM for image and font keys.
+    //
+    // The problem is that we need to scan all DOMs for image and font keys and insert them
+    // before the layout() step - however, can't call IFrameCallbacks upfront, because each
+    // IFrameCallback needs to know its size (so it has to be invoked after the layout() step).
+    // So, this process needs to follow an order like:
+    //
+    // - For each DOM to render:
+    //      - Create a DOM ID
+    //      - Style the DOM according to the stylesheet
+    //      - Scan all the font keys and image keys
+    //      - Insert the new font keys and image keys into the render API
+    //      - Scan all IFrameCallbacks, generate the DomID for each callback
+    //      - Repeat while number_of_iframe_callbacks != 0
+    let (resource_updates, dom_cache) =  app_state.resources.update_images_and_fonts(
+        &ui_description_cache[window_id],
+        &mut app_state.data,
+    );
+
+    // Send the updated resources
+    if !resource_updates.is_empty() {
+        app_state.resources.fake_display.render_api.update_resources(resource_updates);
+    }
+
     // Render the window (webrender will send an Awakened event when the frame is done)
     let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
     render(
