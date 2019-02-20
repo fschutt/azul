@@ -10,52 +10,10 @@ use image::{
     self, ImageError, DynamicImage, GenericImageView,
 };
 
-static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ImageId {
-    id: usize,
-}
-
-pub(crate) fn new_image_id() -> ImageId {
-    let unique_id =IMAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-    ImageId {
-        id: unique_id,
-    }
-}
-
-impl ImageId {
-    pub fn new() -> Self {
-        new_image_id()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ImageInfo {
     pub(crate) key: ImageKey,
     pub(crate) descriptor: ImageDescriptor,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum ImageState {
-    // resource is available for the renderer
-    Uploaded(ImageInfo),
-    // image is loaded & decoded, but not yet available
-    ReadyForUpload((ImageData, ImageDescriptor)),
-    // Image is about to get deleted in the next frame
-    AboutToBeDeleted((Option<ImageKey>, ImageDescriptor)),
-}
-
-impl ImageState {
-    /// Returns the original dimensions of the image
-    pub fn get_dimensions(&self) -> (f32, f32) {
-        use self::ImageState::*;
-        match self {
-            Uploaded(ImageInfo { descriptor, .. }) |
-            ReadyForUpload((_, descriptor)) |
-            AboutToBeDeleted((_, descriptor)) => (descriptor.size.width as f32, descriptor.size.height as f32)
-        }
-    }
 }
 
 // The next three functions are taken from:

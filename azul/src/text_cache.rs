@@ -5,6 +5,7 @@ use {
     FastHashMap,
     text_layout::Words,
     app_resources::AppResources,
+    text_layout::ScaledWords,
 };
 
 static TEXT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);

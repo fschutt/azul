@@ -5,7 +5,7 @@ use webrender::api::RenderApi;
 use rusttype::{Font, Scale};
 use azul_css::{
     StyleTextAlignmentHorz, StyleFontSize, StyleBackgroundColor,
-    StyleTextAlignmentVert, StyleLineHeight,
+    StyleTextAlignmentVert, StyleLineHeight, RectStyle, LayoutOverflow, ColorU
 };
 pub use webrender::api::{
     GlyphInstance, GlyphDimensions, FontKey, FontInstanceKey, LayoutSize, LayoutRect, LayoutPoint
@@ -139,7 +139,7 @@ pub(crate) struct WordPositions {
     pub line_breaks: Vec<(WordIndex, LineLength)>,
     /// Whether or not the word positions are already accounting for
     /// the scrollbar space
-    pub scrollbars: Option<ReservedScrollbarSpace>,
+    pub scrollbars: ScrollbarStyle,
     /// The overflow value
     pub overflow: LayoutOverflow,
 }
@@ -254,15 +254,15 @@ impl Default for ScrollbarInfo {
             width: TextSizePx(17.0),
             padding: TextSizePx(2.0),
             scrollbar_background: RectStyle {
-                background_color: Some(StyleBackgroundColor(StyleColorU { r: 241, g: 241, b: 241, a: 255 })),
+                background_color: Some(StyleBackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 })),
                 .. Default::default()
             },
             track_style: RectStyle {
-                background_color: Some(StyleBackgroundColor(StyleColorU { r: 193, g: 193, b: 193, a: 255 })),
+                background_color: Some(StyleBackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 })),
                 .. Default::default()
             },
             thumb_style: RectStyle {
-                background_color: Some(StyleBackgroundColor(StyleColorU { r: 163, g: 163, b: 163, a: 255 })),
+                background_color: Some(StyleBackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 })),
             },
         }
     }
