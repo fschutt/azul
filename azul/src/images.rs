@@ -1,9 +1,8 @@
 //! Module for loading and handling images
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::api::{
     ImageFormat as WebrenderImageFormat,
-    ImageData, ImageDescriptor, ImageKey
+    ImageDescriptor, ImageKey
 };
 #[cfg(feature = "image_loading")]
 use image::{

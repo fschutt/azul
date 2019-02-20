@@ -142,8 +142,6 @@ pub mod dialogs;
 pub mod dom;
 /// Re-exports of errors
 pub mod error;
-/// Font handling
-pub mod font;
 /// Async IO / task system
 pub mod task;
 /// Module for caching long texts (including their layout / character positions) across multiple frames

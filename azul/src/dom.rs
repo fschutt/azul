@@ -42,6 +42,49 @@ pub(crate) fn new_scroll_tag_id() -> ScrollTagId {
     ScrollTagId(new_tag_id())
 }
 
+static DOM_ID: AtomicUsize = AtomicUsize::new(1);
+
+/// DomID - used for identifying different DOMs (for example IFrameCallbacks)
+/// have a different DomId than the root DOM
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DomId {
+    /// Unique ID for this DOM
+    id: usize,
+    /// If this DOM was generated from an IFrameCallback, stores the parents
+    /// DomId + the NodeId (from the parent DOM) which the IFrameCallback
+    /// was attached to.
+    parent: Option<(Box<DomId>, NodeId)>,
+}
+
+pub(crate) fn new_dom_id(parent: Option<(DomId, NodeId)>) -> DomId {
+    let new_dom_id = DOM_ID.fetch_add(1, Ordering::SeqCst);
+    DomId {
+        id: new_dom_id,
+        parent: parent.map(|(p, node_id)| (Box::new(p), node_id)),
+    }
+}
+
+/// Reset the DOM ID to 1, usually done once-per-frame for the root DOM
+pub(crate) fn reset_dom_id() {
+    DOM_ID.swap(1, Ordering::SeqCst);
+}
+
+impl DomId {
+
+    /// Creates an ID for the root node
+    pub(crate) fn create_root_dom_id() -> Self  {
+        Self {
+            id: 0,
+            parent: None,
+        }
+    }
+
+    /// Returns if this is the root node
+    pub fn is_root(&self) -> bool {
+        *self == Self::create_root_dom_id()
+    }
+}
+
 /// Calculated hash of a DOM node, used for querying attributes of the DOM node
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct DomHash(pub u64);
