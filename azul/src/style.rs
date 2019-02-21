@@ -577,7 +577,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         // NOTE: This deep-clones the entire arena, which may be a
         // performance-sensitive operation!
 
-        ui_descr_arena: Rc::new(RefCell::new(ui_state.dom.arena.clone())),
+        ui_descr_arena: ui_state.dom.arena.clone(),
         ui_descr_root: root,
         styled_nodes: styled_nodes,
         default_style_of_node: StyledNode::default(),

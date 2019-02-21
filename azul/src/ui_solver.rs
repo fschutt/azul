@@ -1074,9 +1074,9 @@ pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
     Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32)
 }
 
-pub(crate) fn get_font_id(rect_style: &RectStyle) -> String {
-    let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0)).clone();
-    font_id.map(|f| f.0).unwrap_or(DEFAULT_FONT_ID.to_string())
+pub(crate) fn get_font_id(rect_style: &'a RectStyle) -> &'a str {
+    let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0));
+    font_id.map(|f| f.0).unwrap_or(DEFAULT_FONT_ID)
 }
 
 pub(crate) fn get_font_size(rect_style: &RectStyle) -> Au {

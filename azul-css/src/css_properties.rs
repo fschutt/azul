@@ -852,6 +852,16 @@ pub enum StyleBackground {
     NoBackground,
 }
 
+impl StyleBackground {
+    pub fn get_css_image_id(&self) -> Option<&CssImageId> {
+        use self::StyleBackground::*;
+        match self {
+            Image(i) => Some(i),
+            _ => None,
+        }
+    }
+}
+
 impl<'a> From<CssImageId> for StyleBackground {
     fn from(id: CssImageId) -> Self {
         StyleBackground::Image(id)
