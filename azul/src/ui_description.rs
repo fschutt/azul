@@ -18,7 +18,7 @@ use {
 };
 
 pub struct UiDescription<T: Layout> {
-    pub(crate) ui_descr_arena: Rc<RefCell<Arena<NodeData<T>>>>,
+    pub(crate) ui_descr_arena: Arena<NodeData<T>>,
     /// ID of the root node of the arena (usually NodeId(0))
     pub(crate) ui_descr_root: NodeId,
     /// This field is created from the Css

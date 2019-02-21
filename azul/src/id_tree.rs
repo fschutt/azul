@@ -200,6 +200,7 @@ impl IndexMut<NodeId> for NodeHierarchy {
 }
 
 impl<T> NodeDataContainer<T> {
+
     pub fn new(data: Vec<T>) -> Self {
         Self {
             internal: data,
@@ -217,6 +218,13 @@ impl<T> NodeDataContainer<T> {
 
     pub fn get(&self, id: NodeId) -> Option<&T> {
         self.internal.get(id.index())
+    }
+
+    pub fn iter(&self) -> Iterator<Item = &T> {
+        self.internal.iter()
+    }
+    pub fn iter_mut(&mut self) -> Iterator<Item = &T> {
+        self.internal.iter_mut()
     }
 
     pub fn linear_iter(&self) -> LinearIterator {
