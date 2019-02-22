@@ -375,6 +375,12 @@ pub(crate) fn split_text_into_words(text: &str) -> Words {
         }
     }
 
+    // Push the last word
+    if !current_word.is_empty() {
+        words.push(Word::Word(current_word.clone()));
+        current_word.clear();
+    }
+
     Words {
         items: words,
     }
