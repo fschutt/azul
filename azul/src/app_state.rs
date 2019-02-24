@@ -1,11 +1,9 @@
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
-    rc::Rc,
 };
 #[cfg(feature = "image_loading")]
 use image::ImageError;
-use rusttype::Font;
 use azul_css::{FontId, PixelValue, StyleLetterSpacing};
 use webrender::api::ImageFormat as RawImageFormat;
 use {
@@ -16,11 +14,12 @@ use {
     task::Task,
     dom::{UpdateScreen, Redraw, DontRedraw},
     traits::Layout,
-    app_resources::AppResources,
-    font::FontError,
+    app_resources::{
+        AppResources, ImageId, FontSource,
+        ImageSource, FontReloadError, ImageReloadError
+    },
     error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
-    images::ImageId,
 };
 
 /// Wrapper for your application data, stores the data, windows and resources, as

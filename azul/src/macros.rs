@@ -286,18 +286,20 @@ macro_rules! font_api {($struct_name:ident::$struct_field:ident) => (
 
 impl<T: Layout> $struct_name<T> {
 
+
+    /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
+    /// See [`AppResources::get_font_bytes`]
+    ///
+    /// [`AppResources::get_font_bytes`]: ../app_resources/struct.AppResources.html#method.get_font_bytes
+    pub fn get_font_bytes(&self, font_id: &FontId) -> Option<Result<Vec<u8>, FontReloadError>> {
+        self.$struct_field.get_font_bytes(font_id)
+    }
+
     /// See [`AppResources::add_font`]
     ///
     /// [`AppResources::add_font`]: ../app_resources/struct.AppResources.html#method.add_font
-    pub fn add_font<I: Into<Vec<u8>>>(&mut self, font_id: FontId, font_data_bytes: I) -> Result<Option<()>, FontError> {
-        self.$struct_field.add_font(font_id, font_data_bytes)
-    }
-
-    /// See [`AppResources::get_font`]
-    ///
-    /// [`AppResources::get_font`]: ../app_resources/struct.AppResources.html#method.get_font
-    pub fn get_font(&self, font_id: &FontId) -> Option<(Rc<Font<'static>>, Rc<Vec<u8>>)> {
-        self.$struct_field.get_font(font_id)
+    pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) -> Option<()> {
+        self.$struct_field.add_font(font_id, font_source)
     }
 
     /// See [`AppResources::has_font`]

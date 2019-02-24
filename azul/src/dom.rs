@@ -11,16 +11,14 @@ use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use azul_css::{ NodeTypePath, CssProperty };
 use {
     ui_state::UiState,
-    FastHashMap,
     window::{CallbackInfo, LayoutInfo},
-    images::{ImageId, ImageState},
     text_cache::TextId,
+    app_resources::ImageId,
     traits::Layout,
     app_state::AppState,
     id_tree::{Arena, NodeDataContainer},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
-    text_layout::{Words, FontMetrics, TextSizePx},
     xml::{XmlParseError, XmlComponentMap},
 };
 

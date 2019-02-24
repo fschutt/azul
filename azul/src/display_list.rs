@@ -6,26 +6,23 @@ use std::{
     sync::{Arc, Mutex},
     collections::BTreeMap,
 };
-use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
 use euclid::{TypedRect, TypedSize2D};
-use glium::glutin::dpi::{LogicalPosition, LogicalSize};
 use webrender::api::{
-    LayoutPixel, RenderApi, FontInstanceKey,
+    LayoutPixel, RenderApi,
     DisplayListBuilder, PrimitiveInfo, GradientStop, ColorF, PipelineId, Epoch,
-    ImageData, ImageDescriptor, ResourceUpdate, AddImage, AddFontInstance,
+    ImageData, ImageDescriptor, ResourceUpdate, AddImage,
     BorderRadius, ClipMode, LayoutPoint, LayoutSize,
-    GlyphOptions, LayoutRect, BorderSide, ExternalScrollId,
-    NormalBorder, ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
+    GlyphOptions, LayoutRect, ExternalScrollId,
+    ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
-    ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode, BorderDetails,
-    ColorU, BorderStyle,
+    ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode,
 };
 use azul_css::{
-    Css, StyleTextAlignmentHorz, LayoutPosition,CssProperty, LayoutOverflow,
+    Css, LayoutPosition,CssProperty, LayoutOverflow,
     StyleFontSize, StyleBorderRadius, PixelValue, FloatValue, LayoutMargin,
     StyleTextColor, StyleBackground, StyleBoxShadow, StyleBackgroundColor,
     StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder, BoxShadowPreDisplayItem,
-    LayoutPadding, SizeMetric, BoxShadowClipMode, FontId, StyleTextAlignmentVert,
+    LayoutPadding, SizeMetric, BoxShadowClipMode,
     RectStyle, RectLayout, ColorU as StyleColorU, DynamicCssPropertyDefault,
 };
 use {
@@ -40,9 +37,7 @@ use {
         IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
-    ui_solver::do_the_layout,
-    text_layout::{ScrollbarInfo, ScrollbarStyle, WordPositions, ScaledWords},
-    text_cache::TextInfo,
+    ui_solver::{do_the_layout, LayoutResult, PositionedRectangle},
     app_resources::ImageId,
     compositor::new_opengl_texture_id,
     window::{Window, LayoutInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
@@ -130,32 +125,34 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         app_data_access: &mut Arc<Mutex<T>>,
         window: &mut Window<T>,
         fake_window: &mut FakeWindow<T>,
-        app_resources: &mut AppResources)
-    -> (DisplayListBuilder, ScrolledNodes)
-    {
+        app_resources: &mut AppResources
+    ) -> (DisplayListBuilder, ScrolledNodes, LayoutResult) {
+
         use glium::glutin::dpi::LogicalSize;
 
         let mut resource_updates = Vec::<ResourceUpdate>::new();
-        let arena = self.ui_descr.ui_descr_arena.borrow();
+
+        let arena = &self.ui_descr.ui_descr_arena;
         let node_hierarchy = &arena.node_layout;
         let node_data = &arena.node_data;
 
-        let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
+        // TODO: Scan and upload all fonts before doing the layout!
+
+        let window_size = window.state.size.get_reverse_logical_size();
+        let layout_result = do_the_layout(
             node_hierarchy,
             node_data,
             &self.rectangles,
-            &mut resource_updates,
-            app_resources,
-            &window.internal.api,
-            window.state.size.get_reverse_logical_size(),
-            LogicalPosition::new(0.0, 0.0)
+            &*app_resources,
+            LayoutSize::new(window_size.width as f32, window_size.height as f32),
+            LayoutPoint::new(0.0, 0.0),
         );
 
         // TODO: After the layout has been done, call all IFrameCallbacks and get and insert their font keys / image keys
 
         let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
-            node_hierarchy, &self.rectangles, node_data, &laid_out_rectangles,
-            &node_depths, window.internal.pipeline_id
+            node_hierarchy, &self.rectangles, node_data, &layout_result.rects,
+            &layout_result.node_depths, window.internal.pipeline_id
         );
 
         // Make sure unused scroll states are garbage collected.
@@ -164,10 +161,9 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let LogicalSize { width, height } = window.state.size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(window.internal.pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.len());
 
-        let rects_in_rendering_order = determine_rendering_order(node_hierarchy, &self.rectangles, &laid_out_rectangles);
+        let rects_in_rendering_order = determine_rendering_order(node_hierarchy, &self.rectangles, &layout_result.rects);
 
         push_rectangles_into_displaylist(
-            &laid_out_rectangles,
             window.internal.epoch,
             window.state.size,
             rects_in_rendering_order,
@@ -175,12 +171,12 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             &mut window.scroll_states,
             &DisplayListParametersRef {
                 pipeline_id: window.internal.pipeline_id,
-                node_hierarchy: node_hierarchy,
-                node_data: node_data,
+                node_hierarchy,
+                node_data,
                 render_api: &window.internal.api,
                 display_rectangle_arena: &self.rectangles,
                 css: &window.css,
-                word_cache: &word_cache,
+                layout_result: &layout_result,
             },
             &mut DisplayListParametersMut {
                 app_data: app_data_access,
@@ -194,7 +190,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
 
         &window.internal.api.update_resources(resource_updates);
 
-        (builder, scrollable_nodes)
+        (builder, scrollable_nodes, layout_result)
     }
 }
 
@@ -268,7 +264,7 @@ struct ContentGroupOrder {
 fn determine_rendering_order<'a>(
     node_hierarchy: &NodeHierarchy,
     rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
-    layouted_rects: &NodeDataContainer<LayoutRect>,
+    layouted_rects: &NodeDataContainer<PositionedRectangle>,
 ) -> ContentGroupOrder
 {
     let mut content_groups = Vec::new();
@@ -288,7 +284,7 @@ fn determine_rendering_order<'a>(
 fn determine_rendering_order_inner<'a>(
     node_hierarchy: &NodeHierarchy,
     rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
-    layouted_rects: &NodeDataContainer<LayoutRect>,
+    layouted_rects: &NodeDataContainer<PositionedRectangle>,
     // recursive parameters
     root_depth: usize,
     root_id: NodeId,
@@ -412,7 +408,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
     node_hierarchy: &NodeHierarchy,
     display_list_rects: &NodeDataContainer<DisplayRectangle<'a>>,
     dom_rects: &NodeDataContainer<NodeData<T>>,
-    layouted_rects: &NodeDataContainer<LayoutRect>,
+    layouted_rects: &NodeDataContainer<PositionedRectangle>,
     parents: &[(usize, NodeId)],
     pipeline_id: PipelineId,
 ) -> ScrolledNodes {
@@ -426,7 +422,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
 
         for child in parent.children(&node_hierarchy) {
             let old = children_sum_rect.unwrap_or(LayoutRect::zero());
-            children_sum_rect = Some(old.union(&layouted_rects[child]));
+            children_sum_rect = Some(old.union(&layouted_rects.rects[child]));
         }
 
         let children_sum_rect = match children_sum_rect {
@@ -434,7 +430,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
             Some(sum) => sum,
         };
 
-        let parent_rect = &layouted_rects.get(*parent).unwrap();
+        let parent_rect = &layouted_rects.rects.get(*parent).unwrap();
 
         if children_sum_rect.contains_rect(parent_rect) {
             continue;
@@ -497,7 +493,6 @@ fn test_overflow_parsing() {
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
-    solved_rects: &NodeDataContainer<LayoutRect>,
     epoch: Epoch,
     window_size: WindowSize,
     content_grouped_rectangles: ContentGroupOrder,
@@ -519,7 +514,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
         // Push the root of the node
         push_rectangles_into_displaylist_inner(
             content_group.root,
-            solved_rects,
             scrollable_nodes,
             &rectangle,
             referenced_content,
@@ -538,7 +532,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 
             push_rectangles_into_displaylist_inner(
                 item,
-                solved_rects,
                 scrollable_nodes,
                 &rectangle,
                 referenced_content,
@@ -551,17 +544,13 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
 
 fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
     item: RenderableNodeId,
-    solved_rects_data: &NodeDataContainer<LayoutRect>,
     scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
     clip_stack: &mut Vec<NodeId>,
 ) {
-    let solved_rect = solved_rects_data[rectangle.rect_idx];
-
     displaylist_handle_rect(
-        solved_rect,
         scrollable_nodes,
         rectangle,
         referenced_content,
@@ -571,7 +560,7 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
     if item.clip_children {
         if let Some(last_child) = referenced_content.node_hierarchy[rectangle.rect_idx].last_child {
             let styled_node = &referenced_content.display_rectangle_arena[rectangle.rect_idx];
-            let solved_rect = solved_rects_data[rectangle.rect_idx];
+            let solved_rect = &referenced_content.layout_result.rects[rectangle.rect_idx];
             let clip = get_clip_region(solved_rect, &styled_node)
                 .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
             let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
@@ -609,19 +598,15 @@ fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Optio
 /// Push a single rectangle into the display list builder
 #[inline]
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
-    bounds: LayoutRect,
     scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'g, T>)
 {
-    use text_layout::{TextOverflow, TextSizePx};
-    use webrender::api::BorderRadius;
-
     let DisplayListParametersRef {
-        render_api, css,
-        display_rectangle_arena, word_cache, pipeline_id,
-        node_hierarchy, node_data,
+        render_api, css, display_rectangle_arena,
+        word_cache, pipeline_id, node_hierarchy, node_data,
+        layout_result,
     } = referenced_content;
 
     let DisplayListRectParams {
@@ -629,6 +614,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     } = rectangle;
 
     let rect = &display_rectangle_arena[*rect_idx];
+    let bounds = layout_result.rects[*rect_idx].bounds;
 
     let info = LayoutPrimitiveInfo {
         rect: bounds,
@@ -695,80 +681,26 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         );
     }
 
-    let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
-
-    let scrollbar_style = ScrollbarInfo::default();
-
-    // The only thing changed between TextId and String is
-    //`TextInfo::Cached` vs `TextInfo::Uncached` - reduce code duplication
-    fn push_text_wrapper(
-        text_info: &TextInfo,
-        builder: &mut DisplayListBuilder,
-        app_resources: &mut AppResources,
-        resource_updates: &mut Vec<ResourceUpdate>)
-    {
-        let words = word_cache.0.get(&rect_idx)?;
-
-        // Adjust the bounds by the padding
-        let mut text_bounds = rect.layout.padding
-            .as_ref()
-            .map(|padding| subtract_padding(&bounds, padding))
-            .unwrap_or(bounds);
-
-        text_bounds.size.width = text_bounds.size.width.max(0.0);
-        text_bounds.size.height = text_bounds.size.height.max(0.0);
-
-        let text_clip_region_id = rect.layout.padding.map(|_|
-            builder.define_clip(text_bounds, vec![ComplexClipRegion {
-                rect: text_bounds,
-                radii: BorderRadius::zero(),
-                mode: ClipMode::Clip,
-            }], None)
-        );
-
-        if let Some(text_clip_id) = text_clip_region_id {
-            builder.push_clip_id(text_clip_id);
-        }
-
-        push_text(
-            &info,
-            text_info,
-            builder,
-            &rect.style,
-            app_resources,
-            &render_api,
-            &text_bounds,
-            resource_updates,
-            horz_alignment,
-            vert_alignment,
-            &scrollbar_style,
-            &words.0
-        );
-
-        if text_clip_region_id.is_some() {
-            builder.pop_clip_id();
-        }
-    };
-
-    // Handle the special content of the node, return if it overflows in the vertical direction
-    let overflow_result = match html_node {
+    match html_node {
         Div => { None },
-        Label(text) => push_text_wrapper(
-            &TextInfo::Uncached(text.clone()),
-            referenced_mutable_content.builder,
-            referenced_mutable_content.app_resources,
-            referenced_mutable_content.resource_updates),
-        Text(text_id) => push_text_wrapper(
-            &TextInfo::Cached(*text_id),
-            referenced_mutable_content.builder,
-            referenced_mutable_content.app_resources,
-            referenced_mutable_content.resource_updates),
+        Text(_) | Label(_) => {
+            // Text is laid out and positioned during the layout pass,
+            // so this should succeed
+            push_text(
+                &info,
+                referenced_mutable_content.builder,
+                layout_result,
+                rect_idx,
+                &rect.style,
+            )
+        },
         Image(image_id) => push_image(
             &info,
             referenced_mutable_content.builder,
             referenced_mutable_content.app_resources,
             image_id,
-            info.rect.size),
+            LayoutSize::new(info.rect.size.width, info.rect.size.height)
+        ),
         GlTexture(callback) => push_opengl_texture(callback, &info, rectangle, referenced_content, referenced_mutable_content),
         IFrame(callback) => push_iframe(callback, &info, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content),
     };
@@ -792,12 +724,15 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
-) -> Option<OverflowInfo>
-{
+) {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
 
-    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.window_size.hidpi_factor, rectangle.window_size.winit_hidpi_factor);
+    let bounds = HidpiAdjustedBounds::from_bounds(
+        info.rect,
+        rectangle.window_size.hidpi_factor,
+        rectangle.window_size.winit_hidpi_factor
+    );
 
     let texture;
 
@@ -853,8 +788,6 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
         key,
         ColorF::WHITE
     );
-
-    None
 }
 
 fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
@@ -865,9 +798,11 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) {
-    use glium::glutin::dpi::{LogicalPosition, LogicalSize};
-
-    let bounds = HidpiAdjustedBounds::from_bounds(info.rect, rectangle.window_size.hidpi_factor, rectangle.window_size.hidpi_factor);
+    let bounds = HidpiAdjustedBounds::from_bounds(
+        info.rect,
+        rectangle.window_size.hidpi_factor,
+        rectangle.window_size.hidpi_factor
+    );
 
     let new_dom;
 
@@ -900,44 +835,43 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
 
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
 
-    let arena = ui_description.ui_descr_arena.borrow();
+    let arena = &ui_description.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;
     let node_data = &arena.node_data;
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
-    let rect_size = LogicalSize::new(
-        info.rect.size.width as f64 / rectangle.window_size.hidpi_factor * rectangle.window_size.winit_hidpi_factor,
-        info.rect.size.height as f64 / rectangle.window_size.hidpi_factor * rectangle.window_size.winit_hidpi_factor,
+    let rect_size = LayoutSize::new(
+        info.rect.size.width / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
+        info.rect.size.height / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
     );
-    let rect_origin = LogicalPosition::new(info.rect.origin.x as f64, info.rect.origin.y as f64);
-
-    let (laid_out_rectangles, node_depths, word_cache) = do_the_layout(
+    let rect_origin = LayoutPoint::new(info.rect.origin.x, info.rect.origin.y);
+    let layout_result = do_the_layout(
         &node_hierarchy,
         &node_data,
         &display_list.rectangles,
-        &mut referenced_mutable_content.resource_updates,
-        &mut referenced_mutable_content.app_resources,
-        &referenced_content.render_api,
+        &*referenced_mutable_content.app_resources,
         rect_size,
-        rect_origin);
+        rect_origin,
+    );
 
     let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
-        node_hierarchy, &display_list.rectangles, node_data, &laid_out_rectangles,
-        &node_depths, referenced_content.pipeline_id);
+        node_hierarchy, &display_list.rectangles, node_data, &layout_result.rects,
+        &layout_result.node_depths, referenced_content.pipeline_id);
 
-    let rects_in_rendering_order = determine_rendering_order(node_hierarchy, &display_list.rectangles, &laid_out_rectangles);
+    let rects_in_rendering_order = determine_rendering_order(
+        node_hierarchy, &display_list.rectangles, &layout_result.rects
+    );
 
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description, otherwise this function would be endlessly recursive
         node_hierarchy,
         node_data,
         display_rectangle_arena: &display_list.rectangles,
-        word_cache: &word_cache,
+        layout_result: &layout_result,
         .. *referenced_content
     };
 
     push_rectangles_into_displaylist(
-        &laid_out_rectangles,
         rectangle.epoch,
         rectangle.window_size,
         rects_in_rendering_order,
@@ -970,9 +904,8 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
     pub render_api: &'c RenderApi,
     /// Reference to the arena that contains all the styled rectangles
     pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
-    /// Reference to the word cache (left over from the layout,
-    /// to re-use the text layout from there)
-    pub word_cache: &'c WordCache,
+    /// Laid out words and rectangles (contains info about content bounds and text layout)
+    pub layout_result: &'c LayoutResult,
 }
 
 /// Same as `DisplayListParametersRef`, but for `&mut Something`
@@ -1007,39 +940,92 @@ fn push_rect(
 fn push_text(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    word_positions: &WordPositions,
-    scaled_words: &ScaledWords,
-    horz_alignment: StyleTextAlignmentHorz,
-    vert_alignment: StyleTextAlignmentVert,
-    font_instance_key: FontInstanceKey,
-    font_color: ColorU,
-) {
+    layout_result: &LayoutResult,
+    node_id: &NodeId,
+    rect_style: &RectStyle,
+    rect_layout: &RectLayout,
+) -> Option<()> {
+
     use text_layout::get_layouted_glyphs;
     use css::webrender_translate::wr_translate_color_u;
 
-    let rect_offset = info.rect.origin;
+    let scaled_words = layout_result.scaled_words.get(node_id)?;
+    let word_positions = layout_result.positioned_word_cache.get(node_id)?;
+
+    let horz_alignment = word_positions.text_layout_options.horz_alignment;
+    let vert_alignment = word_positions.text_layout_options.vert_alignment;
+
+    let rect_offset = LayoutPoint::new(info.rect.origin.x, info.rect.origin.y);
     let bounding_size_height_px = info.rect.size.height;
     let layouted_glyphs = get_layouted_glyphs(
         word_positions,
         scaled_words,
         horz_alignment,
         vert_alignment,
-        rect_offset,
+        rect_offset.clone(),
         bounding_size_height_px
     );
 
-    let font_color = wr_translate_color_u(font_color.unwrap_or(DEFAULT_FONT_COLOR).0).into();
+    let font_color = rect_style.color.unwrap_or(DEFAULT_FONT_COLOR).0;
+    let font_color = wr_translate_color_u(font_color);
 
     // WARNING: Do not enable FontInstanceFlags::FONT_SMOOTHING or FontInstanceFlags::FORCE_AUTOHINT -
     // they seem to interfere with the text layout thereby messing with the actual text layout.
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
-    flags.set(FontInstanceFlags::LCD_VERTICAL, true);
+    // flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
-    builder.push_text(&info, &layouted_glyphs.glyphs, font_instance_key, font_color, Some(GlyphOptions {
-        render_mode: FontRenderMode::Subpixel,
-        flags: flags,
-    }));
+    let overflow_horizontal_visible = rect_style.is_horizontal_overflow_visible();
+    let overflow_vertical_visible = rect_style.is_horizontal_overflow_visible();
+
+    let max_bounds = builder.content_size();
+    let current_bounds = info.rect;
+    let original_text_bounds = rect_layout.padding
+        .as_ref()
+        .map(|padding| subtract_padding(&current_bounds, padding))
+        .unwrap_or(current_bounds);
+
+    // Adjust the bounds by the padding, depending on the overflow:visible parameter
+    let mut text_bounds = match (overflow_horizontal_visible, overflow_vertical_visible) {
+        (true, true) => None,
+        (false, false) => Some(original_text_bounds),
+        (true, false) => {
+            // Horizontally visible, vertically cut
+            Some(LayoutRect::new(rect_offset, LayoutSize::new(max_bounds.width, original_text_bounds.height)))
+        },
+        (false, true) => {
+            // Vertically visible, horizontally cut
+            Some(LayoutRect::new(rect_offset, LayoutSize::new(original_text_bounds.width, max_bounds.height)))
+        },
+    };
+
+    if let Some(text_bounds) = &mut text_bounds {
+        text_bounds.size.width = text_bounds.size.width.max(0.0);
+        text_bounds.size.height = text_bounds.size.height.max(0.0);
+        let clip_id = builder.define_clip(*text_bounds, vec![ComplexClipRegion {
+            rect: *text_bounds,
+            radii: BorderRadius::zero(),
+            mode: ClipMode::Clip,
+        }], None);
+        builder.push_clip_id(clip_id);
+    }
+
+    builder.push_text(
+        &info,
+        &layouted_glyphs.glyphs,
+        word_positions.font_instance_key,
+        font_color.into(),
+        Some(GlyphOptions {
+            render_mode: FontRenderMode::Subpixel,
+            flags: flags,
+        })
+    );
+
+    if text_bounds.is_some() {
+        builder.pop_clip_id();
+    }
+
+    Some(())
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
@@ -1469,95 +1455,7 @@ fn push_border(
     }
 }
 
-#[inline]
-fn push_font(
-    font_id: &FontId,
-    font_size_app_units: Au,
-    resource_updates: &mut Vec<ResourceUpdate>,
-    app_resources: &mut AppResources,
-    render_api: &RenderApi)
--> Option<FontInstanceKey>
-{
-    use font::FontState;
 
-    if font_size_app_units < MIN_AU || font_size_app_units > MAX_AU {
-        #[cfg(feature = "logging")] {
-            error!("warning: too big or too small font size");
-        }
-        return None;
-    }
-
-    let font_state = app_resources.get_font_state(font_id)?;
-
-    let borrow = font_state.borrow();
-
-    match &*borrow {
-        FontState::Uploaded(font_key) => {
-            let font_sizes_hashmap = app_resources.fonts.entry(*font_key)
-                                     .or_insert(FastHashMap::default());
-            let font_instance_key = font_sizes_hashmap.entry(font_size_app_units)
-                .or_insert_with(|| {
-                    let f_instance_key = render_api.generate_font_instance_key();
-                    resource_updates.push(ResourceUpdate::AddFontInstance(
-                        AddFontInstance {
-                            key: f_instance_key,
-                            font_key: *font_key,
-                            glyph_size: font_size_app_units,
-                            options: None,
-                            platform_options: None,
-                            variations: Vec::new(),
-                        }
-                    ));
-                    f_instance_key
-                }
-            );
-
-            Some(*font_instance_key)
-        },
-        _ => {
-            // This can happen when the font is loaded for the first time in `.get_font_state`
-            // TODO: Make a pre-pass that queries and uploads all non-available fonts
-            // error!("warning: trying to use font {:?} that isn't yet available", font_id);
-            None
-        },
-    }
-}
-
-/// For a given rectangle, determines what text alignment should be used
-fn determine_text_alignment<'a>(rect: &DisplayRectangle<'a>)
--> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
-{
-    let mut horz_alignment = StyleTextAlignmentHorz::default();
-    let mut vert_alignment = StyleTextAlignmentVert::default();
-
-    if let Some(align_items) = rect.layout.align_items {
-        // Vertical text alignment
-        use azul_css::LayoutAlignItems;
-        match align_items {
-            LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
-            LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
-            // technically stretch = blocktext, but we don't have that yet
-            _ => vert_alignment = StyleTextAlignmentVert::Center,
-        }
-    }
-
-    if let Some(justify_content) = rect.layout.justify_content {
-        use azul_css::LayoutJustifyContent;
-        // Horizontal text alignment
-        match justify_content {
-            LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
-            LayoutJustifyContent::End => horz_alignment = StyleTextAlignmentHorz::Right,
-            _ => horz_alignment = StyleTextAlignmentHorz::Center,
-        }
-    }
-
-    if let Some(text_align) = rect.style.text_align {
-        // Horizontal text alignment with higher priority
-        horz_alignment = text_align;
-    }
-
-    (horz_alignment, vert_alignment)
-}
 
 /// Subtracts the padding from the bounds, returning the new bounds
 ///
