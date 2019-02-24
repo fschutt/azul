@@ -1,15 +1,19 @@
-use std::f32;
-use glium::glutin::dpi::LogicalPosition;
+use std::{f32, collections::BTreeMap};
 use azul_css::{
-    LayoutPosition,
-    LayoutMargin,
-    LayoutPadding,
-    RectLayout,
+    LayoutPosition, LayoutMargin, LayoutPadding,
+    RectLayout, StyleFontSize, RectStyle,
+    StyleTextAlignmentHorz, StyleTextAlignmentVert,
 };
+use app_units::Au;
 use {
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
     display_list::DisplayRectangle,
+    dom::{NodeData, NodeType},
+    app_resources::AppResources,
+    text_layout::{Words, ScaledWords, TextSizePx, TextLayoutOptions, WordPositions},
+    traits::Layout,
 };
+use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 
@@ -691,10 +695,9 @@ pub(crate) struct SolvedHeightLayout {
 pub(crate) fn solve_flex_layout_width<'a>(
     node_hierarchy: &NodeHierarchy,
     display_rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
-    preferred_widths: NodeDataContainer<Option<f32>>,
-    window_width: f32)
--> SolvedWidthLayout
-{
+    preferred_widths: &NodeDataContainer<Option<f32>>,
+    window_width: f32
+) -> SolvedWidthLayout {
     let layout_only_arena = display_rectangles.transform(|node, _| node.layout);
     let mut width_calculated_arena = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_widths);
     let non_leaf_nodes_sorted_by_depth = node_hierarchy.get_parents_sorted_by_depth();
@@ -708,10 +711,9 @@ pub(crate) fn solve_flex_layout_width<'a>(
 pub(crate) fn solve_flex_layout_height(
     node_hierarchy: &NodeHierarchy,
     solved_widths: &SolvedWidthLayout,
-    preferred_heights: NodeDataContainer<Option<f32>>,
-    window_height: f32)
--> SolvedHeightLayout
-{
+    preferred_heights: &NodeDataContainer<Option<f32>>,
+    window_height: f32
+) -> SolvedHeightLayout {
     let SolvedWidthLayout { layout_only_arena, .. } = solved_widths;
     let mut height_calculated_arena = NodeDataContainer::<HeightCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_heights);
     height_calculated_arena.bubble_preferred_heights_to_parents(node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth);
@@ -781,10 +783,18 @@ fn $fn_name(
 
         if let Some(child_right) = child_right {
             // align right / bottom of last relative parent
-            arena_solved_data[child_id].0 = (last_relative_node_x + last_relative_node_inner_width) - child_width_with_padding - child_margin_right - child_right;
+            arena_solved_data[child_id].0 =
+                last_relative_node_x
+                + last_relative_node_inner_width
+                - child_width_with_padding
+                - child_margin_right
+                - child_right;
         } else {
             // align left / top of last relative parent
-            arena_solved_data[child_id].0 = last_relative_node_x + child_margin_left + child_left.unwrap_or(0.0);
+            arena_solved_data[child_id].0 =
+                last_relative_node_x
+                + child_margin_left
+                + child_left.unwrap_or(0.0);
         }
     }
 
@@ -828,7 +838,9 @@ fn $fn_name(
                     parent_x_position + *sum_x_of_children_so_far + child_margin_left
                 },
                 Center => {
-                    parent_x_position + ((parent_inner_width / 2.0) - ((*sum_x_of_children_so_far + child_margin_right + child_width_with_padding) / 2.0))
+                    parent_x_position
+                    + ((parent_inner_width / 2.0)
+                    - ((*sum_x_of_children_so_far + child_margin_right + child_width_with_padding) / 2.0))
                 },
                 SpaceBetween => {
                     parent_x_position // TODO!
@@ -937,7 +949,9 @@ fn $fn_name(
 
             if should_align_towards_end {
                 let diff = parent_inner_width - sum_x_of_children_so_far;
-                for child_id in parent_id.children(node_hierarchy).filter(|ch| node_data[*ch].position.unwrap_or_default() != LayoutPosition::Absolute) {
+                for child_id in parent_id.children(node_hierarchy).filter(|ch| {
+                    node_data[*ch].position.unwrap_or_default() != LayoutPosition::Absolute
+                }) {
                     arena_solved_data[child_id].0 += diff;
                 }
             }
@@ -984,8 +998,8 @@ fn $fn_name(
 pub(crate) fn get_x_positions(
     solved_widths: &SolvedWidthLayout,
     node_hierarchy: &NodeHierarchy,
-    origin: LogicalPosition)
--> NodeDataContainer<HorizontalSolvedPosition>
+    origin: LayoutPoint,
+) -> NodeDataContainer<HorizontalSolvedPosition>
 {
     get_position!(get_pos_x, SolvedWidthLayout, HorizontalSolvedPosition, solved_widths, min_width, left, right, Horizontal);
     let mut arena = get_pos_x(node_hierarchy, &solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_widths);
@@ -1004,8 +1018,8 @@ pub(crate) fn get_y_positions(
     solved_heights: &SolvedHeightLayout,
     solved_widths: &SolvedWidthLayout,
     node_hierarchy: &NodeHierarchy,
-    origin: LogicalPosition)
--> NodeDataContainer<VerticalSolvedPosition>
+    origin: LayoutPoint
+) -> NodeDataContainer<VerticalSolvedPosition>
 {
     get_position!(get_pos_y, SolvedHeightLayout, VerticalSolvedPosition, solved_heights, min_height, top, bottom, Vertical);
     let mut arena = get_pos_y(node_hierarchy, &solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_heights);
@@ -1020,25 +1034,38 @@ pub(crate) fn get_y_positions(
     arena
 }
 
-use {
-    FastHashMap,
-    dom::NodeType,
-    text_layout::{TextSizePx, WordPositions},
-    traits::Layout,
-};
-
 /// Returns the preferred width, for example for an image, that would be the
 /// original width (an image always wants to take up the original space)
-pub(crate) fn get_preferred_width<T: Layout>(
-        app_resources: &AppResources,
-        positioned_words: &BTreeMap<NodeId, PositionedWords>,
+pub(crate) fn get_content_width<T: Layout>(
         node_id: NodeId,
         node_type: &NodeType<T>,
+        app_resources: &AppResources,
+        positioned_words: &BTreeMap<NodeId, WordPositions>,
 ) -> Option<f32> {
     use dom::NodeType::*;
     match node_type {
         Image(image_id) => app_resources.get_dimensions_for_image(image_id),
-        Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.content_size.width),
+        Label(_) | Text(_) => positioned_words.get(*node_id).map(|pos| pos.content_size.width),
+        _ => None,
+    }
+}
+
+pub(crate) fn get_content_height<T: Layout>(
+    node_id: &NodeId,
+    node_type: &NodeType<T>,
+    app_resources: &AppResources,
+    positioned_words: &BTreeMap<NodeId, WordPositions>,
+    div_width: f32,
+) -> Option<f32> {
+    use dom::NodeType::*;
+    match &node_type {
+        Image(i) => {
+            let image_size = &app_resources.get_image_info(i)?.descriptor.size;
+            Some(div_width * (image_size.width / image_size.height))
+        },
+        Label(_) | Text(_) => {
+            Some(positioned_words.get(node_id)?.content_size.height)
+        }
         _ => None,
     }
 }
@@ -1054,142 +1081,133 @@ impl PreferredHeight {
     pub fn get_content_size(&self) -> f32 {
         use self::PreferredHeight::*;
         match self {
-            Image { current_height, .. } => current_height,
+            Image { current_height, .. } => *current_height,
             Text(word_positions) => word_positions.content_size.height,
         }
     }
 }
 
-use app_units::{Au, AU_PER_PX};
-use azul_css::{StyleFontSize, RectStyle};
-use std::collections::BTreeMap;
-use webrender::api::LayoutRect;
-use {
-    dom::NodeData,
-    app_resources::AppResources,
-    text_layout::Words,
-};
-
 pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32)
+    use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
+    let target_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
+    if target_app_units < MIN_AU {
+        MIN_AU
+    } else if target_app_units > MAX_AU {
+        MAX_AU
+    } else {
+        target_app_units
+    }
 }
 
-pub(crate) fn get_font_id(rect_style: &'a RectStyle) -> &'a str {
+pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
     let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0));
     font_id.map(|f| f.0).unwrap_or(DEFAULT_FONT_ID)
 }
 
-pub(crate) fn get_font_size(rect_style: &RectStyle) -> Au {
-    font_size_to_au(rect_style.font_size.unwrap_or(*DEFAULT_FONT_SIZE))
+pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
+    rect_style.font_size.unwrap_or(*DEFAULT_FONT_SIZE)
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct PositionedRectangle {
-    bounds: LayoutRect,
+    pub bounds: LayoutRect,
     /// Size of the content, for example if a div contains an image,
     /// that image can be bigger than the actual rect
-    content: Option<LayoutRect>,
+    pub content_width: Option<f32>,
+    pub content_height: Option<f32>,
 }
 
 pub struct LayoutResult {
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub word_cache: BTreeMap<NodeId, Words>,
-    pub word_cache: BTreeMap<NodeId, PositionedWords>,
+    pub scaled_words: BTreeMap<NodeId, ScaledWords>,
+    pub positioned_word_cache: BTreeMap<NodeId, WordPositions>,
     pub node_depths: Vec<(usize, NodeId)>,
 }
 
-/// At this point in time, all font keys, image keys, etc. have to be already submitted in the RenderAPI!
+struct InlineText {
+    horizontal_padding: TextSizePx,
+    horizontal_margin: TextSizePx,
+}
+
+/// At this point in time, all font keys, image keys, etc. have
+/// to be already submitted in the RenderApi!
 pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     node_hierarchy: &NodeHierarchy,
     node_data: &NodeDataContainer<NodeData<T>>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    app_resources: &'b mut AppResources,
+    app_resources: &'b AppResources,
     rect_size: LayoutSize,
     rect_offset: LayoutPoint,
-) -> LayoutResult
-{
-    use ui_solver::{solve_flex_layout_height, solve_flex_layout_width, get_x_positions, get_y_positions};
+) -> LayoutResult {
 
-    let render_api = &app_resources.fake_display.render_api;
+    // TODO: Determine the absolute preferred width based on the overflow and min-width / max-width constraints
+    let mut max_widths = BTreeMap::<NodeId, TextSizePx>::new();
+
+    // TODO: Filter all inline text blocks: inline blocks + their padding + margin
+    // The NodeId has to be the **next** NodeId (the next sibling after the inline element)
+    let mut inline_text_blocks = BTreeMap::<NodeId, InlineText>::new();
 
     // Break all strings into words and / or resolve the TextIds
-    let word_cache = create_word_cache(&app_resources, node_data);
-    // Scale the words to the correct size
-    let scaled_words = create_scaled_words(&app_resources, node_hierarchy, node_data, display_rects);
-    // Layout all words as if there was no o
+    let word_cache = create_word_cache(app_resources, node_data);
+    // Scale the words to the correct size - TODO: Cache this in the app_resources!
+    let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
+    // Layout all words as if there was no max-width constraint (to get the texts "content width").
+    let word_positions_no_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &max_widths, &inline_text_blocks);
 
-    let preferred_content_widths = node_data.transform(|node, _| {
-        node.node_type.get_preferred_width(&app_resources.images)
+    // Determine the preferred **content** width
+    let content_widths = node_data.transform(|node, node_id| {
+        get_content_width(node_id, &node.node_type, app_resources, &word_positions_no_max_width)
     });
 
     let solved_widths = solve_flex_layout_width(
         node_hierarchy,
         &display_rects,
-        preferred_widths,
+        &content_widths,
         rect_size.width as f32,
     );
 
-    // Get the height of the content
-    let preferred_heights = node_data.transform(|node, id| {
-        let width_of_div = solved_widths.solved_widths[id].total();
+    // Layout the words again, this time with the proper width constraints!
+    let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|(width, node_id)| (node_id, TextSizePx(width))).collect();
+    let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
 
-        /*
-            words: &Words,
-            scaled_words: &ScaledWords,
-            text_layout_options: &TextLayoutOptions,
-            font_size: TextSizePx,
-            layout_overflow: LayoutOverflow,
-            scrollbar_style: ScrollbarStyle,
-        */
-
-        match node.node_type {
-            Image(i) => app_ image_cache.get(i).and_then(|image_state| {
-                let (image_original_height, image_original_width) = image_state.get_dimensions();
-                Some(div_width * (image_original_width / image_original_height))
-            }),
-            Label(_) | Text(_) => {
-
-                let (words, font) = (words?, font_metrics?);
-                // TODO: The div_width needs to take into account whether the current div
-                // is overflow:visible (so that the text can overflow the parent rect)!
-                let vertical_info = get_vertical_height_for_words(words, &font, Some(div_width));
-                Some(vertical_info.vertical_height)
-            }
-            _ => None,
-        }
-
-        node.node_type.get_preferred_height_based_on_width(
-            TextSizePx(),
-            &app_resources.images,
-            WRONG_HEIGHT
-            // NOTE: This is wrong, the word cache height is not the final height!
-            50.0, 50.0
-        ).and_then(|text_size| Some(text_size.0))
+    // Get the content height of the content
+    let content_heights = node_data.transform(|node, node_id| {
+        let div_width = solved_widths.solved_widths[node_id].total();
+        get_content_height(node_id, &node.node_type, app_resources, &word_positions_with_max_width, div_width)
     });
 
+    // TODO: The content height is not the final height!
     let solved_heights = solve_flex_layout_height(
         node_hierarchy,
         &solved_widths,
-        preferred_heights,
+        &content_heights,
         rect_size.height as f32,
     );
 
-    let x_positions = get_x_positions(&solved_widths, node_hierarchy, rect_offset);
+    let x_positions = get_x_positions(&solved_widths, node_hierarchy, rect_offset.clone());
     let y_positions = get_y_positions(&solved_heights, &solved_widths, node_hierarchy, rect_offset);
 
-    let layouted_arena = node_data.transform(|node, node_id| {
-        LayoutRect::new(
-            LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
-            LayoutSize::new(
-                solved_widths.solved_widths[node_id].total(),
-                solved_heights.solved_heights[node_id].total(),
-            )
-        )
+    let layouted_rects = node_data.transform(|node, node_id| {
+        PositionedRectangle {
+            bounds: LayoutRect::new(
+                LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
+                LayoutSize::new(
+                    solved_widths.solved_widths[node_id].total(),
+                    solved_heights.solved_heights[node_id].total(),
+                )
+            ),
+            content_width: content_widths[node_id],
+            content_height: content_heights[node_id],
+        }
+
     });
 
     LayoutResult {
-        rects: layouted_arena,
-        word_cache: word_cache,
+        rects: layouted_rects,
+        word_cache,
+        scaled_words,
+        positioned_word_cache: word_positions_with_max_width,
         node_depths: solved_widths.non_leaf_nodes_sorted_by_depth,
     }
 }
@@ -1205,17 +1223,127 @@ fn create_word_cache<T: Layout>(
     .filter_map(|node_id| {
         match &node_data[node_id].node_type {
             NodeType::Label(string) => Some((node_id, split_text_into_words(string))),
-            NodeType::Text(text_id) => app_resources.get_text(text_id).map(|words| (node_id, words.clone())),
+            NodeType::Text(text_id) => {
+                app_resources.get_text(text_id).map(|words| (node_id, words.clone()))
+            },
             _ => None,
         }
     }).collect()
 }
 
-fn create_scaled_words(
-
+fn create_scaled_words<'a>(
+    app_resources: &AppResources,
+    words: &BTreeMap<NodeId, Words>,
+    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
 ) -> BTreeMap<NodeId, ScaledWords>
 {
+    use text_layout::words_to_scaled_words;
+    words.iter().filter_map(|(node_id, words)| {
+        let style = display_rects[node_id].style;
+        let font_size = font_size_to_au(get_font_size(&style));
+        let font_id = get_font_id(&style);
+        let font_id = app_resources.get_css_font_id(font_id)?;
+        let (font_key, font_instance_key) = app_resources.get_font_instance(&font_id, font_size)?;
+        let scaled_words = words_to_scaled_words(
+            words,
+            &app_resources.fake_display.render_api,
+            font_key,
+            font_instance_key,
+        );
+        (node_id, scaled_words)
+    }).collect()
+}
 
+fn create_word_positions<'a>(
+    words: &BTreeMap<NodeId, Words>,
+    scaled_words: &BTreeMap<NodeId, ScaledWords>,
+    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+    max_widths: &BTreeMap<NodeId, TextSizePx>,
+    inline_texts: &BTreeMap<NodeId, InlineText>,
+) -> BTreeMap<NodeId, WordPositions> {
+    use text_layout::{ScrollbarStyle, position_words};
+    let mut words = BTreeMap::with_capacity(words.len());
+
+    words.iter().filter_map(|(node_id, words)| {
+        let rect = &display_rects[node_id];
+        let scaled_words = scaled_words.get(node_id)?;
+        let font_size = get_font_size(&rect.style).0;
+        let overflow = rect.style.overflow.unwrap_or_default();
+        let max_horizontal_width = max_widths.get(node_id).cloned();
+        let leading = inline_texts.get(node_id).map(|inline_text| inline_text.horizontal_margin + inline_text.horizontal_padding);
+
+        // TODO: Make this configurable
+        let text_holes = Vec::new();
+        let text_layout_options = get_text_layout_options(&rect, max_horizontal_width, leading, text_holes);
+        let scrollbar_style = ScrollbarStyle {
+            horizontal: rect.style.get_horizontal_scrollbar_style(),
+            vertical: rect.style.get_vertical_scrollbar_style(),
+        };
+
+        let word_positions = position_words(
+            words, scaled_words, &text_layout_options,
+            TextSizePx(font_size.to_pixels()), overflow, &scrollbar_style,
+        );
+
+        (node_id, word_positions)
+    }).collect()
+}
+
+fn get_text_layout_options(
+    rect: &DisplayRectangle,
+    max_horizontal_width: Option<TextSizePx>,
+    leading: Option<TextSizePx>,
+    holes: Vec<LayoutRect>,
+) -> TextLayoutOptions {
+
+    let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
+    TextLayoutOptions {
+        line_height: rect.style.line_height,
+        letter_spacing: rect.style.letter_spacing.map(|ls| TextSizePx(ls.to_pixels())),
+        word_spacing: rect.style.word_spacing.map(|ls| TextSizePx(ls.to_pixels())),
+        tab_width: rect.style.tab_width.map(|tw| tw.0.get()),
+        max_horizontal_width,
+        leading,
+        holes,
+        horz_alignment,
+        vert_alignment,
+    }
+}
+
+/// For a given rectangle, determines what text alignment should be used
+fn determine_text_alignment(rect: &DisplayRectangle)
+    -> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
+{
+    let mut horz_alignment = StyleTextAlignmentHorz::default();
+    let mut vert_alignment = StyleTextAlignmentVert::default();
+
+    if let Some(align_items) = rect.layout.align_items {
+        // Vertical text alignment
+        use azul_css::LayoutAlignItems;
+        match align_items {
+            LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
+            LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
+            // technically stretch = blocktext, but we don't have that yet
+            _ => vert_alignment = StyleTextAlignmentVert::Center,
+        }
+    }
+
+    if let Some(justify_content) = rect.layout.justify_content {
+        use azul_css::LayoutJustifyContent;
+        // Horizontal text alignment
+        match justify_content {
+            LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
+            LayoutJustifyContent::End => horz_alignment = StyleTextAlignmentHorz::Right,
+            _ => horz_alignment = StyleTextAlignmentHorz::Center,
+        }
+    }
+
+    if let Some(text_align) = rect.style.text_align {
+        // Horizontal text alignment with higher priority
+        horz_alignment = text_align;
+    }
+
+    (horz_alignment, vert_alignment)
 }
 
 #[cfg(test)]

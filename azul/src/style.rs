@@ -487,7 +487,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
     is_mouse_down: bool,
 ) -> UiDescription<T>
 {
-    use std::{cell::RefCell, rc::Rc, collections::BTreeMap};
+    use std::collections::BTreeMap;
 
     let root = ui_state.dom.root;
     let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();

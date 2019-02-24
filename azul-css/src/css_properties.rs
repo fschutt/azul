@@ -1400,6 +1400,74 @@ pub struct RectStyle {
 impl_pixel_value!(StyleLetterSpacing);
 impl_pixel_value!(StyleWordSpacing);
 
+impl RectStyle {
+
+    pub fn is_horizontal_overflow_visible(&self) -> bool {
+        let overflow = self.overflow.unwrap_or_default();
+        overflow.horizontal.unwrap_or_default() == Overflow::Visible
+    }
+
+    pub fn is_vertical_overflow_visible(&self) -> bool {
+        let overflow = self.overflow.unwrap_or_default();
+        overflow.vertical.unwrap_or_default() == Overflow::Visible
+    }
+
+    pub fn get_horizontal_scrollbar_style(&self) -> ScrollbarInfo {
+        ScrollbarInfo::default()
+    }
+
+    pub fn get_vertical_scrollbar_style(&self) -> ScrollbarInfo {
+        ScrollbarInfo::default()
+    }
+}
+
+/// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScrollbarInfo {
+    /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
+    /// of the scrollbar in pixels
+    pub(crate) width: LayoutWidth,
+    /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
+    pub(crate) padding: LayoutPadding,
+    /// Style of the scrollbar background (-webkit-scrollbar)
+    pub(crate) scrollbar_background: RectStyle,
+    /// Style of the scrollbar tracker (-webkit-scrollbar-track)
+    pub(crate) track_style: RectStyle,
+    /// Style of the scrollbar thumbs (the "up" / "down" arrows), (-webkit-scrollbar-thumb)
+    pub(crate) thumb_style: RectStyle,
+}
+
+impl Default for ScrollbarInfo {
+    fn default() -> Self {
+        ScrollbarInfo {
+            width: LayoutWidth(PixelValue::px(17.0)),
+            padding: LayoutPadding {
+                left: Some(PixelValue::px(2.0)),
+                right: Some(PixelValue::px(2.0)),
+                .. Default::default()
+            },
+            scrollbar_background: RectStyle {
+                background_color: Some(StyleBackgroundColor(ColorU {
+                    r: 241, g: 241, b: 241, a: 255
+                })),
+                .. Default::default()
+            },
+            track_style: RectStyle {
+                background_color: Some(StyleBackgroundColor(ColorU {
+                    r: 193, g: 193, b: 193, a: 255
+                })),
+                .. Default::default()
+            },
+            thumb_style: RectStyle {
+                background_color: Some(StyleBackgroundColor(ColorU {
+                    r: 163, g: 163, b: 163, a: 255
+                })),
+                .. Default::default()
+            },
+        }
+    }
+}
+
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]
 pub struct RectLayout {
@@ -1429,14 +1497,27 @@ pub struct RectLayout {
     pub align_content: Option<LayoutAlignContent>,
 }
 
-impl_pixel_value!(LayoutWidth);
+impl RectLayout {
 
+    pub fn get_horizontal_padding(&self) -> f32 {
+        let padding = self.padding.unwrap_or_default();
+        padding.left.map(|l| l.to_pixels()).unwrap_or(0.0)
+        + padding.right.map(|r| r.to_pixels()).unwrap_or(0.0)
+    }
+
+    pub fn get_horizontal_margin(&self) -> f32 {
+        let margin = self.margin.unwrap_or_default();
+        margin.left.map(|l| l.to_pixels()).unwrap_or(0.0)
+        + margin.right.map(|r| r.to_pixels()).unwrap_or(0.0)
+    }
+}
+
+impl_pixel_value!(LayoutWidth);
 impl_pixel_value!(LayoutHeight);
 impl_pixel_value!(LayoutMinHeight);
 impl_pixel_value!(LayoutMinWidth);
 impl_pixel_value!(LayoutMaxWidth);
 impl_pixel_value!(LayoutMaxHeight);
-
 impl_pixel_value!(LayoutTop);
 impl_pixel_value!(LayoutBottom);
 impl_pixel_value!(LayoutRight);

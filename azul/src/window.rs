@@ -10,7 +10,7 @@ use std::{
 };
 use webrender::{
     api::{
-        LayoutRect, PipelineId, Epoch, BuiltDisplayList, DocumentId,
+        LayoutRect, PipelineId, Epoch, DocumentId,
         RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
     },
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
@@ -783,7 +783,6 @@ impl Default for ScrollState {
 }
 
 pub(crate) struct WindowInternal {
-    pub(crate) last_display_list_builder: BuiltDisplayList,
     pub(crate) last_scrolled_nodes: ScrolledNodes,
     pub(crate) epoch: Epoch,
     pub(crate) pipeline_id: PipelineId,
@@ -898,7 +897,6 @@ impl<'a, T: Layout> Window<T> {
                 epoch: epoch,
                 pipeline_id: pipeline_id,
                 document_id: document_id,
-                last_display_list_builder: BuiltDisplayList::default(),
                 last_scrolled_nodes: ScrolledNodes::default(),
             },
             marker: PhantomData,

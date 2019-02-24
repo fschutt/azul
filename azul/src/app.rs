@@ -1,7 +1,6 @@
 use std::{
     mem,
     fmt,
-    rc::Rc,
     collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
 };
@@ -22,14 +21,13 @@ use webrender::{
         Epoch, Transaction, ImageFormat as RawImageFormat,
     },
 };
-use rusttype::Font;
 #[cfg(feature = "image_loading")]
 use image::ImageError;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
 use azul_css::{FontId, Css, ColorU, PixelValue, StyleLetterSpacing};
 use {
-    error::{FontError, ClipboardError},
+    error::ClipboardError,
     window::{
         Window, WindowId, FakeWindow, ScrollStates,
         WindowCreateError, WindowCreateOptions, RendererType,
@@ -37,13 +35,12 @@ use {
     window_state::{WindowSize, DebugState},
     text_cache::TextId,
     dom::{ScrollTagId, UpdateScreen},
-    app_resources::AppResources,
+    app_resources::{AppResources, ImageId, FontSource, ImageSource, FontReloadError, ImageReloadError},
     app_state::AppState,
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
     daemon::{Daemon, DaemonId},
-    images::ImageId,
     focus::FocusTarget,
     task::Task,
 };
@@ -174,7 +171,7 @@ impl Default for AppConfig {
             enable_tab_navigation: true,
             renderer_type: RendererType::default(),
             debug_state: DebugState::default(),
-            background: None,
+            background_color: None,
         }
     }
 }
@@ -774,7 +771,7 @@ fn render<T: Layout>(
     );
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-    window.internal.last_display_list_builder = builder.finalize().2;
+    let display_list_builder = builder.finalize().2;
     window.internal.last_scrolled_nodes = scrolled_nodes;
 
     let (logical_size, framebuffer_size) = convert_window_size(&window.state.size);
@@ -784,13 +781,17 @@ fn render<T: Layout>(
 
         // Send webrender the size and buffer of the display
         let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size);
-        txn.set_window_parameters(framebuffer_size, bounds, window.state.size.hidpi_factor as f32);
+        txn.set_window_parameters(
+            framebuffer_size.clone(),
+            bounds,
+            window.state.size.hidpi_factor as f32
+        );
 
         txn.set_display_list(
             window.internal.epoch,
             None,
-            logical_size,
-            (window.internal.pipeline_id, logical_size, window.internal.last_display_list_builder.clone()),
+            logical_size.clone(),
+            (window.internal.pipeline_id, logical_size, display_list_builder),
             true,
         );
 

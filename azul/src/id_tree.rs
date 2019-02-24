@@ -3,6 +3,7 @@
 use std::{
     ops::{Index, IndexMut},
     collections::BTreeMap,
+    slice::{Iter, IterMut},
 };
 
 pub use self::node_id::NodeId;
@@ -220,10 +221,10 @@ impl<T> NodeDataContainer<T> {
         self.internal.get(id.index())
     }
 
-    pub fn iter(&self) -> Iterator<Item = &T> {
+    pub fn iter(&self) -> Iter<T> {
         self.internal.iter()
     }
-    pub fn iter_mut(&mut self) -> Iterator<Item = &T> {
+    pub fn iter_mut(&mut self) -> IterMut<T> {
         self.internal.iter_mut()
     }
 

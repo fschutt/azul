@@ -1,7 +1,7 @@
 use {
     traits::Layout,
     dom::{Dom, NodeType},
-    images::ImageId,
+    app_resources::ImageId,
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

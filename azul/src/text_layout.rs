@@ -4,11 +4,12 @@ use std::ops::{Mul, Add, Sub};
 use webrender::api::RenderApi;
 use rusttype::{Font, Scale};
 use azul_css::{
-    StyleTextAlignmentHorz, StyleFontSize, StyleBackgroundColor,
-    StyleTextAlignmentVert, StyleLineHeight, RectStyle, LayoutOverflow, ColorU
+    StyleTextAlignmentHorz, StyleFontSize, ScrollbarInfo,
+    StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow,
 };
 pub use webrender::api::{
-    GlyphInstance, GlyphDimensions, FontKey, FontInstanceKey, LayoutSize, LayoutRect, LayoutPoint
+    GlyphInstance, GlyphDimensions, FontKey, FontInstanceKey,
+    LayoutSize, LayoutRect, LayoutPoint,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -23,7 +24,7 @@ pub type LineLength = f32;
 const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 const DEFAULT_CHAR_SPACING: f32 = 0.0;
 const DEFAULT_LETTER_SPACING: f32 = 0.0;
-const DEFAULT_TAB_WIDTH: usize = 4;
+const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
 impl Mul<f32> for TextSizePx {
     type Output = Self;
@@ -144,7 +145,7 @@ pub(crate) struct WordPositions {
     pub overflow: LayoutOverflow,
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ScrollbarStyle {
     /// Vertical scrollbar style, if any
     pub horizontal: Option<ScrollbarInfo>,
@@ -162,7 +163,7 @@ pub struct TextLayoutOptions {
     /// Additional spacing between words
     pub word_spacing: Option<TextSizePx>,
     /// How many spaces should a tab character emulate?
-    pub tab_width: Option<usize>,
+    pub tab_width: Option<f32>,
     /// Width that was used to layout these words originally
     /// (whether the text is unbounded or not).
     pub max_horizontal_width: Option<TextSizePx>,
@@ -230,42 +231,6 @@ pub(crate) enum TextOverflow {
     /// Text is in bounds, how much space is available until
     /// the edge of the rectangle? Necessary for centering / aligning text vertically.
     InBounds(TextSizePx),
-}
-
-/// Holds info necessary for layouting / styling scrollbars
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) struct ScrollbarInfo {
-    /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
-    /// of the scrollbar in pixels
-    pub(crate) width: TextSizePx,
-    /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
-    pub(crate) padding: TextSizePx,
-    /// Style of the scrollbar background (-webkit-scrollbar)
-    pub(crate) scrollbar_background: RectStyle,
-    /// Style of the scrollbar tracker (-webkit-scrollbar-track)
-    pub(crate) track_style: RectStyle,
-    /// Style of the scrollbar thumbs (the "up" / "down" arrows), (-webkit-scrollbar-thumb)
-    pub(crate) thumb_style: RectStyle,
-}
-
-impl Default for ScrollbarInfo {
-    fn default() -> Self {
-        ScrollbarInfo {
-            width: TextSizePx(17.0),
-            padding: TextSizePx(2.0),
-            scrollbar_background: RectStyle {
-                background_color: Some(StyleBackgroundColor(ColorU { r: 241, g: 241, b: 241, a: 255 })),
-                .. Default::default()
-            },
-            track_style: RectStyle {
-                background_color: Some(StyleBackgroundColor(ColorU { r: 193, g: 193, b: 193, a: 255 })),
-                .. Default::default()
-            },
-            thumb_style: RectStyle {
-                background_color: Some(StyleBackgroundColor(ColorU { r: 163, g: 163, b: 163, a: 255 })),
-            },
-        }
-    }
 }
 
 pub(crate) fn word_item_is_return(item: &Word) -> bool {
@@ -465,7 +430,7 @@ pub(crate) fn position_words(
     text_layout_options: &TextLayoutOptions,
     font_size: TextSizePx,
     layout_overflow: LayoutOverflow,
-    scrollbar_style: ScrollbarStyle,
+    scrollbar_style: &ScrollbarStyle,
 ) -> WordPositions {
     // TODO: Handle scrollbar / content size adjustment!
     position_words_inner(words, scaled_words, text_layout_options, font_size)
@@ -488,7 +453,7 @@ pub(crate) fn position_words_inner(
     let word_spacing_px = font_size_px + text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_CHAR_SPACING);
     let line_height_px = font_size_px * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
     let letter_spacing_px = font_size_px * text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
-    let tab_width_px = font_size_px * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH) as f32;
+    let tab_width_px = font_size_px * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -927,14 +892,16 @@ impl LayoutTextResult {
 pub fn layout_text<'a>(
     text: &str,
     font: &Font<'a>,
-    font_metrics: &FontMetrics)
--> LayoutTextResult
+    font_metrics: &FontMetrics
+) -> LayoutTextResult
 {
     // NOTE: This function is different from the get_glyphs function that is
     // used internally to Azul.
     //
     // This function simply lays out a text, without trying to fit it into a rectangle.
     // This function does not calculate any overflow.
+    let words = split_text_into_words(text);
+    let scaled_words = words_to_scaled_words(&words, );
     let words = split_text_into_words(text, font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing);
     let (mut layouted_glyphs, line_breaks, min_width, min_height) =
         words_to_left_aligned_glyphs(&words, font, None, font_metrics);

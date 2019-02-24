@@ -2,7 +2,6 @@ use std::sync::atomic::{Ordering, AtomicUsize};
 use {
     FastHashMap,
     text_layout::Words,
-    app_resources::AppResources,
 };
 
 static TEXT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -58,43 +57,7 @@ impl TextCache {
         self.string_cache.clear();
     }
 
-    pub(crate) fn get_text<'a>(&'a self, text_id: TextId) -> Option<&'a Words> {
+    pub(crate) fn get_text<'a>(&'a self, text_id: &TextId) -> Option<&'a Words> {
         self.string_cache.get(text_id)
-    }
-}
-
-/// This is used for caching large strings (in the `push_text` function)
-/// In the cached version, you can lookup the text as well as the dimensions of
-/// the words in the `AppResources`. For the `Uncached` version, you'll have to re-
-/// calculate it on every frame.
-///
-/// TODO: It should be possible to switch this over to a `&'a str`, but currently
-/// this leads to unsolvable borrowing issues.
-#[derive(Debug)]
-pub(crate) enum TextInfo {
-    Cached(TextId),
-    Uncached(String),
-}
-
-impl TextInfo {
-
-    /// Returns if the inner text is empty.
-    ///
-    /// Returns true if the TextInfo::Cached TextId does not exist
-    /// (since in that case, it is "empty", so to speak)
-    pub(crate) fn is_empty_text(&self, app_resources: &AppResources)
-    -> bool
-    {
-        use self::TextInfo::*;
-
-        match self {
-            Cached(text_id) => {
-                match app_resources.text_cache.string_cache.get(text_id) {
-                    Some(s) => s.is_empty(),
-                    None => true,
-                }
-            }
-            Uncached(s) => s.is_empty(),
-        }
     }
 }
