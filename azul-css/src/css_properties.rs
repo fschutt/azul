@@ -1422,7 +1422,7 @@ impl RectStyle {
 }
 
 /// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ScrollbarInfo {
     /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
     /// of the scrollbar in pixels
