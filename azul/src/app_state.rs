@@ -3,9 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 #[cfg(feature = "image_loading")]
-use image::ImageError;
-use azul_css::{FontId, PixelValue, StyleLetterSpacing};
-use webrender::api::ImageFormat as RawImageFormat;
+use app_resources::ImageSource;
 use {
     FastHashMap,
     text_cache::TextId,
@@ -15,8 +13,8 @@ use {
     dom::{UpdateScreen, Redraw, DontRedraw},
     traits::Layout,
     app_resources::{
-        AppResources, ImageId, FontSource,
-        ImageSource, FontReloadError, ImageReloadError
+        AppResources, ImageId, FontSource, FontId, CssImageId,
+        FontReloadError, ImageReloadError, RawImage,
     },
     error::ClipboardError,
     daemon::{Daemon, DaemonId, TerminateDaemon},
@@ -121,13 +119,13 @@ impl<T: Layout> AppState<T> {
 
     /// Creates a new `AppState`
     pub fn new(initial_data: T, config: &AppConfig) -> Result<Self, WindowCreateError> {
-        Self {
+        Ok(Self {
             data: Arc::new(Mutex::new(initial_data)),
             windows: BTreeMap::new(),
             resources: AppResources::new(config)?,
             daemons: FastHashMap::default(),
             tasks: Vec::new(),
-        }
+        })
     }
 
     impl_deamon_api!();

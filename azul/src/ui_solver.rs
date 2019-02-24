@@ -3,6 +3,7 @@ use azul_css::{
     LayoutPosition, LayoutMargin, LayoutPadding,
     RectLayout, StyleFontSize, RectStyle,
     StyleTextAlignmentHorz, StyleTextAlignmentVert,
+    FP_PRECISION_MULTIPLIER, FloatValue, PixelValue, SizeMetric,
 };
 use app_units::Au;
 use {
@@ -16,6 +17,11 @@ use {
 use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
+const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
+    metric: SizeMetric::Px,
+    number: FloatValue { number: (10.0 * FP_PRECISION_MULTIPLIER) as isize },
+});
+const DEFAULT_FONT_ID: &str = "sans-serif";
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum WhConstraint {
@@ -247,7 +253,7 @@ impl NodeDataContainer<$struct_name> {
     ///
     /// NOTE: Later on, this could maybe be a NodeDataContainer<&'a RectLayout>.
     #[must_use]
-    fn from_rect_layout_arena(node_data: &NodeDataContainer<RectLayout>, widths: NodeDataContainer<Option<f32>>) -> Self {
+    fn from_rect_layout_arena(node_data: &NodeDataContainer<RectLayout>, widths: &NodeDataContainer<Option<f32>>) -> Self {
         let new_nodes = node_data.internal.iter().enumerate().map(|(node_id, node_data)|{
             let id = NodeId::new(node_id);
             $struct_name {
@@ -995,7 +1001,7 @@ fn $fn_name(
 
 )}
 
-pub(crate) fn get_x_positions(
+fn get_x_positions(
     solved_widths: &SolvedWidthLayout,
     node_hierarchy: &NodeHierarchy,
     origin: LayoutPoint,
@@ -1014,7 +1020,7 @@ pub(crate) fn get_x_positions(
     arena
 }
 
-pub(crate) fn get_y_positions(
+fn get_y_positions(
     solved_heights: &SolvedHeightLayout,
     solved_widths: &SolvedWidthLayout,
     node_hierarchy: &NodeHierarchy,
@@ -1036,21 +1042,21 @@ pub(crate) fn get_y_positions(
 
 /// Returns the preferred width, for example for an image, that would be the
 /// original width (an image always wants to take up the original space)
-pub(crate) fn get_content_width<T: Layout>(
-        node_id: NodeId,
+fn get_content_width<T: Layout>(
+        node_id: &NodeId,
         node_type: &NodeType<T>,
         app_resources: &AppResources,
         positioned_words: &BTreeMap<NodeId, WordPositions>,
 ) -> Option<f32> {
     use dom::NodeType::*;
     match node_type {
-        Image(image_id) => app_resources.get_dimensions_for_image(image_id),
-        Label(_) | Text(_) => positioned_words.get(*node_id).map(|pos| pos.content_size.width),
+        Image(image_id) => app_resources.get_image_info(image_id).map(|info| info.descriptor.size.width as f32),
+        Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.content_size.width),
         _ => None,
     }
 }
 
-pub(crate) fn get_content_height<T: Layout>(
+fn get_content_height<T: Layout>(
     node_id: &NodeId,
     node_type: &NodeType<T>,
     app_resources: &AppResources,
@@ -1061,15 +1067,16 @@ pub(crate) fn get_content_height<T: Layout>(
     match &node_type {
         Image(i) => {
             let image_size = &app_resources.get_image_info(i)?.descriptor.size;
-            Some(div_width * (image_size.width / image_size.height))
+            Some(div_width * (image_size.width as f32 / image_size.height as f32))
         },
         Label(_) | Text(_) => {
-            Some(positioned_words.get(node_id)?.content_size.height)
+            positioned_words.get(node_id).map(|pos| pos.content_size.height)
         }
         _ => None,
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PreferredHeight {
     Image { original_dimensions: (f32, f32), current_height: f32 },
     Text(WordPositions)
@@ -1101,14 +1108,14 @@ pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
 
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
     let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0));
-    font_id.map(|f| f.0).unwrap_or(DEFAULT_FONT_ID)
+    font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
 }
 
 pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
-    rect_style.font_size.unwrap_or(*DEFAULT_FONT_SIZE)
+    rect_style.font_size.unwrap_or(DEFAULT_FONT_SIZE)
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PositionedRectangle {
     pub bounds: LayoutRect,
     /// Size of the content, for example if a div contains an image,
@@ -1117,6 +1124,7 @@ pub struct PositionedRectangle {
     pub content_height: Option<f32>,
 }
 
+#[derive(Debug, Clone)]
 pub struct LayoutResult {
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub word_cache: BTreeMap<NodeId, Words>,
@@ -1125,6 +1133,7 @@ pub struct LayoutResult {
     pub node_depths: Vec<(usize, NodeId)>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct InlineText {
     horizontal_padding: TextSizePx,
     horizontal_margin: TextSizePx,
@@ -1157,7 +1166,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
 
     // Determine the preferred **content** width
     let content_widths = node_data.transform(|node, node_id| {
-        get_content_width(node_id, &node.node_type, app_resources, &word_positions_no_max_width)
+        get_content_width(&node_id, &node.node_type, app_resources, &word_positions_no_max_width)
     });
 
     let solved_widths = solve_flex_layout_width(
@@ -1168,13 +1177,16 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     );
 
     // Layout the words again, this time with the proper width constraints!
-    let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|(width, node_id)| (node_id, TextSizePx(width))).collect();
+    let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
+        (node_id, TextSizePx(solved_widths.solved_widths[node_id].total()))
+    }).collect();
+
     let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
 
     // Get the content height of the content
     let content_heights = node_data.transform(|node, node_id| {
         let div_width = solved_widths.solved_widths[node_id].total();
-        get_content_height(node_id, &node.node_type, app_resources, &word_positions_with_max_width, div_width)
+        get_content_height(&node_id, &node.node_type, app_resources, &word_positions_with_max_width, div_width)
     });
 
     // TODO: The content height is not the final height!
@@ -1200,7 +1212,6 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
             content_width: content_widths[node_id],
             content_height: content_heights[node_id],
         }
-
     });
 
     LayoutResult {
@@ -1239,7 +1250,7 @@ fn create_scaled_words<'a>(
 {
     use text_layout::words_to_scaled_words;
     words.iter().filter_map(|(node_id, words)| {
-        let style = display_rects[node_id].style;
+        let style = display_rects[*node_id].style;
         let font_size = font_size_to_au(get_font_size(&style));
         let font_id = get_font_id(&style);
         let font_id = app_resources.get_css_font_id(font_id)?;
@@ -1250,7 +1261,7 @@ fn create_scaled_words<'a>(
             font_key,
             font_instance_key,
         );
-        (node_id, scaled_words)
+        Some((*node_id, scaled_words))
     }).collect()
 }
 
@@ -1261,32 +1272,37 @@ fn create_word_positions<'a>(
     max_widths: &BTreeMap<NodeId, TextSizePx>,
     inline_texts: &BTreeMap<NodeId, InlineText>,
 ) -> BTreeMap<NodeId, WordPositions> {
-    use text_layout::{ScrollbarStyle, position_words};
-    let mut words = BTreeMap::with_capacity(words.len());
 
-    words.iter().filter_map(|(node_id, words)| {
-        let rect = &display_rects[node_id];
-        let scaled_words = scaled_words.get(node_id)?;
+    use text_layout::{ScrollbarStyle, position_words};
+
+    let mut word_positions = BTreeMap::new();
+
+    for (node_id, words) in words.iter() {
+        let rect = &display_rects[*node_id];
+        let scaled_words = match scaled_words.get(&node_id) {
+            Some(s) => s,
+            None => continue,
+        };
         let font_size = get_font_size(&rect.style).0;
-        let overflow = rect.style.overflow.unwrap_or_default();
-        let max_horizontal_width = max_widths.get(node_id).cloned();
-        let leading = inline_texts.get(node_id).map(|inline_text| inline_text.horizontal_margin + inline_text.horizontal_padding);
+        let overflow = rect.layout.overflow.unwrap_or_default();
+        let max_horizontal_width = max_widths.get(&node_id).cloned();
+        let leading = inline_texts.get(&node_id).map(|inline_text| inline_text.horizontal_margin + inline_text.horizontal_padding);
 
         // TODO: Make this configurable
         let text_holes = Vec::new();
         let text_layout_options = get_text_layout_options(&rect, max_horizontal_width, leading, text_holes);
         let scrollbar_style = ScrollbarStyle {
-            horizontal: rect.style.get_horizontal_scrollbar_style(),
-            vertical: rect.style.get_vertical_scrollbar_style(),
+            horizontal: Some(rect.style.get_horizontal_scrollbar_style()),
+            vertical: Some(rect.style.get_vertical_scrollbar_style()),
         };
 
-        let word_positions = position_words(
+        word_positions.insert(*node_id, position_words(
             words, scaled_words, &text_layout_options,
             TextSizePx(font_size.to_pixels()), overflow, &scrollbar_style,
-        );
+        ));
+    }
 
-        (node_id, word_positions)
-    }).collect()
+    word_positions
 }
 
 fn get_text_layout_options(
@@ -1299,8 +1315,8 @@ fn get_text_layout_options(
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
     TextLayoutOptions {
         line_height: rect.style.line_height,
-        letter_spacing: rect.style.letter_spacing.map(|ls| TextSizePx(ls.to_pixels())),
-        word_spacing: rect.style.word_spacing.map(|ls| TextSizePx(ls.to_pixels())),
+        letter_spacing: rect.style.letter_spacing.map(|ls| TextSizePx(ls.0.to_pixels())),
+        word_spacing: rect.style.word_spacing.map(|ws| TextSizePx(ws.0.to_pixels())),
         tab_width: rect.style.tab_width.map(|tw| tw.0.get()),
         max_horizontal_width,
         leading,

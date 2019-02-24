@@ -6,6 +6,8 @@ use std::{
 };
 #[cfg(debug_assertions)]
 use std::time::Instant;
+#[cfg(debug_assertions)]
+use azul_css::HotReloadHandler;
 use glium::{
     SwapBuffersError,
     glutin::{
@@ -14,18 +16,18 @@ use glium::{
     },
 };
 use webrender::{
-    PipelineInfo,
+    PipelineInfo, Renderer,
     api::{
         HitTestResult, HitTestFlags, DevicePixel,
         WorldPoint, LayoutSize, LayoutPoint,
-        Epoch, Transaction, ImageFormat as RawImageFormat,
+        Epoch, Transaction,
     },
 };
 #[cfg(feature = "image_loading")]
-use image::ImageError;
+use app_resources::ImageSource;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
-use azul_css::{FontId, Css, ColorU, PixelValue, StyleLetterSpacing};
+use azul_css::{Css, ColorU};
 use {
     error::ClipboardError,
     window::{
@@ -35,7 +37,10 @@ use {
     window_state::{WindowSize, DebugState},
     text_cache::TextId,
     dom::{ScrollTagId, UpdateScreen},
-    app_resources::{AppResources, ImageId, FontSource, ImageSource, FontReloadError, ImageReloadError},
+    app_resources::{
+        AppResources, ImageId, FontId, FontSource, ImageReloadError,
+        FontReloadError, CssImageId, RawImage,
+    },
     app_state::AppState,
     traits::Layout,
     ui_state::UiState,
@@ -181,6 +186,7 @@ impl<T: Layout> App<T> {
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
     pub fn new(initial_data: T, config: AppConfig) -> Result<Self, WindowCreateError> {
+
         #[cfg(feature = "logging")] {
             if let Some(log_level) = config.enable_logging {
                 ::logging::set_up_logging(config.log_file_path, log_level);
@@ -196,16 +202,27 @@ impl<T: Layout> App<T> {
             }
         }
 
-        Self {
-            windows: BTreeMap::new(),
-            app_state: AppState::new(initial_data, &config)?,
-            config,
+        let app_state = AppState::new(initial_data, &config)?;
+
+        if let Some(r) = &mut app_state.resources.fake_display.renderer {
+            set_webrender_debug_flags(r, &DebugState::default(), &config.debug_state);
         }
+
+        Ok(Self {
+            windows: BTreeMap::new(),
+            app_state,
+            config,
+        })
     }
 
     /// Creates a new window
     pub fn create_window(&self, options: WindowCreateOptions<T>, mut css: Css) -> Result<Window<T>, WindowCreateError> {
-        Window::new(&self.app_resources.fake_display.render_api, options, css)
+        Window::new(&self.app_state.resources.fake_display.render_api, options, css)
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn create_hot_reload_window(&self, options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>) -> Result<Window<T>, WindowCreateError> {
+        Window::new_hot_reload(&self.app_state.resources.fake_display.render_api, options, css_loader)
     }
 
     /// Spawn a new window on the screen. Note that this should only be used to
@@ -355,6 +372,14 @@ impl<T: Layout> App<T> {
     pub fn add_task(&mut self, task: Task<T>) {
         self.app_state.add_task(task);
     }
+
+    /// Toggles debugging flags in webrender, updates `self.config.debug_state`
+    pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
+        if let Some(r) = &mut self.app_state.resources.fake_display.renderer {
+            set_webrender_debug_flags(r, &self.config.debug_state, &new_state);
+        }
+        self.config.debug_state = new_state;
+    }
 }
 
 image_api!(App::app_state);
@@ -405,7 +430,7 @@ fn render_single_window_content<T: Layout>(
 
     if frame_event_info.should_hittest {
 
-        hit_test_results = do_hit_test(&window);
+        hit_test_results = do_hit_test(&window, &app_state.resources);
 
         for event in &events {
 
@@ -432,7 +457,7 @@ fn render_single_window_content<T: Layout>(
     }
 
     // Scroll for the scrolled amount for each node that registered a scroll state.
-    render_on_scroll(window, hit_test_results, &frame_event_info);
+    render_on_scroll(window, hit_test_results, &frame_event_info, &mut app_state.resources);
 
     if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
         // This is a hack because during a resize event, winit eats the "awakened"
@@ -479,30 +504,6 @@ fn render_single_window_content<T: Layout>(
             is_mouse_down,
         );
 
-    // Scan the styled DOM for image and font keys.
-    //
-    // The problem is that we need to scan all DOMs for image and font keys and insert them
-    // before the layout() step - however, can't call IFrameCallbacks upfront, because each
-    // IFrameCallback needs to know its size (so it has to be invoked after the layout() step).
-    // So, this process needs to follow an order like:
-    //
-    // - For each DOM to render:
-    //      - Create a DOM ID
-    //      - Style the DOM according to the stylesheet
-    //      - Scan all the font keys and image keys
-    //      - Insert the new font keys and image keys into the render API
-    //      - Scan all IFrameCallbacks, generate the DomID for each callback
-    //      - Repeat while number_of_iframe_callbacks != 0
-    let (resource_updates, dom_cache) =  app_state.resources.update_images_and_fonts(
-        &ui_description_cache[window_id],
-        &mut app_state.data,
-    );
-
-    // Send the updated resources
-    if !resource_updates.is_empty() {
-        app_state.resources.fake_display.render_api.update_resources(resource_updates);
-    }
-
     // Render the window (webrender will send an Awakened event when the frame is done)
     let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
     render(
@@ -529,7 +530,7 @@ fn render_single_window_content<T: Layout>(
         if let Some(i) = force_redraw_cache.get_mut(window_id) {
             if *i > 0 { *i -= 1 };
             if *i == 1 {
-                clean_up_unused_opengl_textures(window.renderer.as_mut().unwrap().flush_pipeline_info());
+                clean_up_unused_opengl_textures(app_state.resources.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
             }
         }
     }
@@ -591,12 +592,12 @@ fn hot_reload_css<T: Layout>(
 }
 
 /// Returns the currently hit-tested results, in back-to-front order
-fn do_hit_test<T: Layout>(window: &Window<T>) -> Option<HitTestResult> {
+fn do_hit_test<T: Layout>(window: &Window<T>, app_resources: &AppResources) -> Option<HitTestResult> {
 
     let cursor_location = window.state.mouse_state.cursor_pos
         .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
 
-    let mut hit_test_results = window.internal.api.hit_test(
+    let mut hit_test_results = app_resources.fake_display.render_api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
         cursor_location,
@@ -763,7 +764,9 @@ fn render<T: Layout>(
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
-    let (builder, scrolled_nodes) = display_list.into_display_list_builder(
+    // NOTE: layout_result contains all words, text information, etc.
+    // - very important for selection!
+    let (builder, scrolled_nodes, _layout_result) = display_list.into_display_list_builder(
         app_data,
         window,
         fake_window,
@@ -802,9 +805,10 @@ fn render<T: Layout>(
     };
 
     window.internal.epoch = increase_epoch(window.internal.epoch);
-    window.internal.api.send_transaction(window.internal.document_id, webrender_transaction);
-    window.renderer.as_mut().unwrap().update();
-    render_inner(window, framebuffer_size);
+    app_resources.fake_display.render_api.send_transaction(window.internal.document_id, webrender_transaction);
+    app_resources.fake_display.renderer.as_mut().unwrap().update();
+
+    render_inner(window, app_resources, framebuffer_size);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -838,13 +842,14 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 fn render_on_scroll<T: Layout>(
     window: &mut Window<T>,
     hit_test_results: Option<HitTestResult>,
-    frame_event_info: &FrameEventInfo)
-{
+    frame_event_info: &FrameEventInfo,
+    app_resources: &mut AppResources,
+) {
     const SCROLL_THRESHOLD: f64 = 0.5; // px
 
     let hit_test_results = match hit_test_results {
         Some(s) => s,
-        None => match do_hit_test(&window) {
+        None => match do_hit_test(&window, app_resources) {
             Some(s) => s,
             None => return,
         }
@@ -881,11 +886,11 @@ fn render_on_scroll<T: Layout>(
     // If there is already a layout construction in progress, prevent
     // re-rendering on layout, otherwise this leads to jankiness during scrolling
     if !frame_event_info.should_redraw_window && should_scroll_render {
-        render_on_scroll_no_layout(window);
+        render_on_scroll_no_layout(window, app_resources);
     }
 }
 
-fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
+fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources) {
 
     use webrender::api::*;
 
@@ -895,11 +900,11 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>) {
 
     txn.generate_frame();
 
-    window.internal.api.send_transaction(window.internal.document_id, txn);
-    window.renderer.as_mut().unwrap().update();
+    app_resources.fake_display.render_api.send_transaction(window.internal.document_id, txn);
+    app_resources.fake_display.renderer.as_mut().unwrap().update();
 
     let (_, physical_size) = convert_window_size(&window.state.size);
-    render_inner(window, physical_size);
+    render_inner(window, app_resources, physical_size);
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
@@ -948,7 +953,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
 //
 // For some reason, webrender allows rendering negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: DeviceIntSize) {
+fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
 
     use gleam::gl;
     use window::get_gl_context;
@@ -958,6 +963,51 @@ fn render_inner<T: Layout>(window: &mut Window<T>, framebuffer_size: DeviceIntSi
 
     let mut current_program = [0_i32];
     unsafe { get_gl_context(&window.display).unwrap().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
-    window.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
+    app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
     get_gl_context(&window.display).unwrap().use_program(current_program[0] as u32);
+}
+
+fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
+
+    use webrender::DebugFlags;
+
+    if old_flags.profiler_dbg != new_flags.profiler_dbg {
+        r.set_debug_flag(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
+    }
+    if old_flags.render_target_dbg != new_flags.render_target_dbg {
+        r.set_debug_flag(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
+    }
+    if old_flags.texture_cache_dbg != new_flags.texture_cache_dbg {
+        r.set_debug_flag(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
+    }
+    if old_flags.gpu_time_queries != new_flags.gpu_time_queries {
+        r.set_debug_flag(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
+    }
+    if old_flags.gpu_sample_queries != new_flags.gpu_sample_queries {
+        r.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
+    }
+    if old_flags.disable_batching != new_flags.disable_batching {
+        r.set_debug_flag(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
+    }
+    if old_flags.epochs != new_flags.epochs {
+        r.set_debug_flag(DebugFlags::EPOCHS, new_flags.epochs);
+    }
+    if old_flags.compact_profiler != new_flags.compact_profiler {
+        r.set_debug_flag(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
+    }
+    if old_flags.echo_driver_messages != new_flags.echo_driver_messages {
+        r.set_debug_flag(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+    }
+    if old_flags.new_frame_indicator != new_flags.new_frame_indicator {
+        r.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
+    }
+    if old_flags.new_scene_indicator != new_flags.new_scene_indicator {
+        r.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
+    }
+    if old_flags.show_overdraw != new_flags.show_overdraw {
+        r.set_debug_flag(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
+    }
+    if old_flags.gpu_cache_dbg != new_flags.gpu_cache_dbg {
+        r.set_debug_flag(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
+    }
 }

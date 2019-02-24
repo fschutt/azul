@@ -531,7 +531,7 @@ impl_from!(LayoutAlignContent, CssProperty::AlignContent);
 pub const FP_PRECISION_MULTIPLIER: f32 = 10000.0;
 
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
@@ -574,7 +574,7 @@ impl PixelValue {
 
 /// Wrapper around FloatValue, represents a percentage instead
 /// of just being a regular floating-point value, i.e `5` = `5%`
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PercentageValue {
     number: FloatValue,
 }
@@ -589,11 +589,11 @@ impl PercentageValue {
     }
 }
 
-/// Wrapper around an f32 value that is internally casted to an isize, in order to
-/// provide hash-ability (to avoid numerical instability).
-#[derive(Debug, PartialEq, Copy, Clone, Hash, Eq, Ord, PartialOrd)]
+/// Wrapper around an f32 value that is internally casted to an isize,
+/// in order to provide hash-ability (to avoid numerical instability).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FloatValue {
-    number: isize,
+    pub number: isize,
 }
 
 impl FloatValue {
@@ -613,14 +613,14 @@ impl From<f32> for FloatValue {
 }
 
 /// Enum representing the metric associated with a number (px, pt, em, etc.)
-#[derive(Debug, PartialEq, Clone, Copy, Hash, Eq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SizeMetric {
     Px,
     Pt,
     Em,
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRadius(pub BorderRadius);
 
 impl StyleBorderRadius {
@@ -630,7 +630,7 @@ impl StyleBorderRadius {
 }
 
 /// Represents a `background-color` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBackgroundColor(pub ColorU);
 
 impl Default for StyleBackgroundColor {
@@ -641,14 +641,14 @@ impl Default for StyleBackgroundColor {
 }
 
 /// Represents a `background-size` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleBackgroundSize {
     Contain,
     Cover,
 }
 
 /// Represents a `background-repeat` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleBackgroundRepeat {
     NoRepeat,
     Repeat,
@@ -663,11 +663,11 @@ impl Default for StyleBackgroundRepeat {
 }
 
 /// Represents a `color` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleTextColor(pub ColorU);
 
 /// Represents a `padding` attribute
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutPadding {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,
@@ -709,7 +709,7 @@ struct_all!(LayoutPadding, PixelValue);
 struct_all!(LayoutMargin, PixelValue);
 
 /// Represents a parsed `padding` attribute
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMargin {
     pub top: Option<PixelValue>,
     pub bottom: Option<PixelValue>,
@@ -718,7 +718,7 @@ pub struct LayoutMargin {
 }
 
 /// Wrapper for the `overflow-{x,y}` + `overflow` property
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutOverflow {
     pub horizontal: Option<Overflow>,
     pub vertical: Option<Overflow>,
@@ -751,9 +751,17 @@ impl LayoutOverflow {
     pub fn needs_vertical_scrollbar(&self, currently_overflowing_vert: bool) -> bool {
         self.vertical.unwrap_or_default().needs_scrollbar(currently_overflowing_vert)
     }
+
+    pub fn is_horizontal_overflow_visible(&self) -> bool {
+        self.horizontal.unwrap_or_default().is_overflow_visible()
+    }
+
+    pub fn is_vertical_overflow_visible(&self) -> bool {
+        self.vertical.unwrap_or_default().is_overflow_visible()
+    }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorder {
     pub top: Option<StyleBorderSide>,
     pub left: Option<StyleBorderSide>,
@@ -815,7 +823,7 @@ impl StyleBorder {
 const DEFAULT_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
 const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderSide {
     pub border_width: PixelValue,
     pub border_style: BorderStyle,
@@ -823,7 +831,7 @@ pub struct StyleBorderSide {
 }
 
 /// Represents a `box-shadow` attribute.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBoxShadow {
     pub top: Option<Option<BoxShadowPreDisplayItem>>,
     pub left: Option<Option<BoxShadowPreDisplayItem>>,
@@ -835,7 +843,7 @@ merge_struct!(StyleBoxShadow);
 struct_all!(StyleBoxShadow, Option<BoxShadowPreDisplayItem>);
 
 // missing StyleBorderRadius & LayoutRect
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BoxShadowPreDisplayItem {
     pub offset: [PixelValue;2],
     pub color: ColorU,
@@ -844,11 +852,12 @@ pub struct BoxShadowPreDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleBackground {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
     Image(CssImageId),
+    Color(StyleBackgroundColor),
     NoBackground,
 }
 
@@ -868,21 +877,21 @@ impl<'a> From<CssImageId> for StyleBackground {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinearGradient {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RadialGradient {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Direction {
     Angle(FloatValue),
     FromTo(DirectionCorner, DirectionCorner),
@@ -956,13 +965,13 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Shape {
     Ellipse,
     Circle,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleCursor {
     /// `alias`
     Alias,
@@ -1032,7 +1041,7 @@ impl Default for StyleCursor {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DirectionCorner {
     Right,
     Left,
@@ -1087,7 +1096,7 @@ impl DirectionCorner {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackgroundType {
     LinearGradient,
     RepeatingLinearGradient,
@@ -1102,56 +1111,57 @@ pub enum BackgroundType {
 /// Ownership allows the `Css` struct to be independent
 /// of the original source text. For example, when parsing a style
 /// from CSS, the original string can be deallocated afterwards.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssImageId(pub String);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GradientStopPre {
-    pub offset: Option<PercentageValue>, // this is set to None if there was no offset that could be parsed
+    // this is set to None if there was no offset that could be parsed
+    pub offset: Option<PercentageValue>,
     pub color: ColorU,
 }
 
 /// Represents a `width` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutWidth(pub PixelValue);
 /// Represents a `min-width` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMinWidth(pub PixelValue);
 /// Represents a `max-width` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMaxWidth(pub PixelValue);
 /// Represents a `height` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutHeight(pub PixelValue);
 /// Represents a `min-height` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMinHeight(pub PixelValue);
 /// Represents a `max-height` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMaxHeight(pub PixelValue);
 
 /// Represents a `top` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutTop(pub PixelValue);
 /// Represents a `left` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutLeft(pub PixelValue);
 /// Represents a `right` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutRight(pub PixelValue);
 /// Represents a `bottom` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutBottom(pub PixelValue);
 
 /// Represents a `flex-grow` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutFlexGrow(pub FloatValue);
 /// Represents a `flex-shrink` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutFlexShrink(pub FloatValue);
 
 /// Represents a `flex-direction` attribute - default: `Column`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutDirection {
     Row,
     RowReverse,
@@ -1159,26 +1169,10 @@ pub enum LayoutDirection {
     ColumnReverse,
 }
 
-/// Represents a `line-height` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct StyleLineHeight(pub PercentageValue);
-/// Represents a `tab-width` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct StyleTabWidth(pub PercentageValue);
-/// Represents a `letter-spacing` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct StyleLetterSpacing(pub PixelValue);
-/// Represents a `word-spacing` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub struct StyleWordSpacing(pub PixelValue);
-
-/// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
-/// makes decisions based on horizontal / vertical direction easier to write.
-/// Use `LayoutDirection::get_axis()` to get the axis for a given `LayoutDirection`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum LayoutAxis {
-    Horizontal,
-    Vertical,
+impl Default for LayoutDirection {
+    fn default() -> Self {
+        LayoutDirection::Column
+    }
 }
 
 impl LayoutDirection {
@@ -1196,10 +1190,32 @@ impl LayoutDirection {
     }
 }
 
+/// Represents a `line-height` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleLineHeight(pub PercentageValue);
+/// Represents a `tab-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleTabWidth(pub PercentageValue);
+/// Represents a `letter-spacing` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleLetterSpacing(pub PixelValue);
+/// Represents a `word-spacing` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleWordSpacing(pub PixelValue);
+
+/// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
+/// makes decisions based on horizontal / vertical direction easier to write.
+/// Use `LayoutDirection::get_axis()` to get the axis for a given `LayoutDirection`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LayoutAxis {
+    Horizontal,
+    Vertical,
+}
+
 /// Represents a `position` attribute - default: `Static`
 ///
 /// NOTE: No inline positioning is supported.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutPosition {
     Static,
     Relative,
@@ -1212,14 +1228,8 @@ impl Default for LayoutPosition {
     }
 }
 
-impl Default for LayoutDirection {
-    fn default() -> Self {
-        LayoutDirection::Column
-    }
-}
-
 /// Represents a `flex-wrap` attribute - default: `Wrap`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutWrap {
     Wrap,
     NoWrap,
@@ -1232,7 +1242,7 @@ impl Default for LayoutWrap {
 }
 
 /// Represents a `justify-content` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutJustifyContent {
     /// Default value. Items are positioned at the beginning of the container
     Start,
@@ -1253,7 +1263,7 @@ impl Default for LayoutJustifyContent {
 }
 
 /// Represents a `align-items` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutAlignItems {
     /// Items are stretched to fit the container
     Stretch,
@@ -1272,7 +1282,7 @@ impl Default for LayoutAlignItems {
 }
 
 /// Represents a `align-content` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutAlignContent {
     /// Default value. Lines stretch to take up the remaining space
     Stretch,
@@ -1332,7 +1342,7 @@ impl Overflow {
 }
 
 /// Horizontal text alignment enum (left, center, right) - default: `Center`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleTextAlignmentHorz {
     Left,
     Center,
@@ -1346,7 +1356,7 @@ impl Default for StyleTextAlignmentHorz {
 }
 
 /// Vertical text alignment enum (top, center, bottom) - default: `Center`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleTextAlignmentVert {
     Top,
     Center,
@@ -1361,7 +1371,7 @@ impl Default for StyleTextAlignmentVert {
 
 /// Stylistic options of the rectangle that don't influence the layout
 /// (todo: border-box?)
-#[derive(Default, Debug, Clone, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectStyle {
     /// Background color of this rectangle
     pub background_color: Option<StyleBackgroundColor>,
@@ -1385,8 +1395,6 @@ pub struct RectStyle {
     pub font_color: Option<StyleTextColor>,
     /// Text alignment
     pub text_align: Option<StyleTextAlignmentHorz,>,
-    /// Text overflow behaviour
-    pub overflow: Option<LayoutOverflow>,
     /// `line-height` property
     pub line_height: Option<StyleLineHeight>,
     /// `letter-spacing` property
@@ -1402,16 +1410,6 @@ impl_pixel_value!(StyleWordSpacing);
 
 impl RectStyle {
 
-    pub fn is_horizontal_overflow_visible(&self) -> bool {
-        let overflow = self.overflow.unwrap_or_default();
-        overflow.horizontal.unwrap_or_default() == Overflow::Visible
-    }
-
-    pub fn is_vertical_overflow_visible(&self) -> bool {
-        let overflow = self.overflow.unwrap_or_default();
-        overflow.vertical.unwrap_or_default() == Overflow::Visible
-    }
-
     pub fn get_horizontal_scrollbar_style(&self) -> ScrollbarInfo {
         ScrollbarInfo::default()
     }
@@ -1422,7 +1420,7 @@ impl RectStyle {
 }
 
 /// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScrollbarInfo {
     /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
     /// of the scrollbar in pixels
@@ -1469,7 +1467,7 @@ impl Default for ScrollbarInfo {
 }
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectLayout {
 
     pub width: Option<LayoutWidth>,
@@ -1487,6 +1485,7 @@ pub struct RectLayout {
 
     pub padding: Option<LayoutPadding>,
     pub margin: Option<LayoutMargin>,
+    pub overflow: Option<LayoutOverflow>,
 
     pub direction: Option<LayoutDirection>,
     pub wrap: Option<LayoutWrap>,
@@ -1506,9 +1505,17 @@ impl RectLayout {
     }
 
     pub fn get_horizontal_margin(&self) -> f32 {
-        let margin = self.margin.unwrap_or_default();
+        let margin = self.padding.unwrap_or_default();
         margin.left.map(|l| l.to_pixels()).unwrap_or(0.0)
         + margin.right.map(|r| r.to_pixels()).unwrap_or(0.0)
+    }
+
+    pub fn is_horizontal_overflow_visible(&self) -> bool {
+        self.overflow.unwrap_or_default().is_horizontal_overflow_visible()
+    }
+
+    pub fn is_vertical_overflow_visible(&self) -> bool {
+        self.overflow.unwrap_or_default().is_vertical_overflow_visible()
     }
 }
 
@@ -1524,7 +1531,7 @@ impl_pixel_value!(LayoutRight);
 impl_pixel_value!(LayoutLeft);
 
 /// Represents a `font-size` attribute
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleFontSize(pub PixelValue);
 
 impl_pixel_value!(StyleFontSize);
@@ -1536,14 +1543,23 @@ impl StyleFontSize {
 }
 
 /// Represents a `font-family` attribute
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleFontFamily {
     // fonts in order of precedence, i.e. "Webly Sleeky UI", "monospace", etc.
     pub fonts: Vec<FontId>
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontId {
     BuiltinFont(String),
     ExternalFont(String),
+}
+
+impl FontId {
+    pub fn get_str(&self) -> &str {
+        use self::FontId::*;
+        match self {
+            BuiltinFont(id) | ExternalFont(id) => id,
+        }
+    }
 }

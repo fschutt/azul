@@ -22,6 +22,7 @@ use {
     app::AppConfig,
     traits::Layout,
     display_list::DisplayList,
+    text_layout::Words,
 };
 
 pub type CssImageId = String;
@@ -117,7 +118,7 @@ impl_display!(FontReloadError, {
 });
 
 impl ImageSource {
-    /// Returns the bytes of the font
+    /// Returns the bytes of the image - note that the descriptor might be missing
     pub(crate) fn get_bytes(&self) -> Result<Vec<u8>, ImageReloadError> {
         use std::fs;
         use self::ImageSource::*;
@@ -130,13 +131,18 @@ impl ImageSource {
 
 impl FontSource {
 
-    /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font)
-    pub(crate) fn get_bytes(&self) -> Result<Vec<u8>, FontReloadError> {
+    /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
+    /// Also returns the index into the font (in case the font is a font collection).
+    pub fn get_bytes(&self) -> Result<(Vec<u8>, i32), FontReloadError> {
         use std::fs;
         use self::FontSource::*;
         match self {
-            Embedded(bytes) => Ok(bytes.to_vec()),
-            File(file_path) => fs::read(file_path).map_err(|e| FontReloadError::Io(e, file_path.clone())),
+            Embedded(bytes) => Ok((bytes.to_vec(), 0)),
+            File(file_path) => {
+                fs::read(file_path)
+                .map_err(|e| FontReloadError::Io(e, file_path.clone()))
+                .map(|f| (f, 0))
+            },
             System(id) => load_system_font(id).ok_or(FontReloadError::FontNotFound(id.clone())),
         }
     }
@@ -193,7 +199,7 @@ pub struct AppResources {
 
 impl AppResources {
     /// Creates a new renderer (the renderer manages the resources and is therfore tied to the resources).
-    fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
+    pub(crate) fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
         Ok(Self {
             css_ids_to_image_ids: FastHashMap::default(),
             css_ids_to_font_ids: FastHashMap::default(),
@@ -215,7 +221,7 @@ impl AppResources {
 
     /// Returns the IDs of all currently loaded fonts in `self.font_data`
     pub fn get_loaded_font_ids(&self) -> Vec<FontId> {
-        self.font_data.borrow().keys().cloned().collect()
+        self.fonts.keys().cloned().collect()
     }
 
     pub fn get_loaded_image_ids(&self) -> Vec<ImageId> {
@@ -231,10 +237,7 @@ impl AppResources {
     }
 
     pub fn get_loaded_text_ids(&self) -> Vec<TextId> {
-        let mut text_ids = Vec::new();
-        text_ids.extend(self.text_cache.string_cache.keys().cloned());
-        text_ids.extend(self.text_cache.layouted_strings_cache.keys().cloned());
-        text_ids
+        self.text_cache.string_cache.keys().cloned().collect()
     }
 
     // -- ImageId cache
@@ -280,9 +283,17 @@ impl AppResources {
         has_image || has_raw_image
     }
 
-    pub fn delete_image(&mut self, image_id: ImageId) {
-        self.images.delete(image_id);
-        self.raw_images.delete(image_id);
+    /// Given an `ImageId`, returns the bytes for that image or `None`, if the `ImageId` is invalid.
+    pub fn get_image_bytes(&self, image_id: &ImageId) -> Option<Result<Vec<u8>, ImageReloadError>> {
+        match self.images.get(image_id) {
+            Some(image_source) => Some(image_source.get_bytes()),
+            None => self.raw_images.get(image_id).map(|raw_img| Ok(raw_img.pixels.clone()))
+        }
+    }
+
+    pub fn delete_image(&mut self, image_id: &ImageId) {
+        self.images.remove(image_id);
+        self.raw_images.remove(image_id);
     }
 
     pub fn add_css_image_id<S: Into<String>>(&mut self, css_id: S) -> ImageId {
@@ -294,11 +305,11 @@ impl AppResources {
     }
 
     pub fn get_css_image_id(&self, css_id: &str) -> Option<&ImageId> {
-        self.css_ids_to_image_ids.get(css_id.as_ref())
+        self.css_ids_to_image_ids.get(css_id)
     }
 
     pub fn delete_css_image_id(&mut self, css_id: &str) -> Option<ImageId> {
-        self.css_ids_to_image_ids.remove(css_id.as_ref())
+        self.css_ids_to_image_ids.remove(css_id)
     }
 
     pub fn get_image_info(&self, key: &ImageId) -> Option<&ImageInfo> {
@@ -316,13 +327,12 @@ impl AppResources {
     }
 
     pub fn get_css_font_id(&self, css_id: &str) -> Option<&FontId> {
-        self.css_ids_to_font_ids.get(css_id.as_ref())
+        self.css_ids_to_font_ids.get(css_id)
     }
 
     pub fn delete_css_font_id(&mut self, css_id: &str) -> Option<FontId> {
-        self.css_ids_to_font_ids.remove(css_id.as_ref())
+        self.css_ids_to_font_ids.remove(css_id)
     }
-
 
     pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) -> Option<()> {
         match self.fonts.entry(font_id) {
@@ -335,7 +345,7 @@ impl AppResources {
     }
 
     /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
-    pub fn get_font_bytes(&self, font_id: &FontId) -> Option<Result<Vec<u8>, FontReloadError>> {
+    pub fn get_font_bytes(&self, font_id: &FontId) -> Option<Result<(Vec<u8>, i32), FontReloadError>> {
         let font_source = self.fonts.get(font_id)?;
         Some(font_source.get_bytes())
     }
@@ -346,7 +356,7 @@ impl AppResources {
     }
 
     pub fn delete_font(&mut self, id: &FontId) {
-        self.fonts.delete(id);
+        self.fonts.remove(id);
     }
 
     /// Returns the `(FontKey, FontInstance)` - convenience function for the display list, to
@@ -364,6 +374,10 @@ impl AppResources {
     /// without caching the layout of the string.
     pub fn add_text(&mut self, text: &str) -> TextId {
         self.text_cache.add_text(text)
+    }
+
+    pub fn get_text(&self, id: &TextId) -> Option<&Words> {
+        self.text_cache.get_text(id)
     }
 
     /// Removes a string from both the string cache and the layouted text cache
@@ -398,20 +412,31 @@ fn scan_ui_description_for_font_keys<'a, T: Layout>(
     use dom::NodeType::*;
     use ui_solver;
 
-    display_list.rectangles
-    .iter()
-    .zip(display_list.ui_descr.ui_descr_arena.node_data.iter())
-    .filter_map(|(display_rect, node_data)| {
+    let mut font_keys = FastHashMap::default();
+
+    for node_id in display_list.rectangles.linear_iter() {
+
+        let node_data = &display_list.ui_descr.ui_descr_arena.node_data[node_id];
+        let display_rect = &display_list.rectangles[node_id];
+
         match node_data.node_type {
             Text(_) | Label(_) => {
                 let css_font_id = ui_solver::get_font_id(&display_rect.style);
-                let font_id = app_resources.css_ids_to_font_ids.get(&css_font_id)?;
+                let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
+                    Some(s) => s,
+                    None => continue,
+                };
                 let font_size = ui_solver::get_font_size(&display_rect.style);
-                Some((font_id, font_size))
+                font_keys
+                    .entry(*font_id)
+                    .or_insert_with(|| FastHashSet::default())
+                    .insert(ui_solver::font_size_to_au(font_size));
             },
-            _ => None
+            _ => { }
         }
-    }).collect()
+    }
+
+    font_keys
 }
 
 /// Scans the display list for all image keys
@@ -427,11 +452,11 @@ fn scan_ui_description_for_image_keys<'a, T: Layout>(
     .zip(display_list.ui_descr.ui_descr_arena.node_data.iter())
     .filter_map(|(display_rect, node_data)| {
         match node_data.node_type {
-            Image(id) => Some(*id),
+            Image(id) => Some(id),
             _ => {
-                let css_image_id = display_rect.rect_style.background.get_css_image_id()?;
-                let image_id = app_resources.css_ids_to_image_ids.get(&css_image_id)?;
-                Some(image_id)
+                let css_image_id = display_rect.style.background?.get_css_image_id()?;
+                let image_id = app_resources.get_css_image_id(&css_image_id.0)?;
+                Some(*image_id)
             }
         }
     }).collect()
@@ -475,7 +500,7 @@ fn build_add_font_resource_updates(
         match app_resources.currently_registered_fonts.get(font_id) {
             Some((font_key, existing_font_instances)) => {
                 for font_size in font_sizes.iter().filter(|s| !existing_font_instances.contains_key(s)) {
-                    insert_font_instances!(font_id, font_key, font_size);
+                    insert_font_instances!(*font_id, *font_key, *font_size);
                 }
             },
             None => {
@@ -489,7 +514,7 @@ fn build_add_font_resource_updates(
                     Ok(o) => o,
                     Err(e) => {
                         #[cfg(feature = "logging")] {
-                            warn!("Could not load font with ID: {} - error: {}", font_id, e);
+                            warn!("Could not load font with ID: {:?} - error: {}", font_id, e);
                         }
                         continue;
                     }
@@ -497,10 +522,10 @@ fn build_add_font_resource_updates(
 
                 let font_key = app_resources.fake_display.render_api.generate_font_key();
                 app_resources.last_frame_font_keys.entry(*font_id).or_insert_with(|| (font_key, FastHashMap::new()));
-                resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(font_key, font_bytes, 0)));
+                resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(font_key, font_bytes.0, font_bytes.1 as u32)));
 
                 for font_size in font_sizes {
-                    insert_font_instances!(font_id, font_key, font_size);
+                    insert_font_instances!(*font_id, font_key, *font_size);
                 }
             }
         }
@@ -526,7 +551,7 @@ fn build_add_image_resource_update(
 
     let mut resource_updates = Vec::new();
 
-    for image_id in current_used_images.filter(|id| {
+    for image_id in current_used_images.iter().filter(|id| {
         !app_resources.currently_registered_images.contains_key(id)
     }) {
         match app_resources.images.get(image_id) {
@@ -580,7 +605,7 @@ fn build_add_image_resource_update(
                         let render_api = &app_resources.fake_display.render_api;
                         let image_key = render_api.generate_image_key();
 
-                        app_resources.last_frame_image_keys.insert(image_id, ImageInfo {
+                        app_resources.last_frame_image_keys.insert(*image_id, ImageInfo {
                             key: image_key,
                             descriptor: descriptor
                         });
@@ -623,22 +648,24 @@ fn add_resources(
     }
 }
 
-fn build_delete_font_resource_updates(app_resources: &mut AppResources) -> Vec<ResourceUpdate> {
+fn build_delete_font_resource_updates(
+    app_resources: &mut AppResources
+) -> Vec<ResourceUpdate> {
 
     let mut to_remove_fonts = Vec::new();
     let mut to_remove_font_instance_keys = Vec::new();
 
     // Delete fonts that were not used in the last frame or have zero font instances
-    for (font_id, (font_key, font_instances)) in app_resources.currently_registered_fonts {
+    for (font_id, (font_key, font_instances)) in &app_resources.currently_registered_fonts {
         if !app_resources.last_frame_font_keys.contains_key(&font_id) || font_instances.is_empty() {
-            to_remove_fonts.push((font_id, font_key));
-            for (au, font_instance_key) in font_instances {
-                to_remove_font_instance_keys.push((font_id, au, font_instance_key));
+            to_remove_fonts.push((*font_id, *font_key));
+            for (au, font_instance_key) in font_instances.iter() {
+                to_remove_font_instance_keys.push((*font_id, *au, *font_instance_key));
             }
         } else {
-            for (au, font_instance_key) in font_instances {
+            for (au, font_instance_key) in font_instances.iter() {
                 if !app_resources.last_frame_font_keys[font_id].1.contains_key(au) {
-                    to_remove_font_instance_keys.push((font_id, au, font_instance_key));
+                    to_remove_font_instance_keys.push((*font_id, *au, *font_instance_key));
                 }
             }
         }
@@ -653,18 +680,31 @@ fn build_delete_font_resource_updates(app_resources: &mut AppResources) -> Vec<R
 
     for (font_id, au, font_instance_key) in to_remove_font_instance_keys {
         resource_updates.push(ResourceUpdate::DeleteFontInstance(font_instance_key));
-        app_resources.currently_registered_fonts[font_id].1.remove(au);
+        app_resources.currently_registered_fonts[&font_id].1.remove(&au);
     }
 
     resource_updates
 }
 
 /// At the end of the frame, all images that are registered, but weren't used in the last frame
-fn build_delete_image_resource_updates(app_resources: &mut AppResources) -> Vec<ResourceUpdate> {
-    app_resources.currently_registered_images
-    .retain(|(id, info)| !app_resources.last_frame_image_keys.contains_key(id))
-    .map(|(removed_id, removed_info)| ResourceUpdate::DeleteImage(removed_id))
-    .collect()
+fn build_delete_image_resource_updates(
+    app_resources: &mut AppResources
+) -> Vec<ResourceUpdate> {
+
+    let to_remove_image_keys = app_resources.currently_registered_images.iter().filter(|(id, info)| {
+        !app_resources.last_frame_image_keys.contains_key(id)
+    }).map(|(id, info)| (*id, *info)).collect::<Vec<(ImageId, ImageInfo)>>();
+
+    let resource_updates = to_remove_image_keys.iter().map(|(_removed_id, removed_info)| {
+        ResourceUpdate::DeleteImage(removed_info.key)
+    }).collect();
+
+    for (removed_id, _removed_info) in to_remove_image_keys {
+        app_resources.currently_registered_images.remove(&removed_id);
+        app_resources.raw_images.remove(&removed_id);
+    }
+
+    resource_updates
 }
 
 /// Clears the `last_frame_image_keys` and `last_frame_font_keys` fields
@@ -699,7 +739,8 @@ fn decode_image_data<I: Into<Vec<u8>>>(image_data: I)
     Ok(images::prepare_image(decoded)?)
 }
 
-fn load_system_font(id: &str) -> Option<Vec<u8>> {
+/// Returns the font + the index of the font (in case the font is a collection)
+fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
     use font_loader::system_fonts::{self, FontPropertyBuilder};
 
     let font_builder = match id {
@@ -732,7 +773,7 @@ fn load_system_font(id: &str) -> Option<Vec<u8>> {
         other => FontPropertyBuilder::new().family(other)
     };
 
-    system_fonts::get(&font_builder)
+    system_fonts::get(&font_builder.build())
 }
 
 /// Return the native fonts

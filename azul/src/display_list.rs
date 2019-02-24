@@ -8,21 +8,19 @@ use std::{
 };
 use euclid::{TypedRect, TypedSize2D};
 use webrender::api::{
-    LayoutPixel, RenderApi,
-    DisplayListBuilder, PrimitiveInfo, GradientStop, ColorF, PipelineId, Epoch,
-    ImageData, ImageDescriptor, ResourceUpdate, AddImage,
-    BorderRadius, ClipMode, LayoutPoint, LayoutSize,
-    GlyphOptions, LayoutRect, ExternalScrollId,
+    LayoutPixel, DisplayListBuilder, PrimitiveInfo, GradientStop,
+    ColorF, PipelineId, Epoch, ImageData, ImageDescriptor,
+    ResourceUpdate, AddImage, BorderRadius, ClipMode,
+    LayoutPoint, LayoutSize, GlyphOptions, LayoutRect, ExternalScrollId,
     ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
     ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode,
 };
 use azul_css::{
     Css, LayoutPosition,CssProperty, LayoutOverflow,
-    StyleFontSize, StyleBorderRadius, PixelValue, FloatValue, LayoutMargin,
+    StyleBorderRadius, LayoutMargin, LayoutPadding, BoxShadowClipMode,
     StyleTextColor, StyleBackground, StyleBoxShadow, StyleBackgroundColor,
     StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder, BoxShadowPreDisplayItem,
-    LayoutPadding, SizeMetric, BoxShadowClipMode,
     RectStyle, RectLayout, ColorU as StyleColorU, DynamicCssPropertyDefault,
 };
 use {
@@ -45,15 +43,6 @@ use {
 };
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
-
-// In case no font size is specified for a node,
-// this will be substituted as the default font size
-lazy_static! {
-    pub static ref DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
-        metric: SizeMetric::Px,
-        number: FloatValue::new(100.0),
-    });
-}
 
 pub(crate) struct DisplayList<'a, T: Layout + 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -103,7 +92,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
     /// This only looks at the user-facing styles of the `UiDescription`, not the actual
     /// layout. The layout is done only in the `into_display_list_builder` step.
     pub(crate) fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
-        let arena = ui_description.ui_descr_arena.borrow();
+        let arena = &ui_description.ui_descr_arena;
 
         let display_rect_arena = arena.node_data.transform(|node, node_id| {
             let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
@@ -137,6 +126,32 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let node_data = &arena.node_data;
 
         // TODO: Scan and upload all fonts before doing the layout!
+/*
+        // Scan the styled DOM for image and font keys.
+        //
+        // The problem is that we need to scan all DOMs for image and font keys and insert them
+        // before the layout() step - however, can't call IFrameCallbacks upfront, because each
+        // IFrameCallback needs to know its size (so it has to be invoked after the layout() step).
+        // So, this process needs to follow an order like:
+        //
+        // - For each DOM to render:
+        //      - Create a DOM ID
+        //      - Style the DOM according to the stylesheet
+        //      - Scan all the font keys and image keys
+        //      - Insert the new font keys and image keys into the render API
+        //      - Scan all IFrameCallbacks, generate the DomID for each callback
+        //      - Repeat while number_of_iframe_callbacks != 0
+        let (resource_updates, dom_cache) =  app_state.resources.update_images_and_fonts(
+            &ui_description_cache[window_id],
+            &mut app_state.data,
+        );
+
+        // Send the updated resources
+        if !resource_updates.is_empty() {
+            &app_resources.fake_display.render_api.update_resources(resource_updates);
+            app_state.resources.fake_display.render_api.update_resources(resource_updates);
+        }
+*/
 
         let window_size = window.state.size.get_reverse_logical_size();
         let layout_result = do_the_layout(
@@ -148,7 +163,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
             LayoutPoint::new(0.0, 0.0),
         );
 
-        // TODO: After the layout has been done, call all IFrameCallbacks and get and insert their font keys / image keys
+        // TODO: After the layout has been done, call all IFrameCallbacks and get and insert
+        // their font keys / image keys
 
         let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
             node_hierarchy, &self.rectangles, node_data, &layout_result.rects,
@@ -173,7 +189,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 pipeline_id: window.internal.pipeline_id,
                 node_hierarchy,
                 node_data,
-                render_api: &window.internal.api,
                 display_rectangle_arena: &self.rectangles,
                 css: &window.css,
                 layout_result: &layout_result,
@@ -187,8 +202,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
                 pipeline_id: window.internal.pipeline_id,
             },
         );
-
-        &window.internal.api.update_resources(resource_updates);
 
         (builder, scrollable_nodes, layout_result)
     }
@@ -296,7 +309,7 @@ fn determine_rendering_order_inner<'a>(
     let mut root_group = ContentGroup {
         root: RenderableNodeId {
             node_id: root_id,
-            clip_children: node_needs_to_clip_children(&rectangles[root_id].style),
+            clip_children: node_needs_to_clip_children(&rectangles[root_id].layout),
             scrolls_children: false, // TODO
         },
         root_depth,
@@ -347,7 +360,7 @@ fn determine_rendering_order_inner<'a>(
                         should_continue_loop = false;
                     } else {
                         // TODO: Overflow hidden in horizontal / vertical direction
-                        let node_is_overflow_hidden = node_needs_to_clip_children(&rect_node.style);
+                        let node_is_overflow_hidden = node_needs_to_clip_children(&rect_node.layout);
                         let node_needs_to_scroll_children = false; // TODO
                         root_group.node_ids.push(RenderableNodeId {
                             node_id,
@@ -386,7 +399,7 @@ pub(crate)  struct ScrolledNodes {
 
 #[derive(Debug, Clone)]
 pub(crate) struct OverflowingScrollNode {
-    pub(crate) parent_rect: LayoutRect,
+    pub(crate) parent_rect: PositionedRectangle,
     pub(crate) child_rect: LayoutRect,
     pub(crate) parent_external_scroll_id: ExternalScrollId,
     pub(crate) parent_dom_hash: DomHash,
@@ -422,7 +435,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
 
         for child in parent.children(&node_hierarchy) {
             let old = children_sum_rect.unwrap_or(LayoutRect::zero());
-            children_sum_rect = Some(old.union(&layouted_rects.rects[child]));
+            children_sum_rect = Some(old.union(&layouted_rects[child].bounds));
         }
 
         let children_sum_rect = match children_sum_rect {
@@ -430,9 +443,9 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
             Some(sum) => sum,
         };
 
-        let parent_rect = &layouted_rects.rects.get(*parent).unwrap();
+        let parent_rect = layouted_rects.get(*parent).unwrap();
 
-        if children_sum_rect.contains_rect(parent_rect) {
+        if children_sum_rect.contains_rect(&parent_rect.bounds) {
             continue;
         }
 
@@ -450,7 +463,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
 
         tags_to_node_ids.insert(scroll_tag_id, *parent);
         nodes.insert(*parent, OverflowingScrollNode {
-            parent_rect: *parent_rect.clone(),
+            parent_rect: parent_rect.clone(),
             child_rect: children_sum_rect,
             parent_external_scroll_id,
             parent_dom_hash,
@@ -461,35 +474,35 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
     ScrolledNodes { overflowing_nodes: nodes, tags_to_node_ids }
 }
 
-fn node_needs_to_clip_children(style: &RectStyle) -> bool {
-    let overflow = style.overflow.unwrap_or_default();
-    overflow.horizontal.clips_children() ||
-    overflow.vertical.clips_children()
+fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
+    let overflow = layout.overflow.unwrap_or_default();
+    !overflow.is_horizontal_overflow_visible() ||
+    !overflow.is_vertical_overflow_visible()
 }
 
 #[test]
 fn test_overflow_parsing() {
-    use azul_css::{TextOverflowBehaviour, TextOverflowBehaviourInner};
-    let style1 = RectStyle::default();
-    assert!(!node_needs_to_clip_children(&style1));
+    use azul_css::Overflow;
+    let layout1 = RectLayout::default();
+    assert_eq!(node_needs_to_clip_children(&layout1), false);
 
-    let style2 = RectStyle {
+    let layout2 = RectLayout {
         overflow: Some(LayoutOverflow {
-            horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Visible),
-            vertical: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Visible),
+            horizontal: Some(Overflow::Visible),
+            vertical: Some(Overflow::Visible),
         }),
         .. Default::default()
     };
-    assert!(!node_needs_to_clip_children(&style2));
+    assert_eq!(node_needs_to_clip_children(&layout2), false);
 
-    let style3 = RectStyle {
+    let layout3 = RectLayout {
         overflow: Some(LayoutOverflow {
-            horizontal: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Hidden),
-            vertical: TextOverflowBehaviour::Modified(TextOverflowBehaviourInner::Visible),
+            horizontal: Some(Overflow::Hidden),
+            vertical: Some(Overflow::Visible),
         }),
         .. Default::default()
     };
-    assert!(node_needs_to_clip_children(&style3));
+    assert!(node_needs_to_clip_children(&layout3));
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
@@ -561,9 +574,9 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
         if let Some(last_child) = referenced_content.node_hierarchy[rectangle.rect_idx].last_child {
             let styled_node = &referenced_content.display_rectangle_arena[rectangle.rect_idx];
             let solved_rect = &referenced_content.layout_result.rects[rectangle.rect_idx];
-            let clip = get_clip_region(solved_rect, &styled_node)
-                .unwrap_or(ComplexClipRegion::new(solved_rect, BorderRadius::zero(), ClipMode::Clip));
-            let clip_id = referenced_mutable_content.builder.define_clip(solved_rect, vec![clip], /* image_mask: */ None);
+            let clip = get_clip_region(solved_rect.bounds, &styled_node)
+                .unwrap_or(ComplexClipRegion::new(solved_rect.bounds, BorderRadius::zero(), ClipMode::Clip));
+            let clip_id = referenced_mutable_content.builder.define_clip(solved_rect.bounds, vec![clip], /* image_mask: */ None);
             referenced_mutable_content.builder.push_clip_id(clip_id);
             clip_stack.push(last_child);
         }
@@ -604,8 +617,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     referenced_mutable_content: &mut DisplayListParametersMut<'g, T>)
 {
     let DisplayListParametersRef {
-        render_api, css, display_rectangle_arena,
-        word_cache, pipeline_id, node_hierarchy, node_data,
+        css, display_rectangle_arena,
+        pipeline_id, node_hierarchy, node_data,
         layout_result,
     } = referenced_content;
 
@@ -682,16 +695,17 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     }
 
     match html_node {
-        Div => { None },
+        Div => { },
         Text(_) | Label(_) => {
             // Text is laid out and positioned during the layout pass,
-            // so this should succeed
+            // so this should succeed - if there were problems
             push_text(
                 &info,
                 referenced_mutable_content.builder,
                 layout_result,
                 rect_idx,
                 &rect.style,
+                &rect.layout,
             )
         },
         Image(image_id) => push_image(
@@ -751,7 +765,10 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
     }
 
-    let texture = texture?;
+    let texture = match texture {
+        Some(s) => s,
+        None => return,
+    };
 
     let texture_width = texture.inner.width() as f32;
     let texture_height = texture.inner.height() as f32;
@@ -759,10 +776,9 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
     let opaque = false;
     let allow_mipmaps = false;
 
-    // Note: The ImageDescriptor has no effect
-    // on how large the image appears on-screen
+    // Note: The ImageDescriptor has no effect on how large the image appears on-screen
     let descriptor = ImageDescriptor::new(texture_width as i32, texture_height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
-    let key = referenced_content.render_api.generate_image_key();
+    let key = referenced_mutable_content.app_resources.fake_display.render_api.generate_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
     let data = ImageData::External(ExternalImageData {
@@ -883,8 +899,6 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
 
     parent_scrollable_nodes.overflowing_nodes.extend(scrollable_nodes.overflowing_nodes.into_iter());
     parent_scrollable_nodes.tags_to_node_ids.extend(scrollable_nodes.tags_to_node_ids.into_iter());
-
-    None
 }
 
 /// Since the display list can take a lot of parameters, we don't want to
@@ -895,17 +909,15 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Copy, Clone)]
 struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
-    pub pipeline_id: PipelineId,
-    pub node_hierarchy: &'e NodeHierarchy,
     pub node_data: &'a NodeDataContainer<NodeData<T>>,
     /// The CSS that should be applied to the DOM
     pub css: &'b Css,
-    /// Necessary to push
-    pub render_api: &'c RenderApi,
-    /// Reference to the arena that contains all the styled rectangles
-    pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
     /// Laid out words and rectangles (contains info about content bounds and text layout)
     pub layout_result: &'c LayoutResult,
+    /// Reference to the arena that contains all the styled rectangles
+    pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
+    pub node_hierarchy: &'e NodeHierarchy,
+    pub pipeline_id: PipelineId,
 }
 
 /// Same as `DisplayListParametersRef`, but for `&mut Something`
@@ -944,13 +956,18 @@ fn push_text(
     node_id: &NodeId,
     rect_style: &RectStyle,
     rect_layout: &RectLayout,
-) -> Option<()> {
-
+) {
     use text_layout::get_layouted_glyphs;
     use css::webrender_translate::wr_translate_color_u;
 
-    let scaled_words = layout_result.scaled_words.get(node_id)?;
-    let word_positions = layout_result.positioned_word_cache.get(node_id)?;
+    let scaled_words = match layout_result.scaled_words.get(node_id) {
+        Some(s) => s,
+        None => return,
+    };
+    let word_positions = match layout_result.positioned_word_cache.get(node_id) {
+        Some(s) => s,
+        None => return,
+    };
 
     let horz_alignment = word_positions.text_layout_options.horz_alignment;
     let vert_alignment = word_positions.text_layout_options.vert_alignment;
@@ -966,7 +983,7 @@ fn push_text(
         bounding_size_height_px
     );
 
-    let font_color = rect_style.color.unwrap_or(DEFAULT_FONT_COLOR).0;
+    let font_color = rect_style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0;
     let font_color = wr_translate_color_u(font_color);
 
     // WARNING: Do not enable FontInstanceFlags::FONT_SMOOTHING or FontInstanceFlags::FORCE_AUTOHINT -
@@ -975,8 +992,8 @@ fn push_text(
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
     // flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
-    let overflow_horizontal_visible = rect_style.is_horizontal_overflow_visible();
-    let overflow_vertical_visible = rect_style.is_horizontal_overflow_visible();
+    let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
+    let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
 
     let max_bounds = builder.content_size();
     let current_bounds = info.rect;
@@ -991,11 +1008,11 @@ fn push_text(
         (false, false) => Some(original_text_bounds),
         (true, false) => {
             // Horizontally visible, vertically cut
-            Some(LayoutRect::new(rect_offset, LayoutSize::new(max_bounds.width, original_text_bounds.height)))
+            Some(LayoutRect::new(rect_offset, LayoutSize::new(max_bounds.width, original_text_bounds.size.height)))
         },
         (false, true) => {
             // Vertically visible, horizontally cut
-            Some(LayoutRect::new(rect_offset, LayoutSize::new(original_text_bounds.width, max_bounds.height)))
+            Some(LayoutRect::new(rect_offset, LayoutSize::new(original_text_bounds.size.width, max_bounds.height)))
         },
     };
 
@@ -1024,8 +1041,6 @@ fn push_text(
     if text_bounds.is_some() {
         builder.pop_clip_id();
     }
-
-    Some(())
 }
 
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
@@ -1342,18 +1357,23 @@ fn push_background(
             if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&style_image_id.0) {
 
                 let bounds = info.rect;
-                let image_dimensions = app_resources.images.get(image_id).and_then(|i| Some(i.get_dimensions()))
-                    .unwrap_or((bounds.size.width, bounds.size.height)); // better than crashing...
+                let image_dimensions = app_resources.get_image_info(image_id)
+                    .map(|info| (info.descriptor.size.width, info.descriptor.size.height))
+                    .unwrap_or((bounds.size.width as i32, bounds.size.height as i32)); // better than crashing...
 
                 let size = match background_size {
                     Some(bg_size) => calculate_background_size(bg_size, &info, &image_dimensions),
-                    None => TypedSize2D::new(image_dimensions.0, image_dimensions.1)
+                    None => TypedSize2D::new(image_dimensions.0 as f32, image_dimensions.1 as f32),
                 };
 
                 let background_repeat = background_repeat.unwrap_or_default();
                 let background_repeat_info = get_background_repeat_info(&info, background_repeat, size);
+
                 push_image(&background_repeat_info, builder, app_resources, image_id, size);
             }
+        },
+        Color(c) => {
+            push_rect(&info, builder, c);
         },
         NoBackground => { },
     }
@@ -1399,12 +1419,12 @@ struct Ratio {
 fn calculate_background_size(
     bg_size: &StyleBackgroundSize,
     info: &PrimitiveInfo<LayoutPixel>,
-    image_dimensions: &(f32, f32)
+    image_dimensions: &(i32, i32)
 ) -> TypedSize2D<f32, LayoutPixel> {
 
     let original_ratios = Ratio {
-        width: info.rect.size.width / image_dimensions.0,
-        height: info.rect.size.height / image_dimensions.1
+        width: info.rect.size.width / image_dimensions.0 as f32,
+        height: info.rect.size.height / image_dimensions.1 as f32,
     };
 
     let ratio = match bg_size {
@@ -1412,7 +1432,7 @@ fn calculate_background_size(
         StyleBackgroundSize::Cover => original_ratios.width.max(original_ratios.height)
     };
 
-    TypedSize2D::new(image_dimensions.0 * ratio, image_dimensions.1 * ratio)
+    TypedSize2D::new(image_dimensions.0 as f32 * ratio, image_dimensions.1 as f32 * ratio)
 }
 
 #[inline]
@@ -1536,7 +1556,6 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
         FontSize(f)         => { rect.style.font_size = Some(*f);                       },
         FontFamily(f)       => { rect.style.font_family = Some(f.clone());              },
         LetterSpacing(l)    => { rect.style.letter_spacing = Some(*l);                  },
-        Overflow(o)         => { LayoutOverflow::merge(&mut rect.style.overflow, &o);   },
         TextAlign(ta)       => { rect.style.text_align = Some(*ta);                     },
         BoxShadow(b)        => { StyleBoxShadow::merge(&mut rect.style.box_shadow, b);  },
         LineHeight(lh)      => { rect.style.line_height = Some(*lh);                    },
@@ -1556,6 +1575,7 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
 
         Padding(p)          => { LayoutPadding::merge(&mut rect.layout.padding, &p);    },
         Margin(m)           => { LayoutMargin::merge(&mut rect.layout.margin, &m);      },
+        Overflow(o)         => { LayoutOverflow::merge(&mut rect.layout.overflow, &o);  },
 
         FlexGrow(g)         => { rect.layout.flex_grow = Some(*g)                       },
         FlexShrink(s)       => { rect.layout.flex_shrink = Some(*s)                     },
