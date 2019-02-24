@@ -2,9 +2,9 @@
 
 use std::ops::{Mul, Add, Sub};
 use webrender::api::RenderApi;
-use rusttype::{Font, Scale};
+use rusttype::Scale;
 use azul_css::{
-    StyleTextAlignmentHorz, StyleFontSize, ScrollbarInfo,
+    StyleTextAlignmentHorz, ScrollbarInfo,
     StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow,
 };
 pub use webrender::api::{
@@ -29,6 +29,9 @@ const DEFAULT_CHAR_SPACING: f32 = 0.0;
 const DEFAULT_LETTER_SPACING: f32 = 0.0;
 const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
+const PX_TO_PT: f32 = 72.0 / 96.0;
+const PT_TO_PX: f32 = 96.0 / 72.0;
+
 impl Mul<f32> for TextSizePx {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
@@ -52,14 +55,12 @@ impl Sub for TextSizePx {
 
 impl From<TextSizePx> for TextSizePt {
     fn from(original: TextSizePx) -> TextSizePt {
-        const PX_TO_PT: f32 = 72.0 / 96.0;
         TextSizePt(original.0 * PX_TO_PT)
     }
 }
 
 impl From<TextSizePt> for TextSizePx {
     fn from(original: TextSizePt) -> TextSizePx {
-        const PT_TO_PX: f32 = 96.0 / 72.0;
         TextSizePx(original.0 * PT_TO_PX)
     }
 }
@@ -91,13 +92,14 @@ pub enum Word {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LineEnding {
+pub enum LineEnding {
     /// `\n` line ending
     Unix,
     /// `\r\n` line ending
     Windows,
 }
 
+#[derive(Debug, Clone)]
 pub struct ScaledWords {
     /// Font used to scale this text
     pub font_key: FontKey,
@@ -112,6 +114,7 @@ pub struct ScaledWords {
 }
 
 /// Word that is scaled (to a font / font instance), but not yet positioned
+#[derive(Debug, Clone)]
 pub struct ScaledWord {
     /// Glyphs, positions are relative to the first character of the word
     pub glyph_instances: Vec<GlyphInstance>,
@@ -123,6 +126,7 @@ pub struct ScaledWord {
 }
 
 /// Stores the positions of the vertically laid out texts
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WordPositions {
     /// Font used to scale this text
     pub font_key: FontKey,
@@ -135,8 +139,9 @@ pub(crate) struct WordPositions {
     /// Usually, the "trailing" of the current text block is the "leading" of the
     /// next text block, to make it seem like two text runs push into each other.
     pub trailing: f32,
-    /// How many
+    /// How many words are in the text?
     pub number_of_words: usize,
+    /// How many lines (NOTE: virtual lines, meaning line breaks in the layouted text) are there?
     pub number_of_lines: usize,
     /// Horizontal and vertical boundaries of the layouted words.
     ///
@@ -193,6 +198,7 @@ pub struct TextLayoutOptions {
 }
 
 /// Given the scale of words + the word positions, lays out the words in a
+#[derive(Debug, Clone, PartialEq)]
 pub struct LeftAlignedGlyphs<'a> {
     /// Width that was used to layout these glyphs (or None if the text has overflow:visible)
     pub max_horizontal_width: Option<f32>,
@@ -205,13 +211,14 @@ pub struct LeftAlignedGlyphs<'a> {
     pub text_bbox: LayoutSize,
 }
 
-/// Returns the layouted glyphs
+/// Returns the layouted glyph instances
+#[derive(Debug, Clone, PartialEq)]
 pub struct LayoutedGlyphs {
     pub glyphs: Vec<GlyphInstance>,
 }
 
 /// These metrics are important for showing the scrollbars
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub(crate) enum TextOverflow {
     /// Text is overflowing, by how much?
     /// Necessary for determining the size of the scrollbar
@@ -222,7 +229,7 @@ pub(crate) enum TextOverflow {
 }
 
 /// Splits the text by whitespace into logical units (word, tab, return, whitespace).
-pub(crate) fn split_text_into_words(text: &str) -> Words {
+pub fn split_text_into_words(text: &str) -> Words {
 
     use unicode_normalization::UnicodeNormalization;
 
@@ -275,7 +282,7 @@ pub(crate) fn split_text_into_words(text: &str) -> Words {
 
 /// Takes a text broken into semantic items and a font instance and
 /// scales the font accordingly.
-pub(crate) fn words_to_scaled_words(
+pub fn words_to_scaled_words(
     words: &Words,
     render_api: &RenderApi,
     font_key: FontKey,
@@ -295,7 +302,7 @@ pub(crate) fn words_to_scaled_words(
         // Filter out all invalid indices and dimensions (usually `None` is
         // only returned for spaces, so that case will obviously not happen,
         // since we broke the text by spaces previously)
-        let glyph_indices = render_api.get_glyph_indices(font_key, w);
+        let glyph_indices = render_api.get_glyph_indices(font_key, word);
         let glyph_indices = glyph_indices.into_iter().filter_map(|e| e).collect::<Vec<u32>>();
 
         let glyph_dimensions = render_api.get_glyph_dimensions(font_instance_key, glyph_indices);
@@ -342,7 +349,7 @@ pub(crate) fn words_to_scaled_words(
 ///
 /// Currently you have to pass in the font size, because there is currently no way
 /// to get the Space character width from a font.
-pub(crate) fn position_words(
+pub fn position_words(
     words: &Words,
     scaled_words: &ScaledWords,
     text_layout_options: &TextLayoutOptions,
@@ -464,7 +471,7 @@ pub(crate) fn position_words(
 
 /// Returns the final glyphs and positions them relative to the `rect_offset`,
 /// ready for webrender to display
-pub(crate) fn get_layouted_glyphs(
+pub fn get_layouted_glyphs(
     word_positions: &WordPositions,
     scaled_words: &ScaledWords,
     alignment_horz: StyleTextAlignmentHorz,
@@ -507,11 +514,11 @@ pub(crate) fn get_layouted_glyphs(
 }
 
 /// Given a width, returns the vertical height and width of the text
-pub(crate) fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutSize {
+pub fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutSize {
     word_positions.content_size
 }
 
-pub(crate) fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {
+pub fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {
     let content_size = word_positions.content_size;
     if bounding_size_height_px > content_size.height {
         TextOverflow::InBounds(TextSizePx(bounding_size_height_px - content_size.height))
@@ -526,7 +533,7 @@ pub fn words_to_string(words: &Words, line_ending: LineEnding) -> String {
     use self::LineEnding::*;
     use self::Word::*;
 
-    if words.items.is_empty {
+    if words.items.is_empty() {
         return String::new();
     }
 
@@ -535,9 +542,9 @@ pub fn words_to_string(words: &Words, line_ending: LineEnding) -> String {
         Windows => "\r\n",
     };
 
-    let mut string = String::with_capacity(words.len() * words[0].len());
+    let mut string = String::with_capacity(words.items.len());
 
-    for w in words {
+    for w in &words.items {
         match w {
             Word(w) => { string.push_str(w); },
             Tab => { string.push('\t'); },
@@ -549,11 +556,11 @@ pub fn words_to_string(words: &Words, line_ending: LineEnding) -> String {
     string
 }
 
-fn word_item_is_return(item: &Word) -> bool {
+pub fn word_item_is_return(item: &Word) -> bool {
     *item == Word::Return
 }
 
-fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
+pub fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
     use self::TextOverflow::*;
     match overflow {
         IsOverflowing(_) => true,
@@ -561,7 +568,7 @@ fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
     }
 }
 
-fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWords)
+pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWords)
 -> Vec<(GlyphIndex, RemainingSpaceToRight)>
 {
     let width = word_positions.content_size.width;
@@ -577,19 +584,19 @@ fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWords)
     word_positions.line_breaks.iter().map(|(current_word_idx, line_length)| {
         let remaining_space_px = width - line_length;
         let words = &scaled_words.items[last_word_idx..*current_word_idx];
-        let glyphs_in_this_line = words.iter().map(|s| s.glyph_instances.len()).sum();
+        let glyphs_in_this_line: usize = words.iter().map(|s| s.glyph_instances.len()).sum();
         current_glyph_count += glyphs_in_this_line;
         last_word_idx = *current_word_idx;
         (current_glyph_count, remaining_space_px)
     }).collect()
 }
 
-fn get_glyph_width(glyph_dimensions: &[GlyphDimensions]) -> f32 {
+pub fn get_glyph_width(glyph_dimensions: &[GlyphDimensions]) -> f32 {
     glyph_dimensions.iter().map(|g| g.advance).sum()
 }
 
 /// For a given line number, calculates the Y position of the word
-fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
+pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
     ((font_size_px + line_height_px) * line_number as f32) + font_size_px
 }
 
@@ -696,7 +703,7 @@ fn advance_caret(caret: &mut f32, line_number: &mut usize, intersection: LineCar
     }
 }
 
-fn align_text_horz(
+pub fn align_text_horz(
     glyphs: &mut [GlyphInstance],
     alignment: StyleTextAlignmentHorz,
     line_breaks: &[(usize, f32)]
@@ -775,7 +782,7 @@ fn align_text_horz(
     }
 }
 
-fn align_text_vert(
+pub fn align_text_vert(
     glyphs: &mut [GlyphInstance],
     alignment: StyleTextAlignmentVert,
     line_breaks: &[(usize, f32)],
@@ -813,69 +820,10 @@ fn align_text_vert(
 }
 
 /// Adds the X and Y offset to each glyph in the positioned glyph
-fn add_origin(positioned_glyphs: &mut [GlyphInstance], x: f32, y: f32) {
+pub fn add_origin(positioned_glyphs: &mut [GlyphInstance], x: f32, y: f32) {
     for c in positioned_glyphs {
         c.point.x += x;
         c.point.y += y;
-    }
-}
-
-// -------------------------- PUBLIC API -------------------------- //
-
-/// Temporary struct that contains various metrics related to a font -
-/// useful so we don't have to access the font to look up certain widths
-#[derive(Debug, Clone)]
-pub struct FontMetrics {
-    /// Width of the space character
-    pub space_width: TextSizePx,
-    /// Usually 4 * space_width
-    pub tab_width: TextSizePx,
-    /// font_size * line_height
-    pub vertical_advance: TextSizePx,
-    /// Font size, including line height
-    pub font_size_with_line_height: TextSizePx,
-    /// Same as `font_size_with_line_height` but without the
-    /// `self.line height` incorporated. Used for horizontal layouting
-    pub font_size_no_line_height: TextSizePx,
-    /// Some fonts have a base height of 2048 or something weird like that
-    pub height_for_1px: f32,
-    /// Spacing of the letters, or 0.0 by default
-    pub letter_spacing: Option<TextSizePx>,
-    /// Slightly duplicated: The layout options for the text
-    pub layout_options: TextLayoutOptions,
-}
-
-impl FontMetrics {
-    /// Given a font, font size and line height, calculates the `FontMetrics` necessary
-    /// which are later used to layout a block of text
-    pub fn new<'a>(font: &Font<'a>, font_size: &StyleFontSize, layout_options: &TextLayoutOptions) -> Self {
-        let font_size_no_line_height = TextSizePx(font_size.0.to_pixels());
-        let line_height = layout_options.line_height.and_then(|lh| Some(lh.0.get())).unwrap_or(1.0);
-        let font_size_with_line_height = font_size_no_line_height * line_height;
-
-        let space_glyph = font.glyph(' ').scaled(font_size_no_line_height.to_rusttype_scale());
-        let height_for_1px = font.glyph(' ').standalone().get_data().unwrap().scale_for_1_pixel;
-        let space_width = TextSizePx(space_glyph.h_metrics().advance_width);
-        let tab_width = space_width * 4.0; // TODO: make this configurable
-
-        let v_metrics_scaled = font.v_metrics(font_size_with_line_height.to_rusttype_scale());
-        let v_advance_scaled = TextSizePx(v_metrics_scaled.ascent - v_metrics_scaled.descent + v_metrics_scaled.line_gap);
-
-        FontMetrics {
-            vertical_advance: v_advance_scaled,
-            space_width,
-            tab_width,
-            height_for_1px,
-            font_size_with_line_height,
-            font_size_no_line_height,
-            letter_spacing: layout_options.letter_spacing,
-            layout_options: *layout_options,
-        }
-    }
-
-    /// Necessary to un-do the scaling done by the text layout
-    pub fn get_svg_font_scale_factor(&self) -> f32 {
-        self.font_size_no_line_height.0 * self.height_for_1px
     }
 }
 
@@ -884,66 +832,8 @@ impl FontMetrics {
 pub struct LayoutTextResult {
     /// The words, broken up by whitespace
     pub words: Words,
+    /// Words, scaled by a certain font size (with font metrics)
     pub scaled_words: ScaledWords,
-    /// The line_breaks contain:
-    ///
-    /// - The index of the glyph at which the line breaks (index into the `self.layouted_glyphs`)
-    /// - How much space each line has (to the right edge of the containing rectangle)
-    pub line_breaks: Vec<(IndexOfLineBreak, RemainingSpaceToRight)>,
-    /// Minimal width of the layouted text
-    pub min_width: TextSizePx,
-    /// Minimal height of the layouted text
-    pub min_height: TextSizePx,
-    pub font_metrics: FontMetrics,
-}
-
-impl LayoutTextResult {
-
-    /// Returns the index of what character was hit by the x and y coordinates.
-    ///
-    /// The x and y values have to be relative to the top left corner of the
-    /// LayoutTextResult and must be axis aligned (i.e no rotation or anything
-    /// is calculated, assumed that the text is a regular, horizontal text string
-    /// without any rotation).
-    pub fn get_hit_glyph_idx(&self, x: f32, y: f32) -> Option<usize> {
-        use webrender::api::{LayoutSize, LayoutRect, LayoutPoint};
-        let font_size_no_line_height = self.font_metrics.font_size_no_line_height;
-
-        // NOTE: This is shit, will not fire for the last character of
-        // the string
-        self.layouted_glyphs.iter().zip(self.layouted_glyphs.iter().skip(1))
-        .position(|(glyph, next_glyph)| {
-            let x_diff = next_glyph.point - glyph.point;
-            let rect = LayoutRect::new(
-                glyph.point,
-                LayoutSize::new(x_diff.x, font_size_no_line_height.0)
-            );
-            rect.contains(&LayoutPoint::new(x, y))
-        })
-    }
-}
-
-/// Layout a string of text horizontally, given a font with its metrics.
-pub fn layout_text<'a>(
-    text: &str,
-    font: &Font<'a>,
-    font_metrics: &FontMetrics
-) -> LayoutTextResult {
-
-    // NOTE: This function is different from the get_glyphs function that is
-    // used internally to Azul.
-    //
-    // This function simply lays out a text, without trying to fit it into a rectangle.
-    // This function does not calculate any overflow.
-    let words = split_text_into_words(text);
-    let scaled_words = words_to_scaled_words(&words);
-    let words = split_text_into_words(text, font, font_metrics.font_size_no_line_height, font_metrics.letter_spacing);
-    let (mut layouted_glyphs, line_breaks, min_width, min_height) =
-        words_to_left_aligned_glyphs(&words, font, None, font_metrics);
-
-    align_text_horz(font_metrics.layout_options.horz_alignment, &mut layouted_glyphs, &line_breaks);
-
-    LayoutTextResult {
-        words, layouted_glyphs, line_breaks, min_width, min_height, font_metrics: *font_metrics,
-    }
+    /// Layout of the positions, word-by-word
+    pub word_positions: WordPositions,
 }

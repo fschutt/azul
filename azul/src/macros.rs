@@ -206,11 +206,18 @@ impl<T: Layout> $struct_name<T> {
         self.$struct_field.get_loaded_image_ids()
     }
 
-    /// See [`AppResources::get_loaded_css_ids`]
+    /// See [`AppResources::get_loaded_css_image_ids`]
     ///
-    /// [`AppResources::get_loaded_css_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_css_ids
-    pub fn get_loaded_css_ids(&self) -> Vec<String> {
-        self.$struct_field.get_loaded_css_ids()
+    /// [`AppResources::get_loaded_css_image_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_css_image_ids
+    pub fn get_loaded_css_image_ids(&self) -> Vec<CssImageId> {
+        self.$struct_field.get_loaded_css_image_ids()
+    }
+
+    /// See [`AppResources::get_loaded_css_font_ids`]
+    ///
+    /// [`AppResources::get_loaded_css_font_ids`]: ../app_resources/struct.AppResources.html#method.get_loaded_css_font_ids
+    pub fn get_loaded_css_font_ids(&self) -> Vec<CssImageId> {
+        self.$struct_field.get_loaded_css_font_ids()
     }
 
     /// See [`AppResources::get_loaded_text_ids`]
@@ -226,15 +233,15 @@ impl<T: Layout> $struct_name<T> {
     ///
     /// [`AppResources::add_image`]: ../app_resources/struct.AppResources.html#method.add_image
     #[cfg(feature = "image_loading")]
-    pub fn add_image<I: Into<Vec<u8>>>(&mut self, image_id: ImageId, data: I) -> Result<(), ImageError> {
-        self.$struct_field.add_image(image_id, data)
+    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) -> Option<()> {
+        self.$struct_field.add_image(image_id, image_source)
     }
 
     /// See [`AppResources::add_image_raw`]
     ///
     /// [`AppResources::add_image_raw`]: ../app_resources/struct.AppResources.html#method.add_image_raw
-    pub fn add_image_raw(&mut self, image_id: ImageId, pixels: Vec<u8>, image_dimensions: (u32, u32), data_format: RawImageFormat) -> Option<()> {
-        self.$struct_field.add_image_raw(image_id, pixels, image_dimensions, data_format)
+    pub fn add_image_raw(&mut self, image_id: ImageId, image: RawImage) -> Option<()> {
+        self.$struct_field.add_image_raw(image_id, image)
     }
 
     /// See [`AppResources::has_image`]
@@ -244,10 +251,19 @@ impl<T: Layout> $struct_name<T> {
         self.$struct_field.has_image(image_id)
     }
 
+    /// Given an `ImageId`, returns the bytes for that image or `None`, if the `ImageId` is invalid.
+    ///
+    /// See [`AppResources::get_image_bytes`]
+    ///
+    /// [`AppResources::get_image_bytes`]: ../app_resources/struct.AppResources.html#method.get_image_bytes
+    pub fn get_image_bytes(&self, image_id: &ImageId) -> Option<Result<Vec<u8>, ImageReloadError>> {
+        self.$struct_field.get_image_bytes(image_id)
+    }
+
     /// See [`AppResources::delete_image`]
     ///
     /// [`AppResources::delete_image`]: ../app_resources/struct.AppResources.html#method.delete_image
-    pub fn delete_image(&mut self, image_id: ImageId) -> Option<()> {
+    pub fn delete_image(&mut self, image_id: &ImageId) {
         self.$struct_field.delete_image(image_id)
     }
 
@@ -261,22 +277,50 @@ impl<T: Layout> $struct_name<T> {
     /// See [`AppResources::has_css_image_id`]
     ///
     /// [`AppResources::has_css_image_id`]: ../app_resources/struct.AppResources.html#method.has_css_image_id
-    pub fn has_css_image_id<S: AsRef<str>>(&self, css_id: S) -> bool {
+    pub fn has_css_image_id(&self, css_id: &str) -> bool {
         self.$struct_field.has_css_image_id(css_id)
     }
 
     /// See [`AppResources::get_css_image_id`]
     ///
     /// [`AppResources::get_css_image_id`]: ../app_resources/struct.AppResources.html#method.get_css_image_id
-    pub fn get_css_image_id<S: AsRef<str>>(&self, css_id: S) -> Option<ImageId> {
+    pub fn get_css_image_id(&self, css_id: &str) -> Option<&ImageId> {
         self.$struct_field.get_css_image_id(css_id)
     }
 
     /// See [`AppResources::delete_css_image_id`]
     ///
     /// [`AppResources::delete_css_image_id`]: ../app_resources/struct.AppResources.html#method.delete_css_image_id
-    pub fn delete_css_image_id<S: AsRef<str>>(&mut self, css_id: S) -> Option<ImageId> {
+    pub fn delete_css_image_id(&mut self, css_id: &str) -> Option<ImageId> {
         self.$struct_field.delete_css_image_id(css_id)
+    }
+
+    /// See [`AppResources::add_css_font_id`]
+    ///
+    /// [`AppResources::add_css_font_id`]: ../app_resources/struct.AppResources.html#method.add_css_font_id
+    pub fn add_css_font_id<S: Into<String>>(&mut self, css_id: S) -> FontId {
+        self.$struct_field.add_css_font_id(css_id)
+    }
+
+    /// See [`AppResources::has_css_font_id`]
+    ///
+    /// [`AppResources::has_css_font_id`]: ../app_resources/struct.AppResources.html#method.has_css_font_id
+    pub fn has_css_font_id(&self, css_id: &str) -> bool {
+        self.$struct_field.has_css_font_id(css_id)
+    }
+
+    /// See [`AppResources::get_css_font_id`]
+    ///
+    /// [`AppResources::get_css_font_id`]: ../app_resources/struct.AppResources.html#method.get_css_font_id
+    pub fn get_css_font_id(&self, css_id: &str) -> Option<&FontId> {
+        self.$struct_field.get_css_font_id(css_id)
+    }
+
+    /// See [`AppResources::delete_css_font_id`]
+    ///
+    /// [`AppResources::delete_css_font_id`]: ../app_resources/struct.AppResources.html#method.delete_css_font_id
+    pub fn delete_css_font_id(&mut self, css_id: &str) -> Option<FontId> {
+        self.$struct_field.delete_css_font_id(css_id)
     }
 }
 
@@ -286,12 +330,11 @@ macro_rules! font_api {($struct_name:ident::$struct_field:ident) => (
 
 impl<T: Layout> $struct_name<T> {
 
-
     /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
     /// See [`AppResources::get_font_bytes`]
     ///
     /// [`AppResources::get_font_bytes`]: ../app_resources/struct.AppResources.html#method.get_font_bytes
-    pub fn get_font_bytes(&self, font_id: &FontId) -> Option<Result<Vec<u8>, FontReloadError>> {
+    pub fn get_font_bytes(&self, font_id: &FontId) -> Option<Result<(Vec<u8>, i32), FontReloadError>> {
         self.$struct_field.get_font_bytes(font_id)
     }
 
@@ -312,7 +355,7 @@ impl<T: Layout> $struct_name<T> {
     /// See [`AppResources::delete_font`]
     ///
     /// [`AppResources::delete_font`]: ../app_resources/struct.AppResources.html#method.delete_font
-    pub fn delete_font(&mut self, font_id: &FontId) -> Option<()> {
+    pub fn delete_font(&mut self, font_id: &FontId) {
         self.$struct_field.delete_font(font_id)
     }
 }
@@ -323,53 +366,34 @@ macro_rules! text_api {($struct_name:ident::$struct_field:ident) => (
 
 impl<T: Layout> $struct_name<T> {
 
-    /// See [`AppResources::add_text_uncached`]
+    /// Adds a string to the internal text cache, but only store it as a string,
+    /// without caching the layout of the string.
     ///
-    /// [`AppResources::add_text_uncached`]: ../app_resources/struct.AppResources.html#method.add_text_uncached
-    pub fn add_text_uncached<S: Into<String>>(&mut self, text: S) -> TextId {
-        self.$struct_field.add_text_uncached(text)
+    /// See [`AppResources::add_text`].
+    ///
+    /// [`AppResources::add_text`]: ../app_resources/struct.AppResources.html#method.add_text
+    pub fn add_text(&mut self, text: &str) -> TextId {
+        self.$struct_field.add_text(text)
     }
 
-    /// See [`AppResources::add_text_cached`]
+    /// Removes a string from both the string cache and the layouted text cache
     ///
-    /// [`AppResources::add_text_cached`]: ../app_resources/struct.AppResources.html#method.add_text_cached
-    pub fn add_text_cached<S: Into<String>>(&mut self, text: S, font_id: &FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>) -> TextId {
-        self.$struct_field.add_text_cached(text, font_id, font_size, letter_spacing)
-    }
-
-    /// See [`AppResources::cache_text`]
-    ///
-    /// [`AppResources::cache_text`]: ../app_resources/struct.AppResources.html#method.cache_text
-    pub fn cache_text(&mut self, text_id: TextId, font: FontId, font_size: PixelValue, letter_spacing: Option<StyleLetterSpacing>) {
-        self.$struct_field.cache_text(text_id, font, font_size, letter_spacing)
-    }
-
-    /// See [`AppResources::delete_text`]
+    /// See [`AppResources::delete_text`].
     ///
     /// [`AppResources::delete_text`]: ../app_resources/struct.AppResources.html#method.delete_text
-    pub fn delete_text(&mut self, text_id: TextId) {
-        self.$struct_field.delete_text(text_id);
+    pub fn delete_text(&mut self, id: TextId) {
+        self.$struct_field.delete_text(id)
     }
 
-    /// See [`AppResources::delete_string`]
+    /// Empties the entire internal text cache, invalidating all `TextId`s.
+    /// If the given TextId is used after this call, the text will not render in the UI.
+    /// Use with care.
     ///
-    /// [`AppResources::delete_string`]: ../app_resources/struct.AppResources.html#method.delete_string
-    pub fn delete_string(&mut self, text_id: TextId) {
-        self.$struct_field.delete_string(text_id);
-    }
-
-    /// See [`AppResources::delete_layouted_text`]
-    ///
-    /// [`AppResources::delete_layouted_text`]: ../app_resources/struct.AppResources.html#method.delete_layouted_text
-    pub fn delete_layouted_text(&mut self, text_id: TextId) {
-        self.$struct_field.delete_layouted_text(text_id);
-    }
-
-    /// See [`AppResources::clear_all_texts`]
+    /// See [`AppResources::clear_all_texts`].
     ///
     /// [`AppResources::clear_all_texts`]: ../app_resources/struct.AppResources.html#method.clear_all_texts
     pub fn clear_all_texts(&mut self) {
-        self.$struct_field.clear_all_texts();
+        self.$struct_field.clear_all_texts()
     }
 }
 

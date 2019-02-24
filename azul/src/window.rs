@@ -21,7 +21,8 @@ use glium::{
     debug::DebugCallbackBehavior,
     glutin::{
         self, EventsLoop, AvailableMonitorsIter, GlContext, GlWindow, CreationError,
-        MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowBuilder, Icon,
+        MonitorId, EventsLoopProxy, ContextError, ContextBuilder,
+        Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Icon,
         dpi::{LogicalSize, PhysicalSize}
     },
     backend::{Context, Facade, glutin::DisplayCreationError},
@@ -54,6 +55,16 @@ static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
 fn new_window_id() -> WindowId {
     WindowId { id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst) }
 }
+
+/// Each window is a "document", i.e a new web page in webrender terms.
+/// However, there is only one global renderer, in order to save on memory.
+static LAST_DOCUMENT_ID: AtomicUsize = AtomicUsize::new(0);
+
+fn new_document_id() -> i8 {
+    // TODO: Needs to wrap around to 0 again! (i8::MAX_VALUE = 0)
+    LAST_DOCUMENT_ID.fetch_add(1, Ordering::SeqCst) as i8
+}
+
 
 /// Id that uniquely identifies one window.
 /// Because windows can be added and removed in any order, this ID
@@ -796,11 +807,15 @@ const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
 impl<'a, T: Layout> Window<T> {
 
     /// Creates a new window
-    pub(crate) fn new(render_api: &RenderApi, options: WindowCreateOptions<T>, mut css: Css) -> Result<Self, WindowCreateError> {
+    pub(crate) fn new(
+        render_api: &RenderApi,
+        options: WindowCreateOptions<T>,
+        mut css: Css
+    ) -> Result<Self, WindowCreateError> {
 
         let events_loop = EventsLoop::new();
 
-        let mut window = WindowBuilder::new()
+        let mut window = GliumWindowBuilder::new()
             .with_title(options.state.title.clone())
             .with_maximized(options.state.is_maximized)
             .with_decorations(options.state.has_decorations)
@@ -840,13 +855,13 @@ impl<'a, T: Layout> Window<T> {
             window = window.with_max_dimensions(max_dim);
         }
 
-        let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&window, &events_loop);
-        let mut state = options.state.clone();
-        state.size.hidpi_factor = hidpi_factor;
-        state.size.winit_hidpi_factor = winit_hidpi_factor;
-
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window, &events_loop)?;
+
+        let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
+        let mut state = options.state.clone();
+        state.size.hidpi_factor = hidpi_factor as f64;
+        state.size.winit_hidpi_factor = winit_hidpi_factor as f64;
 
         if options.state.is_fullscreen {
             gl_window.window().set_fullscreen(Some(gl_window.window().get_current_monitor()));
@@ -869,11 +884,12 @@ impl<'a, T: Layout> Window<T> {
         let device_pixel_ratio = options.state.size.hidpi_factor;
 
         let framebuffer_size = {
-            let (width, height): (u32, u32) = display.gl_window().get_inner_size().unwrap().to_physical(hidpi_factor).into();
+            let inner_logical_size = display.gl_window().get_inner_size().unwrap();
+            let (width, height): (u32, u32) = inner_logical_size.to_physical(hidpi_factor as f64).into();
             DeviceIntSize::new(width as i32, height as i32)
         };
 
-        let document_id = render_api.add_document(framebuffer_size, 0);
+        let document_id = render_api.add_document(framebuffer_size, new_document_id());
         let epoch = Epoch(0);
         let pipeline_id = PipelineId(0, 0);
         let window_id = new_window_id();
@@ -908,8 +924,12 @@ impl<'a, T: Layout> Window<T> {
     /// Creates a new window that will automatically load a new style from a given HotReloadHandler.
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
-    pub fn new_hot_reload(options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new(options, Css::default())?;
+    pub(crate) fn new_hot_reload(
+        render_api: &RenderApi,
+        options: WindowCreateOptions<T>,
+        css_loader: Box<dyn HotReloadHandler>
+    ) -> Result<Self, WindowCreateError>  {
+        let mut window = Window::new(render_api, options, Css::default())?;
         window.css_loader = Some(css_loader);
         Ok(window)
     }
@@ -919,6 +939,11 @@ impl<'a, T: Layout> Window<T> {
         MonitorIter {
             inner: EventsLoop::new().get_available_monitors(),
         }
+    }
+
+    /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
+    pub fn get_current_monitor(&self) -> MonitorId {
+        self.display.gl_window().window().get_current_monitor()
     }
 
     /// Updates the window state, diff the `self.state` with the `new_state`
@@ -935,9 +960,6 @@ impl<'a, T: Layout> Window<T> {
         let old_state = &mut self.state;
 
         // Compare the old and new state, field by field
-        if let Some(r) = &mut self.renderer {
-            set_webrender_debug_flags(r, &old_state.debug_state, &new_state.debug_state);
-        }
 
         if old_state.title != new_state.title {
             window.set_title(&new_state.title);
@@ -1027,7 +1049,7 @@ pub(crate) struct FakeDisplay {
     /// Main render API that can be used to register and un-register fonts and images
     pub(crate) render_api: RenderApi,
     /// Main renderer, responsible for rendering all windows
-    renderer: Option<Renderer>,
+    pub(crate) renderer: Option<Renderer>,
     /// Fake / invisible display, only used because OpenGL is tied to a display context
     /// (offscreen rendering is not supported out-of-the-box on many platforms)
     hidden_display: Display,
@@ -1042,18 +1064,18 @@ impl FakeDisplay {
     pub(crate) fn new(renderer_type: RendererType, debug_state: &DebugState, background: Option<ColorU>) -> Result<Self, WindowCreateError> {
 
         let events_loop = EventsLoop::new();
-        let window = WindowBuilder::new().with_dimensions(0, 0).with_visibility(false);
-        let (dpi_factor, _) = get_hidpi_factor(&window, &events_loop);
+        let window = GliumWindowBuilder::new().with_dimensions(LogicalSize::new(0.0, 0.0)).with_visibility(false);
+        let gl_window = create_gl_window(window, &events_loop)?;
+        let (dpi_factor, _) = get_hidpi_factor(&gl_window.window(), &events_loop);
         let mut gl_window = create_gl_window(window, &events_loop)?;
-        gl_window.window().set_visibility(false);
+        gl_window.hide();
 
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
         let gl = get_gl_context(&display)?;
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-        let (renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor, background);
+        let (renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor, background)?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
-        set_webrender_debug_flags(&mut renderer, &DebugState::default(), &debug_state);
 
         Ok(Self {
             render_api,
@@ -1072,7 +1094,7 @@ impl Drop for FakeDisplay {
 }
 
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
-fn get_hidpi_factor<T: Layout>(window: &Window<T>, events_loop: &EventsLoop) -> (f32, f32) {
+fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f32, f32) {
     let monitor = window.get_current_monitor();
     let winit_hidpi_factor = monitor.get_hidpi_factor();
 
@@ -1080,17 +1102,17 @@ fn get_hidpi_factor<T: Layout>(window: &Window<T>, events_loop: &EventsLoop) -> 
         (linux_get_hidpi_factor(&monitor, &events_loop), winit_hidpi_factor)
     }
     #[cfg(not(target_os = "linux"))] {
-        (winit_hidpi_factor, winit_hidpi_factor)
+        (winit_hidpi_factor as f32, winit_hidpi_factor as f32)
     }
 }
 
-use glium::glutin::Window as GliumWindow;
 
-fn create_gl_window(window: &GliumWindow, events_loop: &EventsLoop) -> Result<GlWindow, WindowCreateError> {
+fn create_gl_window(window: GliumWindowBuilder, events_loop: &EventsLoop) -> Result<GlWindow, WindowCreateError> {
     GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
         .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
         .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
-        .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop)).into()
+        .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))
+        .map_err(|e| WindowCreateError::CreateError(e))
 }
 
 fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
@@ -1153,8 +1175,8 @@ fn create_renderer(
 
     use self::RendererType::*;
 
-    let opts_native = get_renderer_opts(true, device_pixel_ratio, background_color);
-    let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, background_color);
+    let opts_native = get_renderer_opts(true, device_pixel_ratio, background_color.map(|color_u| color_u.into()));
+    let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, background_color.map(|color_u| color_u.into()));
 
     let (renderer, sender) = match renderer_type {
         Hardware => {
@@ -1224,54 +1246,8 @@ impl HidpiAdjustedBounds {
     }
 }
 
-
-fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
-
-    use webrender::DebugFlags;
-
-    if old_flags.profiler_dbg != new_flags.profiler_dbg {
-        r.set_debug_flag(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
-    }
-    if old_flags.render_target_dbg != new_flags.render_target_dbg {
-        r.set_debug_flag(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
-    }
-    if old_flags.texture_cache_dbg != new_flags.texture_cache_dbg {
-        r.set_debug_flag(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
-    }
-    if old_flags.gpu_time_queries != new_flags.gpu_time_queries {
-        r.set_debug_flag(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
-    }
-    if old_flags.gpu_sample_queries != new_flags.gpu_sample_queries {
-        r.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
-    }
-    if old_flags.disable_batching != new_flags.disable_batching {
-        r.set_debug_flag(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
-    }
-    if old_flags.epochs != new_flags.epochs {
-        r.set_debug_flag(DebugFlags::EPOCHS, new_flags.epochs);
-    }
-    if old_flags.compact_profiler != new_flags.compact_profiler {
-        r.set_debug_flag(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
-    }
-    if old_flags.echo_driver_messages != new_flags.echo_driver_messages {
-        r.set_debug_flag(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
-    }
-    if old_flags.new_frame_indicator != new_flags.new_frame_indicator {
-        r.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
-    }
-    if old_flags.new_scene_indicator != new_flags.new_scene_indicator {
-        r.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
-    }
-    if old_flags.show_overdraw != new_flags.show_overdraw {
-        r.set_debug_flag(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
-    }
-    if old_flags.gpu_cache_dbg != new_flags.gpu_cache_dbg {
-        r.set_debug_flag(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
-    }
-}
-
 #[cfg(target_os = "linux")]
-fn get_xft_dpi() -> Option<f64>{
+fn get_xft_dpi() -> Option<f32>{
     // TODO!
     /*
     #include <X11/Xlib.h>
@@ -1308,15 +1284,15 @@ fn get_xft_dpi() -> Option<f64>{
 
 /// Return the DPI on X11 systems
 #[cfg(target_os = "linux")]
-fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f64 {
+fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f32 {
 
     use std::env;
     use std::process::Command;
     use glium::glutin::os::unix::EventsLoopExt;
 
     let winit_dpi = monitor.get_hidpi_factor();
-    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f64>().ok());
-    let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f64>().ok());
+    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
+    let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f32>().ok());
 
     // Execute "gsettings get org.gnome.desktop.interface text-scaling-factor" and parse the output
     let gsettings_dpi_factor =
@@ -1328,7 +1304,7 @@ fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f64 
             .map(|output| output.stdout)
             .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
             .map(|stdout_string| stdout_string.lines().collect::<String>())
-            .and_then(|gsettings_output| gsettings_output.parse::<f64>().ok());
+            .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
 
     // Wayland: Ignore Xft.dpi
     let xft_dpi = if events_loop.is_x11() { get_xft_dpi() } else { None };

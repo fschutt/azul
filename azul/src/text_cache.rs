@@ -48,6 +48,10 @@ impl TextCache {
         id
     }
 
+    pub fn get_text(&self, text_id: &TextId) -> Option<&Words> {
+        self.string_cache.get(text_id)
+    }
+
     /// Removes a string from the string cache, but not the layouted text cache
     pub fn delete_text(&mut self, id: TextId) {
         self.string_cache.remove(&id);
@@ -55,9 +59,5 @@ impl TextCache {
 
     pub fn clear_all_texts(&mut self) {
         self.string_cache.clear();
-    }
-
-    pub(crate) fn get_text<'a>(&'a self, text_id: &TextId) -> Option<&'a Words> {
-        self.string_cache.get(text_id)
     }
 }
