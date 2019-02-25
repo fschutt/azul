@@ -1,6 +1,6 @@
 use {
     traits::Layout,
-    dom::{Dom, NodeType},
+    dom::{Dom, DomString},
     app_resources::ImageId,
 };
 
@@ -13,34 +13,28 @@ pub struct Button {
 pub enum ButtonContent {
     Image(ImageId),
     // Buttons should only contain short amounts of text
-    Text(String),
+    Text(DomString),
 }
 
 impl Button {
-    pub fn with_label<S>(text: S)
-    -> Self where S: Into<String>
-    {
+    pub fn with_label<S: Into<DomString>>(text: S) -> Self {
         Self {
             content: ButtonContent::Text(text.into()),
         }
     }
 
-    pub fn with_image(image: ImageId)
-    -> Self
-    {
+    pub fn with_image(image: ImageId) -> Self {
         Self {
             content: ButtonContent::Image(image),
         }
     }
 
-    pub fn dom<T>(self)
-    -> Dom<T> where T: Layout
-    {
+    pub fn dom<T: Layout>(self) -> Dom<T> {
         use self::ButtonContent::*;
-        let mut button_root = Dom::new(NodeType::Div).with_class("__azul-native-button");
+        let mut button_root = Dom::div().with_class("__azul-native-button");
         button_root.add_child(match self.content {
-            Text(s) => Dom::new(NodeType::Label(s)),
-            Image(i) => Dom::new(NodeType::Image(i)),
+            Text(s) => Dom::label(s),
+            Image(i) => Dom::image(i),
         });
         button_root
     }

@@ -1233,7 +1233,7 @@ fn create_word_cache<T: Layout>(
     .linear_iter()
     .filter_map(|node_id| {
         match &node_data[node_id].node_type {
-            NodeType::Label(string) => Some((node_id, split_text_into_words(string))),
+            NodeType::Label(string) => Some((node_id, split_text_into_words(string.as_str()))),
             NodeType::Text(text_id) => {
                 app_resources.get_text(text_id).map(|words| (node_id, words.clone()))
             },

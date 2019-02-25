@@ -196,7 +196,7 @@ pub mod prelude {
     pub use app::{App, AppConfig};
     pub use app_state::AppState;
     pub use dom::{
-        Dom, DomHash, NodeType, NodeData, Callback, On,
+        Dom, DomHash, NodeType, NodeData, Callback, On, DomString,
         UpdateScreen, Redraw, DontRedraw, Texture, GlTextureCallback,
         IFrameCallback, TabIndex, EventFilter, HoverEventFilter, FocusEventFilter,
         NotEventFilter, WindowEventFilter, DesktopEventFilter,

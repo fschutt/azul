@@ -1,25 +1,22 @@
 use {
     traits::Layout,
-    dom::{Dom, NodeType},
+    dom::{Dom, DomString},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Label {
-    pub text: String,
+    pub text: DomString,
 }
 
 impl Label {
-    pub fn new<S>(text: S)
-    -> Self where S: Into<String>
-    {
+
+    pub fn new<S: Into<DomString>>(text: S) -> Self {
         Self { text: text.into() }
     }
 
-    pub fn dom<T>(self)
-    -> Dom<T> where T: Layout
-    {
-        Dom::new(NodeType::Div)
-            .with_child(Dom::new(NodeType::Label(self.text)))
+    pub fn dom<T: Layout>(self) -> Dom<T> {
+        Dom::div()
+        .with_child(Dom::label(self.text))
         .with_class("__azul-native-label")
     }
 }
