@@ -169,7 +169,7 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Univ
         if state.game_is_running {
             None
         } else {
-            let daemon = Daemon::new(DaemonCallback(tick)).with_interval(Duration::from_millis(200));
+            let daemon = Daemon::new(tick).with_interval(Duration::from_millis(200));
 
             state.game_is_running = true;
             Some(daemon)
@@ -183,15 +183,15 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Univ
 
 fn main() {
 
-    let app = App::new(Universe {
+    let mut app = App::new(Universe {
         board: Board::empty(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT),
         game_is_running: false,
-    }, AppConfig::default());
+    }, AppConfig::default()).unwrap();
 
     let mut window_options = WindowCreateOptions::default();
     window_options.state.title = "Game of Life".into();
 
     let css = css::override_native(CSS).unwrap();
-    let window = Window::new(window_options, css).unwrap();
+    let window = app.create_window(window_options, css).unwrap();
     app.run(window).unwrap();
 }

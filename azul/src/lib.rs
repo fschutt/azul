@@ -49,8 +49,8 @@
 //! }
 //!
 //! fn main() {
-//!     let app = App::new(MyDataModel { }, AppConfig::default());
-//!     let window = Window::new(WindowCreateOptions::default(), css::native()).unwrap();
+//!     let mut app = App::new(MyDataModel { }, AppConfig::default()).unwrap();
+//!     let window = app.create_window(WindowCreateOptions::default(), css::native()).unwrap();
 //!     app.run(window).unwrap();
 //! }
 //! ```
@@ -208,7 +208,7 @@ pub mod prelude {
         WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow
     };
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};
-    pub use app_resources::ImageId;
+    pub use app_resources::{AppResources, RawImageFormat, ImageId, FontId, FontSource, ImageSource};
     pub use text_cache::{TextCache, TextId};
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
@@ -216,7 +216,6 @@ pub mod prelude {
     };
     pub use azul_css::*;
     pub use rusttype::Font;
-    pub use app_resources::{AppResources, RawImageFormat};
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};

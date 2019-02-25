@@ -228,7 +228,7 @@ fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/debug.css")) }
 
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
-
-    let app = App::new(MyAppData { map: None }, AppConfig::default());
-    app.run(Window::new(WindowCreateOptions::default(), css).unwrap()).unwrap();
+    let mut app = App::new(MyAppData { map: None }, AppConfig::default()).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
+    app.run(window).unwrap();
 }

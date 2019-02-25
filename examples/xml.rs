@@ -16,13 +16,19 @@ impl Layout for DataModel {
 
 fn main() {
 
-    let app = App::new(DataModel { }, AppConfig::default());
+    let mut app = App::new(DataModel { }, AppConfig::default()).unwrap();
 
     #[cfg(debug_assertions)]
-    let window = Window::new_hot_reload(WindowCreateOptions::default(), css::hot_reload_override_native(CSS_PATH!(), Duration::from_millis(500))).unwrap();
+    let window = {
+        let hot_reloader = css::hot_reload_override_native(CSS_PATH!(), Duration::from_millis(500));
+        app.create_hot_reload_window(WindowCreateOptions::default(), hot_reloader).unwrap()
+    };
 
     #[cfg(not(debug_assertions))]
-    let window = Window::new(WindowCreateOptions::default(), css::override_native(include_str!(CSS_PATH!())).unwrap()).unwrap();
+    let window = {
+        let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
+        app.create_window(WindowCreateOptions::default(), css).unwrap()
+    };
 
     app.run(window).unwrap();
 }
