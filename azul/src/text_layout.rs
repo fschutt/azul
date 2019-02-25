@@ -127,11 +127,11 @@ pub struct ScaledWord {
 
 /// Stores the positions of the vertically laid out texts
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct WordPositions {
+pub struct WordPositions {
     /// Font used to scale this text
-    pub font_key: FontKey,
+    pub(crate) font_key: FontKey,
     /// Font instance used to scale this text
-    pub font_instance_key: FontInstanceKey,
+    pub(crate) font_instance_key: FontInstanceKey,
     /// Options like word spacing, character spacing, etc. that were
     /// used to layout these glyphs
     pub text_layout_options: TextLayoutOptions,
@@ -219,7 +219,7 @@ pub struct LayoutedGlyphs {
 
 /// These metrics are important for showing the scrollbars
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub(crate) enum TextOverflow {
+pub enum TextOverflow {
     /// Text is overflowing, by how much?
     /// Necessary for determining the size of the scrollbar
     IsOverflowing(TextSizePx),
@@ -305,7 +305,7 @@ pub fn words_to_scaled_words(
         let glyph_indices = render_api.get_glyph_indices(font_key, word);
         let glyph_indices = glyph_indices.into_iter().filter_map(|e| e).collect::<Vec<u32>>();
 
-        let glyph_dimensions = render_api.get_glyph_dimensions(font_instance_key, glyph_indices);
+        let glyph_dimensions = render_api.get_glyph_dimensions(font_instance_key, glyph_indices.clone());
         let glyph_dimensions = glyph_dimensions.into_iter().filter_map(|dim| dim).collect::<Vec<GlyphDimensions>>();
 
         let word_width = get_glyph_width(&glyph_dimensions);
@@ -416,6 +416,10 @@ pub fn position_words(
         match word {
             Word(w) => {
                 let scaled_word = &scaled_words.items[word_idx];
+                let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
+                word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+
+                // Calculate where the caret would be for the next word
                 let mut new_caret_x = line_caret_x
                     + word_spacing_px
                     + scaled_word.word_width
@@ -423,12 +427,11 @@ pub fn position_words(
 
                 advance_caret!(new_caret_x);
                 line_caret_x = new_caret_x;
-
                 current_word_idx = word_idx;
             },
             Return => {
                 line_breaks.push((current_word_idx, line_caret_x));
-                let new_caret_x = 0.0;
+                let mut new_caret_x = 0.0;
                 advance_caret!(new_caret_x);
                 line_caret_x = new_caret_x;
             },
@@ -483,13 +486,13 @@ pub fn get_layouted_glyphs(
     let font_size_px = word_positions.font_size.0;
     let letter_spacing_px = font_size_px * word_positions.text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
 
-    let glyphs: Vec<GlyphInstance> = scaled_words.items.iter().zip(word_positions.word_positions.iter())
-        .flat_map(|(scaled_word, word_position)| {
-            scaled_word.glyph_instances
+    let mut glyphs = Vec::with_capacity(scaled_words.items.len());
+    for (scaled_word, word_position) in scaled_words.items.iter().zip(word_positions.word_positions.iter()) {
+        glyphs.extend(scaled_word.glyph_instances
             .iter()
             .cloned()
             .enumerate()
-            .map(|(glyph_id, glyph)| {
+            .map(|(glyph_id, mut glyph)| {
                 // TODO: letter spacing
                 glyph.point.x += word_position.x;
                 glyph.point.y += word_position.y;
@@ -498,8 +501,8 @@ pub fn get_layouted_glyphs(
                 }
                 glyph
             })
-        })
-        .collect();
+        )
+    }
 
     let line_breaks = get_char_indexes(&word_positions, &scaled_words);
     let vertical_overflow = get_vertical_overflow(&word_positions, bounding_size_height_px);
@@ -572,10 +575,9 @@ pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWor
 -> Vec<(GlyphIndex, RemainingSpaceToRight)>
 {
     let width = word_positions.content_size.width;
-    let mut char_indices = Vec::new();
 
     if scaled_words.items.is_empty() {
-        return char_indices;
+        return Vec::new();
     }
 
     let mut current_glyph_count = 0;
@@ -626,14 +628,12 @@ fn caret_intersects_with_holes(
 
     let mut new_line_caret_x = None;
     let mut line_advance = 0;
-    let mut caret_has_moved = false;
 
     // If the caret is outside of the max_width, move it to the start of a new line
     if let Some(max_width) = max_width {
         if line_caret_x > max_width.0 {
             new_line_caret_x = Some(0.0);
             line_advance += 1;
-            caret_has_moved = true;
         }
     }
 

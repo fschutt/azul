@@ -1,18 +1,16 @@
 //! Module for loading and handling images
 
-use webrender::api::{
-    ImageFormat as WebrenderImageFormat,
-    ImageDescriptor, ImageKey
-};
+use webrender::api::{ImageFormat as WebrenderImageFormat, ImageKey};
+pub use webrender::api::ImageDescriptor;
 #[cfg(feature = "image_loading")]
 use image::{
     self, ImageError, DynamicImage, GenericImageView,
 };
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ImageInfo {
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ImageInfo {
     pub(crate) key: ImageKey,
-    pub(crate) descriptor: ImageDescriptor,
+    pub descriptor: ImageDescriptor,
 }
 
 // The next three functions are taken from:

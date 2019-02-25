@@ -189,7 +189,7 @@ impl<T: Layout> App<T> {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = config.enable_logging {
-                ::logging::set_up_logging(config.log_file_path, log_level);
+                ::logging::set_up_logging(config.log_file_path.as_ref().map(|s| s.as_str()), log_level);
 
                 if config.enable_logging_on_panic {
                     ::logging::set_up_panic_hooks();
@@ -202,7 +202,7 @@ impl<T: Layout> App<T> {
             }
         }
 
-        let app_state = AppState::new(initial_data, &config)?;
+        let mut app_state = AppState::new(initial_data, &config)?;
 
         if let Some(r) = &mut app_state.resources.fake_display.renderer {
             set_webrender_debug_flags(r, &DebugState::default(), &config.debug_state);
@@ -216,7 +216,7 @@ impl<T: Layout> App<T> {
     }
 
     /// Creates a new window
-    pub fn create_window(&self, options: WindowCreateOptions<T>, mut css: Css) -> Result<Window<T>, WindowCreateError> {
+    pub fn create_window(&self, options: WindowCreateOptions<T>, css: Css) -> Result<Window<T>, WindowCreateError> {
         Window::new(&self.app_state.resources.fake_display.render_api, options, css)
     }
 

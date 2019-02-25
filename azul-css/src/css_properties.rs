@@ -1400,7 +1400,7 @@ pub struct RectStyle {
     /// `letter-spacing` property
     pub letter_spacing: Option<StyleLetterSpacing>,
     /// `word-spacing` property
-    pub word_spacing: Option<StyleLetterSpacing>,
+    pub word_spacing: Option<StyleWordSpacing>,
     /// `tab-width` property
     pub tab_width: Option<StyleTabWidth>,
 }

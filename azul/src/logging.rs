@@ -4,13 +4,13 @@ use std::sync::atomic::{Ordering, AtomicBool};
 
 pub(crate) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn set_up_logging(log_file_path: Option<String>, log_level: LevelFilter) {
+pub(crate) fn set_up_logging(log_file_path: Option<&str>, log_level: LevelFilter) {
 
     use fern::InitError;
     use std::error::Error;
 
     /// Sets up the global logger
-    fn set_up_logging_internal(log_file_path: Option<String>, log_level: LevelFilter)
+    fn set_up_logging_internal(log_file_path: Option<&str>, log_level: LevelFilter)
     -> Result<(), InitError>
     {
 
@@ -25,7 +25,7 @@ pub(crate) fn set_up_logging(log_file_path: Option<String>, log_level: LevelFilt
                 "Executable has no executable path (?), can't open log file")))?;
 
             exe_location.pop();
-            exe_location.push(log_file_path.unwrap_or(String::from("error.log")));
+            exe_location.push(log_file_path.unwrap_or("error.log"));
             exe_location
         };
 

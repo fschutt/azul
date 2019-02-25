@@ -77,6 +77,7 @@ pub struct AppStateNoData<'a, T: 'a + Layout> {
 }
 
 macro_rules! impl_deamon_api {() => (
+
     /// Insert a daemon into the list of active daemons.
     /// Replaces the existing daemon if called with the same DaemonId.
     pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) {

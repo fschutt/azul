@@ -1576,6 +1576,8 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
         Padding(p)          => { LayoutPadding::merge(&mut rect.layout.padding, &p);    },
         Margin(m)           => { LayoutMargin::merge(&mut rect.layout.margin, &m);      },
         Overflow(o)         => { LayoutOverflow::merge(&mut rect.layout.overflow, &o);  },
+        WordSpacing(ws)     => { rect.style.word_spacing = Some(*ws);                   },
+        TabWidth(tw)        => { rect.style.tab_width = Some(*tw);                      },
 
         FlexGrow(g)         => { rect.layout.flex_grow = Some(*g)                       },
         FlexShrink(s)       => { rect.layout.flex_shrink = Some(*s)                     },
