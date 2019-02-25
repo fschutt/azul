@@ -4,11 +4,12 @@ use std::{
 };
 #[cfg(feature = "image_loading")]
 use app_resources::ImageSource;
+use glium::glutin::WindowId as GliumWindowId;
 use {
     FastHashMap,
     text_cache::TextId,
     app::AppConfig,
-    window::{FakeWindow, WindowId, WindowCreateError},
+    window::{FakeWindow, WindowCreateError},
     task::Task,
     dom::{UpdateScreen, Redraw, DontRedraw},
     traits::Layout,
@@ -47,7 +48,7 @@ pub struct AppState<T: Layout> {
     /// // Update the title
     /// window_state.state.title = "Hello";
     /// ```
-    pub windows: BTreeMap<WindowId, FakeWindow<T>>,
+    pub windows: BTreeMap<GliumWindowId, FakeWindow<T>>,
     /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
     ///
     /// Accessing this field is often required to load new fonts or images, so instead of
@@ -67,7 +68,7 @@ pub struct AppState<T: Layout> {
 /// since they use a `StackCheckedPointer` instead.
 pub struct AppStateNoData<'a, T: 'a + Layout> {
     /// See [`AppState.windows`](./struct.AppState.html#structfield.windows)
-    pub windows: &'a BTreeMap<WindowId, FakeWindow<T>>,
+    pub windows: &'a BTreeMap<GliumWindowId, FakeWindow<T>>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running daemons (polling functions, run on the main thread)

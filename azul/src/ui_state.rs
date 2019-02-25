@@ -2,11 +2,12 @@ use std::{
     fmt,
     collections::BTreeMap,
 };
+use glium::glutin::WindowId as GliumWindowId;
 use azul_css::CssProperty;
 use {
     app::RuntimeError,
     FastHashMap,
-    window::{LayoutInfo, WindowId},
+    window::LayoutInfo,
     traits::Layout,
     dom::{Callback, Dom, TagId, TabIndex,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
@@ -103,7 +104,7 @@ impl<T: Layout> fmt::Debug for UiState<T> {
 impl<T: Layout> UiState<T> {
 
     #[allow(unused_imports, unused_variables)]
-    pub(crate) fn from_app_state(app_state: &mut AppState<T>, window_id: &WindowId)
+    pub(crate) fn from_app_state(app_state: &mut AppState<T>, window_id: &GliumWindowId)
     -> Result<Self, RuntimeError<T>>
     {
         use dom::{Dom, On, NodeType};

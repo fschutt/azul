@@ -203,7 +203,7 @@ pub mod prelude {
     };
     pub use traits::{Layout, Modify};
     pub use window::{
-        MonitorIter, Window, WindowCreateOptions, WindowId,
+        MonitorIter, Window, WindowCreateOptions,
         MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
         WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow
     };
