@@ -390,15 +390,13 @@ fn perform_operation(left_operand: f32, operation: &Event, right_operand: f32) -
 }
 
 fn main() {
-    macro_rules! CSS_PATH {
-        () => {
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/calculator.css")
-        };
-    }
 
-    let mut app = App::new(Calculator::default(), AppConfig::default());
-    app.add_font(FontId::ExternalFont("KoHo-Light".into()), FONT).unwrap();
+    macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/calculator.css")};}
+
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
-    let window = Window::new(WindowCreateOptions::default(), css).unwrap();
+    let mut app = App::new(Calculator::default(), AppConfig::default()).unwrap();
+    let font_id = app.add_css_font_id("KoHo-Light");
+    app.add_font(font_id, FontSource::Embedded(FONT)).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run(window).unwrap();
 }

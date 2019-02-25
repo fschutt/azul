@@ -1547,7 +1547,7 @@ mod layout_tests {
         ]);
 
         let preferred_widths = node_data.transform(|_, _| None);
-        let mut width_filled_out_data = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&node_data, preferred_widths);
+        let mut width_filled_out_data = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&node_data, &preferred_widths);
 
         // Test some basic stuff - test that `get_flex_basis` works
 

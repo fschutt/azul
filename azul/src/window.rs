@@ -798,10 +798,13 @@ impl<'a, T: Layout> Window<T> {
 
     /// Creates a new window
     pub(crate) fn new(
-        render_api: &RenderApi,
+        render_api: &mut RenderApi,
         options: WindowCreateOptions<T>,
         mut css: Css
     ) -> Result<Self, WindowCreateError> {
+
+        // NOTE: It would be OK to use &RenderApi here, but it's better
+        // to make sure that the RenderApi is currently not in use by anything else.
 
         let events_loop = EventsLoop::new();
 
@@ -922,7 +925,7 @@ impl<'a, T: Layout> Window<T> {
     /// Only available with debug_assertions enabled.
     #[cfg(debug_assertions)]
     pub(crate) fn new_hot_reload(
-        render_api: &RenderApi,
+        render_api: &mut RenderApi,
         options: WindowCreateOptions<T>,
         css_loader: Box<dyn HotReloadHandler>
     ) -> Result<Self, WindowCreateError>  {

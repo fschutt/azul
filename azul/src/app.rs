@@ -216,13 +216,13 @@ impl<T: Layout> App<T> {
     }
 
     /// Creates a new window
-    pub fn create_window(&self, options: WindowCreateOptions<T>, css: Css) -> Result<Window<T>, WindowCreateError> {
-        Window::new(&self.app_state.resources.fake_display.render_api, options, css)
+    pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css) -> Result<Window<T>, WindowCreateError> {
+        Window::new(&mut self.app_state.resources.fake_display.render_api, options, css)
     }
 
     #[cfg(debug_assertions)]
-    pub fn create_hot_reload_window(&self, options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>) -> Result<Window<T>, WindowCreateError> {
-        Window::new_hot_reload(&self.app_state.resources.fake_display.render_api, options, css_loader)
+    pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>) -> Result<Window<T>, WindowCreateError> {
+        Window::new_hot_reload(&mut self.app_state.resources.fake_display.render_api, options, css_loader)
     }
 
     /// Spawn a new window on the screen. Note that this should only be used to

@@ -48,6 +48,8 @@ impl Layout for TestCrudApp {
 }
 
 fn main() {
-    let app = App::new(TestCrudApp::default(), AppConfig::default());
-    app.run(Window::new(WindowCreateOptions::default(), css::override_native(CSS).unwrap()).unwrap()).unwrap();
+    let mut app = App::new(TestCrudApp::default(), AppConfig::default()).unwrap();
+    let css = css::override_native(CSS).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
+    app.run(window).unwrap();
 }

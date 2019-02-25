@@ -55,7 +55,8 @@ fn main() {
         selected: None,
     };
 
-    let app = App::new(data, AppConfig::default());
-    let window = Window::new(WindowCreateOptions::default(), css::override_native(CUSTOM_CSS).unwrap()).unwrap();
+    let mut app = App::new(data, AppConfig::default()).unwrap();
+    let css = css::override_native(CUSTOM_CSS).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run(window).unwrap();
 }
