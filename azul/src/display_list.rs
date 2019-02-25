@@ -768,6 +768,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
 
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
+        gl_context.disable(gl::MULTISAMPLE);
     }
 
     let texture = match texture {

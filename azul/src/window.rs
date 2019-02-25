@@ -802,8 +802,6 @@ impl<'a, T: Layout> Window<T> {
         mut css: Css
     ) -> Result<Self, WindowCreateError> {
 
-        println!("creating new window!");
-
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
 
@@ -851,11 +849,9 @@ impl<'a, T: Layout> Window<T> {
             window = window.with_max_dimensions(max_dim);
         }
 
-        println!("create_gl_window!");
-
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window, &events_loop)?;
-
+        // Hide the window until the first draw (prevents flash on startup)
         gl_window.hide();
 
         let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
@@ -888,8 +884,6 @@ impl<'a, T: Layout> Window<T> {
             DeviceIntSize::new(width as i32, height as i32)
         };
 
-        println!("adding document!");
-
         let document_id = render_api.add_document(framebuffer_size, 0);
         let epoch = Epoch(0);
         let window_id = new_window_id();
@@ -907,8 +901,6 @@ impl<'a, T: Layout> Window<T> {
         // let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
 
         css.sort_by_specificity();
-
-        println!("ok! window size: {:?}", framebuffer_size);
 
         let window = Window {
             id: window_id,
@@ -1070,7 +1062,7 @@ pub(crate) struct FakeDisplay {
     pub(crate) renderer: Option<Renderer>,
     /// Fake / invisible display, only used because OpenGL is tied to a display context
     /// (offscreen rendering is not supported out-of-the-box on many platforms)
-    hidden_display: Display,
+    pub(crate) hidden_display: Display,
     /// TODO: Not sure if we even need this, the events loop isn't important
     /// for a window that is never shown
     pub(crate) hidden_events_loop: EventsLoop,
