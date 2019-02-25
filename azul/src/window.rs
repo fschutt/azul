@@ -6,7 +6,6 @@ use std::{
     rc::Rc,
     marker::PhantomData,
     io::Error as IoError,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::{
     api::{
@@ -21,7 +20,7 @@ use glium::{
     debug::DebugCallbackBehavior,
     glutin::{
         self, EventsLoop, AvailableMonitorsIter, GlContext, GlWindow, CreationError,
-        MonitorId, EventsLoopProxy, ContextError, ContextBuilder,
+        MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowId as GliumWindowId,
         Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Icon,
         dpi::{LogicalSize, PhysicalSize}
     },
@@ -49,18 +48,6 @@ use {
     id_tree::{Node, NodeHierarchy},
 };
 pub use webrender::api::HitTestItem;
-
-static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
-
-fn new_window_id() -> WindowId {
-    WindowId { id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst) }
-}
-
-/// Id that uniquely identifies one window.
-/// Because windows can be added and removed in any order, this ID
-/// is unique to one single window
-#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub struct WindowId { id: usize }
 
 /// User-modifiable fake window
 #[derive(Clone)]
@@ -214,7 +201,7 @@ pub struct CallbackInfo<'a, T: 'a + Layout> {
     pub focus: Option<FocusTarget>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
-    pub window_id: &'a WindowId,
+    pub window_id: &'a GliumWindowId,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
@@ -661,8 +648,8 @@ impl Default for WindowMonitorTarget {
 
 /// Represents one graphical window to be rendered
 pub struct Window<T: Layout> {
-    /// Unique ID that can identify this window
-    pub(crate) id: WindowId,
+    /// System that can identify this window
+    pub(crate) id: GliumWindowId,
     /// Stores the create_options: necessary because by default, the window is hidden
     /// and only gets shown after the first redraw.
     pub(crate) create_options: WindowCreateOptions<T>,
@@ -886,16 +873,17 @@ impl<'a, T: Layout> Window<T> {
 
         let document_id = render_api.add_document(framebuffer_size, 0);
         let epoch = Epoch(0);
-        let window_id = new_window_id();
 
-        // The PipelineId is what gets passed to the OutputImageHandler
+        // TODO: The PipelineId is what gets passed to the OutputImageHandler
         // (the code that coordinates displaying the rendered texture).
         //
         // Each window is a "pipeline", i.e a new web page in webrender terms,
         // however, there is only one global renderer, in order to save on memory,
         // The pipeline ID is important, in order to coordinate the rendered textures
         // back to their windows and window positions.
-        let pipeline_id = PipelineId(window_id.id as u32, 0);
+        let pipeline_id = PipelineId(0, 0);
+
+        let window_id = display.gl_window().id();
 
         // let (sender, receiver) = channel();
         // let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;

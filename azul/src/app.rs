@@ -11,7 +11,7 @@ use azul_css::HotReloadHandler;
 use glium::{
     SwapBuffersError,
     glutin::{
-        Event, EventsLoop,
+        Event, WindowId as GliumWindowId,
         dpi::{LogicalPosition, LogicalSize}
     },
 };
@@ -31,7 +31,7 @@ use azul_css::{Css, ColorU};
 use {
     error::ClipboardError,
     window::{
-        Window, WindowId, FakeWindow, ScrollStates,
+        Window, FakeWindow, ScrollStates,
         WindowCreateError, WindowCreateOptions, RendererType,
     },
     window_state::{WindowSize, DebugState},
@@ -55,8 +55,8 @@ type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: Layout> {
-    /// The graphical windows, indexed by ID
-    windows: BTreeMap<WindowId, Window<T>>,
+    /// The graphical windows, indexed by their system ID / handle
+    windows: BTreeMap<GliumWindowId, Window<T>>,
     /// The global application state
     pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
@@ -238,7 +238,7 @@ impl<T: Layout> App<T> {
     /// Spawn a new window on the screen. Note that this should only be used to
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
-    pub fn push_window(&mut self, window: Window<T>) {
+    pub fn add_window(&mut self, window: Window<T>) {
         use default_callbacks::DefaultCallbackSystem;
 
         let window_id = window.id;
@@ -274,10 +274,10 @@ impl<T: Layout> App<T> {
     /// // continue the rest of the program here...
     /// println!("username: {:?}, password: {:?}", username, password);
     /// ```
-    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>>
-    {
+    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>> {
+
         // Apps need to have at least one window open
-        self.push_window(window);
+        self.add_window(window);
         self.run_inner()?;
 
         // NOTE: This is necessary because otherwise, the Arc::try_unwrap would fail,
@@ -293,8 +293,9 @@ impl<T: Layout> App<T> {
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
 
         use std::{thread, time::{Duration, Instant}};
-        use dom::Redraw;
+        use glium::glutin::{Event, WindowEvent};
         use self::RuntimeError::*;
+        use dom::Redraw;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
@@ -316,25 +317,33 @@ impl<T: Layout> App<T> {
         while !self.windows.is_empty() {
 
             let time_start = Instant::now();
-            let mut closed_windows = Vec::<WindowId>::new();
+            let mut closed_windows = Vec::<GliumWindowId>::new();
             let mut frame_was_resize = false;
-
-            use glium::glutin::{Event, WindowEvent};
-
             let mut events = Vec::new();
+
             self.app_state.resources.fake_display.hidden_events_loop.poll_events(|e| match e {
                 // Filter out all events that are uninteresting or unnecessary
                 Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
                 _ => { events.push(e); },
             });
 
-            if !events.is_empty() {
-                'window_loop: for (window_id, mut window) in self.windows.iter_mut() {
-                    let (event_was_resize, window_was_closed) =
+            for (current_window_id, mut window) in self.windows.iter_mut() {
+
+                // Only process the events belong to this window ID...
+                let window_events = events.iter().cloned().filter(|e| match e {
+                    Event::WindowEvent { event, window_id } => current_window_id == window_id,
+                    _ => false
+                }).collect::<Vec<Event>>();
+
+                if window_events.is_empty() {
+                    continue;
+                }
+
+                let (event_was_resize, window_was_closed) =
                     render_single_window_content(
                         &mut window,
-                        &events,
-                        &window_id,
+                        &window_events,
+                        &current_window_id,
                         &mut self.app_state,
                         &mut ui_state_cache,
                         &mut ui_description_cache,
@@ -342,17 +351,22 @@ impl<T: Layout> App<T> {
                         &mut awakened_task,
                     )?;
 
-                    if event_was_resize {
-                        frame_was_resize = true;
-                    }
-                    if window_was_closed {
-                        closed_windows.push(*window_id);
-                    }
+                if event_was_resize {
+                    frame_was_resize = true;
+                }
+
+                if window_was_closed {
+                    closed_windows.push(*current_window_id);
                 }
             }
 
             #[cfg(debug_assertions)] {
-                hot_reload_css(&mut self.windows, &mut last_style_reload, &mut should_print_css_error, &mut awakened_task)?;
+                hot_reload_css(
+                    &mut self.windows,
+                    &mut last_style_reload,
+                    &mut should_print_css_error,
+                    &mut awakened_task
+                )?;
             }
 
             // Close windows if necessary
@@ -415,17 +429,16 @@ daemon_api!(App::app_state);
 fn render_single_window_content<T: Layout>(
     window: &mut Window<T>,
     events: &[Event],
-    window_id: &WindowId,
+    window_id: &GliumWindowId,
     app_state: &mut AppState<T>,
-    ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
-    ui_description_cache: &mut BTreeMap<WindowId, UiDescription<T>>,
-    force_redraw_cache: &mut BTreeMap<WindowId, usize>,
-    awakened_task: &mut BTreeMap<WindowId, bool>,
+    ui_state_cache: &mut BTreeMap<GliumWindowId, UiState<T>>,
+    ui_description_cache: &mut BTreeMap<GliumWindowId, UiDescription<T>>,
+    force_redraw_cache: &mut BTreeMap<GliumWindowId, usize>,
+    awakened_task: &mut BTreeMap<GliumWindowId, bool>,
 ) -> Result<(bool, bool), RuntimeError<T>>
 {
     use dom::Redraw;
     use self::RuntimeError::*;
-    use glium::glutin::WindowEvent;
 
     let mut frame_was_resize = false;
 
@@ -475,7 +488,7 @@ fn render_single_window_content<T: Layout>(
     // Scroll for the scrolled amount for each node that registered a scroll state.
     render_on_scroll(window, hit_test_results, &frame_event_info, &mut app_state.resources);
 
-    if frame_event_info.is_resize_event || frame_event_info.should_redraw_window {
+    if frame_event_info.is_resize_event {
         // This is a hack because during a resize event, winit eats the "awakened"
         // event. So what we do is that we call the layout-and-render again, to
         // trigger a second "awakened" event. So when the window is resized, the
@@ -483,7 +496,6 @@ fn render_single_window_content<T: Layout>(
         //
         // This is a reported bug and should be fixed somewhere in July
         *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
-        frame_was_resize = true;
     }
 
     // Fixes a bug in wayland not resizing the window surface correctly
@@ -557,16 +569,16 @@ fn render_single_window_content<T: Layout>(
     }
 
     let window_should_close = false;
-    Ok((frame_was_resize, window_should_close))
+    Ok((frame_event_info.is_resize_event, window_should_close))
 }
 
 /// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
 #[cfg(debug_assertions)]
 fn hot_reload_css<T: Layout>(
-    windows: &mut BTreeMap<WindowId, Window<T>>,
+    windows: &mut BTreeMap<GliumWindowId, Window<T>>,
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
-    awakened_tasks: &mut BTreeMap<WindowId, bool>)
+    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>)
 -> Result<(), RuntimeError<T>>
 {
     use self::RuntimeError::*;
@@ -643,7 +655,7 @@ fn call_callbacks<T: Layout>(
     hit_test_results: Option<&HitTestResult>,
     event: &Event,
     window: &mut Window<T>,
-    window_id: &WindowId,
+    window_id: &GliumWindowId,
     ui_state: &UiState<T>,
     app_state: &mut AppState<T>)
 -> Result<CallCallbackReturn, RuntimeError<T>>
@@ -970,7 +982,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
 //
 // For some reason, webrender allows rendering negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
+fn render_inner(app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
 
     use gleam::gl;
     use window::get_gl_context;
