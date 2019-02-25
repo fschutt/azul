@@ -663,8 +663,6 @@ impl Default for WindowMonitorTarget {
 pub struct Window<T: Layout> {
     /// Unique ID that can identify this window
     pub(crate) id: WindowId,
-    // TODO: technically, having one EventsLoop for all windows is sufficient
-    pub(crate) events_loop: EventsLoop,
     /// Stores the create_options: necessary because by default, the window is hidden
     /// and only gets shown after the first redraw.
     pub(crate) create_options: WindowCreateOptions<T>,
@@ -799,14 +797,19 @@ impl<'a, T: Layout> Window<T> {
     /// Creates a new window
     pub(crate) fn new(
         render_api: &mut RenderApi,
+        events_loop: &EventsLoop,
         options: WindowCreateOptions<T>,
         mut css: Css
     ) -> Result<Self, WindowCreateError> {
 
+        println!("creating new window!");
+
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
 
-        let events_loop = EventsLoop::new();
+        // NOTE: Creating a new EventsLoop for the new window causes a segfault.
+        // Report this to the winit developers.
+        // let events_loop = EventsLoop::new();
 
         let mut window = GliumWindowBuilder::new()
             .with_title(options.state.title.clone())
@@ -848,8 +851,12 @@ impl<'a, T: Layout> Window<T> {
             window = window.with_max_dimensions(max_dim);
         }
 
+        println!("create_gl_window!");
+
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window, &events_loop)?;
+
+        gl_window.hide();
 
         let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
         let mut state = options.state.clone();
@@ -881,6 +888,8 @@ impl<'a, T: Layout> Window<T> {
             DeviceIntSize::new(width as i32, height as i32)
         };
 
+        println!("adding document!");
+
         let document_id = render_api.add_document(framebuffer_size, 0);
         let epoch = Epoch(0);
         let window_id = new_window_id();
@@ -899,12 +908,13 @@ impl<'a, T: Layout> Window<T> {
 
         css.sort_by_specificity();
 
+        println!("ok! window size: {:?}", framebuffer_size);
+
         let window = Window {
             id: window_id,
             create_options: options,
             state: state,
             display: Rc::new(display),
-            events_loop: events_loop,
             css,
             #[cfg(debug_assertions)]
             css_loader: None,
@@ -926,10 +936,11 @@ impl<'a, T: Layout> Window<T> {
     #[cfg(debug_assertions)]
     pub(crate) fn new_hot_reload(
         render_api: &mut RenderApi,
+        events_loop: &EventsLoop,
         options: WindowCreateOptions<T>,
         css_loader: Box<dyn HotReloadHandler>
     ) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new(render_api, options, Css::default())?;
+        let mut window = Window::new(render_api, events_loop, options, Css::default())?;
         window.css_loader = Some(css_loader);
         Ok(window)
     }
@@ -1010,11 +1021,18 @@ impl<'a, T: Layout> Window<T> {
         }
     }
 
-    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo) {
+    pub(crate) fn update_from_external_window_state(
+        &mut self,
+        frame_event_info: &mut FrameEventInfo,
+        events_loop: &EventsLoop,
+    ) {
 
         if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
             #[cfg(target_os = "linux")] {
-                self.state.size.hidpi_factor = linux_get_hidpi_factor(&self.display.gl_window().window().get_current_monitor(), &self.events_loop);
+                self.state.size.hidpi_factor = linux_get_hidpi_factor(
+                    &self.display.gl_window().window().get_current_monitor(),
+                    events_loop
+                );
             }
         }
 
@@ -1055,7 +1073,7 @@ pub(crate) struct FakeDisplay {
     hidden_display: Display,
     /// TODO: Not sure if we even need this, the events loop isn't important
     /// for a window that is never shown
-    hidden_events_loop: EventsLoop,
+    pub(crate) hidden_events_loop: EventsLoop,
 }
 
 impl FakeDisplay {
@@ -1064,7 +1082,7 @@ impl FakeDisplay {
     pub(crate) fn new(renderer_type: RendererType, background: Option<ColorU>) -> Result<Self, WindowCreateError> {
 
         let events_loop = EventsLoop::new();
-        let window = GliumWindowBuilder::new().with_dimensions(LogicalSize::new(0.0, 0.0)).with_visibility(false);
+        let window = GliumWindowBuilder::new().with_dimensions(LogicalSize::new(10.0, 10.0)).with_visibility(false);
         let gl_window = create_gl_window(window, &events_loop)?;
         let (dpi_factor, _) = get_hidpi_factor(&gl_window.window(), &events_loop);
         gl_window.hide();
