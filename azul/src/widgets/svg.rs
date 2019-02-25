@@ -29,20 +29,18 @@ use lyon::{
 };
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
-use rusttype::{Font, Glyph};
-use azul_css::{FontId, ColorU, ColorF, StyleFontSize};
+use azul_css::{ColorU, ColorF, StyleFontSize};
 use {
     FastHashMap,
     prelude::GlyphInstance,
     dom::Texture,
     window::FakeWindow,
     traits::Layout,
-    app_resources::AppResources,
+    app_resources::{AppResources, FontId},
     text_layout::{FontMetrics, LayoutTextResult, TextLayoutOptions, layout_text},
 };
 
 pub use lyon::tessellation::VertexBuffers;
-pub use rusttype::GlyphId;
 pub use lyon::path::PathEvent;
 pub use lyon::geom::math::Point;
 
@@ -523,7 +521,9 @@ impl SampledBezierCurve {
         let mut arc_length_parametrization = [0.0; BEZIER_SAMPLE_RATE + 1];
 
         for i in 1..(BEZIER_SAMPLE_RATE + 1) {
-            sampled_bezier_points[i] = cubic_interpolate_bezier(curve, i as f32 / BEZIER_SAMPLE_RATE as f32);
+            sampled_bezier_points[i] = cubic_interpolate_bezier(
+                curve, i as f32 / BEZIER_SAMPLE_RATE as f32
+            );
         }
 
         sampled_bezier_points[BEZIER_SAMPLE_RATE] = curve[3];
@@ -1071,7 +1071,12 @@ pub struct VectorizedFont {
     glyph_stroke_map: Arc<Mutex<FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>>>,
 }
 
+use rusttype::{Font, Glyph};
+pub use rusttype::GlyphId;
+use stb_truetype::Vertex;
+
 impl VectorizedFont {
+
     pub fn from_font(font: &Font) -> Self {
 
         let mut glyph_polygon_map = FastHashMap::default();
@@ -1151,22 +1156,18 @@ pub fn get_stroke_vertices(vectorized_font: &VectorizedFont, original_font: &Fon
 
 /// Converts a glyph to a `SvgLayerType::Polygon`
 fn glyph_to_svg_layer_type<'a>(glyph: Glyph<'a>) -> Option<SvgLayerType> {
-    Some(SvgLayerType::Polygon(glyph
-        .standalone()
-        .get_data()?.shape
-        .as_ref()?
-        .iter()
-        .map(rusttype_glyph_to_path_events)
-        .collect()))
+    let glyph_data = glyph.standalone().get_data()?;
+    let shape = glyph_data.shape.as_ref()?;
+    let points = shape.iter().map(rusttype_glyph_to_path_events).collect();
+    Some(SvgLayerType::Polygon(points))
 }
-
-use stb_truetype::Vertex;
 
 // Convert a Rusttype glyph to a Vec of PathEvents,
 // in order to turn a glyph into a polygon
-fn rusttype_glyph_to_path_events(vertex: &Vertex)
--> PathEvent
-{   use stb_truetype::VertexType;
+fn rusttype_glyph_to_path_events(vertex: &Vertex) -> PathEvent {
+
+    use stb_truetype::VertexType;
+
     // Rusttypes vertex type needs to be inverted in the Y axis
     // in order to work with lyon correctly
     match vertex.vertex_type() {
@@ -1209,7 +1210,9 @@ impl VectorizedFontCache {
     }
 
     pub fn insert_if_not_exist(&mut self, id: FontId, font: &Font) {
-        self.vectorized_fonts.lock().unwrap().entry(id).or_insert_with(|| Arc::new(VectorizedFont::from_font(font)));
+        self.vectorized_fonts.lock().unwrap().entry(id).or_insert_with(|| {
+            Arc::new(VectorizedFont::from_font(font))
+        });
     }
 
     pub fn insert(&mut self, id: FontId, font: VectorizedFont) {
@@ -1222,8 +1225,12 @@ impl VectorizedFontCache {
     }
 
     pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Arc<VectorizedFont>> {
-        self.vectorized_fonts.lock().unwrap().entry(id.clone())
-            .or_insert_with(|| Arc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0)));
+        self.vectorized_fonts.lock().unwrap()
+            .entry(id.clone())
+            .or_insert_with(|| {
+                Arc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0))
+            });
+
         self.vectorized_fonts.lock().unwrap().get(&id).and_then(|font| Some(font.clone()))
     }
 
@@ -1233,6 +1240,7 @@ impl VectorizedFontCache {
 }
 
 impl SvgLayerType {
+
     pub fn tesselate_fill(&self, tolerance: f32, polygon: &mut Option<Path>)
     -> VertexBuffers<SvgVert, u32>
     {
@@ -1285,9 +1293,13 @@ impl SvgLayerType {
         geometry
     }
 
-    pub fn tesselate_stroke(&self, tolerance: f32, polygon: &mut Option<Path>, stroke: SvgStrokeOptions)
-    -> VertexBuffers<SvgVert, u32>
-    {
+    pub fn tesselate_stroke(
+        &self,
+        tolerance: f32,
+        polygon: &mut Option<Path>,
+        stroke: SvgStrokeOptions
+    ) -> VertexBuffers<SvgVert, u32> {
+
         let mut stroke_geometry = VertexBuffers::new();
         let stroke_options: StrokeOptions = stroke.into();
         let stroke_options = stroke_options.with_tolerance(tolerance);
@@ -1701,18 +1713,15 @@ pub enum SvgTextPlacement {
 pub struct SvgText {
     /// Font size of the text
     pub font_size: StyleFontSize,
-    /// Font ID, such as "ExternalFont('Arial')"
+    /// Font ID, such as FontId(0)
     pub font_id: FontId,
     /// What are the glyphs in this text
-    pub text_layout: SvgTextLayout,
+    pub text_layout: LayoutTextResult,
     /// What is the font color & stroke (if any)?
     pub style: SvgStyle,
     /// Is the text rotated or on a curve?
     pub placement: SvgTextPlacement,
 }
-
-#[derive(Debug, Clone)]
-pub struct SvgTextLayout(pub LayoutTextResult);
 
 /// An axis-aligned bounding box (not rotated / skewed)
 #[derive(Debug, Copy, Clone)]

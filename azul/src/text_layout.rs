@@ -2,7 +2,6 @@
 
 use std::ops::{Mul, Add, Sub};
 use webrender::api::{RenderApi,  FontKey, FontInstanceKey};
-use rusttype::Scale;
 use azul_css::{
     StyleTextAlignmentHorz, ScrollbarInfo,
     StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow,
@@ -62,13 +61,6 @@ impl From<TextSizePx> for TextSizePt {
 impl From<TextSizePt> for TextSizePx {
     fn from(original: TextSizePt) -> TextSizePx {
         TextSizePx(original.0 * PT_TO_PX)
-    }
-}
-
-impl TextSizePx {
-    // Note rusttype::Scale is in PX, not PT.
-    pub fn to_rusttype_scale(&self) -> Scale {
-        Scale::uniform(self.0)
     }
 }
 

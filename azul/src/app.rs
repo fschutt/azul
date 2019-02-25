@@ -11,7 +11,7 @@ use azul_css::HotReloadHandler;
 use glium::{
     SwapBuffersError,
     glutin::{
-        Event,
+        Event, EventsLoop,
         dpi::{LogicalPosition, LogicalSize}
     },
 };
@@ -217,12 +217,22 @@ impl<T: Layout> App<T> {
 
     /// Creates a new window
     pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css) -> Result<Window<T>, WindowCreateError> {
-        Window::new(&mut self.app_state.resources.fake_display.render_api, options, css)
+        Window::new(
+            &mut self.app_state.resources.fake_display.render_api,
+            &mut self.app_state.resources.fake_display.hidden_events_loop,
+            options,
+            css
+        )
     }
 
     #[cfg(debug_assertions)]
     pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>) -> Result<Window<T>, WindowCreateError> {
-        Window::new_hot_reload(&mut self.app_state.resources.fake_display.render_api, options, css_loader)
+        Window::new_hot_reload(
+            &mut self.app_state.resources.fake_display.render_api,
+            &mut self.app_state.resources.fake_display.hidden_events_loop,
+            options,
+            css_loader
+        )
     }
 
     /// Spawn a new window on the screen. Note that this should only be used to
@@ -286,6 +296,8 @@ impl<T: Layout> App<T> {
         use dom::Redraw;
         use self::RuntimeError::*;
 
+        println!("run_inner!");
+
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
@@ -309,23 +321,35 @@ impl<T: Layout> App<T> {
             let mut closed_windows = Vec::<WindowId>::new();
             let mut frame_was_resize = false;
 
-            'window_loop: for (window_id, mut window) in self.windows.iter_mut() {
-                let (event_was_resize, window_was_closed) =
-                render_single_window_content(
-                    &mut window,
-                    &window_id,
-                    &mut self.app_state,
-                    &mut ui_state_cache,
-                    &mut ui_description_cache,
-                    &mut force_redraw_cache,
-                    &mut awakened_task,
-                )?;
+            use glium::glutin::{Event, WindowEvent};
 
-                if event_was_resize {
-                    frame_was_resize = true;
-                }
-                if window_was_closed {
-                    closed_windows.push(*window_id);
+            let mut events = Vec::new();
+            self.app_state.resources.fake_display.hidden_events_loop.poll_events(|e| match e {
+                // Filter out all events that are uninteresting or unnecessary
+                Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
+                _ => { events.push(e); },
+            });
+
+            if !events.is_empty() {
+                'window_loop: for (window_id, mut window) in self.windows.iter_mut() {
+                    let (event_was_resize, window_was_closed) =
+                    render_single_window_content(
+                        &mut window,
+                        &events,
+                        &window_id,
+                        &mut self.app_state,
+                        &mut ui_state_cache,
+                        &mut ui_description_cache,
+                        &mut force_redraw_cache,
+                        &mut awakened_task,
+                    )?;
+
+                    if event_was_resize {
+                        frame_was_resize = true;
+                    }
+                    if window_was_closed {
+                        closed_windows.push(*window_id);
+                    }
                 }
             }
 
@@ -346,10 +370,10 @@ impl<T: Layout> App<T> {
             let should_redraw_daemons_or_tasks = [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
 
             if should_redraw_daemons_or_tasks {
-                self.windows.iter().for_each(|(_, window)| window.events_loop.create_proxy().wakeup().unwrap_or(()));
-                awakened_task = self.windows.keys().map(|window_id| {
-                    (*window_id, true)
-                }).collect();
+                // self.windows.iter().for_each(|(_, window)| {
+                //     app_state.resources.fake_display.events_loop.create_proxy().wakeup().unwrap_or(())
+                // });
+                awakened_task = self.windows.keys().map(|window_id| (*window_id, true)).collect();
                 for window_id in self.windows.keys() {
                     *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
                 }
@@ -392,6 +416,7 @@ daemon_api!(App::app_state);
 /// (if the event was a resize event, if the window was closed)
 fn render_single_window_content<T: Layout>(
     window: &mut Window<T>,
+    events: &[Event],
     window_id: &WindowId,
     app_state: &mut AppState<T>,
     ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
@@ -404,14 +429,9 @@ fn render_single_window_content<T: Layout>(
     use self::RuntimeError::*;
     use glium::glutin::WindowEvent;
 
-    let mut frame_was_resize = false;
-    let mut events = Vec::new();
+    println!("render_single_window_content!");
 
-    window.events_loop.poll_events(|e| match e {
-        // Filter out all events that are uninteresting or unnecessary
-        Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
-        _ => { events.push(e); },
-    });
+    let mut frame_was_resize = false;
 
     if events.is_empty() {
         let window_should_close = false;
@@ -432,7 +452,7 @@ fn render_single_window_content<T: Layout>(
 
         hit_test_results = do_hit_test(&window, &app_state.resources);
 
-        for event in &events {
+        for event in events.iter() {
 
             let callback_result = call_callbacks(
                 hit_test_results.as_ref(),
@@ -470,6 +490,7 @@ fn render_single_window_content<T: Layout>(
         frame_was_resize = true;
     }
 
+    // Fixes a bug in wayland not resizing the window surface correctly
     #[cfg(target_os = "linux")] {
         if frame_event_info.is_resize_event {
             // Resize gl window
@@ -481,7 +502,7 @@ fn render_single_window_content<T: Layout>(
 
     // Update the window state that we got from the frame event (updates window dimensions and DPI)
     // Sets frame_event_info.needs redraw if the event was a
-    window.update_from_external_window_state(&mut frame_event_info);
+    window.update_from_external_window_state(&mut frame_event_info, &app_state.resources.fake_display.hidden_events_loop);
     // Update the window state every frame that was set by the user
     window.update_from_user_window_state(app_state.windows[&window_id].state.clone());
     // Reset the scroll amount to 0 (for the next frame)
@@ -503,6 +524,8 @@ fn render_single_window_content<T: Layout>(
             &window.state.hovered_nodes,
             is_mouse_down,
         );
+
+    println!("ui_description created!");
 
     // Render the window (webrender will send an Awakened event when the frame is done)
     let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
@@ -574,7 +597,7 @@ fn hot_reload_css<T: Layout>(
                     println!("--- OK: CSS parsed without errors, continuing hot-reload.");
                 }
                 *last_style_reload = Instant::now();
-                window.events_loop.create_proxy().wakeup().unwrap_or(());
+                // window.events_loop.create_proxy().wakeup().unwrap_or(());
                 *awakened_tasks.get_mut(window_id).ok_or(WindowIndexError)? = true;
 
                 *should_print_error = true;
@@ -759,10 +782,12 @@ fn render<T: Layout>(
     app_resources: &mut AppResources)
 {
     use display_list::DisplayList;
-
     use webrender::api::{Transaction, DeviceIntRect, DeviceIntPoint};
 
+
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
+
+    println!("display_list created!");
 
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
@@ -803,6 +828,8 @@ fn render<T: Layout>(
         txn.generate_frame();
         txn
     };
+
+    println!("sending transaction!");
 
     window.internal.epoch = increase_epoch(window.internal.epoch);
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, webrender_transaction);
@@ -958,12 +985,16 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
     use gleam::gl;
     use window::get_gl_context;
 
+    println!("rendering inner!");
+
     // use glium::glutin::GlContext;
     // unsafe { window.display.gl_window().make_current().unwrap(); }
 
     let mut current_program = [0_i32];
     unsafe { get_gl_context(&window.display).unwrap().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
+    println!("rendering now!");
     app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
+    println!("rendering finished!");
     get_gl_context(&window.display).unwrap().use_program(current_program[0] as u32);
 }
 
