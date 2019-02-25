@@ -993,7 +993,8 @@ fn render_inner(app_resources: &mut AppResources, framebuffer_size: DeviceIntSiz
         app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
         let gl_context = get_gl_context(&app_resources.fake_display.hidden_display).unwrap();
         gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
-        // gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        // TODO: Bind this framebuffer to a texture !!!
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
     };

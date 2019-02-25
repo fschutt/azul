@@ -51,7 +51,7 @@ pub(crate) struct ActiveTexture {
 unsafe impl Send for ActiveTexture { }
 unsafe impl Sync for ActiveTexture { }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) struct Compositor { }
 
 impl Default for Compositor {
