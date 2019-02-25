@@ -6,6 +6,7 @@ use std::{
     rc::Rc,
     marker::PhantomData,
     io::Error as IoError,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::{
     api::{
@@ -48,6 +49,12 @@ use {
     id_tree::{Node, NodeHierarchy},
 };
 pub use webrender::api::HitTestItem;
+
+static LAST_PIPELINE_ID: AtomicUsize = AtomicUsize::new(0);
+
+fn new_pipeline_id() -> PipelineId {
+    PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
+}
 
 /// User-modifiable fake window
 #[derive(Clone)]
@@ -881,7 +888,7 @@ impl<'a, T: Layout> Window<T> {
         // however, there is only one global renderer, in order to save on memory,
         // The pipeline ID is important, in order to coordinate the rendered textures
         // back to their windows and window positions.
-        let pipeline_id = PipelineId(0, 0);
+        let pipeline_id = new_pipeline_id();
 
         let window_id = display.gl_window().id();
 
