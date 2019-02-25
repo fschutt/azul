@@ -1422,17 +1422,23 @@ impl RectStyle {
 /// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScrollbarInfo {
-    /// Total width (for vertical scrollbars) or height (for horizontal scrollbars)
-    /// of the scrollbar in pixels
-    pub(crate) width: LayoutWidth,
-    /// Padding of the scrollbar, in pixels. The inner bar is `width - padding` pixels wide.
-    pub(crate) padding: LayoutPadding,
-    /// Style of the scrollbar background (-webkit-scrollbar)
-    pub(crate) scrollbar_background: RectStyle,
-    /// Style of the scrollbar tracker (-webkit-scrollbar-track)
-    pub(crate) track_style: RectStyle,
-    /// Style of the scrollbar thumbs (the "up" / "down" arrows), (-webkit-scrollbar-thumb)
-    pub(crate) thumb_style: RectStyle,
+    /// Total width (or height for vertical scrollbars) of the scrollbar in pixels
+    pub width: LayoutWidth,
+    /// Padding of the scrollbar tracker, in pixels. The inner bar is `width - padding` pixels wide.
+    pub padding: LayoutPadding,
+    /// Style of the scrollbar background
+    /// (`-webkit-scrollbar` / `-webkit-scrollbar-track` / `-webkit-scrollbar-track-piece` combined)
+    pub track: RectStyle,
+    /// Style of the scrollbar thumbs (the "up" / "down" arrows), (`-webkit-scrollbar-thumb`)
+    pub thumb: RectStyle,
+    /// Styles the directional buttons on the scrollbar (`-webkit-scrollbar-button`)
+    pub button: RectStyle,
+    /// If two scrollbars are present, addresses the (usually) bottom corner
+    /// of the scrollable element, where two scrollbars might meet (`-webkit-scrollbar-corner`)
+    pub corner: RectStyle,
+    /// Addresses the draggable resizing handle that appears above the
+    /// `corner` at the bottom corner of some elements (`-webkit-resizer`)
+    pub resizer: RectStyle,
 }
 
 impl Default for ScrollbarInfo {
@@ -1444,24 +1450,26 @@ impl Default for ScrollbarInfo {
                 right: Some(PixelValue::px(2.0)),
                 .. Default::default()
             },
-            scrollbar_background: RectStyle {
+            track: RectStyle {
                 background_color: Some(StyleBackgroundColor(ColorU {
                     r: 241, g: 241, b: 241, a: 255
                 })),
                 .. Default::default()
             },
-            track_style: RectStyle {
+            thumb: RectStyle {
                 background_color: Some(StyleBackgroundColor(ColorU {
                     r: 193, g: 193, b: 193, a: 255
                 })),
                 .. Default::default()
             },
-            thumb_style: RectStyle {
+            button: RectStyle {
                 background_color: Some(StyleBackgroundColor(ColorU {
                     r: 163, g: 163, b: 163, a: 255
                 })),
                 .. Default::default()
             },
+            corner: RectStyle::default(),
+            resizer: RectStyle::default(),
         }
     }
 }
