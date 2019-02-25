@@ -5,8 +5,8 @@ use std::{
     collections::hash_map::Entry::*,
 };
 use webrender::api::{
-    FontKey, ImageData, ImageDescriptor, FontInstanceKey,
-    ResourceUpdate, AddImage, AddFont, AddFontInstance,
+    FontKey, FontInstanceKey,
+    ResourceUpdate, AddFont, AddFontInstance,
 };
 pub use webrender::api::ImageFormat as RawImageFormat;
 #[cfg(feature = "image_loading")]
@@ -198,7 +198,8 @@ pub struct AppResources {
 }
 
 impl AppResources {
-    /// Creates a new renderer (the renderer manages the resources and is therfore tied to the resources).
+
+    /// Creates a new renderer (the renderer manages the resources and is therefore tied to the resources).
     pub(crate) fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
         Ok(Self {
             css_ids_to_image_ids: FastHashMap::default(),
@@ -211,7 +212,7 @@ impl AppResources {
             last_frame_image_keys: FastHashMap::default(),
             last_frame_font_keys: FastHashMap::default(),
             text_cache: TextCache::default(),
-            fake_display: FakeDisplay::new(app_config.renderer_type, &app_config.debug_state, app_config.background_color)?,
+            fake_display: FakeDisplay::new(app_config.renderer_type, app_config.background_color)?,
             clipboard: SystemClipboard::new().unwrap(),
         })
     }
@@ -454,7 +455,8 @@ fn scan_ui_description_for_image_keys<'a, T: Layout>(
         match node_data.node_type {
             Image(id) => Some(id),
             _ => {
-                let css_image_id = display_rect.style.background?.get_css_image_id()?;
+                let background = display_rect.style.background.as_ref()?;
+                let css_image_id = background.get_css_image_id()?;
                 let image_id = app_resources.get_css_image_id(&css_image_id.0)?;
                 Some(*image_id)
             }
@@ -542,80 +544,95 @@ fn build_add_font_resource_updates(
 /// otherwise (if removing images would happen after every DOM) we'd constantly
 /// add-and-remove images after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
+#[allow(unused_variables)]
 fn build_add_image_resource_update(
     app_resources: &mut AppResources,
     current_used_images: &FastHashSet<ImageId>,
 ) -> Vec<ResourceUpdate> {
 
+    use webrender::api::{ImageData, ImageDescriptor, AddImage};
     use images::is_image_opaque;
 
     let mut resource_updates = Vec::new();
 
-    for image_id in current_used_images.iter().filter(|id| {
-        !app_resources.currently_registered_images.contains_key(id)
+    // Borrow checker problems...
+    let last_frame_image_keys = &mut app_resources.last_frame_image_keys;
+    let raw_images = &mut app_resources.raw_images;
+    let images = &mut app_resources.images;
+    let currently_registered_images = &mut app_resources.currently_registered_images;
+
+    for image_id in current_used_images.iter().cloned().filter(|id| {
+        !currently_registered_images.contains_key(id)
     }) {
-        match app_resources.images.get(image_id) {
-            Some(source) => {
-                #[cfg(feature = "image_loading")] {
-                    let image_bytes = match source.get_bytes() {
-                        Ok(o) => o,
-                        Err(e) => {
-                            #[cfg(feature = "logging")] {
-                                warn!("Could not load image with ID: {} - error: {}", font_id, e);
-                            }
-                            continue;
-                        }
-                    };
 
-                    let (decoded_image_data, image_descriptor) = match decode_image_data() {
-                        Ok(o) => o,
-                        Err(e) => {
-                            #[cfg(feature = "logging")] {
-                                warn!("Could not decode image with ID: {} - error: {}", font_id, e);
-                            }
-                            continue;
-                        }
-                    };
+        #[allow(unused_mut)]
+        let mut is_image_present = false;
 
-                    let image_key = api.generate_image_key();
-                    app_resources.last_frame_image_keys.insert(image_id, ImageInfo {
+        #[cfg(feature = "image_loading")] {
+            if let Some(source) = images.get(&image_id) {
+
+                is_image_present = true;
+
+                let image_bytes = match source.get_bytes() {
+                    Ok(o) => o,
+                    Err(e) => {
+                        #[cfg(feature = "logging")] {
+                            warn!("Could not load image with ID: {} - error: {}", font_id, e);
+                        }
+                        continue;
+                    }
+                };
+
+                let (decoded_image_data, image_descriptor) = match decode_image_data() {
+                    Ok(o) => o,
+                    Err(e) => {
+                        #[cfg(feature = "logging")] {
+                            warn!("Could not decode image with ID: {} - error: {}", font_id, e);
+                        }
+                        continue;
+                    }
+                };
+
+                let image_key = api.generate_image_key();
+                last_frame_image_keys.insert(image_id, ImageInfo {
+                    key: image_key,
+                    descriptor: image_descriptor,
+                });
+
+                resource_updates.push(ResourceUpdate::AddImage(
+                    AddImage { key: image_key, descriptor, data: decoded_image_data, tiling: None }
+                ));
+            }
+        }
+
+        if !is_image_present {
+
+            // Image is not a normal image, but may be a raw image
+            match raw_images.remove(&image_id) {
+                Some(RawImage { pixels, image_dimensions, data_format }) => {
+                    let opaque = is_image_opaque(data_format, &pixels[..]);
+                    let allow_mipmaps = true;
+                    let descriptor = ImageDescriptor::new(
+                        image_dimensions.0 as i32,
+                        image_dimensions.1 as i32,
+                        data_format,
+                        opaque,
+                        allow_mipmaps
+                    );
+                    let data = ImageData::new(pixels);
+                    let render_api = &app_resources.fake_display.render_api;
+                    let image_key = render_api.generate_image_key();
+
+                    last_frame_image_keys.insert(image_id, ImageInfo {
                         key: image_key,
-                        descriptor: image_descriptor,
+                        descriptor: descriptor
                     });
 
                     resource_updates.push(ResourceUpdate::AddImage(
-                        AddImage { key: image_key, descriptor, data: decoded_image_data, tiling: None }
+                        AddImage { key: image_key, descriptor, data, tiling: None }
                     ));
-                }
-            },
-            None => {
-                // Image is not a normal image, but may be a raw image
-                match app_resources.raw_images.remove(image_id) {
-                    Some(RawImage { pixels, image_dimensions, data_format }) => {
-                        let opaque = is_image_opaque(data_format, &pixels[..]);
-                        let allow_mipmaps = true;
-                        let descriptor = ImageDescriptor::new(
-                            image_dimensions.0 as i32,
-                            image_dimensions.1 as i32,
-                            data_format,
-                            opaque,
-                            allow_mipmaps
-                        );
-                        let data = ImageData::new(pixels);
-                        let render_api = &app_resources.fake_display.render_api;
-                        let image_key = render_api.generate_image_key();
-
-                        app_resources.last_frame_image_keys.insert(*image_id, ImageInfo {
-                            key: image_key,
-                            descriptor: descriptor
-                        });
-
-                        resource_updates.push(ResourceUpdate::AddImage(
-                            AddImage { key: image_key, descriptor, data, tiling: None }
-                        ));
-                    },
-                    None => { }, // invalid image ID
-                }
+                },
+                None => { }, // invalid image ID
             }
         }
     }
@@ -636,12 +653,17 @@ fn add_resources(
     merged_resource_updates.extend(add_image_resources.into_iter());
     app_resources.fake_display.render_api.update_resources(merged_resource_updates);
 
-    for (image_id, image_info) in app_resources.last_frame_image_keys {
-        app_resources.currently_registered_images.insert(image_id, image_info);
+    let last_frame_image_keys = &mut app_resources.last_frame_image_keys;
+    let currently_registered_images = &mut app_resources.currently_registered_images;
+    let last_frame_font_keys = &mut app_resources.last_frame_font_keys;
+    let currently_registered_fonts = &mut app_resources.currently_registered_fonts;
+
+    for (image_id, image_info) in last_frame_image_keys.drain() {
+        currently_registered_images.insert(image_id, image_info);
     }
 
-    for (font_id, (font_key, font_instances)) in app_resources.last_frame_font_keys {
-        app_resources.currently_registered_fonts
+    for (font_id, (font_key, font_instances)) in last_frame_font_keys.drain() {
+        currently_registered_fonts
             .entry(font_id)
             .or_insert_with(|| (font_key, FastHashMap::default())).1
             .extend(font_instances.clone().into_iter());
@@ -673,14 +695,16 @@ fn build_delete_font_resource_updates(
 
     let mut resource_updates = Vec::new();
 
+    for (font_id, au, font_instance_key) in to_remove_font_instance_keys {
+        resource_updates.push(ResourceUpdate::DeleteFontInstance(font_instance_key));
+        if let Some((_, font_instances)) = app_resources.currently_registered_fonts.get_mut(&font_id) {
+            font_instances.remove(&au);
+        }
+    }
+
     for (font_id, font_key) in to_remove_fonts {
         resource_updates.push(ResourceUpdate::DeleteFont(font_key));
         app_resources.currently_registered_fonts.remove(&font_id);
-    }
-
-    for (font_id, au, font_instance_key) in to_remove_font_instance_keys {
-        resource_updates.push(ResourceUpdate::DeleteFontInstance(font_instance_key));
-        app_resources.currently_registered_fonts[&font_id].1.remove(&au);
     }
 
     resource_updates
@@ -691,9 +715,9 @@ fn build_delete_image_resource_updates(
     app_resources: &mut AppResources
 ) -> Vec<ResourceUpdate> {
 
-    let to_remove_image_keys = app_resources.currently_registered_images.iter().filter(|(id, info)| {
+    let to_remove_image_keys = app_resources.currently_registered_images.iter().filter(|(id, _info)| {
         !app_resources.last_frame_image_keys.contains_key(id)
-    }).map(|(id, info)| (*id, *info)).collect::<Vec<(ImageId, ImageInfo)>>();
+    }).map(|(id, info)| (*id, info.clone())).collect::<Vec<(ImageId, ImageInfo)>>();
 
     let resource_updates = to_remove_image_keys.iter().map(|(_removed_id, removed_info)| {
         ResourceUpdate::DeleteImage(removed_info.key)
@@ -783,7 +807,6 @@ enum LinuxNativeFontType { SansSerif, Monospace }
 #[cfg(target_os = "linux")]
 fn linux_get_native_font(font_type: LinuxNativeFontType) -> String {
 
-    use std::env;
     use std::process::Command;
     use self::LinuxNativeFontType::*;
 
@@ -808,7 +831,7 @@ fn linux_get_native_font(font_type: LinuxNativeFontType) -> String {
             .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
             .map(|stdout_string| stdout_string.lines().collect::<String>());
 
-    match gsetting_cmd_result {
+    match &gsetting_cmd_result {
         Some(s) => parse_gsettings_font(s).to_string(),
         None => fallback_font_name.to_string(),
     }

@@ -34,7 +34,7 @@ use azul_css::HotReloadHandler;
 use {
     FastHashMap,
     dom::{Texture, Callback, NodeData, NodeType},
-    window_state::{WindowState, MouseState, KeyboardState, DebugState},
+    window_state::{WindowState, MouseState, KeyboardState},
     traits::Layout,
     compositor::Compositor,
     app::FrameEventInfo,
@@ -55,16 +55,6 @@ static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
 fn new_window_id() -> WindowId {
     WindowId { id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst) }
 }
-
-/// Each window is a "document", i.e a new web page in webrender terms.
-/// However, there is only one global renderer, in order to save on memory.
-static LAST_DOCUMENT_ID: AtomicUsize = AtomicUsize::new(0);
-
-fn new_document_id() -> i8 {
-    // TODO: Needs to wrap around to 0 again! (i8::MAX_VALUE = 0)
-    LAST_DOCUMENT_ID.fetch_add(1, Ordering::SeqCst) as i8
-}
-
 
 /// Id that uniquely identifies one window.
 /// Because windows can be added and removed in any order, this ID
@@ -881,7 +871,6 @@ impl<'a, T: Layout> Window<T> {
         // let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
         // #[cfg(not(debug_assertions))]
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
-        let device_pixel_ratio = options.state.size.hidpi_factor;
 
         let framebuffer_size = {
             let inner_logical_size = display.gl_window().get_inner_size().unwrap();
@@ -889,10 +878,18 @@ impl<'a, T: Layout> Window<T> {
             DeviceIntSize::new(width as i32, height as i32)
         };
 
-        let document_id = render_api.add_document(framebuffer_size, new_document_id());
+        let document_id = render_api.add_document(framebuffer_size, 0);
         let epoch = Epoch(0);
-        let pipeline_id = PipelineId(0, 0);
         let window_id = new_window_id();
+
+        // The PipelineId is what gets passed to the OutputImageHandler
+        // (the code that coordinates displaying the rendered texture).
+        //
+        // Each window is a "pipeline", i.e a new web page in webrender terms,
+        // however, there is only one global renderer, in order to save on memory,
+        // The pipeline ID is important, in order to coordinate the rendered textures
+        // back to their windows and window positions.
+        let pipeline_id = PipelineId(window_id.id as u32, 0);
 
         // let (sender, receiver) = channel();
         // let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
@@ -1061,19 +1058,18 @@ pub(crate) struct FakeDisplay {
 impl FakeDisplay {
 
     /// Creates a new render + a new display
-    pub(crate) fn new(renderer_type: RendererType, debug_state: &DebugState, background: Option<ColorU>) -> Result<Self, WindowCreateError> {
+    pub(crate) fn new(renderer_type: RendererType, background: Option<ColorU>) -> Result<Self, WindowCreateError> {
 
         let events_loop = EventsLoop::new();
         let window = GliumWindowBuilder::new().with_dimensions(LogicalSize::new(0.0, 0.0)).with_visibility(false);
         let gl_window = create_gl_window(window, &events_loop)?;
         let (dpi_factor, _) = get_hidpi_factor(&gl_window.window(), &events_loop);
-        let mut gl_window = create_gl_window(window, &events_loop)?;
         gl_window.hide();
 
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
         let gl = get_gl_context(&display)?;
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-        let (renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor, background)?;
+        let (mut renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor, background)?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
@@ -1094,7 +1090,7 @@ impl Drop for FakeDisplay {
 }
 
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
-fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f32, f32) {
+fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f64, f64) {
     let monitor = window.get_current_monitor();
     let winit_hidpi_factor = monitor.get_hidpi_factor();
 
@@ -1102,7 +1098,7 @@ fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f32, f32
         (linux_get_hidpi_factor(&monitor, &events_loop), winit_hidpi_factor)
     }
     #[cfg(not(target_os = "linux"))] {
-        (winit_hidpi_factor as f32, winit_hidpi_factor as f32)
+        (winit_hidpi_factor, winit_hidpi_factor)
     }
 }
 
@@ -1169,14 +1165,14 @@ fn create_renderer(
     gl: Rc<Gl>,
     notifier: Box<Notifier>,
     renderer_type: RendererType,
-    device_pixel_ratio: f32,
+    device_pixel_ratio: f64,
     background_color: Option<ColorU>,
 ) -> Result<(Renderer, RenderApi), WindowCreateError> {
 
     use self::RendererType::*;
 
-    let opts_native = get_renderer_opts(true, device_pixel_ratio, background_color.map(|color_u| color_u.into()));
-    let opts_osmesa = get_renderer_opts(false, device_pixel_ratio, background_color.map(|color_u| color_u.into()));
+    let opts_native = get_renderer_opts(true, device_pixel_ratio as f32, background_color.map(|color_u| color_u.into()));
+    let opts_osmesa = get_renderer_opts(false, device_pixel_ratio as f32, background_color.map(|color_u| color_u.into()));
 
     let (renderer, sender) = match renderer_type {
         Hardware => {
@@ -1247,7 +1243,7 @@ impl HidpiAdjustedBounds {
 }
 
 #[cfg(target_os = "linux")]
-fn get_xft_dpi() -> Option<f32>{
+fn get_xft_dpi() -> Option<f64>{
     // TODO!
     /*
     #include <X11/Xlib.h>
@@ -1284,15 +1280,15 @@ fn get_xft_dpi() -> Option<f32>{
 
 /// Return the DPI on X11 systems
 #[cfg(target_os = "linux")]
-fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f32 {
+fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f64 {
 
     use std::env;
     use std::process::Command;
     use glium::glutin::os::unix::EventsLoopExt;
 
     let winit_dpi = monitor.get_hidpi_factor();
-    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
-    let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f32>().ok());
+    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f64>().ok());
+    let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f64>().ok());
 
     // Execute "gsettings get org.gnome.desktop.interface text-scaling-factor" and parse the output
     let gsettings_dpi_factor =
@@ -1304,7 +1300,7 @@ fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f32 
             .map(|output| output.stdout)
             .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
             .map(|stdout_string| stdout_string.lines().collect::<String>())
-            .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
+            .and_then(|gsettings_output| gsettings_output.parse::<f64>().ok());
 
     // Wayland: Ignore Xft.dpi
     let xft_dpi = if events_loop.is_x11() { get_xft_dpi() } else { None };

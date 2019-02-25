@@ -1200,7 +1200,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     let x_positions = get_x_positions(&solved_widths, node_hierarchy, rect_offset.clone());
     let y_positions = get_y_positions(&solved_heights, &solved_widths, node_hierarchy, rect_offset);
 
-    let layouted_rects = node_data.transform(|node, node_id| {
+    let layouted_rects = node_data.transform(|_node, node_id| {
         PositionedRectangle {
             bounds: LayoutRect::new(
                 LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
@@ -1250,7 +1250,7 @@ fn create_scaled_words<'a>(
 {
     use text_layout::words_to_scaled_words;
     words.iter().filter_map(|(node_id, words)| {
-        let style = display_rects[*node_id].style;
+        let style = &display_rects[*node_id].style;
         let font_size = font_size_to_au(get_font_size(&style));
         let font_id = get_font_id(&style);
         let font_id = app_resources.get_css_font_id(font_id)?;
