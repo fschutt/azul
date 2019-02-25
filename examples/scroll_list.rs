@@ -15,7 +15,7 @@ impl Layout for List {
 
         let child_nodes = self.items.iter().enumerate().map(|(idx, item)| {
             NodeData {
-                node_type: NodeType::Label(item.to_string()),
+                node_type: NodeType::Label(DomString::Static(item)),
                 classes: vec!["item".into()],
                 ids: if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] },
                 callbacks: vec![(On::MouseDown.into(), Callback(print_which_item_was_selected))],

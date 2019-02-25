@@ -434,12 +434,12 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_no
                 }
             },
             Class(c) => {
-                if !html_node.node_data.classes.contains(c) {
+                if !html_node.node_data.classes.iter().any(|class| class.equals_str(c)) {
                     return false;
                 }
             },
             Id(id) => {
-                if !html_node.node_data.ids.contains(id) {
+                if !html_node.node_data.ids.iter().any(|html_id| html_id.equals_str(id)) {
                     return false;
                 }
             },

@@ -31,14 +31,14 @@ struct Calculator {
 
 impl Layout for Calculator {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
-        fn numpad_btn(label: &str, class: &str) -> Dom<Calculator> {
+        fn numpad_btn(label: &'static str, class: &'static str) -> Dom<Calculator> {
             Dom::label(label)
                 .with_class(class)
                 .with_tab_index(TabIndex::Auto)
                 .with_callback(On::MouseUp, Callback(handle_mouseclick_numpad_btn))
         }
 
-        fn render_row(labels: &[&str; 4]) -> Dom<Calculator> {
+        fn render_row(labels: &[&'static str; 4]) -> Dom<Calculator> {
             Dom::div()
                 .with_class("row")
                 .with_child(numpad_btn(labels[0], "numpad-button"))

@@ -375,7 +375,7 @@ fn render_dom_from_app_node_inner<T: Layout>(
     component_map: &XmlComponentMap<T>
 ) -> Result<Dom<T>, XmlParseError> {
 
-    use dom::TabIndex;
+    use dom::{TabIndex, DomString};
 
     let self_node_renderer = component_map.components.get(&xml_node.node_type)
         .ok_or(XmlParseError::UnknownComponent(xml_node.node_type.clone()))?;
@@ -385,13 +385,13 @@ fn render_dom_from_app_node_inner<T: Layout>(
 
     if let Some(ids) = xml_node.attributes.get("id") {
         for id in ids.split_whitespace() {
-            dom.add_id(id);
+            dom.add_id(DomString::Heap(id.to_string()));
         }
     }
 
     if let Some(classes) = xml_node.attributes.get("class") {
         for class in classes.split_whitespace() {
-            dom.add_class(class);
+            dom.add_class(DomString::Heap(class.to_string()));
         }
     }
 

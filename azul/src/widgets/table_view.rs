@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use {
-    dom::{Dom, On, NodeData, NodeType, IFrameCallback, UpdateScreen, DontRedraw},
+    dom::{Dom, On, NodeData, DomString, NodeType, IFrameCallback, UpdateScreen, DontRedraw},
     app_state::AppStateNoData,
     traits::Layout,
     window::LayoutInfo,
@@ -62,14 +62,14 @@ impl TableView {
 
     pub fn dom<T: Layout>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
         if let Some(ptr) =  StackCheckedPointer::new(t, data) {
-            let mut dom = Dom::new(NodeType::IFrame((IFrameCallback(render_table_callback), ptr)));
+            let mut dom = Dom::iframe(IFrameCallback(render_table_callback), ptr);
             let callback_id = window.add_callback(ptr, DefaultCallback(Self::table_view_on_click));
             dom.add_default_callback_id(On::MouseUp, callback_id);
             dom
         } else {
-            Dom::new(NodeType::Label(
+            Dom::label(
                 "Cannot create table from heap-allocated TableViewState, \
-                 please call TableViewState::render_dom manually".into())
+                 please call TableViewState::render_dom manually"
             )
         }
     }
@@ -107,14 +107,14 @@ impl TableViewState {
         //             '-> div.__azul-native-table-row
         //                 '-> div.__azul-native-table-cell
 
-        Dom::new(NodeType::Div)
+        Dom::div()
         .with_class("__azul-native-table-container")
         .with_child(
-            Dom::new(NodeType::Div)
+            Dom::div()
             .with_class("__azul-native-table-row-number-wrapper")
             .with_child(
                 // Empty rectangle at the top left of the table
-                Dom::new(NodeType::Div)
+                Dom::div()
                 .with_class("__azul-native-table-top-left-rect")
             )
             .with_child(
@@ -122,8 +122,8 @@ impl TableViewState {
                 (0..necessary_rows.saturating_sub(1))
                 .map(|row_idx|
                     NodeData {
-                        node_type: NodeType::Label(format!("{}", row_idx + 1)),
-                        classes: vec![String::from("__azul-native-table-row")],
+                        node_type: NodeType::Label(DomString::Heap(format!("{}", row_idx + 1))),
+                        classes: vec![DomString::Static("__azul-native-table-row")],
                         .. Default::default()
                     }
                 )
@@ -137,18 +137,18 @@ impl TableViewState {
                 // Column name
                 Dom::new(NodeType::Div)
                 .with_class("__azul-native-table-column")
-                .with_child(Dom::new(NodeType::Label(column_name_from_number(col_idx))).with_class("__azul-native-table-column-name"))
+                .with_child(Dom::label(column_name_from_number(col_idx)).with_class("__azul-native-table-column-name"))
                 .with_child(
                     // Actual rows - if no content is given, they are simply empty
                     (0..necessary_rows)
                     .map(|row_idx|
                         NodeData {
                             node_type: if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
-                                NodeType::Label(data.clone())
+                                NodeType::Label(DomString::Heap(data.clone()))
                             } else {
                                 NodeType::Div
                             },
-                            classes: vec![String::from("__azul-native-table-cell")],
+                            classes: vec![DomString::Static("__azul-native-table-cell")],
                             .. Default::default()
                         }
                     )
@@ -160,9 +160,9 @@ impl TableViewState {
             .with_class("__azul-native-table-column-container")
             // current active selection (s)
             .with_child(
-                Dom::new(NodeType::Div)
+                Dom::div()
                     .with_class("__azul-native-table-selection")
-                    .with_child(Dom::new(NodeType::Div).with_class("__azul-native-table-selection-handle"))
+                    .with_child(Dom::div().with_class("__azul-native-table-selection-handle"))
             )
         )
     }

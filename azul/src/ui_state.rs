@@ -9,7 +9,8 @@ use {
     FastHashMap,
     window::LayoutInfo,
     traits::Layout,
-    dom::{Callback, Dom, TagId, TabIndex,
+    dom::{
+        Callback, Dom, TagId, TabIndex, DomString,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
         WindowEventFilter, DesktopEventFilter
     },
@@ -23,7 +24,7 @@ pub struct UiState<T: Layout> {
     /// The actual DOM, rendered from the .layout() function
     pub dom: Dom<T>,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
-    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
+    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
     pub tag_ids_to_hover_active_states: BTreeMap<TagId, (NodeId, HoverGroup)>,
 

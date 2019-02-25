@@ -24,6 +24,7 @@ struct MyDataModel {
 }
 
 impl Layout for MyDataModel {
+
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
 
         use self::ConnectionStatus::*;
@@ -34,20 +35,21 @@ impl Layout for MyDataModel {
             ConnectionStatus::InProgress(_, d)   => format!("Loading... {}.{:02}s", d.as_secs(), d.subsec_millis()),
         };
 
-        let mut dom = Dom::new(NodeType::Div)
+        let mut dom = Dom::div()
             .with_child(Label::new(status.clone()).dom());
 
         match &self.connection_status {
             NotConnected => {
-                let button = Button::with_label("Connect to database...").dom()
-                                .with_callback(On::MouseUp, Callback(start_connection));
-
-                dom.add_child(button);
+                dom.add_child(
+                    Button::with_label("Connect to database...").dom()
+                    .with_callback(On::MouseUp, Callback(start_connection))
+                );
             },
             Connected => {
-                let button = Button::with_label(format!("{}\nRetry?", status)).dom()
-                                .with_callback(On::MouseUp, Callback(reset_connection));
-                dom.add_child(button);
+                dom.add_child(
+                    Button::with_label(format!("{}\nRetry?", status)).dom()
+                    .with_callback(On::MouseUp, Callback(reset_connection))
+                );
             }
             InProgress(_, _) => { },
         }

@@ -129,7 +129,7 @@ pub enum NodeType<T: Layout> {
     /// Regular div with no particular type of data attached
     Div,
     /// A small label that can be (optionally) be selectable with the mouse
-    Label(String),
+    Label(DomString),
     /// Larger amount of text, that has to be cached
     Text(TextId),
     /// An image that is rendered by WebRender. The id is acquired by the
@@ -508,7 +508,8 @@ impl WindowEventFilter {
             HoveredFile => Some(HoverEventFilter::HoveredFile),
             DroppedFile => Some(HoverEventFilter::DroppedFile),
             HoveredFileCancelled => Some(HoverEventFilter::HoveredFileCancelled),
-            // MouseEnter and MouseLeave on the **window** does not mean a mouseenter and a mouseleave on the hovered element
+            // MouseEnter and MouseLeave on the **window** - does not mean a mouseenter
+            // and a mouseleave on the hovered element
             MouseEnter => None,
             MouseLeave => None,
         }
@@ -530,9 +531,9 @@ pub struct NodeData<T: Layout> {
     /// `div`
     pub node_type: NodeType<T>,
     /// `#main #something`
-    pub ids: Vec<String>,
+    pub ids: Vec<DomString>,
     /// `.myclass .otherclass`
-    pub classes: Vec<String>,
+    pub classes: Vec<DomString>,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     pub callbacks: Vec<(EventFilter, Callback<T>)>,
     /// Usually not set by the user directly - `FakeWindow::add_default_callback`
@@ -556,7 +557,7 @@ pub struct NodeData<T: Layout> {
     ///     dynamic_css_overrides: vec![("my_custom_width".into(), CssProperty::Width(LayoutWidth::px(500.0)))]
     /// }
     /// ```
-    pub dynamic_css_overrides: Vec<(String, CssProperty)>,
+    pub dynamic_css_overrides: Vec<(DomString, CssProperty)>,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
     ///
     /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
@@ -749,14 +750,52 @@ impl<T: Layout> NodeData<T> {
 
     /// Checks whether this node has the searched ID attached
     pub fn has_id(&self, id: &str) -> bool {
-        self.ids.iter().any(|self_id| self_id == id)
+        self.ids.iter().any(|self_id| self_id.equals_str(id))
     }
 
     /// Checks whether this node has the searched class attached
     pub fn has_class(&self, class: &str) -> bool {
-        self.classes.iter().any(|self_class| self_class == class)
+        self.classes.iter().any(|self_class| self_class.equals_str(class))
     }
 }
+
+/// Most strings are known at compile time, spares a bit of
+/// heap allocations - for `&'static str`, simply stores the pointer,
+/// instead of converting it into a String. This is good for class names
+/// or IDs, whose content rarely changes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DomString {
+    Static(&'static str),
+    Heap(String),
+}
+
+impl DomString {
+
+    pub fn equals_str(&self, target: &str) -> bool {
+        use self::DomString::*;
+        match &self {
+            Static(s) => *s == target,
+            Heap(h) => h == target,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        use self::DomString::*;
+        match &self {
+            Static(s) => s,
+            Heap(h) => h,
+        }
+    }
+
+}
+impl_display!{ DomString, {
+    Static(s) => format!("{}", s),
+    Heap(h) => h,
+}}
+
+type StaticString = &'static str;
+impl_from!(String, DomString::Heap);
+impl_from!(StaticString, DomString::Static);
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[derive(Clone, PartialEq, Eq)]
@@ -890,7 +929,7 @@ impl<T: Layout> Dom<T> {
     }
 
     /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
-    pub fn label<S: Into<String>>(value: S) -> Self {
+    pub fn label<S: Into<DomString>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
     }
 
@@ -1013,14 +1052,14 @@ impl<T: Layout> Dom<T> {
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_id<S: Into<String>>(mut self, id: S) -> Self {
+    pub fn with_id<S: Into<DomString>>(mut self, id: S) -> Self {
         self.add_id(id);
         self
     }
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_class<S: Into<String>>(mut self, class: S) -> Self {
+    pub fn with_class<S: Into<DomString>>(mut self, class: S) -> Self {
         self.add_class(class);
         self
     }
@@ -1039,7 +1078,7 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn with_css_override<S: Into<String>>(mut self, id: S, property: CssProperty) -> Self {
+    pub fn with_css_override<S: Into<DomString>>(mut self, id: S, property: CssProperty) -> Self {
         self.add_css_override(id, property);
         self
     }
@@ -1057,12 +1096,12 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn add_id<S: Into<String>>(&mut self, id: S) {
+    pub fn add_id<S: Into<DomString>>(&mut self, id: S) {
         self.arena.node_data[self.head].ids.push(id.into());
     }
 
     #[inline]
-    pub fn add_class<S: Into<String>>(&mut self, class: S) {
+    pub fn add_class<S: Into<DomString>>(&mut self, class: S) {
         self.arena.node_data[self.head].classes.push(class.into());
     }
 
@@ -1077,7 +1116,7 @@ impl<T: Layout> Dom<T> {
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<String>>(&mut self, override_id: S, property: CssProperty) {
+    pub fn add_css_override<S: Into<DomString>>(&mut self, override_id: S, property: CssProperty) {
         self.arena.node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
     }
 
@@ -1423,13 +1462,13 @@ fn test_dom_sibling_1() {
 
     assert_eq!(NodeId::new(0), dom.root);
 
-    assert_eq!(vec![String::from("sibling-1")],
+    assert_eq!(vec![DomString::Static("sibling-1")],
         arena.node_data[
             arena.node_layout[dom.root]
             .first_child.expect("root has no first child")
         ].ids);
 
-    assert_eq!(vec![String::from("sibling-2")],
+    assert_eq!(vec![DomString::Static("sibling-2")],
         arena.node_data[
             arena.node_layout[
                 arena.node_layout[dom.root]
@@ -1437,7 +1476,7 @@ fn test_dom_sibling_1() {
             ].next_sibling.expect("root has no second sibling")
         ].ids);
 
-    assert_eq!(vec![String::from("sibling-1-child-1")],
+    assert_eq!(vec![DomString::Static("sibling-1-child-1")],
         arena.node_data[
             arena.node_layout[
                 arena.node_layout[dom.root]
@@ -1445,7 +1484,7 @@ fn test_dom_sibling_1() {
             ].first_child.expect("first child has no first child")
         ].ids);
 
-    assert_eq!(vec![String::from("sibling-2-child-1")],
+    assert_eq!(vec![DomString::Static("sibling-2-child-1")],
         arena.node_data[
             arena.node_layout[
                 arena.node_layout[
@@ -1465,7 +1504,7 @@ fn test_dom_from_iter_1() {
 
     impl Layout for TestLayout {
         fn layout(&self) -> Dom<Self> {
-            (0..5).map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1)))).collect()
+            (0..5).map(|e| NodeData::new(NodeType::Label(DomString::Heap(format!("{}", e + 1))))).collect()
         }
     }
 
@@ -1500,11 +1539,11 @@ fn test_dom_from_iter_1() {
         first_child: None,
         last_child: None,
     }));
+
     assert_eq!(arena.node_data.get(NodeId::new(arena.node_data.len() - 1)), Some(&NodeData {
-        node_type: NodeType::Label(String::from("5")),
+        node_type: NodeType::Label(DomString::Heap(String::from("5"))),
         .. Default::default()
     }));
-
 }
 
 /// Test that there shouldn't be a DOM that has 0 nodes
@@ -1515,7 +1554,7 @@ fn test_zero_size_dom() {
 
     impl Layout for TestLayout {
         fn layout(&self) -> Dom<Self> {
-            Dom::new(NodeType::Div)
+            Dom::div()
         }
     }
 

@@ -8,8 +8,7 @@ use {
     FastHashMap,
     id_tree::{Arena, NodeId},
     traits::Layout,
-    dom::Dom,
-    dom::NodeData,
+    dom::{Dom, NodeData, DomString},
     ui_state::UiState,
     style::HoverGroup,
     focus::FocusTarget,
@@ -28,7 +27,7 @@ pub struct UiDescription<T: Layout> {
     /// This is why we need this field here
     pub(crate) default_style_of_node: StyledNode,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
-    pub(crate) dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
+    pub(crate) dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
     /// In order to hit-test :hover and :active selectors, need to insert tags for all rectangles
     /// that have a non-:hover path, for example if we have `#thing:hover`, then all nodes selected by `#thing`
     /// need to get a TagId, otherwise, they can't be hit-tested.

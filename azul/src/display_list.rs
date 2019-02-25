@@ -32,7 +32,8 @@ use {
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
-        IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, new_scroll_tag_id,
+        IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, DomString,
+        new_scroll_tag_id,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
     },
     ui_solver::{do_the_layout, LayoutResult, PositionedRectangle},
@@ -1481,8 +1482,6 @@ fn push_border(
     }
 }
 
-
-
 /// Subtracts the padding from the bounds, returning the new bounds
 ///
 /// Warning: The resulting rectangle may have negative width or height
@@ -1504,19 +1503,23 @@ fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPaddin
     new_bounds
 }
 
-/// Populate the style properties of the `DisplayRectangle`
+/// Populate the style properties of the `DisplayRectangle`, apply static / dynamic properties
 fn populate_css_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
-    css_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>)
-{
-    // Apply static / dynamic properties
+    css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>
+) {
+    use azul_css::CssDeclaration::*;
+
     for constraint in &rect.styled_node.css_constraints {
-        use azul_css::CssDeclaration::*;
         match constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {
-                if let Some(overridden_property) = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id)) {
+                let is_dynamic_prop = css_overrides.get(&node_id).and_then(|overrides| {
+                    overrides.get(&DomString::Heap(dynamic_property.dynamic_id.clone()))
+                });
+
+                if let Some(overridden_property) = is_dynamic_prop {
                     // Only apply the dynamic style property default, if it isn't set to auto
                     if property_type_matches(overridden_property, &dynamic_property.default) {
                         apply_style_property(rect, overridden_property);
