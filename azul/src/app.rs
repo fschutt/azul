@@ -296,8 +296,6 @@ impl<T: Layout> App<T> {
         use dom::Redraw;
         use self::RuntimeError::*;
 
-        println!("run_inner!");
-
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
@@ -429,8 +427,6 @@ fn render_single_window_content<T: Layout>(
     use self::RuntimeError::*;
     use glium::glutin::WindowEvent;
 
-    println!("render_single_window_content!");
-
     let mut frame_was_resize = false;
 
     if events.is_empty() {
@@ -524,8 +520,6 @@ fn render_single_window_content<T: Layout>(
             &window.state.hovered_nodes,
             is_mouse_down,
         );
-
-    println!("ui_description created!");
 
     // Render the window (webrender will send an Awakened event when the frame is done)
     let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
@@ -787,8 +781,6 @@ fn render<T: Layout>(
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
-    println!("display_list created!");
-
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
     let (builder, scrolled_nodes, _layout_result) = display_list.into_display_list_builder(
@@ -829,13 +821,11 @@ fn render<T: Layout>(
         txn
     };
 
-    println!("sending transaction!");
-
     window.internal.epoch = increase_epoch(window.internal.epoch);
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, webrender_transaction);
     app_resources.fake_display.renderer.as_mut().unwrap().update();
 
-    render_inner(window, app_resources, framebuffer_size);
+    render_inner(app_resources, framebuffer_size);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -931,7 +921,7 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>, app_resources: 
     app_resources.fake_display.renderer.as_mut().unwrap().update();
 
     let (_, physical_size) = convert_window_size(&window.state.size);
-    render_inner(window, app_resources, physical_size);
+    render_inner(app_resources, physical_size);
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
@@ -980,22 +970,26 @@ fn increase_epoch(old: Epoch) -> Epoch {
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
 //
 // For some reason, webrender allows rendering negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
+fn render_inner<T: Layout>(app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
 
     use gleam::gl;
     use window::get_gl_context;
-
-    println!("rendering inner!");
-
-    // use glium::glutin::GlContext;
-    // unsafe { window.display.gl_window().make_current().unwrap(); }
+    use glium::glutin::GlContext;
 
     let mut current_program = [0_i32];
-    unsafe { get_gl_context(&window.display).unwrap().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
-    println!("rendering now!");
+    unsafe {
+        app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
+        let gl_context = get_gl_context(&app_resources.fake_display.hidden_display).unwrap();
+        gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
+        // gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        gl_context.disable(gl::FRAMEBUFFER_SRGB);
+        gl_context.disable(gl::MULTISAMPLE);
+    };
+
     app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
-    println!("rendering finished!");
-    get_gl_context(&window.display).unwrap().use_program(current_program[0] as u32);
+
+    // Reset the program to what it was before
+    get_gl_context(&app_resources.fake_display.hidden_display).unwrap().use_program(current_program[0] as u32);
 }
 
 fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
