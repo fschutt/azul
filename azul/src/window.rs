@@ -20,7 +20,7 @@ use glium::{
     IncompatibleOpenGl, Display, SwapBuffersError,
     debug::DebugCallbackBehavior,
     glutin::{
-        self, EventsLoop, AvailableMonitorsIter, GlContext, GlWindow, CreationError,
+        self, EventsLoop, AvailableMonitorsIter, ContextTrait, CombinedContext, CreationError,
         MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowId as GliumWindowId,
         Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Icon, Context,
         dpi::{LogicalSize, PhysicalSize}
@@ -158,7 +158,7 @@ impl ReadOnlyWindow {
     /// Make the window active (OpenGL) - necessary before
     /// starting to draw on any window-owned texture
     pub fn make_current(&self) {
-        use glium::glutin::GlContext;
+        use glium::glutin::ContextTrait;
         let gl_window = self.inner.gl_window();
         unsafe { gl_window.make_current().unwrap() };
     }
@@ -1115,7 +1115,7 @@ fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f64, f64
 
 
 fn create_gl_window(window: GliumWindowBuilder, events_loop: &EventsLoop, shared_context: Option<&Context>)
--> Result<GlWindow, WindowCreateError>
+-> Result<CombinedContext, WindowCreateError>
 {
     // The shared_context is reversed: If the shared_context is None, then this window is the root window,
     // so the window should be created with new_shared (so the context can be shared to all other windows).
@@ -1123,21 +1123,11 @@ fn create_gl_window(window: GliumWindowBuilder, events_loop: &EventsLoop, shared
     // If the shared_context is Some() then the window is not a root window, so it should share the existing
     // context, but not re-share it (so, create it normally via ::new() instead of ::new_shared()).
 
-    if shared_context.is_some() {
-        unsafe {
-            GlWindow::new_shared(window.clone(), create_context_builder(true, true, shared_context),  &events_loop).or_else(|_|
-            GlWindow::new_shared(window.clone(), create_context_builder(true, false, shared_context), &events_loop)).or_else(|_|
-            GlWindow::new_shared(window.clone(), create_context_builder(false, true, shared_context), &events_loop)).or_else(|_|
-            GlWindow::new_shared(window.clone(), create_context_builder(false, false,shared_context), &events_loop))
-            .map_err(|e| WindowCreateError::CreateError(e))
-        }
-    } else {
-        GlWindow::new(window.clone(), create_context_builder(true, true, shared_context),  &events_loop).or_else(|_|
-        GlWindow::new(window.clone(), create_context_builder(true, false, shared_context), &events_loop)).or_else(|_|
-        GlWindow::new(window.clone(), create_context_builder(false, true, shared_context), &events_loop)).or_else(|_|
-        GlWindow::new(window.clone(), create_context_builder(false, false,shared_context), &events_loop))
-        .map_err(|e| WindowCreateError::CreateError(e))
-    }
+    CombinedContext::new(window.clone(), create_context_builder(true, true, shared_context),  &events_loop).or_else(|_|
+    CombinedContext::new(window.clone(), create_context_builder(true, false, shared_context), &events_loop)).or_else(|_|
+    CombinedContext::new(window.clone(), create_context_builder(false, true, shared_context), &events_loop)).or_else(|_|
+    CombinedContext::new(window.clone(), create_context_builder(false, false,shared_context), &events_loop))
+    .map_err(|e| WindowCreateError::CreateError(e))
 }
 
 /// ContextBuilder is sadly not clone-able, which is why it has to be re-created

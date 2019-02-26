@@ -442,19 +442,17 @@ fn render_single_window_content<T: Layout>(
     use dom::Redraw;
     use self::RuntimeError::*;
 
-    let mut frame_was_resize = false;
-
     if events.is_empty() {
-        let window_should_close = false;
-        return Ok((frame_was_resize, window_should_close));
+        // Event was not a resize event, window should **not** close
+        return Ok((false, false));
     }
 
     let (mut frame_event_info, window_should_close) =
         window.state.update_window_state(&events, awakened_task[window_id]);
 
     if window_should_close {
-        let window_should_close = true;
-        return Ok((frame_was_resize, window_should_close));
+        // Event was not a resize event, window should close
+        return Ok((false, true));
     }
 
     let mut hit_test_results = None;
@@ -500,7 +498,7 @@ fn render_single_window_content<T: Layout>(
         *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
     }
 
-    // See: https://docs.rs/glutin/0.19.0/glutin/struct.GlWindow.html#method.resize
+    // See: https://docs.rs/glutin/0.19.0/glutin/struct.CombinedContext.html#method.resize
     //
     // Some platforms (macOS, Wayland) require being manually updated when their window
     // or surface is resized.
@@ -991,7 +989,7 @@ fn render_inner(app_resources: &mut AppResources, framebuffer_size: DeviceIntSiz
 
     use gleam::gl;
     use window::get_gl_context;
-    use glium::glutin::GlContext;
+    use glium::glutin::ContextTrait;
 
     let mut current_program = [0_i32];
     unsafe {
