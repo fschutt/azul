@@ -329,6 +329,8 @@ impl<T: Layout> App<T> {
                 _ => { events.push(e); },
             });
 
+            self.app_state.resources.start_new_frame();
+
             for (current_window_id, mut window) in self.windows.iter_mut() {
 
                 // Only process the events belong to this window ID...
@@ -392,6 +394,9 @@ impl<T: Layout> App<T> {
                     *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
                 }
             }
+
+            // Automatically remove unused fonts and images from webrender
+            self.app_state.resources.garbage_collect_fonts_and_images();
 
             if !frame_was_resize {
                 // Wait until 16ms have passed, but not during a resize event

@@ -402,6 +402,30 @@ impl AppResources {
     pub fn set_clipboard_string<S: Into<String>>(&mut self, contents: S) -> Result<(), ClipboardError> {
         self.clipboard.set_string_contents(contents.into())
     }
+
+    /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
+    /// guaranteed to know about all FontKeys and FontInstanceKey
+    pub(crate) fn add_fonts_and_images<T: Layout>(&mut self, display_list: &DisplayList<T>) {
+        let font_keys = scan_ui_description_for_font_keys(&self, display_list);
+        let image_keys = scan_ui_description_for_image_keys(&self, display_list);
+        let add_font_resource_updates = build_add_font_resource_updates(self, &font_keys);
+        let add_image_resource_updates = build_add_image_resource_updates(self, &image_keys);
+        add_resources(self, add_font_resource_updates, add_image_resource_updates);
+    }
+
+    /// To be called at the end of a frame (after the UI has rendered):
+    /// Deletes all FontKeys and FontImageKeys that weren't used in
+    /// the last frame, to save on memory. If the font needs to be recreated, it
+    /// needs to be reloaded from the `FontSource`.
+    pub(crate) fn garbage_collect_fonts_and_images(&mut self) {
+        let delete_font_keys = build_delete_font_resource_updates(self);
+        let delete_image_keys = build_delete_image_resource_updates(self);
+        delete_resources(self, delete_font_keys, delete_image_keys);
+    }
+
+    pub(crate) fn start_new_frame(&mut self) {
+        clear_last_frame_images_and_fonts(self);
+    }
 }
 
 /// Scans the display list for all font IDs + their font size
@@ -474,12 +498,12 @@ fn scan_ui_description_for_image_keys<'a, T: Layout>(
 /// I/O waiting.
 fn build_add_font_resource_updates(
     app_resources: &mut AppResources,
-    current_used_fonts: &FastHashMap<FontId, FastHashSet<Au>>,
+    fonts_in_dom: &FastHashMap<FontId, FastHashSet<Au>>,
 ) -> Vec<ResourceUpdate> {
 
     let mut resource_updates = Vec::new();
 
-    for (font_id, font_sizes) in current_used_fonts {
+    for (font_id, font_sizes) in fonts_in_dom {
 
         macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_size:expr) => ({
             let font_instance_key = app_resources.fake_display.render_api.generate_font_instance_key();
@@ -545,9 +569,9 @@ fn build_add_font_resource_updates(
 /// add-and-remove images after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
 #[allow(unused_variables)]
-fn build_add_image_resource_update(
+fn build_add_image_resource_updates(
     app_resources: &mut AppResources,
-    current_used_images: &FastHashSet<ImageId>,
+    images_in_dom: &FastHashSet<ImageId>,
 ) -> Vec<ResourceUpdate> {
 
     use webrender::api::{ImageData, ImageDescriptor, AddImage};
@@ -561,7 +585,7 @@ fn build_add_image_resource_update(
     let images = &mut app_resources.images;
     let currently_registered_images = &mut app_resources.currently_registered_images;
 
-    for image_id in current_used_images.iter().cloned().filter(|id| {
+    for image_id in images_in_dom.iter().cloned().filter(|id| {
         !currently_registered_images.contains_key(id)
     }) {
 
@@ -651,7 +675,11 @@ fn add_resources(
 ) {
     let mut merged_resource_updates = add_font_resources;
     merged_resource_updates.extend(add_image_resources.into_iter());
-    app_resources.fake_display.render_api.update_resources(merged_resource_updates);
+    if !merged_resource_updates.is_empty() {
+        app_resources.fake_display.render_api.update_resources(merged_resource_updates);
+        // Assure that the AddFont / AddImage updates get processed immediately
+        app_resources.fake_display.render_api.flush_scene_builder();
+    }
 
     let last_frame_image_keys = &mut app_resources.last_frame_image_keys;
     let currently_registered_images = &mut app_resources.currently_registered_images;
@@ -745,9 +773,9 @@ fn delete_resources(
 ) {
     let render_api = &app_resources.fake_display.render_api;
     delete_font_resources.append(&mut delete_image_resources);
-    render_api.update_resources(delete_font_resources);
-    // Assure that the add / remove fonts get processed immediately
-    render_api.flush_scene_builder();
+    if !delete_font_resources.is_empty() {
+        render_api.update_resources(delete_font_resources);
+    }
 }
 
 #[cfg(feature = "image_loading")]
