@@ -840,7 +840,7 @@ fn render<T: Layout>(
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, webrender_transaction);
     app_resources.fake_display.renderer.as_mut().unwrap().update();
 
-    render_inner(app_resources, framebuffer_size);
+    render_inner(window, app_resources, framebuffer_size);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -936,7 +936,7 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>, app_resources: 
     app_resources.fake_display.renderer.as_mut().unwrap().update();
 
     let (_, physical_size) = convert_window_size(&window.state.size);
-    render_inner(app_resources, physical_size);
+    render_inner(window, app_resources, physical_size);
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
@@ -985,23 +985,30 @@ fn increase_epoch(old: Epoch) -> Epoch {
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
 //
 // For some reason, webrender allows rendering negative width / height, although that doesn't make sense
-fn render_inner(app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
+fn render_inner<T: Layout>(window: &Window<T>, app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
 
     use gleam::gl;
     use window::get_gl_context;
     use glium::glutin::ContextTrait;
 
     let mut current_program = [0_i32];
+
     unsafe {
-        app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
+
+        // NOTE: Must share OpenGL context across all windows, otherwise this will segfault!
+        // MUST be invoked before .bind_framebuffer, otherwise EGL will panic with EGL_BAD_MATCH
+        window.display.gl_window().make_current().unwrap();
+
         let gl_context = get_gl_context(&app_resources.fake_display.hidden_display).unwrap();
         gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
+
         // TODO: Bind this framebuffer to a texture !!!
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
     };
 
+    // Invoke webrender to render the frame - renders to the currently bound FB
     app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
     // Reset the program to what it was before
