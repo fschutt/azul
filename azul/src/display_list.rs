@@ -1,5 +1,4 @@
 #![allow(unused_variables)]
-#![allow(unused_macros)]
 
 use std::{
     fmt,
@@ -126,8 +125,6 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let node_hierarchy = &arena.node_layout;
         let node_data = &arena.node_data;
 
-        // TODO: Scan and upload all fonts before doing the layout!
-/*
         // Scan the styled DOM for image and font keys.
         //
         // The problem is that we need to scan all DOMs for image and font keys and insert them
@@ -142,17 +139,7 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         //      - Insert the new font keys and image keys into the render API
         //      - Scan all IFrameCallbacks, generate the DomID for each callback
         //      - Repeat while number_of_iframe_callbacks != 0
-        let (resource_updates, dom_cache) =  app_state.resources.update_images_and_fonts(
-            &ui_description_cache[window_id],
-            &mut app_state.data,
-        );
-
-        // Send the updated resources
-        if !resource_updates.is_empty() {
-            &app_resources.fake_display.render_api.update_resources(resource_updates);
-            app_state.resources.fake_display.render_api.update_resources(resource_updates);
-        }
-*/
+        app_resources.add_fonts_and_images(&self);
 
         let window_size = window.state.size.get_reverse_logical_size();
         let layout_result = do_the_layout(
@@ -857,6 +844,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
     );
 
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
+    referenced_mutable_content.app_resources.add_fonts_and_images(&display_list);
 
     let arena = &ui_description.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;
