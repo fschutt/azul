@@ -22,10 +22,10 @@ use glium::{
     glutin::{
         self, EventsLoop, AvailableMonitorsIter, GlContext, GlWindow, CreationError,
         MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowId as GliumWindowId,
-        Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Icon,
+        Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Icon, Context,
         dpi::{LogicalSize, PhysicalSize}
     },
-    backend::{Context, Facade, glutin::DisplayCreationError},
+    backend::{Context as BackendContext, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
 use azul_css::{Css, ColorF, ColorU};
@@ -139,7 +139,7 @@ pub struct ReadOnlyWindow {
 }
 
 impl Facade for ReadOnlyWindow {
-    fn get_context(&self) -> &Rc<Context> {
+    fn get_context(&self) -> &Rc<BackendContext> {
         self.inner.get_context()
     }
 }
@@ -791,9 +791,10 @@ impl<'a, T: Layout> Window<T> {
     /// Creates a new window
     pub(crate) fn new(
         render_api: &mut RenderApi,
+        shared_context: &Context,
         events_loop: &EventsLoop,
         options: WindowCreateOptions<T>,
-        mut css: Css
+        mut css: Css,
     ) -> Result<Self, WindowCreateError> {
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
@@ -844,7 +845,8 @@ impl<'a, T: Layout> Window<T> {
         }
 
         // Only create a context with VSync and SRGB if the context creation works
-        let gl_window = create_gl_window(window, &events_loop)?;
+        let gl_window = create_gl_window(window, &events_loop, Some(shared_context))?;
+
         // Hide the window until the first draw (prevents flash on startup)
         gl_window.hide();
 
@@ -923,11 +925,12 @@ impl<'a, T: Layout> Window<T> {
     #[cfg(debug_assertions)]
     pub(crate) fn new_hot_reload(
         render_api: &mut RenderApi,
+        shared_context: &Context,
         events_loop: &EventsLoop,
         options: WindowCreateOptions<T>,
-        css_loader: Box<dyn HotReloadHandler>
+        css_loader: Box<dyn HotReloadHandler>,
     ) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new(render_api, events_loop, options, Css::default())?;
+        let mut window = Window::new(render_api, shared_context, events_loop, options, Css::default())?;
         window.css_loader = Some(css_loader);
         Ok(window)
     }
@@ -1070,7 +1073,7 @@ impl FakeDisplay {
 
         let events_loop = EventsLoop::new();
         let window = GliumWindowBuilder::new().with_dimensions(LogicalSize::new(10.0, 10.0)).with_visibility(false);
-        let gl_window = create_gl_window(window, &events_loop)?;
+        let gl_window = create_gl_window(window, &events_loop, None)?;
         let (dpi_factor, _) = get_hidpi_factor(&gl_window.window(), &events_loop);
         gl_window.hide();
 
@@ -1111,31 +1114,69 @@ fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f64, f64
 }
 
 
-fn create_gl_window(window: GliumWindowBuilder, events_loop: &EventsLoop) -> Result<GlWindow, WindowCreateError> {
-    GlWindow::new(window.clone(), create_context_builder(true, true), &events_loop)
-        .or_else(|_| GlWindow::new(window.clone(), create_context_builder(true, false), &events_loop))
-        .or_else(|_| GlWindow::new(window.clone(), create_context_builder(false, true), &events_loop))
-        .or_else(|_| GlWindow::new(window, create_context_builder(false, false), &events_loop))
+fn create_gl_window(window: GliumWindowBuilder, events_loop: &EventsLoop, shared_context: Option<&Context>)
+-> Result<GlWindow, WindowCreateError>
+{
+    // The shared_context is reversed: If the shared_context is None, then this window is the root window,
+    // so the window should be created with new_shared (so the context can be shared to all other windows).
+    //
+    // If the shared_context is Some() then the window is not a root window, so it should share the existing
+    // context, but not re-share it (so, create it normally via ::new() instead of ::new_shared()).
+
+    if shared_context.is_some() {
+        unsafe {
+            GlWindow::new_shared(window.clone(), create_context_builder(true, true, shared_context),  &events_loop).or_else(|_|
+            GlWindow::new_shared(window.clone(), create_context_builder(true, false, shared_context), &events_loop)).or_else(|_|
+            GlWindow::new_shared(window.clone(), create_context_builder(false, true, shared_context), &events_loop)).or_else(|_|
+            GlWindow::new_shared(window.clone(), create_context_builder(false, false,shared_context), &events_loop))
+            .map_err(|e| WindowCreateError::CreateError(e))
+        }
+    } else {
+        GlWindow::new(window.clone(), create_context_builder(true, true, shared_context),  &events_loop).or_else(|_|
+        GlWindow::new(window.clone(), create_context_builder(true, false, shared_context), &events_loop)).or_else(|_|
+        GlWindow::new(window.clone(), create_context_builder(false, true, shared_context), &events_loop)).or_else(|_|
+        GlWindow::new(window.clone(), create_context_builder(false, false,shared_context), &events_loop))
         .map_err(|e| WindowCreateError::CreateError(e))
+    }
 }
 
-fn create_context_builder<'a>(vsync: bool, srgb: bool) -> ContextBuilder<'a> {
+/// ContextBuilder is sadly not clone-able, which is why it has to be re-created
+/// every time you want to create a new context. The goals is to not crash on
+/// platforms that don't have VSync or SRGB (which are OpenGL extensions) installed.
+///
+/// Secondly, in order to support multi-window apps, all windows need to share
+/// the same OpenGL context - i.e. `builder.with_shared_lists(some_gl_window.context());`
+///
+/// `allow_sharing_context` should only be true for the root window - so that
+/// we can be sure the shared context can't be re-shared by the created window. Only
+/// the root window (via `FakeDisplay`) is allowed to manage the OpenGL context.
+fn create_context_builder<'a>(
+    vsync: bool,
+    srgb: bool,
+    shared_context: Option<&'a Context>,
+) -> ContextBuilder<'a> {
+
     // See #33 - specifying a specific OpenGL version
     // makes winit crash on older Intel drivers, which is why we
     // don't specify a specific OpenGL version here
     let mut builder = ContextBuilder::new();
 
-    /*#[cfg(debug_assertions)] {
-        builder = builder.with_gl_debug_flag(true);
+    if let Some(shared_context) = shared_context {
+        builder = builder.with_shared_lists(shared_context);
     }
 
-    #[cfg(not(debug_assertions))] {*/
+    // #[cfg(debug_assertions)] {
+    //     builder = builder.with_gl_debug_flag(true);
+    // }
+
+    // #[cfg(not(debug_assertions))] {
         builder = builder.with_gl_debug_flag(false);
     // }
 
     if vsync {
         builder = builder.with_vsync(true);
     }
+
     if srgb {
         builder = builder.with_srgb(true);
     }

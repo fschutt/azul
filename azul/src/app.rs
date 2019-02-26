@@ -219,6 +219,7 @@ impl<T: Layout> App<T> {
     pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css) -> Result<Window<T>, WindowCreateError> {
         Window::new(
             &mut self.app_state.resources.fake_display.render_api,
+            &mut self.app_state.resources.fake_display.hidden_display.gl_window().context(),
             &mut self.app_state.resources.fake_display.hidden_events_loop,
             options,
             css
@@ -229,6 +230,7 @@ impl<T: Layout> App<T> {
     pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>) -> Result<Window<T>, WindowCreateError> {
         Window::new_hot_reload(
             &mut self.app_state.resources.fake_display.render_api,
+            &mut self.app_state.resources.fake_display.hidden_display.gl_window().context(),
             &mut self.app_state.resources.fake_display.hidden_events_loop,
             options,
             css_loader
@@ -498,8 +500,11 @@ fn render_single_window_content<T: Layout>(
         *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
     }
 
-    // Fixes a bug in wayland not resizing the window surface correctly
-    #[cfg(target_os = "linux")] {
+    // See: https://docs.rs/glutin/0.19.0/glutin/struct.GlWindow.html#method.resize
+    //
+    // Some platforms (macOS, Wayland) require being manually updated when their window
+    // or surface is resized.
+    #[cfg(not(target_os = "windows"))] {
         if frame_event_info.is_resize_event {
             // Resize gl window
             let gl_window = window.display.gl_window();
