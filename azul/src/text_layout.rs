@@ -733,9 +733,9 @@ pub fn align_text_horz(
         return; // ??? maybe a 0-height rectangle?
     }
 
-    // assert that the last info in the line_breaks vec has the same glyph index
-    // i.e. the last line has to end with the last glyph
-    assert!(glyphs.len() - 1 == line_breaks[line_breaks.len() - 1].0);
+    // // assert that the last info in the line_breaks vec has the same glyph index
+    // // i.e. the last line has to end with the last glyph
+    // assert!(glyphs.len() - 1 == line_breaks[line_breaks.len() - 1].0);
 
     let multiply_factor = match alignment {
         Left => return,
@@ -787,11 +787,11 @@ pub fn align_text_vert(
         return;
     }
 
-    // Die if we have a line break at a position bigger than the position of the last glyph,
-    // because something went horribly wrong!
-    //
-    // The next unwrap is always safe as line_breaks will have a minimum of one entry!
-    assert!(glyphs.len() - 1 == line_breaks.last().unwrap().0);
+    // // Die if we have a line break at a position bigger than the position of the last glyph,
+    // // because something went horribly wrong!
+    // //
+    // // The next unwrap is always safe as line_breaks will have a minimum of one entry!
+    // assert!(glyphs.len() - 1 == line_breaks.last().unwrap().0);
 
     let multiply_factor = match alignment {
         Top => return,
@@ -828,4 +828,34 @@ pub struct LayoutTextResult {
     pub scaled_words: ScaledWords,
     /// Layout of the positions, word-by-word
     pub word_positions: WordPositions,
+}
+
+#[test]
+fn test_split_words() {
+    use self::Word::*;
+    let words_ascii = split_text_into_words("abc\tdef  \nghi\r\njkl");
+    let words_ascii_expected = Words {
+        items: vec![
+            Word("abc".to_string()),
+            Tab,
+            Word("def".to_string()),
+            Space,
+            Space,
+            Return,
+            Word("ghi".to_string()),
+            Return,
+            Word("jkl".to_string()),
+        ]
+    };
+    assert_eq!(words_ascii, words_ascii_expected);
+
+    let words_unicode = split_text_into_words("㌊㌋㌌㌍㌎㌏㌐㌑ ㌒㌓㌔㌕㌖㌗");
+    let words_unicode_expected = Words {
+        items: vec![
+            Word("㌊㌋㌌㌍㌎㌏㌐㌑".to_string()),
+            Space,
+            Word("㌒㌓㌔㌕㌖㌗".to_string()),
+        ]
+    };
+    assert_eq!(words_unicode, words_unicode_expected);
 }

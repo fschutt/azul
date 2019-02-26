@@ -329,13 +329,16 @@ impl<T: Layout> App<T> {
                 _ => { events.push(e); },
             });
 
-            self.app_state.resources.start_new_frame();
+            if !events.is_empty() {
+                // Tell the font + image GC to start a new frame
+                self.app_state.resources.start_new_frame();
+            }
 
             for (current_window_id, mut window) in self.windows.iter_mut() {
 
                 // Only process the events belong to this window ID...
                 let window_events = events.iter().cloned().filter(|e| match e {
-                    Event::WindowEvent { event, window_id } => current_window_id == window_id,
+                    Event::WindowEvent { window_id, .. } => current_window_id == window_id,
                     _ => false
                 }).collect::<Vec<Event>>();
 
@@ -396,7 +399,9 @@ impl<T: Layout> App<T> {
             }
 
             // Automatically remove unused fonts and images from webrender
-            self.app_state.resources.garbage_collect_fonts_and_images();
+            if !events.is_empty() {
+                self.app_state.resources.garbage_collect_fonts_and_images();
+            }
 
             if !frame_was_resize {
                 // Wait until 16ms have passed, but not during a resize event
