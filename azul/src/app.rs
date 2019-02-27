@@ -554,6 +554,7 @@ fn render_single_window_content<T: Layout>(
     // NOTE: render() blocks on rendering, so swapping the buffer has to happen after rendering!
     if frame_event_info.should_redraw_window || frame_event_info.is_resize_event || awakened_task[window_id] || force_redraw_cache[window_id] > 0 {
         if frame_event_info.should_redraw_window || frame_event_info.is_resize_event || awakened_task[window_id] || force_redraw_cache[window_id] == 1 {
+            /*
             window.display.swap_buffers()?;
             // The initial setup can lead to flickering / flasthing during startup, this
             // prevents flickering on startup
@@ -562,6 +563,7 @@ fn render_single_window_content<T: Layout>(
                 window.state.is_visible = true;
                 window.create_options.state.is_visible = false;
             }
+            */
         }
         if let Some(i) = force_redraw_cache.get_mut(window_id) {
             if *i > 0 { *i -= 1 };
@@ -989,7 +991,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
 //
 // For some reason, webrender allows rendering negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(window: &Window<T>, app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
+fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
 
     use gleam::gl;
     use window::get_gl_context;
@@ -1014,6 +1016,15 @@ fn render_inner<T: Layout>(window: &Window<T>, app_resources: &mut AppResources,
 
     // Invoke webrender to render the frame - renders to the currently bound FB
     app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
+
+    window.display.swap_buffers().unwrap();
+    // The initial setup can lead to flickering / flasthing during startup, this
+    // prevents flickering on startup
+    if window.create_options.state.is_visible && window.state.is_visible {
+        window.display.gl_window().window().show();
+        window.state.is_visible = true;
+        window.create_options.state.is_visible = false;
+    }
 
     // Reset the program to what it was before
     get_gl_context(&app_resources.fake_display.hidden_display).unwrap().use_program(current_program[0] as u32);
