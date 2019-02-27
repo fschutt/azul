@@ -404,10 +404,18 @@ pub fn position_words(
         advance_caret!(line_caret_x);
     }
 
-    for (word_idx, word) in words.items.iter().enumerate() {
+    // NOTE: word_idx increases only on words, not on other symbols!
+    let mut word_idx = 0;
+
+    for word in &words.items {
         match word {
             Word(w) => {
-                let scaled_word = &scaled_words.items[word_idx];
+
+                let scaled_word = match scaled_words.items.get(word_idx) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
                 let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
                 word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
 
@@ -420,6 +428,7 @@ pub fn position_words(
                 advance_caret!(new_caret_x);
                 line_caret_x = new_caret_x;
                 current_word_idx = word_idx;
+                word_idx += 1;
             },
             Return => {
                 line_breaks.push((current_word_idx, line_caret_x));
