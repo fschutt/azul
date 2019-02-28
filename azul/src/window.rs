@@ -1011,6 +1011,7 @@ impl<'a, T: Layout> Window<T> {
         }
     }
 
+    #[allow(unused_variables)]
     pub(crate) fn update_from_external_window_state(
         &mut self,
         frame_event_info: &mut FrameEventInfo,

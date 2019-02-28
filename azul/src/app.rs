@@ -985,6 +985,13 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
 
     let (_, framebuffer_size) = convert_window_size(&window.state.size);
 
+    // Especially during minimization / maximization of a window, it can happen that the window
+    // width or height is zero. In that case, no rendering is necessary (doing so would crash
+    // the application, since glTexImage2D may never have a 0 as the width or height.
+    if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
+        return;
+    }
+
     window.internal.epoch = increase_epoch(window.internal.epoch);
 
     txn.set_root_pipeline(window.internal.pipeline_id);
