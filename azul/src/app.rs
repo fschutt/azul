@@ -553,18 +553,6 @@ fn render_single_window_content<T: Layout>(
 
     // NOTE: render() blocks on rendering, so swapping the buffer has to happen after rendering!
     if frame_event_info.should_redraw_window || frame_event_info.is_resize_event || awakened_task[window_id] || force_redraw_cache[window_id] > 0 {
-        if frame_event_info.should_redraw_window || frame_event_info.is_resize_event || awakened_task[window_id] || force_redraw_cache[window_id] == 1 {
-            /*
-            window.display.swap_buffers()?;
-            // The initial setup can lead to flickering / flasthing during startup, this
-            // prevents flickering on startup
-            if window.create_options.state.is_visible && window.state.is_visible {
-                window.display.gl_window().window().show();
-                window.state.is_visible = true;
-                window.create_options.state.is_visible = false;
-            }
-            */
-        }
         if let Some(i) = force_redraw_cache.get_mut(window_id) {
             if *i > 0 { *i -= 1 };
             if *i == 1 {
@@ -1051,12 +1039,6 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         // Check that the framebuffer is complete
         assert_eq!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER), gl::FRAMEBUFFER_COMPLETE);
 
-        // TODO: unnecessary already done at the top?
-        // gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
-
-        // Render on the whole framebuffer, complete from the lower left corner to the upper right
-        gl_context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
-
         // Disable SRGB and multisample, otherwise, WebRender will crash
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
@@ -1070,19 +1052,20 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         // Read from the rendered FBO, write to the backbuffer
         window_gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, framebuffers[0]);
         window_gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
-        window_gl_context.read_buffer(gl::COLOR_ATTACHMENT0);
-        window_gl_context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
+
         window_gl_context.blit_framebuffer(
             0, 0, framebuffer_size.width, framebuffer_size.height,
             0, 0, framebuffer_size.width, framebuffer_size.height,
-            gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT, gl::NEAREST,
+            gl::COLOR_BUFFER_BIT, gl::NEAREST,
         );
 
-        // Reset read and write FBOs for the window
+        // Reset read and write FBOs
         window_gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, 0);
         window_gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
 
+        window.display.gl_window().make_current().unwrap();
         window.display.swap_buffers().unwrap();
+        app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
 
         gl_context.delete_textures(&textures);
         gl_context.delete_renderbuffers(&depthbuffers);

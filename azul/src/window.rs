@@ -21,7 +21,7 @@ use glium::{
     debug::DebugCallbackBehavior,
     glutin::{
         self, EventsLoop, AvailableMonitorsIter, ContextTrait, CombinedContext, CreationError,
-        MonitorId, EventsLoopProxy, ContextError, ContextBuilder, WindowId as GliumWindowId,
+        MonitorId, ContextError, ContextBuilder, WindowId as GliumWindowId,
         Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Icon, Context,
         dpi::{LogicalSize, PhysicalSize}
     },
@@ -583,37 +583,20 @@ impl_from!(IncompatibleOpenGl, WindowCreateError::Gl);
 impl_from!(DisplayCreationError, WindowCreateError::DisplayCreateError);
 impl_from!(ContextError, WindowCreateError::Context);
 
-struct Notifier {
-    events_loop_proxy: EventsLoopProxy,
-}
-
-impl Notifier {
-    fn new(events_loop_proxy: EventsLoopProxy) -> Notifier {
-        Notifier {
-            events_loop_proxy
-        }
-    }
-}
+struct Notifier { }
 
 impl RenderNotifier for Notifier {
     fn clone(&self) -> Box<RenderNotifier> {
-        Box::new(Notifier {
-            events_loop_proxy: self.events_loop_proxy.clone(),
-        })
+        Box::new(Notifier { })
     }
 
-    fn wake_up(&self) {
-        #[cfg(not(target_os = "android"))]
-        self.events_loop_proxy.wakeup().unwrap_or_else(|_| {
-            #[cfg(feature = "logging")] {
-                error!("couldn't wakeup event loop");
-            }
-        });
-    }
+    // NOTE: Rendering is single threaded (because that's the nature of OpenGL),
+    // so when the Renderer::render() function is finished, then the rendering
+    // is finished and done, the rendering is currently blocking (but only takes about 0.. There is no point in implementing RenderNotifier, it only leads to
+    // synchronization problems (when handling Event::Awakened).
 
-    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) {
-        self.wake_up();
-    }
+    fn wake_up(&self) { }
+    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) { }
 }
 
 /// Iterator over connected monitors (for positioning, etc.)
@@ -1080,7 +1063,9 @@ impl FakeDisplay {
 
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
         let gl = get_gl_context(&display)?;
-        let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
+
+        // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
+        let notifier = Box::new(Notifier { });
         let (mut renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor, background)?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
