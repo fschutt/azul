@@ -846,7 +846,7 @@ fn render<T: Layout>(
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, webrender_transaction);
     app_resources.fake_display.renderer.as_mut().unwrap().update();
 
-    render_inner(window, app_resources, framebuffer_size);
+    render_inner(window, app_resources);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -941,8 +941,7 @@ fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>, app_resources: 
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, txn);
     app_resources.fake_display.renderer.as_mut().unwrap().update();
 
-    let (_, physical_size) = convert_window_size(&window.state.size);
-    render_inner(window, app_resources, physical_size);
+    render_inner(window, app_resources);
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
@@ -986,48 +985,68 @@ fn increase_epoch(old: Epoch) -> Epoch {
     }
 }
 
-// See: https://github.com/servo/webrender/pull/2880
-// webrender doesn't reset the active shader back to what it was, but rather sets it
-// to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0
+// Function wrapper that is invoked on scrolling and normal rendering - only renders the
+// window contents and updates the screen, assumes that all transactions via the RenderApi
+// have been committed before this function is called.
 //
-// For some reason, webrender allows rendering negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources, framebuffer_size: DeviceIntSize) {
+// WebRender doesn't reset the active shader back to what it was, but rather sets it
+// to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0.
+// This leads to problems when invoking GlTextureCallbacks, because those don't expect
+// the OpenGL state to change between calls. Also see: https://github.com/servo/webrender/pull/2880
+//
+// NOTE: For some reason, webrender allows rendering to a framebuffer with a
+// negative width / height, although that doesn't make sense
+fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources) {
 
     use gleam::gl;
     use window::get_gl_context;
     use glium::glutin::ContextTrait;
 
-    let mut current_program = [0_i32];
+    let (_, framebuffer_size) = convert_window_size(&window.state.size);
 
     unsafe {
 
-        // NOTE: Must share OpenGL context across all windows, otherwise this will segfault!
-        // MUST be invoked before .bind_framebuffer, otherwise EGL will panic with EGL_BAD_MATCH
-        window.display.gl_window().make_current().unwrap();
-
+        // NOTE: GlContext is the context of the app-global, hidden window
+        // (that shares the renderer), not the context of the window itself.
         let gl_context = get_gl_context(&app_resources.fake_display.hidden_display).unwrap();
+
+        // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
+        // otherwise this will segfault! Use `ContextBuilder::with_shared_lists` to share the
+        // OpenGL context across different windows.
+        //
+        // The context **must** be made current before calling `.bind_framebuffer()`,
+        // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
+        // hidden_display context, otherwise this will segfault on Windows.
+        app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
+
+        let mut current_program = [0_i32];
         gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
 
-        // TODO: Bind this framebuffer to a texture !!!
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        // Generate a color-only framebuffer (that will contail the final, rendered screen output).
+        let framebuffers = gl_context.gen_framebuffers(1);
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
+
+        // Invoke WebRender to render the frame - renders to the currently bound FB
+        app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
+
+        // The rendered frame should now be stored on the framebuffers[0]
+        // TODO: How to write the framebuffer from the framebuffer[0] onto the window.display backbuffer?
+        window.display.swap_buffers().unwrap();
+
+        gl_context.delete_framebuffers(&framebuffers);
+        gl_context.use_program(current_program[0] as u32);
+
     };
 
-    // Invoke webrender to render the frame - renders to the currently bound FB
-    app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
-
-    window.display.swap_buffers().unwrap();
-    // The initial setup can lead to flickering / flasthing during startup, this
-    // prevents flickering on startup
+    // The initial setup can lead to flickering during startup, by default
+    // the window is hidden until the first frame has been rendered.
     if window.create_options.state.is_visible && window.state.is_visible {
         window.display.gl_window().window().show();
         window.state.is_visible = true;
         window.create_options.state.is_visible = false;
     }
-
-    // Reset the program to what it was before
-    get_gl_context(&app_resources.fake_display.hidden_display).unwrap().use_program(current_program[0] as u32);
 }
 
 fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
