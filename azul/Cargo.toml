@@ -21,7 +21,7 @@ autoexamples = false
 azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
 azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
-azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "8415c3377fb9d3d92ad74c1dd8c21355e39db762" }
+azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "1a216fc500b034fb95de3489c8163a1b2d761deb" }
 serde_derive            = { version = "1",                    optional = true }
 serde                   = { version = "1",                    optional = true }
 
