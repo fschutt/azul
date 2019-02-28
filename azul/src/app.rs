@@ -836,17 +836,10 @@ fn render<T: Layout>(
             true,
         );
 
-        txn.set_root_pipeline(window.internal.pipeline_id);
-        scroll_all_nodes(&mut window.scroll_states, &mut txn);
-        txn.generate_frame();
         txn
     };
 
-    window.internal.epoch = increase_epoch(window.internal.epoch);
-    app_resources.fake_display.render_api.send_transaction(window.internal.document_id, webrender_transaction);
-    app_resources.fake_display.renderer.as_mut().unwrap().update();
-
-    render_inner(window, app_resources);
+    render_inner(window, app_resources, webrender_transaction);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -929,19 +922,7 @@ fn render_on_scroll<T: Layout>(
 }
 
 fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources) {
-
-    use webrender::api::*;
-
-    let mut txn = Transaction::new();
-
-    scroll_all_nodes(&mut window.scroll_states, &mut txn);
-
-    txn.generate_frame();
-
-    app_resources.fake_display.render_api.send_transaction(window.internal.document_id, txn);
-    app_resources.fake_display.renderer.as_mut().unwrap().update();
-
-    render_inner(window, app_resources);
+    render_inner(window, app_resources, Transaction::new());
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
@@ -996,13 +977,24 @@ fn increase_epoch(old: Epoch) -> Epoch {
 //
 // NOTE: For some reason, webrender allows rendering to a framebuffer with a
 // negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources) {
+fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources, mut txn: Transaction) {
 
     use gleam::gl;
     use window::get_gl_context;
     use glium::glutin::ContextTrait;
 
     let (_, framebuffer_size) = convert_window_size(&window.state.size);
+
+    window.internal.epoch = increase_epoch(window.internal.epoch);
+
+    txn.set_root_pipeline(window.internal.pipeline_id);
+    scroll_all_nodes(&mut window.scroll_states, &mut txn);
+    txn.generate_frame();
+
+    app_resources.fake_display.render_api.send_transaction(window.internal.document_id, txn);
+
+    // Update WR texture cache
+    app_resources.fake_display.renderer.as_mut().unwrap().update();
 
     unsafe {
 
@@ -1022,20 +1014,75 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         let mut current_program = [0_i32];
         gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
 
-        // Generate a color-only framebuffer (that will contail the final, rendered screen output).
+        // Generate a framebuffer (that will contain the final, rendered screen output).
         let framebuffers = gl_context.gen_framebuffers(1);
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
+
+        // Create the texture to render to
+        let textures = gl_context.gen_textures(1);
+
+        gl_context.bind_texture(gl::TEXTURE_2D, textures[0]);
+        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
+
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_COMPARE_MODE, gl::COMPARE_REF_TO_TEXTURE as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_COMPARE_FUNC, gl::LEQUAL as i32);
+
+        let depthbuffers = gl_context.gen_renderbuffers(1);
+        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers[0]);
+        gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, framebuffer_size.width, framebuffer_size.height);
+        gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers[0]);
+
+        // Set "textures[0]" as the color attachement #0
+        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures[0], 0);
+
+        gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
+
+        // Check that the framebuffer is complete
+        assert_eq!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER), gl::FRAMEBUFFER_COMPLETE);
+
+        // TODO: unnecessary already done at the top?
+        // gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
+
+        // Render on the whole framebuffer, complete from the lower left corner to the upper right
+        gl_context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
+
+        // Disable SRGB and multisample, otherwise, WebRender will crash
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
 
         // Invoke WebRender to render the frame - renders to the currently bound FB
         app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
-        // The rendered frame should now be stored on the framebuffers[0]
-        // TODO: How to write the framebuffer from the framebuffer[0] onto the window.display backbuffer?
+        // Blit the rendered frame from framebuffers[0] to the corresponding screen
+        let window_gl_context = get_gl_context(&window.display).unwrap();
+
+        // Read from the rendered FBO, write to the backbuffer
+        window_gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, framebuffers[0]);
+        window_gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
+        window_gl_context.read_buffer(gl::COLOR_ATTACHMENT0);
+        window_gl_context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
+        window_gl_context.blit_framebuffer(
+            0, 0, framebuffer_size.width, framebuffer_size.height,
+            0, 0, framebuffer_size.width, framebuffer_size.height,
+            gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT, gl::NEAREST,
+        );
+
+        // Reset read and write FBOs for the window
+        window_gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, 0);
+        window_gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
+
         window.display.swap_buffers().unwrap();
 
+        gl_context.delete_textures(&textures);
+        gl_context.delete_renderbuffers(&depthbuffers);
         gl_context.delete_framebuffers(&framebuffers);
+
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        gl_context.bind_texture(gl::TEXTURE_2D, 0);
         gl_context.use_program(current_program[0] as u32);
 
     };
