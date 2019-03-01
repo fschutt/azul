@@ -103,6 +103,8 @@ pub struct ScaledWords {
     /// Longest word in the `self.scaled_words`, necessary for
     /// calculating overflow rectangles.
     pub longest_word_width: f32,
+    /// Horizontal advance of the space glyph
+    pub space_dimensions: GlyphDimensions,
 }
 
 /// Word that is scaled (to a font / font instance), but not yet positioned
@@ -285,6 +287,12 @@ pub fn words_to_scaled_words(
 
     let mut longest_word_width = 0.0;
 
+    // Get the dimensions of the space glyph
+    let space_glyph_indices = render_api.get_glyph_indices(font_key, " ");
+    let space_glyph_indices = space_glyph_indices.into_iter().filter_map(|e| e).collect::<Vec<u32>>();
+    let space_glyph_dimensions = render_api.get_glyph_dimensions(font_instance_key, space_glyph_indices);
+    let space_glyph_dimensions = space_glyph_dimensions.into_iter().filter_map(|dim| dim).collect::<Vec<GlyphDimensions>>()[0];
+
     let glyphs = words.items.iter().filter_map(|word| {
         let word = match word {
             Word(w) => w,
@@ -329,6 +337,7 @@ pub fn words_to_scaled_words(
         font_instance_key,
         items: glyphs,
         longest_word_width: longest_word_width,
+        space_dimensions: space_glyph_dimensions,
     }
 }
 
@@ -357,10 +366,11 @@ pub fn position_words(
     // Currently just using the font size as the space width...
 
     let font_size_px = font_size.0;
-    let word_spacing_px = font_size_px + text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_CHAR_SPACING);
-    let line_height_px = font_size_px * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
-    let letter_spacing_px = font_size_px * text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
-    let tab_width_px = font_size_px * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
+    let space_advance = scaled_words.space_dimensions.advance;
+    let word_spacing_px = space_advance + text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_CHAR_SPACING);
+    let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
+    let letter_spacing_px = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
+    let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
