@@ -1046,30 +1046,20 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         // Invoke WebRender to render the frame - renders to the currently bound FB
         app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
-        // Blit the rendered frame from framebuffers[0] to the corresponding screen
-        let window_gl_context = get_gl_context(&window.display).unwrap();
+        gl_context.delete_framebuffers(&framebuffers);
+        gl_context.delete_renderbuffers(&depthbuffers);
 
-        // Read from the rendered FBO, write to the backbuffer
-        window_gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, framebuffers[0]);
-        window_gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
-
-        window_gl_context.blit_framebuffer(
-            0, 0, framebuffer_size.width, framebuffer_size.height,
-            0, 0, framebuffer_size.width, framebuffer_size.height,
-            gl::COLOR_BUFFER_BIT, gl::NEAREST,
-        );
-
-        // Reset read and write FBOs
-        window_gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, 0);
-        window_gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
-
+        // FBOs can't be shared between windows, but textures can.
+        // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
+        let window_context = get_gl_context(&window.display).unwrap();
+        draw_texture_to_screen(&*window_context, textures[0]);
         window.display.swap_buffers().unwrap();
+
         app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
 
+        // Only delete the texture here...
         gl_context.delete_textures(&textures);
-        gl_context.delete_renderbuffers(&depthbuffers);
-        gl_context.delete_framebuffers(&framebuffers);
 
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.bind_texture(gl::TEXTURE_2D, 0);
@@ -1084,6 +1074,134 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         window.state.is_visible = true;
         window.create_options.state.is_visible = false;
     }
+}
+
+use gleam::gl::{self, Gl, GLuint};
+
+// const SHADER_VERSION_GL: &[u8] = b"#version 140\r\n\0";
+// const SHADER_VERSION_GLES: &[u8] = b"#version 300 es\r\n\0";
+
+const DISPLAY_VERTEX_SHADER: &[u8] = b"
+    #version 140
+    out vec2 vTexCoords;
+    void main() {
+        float x = -1.0 + float((gl_VertexID & 1) << 2);
+        float y = -1.0 + float((gl_VertexID & 2) << 1);
+        vTexCoords = vec2((x+1.0)*0.5, (y+1.0)*0.5);
+        gl_Position = vec4(x, y, 0, 1);
+    }
+\0";
+
+/// Shader that samples an input texture (`fScreenTex`) to the output FB.
+const DISPLAY_FRAGMENT_SHADER: &[u8] = b"
+    #version 140
+    in vec2 vTexCoords;
+    uniform sampler2D fScreenTex;
+    out vec4 fColorOut;
+
+    void main() {
+        fColorOut = texture(fScreenTex, vTexCoords);
+    }
+\0";
+
+// NOTE: Compilation is thread-unsafe, should only be compiled on the main thread
+static mut DISPLAY_SHADER: Option<GLuint> = None;
+
+/// Compiles the display vertex / fragment shader, returns the compiled shaders.
+fn compile_screen_shader(context: &Gl) -> GLuint {
+
+    unsafe {
+        match DISPLAY_SHADER {
+            Some(s) => return s,
+            None => { },
+        }
+    }
+
+    let vertex_shader_object = context.create_shader(gl::VERTEX_SHADER);
+    context.shader_source(vertex_shader_object, &[DISPLAY_VERTEX_SHADER]);
+    context.compile_shader(vertex_shader_object);
+    if get_gl_shader_error(context, vertex_shader_object) {
+        let err = context.get_shader_info_log(vertex_shader_object);
+        context.delete_shader(vertex_shader_object);
+        panic!("VS compile error: {}", err);
+    }
+
+    let fragment_shader_object = context.create_shader(gl::FRAGMENT_SHADER);
+    context.shader_source(fragment_shader_object, &[DISPLAY_FRAGMENT_SHADER]);
+    context.compile_shader(fragment_shader_object);
+    if get_gl_shader_error(context, fragment_shader_object) {
+        let err = context.get_shader_info_log(fragment_shader_object);
+        context.delete_shader(vertex_shader_object);
+        context.delete_shader(fragment_shader_object);
+        panic!("FS compile error: {}", err);
+    }
+
+    let program = context.create_program();
+    context.attach_shader(program, vertex_shader_object);
+    context.attach_shader(program, fragment_shader_object);
+    context.link_program(program);
+    if get_gl_program_error(context, program) {
+        let err = context.get_program_info_log(program);
+        context.delete_shader(vertex_shader_object);
+        context.delete_shader(fragment_shader_object);
+        context.delete_program(program);
+        panic!("Program link error: {}", err);
+    }
+
+    // context.detach_shader(program, vertex_shader_object);
+    // context.detach_shader(program, fragment_shader_object);
+    context.delete_shader(vertex_shader_object);
+    context.delete_shader(fragment_shader_object);
+
+    unsafe { DISPLAY_SHADER = Some(program) };
+
+    program
+}
+
+// Returns true on error, false otherwise
+fn get_gl_shader_error(context: &Gl, shader_object: GLuint) -> bool {
+    let mut err = [0];
+    unsafe { context.get_shader_iv(shader_object, gl::COMPILE_STATUS, &mut err) };
+    err[0] == 0
+}
+
+fn get_gl_program_error(context: &Gl, shader_object: GLuint) -> bool {
+    let mut err = [0];
+    unsafe { context.get_program_iv(shader_object, gl::LINK_STATUS, &mut err) };
+    err[0] == 0
+}
+
+// Draws a texture to the currently bound framebuffer
+fn draw_texture_to_screen(context: &Gl, texture: GLuint) {
+
+    context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+
+    // Compile or get the cached shader
+    let shader = compile_screen_shader(context);
+    let texture_location = context.get_uniform_location(shader, "fScreenTex");
+
+    // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:
+    //
+    // TEXTURE0 = uniform_1i(location, 0);
+    // TEXTURE1 = uniform_1i(location, 1);
+
+    context.active_texture(gl::TEXTURE0);
+    context.bind_texture(gl::TEXTURE_2D, texture);
+    context.use_program(shader);
+    context.uniform_1i(texture_location, 0);
+
+    // The vertices are generated in the vertex shader using gl_VertexID, however,
+    // drawing without a VAO is not allowed (except for glDrawArraysInstanced,
+    // which is only available in OGL 3.3)
+
+    let vao = context.gen_vertex_arrays(1);
+    context.bind_vertex_array(vao[0]);
+    context.draw_arrays(gl::TRIANGLE_STRIP, 0, 6);
+    context.delete_vertex_arrays(&vao);
+
+    context.bind_vertex_array(0);
+    context.use_program(0);
+    context.bind_texture(gl::TEXTURE_2D, 0);
 }
 
 fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
