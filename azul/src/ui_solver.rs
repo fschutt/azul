@@ -1169,31 +1169,34 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
         get_content_width(&node_id, &node.node_type, app_resources, &word_positions_no_max_width)
     });
 
+    let content_width_pre = node_data.transform(|node, node_id| None);
     let solved_widths = solve_flex_layout_width(
         node_hierarchy,
         &display_rects,
-        &content_widths,
+        &content_width_pre,
         rect_size.width as f32,
     );
 
-    // Layout the words again, this time with the proper width constraints!
-    let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
-        (node_id, TextSizePx(solved_widths.solved_widths[node_id].total()))
-    }).collect();
+    // // Layout the words again, this time with the proper width constraints!
+    // let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
+    //     (node_id, TextSizePx(solved_widths.solved_widths[node_id].total()))
+    // }).collect();
 
-    let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
+    // let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
 
     // Get the content height of the content
     let content_heights = node_data.transform(|node, node_id| {
         let div_width = solved_widths.solved_widths[node_id].total();
-        get_content_height(&node_id, &node.node_type, app_resources, &word_positions_with_max_width, div_width)
+        get_content_height(&node_id, &node.node_type, app_resources, &word_positions_no_max_width, div_width)
     });
+
+    let content_heights_pre = node_data.transform(|node, node_id| None);
 
     // TODO: The content height is not the final height!
     let solved_heights = solve_flex_layout_height(
         node_hierarchy,
         &solved_widths,
-        &content_heights,
+        &content_heights_pre,
         rect_size.height as f32,
     );
 
@@ -1218,7 +1221,8 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
         rects: layouted_rects,
         word_cache,
         scaled_words,
-        positioned_word_cache: word_positions_with_max_width,
+        // positioned_word_cache: word_positions_with_max_width,
+        positioned_word_cache: word_positions_no_max_width,
         node_depths: solved_widths.non_leaf_nodes_sorted_by_depth,
     }
 }

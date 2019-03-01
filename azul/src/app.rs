@@ -1004,6 +1004,8 @@ fn render_inner<T: Layout>(
     // Update WR texture cache
     app_resources.fake_display.renderer.as_mut().unwrap().update();
 
+    let background_color_f: ColorF = background_color.into();
+
     unsafe {
 
         // NOTE: GlContext is the context of the app-global, hidden window
@@ -1055,7 +1057,6 @@ fn render_inner<T: Layout>(
         gl_context.disable(gl::MULTISAMPLE);
 
         // Invoke WebRender to render the frame - renders to the currently bound FB
-        let background_color_f: ColorF = background_color.into();
         gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
         gl_context.clear_depth(0.0);
         app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
@@ -1067,7 +1068,7 @@ fn render_inner<T: Layout>(
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
         let window_context = get_gl_context(&window.display).unwrap();
-        draw_texture_to_screen(&*window_context, textures[0], background_color_f);
+        draw_texture_to_screen(&*window_context, textures[0], background_color_f, framebuffer_size.width, framebuffer_size.height);
         window.display.swap_buffers().unwrap();
 
         app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
@@ -1090,20 +1091,6 @@ fn render_inner<T: Layout>(
     }
 }
 
-/*
-const DISPLAY_VERTEX_SHADER: &[u8] = b"
-    #version 140
-    out vec2 vTexCoords;
-    void main() {
-        float x = float(((uint(gl_VertexID) + 2u) / 3u)%2u);
-        float y = float(((uint(gl_VertexID) + 1u) / 3u)%2u);
-
-        gl_Position = vec4(-1.0f + x*2.0f, -1.0f+y*2.0f, 0.0f, 1.0f);
-        vTexCoords = vec2(x, y);
-    }
-\0";
-*/
-
 const DISPLAY_VERTEX_SHADER: &[u8] = b"
     #version 140
     out vec2 vTexCoords;
@@ -1123,8 +1110,7 @@ const DISPLAY_FRAGMENT_SHADER: &[u8] = b"
     out vec4 fColorOut;
 
     void main() {
-        // fColorOut = texture(fScreenTex, vTexCoords);
-        fColorOut = vec4(vTexCoords, 0.0, 1.0);
+        fColorOut = texture(fScreenTex, vTexCoords);
     }
 \0";
 
@@ -1196,7 +1182,7 @@ fn get_gl_program_error(context: &Gl, shader_object: GLuint) -> bool {
 }
 
 // Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
-fn draw_texture_to_screen(context: &Gl, texture: GLuint, background_color_f: ColorF) {
+fn draw_texture_to_screen(context: &Gl, texture: GLuint, background_color_f: ColorF, w: i32, h: i32) {
 
     context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 
@@ -1222,6 +1208,7 @@ fn draw_texture_to_screen(context: &Gl, texture: GLuint, background_color_f: Col
     context.bind_vertex_array(vao[0]);
     context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
     context.clear_depth(0.0);
+    context.viewport(0, 0, w, h);
     context.draw_arrays(gl::TRIANGLE_STRIP, 0, 3);
     context.delete_vertex_arrays(&vao);
 
