@@ -11,10 +11,11 @@ use azul_css::HotReloadHandler;
 use glium::{
     SwapBuffersError,
     glutin::{
-        Event, WindowId as GliumWindowId,
+        Event, WindowEvent, WindowId as GliumWindowId,
         dpi::{LogicalPosition, LogicalSize}
     },
 };
+use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
     api::{
@@ -27,7 +28,7 @@ use webrender::{
 use app_resources::ImageSource;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
-use azul_css::{Css, ColorU};
+use azul_css::{Css, ColorU, ColorF};
 use {
     error::ClipboardError,
     window::{
@@ -329,23 +330,24 @@ impl<T: Layout> App<T> {
                 _ => { events.push(e); },
             });
 
+            // let current_desktop_events = get_desktop_events(window, &events);
+
             for (current_window_id, mut window) in self.windows.iter_mut() {
 
                 // Only process the events belong to this window ID...
-                let window_events = events.iter().cloned().filter(|e| match e {
-                    Event::WindowEvent { window_id, .. } => current_window_id == window_id,
-                    _ => false
-                }).collect::<Vec<Event>>();
-
-                if window_events.is_empty() {
-                    continue;
-                }
+                let window_events = events.iter().cloned().filter_map(|e| match e {
+                    Event::WindowEvent { window_id, event } => {
+                        if *current_window_id == window_id { Some(event) } else { None }
+                    },
+                    _ => None
+                }).collect::<Vec<WindowEvent>>();
 
                 let (event_was_resize, window_was_closed) =
                     render_single_window_content(
-                        &mut window,
+                        &self.config,
                         &window_events,
                         &current_window_id,
+                        &mut window,
                         &mut self.app_state,
                         &mut ui_state_cache,
                         &mut ui_description_cache,
@@ -359,6 +361,11 @@ impl<T: Layout> App<T> {
 
                 if window_was_closed {
                     closed_windows.push(*current_window_id);
+
+                    // TODO: Currently there is no way to return from the main event loop
+                    // i.e. the windows aren't actually getting closed
+                    // This is a hack, so that windows currently close properly
+                    return Ok(());
                 }
             }
 
@@ -433,9 +440,10 @@ daemon_api!(App::app_state);
 /// Render the contents of one single window. Returns
 /// (if the event was a resize event, if the window was closed)
 fn render_single_window_content<T: Layout>(
-    window: &mut Window<T>,
-    events: &[Event],
+    config: &AppConfig,
+    events: &[WindowEvent],
     window_id: &GliumWindowId,
+    window: &mut Window<T>,
     app_state: &mut AppState<T>,
     ui_state_cache: &mut BTreeMap<GliumWindowId, UiState<T>>,
     ui_description_cache: &mut BTreeMap<GliumWindowId, UiDescription<T>>,
@@ -451,8 +459,7 @@ fn render_single_window_content<T: Layout>(
         return Ok((false, false));
     }
 
-    let (mut frame_event_info, window_should_close) =
-        window.state.update_window_state(&events, awakened_task[window_id]);
+    let (mut frame_event_info, window_should_close) = window.state.update_window_state(&events);
 
     if window_should_close {
         // Event was not a resize event, window should close
@@ -490,7 +497,7 @@ fn render_single_window_content<T: Layout>(
     }
 
     // Scroll for the scrolled amount for each node that registered a scroll state.
-    render_on_scroll(window, hit_test_results, &frame_event_info, &mut app_state.resources);
+    let should_scroll_render = update_scroll_state(window, hit_test_results, &frame_event_info, &mut app_state.resources);
 
     if frame_event_info.is_resize_event {
         // This is a hack because during a resize event, winit eats the "awakened"
@@ -523,50 +530,57 @@ fn render_single_window_content<T: Layout>(
     // Reset the scroll amount to 0 (for the next frame)
     window.clear_scroll_state();
 
-    // Call the Layout::layout() fn, get the DOM
-    *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-        UiState::from_app_state(app_state, window_id)?;
+    const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
 
-    // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
-    let is_mouse_down = window.state.mouse_state.mouse_down();
+    let background_color = config.background_color.unwrap_or(COLOR_WHITE);
 
-    *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-        UiDescription::match_css_to_dom(
-            ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
-            &window.css,
-            &mut window.state.focused_node,
-            &mut window.state.pending_focus_target,
-            &window.state.hovered_nodes,
-            is_mouse_down,
+    // If there is already a layout construction in progress, prevent
+    // re-rendering on layout, otherwise this leads to jankiness during scrolling
+    if frame_event_info.should_redraw_window || awakened_task[window_id] || force_redraw_cache[window_id] > 0 {
+
+        // Call the Layout::layout() fn, get the DOM
+        *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
+            UiState::from_app_state(app_state, window_id)?;
+
+        // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
+        let is_mouse_down = window.state.mouse_state.mouse_down();
+
+        *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
+            UiDescription::match_css_to_dom(
+                ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
+                &window.css,
+                &mut window.state.focused_node,
+                &mut window.state.pending_focus_target,
+                &window.state.hovered_nodes,
+                is_mouse_down,
+            );
+
+        // Render the window (webrender will send an Awakened event when the frame is done)
+        let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
+        update_display_list(
+            &mut app_state.data,
+            &ui_description_cache[window_id],
+            &ui_state_cache[window_id],
+            &mut *window,
+            &mut fake_window,
+            &mut app_state.resources,
+            background_color,
         );
+        *awakened_task.get_mut(window_id).ok_or(WindowIndexError)? = false;
 
-    // Render the window (webrender will send an Awakened event when the frame is done)
-    let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
-    render(
-        &mut app_state.data,
-        &ui_description_cache[window_id],
-        &ui_state_cache[window_id],
-        &mut *window,
-        &mut fake_window,
-        &mut app_state.resources,
-    );
-
-    // NOTE: render() blocks on rendering, so swapping the buffer has to happen after rendering!
-    if frame_event_info.should_redraw_window || frame_event_info.is_resize_event || awakened_task[window_id] || force_redraw_cache[window_id] > 0 {
         if let Some(i) = force_redraw_cache.get_mut(window_id) {
             if *i > 0 { *i -= 1 };
             if *i == 1 {
                 clean_up_unused_opengl_textures(app_state.resources.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
             }
         }
+    } else {
+        if should_scroll_render || frame_event_info.is_resize_event {
+           render_inner(window, &mut app_state.resources, Transaction::new(), background_color);
+        }
     }
 
-    if force_redraw_cache[window_id] == 1 || frame_event_info.is_resize_event || awakened_task[window_id] {
-        *awakened_task.get_mut(window_id).ok_or(WindowIndexError)? = false;
-    }
-
-    let window_should_close = false;
-    Ok((frame_event_info.is_resize_event, window_should_close))
+    Ok((frame_event_info.is_resize_event, false))
 }
 
 /// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
@@ -650,7 +664,7 @@ struct CallCallbackReturn {
 /// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
 fn call_callbacks<T: Layout>(
     hit_test_results: Option<&HitTestResult>,
-    event: &Event,
+    event: &WindowEvent,
     window: &mut Window<T>,
     window_id: &GliumWindowId,
     ui_state: &UiState<T>,
@@ -776,17 +790,18 @@ fn call_callbacks<T: Layout>(
     })
 }
 
-fn render<T: Layout>(
+/// Build the display list and send it to webrender
+fn update_display_list<T: Layout>(
     app_data: &mut Arc<Mutex<T>>,
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
-    app_resources: &mut AppResources)
-{
+    app_resources: &mut AppResources,
+    background_color: ColorU,
+) {
     use display_list::DisplayList;
     use webrender::api::{Transaction, DeviceIntRect, DeviceIntPoint};
-
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
@@ -803,18 +818,12 @@ fn render<T: Layout>(
     let display_list_builder = builder.finalize().2;
     window.internal.last_scrolled_nodes = scrolled_nodes;
 
-    let (logical_size, framebuffer_size) = convert_window_size(&window.state.size);
+    let (logical_size, _) = convert_window_size(&window.state.size);
 
     let webrender_transaction = {
         let mut txn = Transaction::new();
 
         // Send webrender the size and buffer of the display
-        let bounds = DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size);
-        txn.set_window_parameters(
-            framebuffer_size.clone(),
-            bounds,
-            window.state.size.hidpi_factor as f32
-        );
 
         txn.set_display_list(
             window.internal.epoch,
@@ -827,7 +836,7 @@ fn render<T: Layout>(
         txn
     };
 
-    render_inner(window, app_resources, webrender_transaction);
+    render_inner(window, app_resources, webrender_transaction, background_color);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -858,19 +867,21 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 /// hit-testing and rendering - called on pure scroll events, since it's
 /// significantly less CPU-intensive to just render the last display list instead of
 /// re-layouting on every single scroll event.
-fn render_on_scroll<T: Layout>(
+#[must_use]
+fn update_scroll_state<T: Layout>(
     window: &mut Window<T>,
     hit_test_results: Option<HitTestResult>,
     frame_event_info: &FrameEventInfo,
     app_resources: &mut AppResources,
-) {
+) -> bool {
+
     const SCROLL_THRESHOLD: f64 = 0.5; // px
 
     let hit_test_results = match hit_test_results {
         Some(s) => s,
         None => match do_hit_test(&window, app_resources) {
             Some(s) => s,
-            None => return,
+            None => return false,
         }
     };
 
@@ -878,39 +889,29 @@ fn render_on_scroll<T: Layout>(
     let scroll_y = window.state.mouse_state.scroll_y;
 
     if scroll_x.abs() < SCROLL_THRESHOLD && scroll_y.abs() < SCROLL_THRESHOLD {
-        return;
+        return false;
     }
 
     let mut should_scroll_render = false;
 
-    {
-        let scrolled_nodes = &window.internal.last_scrolled_nodes;
-        let scroll_states = &mut window.scroll_states;
+    let scrolled_nodes = &window.internal.last_scrolled_nodes;
+    let scroll_states = &mut window.scroll_states;
 
-        for scroll_node in hit_test_results.items.iter()
-            .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag.0)))
-            .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id)) {
+    for scroll_node in hit_test_results.items.iter()
+        .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag.0)))
+        .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id)) {
 
-            // The external scroll ID is constructed from the DOM hash
-            let scroll_id = scroll_node.parent_external_scroll_id;
+        // The external scroll ID is constructed from the DOM hash
+        let scroll_id = scroll_node.parent_external_scroll_id;
 
-            if scroll_states.0.contains_key(&scroll_id) {
-                // TODO: make scroll speed configurable (system setting?)
-                scroll_states.scroll_node(&scroll_id, scroll_x as f32, scroll_y as f32);
-                should_scroll_render = true;
-            }
+        if scroll_states.0.contains_key(&scroll_id) {
+            // TODO: make scroll speed configurable (system setting?)
+            scroll_states.scroll_node(&scroll_id, scroll_x as f32, scroll_y as f32);
+            should_scroll_render = true;
         }
     }
 
-    // If there is already a layout construction in progress, prevent
-    // re-rendering on layout, otherwise this leads to jankiness during scrolling
-    if !frame_event_info.should_redraw_window && should_scroll_render {
-        render_on_scroll_no_layout(window, app_resources);
-    }
-}
-
-fn render_on_scroll_no_layout<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources) {
-    render_inner(window, app_resources, Transaction::new());
+    should_scroll_render
 }
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
@@ -965,11 +966,18 @@ fn increase_epoch(old: Epoch) -> Epoch {
 //
 // NOTE: For some reason, webrender allows rendering to a framebuffer with a
 // negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResources, mut txn: Transaction) {
+fn render_inner<T: Layout>(
+    window: &mut Window<T>,
+    app_resources: &mut AppResources,
+    mut txn: Transaction,
+    background_color: ColorU,
+) {
 
     use gleam::gl;
     use window::get_gl_context;
     use glium::glutin::ContextTrait;
+    use webrender::api::{DeviceIntRect, DeviceIntPoint};
+    use azul_css::ColorF;
 
     let (_, framebuffer_size) = convert_window_size(&window.state.size);
 
@@ -982,6 +990,11 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
 
     window.internal.epoch = increase_epoch(window.internal.epoch);
 
+    txn.set_window_parameters(
+        framebuffer_size.clone(),
+        DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size),
+        window.state.size.hidpi_factor as f32
+    );
     txn.set_root_pipeline(window.internal.pipeline_id);
     scroll_all_nodes(&mut window.scroll_states, &mut txn);
     txn.generate_frame();
@@ -1023,8 +1036,6 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_COMPARE_MODE, gl::COMPARE_REF_TO_TEXTURE as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_COMPARE_FUNC, gl::LEQUAL as i32);
 
         let depthbuffers = gl_context.gen_renderbuffers(1);
         gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers[0]);
@@ -1044,6 +1055,9 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         gl_context.disable(gl::MULTISAMPLE);
 
         // Invoke WebRender to render the frame - renders to the currently bound FB
+        let background_color_f: ColorF = background_color.into();
+        gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+        gl_context.clear_depth(0.0);
         app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
         gl_context.delete_framebuffers(&framebuffers);
@@ -1053,7 +1067,7 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
         let window_context = get_gl_context(&window.display).unwrap();
-        draw_texture_to_screen(&*window_context, textures[0]);
+        draw_texture_to_screen(&*window_context, textures[0], background_color_f);
         window.display.swap_buffers().unwrap();
 
         app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
@@ -1076,10 +1090,19 @@ fn render_inner<T: Layout>(window: &mut Window<T>, app_resources: &mut AppResour
     }
 }
 
-use gleam::gl::{self, Gl, GLuint};
+/*
+const DISPLAY_VERTEX_SHADER: &[u8] = b"
+    #version 140
+    out vec2 vTexCoords;
+    void main() {
+        float x = float(((uint(gl_VertexID) + 2u) / 3u)%2u);
+        float y = float(((uint(gl_VertexID) + 1u) / 3u)%2u);
 
-// const SHADER_VERSION_GL: &[u8] = b"#version 140\r\n\0";
-// const SHADER_VERSION_GLES: &[u8] = b"#version 300 es\r\n\0";
+        gl_Position = vec4(-1.0f + x*2.0f, -1.0f+y*2.0f, 0.0f, 1.0f);
+        vTexCoords = vec2(x, y);
+    }
+\0";
+*/
 
 const DISPLAY_VERTEX_SHADER: &[u8] = b"
     #version 140
@@ -1100,7 +1123,8 @@ const DISPLAY_FRAGMENT_SHADER: &[u8] = b"
     out vec4 fColorOut;
 
     void main() {
-        fColorOut = texture(fScreenTex, vTexCoords);
+        // fColorOut = texture(fScreenTex, vTexCoords);
+        fColorOut = vec4(vTexCoords, 0.0, 1.0);
     }
 \0";
 
@@ -1171,8 +1195,8 @@ fn get_gl_program_error(context: &Gl, shader_object: GLuint) -> bool {
     err[0] == 0
 }
 
-// Draws a texture to the currently bound framebuffer
-fn draw_texture_to_screen(context: &Gl, texture: GLuint) {
+// Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
+fn draw_texture_to_screen(context: &Gl, texture: GLuint, background_color_f: ColorF) {
 
     context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 
@@ -1196,7 +1220,9 @@ fn draw_texture_to_screen(context: &Gl, texture: GLuint) {
 
     let vao = context.gen_vertex_arrays(1);
     context.bind_vertex_array(vao[0]);
-    context.draw_arrays(gl::TRIANGLE_STRIP, 0, 6);
+    context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+    context.clear_depth(0.0);
+    context.draw_arrays(gl::TRIANGLE_STRIP, 0, 3);
     context.delete_vertex_arrays(&vao);
 
     context.bind_vertex_array(0);
