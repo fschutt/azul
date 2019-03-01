@@ -374,7 +374,7 @@ impl WindowState
     pub(crate) fn determine_callbacks<T: Layout>(
         &mut self,
         hit_test_items: &[HitTestItem],
-        event: &Event,
+        event: &WindowEvent,
         ui_state: &UiState<T>
     ) -> CallbacksOfHitTest<T>
     {
@@ -390,13 +390,7 @@ impl WindowState
         // BTreeMap<NodeId, DetermineCallbackResult<T>>
         let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>> = BTreeMap::new();
 
-        let current_desktop_events = get_desktop_events(self, event);
-
-        // TODO: process desktop events properly!
-        let event = if let Event::WindowEvent { event, .. } = event { event } else { return CallbacksOfHitTest::default(); };
-
         let current_window_events = get_window_events(self, event);
-
         let current_hover_events = get_hover_events(&current_window_events);
         let current_focus_events = get_focus_events(&current_hover_events);
 
@@ -478,6 +472,7 @@ impl WindowState
             })
         }
 
+        /*
         // Insert all normal desktop events
         for (desktop_node_id, desktop_callbacks) in &ui_state.desktop_callbacks {
             let normal_desktop_callbacks = desktop_callbacks.iter()
@@ -497,6 +492,7 @@ impl WindowState
                 .collect::<BTreeMap<_, _>>();
             insert_only_non_empty_callbacks!(desktop_node_id, None, normal_desktop_callbacks, default_desktop_callbacks);
         }
+        */
 
         // Insert all normal window events
         for (window_node_id, window_callbacks) in &ui_state.window_callbacks {
@@ -717,12 +713,13 @@ impl WindowState
         }
     }
 
-    pub(crate) fn update_window_state(&mut self, events: &[Event], awakened_task: bool) -> (FrameEventInfo, bool) {
+    // Returns the frame events + if the window should close
+    pub(crate) fn update_window_state(&mut self, events: &[WindowEvent]) -> (FrameEventInfo, bool) {
         let mut frame_event_info = FrameEventInfo::default();
         let mut should_window_close = false;
 
         for event in events {
-            if window_should_close(event, &mut frame_event_info, awakened_task) {
+            if window_should_close(event, &mut frame_event_info) {
                 should_window_close = true;
             }
             self.update_mouse_cursor_position(event);
@@ -735,18 +732,13 @@ impl WindowState
         (frame_event_info, should_window_close)
     }
 
-    fn update_keyboard_modifiers(&mut self, event: &Event) {
+    fn update_keyboard_modifiers(&mut self, event: &WindowEvent) {
         let modifiers = match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::KeyboardInput { input: KeyboardInput { modifiers, .. }, .. } |
-                    WindowEvent::CursorMoved { modifiers, .. } |
-                    WindowEvent::MouseWheel { modifiers, .. } |
-                    WindowEvent::MouseInput { modifiers, .. } => {
-                        Some(modifiers)
-                    },
-                    _ => None,
-                }
+            WindowEvent::KeyboardInput { input: KeyboardInput { modifiers, .. }, .. } |
+            WindowEvent::CursorMoved { modifiers, .. } |
+            WindowEvent::MouseWheel { modifiers, .. } |
+            WindowEvent::MouseInput { modifiers, .. } => {
+                Some(modifiers)
             },
             _ => None,
         };
@@ -759,31 +751,26 @@ impl WindowState
     /// After the initial events are filtered, this will update the mouse
     /// cursor position, if the event is a `CursorMoved` and set it to `None`
     /// if the cursor has left the window
-    fn update_mouse_cursor_position(&mut self, event: &Event) {
+    fn update_mouse_cursor_position(&mut self, event: &WindowEvent) {
         match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::CursorMoved { position, .. } => {
-                        let world_pos_x = position.x / self.size.hidpi_factor * self.size.winit_hidpi_factor;
-                        let world_pos_y = position.y / self.size.hidpi_factor * self.size.winit_hidpi_factor;
-                        self.mouse_state.cursor_pos = Some(LogicalPosition::new(world_pos_x, world_pos_y));
-                    },
-                    WindowEvent::CursorLeft { .. } => {
-                        self.mouse_state.cursor_pos = None;
-                    },
-                    WindowEvent::CursorEntered { .. } => {
-                        self.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
-                    },
-                    _ => { }
-                }
+            WindowEvent::CursorMoved { position, .. } => {
+                let world_pos_x = position.x / self.size.hidpi_factor * self.size.winit_hidpi_factor;
+                let world_pos_y = position.y / self.size.hidpi_factor * self.size.winit_hidpi_factor;
+                self.mouse_state.cursor_pos = Some(LogicalPosition::new(world_pos_x, world_pos_y));
             },
-            _ => { },
+            WindowEvent::CursorLeft { .. } => {
+                self.mouse_state.cursor_pos = None;
+            },
+            WindowEvent::CursorEntered { .. } => {
+                self.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
+            },
+            _ => { }
         }
     }
 
-    fn update_scroll_state(&mut self, event: &Event) {
+    fn update_scroll_state(&mut self, event: &WindowEvent) {
         match event {
-            Event::WindowEvent { event: WindowEvent::MouseWheel { delta, .. }, .. } => {
+            WindowEvent::MouseWheel { delta, .. } => {
                 const LINE_DELTA: f64 = 38.0;
 
                 let (scroll_x_px, scroll_y_px) = match delta {
@@ -798,64 +785,53 @@ impl WindowState
     }
 
     /// Updates self.keyboard_state to reflect what characters are currently held down
-    fn update_keyboard_pressed_chars(&mut self, event: &Event) {
+    fn update_keyboard_pressed_chars(&mut self, event: &WindowEvent) {
         use glium::glutin::KeyboardInput;
 
         match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::KeyboardInput {
-                        input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, ..
-                    } => {
-                        if let Some(vk) = virtual_keycode {
-                            self.keyboard_state.current_virtual_keycodes.insert(*vk);
-                            self.keyboard_state.latest_virtual_keycode = Some(*vk);
-                        }
-                        self.keyboard_state.current_scancodes.insert(*scancode);
-                    },
-                    // The char event is sliced inbetween a keydown and a keyup event
-                    // so the keyup has to clear the character again
-                    WindowEvent::ReceivedCharacter(c) => {
-                        self.keyboard_state.current_char = Some(*c);
-                    },
-                    WindowEvent::KeyboardInput {
-                        input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, ..
-                    } => {
-                        if let Some(vk) = virtual_keycode {
-                            self.keyboard_state.current_virtual_keycodes.remove(vk);
-                            self.keyboard_state.latest_virtual_keycode = None;
-                        }
-                        self.keyboard_state.current_scancodes.remove(scancode);
-                    },
-                    WindowEvent::Focused(false) => {
-                        self.keyboard_state.current_char = None;
-                        self.keyboard_state.current_virtual_keycodes.clear();
-                        self.keyboard_state.latest_virtual_keycode = None;
-                        self.keyboard_state.current_scancodes.clear();
-                    },
-                    _ => { },
+            WindowEvent::KeyboardInput {
+                input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, ..
+            } => {
+                if let Some(vk) = virtual_keycode {
+                    self.keyboard_state.current_virtual_keycodes.insert(*vk);
+                    self.keyboard_state.latest_virtual_keycode = Some(*vk);
                 }
+                self.keyboard_state.current_scancodes.insert(*scancode);
             },
-            _ => { }
+            // The char event is sliced inbetween a keydown and a keyup event
+            // so the keyup has to clear the character again
+            WindowEvent::ReceivedCharacter(c) => {
+                self.keyboard_state.current_char = Some(*c);
+            },
+            WindowEvent::KeyboardInput {
+                input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, ..
+            } => {
+                if let Some(vk) = virtual_keycode {
+                    self.keyboard_state.current_virtual_keycodes.remove(vk);
+                    self.keyboard_state.latest_virtual_keycode = None;
+                }
+                self.keyboard_state.current_scancodes.remove(scancode);
+            },
+            WindowEvent::Focused(false) => {
+                self.keyboard_state.current_char = None;
+                self.keyboard_state.current_virtual_keycodes.clear();
+                self.keyboard_state.latest_virtual_keycode = None;
+                self.keyboard_state.current_scancodes.clear();
+            },
+            _ => { },
         }
-
     }
 
-    fn update_misc_events(&mut self, event: &Event) {
+    fn update_misc_events(&mut self, event: &WindowEvent) {
         match event {
-            Event::WindowEvent { event, .. } => {
-                match event {
-                    WindowEvent::HoveredFile(path) => {
-                        self.hovered_file = Some(path.clone());
-                    },
-                    WindowEvent::DroppedFile(path) => {
-                        self.hovered_file = Some(path.clone());
-                    },
-                    WindowEvent::HoveredFileCancelled => {
-                        self.hovered_file = None;
-                    },
-                    _ => { },
-                }
+            WindowEvent::HoveredFile(path) => {
+                self.hovered_file = Some(path.clone());
+            },
+            WindowEvent::DroppedFile(path) => {
+                self.hovered_file = Some(path.clone());
+            },
+            WindowEvent::HoveredFileCancelled => {
+                self.hovered_file = None;
             },
             _ => { },
         }
@@ -985,53 +961,42 @@ fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilt
 ///
 /// `awakened_task` is a special field that should be set to true if the `Task`
 /// system fired a `WindowEvent::Awakened`.
-pub(crate) fn window_should_close(event: &Event, frame_event_info: &mut FrameEventInfo, awakened_task: bool)
+pub(crate) fn window_should_close(event: &WindowEvent, frame_event_info: &mut FrameEventInfo)
 -> bool
 {
-    use glium::glutin::WindowEvent;
+    // use glium::glutin::WindowEvent;
 
     match event {
-        Event::WindowEvent { event, .. } => {
-            match event {
-                WindowEvent::CursorMoved { position, .. } => {
-                    frame_event_info.should_hittest = true;
-                    frame_event_info.cur_cursor_pos = *position;
-                },
-                WindowEvent::Resized(wh) => {
-                    frame_event_info.new_window_size = Some(*wh);
-                    frame_event_info.is_resize_event = true;
-                    frame_event_info.should_redraw_window = true;
-                },
-                // WindowEvent::Refresh => {
-                //     frame_event_info.should_redraw_window = true;
-                // },
-                WindowEvent::HiDpiFactorChanged(dpi) => {
-                    frame_event_info.new_dpi_factor = Some(*dpi);
-                    frame_event_info.should_redraw_window = true;
-                },
-                WindowEvent::CloseRequested | WindowEvent::Destroyed => {
-                    // TODO: Callback the windows onclose method
-                    // (ex. for implementing a "do you really want to close" dialog)
-                    return true;
-                },
-                WindowEvent::KeyboardInput { .. } |
-                WindowEvent::ReceivedCharacter(_) |
-                WindowEvent::MouseWheel { .. } |
-                WindowEvent::MouseInput { .. } |
-                WindowEvent::Touch(_) => {
-                    frame_event_info.should_hittest = true;
-                },
-                _ => { },
-            }
+        WindowEvent::CursorMoved { position, .. } => {
+            frame_event_info.should_hittest = true;
+            frame_event_info.cur_cursor_pos = *position;
         },
-        Event::Awakened => {
-            frame_event_info.should_swap_window = true;
-            if awakened_task {
-                frame_event_info.should_redraw_window = true;
-            }
+        WindowEvent::Resized(wh) => {
+            frame_event_info.new_window_size = Some(*wh);
+            frame_event_info.is_resize_event = true;
+            frame_event_info.should_redraw_window = true;
+        },
+        WindowEvent::HiDpiFactorChanged(dpi) => {
+            frame_event_info.new_dpi_factor = Some(*dpi);
+            frame_event_info.should_redraw_window = true;
+        },
+        WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+            // TODO: Callback the windows onclose method
+            // (ex. for implementing a "do you really want to close" dialog)
+            return true;
+        },
+        WindowEvent::KeyboardInput { .. } |
+        WindowEvent::ReceivedCharacter(_) |
+        WindowEvent::MouseWheel { .. } |
+        WindowEvent::MouseInput { .. } |
+        WindowEvent::Touch(_) => {
+            frame_event_info.should_hittest = true;
         },
         _ => { },
     }
+
+    // TODO: Event::Awakened is never invoked, since that is handled
+    // by force_redraw_cache anyways
 
     false
 }
