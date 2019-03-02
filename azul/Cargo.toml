@@ -21,7 +21,7 @@ autoexamples = false
 azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
 azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
-azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "2214e3311b32c5c69dd050b81f1a03f821238559" }
+azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "f441d86a8a9d432a4d520024490fa57067966432" }
 serde_derive            = { version = "1",                    optional = true }
 serde                   = { version = "1",                    optional = true }
 
@@ -53,12 +53,6 @@ icon_loading = ["azul-dependencies/icon_loading"]
 # For serializing / deserializing CSS colors using serde
 serde_serialization = ["azul-dependencies/serde_serialization", "serde_derive", "serde"]
 serde_serialization_css = ["css-parser", "azul-css-parser/serde_serialization", "serde_serialization"]
-# twox-hash imports the rand crate, which takes a long time to compile
-# If azul isn't using XXHash, it uses the std-library provided hash algorithm
-#
-# The performance hit should be negligible, so this feature is turned off by
-# default. Maybe turn it on in release builds.
-faster-hashing = ["azul-dependencies/faster-hashing"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
 image_loading = ["azul-dependencies/image_loading"]
