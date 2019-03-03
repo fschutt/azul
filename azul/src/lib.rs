@@ -91,6 +91,7 @@ pub(crate) use azul_dependencies::tinyfiledialogs;
 pub(crate) use azul_dependencies::clipboard2;
 pub(crate) use azul_dependencies::font_loader;
 pub(crate) use azul_dependencies::xmlparser;
+pub(crate) use azul_dependencies::harfbuzz_sys;
 
 #[cfg(feature = "logging")]
 pub(crate) use azul_dependencies::log;

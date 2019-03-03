@@ -2,11 +2,16 @@
 //! Right now, words are laid out on a word-per-word basis, no inter-word font shaping is done.
 
 use webrender::api::{
-    LayoutPoint, FontKey, FontInstanceKey, RenderApi, GlyphDimensions,
+    LayoutPoint, RenderApi, GlyphDimensions,
     GlyphInstance as WrGlyphInstance,
 };
 use app_units::Au;
 use app_resources::LoadedFont;
+use harfbuzz_sys::{
+    hb_blob_create, hb_blob_destroy,
+    hb_blob_t, hb_memory_mode_t, HB_MEMORY_MODE_READONLY,
+};
+use std::ptr;
 
 // Translates to the ".codepoint" in HarfBuzz
 pub type GlyphIndex = u32;
@@ -16,6 +21,35 @@ pub type GlyphPosition = GlyphDimensions; // TODO: hb_position_t
 pub struct ShapedWord {
     pub glyph_infos: Vec<GlyphInfo>,
     pub glyph_positions: Vec<GlyphPosition>,
+}
+
+pub struct HbFont<'a> {
+    font: &'a LoadedFont,
+    hb_font: *mut hb_blob_t,
+}
+
+impl<'a> HbFont<'a> {
+    pub fn from_loaded_font(font: &'a LoadedFont) -> Self {
+        const MEMORY_MODE: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
+
+        // Create a HbFont with no destroy function (font is cleaned up by Rust destructor)
+
+        let user_data_ptr = ptr::null_mut();
+        let destroy_func = None;
+
+        let font_ptr = font.font_bytes.as_ptr() as *const i8;
+        let hb_font = unsafe { hb_blob_create(font_ptr, font.font_bytes.len() as u32, MEMORY_MODE, user_data_ptr, destroy_func) };
+        Self {
+            font,
+            hb_font,
+        }
+    }
+}
+
+impl<'a> Drop for HbFont<'a> {
+    fn drop(&mut self) {
+        unsafe { hb_blob_destroy(self.hb_font) };
+    }
 }
 
 pub(crate) fn shape_word(
