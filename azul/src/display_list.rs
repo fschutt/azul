@@ -768,6 +768,8 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
     let texture_height = texture.inner.height() as f32;
 
     let opaque = false;
+
+    // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
     let allow_mipmaps = false;
 
     // Note: The ImageDescriptor has no effect on how large the image appears on-screen

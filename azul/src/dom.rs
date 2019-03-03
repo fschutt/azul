@@ -321,10 +321,6 @@ pub enum EventFilter {
     /// (i.e. global gestures that aren't attached to any component, but rather
     /// the "window" itself).
     Window(WindowEventFilter),
-    /// Calls the callback when anything on the desktop is happening, useful
-    /// for creating keyloggers (for example to implement a desktop search bar
-    /// like everything or Spotlight) - fires even when the window isn't focused.
-    Desktop(DesktopEventFilter),
 }
 
 /// Creates a function inside an impl <enum type> block that returns a single
@@ -359,7 +355,6 @@ impl EventFilter {
     get_single_enum_type!(as_focus_event_filter, EventFilter::Focus(FocusEventFilter));
     get_single_enum_type!(as_not_event_filter, EventFilter::Not(NotEventFilter));
     get_single_enum_type!(as_window_event_filter, EventFilter::Window(WindowEventFilter));
-    get_single_enum_type!(as_desktop_event_filter, EventFilter::Desktop(DesktopEventFilter));
 }
 
 impl From<On> for EventFilter {
@@ -514,16 +509,6 @@ impl WindowEventFilter {
             MouseLeave => None,
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum DesktopEventFilter {
-    DeviceAdded,
-    DeviceRemoved,
-    ControllerMotion,
-    AppSuspended,
-    AppResumed,
-    Awakened,
 }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
@@ -1173,8 +1158,6 @@ impl<T: Layout> Dom<T> {
         let mut not_default_callbacks = BTreeMap::new();
         let mut window_callbacks = BTreeMap::new();
         let mut window_default_callbacks = BTreeMap::new();
-        let mut desktop_callbacks = BTreeMap::new();
-        let mut desktop_default_callbacks = BTreeMap::new();
 
         // data.callbacks, HoverEventFilter, Callback<T>, as_hover_event_filter, hover_callbacks, <node_tag_id> (optional)
         macro_rules! filter_and_insert_callbacks {
@@ -1272,15 +1255,6 @@ impl<T: Layout> Dom<T> {
                         as_window_event_filter,
                         window_callbacks,
                     );
-
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        data.callbacks,
-                        DesktopEventFilter,
-                        Callback<T>,
-                        as_desktop_event_filter,
-                        desktop_callbacks,
-                    );
                 }
 
                 if !data.default_callback_ids.is_empty() {
@@ -1324,15 +1298,6 @@ impl<T: Layout> Dom<T> {
                         DefaultCallbackId,
                         as_window_event_filter,
                         window_default_callbacks,
-                    );
-
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        data.default_callback_ids,
-                        DesktopEventFilter,
-                        DefaultCallbackId,
-                        as_desktop_event_filter,
-                        desktop_default_callbacks,
                     );
                 }
 
@@ -1379,8 +1344,6 @@ impl<T: Layout> Dom<T> {
             not_default_callbacks,
             window_callbacks,
             window_default_callbacks,
-            desktop_callbacks,
-            desktop_default_callbacks,
 
         }
     }

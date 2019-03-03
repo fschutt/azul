@@ -205,7 +205,7 @@ impl AppResources {
     /// Creates a new renderer (the renderer manages the resources and is therefore tied to the resources).
     pub(crate) fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
         Ok(Self {
-            fake_display: FakeDisplay::new(app_config.renderer_type, app_config.background_color)?,
+            fake_display: FakeDisplay::new(app_config.renderer_type)?,
             css_ids_to_image_ids: FastHashMap::default(),
             css_ids_to_font_ids: FastHashMap::default(),
             images: FastHashMap::default(),
@@ -541,7 +541,7 @@ fn build_add_font_resource_updates(
         })}
 
         match app_resources.currently_registered_fonts.get(font_id) {
-            Some((font_key, existing_font_instances)) => {
+            Some((font_key, _existing_font_instances)) => {
                 for font_size in font_sizes.iter() {
                     insert_font_instances!(*font_id, *font_key, *font_size);
                 }
