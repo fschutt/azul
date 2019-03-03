@@ -146,7 +146,7 @@ pub mod error;
 pub mod task;
 /// Module for caching long texts (including their layout / character positions) across multiple frames
 pub mod text_cache;
-/// Text layout helper functions - useful for text layout outside of standard containers
+/// Text layout functions - useful for text layout outside of standard containers
 pub mod text_layout;
 /// The layout traits for creating a layout-able application
 pub mod traits;
@@ -159,6 +159,8 @@ pub mod window_state;
 
 /// UI Description & display list handling (webrender)
 mod ui_description;
+/// HarfBuzz text shaping utilities
+mod text_shaping;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;

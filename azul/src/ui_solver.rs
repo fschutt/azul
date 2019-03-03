@@ -1262,12 +1262,12 @@ fn create_scaled_words<'a>(
             Some(s) => ImmediateFontId::Resolved(*s),
             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
-        let (font_key, font_instance_key) = app_resources.get_font_instance(&font_id, font_size)?;
+        let loaded_font = app_resources.get_loaded_font(&font_id)?;
         let scaled_words = words_to_scaled_words(
             words,
+            loaded_font,
+            font_size,
             &app_resources.fake_display.render_api,
-            font_key,
-            font_instance_key,
         );
         Some((*node_id, scaled_words))
     }).collect()

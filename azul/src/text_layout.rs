@@ -10,6 +10,9 @@ pub use webrender::api::{
     GlyphInstance, GlyphDimensions,
     LayoutSize, LayoutRect, LayoutPoint,
 };
+use app_resources::LoadedFont;
+use app_units::Au;
+
 /// Font size in point (pt)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct TextSizePt(pub f32);
@@ -278,68 +281,46 @@ pub fn split_text_into_words(text: &str) -> Words {
 /// scales the font accordingly.
 pub fn words_to_scaled_words(
     words: &Words,
+    font: &LoadedFont,
+    font_size: Au,
     render_api: &RenderApi,
-    font_key: FontKey,
-    font_instance_key: FontInstanceKey,
 ) -> ScaledWords {
 
     use self::Word::*;
+    use text_shaping;
 
-    let mut longest_word_width = 0.0;
+    let mut longest_word_width = 0.0_f32;
 
     // Get the dimensions of the space glyph
-    let space_glyph_indices = render_api.get_glyph_indices(font_key, " ");
-    let space_glyph_indices = space_glyph_indices.into_iter().filter_map(|e| e).collect::<Vec<u32>>();
-    let space_glyph_dimensions = render_api.get_glyph_dimensions(font_instance_key, space_glyph_indices);
-    let space_glyph_dimensions = space_glyph_dimensions.into_iter().filter_map(|dim| dim).collect::<Vec<GlyphDimensions>>()[0];
+    let shaped_space = text_shaping::shape_word(" ", font, font_size, render_api);
 
     let glyphs = words.items.iter().filter_map(|word| {
+
         let word = match word {
             Word(w) => w,
             _ => return None,
         };
 
-        // Filter out all invalid indices and dimensions (usually `None` is
-        // only returned for spaces, so that case will obviously not happen,
-        // since we broke the text by spaces previously)
-        let glyph_indices = render_api.get_glyph_indices(font_key, word);
-        let glyph_indices = glyph_indices.into_iter().filter_map(|e| e).collect::<Vec<u32>>();
+        let shaped_word = text_shaping::shape_word(word, font, font_size, render_api);
+        let word_width = text_shaping::get_word_visual_width(&shaped_word.glyph_positions);
+        let glyph_instances = text_shaping::get_glyph_instances(&shaped_word);
 
-        let glyph_dimensions = render_api.get_glyph_dimensions(font_instance_key, glyph_indices.clone());
-        let glyph_dimensions = glyph_dimensions.into_iter().filter_map(|dim| dim).collect::<Vec<GlyphDimensions>>();
-
-        let word_width = get_glyph_width(&glyph_dimensions);
-        if word_width > longest_word_width {
-            longest_word_width = word_width;
-        }
-
-        let mut glyph_instances = Vec::with_capacity(glyph_dimensions.len());
-        let mut current_cursor = 0.0;
-
-        for (index, dimensions) in glyph_indices.into_iter().zip(glyph_dimensions.iter()) {
-            glyph_instances.push(GlyphInstance {
-                index: index,
-                point: LayoutPoint::new(current_cursor, 0.0),
-            });
-            // current_cursor += dimensions.advance;
-            println!("dimensions of glyph: {:?}", dimensions);
-            current_cursor += dimensions.advance - dimensions.left as f32;
-        }
+        longest_word_width = longest_word_width.max(word_width);
 
         Some(ScaledWord {
             glyph_instances,
-            glyph_dimensions,
+            glyph_dimensions: shaped_word.glyph_positions,
             word_width,
         })
 
     }).collect();
 
     ScaledWords {
-        font_key,
-        font_instance_key,
+        font_key: font.key,
+        font_instance_key: font.font_instances[&font_size],
         items: glyphs,
         longest_word_width: longest_word_width,
-        space_dimensions: space_glyph_dimensions,
+        space_dimensions: shaped_space.glyph_positions[0],
     }
 }
 
@@ -373,8 +354,6 @@ pub fn position_words(
     let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
     let letter_spacing_px = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
     let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
-
-    println!("word spacing px: {:?}", word_spacing_px);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -604,10 +583,6 @@ pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWor
         last_word_idx = *current_word_idx;
         (current_glyph_count, remaining_space_px)
     }).collect()
-}
-
-pub fn get_glyph_width(glyph_dimensions: &[GlyphDimensions]) -> f32 {
-    glyph_dimensions.iter().map(|g| g.advance).sum()
 }
 
 /// For a given line number, calculates the Y position of the word
