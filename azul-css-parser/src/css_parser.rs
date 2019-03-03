@@ -1858,18 +1858,10 @@ pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, Cs
 
     for font in multiple_fonts {
         let font = font.trim();
-
-        let mut double_quote_iter = font.splitn(2, '"');
-        double_quote_iter.next();
-        let mut single_quote_iter = font.splitn(2, '\'');
-        single_quote_iter.next();
-
-        if double_quote_iter.next().is_some() || single_quote_iter.next().is_some() {
-            let stripped_font = strip_quotes(font)?;
-            fonts.push(FontId::ExternalFont(stripped_font.0.into()));
-        } else {
-            fonts.push(FontId::BuiltinFont(font.into()));
-        }
+        let font = font.trim_matches('\'');
+        let font = font.trim_matches('\"');
+        let font = font.trim();
+        fonts.push(FontId(font.into()));
     }
 
     Ok(StyleFontFamily {

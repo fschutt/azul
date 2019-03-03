@@ -2,7 +2,6 @@ use std::{
     path::PathBuf,
     io::Error as IoError,
     sync::atomic::{AtomicUsize, Ordering},
-    collections::hash_map::Entry::*,
 };
 use webrender::api::{
     FontKey, FontInstanceKey,
@@ -178,7 +177,7 @@ pub struct AppResources {
     /// All image keys currently active in the RenderApi
     currently_registered_images: FastHashMap<ImageId, ImageInfo>,
     /// All font keys currently active in the RenderApi
-    currently_registered_fonts: FastHashMap<FontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
+    currently_registered_fonts: FastHashMap<ImmediateFontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
     /// If an image isn't displayed, it is deleted from memory, only
     /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
     ///
@@ -191,8 +190,8 @@ pub struct AppResources {
     /// The only thing remaining in memory permanently is the FontSource (which is only
     /// the string of the file path where the font was loaded from, so no huge memory pressure).
     /// The reason for this agressive strategy is that the
-    last_frame_font_keys: FastHashMap<FontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
-    pending_frame_font_keys: FastHashMap<FontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
+    last_frame_font_keys: FastHashMap<ImmediateFontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
+    pending_frame_font_keys: FastHashMap<ImmediateFontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
 
     /// Stores long texts across frames
     text_cache: TextCache,
@@ -250,36 +249,14 @@ impl AppResources {
 
     /// Add an image from a PNG, JPEG or other - note that for specialized image formats,
     /// you have to enable them as features in the Cargo.toml file.
-    ///
-    /// ### Returns
-    ///
-    /// - `Some(())` if the image was inserted correctly
-    /// - `None` if the ImageId already exists (you have to delete the image first using `.delete_image()`)
     #[cfg(feature = "image_loading")]
-    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) -> Option<()> {
-        match self.images.entry(image_id) {
-            Occupied(_) => None,
-            Vacant(v) => {
-                v.insert(image_source);
-                Some(())
-            }
-        }
+    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) {
+        self.images.insert(image_id, image_source);
     }
 
     /// Add raw image data (directly from a Vec<u8>) in BRGA8 or A8 format
-    ///
-    /// ### Returns
-    ///
-    /// - `Some(())` if the image was inserted correctly
-    /// - `None` if the ImageId already exists (you have to delete the image first using `.delete_image()`)
-    pub fn add_image_raw(&mut self, image_id: ImageId, image: RawImage) -> Option<()> {
-        match self.raw_images.entry(image_id) {
-            Occupied(_) => None,
-            Vacant(v) => {
-                v.insert(image);
-                Some(())
-            }
-        }
+    pub fn add_image_raw(&mut self, image_id: ImageId, image: RawImage) {
+        self.raw_images.insert(image_id, image);
     }
 
     /// Returns whether the AppResources has currently a certain image ID registered
@@ -340,14 +317,8 @@ impl AppResources {
         self.css_ids_to_font_ids.remove(css_id)
     }
 
-    pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) -> Option<()> {
-        match self.fonts.entry(font_id) {
-            Occupied(_) => None,
-            Vacant(v) => {
-                v.insert(font_source);
-                Some(())
-            }
-        }
+    pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) {
+        self.fonts.insert(font_id, font_source);
     }
 
     /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
@@ -367,7 +338,7 @@ impl AppResources {
 
     /// Returns the `(FontKey, FontInstance)` - convenience function for the display list, to
     /// query fonts and font keys from the display list
-    pub(crate) fn get_font_instance<I: Into<Au>>(&self, font_id: &FontId, font_size: I) -> Option<(FontKey, FontInstanceKey)> {
+    pub(crate) fn get_font_instance<I: Into<Au>>(&self, font_id: &ImmediateFontId, font_size: I) -> Option<(FontKey, FontInstanceKey)> {
         let au = font_size.into();
         self.currently_registered_fonts.get(font_id).and_then(|(font_key, font_instances)| {
             font_instances.get(&au).map(|font_instance_key| (*font_key, *font_instance_key))
@@ -437,11 +408,17 @@ impl AppResources {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum ImmediateFontId {
+    Resolved(FontId),
+    Unresolved(CssFontId),
+}
+
 /// Scans the display list for all font IDs + their font size
 fn scan_ui_description_for_font_keys<'a, T: Layout>(
     app_resources: &AppResources,
     display_list: &DisplayList<'a, T>
-) -> FastHashMap<FontId, FastHashSet<Au>>
+) -> FastHashMap<ImmediateFontId, FastHashSet<Au>>
 {
     use dom::NodeType::*;
     use ui_solver;
@@ -457,12 +434,12 @@ fn scan_ui_description_for_font_keys<'a, T: Layout>(
             Text(_) | Label(_) => {
                 let css_font_id = ui_solver::get_font_id(&display_rect.style);
                 let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
-                    Some(s) => s,
-                    None => continue,
+                    Some(s) => ImmediateFontId::Resolved(*s),
+                    None => ImmediateFontId::Unresolved(css_font_id.to_string()),
                 };
                 let font_size = ui_solver::get_font_size(&display_rect.style);
                 font_keys
-                    .entry(*font_id)
+                    .entry(font_id)
                     .or_insert_with(|| FastHashSet::default())
                     .insert(ui_solver::font_size_to_au(font_size));
             },
@@ -507,12 +484,12 @@ fn scan_ui_description_for_image_keys<'a, T: Layout>(
 /// I/O waiting.
 fn build_add_font_resource_updates(
     app_resources: &mut AppResources,
-    fonts_in_dom: &FastHashMap<FontId, FastHashSet<Au>>,
+    fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
 ) -> Vec<ResourceUpdate> {
 
     let mut resource_updates = Vec::new();
 
-    for (font_id, font_sizes) in fonts_in_dom {
+    for (im_font_id, font_sizes) in fonts_in_dom {
 
         macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_size:expr) => ({
 
@@ -540,24 +517,31 @@ fn build_add_font_resource_updates(
             }
         })}
 
-        match app_resources.currently_registered_fonts.get(font_id) {
+        match app_resources.currently_registered_fonts.get(im_font_id) {
             Some((font_key, _existing_font_instances)) => {
                 for font_size in font_sizes.iter() {
-                    insert_font_instances!(*font_id, *font_key, *font_size);
+                    insert_font_instances!(im_font_id.clone(), *font_key, *font_size);
                 }
             },
             None => {
+                use self::ImmediateFontId::*;
+
                 // If there is no font key, that means there's also no font instances
-                let font_source = match app_resources.fonts.get(font_id) {
-                    Some(s) => s,
-                    None => continue,
+                let font_source = match im_font_id {
+                    Resolved(font_id) => {
+                        match app_resources.fonts.get(font_id) {
+                            Some(s) => s.clone(),
+                            None => continue,
+                        }
+                    },
+                    Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
                 };
 
                 let font_bytes = match font_source.get_bytes() {
                     Ok(o) => o,
                     Err(e) => {
                         #[cfg(feature = "logging")] {
-                            warn!("Could not load font with ID: {:?} - error: {}", font_id, e);
+                            warn!("Could not load font with ID: {:?} - error: {}", im_font_id, e);
                         }
                         continue;
                     }
@@ -568,7 +552,7 @@ fn build_add_font_resource_updates(
                     resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(font_key, font_bytes.0, font_bytes.1 as u32)));
 
                     for font_size in font_sizes {
-                        insert_font_instances!(*font_id, font_key, *font_size);
+                        insert_font_instances!(im_font_id.clone(), font_key, *font_size);
                     }
                 }
             }
@@ -711,7 +695,7 @@ fn add_resources(
 
     for (font_id, (font_key, font_instances)) in pending_frame_font_keys.iter() {
         currently_registered_fonts
-            .entry(*font_id)
+            .entry(font_id.clone())
             .or_insert_with(|| (*font_key, FastHashMap::default())).1
             .extend(font_instances.clone().into_iter());
     }
@@ -727,14 +711,14 @@ fn build_delete_font_resource_updates(
     // Delete fonts that were not used in the last frame or have zero font instances
     for (font_id, (font_key, font_instances)) in &app_resources.pending_frame_font_keys {
         if !app_resources.last_frame_font_keys.contains_key(&font_id) || font_instances.is_empty() {
-            to_remove_fonts.push((*font_id, *font_key));
+            to_remove_fonts.push((font_id, *font_key));
             for (au, font_instance_key) in font_instances.iter() {
-                to_remove_font_instance_keys.push((*font_id, *au, *font_instance_key));
+                to_remove_font_instance_keys.push((font_id.clone(), *au, *font_instance_key));
             }
         } else {
             for (au, font_instance_key) in font_instances.iter() {
                 if !app_resources.last_frame_font_keys[font_id].1.contains_key(au) {
-                    to_remove_font_instance_keys.push((*font_id, *au, *font_instance_key));
+                    to_remove_font_instance_keys.push((font_id.clone(), *au, *font_instance_key));
                 }
             }
         }
