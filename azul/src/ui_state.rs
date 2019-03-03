@@ -12,7 +12,7 @@ use {
     dom::{
         Callback, Dom, TagId, TabIndex, DomString,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
-        WindowEventFilter, DesktopEventFilter
+        WindowEventFilter
     },
     app_state::AppState,
     id_tree::NodeId,
@@ -53,8 +53,6 @@ pub struct UiState<T: Layout> {
     pub not_default_callbacks:          BTreeMap<NodeId, BTreeMap<NotEventFilter, DefaultCallbackId>>,
     pub window_callbacks:               BTreeMap<NodeId, BTreeMap<WindowEventFilter, Callback<T>>>,
     pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallbackId>>,
-    pub desktop_callbacks:              BTreeMap<NodeId, BTreeMap<DesktopEventFilter, Callback<T>>>,
-    pub desktop_default_callbacks:      BTreeMap<NodeId, BTreeMap<DesktopEventFilter, DefaultCallbackId>>,
 }
 
 impl<T: Layout> fmt::Debug for UiState<T> {
@@ -77,8 +75,6 @@ impl<T: Layout> fmt::Debug for UiState<T> {
                 not_default_callbacks: {:?}, \
                 window_callbacks: {:?}, \
                 window_default_callbacks: {:?}, \
-                desktop_callbacks: {:?}, \
-                desktop_default_callbacks: {:?}, \
             }}",
 
             self.dom,
@@ -96,8 +92,6 @@ impl<T: Layout> fmt::Debug for UiState<T> {
             self.not_default_callbacks,
             self.window_callbacks,
             self.window_default_callbacks,
-            self.desktop_callbacks,
-            self.desktop_default_callbacks,
         )
     }
 }

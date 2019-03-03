@@ -1,7 +1,6 @@
 //! Window creation module
 
 use std::{
-    time::Duration,
     fmt,
     rc::Rc,
     marker::PhantomData,
@@ -28,7 +27,7 @@ use glium::{
     backend::{Context as BackendContext, Facade, glutin::DisplayCreationError},
 };
 use gleam::gl::{self, Gl};
-use azul_css::{Css, ColorF, ColorU};
+use azul_css::{Css, ColorU};
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
 use {
@@ -92,11 +91,11 @@ impl<T: Layout> FakeWindow<T> {
     }
 
     pub(crate) fn set_keyboard_state(&mut self, kb: &KeyboardState) {
-        self.state.keyboard_state = kb.clone();
+        self.state.internal.keyboard_state = kb.clone();
     }
 
     pub(crate) fn set_mouse_state(&mut self, mouse: &MouseState) {
-        self.state.mouse_state = *mouse;
+        self.state.internal.mouse_state = *mouse;
     }
 
     /// Returns the current keyboard keyboard state. We don't want the library
@@ -414,22 +413,8 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
 pub struct WindowCreateOptions<T: Layout> {
     /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
-    /// OpenGL clear color
-    pub background: ColorF,
-    /// Clear the stencil buffer with the given value. If not set, stencil buffer is not cleared
-    pub clear_stencil: Option<i32>,
-    /// Clear the depth buffer with the given value. If not set, depth buffer is not cleared
-    pub clear_depth: Option<f32>,
-    /// How should the screen be updated - as fast as possible
-    /// or retained & energy saving?
-    pub update_mode: UpdateMode,
     /// Which monitor should the window be created on?
     pub monitor: WindowMonitorTarget,
-    /// How precise should the mouse updates be?
-    pub mouse_mode: MouseMode,
-    /// Should the window update regardless if the mouse is hovering
-    /// over the window? (useful for games vs. applications)
-    pub update_behaviour: UpdateBehaviour,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
     /// Win32 menu callbacks
@@ -438,26 +423,17 @@ pub struct WindowCreateOptions<T: Layout> {
     pub window_icon: Option<Icon>,
     /// Windows only: Sets the 256x256 taskbar icon during startup
     pub taskbar_icon: Option<Icon>,
-    /// Windows only: Sets `WS_EX_NOREDIRECTIONBITMAP` on the window
-    pub no_redirection_bitmap: bool,
 }
 
 impl<T: Layout> Default for WindowCreateOptions<T> {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
-            background: ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
-            clear_stencil: None,
-            clear_depth: None,
-            update_mode: UpdateMode::default(),
             monitor: WindowMonitorTarget::default(),
-            mouse_mode: MouseMode::default(),
-            update_behaviour: UpdateBehaviour::default(),
             renderer_type: RendererType::default(),
             menu_callbacks: FastHashMap::default(),
             window_icon: None,
             taskbar_icon: None,
-            no_redirection_bitmap: false,
         }
     }
 }
@@ -484,60 +460,6 @@ pub enum RendererType {
 impl Default for RendererType {
     fn default() -> Self {
         RendererType::Default
-    }
-}
-
-/// Should the window be updated only if the mouse cursor is hovering over it?
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum UpdateBehaviour {
-    /// Redraw the window only if the mouse cursor is
-    /// on top of the window
-    UpdateOnHover,
-    /// Always update the screen, regardless of the
-    /// position of the mouse cursor
-    UpdateAlways,
-}
-
-impl Default for UpdateBehaviour {
-    fn default() -> Self {
-        UpdateBehaviour::UpdateOnHover
-    }
-}
-
-/// In which intervals should the screen be updated
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum UpdateMode {
-    /// Retained = the screen is only updated when necessary.
-    /// Underlying GlImages will be ignored and only updated when the UI changes
-    Retained,
-    /// Fixed update every X duration.
-    FixedUpdate(Duration),
-    /// Draw the screen as fast as possible.
-    AsFastAsPossible,
-}
-
-impl Default for UpdateMode {
-    fn default() -> Self {
-        UpdateMode::Retained
-    }
-}
-
-/// Mouse configuration
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum MouseMode {
-    /// A mouse event is only fired if the cursor has moved at least 1px.
-    /// More energy saving, but less precision.
-    Normal,
-    /// High-precision mouse input (useful for games)
-    ///
-    /// This disables acceleration and uses the raw values
-    /// provided by the mouse.
-    DirectInput,
-}
-
-impl Default for MouseMode {
-    fn default() -> Self {
-        MouseMode::Normal
     }
 }
 
@@ -778,6 +700,7 @@ impl<'a, T: Layout> Window<T> {
         events_loop: &EventsLoop,
         options: WindowCreateOptions<T>,
         mut css: Css,
+        background_color: ColorU,
     ) -> Result<Self, WindowCreateError> {
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
@@ -787,12 +710,14 @@ impl<'a, T: Layout> Window<T> {
         // Report this to the winit developers.
         // let events_loop = EventsLoop::new();
 
+        let is_transparent_background = background_color.a != 0;
+
         let mut window = GliumWindowBuilder::new()
             .with_title(options.state.title.clone())
             .with_maximized(options.state.is_maximized)
             .with_decorations(options.state.has_decorations)
             .with_visibility(false)
-            .with_transparency(options.state.is_transparent)
+            .with_transparency(is_transparent_background)
             .with_multitouch();
 
         // TODO: Update winit to have:
@@ -807,16 +732,17 @@ impl<'a, T: Layout> Window<T> {
             window = window.with_window_icon(Some(icon));
         }
 
+        // TODO: Platform-specific options!
         #[cfg(target_os = "windows")] {
             if let Some(icon) = options.taskbar_icon.clone() {
                 use glium::glutin::os::windows::WindowBuilderExt;
                 window = window.with_taskbar_icon(Some(icon));
             }
 
-            if options.no_redirection_bitmap {
-                use glium::glutin::os::windows::WindowBuilderExt;
-                window = window.with_no_redirection_bitmap(true);
-            }
+            // if options.no_redirection_bitmap {
+            //     use glium::glutin::os::windows::WindowBuilderExt;
+            //     window = window.with_no_redirection_bitmap(true);
+            // }
         }
 
         if let Some(min_dim) = options.state.size.min_dimensions {
@@ -912,8 +838,9 @@ impl<'a, T: Layout> Window<T> {
         events_loop: &EventsLoop,
         options: WindowCreateOptions<T>,
         css_loader: Box<dyn HotReloadHandler>,
+        background_color: ColorU,
     ) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new(render_api, shared_context, events_loop, options, Css::default())?;
+        let mut window = Window::new(render_api, shared_context, events_loop, options, Css::default(), background_color)?;
         window.css_loader = Some(css_loader);
         Ok(window)
     }
@@ -950,9 +877,9 @@ impl<'a, T: Layout> Window<T> {
             old_state.title = new_state.title;
         }
 
-        if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
-            window.set_cursor(new_state.mouse_state.mouse_cursor_type);
-            old_state.mouse_state.mouse_cursor_type = new_state.mouse_state.mouse_cursor_type;
+        if old_state.internal.mouse_state.mouse_cursor_type != new_state.internal.mouse_state.mouse_cursor_type {
+            window.set_cursor(new_state.internal.mouse_state.mouse_cursor_type);
+            old_state.internal.mouse_state.mouse_cursor_type = new_state.internal.mouse_state.mouse_cursor_type;
         }
 
         if old_state.is_maximized != new_state.is_maximized {
@@ -1022,8 +949,8 @@ impl<'a, T: Layout> Window<T> {
 
     /// Resets the mouse states `scroll_x` and `scroll_y` to 0
     pub(crate) fn clear_scroll_state(&mut self) {
-        self.state.mouse_state.scroll_x = 0.0;
-        self.state.mouse_state.scroll_y = 0.0;
+        self.state.internal.mouse_state.scroll_x = 0.0;
+        self.state.internal.mouse_state.scroll_y = 0.0;
     }
 }
 
@@ -1052,9 +979,10 @@ pub(crate) struct FakeDisplay {
 
 impl FakeDisplay {
 
-    /// Creates a new render + a new display
-    pub(crate) fn new(renderer_type: RendererType, background: Option<ColorU>) -> Result<Self, WindowCreateError> {
-
+    /// Creates a new render + a new display, given a renderer type (software or hardware)
+    pub(crate) fn new(renderer_type: RendererType)
+    -> Result<Self, WindowCreateError>
+    {
         let events_loop = EventsLoop::new();
         let window = GliumWindowBuilder::new().with_dimensions(LogicalSize::new(10.0, 10.0)).with_visibility(false);
         let gl_window = create_gl_window(window, &events_loop, None)?;
@@ -1066,7 +994,7 @@ impl FakeDisplay {
 
         // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
         let notifier = Box::new(Notifier { });
-        let (mut renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor, background)?;
+        let (mut renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor)?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
@@ -1087,6 +1015,7 @@ impl Drop for FakeDisplay {
 }
 
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
+#[allow(unused_variables)]
 fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f64, f64) {
     let monitor = window.get_current_monitor();
     let winit_hidpi_factor = monitor.get_hidpi_factor();
@@ -1161,13 +1090,19 @@ fn create_context_builder<'a>(
 }
 
 // This exists because RendererOptions isn't Clone-able
-fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<ColorF>) -> RendererOptions {
+fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
+
     use webrender::ProgramCache;
-    use css::webrender_translate::wr_translate_color_f;
 
     // pre-caching shaders means to compile all shaders on startup
     // this can take significant time and should be only used for testing the shaders
     const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::EMPTY;
+
+    // NOTE: If the clear_color is None, this may lead to "black screens"
+    // (because black is the default color) - so instead, white should be the default
+    // However, if the clear color is specified, then it's hard creating transparent windows
+    // (because of bugs in webrender / handling multi-window background colors).
+    // Therefore the background color has to be set before render() is invoked.
 
     RendererOptions {
         resource_override_path: None,
@@ -1175,7 +1110,6 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32, clear_color: Option<
         device_pixel_ratio: device_pixel_ratio,
         enable_subpixel_aa: true,
         enable_aa: true,
-        clear_color: clear_color.map(wr_translate_color_f),
         cached_programs: Some(ProgramCache::new(None)),
         renderer_kind: if native {
             RendererKind::Native
@@ -1191,13 +1125,12 @@ fn create_renderer(
     notifier: Box<Notifier>,
     renderer_type: RendererType,
     device_pixel_ratio: f64,
-    background_color: Option<ColorU>,
 ) -> Result<(Renderer, RenderApi), WindowCreateError> {
 
     use self::RendererType::*;
 
-    let opts_native = get_renderer_opts(true, device_pixel_ratio as f32, background_color.map(|color_u| color_u.into()));
-    let opts_osmesa = get_renderer_opts(false, device_pixel_ratio as f32, background_color.map(|color_u| color_u.into()));
+    let opts_native = get_renderer_opts(true, device_pixel_ratio as f32);
+    let opts_osmesa = get_renderer_opts(false, device_pixel_ratio as f32);
 
     let (renderer, sender) = match renderer_type {
         Hardware => {

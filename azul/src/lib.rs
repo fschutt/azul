@@ -199,12 +199,11 @@ pub mod prelude {
         Dom, DomHash, NodeType, NodeData, Callback, On, DomString,
         UpdateScreen, Redraw, DontRedraw, Texture, GlTextureCallback,
         IFrameCallback, TabIndex, EventFilter, HoverEventFilter, FocusEventFilter,
-        NotEventFilter, WindowEventFilter, DesktopEventFilter,
+        NotEventFilter, WindowEventFilter,
     };
     pub use traits::{Layout, Modify};
     pub use window::{
-        MonitorIter, Window, WindowCreateOptions,
-        MouseMode, UpdateBehaviour, UpdateMode, HidpiAdjustedBounds,
+        MonitorIter, Window, WindowCreateOptions, HidpiAdjustedBounds,
         WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow
     };
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};
