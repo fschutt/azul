@@ -177,7 +177,7 @@ pub struct AppResources {
     /// All image keys currently active in the RenderApi
     currently_registered_images: FastHashMap<ImageId, ImageInfo>,
     /// All font keys currently active in the RenderApi
-    currently_registered_fonts: FastHashMap<ImmediateFontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
+    currently_registered_fonts: FastHashMap<ImmediateFontId, LoadedFont>,
     /// If an image isn't displayed, it is deleted from memory, only
     /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
     ///
@@ -190,13 +190,35 @@ pub struct AppResources {
     /// The only thing remaining in memory permanently is the FontSource (which is only
     /// the string of the file path where the font was loaded from, so no huge memory pressure).
     /// The reason for this agressive strategy is that the
-    last_frame_font_keys: FastHashMap<ImmediateFontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
-    pending_frame_font_keys: FastHashMap<ImmediateFontId, (FontKey, FastHashMap<Au, FontInstanceKey>)>,
-
+    last_frame_font_keys: FastHashMap<ImmediateFontId, LoadedFont>,
+    /// Fonts that were loaded, but not yet used during this frame
+    pending_frame_font_keys: FastHashMap<ImmediateFontId, LoadedFont>,
     /// Stores long texts across frames
     text_cache: TextCache,
     /// Keyboard clipboard storage and retrieval functionality
     clipboard: SystemClipboard,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedFont {
+    pub key: FontKey,
+    pub font_bytes: Vec<u8>,
+    /// Index of the font in case the bytes indicate a font collection
+    pub font_index: i32,
+    pub font_instances: FastHashMap<Au, FontInstanceKey>,
+}
+
+impl LoadedFont {
+
+    /// Creates a new loaded font with 0 font instances
+    pub fn new(font_key: FontKey, font_bytes: Vec<u8>, index: i32) -> Self {
+        Self {
+            key: font_key,
+            font_bytes,
+            font_index: index,
+            font_instances: FastHashMap::default(),
+        }
+    }
 }
 
 impl AppResources {
@@ -336,15 +358,6 @@ impl AppResources {
         self.fonts.remove(id);
     }
 
-    /// Returns the `(FontKey, FontInstance)` - convenience function for the display list, to
-    /// query fonts and font keys from the display list
-    pub(crate) fn get_font_instance<I: Into<Au>>(&self, font_id: &ImmediateFontId, font_size: I) -> Option<(FontKey, FontInstanceKey)> {
-        let au = font_size.into();
-        self.currently_registered_fonts.get(font_id).and_then(|(font_key, font_instances)| {
-            font_instances.get(&au).map(|font_instance_key| (*font_key, *font_instance_key))
-        })
-    }
-
     // -- TextId cache
 
     /// Adds a string to the internal text cache, but only store it as a string,
@@ -377,6 +390,10 @@ impl AppResources {
     /// Sets the contents of the system clipboard - currently only strings are supported
     pub fn set_clipboard_string<S: Into<String>>(&mut self, contents: S) -> Result<(), ClipboardError> {
         self.clipboard.set_string_contents(contents.into())
+    }
+
+    pub(crate) fn get_loaded_font(&self, font_id: &ImmediateFontId) -> Option<&LoadedFont> {
+        self.currently_registered_fonts.get(font_id)
     }
 
     /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
@@ -493,19 +510,21 @@ fn build_add_font_resource_updates(
 
     for (im_font_id, font_sizes) in fonts_in_dom {
 
-        macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_size:expr) => ({
+        macro_rules! insert_font_instances {($font_id:expr, $font_bytes:expr, $font_key:expr, $font_index:expr, $font_size:expr) => ({
 
             let font_instance_key_exists = app_resources.currently_registered_fonts
                 .get(&$font_id)
-                .and_then(|(_, instances)| instances.get(&$font_size))
+                .and_then(|loaded_font| loaded_font.font_instances.get(&$font_size))
                 .is_some();
 
             if !font_instance_key_exists {
+
                 let font_instance_key = app_resources.fake_display.render_api.generate_font_instance_key();
 
                 app_resources.pending_frame_font_keys
                     .entry($font_id)
-                    .or_insert_with(|| ($font_key, FastHashMap::new())).1
+                    .or_insert_with(|| LoadedFont::new($font_key, $font_bytes.clone(), $font_index))
+                    .font_instances
                     .insert($font_size, font_instance_key);
 
                 // For some reason the gamma is way to low on Windows
@@ -531,7 +550,7 @@ fn build_add_font_resource_updates(
                     key: font_instance_key,
                     font_key: $font_key,
                     glyph_size: $font_size,
-                    options: None,
+                    options: Some(options),
                     platform_options: Some(platform_options),
                     variations: Vec::new(),
                 }));
@@ -539,9 +558,9 @@ fn build_add_font_resource_updates(
         })}
 
         match app_resources.currently_registered_fonts.get(im_font_id) {
-            Some((font_key, _existing_font_instances)) => {
+            Some(loaded_font) => {
                 for font_size in font_sizes.iter() {
-                    insert_font_instances!(im_font_id.clone(), *font_key, *font_size);
+                    insert_font_instances!(im_font_id.clone(), &loaded_font.font_bytes, loaded_font.key, loaded_font.font_index, *font_size);
                 }
             },
             None => {
@@ -558,7 +577,7 @@ fn build_add_font_resource_updates(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
                 };
 
-                let font_bytes = match font_source.get_bytes() {
+                let (font_bytes, font_index) = match font_source.get_bytes() {
                     Ok(o) => o,
                     Err(e) => {
                         #[cfg(feature = "logging")] {
@@ -570,10 +589,10 @@ fn build_add_font_resource_updates(
 
                 if !font_sizes.is_empty() {
                     let font_key = app_resources.fake_display.render_api.generate_font_key();
-                    resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(font_key, font_bytes.0, font_bytes.1 as u32)));
+                    resource_updates.push(ResourceUpdate::AddFont(AddFont::Raw(font_key, font_bytes.clone(), font_index as u32)));
 
                     for font_size in font_sizes {
-                        insert_font_instances!(im_font_id.clone(), font_key, *font_size);
+                        insert_font_instances!(im_font_id.clone(), font_bytes, font_key, font_index, *font_size);
                     }
                 }
             }
@@ -714,10 +733,11 @@ fn add_resources(
         currently_registered_images.insert(*image_id, *image_info);
     }
 
-    for (font_id, (font_key, font_instances)) in pending_frame_font_keys.iter() {
+    for (font_id, LoadedFont { key, font_bytes, font_instances, font_index }) in pending_frame_font_keys.iter() {
         currently_registered_fonts
             .entry(font_id.clone())
-            .or_insert_with(|| (*font_key, FastHashMap::default())).1
+            .or_insert_with(|| LoadedFont::new(*key, font_bytes.clone(), *font_index))
+            .font_instances
             .extend(font_instances.clone().into_iter());
     }
 }
@@ -730,15 +750,15 @@ fn build_delete_font_resource_updates(
     let mut to_remove_font_instance_keys = Vec::new();
 
     // Delete fonts that were not used in the last frame or have zero font instances
-    for (font_id, (font_key, font_instances)) in &app_resources.pending_frame_font_keys {
-        if !app_resources.last_frame_font_keys.contains_key(&font_id) || font_instances.is_empty() {
-            to_remove_fonts.push((font_id, *font_key));
-            for (au, font_instance_key) in font_instances.iter() {
+    for (font_id, loaded_font) in &app_resources.pending_frame_font_keys {
+        if !app_resources.last_frame_font_keys.contains_key(&font_id) || loaded_font.font_instances.is_empty() {
+            to_remove_fonts.push((font_id, loaded_font.key));
+            for (au, font_instance_key) in loaded_font.font_instances.iter() {
                 to_remove_font_instance_keys.push((font_id.clone(), *au, *font_instance_key));
             }
         } else {
-            for (au, font_instance_key) in font_instances.iter() {
-                if !app_resources.last_frame_font_keys[font_id].1.contains_key(au) {
+            for (au, font_instance_key) in loaded_font.font_instances.iter() {
+                if !app_resources.last_frame_font_keys[font_id].font_instances.contains_key(au) {
                     to_remove_font_instance_keys.push((font_id.clone(), *au, *font_instance_key));
                 }
             }
@@ -749,8 +769,8 @@ fn build_delete_font_resource_updates(
 
     for (font_id, au, font_instance_key) in to_remove_font_instance_keys {
         resource_updates.push(ResourceUpdate::DeleteFontInstance(font_instance_key));
-        if let Some((_, font_instances)) = app_resources.currently_registered_fonts.get_mut(&font_id) {
-            font_instances.remove(&au);
+        if let Some(loaded_font) = app_resources.currently_registered_fonts.get_mut(&font_id) {
+            loaded_font.font_instances.remove(&au);
         }
     }
 
