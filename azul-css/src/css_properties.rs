@@ -194,6 +194,28 @@ macro_rules! impl_pixel_value {($struct:ident) => (
             $struct(PixelValue::pt(value))
         }
     }
+
+    impl ::std::fmt::Debug for $struct {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "{}({:?})", stringify!($struct), self.0)
+        }
+    }
+)}
+
+macro_rules! impl_percentage_value{($struct:ident) => (
+    impl ::std::fmt::Debug for $struct {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "{}({:?})", stringify!($struct), self.0)
+        }
+    }
+)}
+
+macro_rules! impl_float_value{($struct:ident) => (
+    impl ::std::fmt::Debug for $struct {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "{}({:?})", stringify!($struct), self.0)
+        }
+    }
 )}
 
 pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);55] = [
@@ -531,10 +553,34 @@ impl_from!(LayoutAlignContent, CssProperty::AlignContent);
 pub const FP_PRECISION_MULTIPLIER: f32 = 10000.0;
 
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
+}
+
+// Manual Debug implementation, because the auto-generated one is nearly unreadable
+impl fmt::Debug for PixelValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}{:?}", self.number, self.metric)
+    }
+}
+
+impl fmt::Debug for SizeMetric {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::SizeMetric::*;
+        match self {
+            Px => write!(f, "px"),
+            Pt => write!(f, "pt"),
+            Em => write!(f, "pt"),
+        }
+    }
+}
+
+impl fmt::Debug for FloatValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.get())
+    }
 }
 
 impl PixelValue {
@@ -574,9 +620,15 @@ impl PixelValue {
 
 /// Wrapper around FloatValue, represents a percentage instead
 /// of just being a regular floating-point value, i.e `5` = `5%`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PercentageValue {
     number: FloatValue,
+}
+
+impl fmt::Debug for PercentageValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}%", self.get())
+    }
 }
 
 impl PercentageValue {
@@ -591,7 +643,7 @@ impl PercentageValue {
 
 /// Wrapper around an f32 value that is internally casted to an isize,
 /// in order to provide hash-ability (to avoid numerical instability).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FloatValue {
     pub number: isize,
 }
@@ -613,7 +665,7 @@ impl From<f32> for FloatValue {
 }
 
 /// Enum representing the metric associated with a number (px, pt, em, etc.)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SizeMetric {
     Px,
     Pt,
@@ -1122,43 +1174,46 @@ pub struct GradientStopPre {
 }
 
 /// Represents a `width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutWidth(pub PixelValue);
 /// Represents a `min-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMinWidth(pub PixelValue);
 /// Represents a `max-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMaxWidth(pub PixelValue);
 /// Represents a `height` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutHeight(pub PixelValue);
 /// Represents a `min-height` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMinHeight(pub PixelValue);
 /// Represents a `max-height` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMaxHeight(pub PixelValue);
 
 /// Represents a `top` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutTop(pub PixelValue);
 /// Represents a `left` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutLeft(pub PixelValue);
 /// Represents a `right` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutRight(pub PixelValue);
 /// Represents a `bottom` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutBottom(pub PixelValue);
 
 /// Represents a `flex-grow` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutFlexGrow(pub FloatValue);
 /// Represents a `flex-shrink` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutFlexShrink(pub FloatValue);
+
+impl_float_value!(LayoutFlexGrow);
+impl_float_value!(LayoutFlexShrink);
 
 /// Represents a `flex-direction` attribute - default: `Column`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1191,17 +1246,20 @@ impl LayoutDirection {
 }
 
 /// Represents a `line-height` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleLineHeight(pub PercentageValue);
 /// Represents a `tab-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleTabWidth(pub PercentageValue);
 /// Represents a `letter-spacing` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleLetterSpacing(pub PixelValue);
 /// Represents a `word-spacing` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleWordSpacing(pub PixelValue);
+
+impl_percentage_value!(StyleTabWidth);
+impl_percentage_value!(StyleLineHeight);
 
 /// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
 /// makes decisions based on horizontal / vertical direction easier to write.
@@ -1539,7 +1597,7 @@ impl_pixel_value!(LayoutRight);
 impl_pixel_value!(LayoutLeft);
 
 /// Represents a `font-size` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleFontSize(pub PixelValue);
 
 impl_pixel_value!(StyleFontSize);

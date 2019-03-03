@@ -24,7 +24,7 @@ pub type IndexOfLineBreak = usize;
 pub type RemainingSpaceToRight = f32;
 
 const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-const DEFAULT_CHAR_SPACING: f32 = 0.0;
+const DEFAULT_WORD_SPACING: f32 = 0.0;
 const DEFAULT_LETTER_SPACING: f32 = 0.0;
 const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
@@ -321,7 +321,9 @@ pub fn words_to_scaled_words(
                 index: index,
                 point: LayoutPoint::new(current_cursor, 0.0),
             });
-            current_cursor += dimensions.advance;
+            // current_cursor += dimensions.advance;
+            println!("dimensions of glyph: {:?}", dimensions);
+            current_cursor += dimensions.advance - dimensions.left as f32;
         }
 
         Some(ScaledWord {
@@ -367,10 +369,12 @@ pub fn position_words(
 
     let font_size_px = font_size.0;
     let space_advance = scaled_words.space_dimensions.advance;
-    let word_spacing_px = space_advance + text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_CHAR_SPACING);
+    let word_spacing_px = space_advance + text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
     let letter_spacing_px = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
     let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
+
+    println!("word spacing px: {:?}", word_spacing_px);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -420,7 +424,6 @@ pub fn position_words(
     for word in &words.items {
         match word {
             Word(w) => {
-
                 let scaled_word = match scaled_words.items.get(word_idx) {
                     Some(s) => s,
                     None => continue,
@@ -431,7 +434,6 @@ pub fn position_words(
 
                 // Calculate where the caret would be for the next word
                 let mut new_caret_x = line_caret_x
-                    + word_spacing_px
                     + scaled_word.word_width
                     + (scaled_word.glyph_instances.len().saturating_sub(1) as f32 * letter_spacing_px);
 

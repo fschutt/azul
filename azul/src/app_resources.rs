@@ -487,6 +487,8 @@ fn build_add_font_resource_updates(
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
 ) -> Vec<ResourceUpdate> {
 
+    use webrender::api::{FontInstancePlatformOptions, FontInstanceOptions, FontRenderMode, FontInstanceFlags};
+
     let mut resource_updates = Vec::new();
 
     for (im_font_id, font_sizes) in fonts_in_dom {
@@ -506,12 +508,31 @@ fn build_add_font_resource_updates(
                     .or_insert_with(|| ($font_key, FastHashMap::new())).1
                     .insert($font_size, font_instance_key);
 
+                // For some reason the gamma is way to low on Windows
+                let platform_options = FontInstancePlatformOptions {
+                    gamma: 300,
+                    contrast: 100,
+                };
+
+                let mut font_instance_flags = FontInstanceFlags::empty();
+                font_instance_flags.set(FontInstanceFlags::FORCE_GDI, true);
+                // font_instance_flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
+                // font_instance_flags.set(FontInstanceFlags::FORCE_AUTOHINT, true);
+                // font_instance_flags.set(FontInstanceFlags::TRANSPOSE, true);
+                // font_instance_flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
+
+                let options = FontInstanceOptions {
+                    render_mode: FontRenderMode::Subpixel,
+                    flags: font_instance_flags,
+                    .. Default::default()
+                };
+
                 resource_updates.push(ResourceUpdate::AddFontInstance(AddFontInstance {
                     key: font_instance_key,
                     font_key: $font_key,
                     glyph_size: $font_size,
-                    options: None, // TODO: LCD options
-                    platform_options: None,
+                    options: None,
+                    platform_options: Some(platform_options),
                     variations: Vec::new(),
                 }));
             }
@@ -804,15 +825,14 @@ fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
         "fantasy" => FontPropertyBuilder::new().oblique(),
         "sans-serif" => {
             #[cfg(target_os = "mac_os")] {
-                // For some reason, this selects Helvetica
-                FontPropertyBuilder::new().family("Arial")
+                FontPropertyBuilder::new().family("Helvetica")
             }
             #[cfg(target_os = "linux")] {
                 let native_sans_serif_font = linux_get_native_font(LinuxNativeFontType::SansSerif);
                 FontPropertyBuilder::new().family(&native_sans_serif_font)
             }
             #[cfg(all(not(target_os = "linux"), not(target_os = "mac_os")))] {
-                FontPropertyBuilder::new().family("sans-serif")
+                FontPropertyBuilder::new().family("Segoe UI")
             }
         },
         "serif" => {
