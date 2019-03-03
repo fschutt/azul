@@ -1253,11 +1253,16 @@ fn create_scaled_words<'a>(
 ) -> BTreeMap<NodeId, ScaledWords>
 {
     use text_layout::words_to_scaled_words;
+    use app_resources::ImmediateFontId;
+
     words.iter().filter_map(|(node_id, words)| {
         let style = &display_rects[*node_id].style;
         let font_size = font_size_to_au(get_font_size(&style));
-        let font_id = get_font_id(&style);
-        let font_id = app_resources.get_css_font_id(font_id)?;
+        let css_font_id = get_font_id(&style);
+        let font_id = match app_resources.get_css_font_id(css_font_id) {
+            Some(s) => ImmediateFontId::Resolved(*s),
+            None => ImmediateFontId::Unresolved(css_font_id.to_string()),
+        };
         let (font_key, font_instance_key) = app_resources.get_font_instance(&font_id, font_size)?;
         let scaled_words = words_to_scaled_words(
             words,

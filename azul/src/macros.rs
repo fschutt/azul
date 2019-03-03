@@ -233,14 +233,14 @@ impl<T: Layout> $struct_name<T> {
     ///
     /// [`AppResources::add_image`]: ../app_resources/struct.AppResources.html#method.add_image
     #[cfg(feature = "image_loading")]
-    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) -> Option<()> {
+    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) {
         self.$struct_field.add_image(image_id, image_source)
     }
 
     /// See [`AppResources::add_image_raw`]
     ///
     /// [`AppResources::add_image_raw`]: ../app_resources/struct.AppResources.html#method.add_image_raw
-    pub fn add_image_raw(&mut self, image_id: ImageId, image: RawImage) -> Option<()> {
+    pub fn add_image_raw(&mut self, image_id: ImageId, image: RawImage) {
         self.$struct_field.add_image_raw(image_id, image)
     }
 
@@ -341,7 +341,7 @@ impl<T: Layout> $struct_name<T> {
     /// See [`AppResources::add_font`]
     ///
     /// [`AppResources::add_font`]: ../app_resources/struct.AppResources.html#method.add_font
-    pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) -> Option<()> {
+    pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) {
         self.$struct_field.add_font(font_id, font_source)
     }
 

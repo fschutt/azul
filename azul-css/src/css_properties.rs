@@ -1558,16 +1558,10 @@ pub struct StyleFontFamily {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum FontId {
-    BuiltinFont(String),
-    ExternalFont(String),
-}
+pub struct FontId(pub String);
 
 impl FontId {
     pub fn get_str(&self) -> &str {
-        use self::FontId::*;
-        match self {
-            BuiltinFont(id) | ExternalFont(id) => id,
-        }
+        &self.0
     }
 }
