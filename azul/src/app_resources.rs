@@ -528,10 +528,23 @@ fn build_add_font_resource_updates(
                     .insert($font_size, font_instance_key);
 
                 // For some reason the gamma is way to low on Windows
+                #[cfg(target_os = "windows")]
                 let platform_options = FontInstancePlatformOptions {
                     gamma: 300,
                     contrast: 100,
                 };
+
+                #[cfg(target_os = "linux")]
+                use webrender::api::{FontLCDFilter, FontHinting};
+
+                #[cfg(target_os = "linux")]
+                let platform_options = FontInstancePlatformOptions {
+                    lcd_filter: FontLCDFilter::Default,
+                    hinting: FontHinting::LCD,
+                };
+
+                #[cfg(target_os = "macos")]
+                let platform_options = FontInstancePlatformOptions::default();
 
                 let mut font_instance_flags = FontInstanceFlags::empty();
                 font_instance_flags.set(FontInstanceFlags::FORCE_GDI, true);
