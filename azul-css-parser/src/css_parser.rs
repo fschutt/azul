@@ -2628,8 +2628,8 @@ mod css_tests {
     fn test_parse_style_font_family_1() {
         assert_eq!(parse_style_font_family("\"Webly Sleeky UI\", monospace"), Ok(StyleFontFamily {
             fonts: vec![
-                FontId::ExternalFont("Webly Sleeky UI".into()),
-                FontId::BuiltinFont("monospace".into()),
+                FontId("Webly Sleeky UI".into()),
+                FontId("monospace".into()),
             ]
         }));
     }
@@ -2638,7 +2638,7 @@ mod css_tests {
     fn test_parse_style_font_family_2() {
         assert_eq!(parse_style_font_family("'Webly Sleeky UI'"), Ok(StyleFontFamily {
             fonts: vec![
-                FontId::ExternalFont("Webly Sleeky UI".into()),
+                FontId("Webly Sleeky UI".into()),
             ]
         }));
     }

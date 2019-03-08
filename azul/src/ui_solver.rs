@@ -1106,6 +1106,11 @@ pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
     }
 }
 
+pub(crate) fn au_to_px(au: Au) -> f32 {
+    use app_units::AU_PER_PX;
+    (au.0 as f32) / (AU_PER_PX as f32) as f32
+}
+
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
     let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0));
     font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)

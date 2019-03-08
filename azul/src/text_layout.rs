@@ -287,12 +287,19 @@ pub fn words_to_scaled_words(
 ) -> ScaledWords {
 
     use self::Word::*;
-    use text_shaping;
+    use text_shaping::{self, HbBuffer, HbFont, HbScaledFont};
 
     let mut longest_word_width = 0.0_f32;
 
     // Get the dimensions of the space glyph
     let shaped_space = text_shaping::shape_word(" ", font, font_size, render_api);
+
+    let hb_buffer = HbBuffer::from_str(" ");
+    let hb_font = HbFont::from_loaded_font(font);
+    let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size);
+
+    // let hb_shaped_space = text_shaping::shape_word_hb(&hb_buffer, &hb_scaled_font);
+    // let hb_glyph_instances = text_shaping::get_glyph_instances_hb(&hb_shaped_space);
 
     let glyphs = words.items.iter().filter_map(|word| {
 
@@ -302,18 +309,26 @@ pub fn words_to_scaled_words(
         };
 
         let shaped_word = text_shaping::shape_word(word, font, font_size, render_api);
-        let word_width = text_shaping::get_word_visual_width(&shaped_word.glyph_positions);
-        let glyph_instances = text_shaping::get_glyph_instances(&shaped_word);
 
-        longest_word_width = longest_word_width.max(word_width);
+        // let word_width = text_shaping::get_word_visual_width(&shaped_word.glyph_positions);
+        // let glyph_instances = text_shaping::get_glyph_instances(&shaped_word);
+
+        let hb_buffer = HbBuffer::from_str(word);
+        let hb_shaped_word = text_shaping::shape_word_hb(&hb_buffer, &hb_scaled_font);
+        let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_shaped_word);
+        let hb_glyph_instances = text_shaping::get_glyph_instances_hb(&hb_shaped_word);
+
+        longest_word_width = longest_word_width.max(hb_word_width);
 
         Some(ScaledWord {
-            glyph_instances,
+            glyph_instances: hb_glyph_instances,
             glyph_dimensions: shaped_word.glyph_positions,
-            word_width,
+            word_width: hb_word_width,
         })
 
     }).collect();
+
+    println!("--------------");
 
     ScaledWords {
         font_key: font.key,
