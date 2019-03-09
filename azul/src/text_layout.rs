@@ -298,9 +298,6 @@ pub fn words_to_scaled_words(
     let hb_font = HbFont::from_loaded_font(font);
     let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size);
 
-    // let hb_shaped_space = text_shaping::shape_word_hb(&hb_buffer, &hb_scaled_font);
-    // let hb_glyph_instances = text_shaping::get_glyph_instances_hb(&hb_shaped_space);
-
     let glyphs = words.items.iter().filter_map(|word| {
 
         let word = match word {
@@ -309,9 +306,6 @@ pub fn words_to_scaled_words(
         };
 
         let shaped_word = text_shaping::shape_word(word, font, font_size, render_api);
-
-        // let word_width = text_shaping::get_word_visual_width(&shaped_word.glyph_positions);
-        // let glyph_instances = text_shaping::get_glyph_instances(&shaped_word);
 
         let hb_buffer = HbBuffer::from_str(word);
         let hb_shaped_word = text_shaping::shape_word_hb(&hb_buffer, &hb_scaled_font);
@@ -327,8 +321,6 @@ pub fn words_to_scaled_words(
         })
 
     }).collect();
-
-    println!("--------------");
 
     ScaledWords {
         font_key: font.key,
@@ -389,8 +381,8 @@ pub fn position_words(
             text_layout_options.max_horizontal_width,
         );
 
-        if let LineCaretIntersection::PushCaretOntoNextLine(line_advance, _) = caret_intersection {
-            line_breaks.push((current_word_idx, line_caret_x)); // TODO: Is this correct?
+        if caret_intersection == LineCaretIntersection::NoIntersection {
+            line_breaks.push((current_word_idx, $line_caret_x)); // TODO: Is this correct?
         }
 
         // Correct and advance the line caret position
@@ -455,13 +447,16 @@ pub fn position_words(
         }
     }
 
+    // Push the last lines length into the line breaks
+    line_breaks.push((current_word_idx, line_caret_x)); // TODO: Is this correct?
+
     let trailing = line_caret_x;
-    let number_of_lines = line_number;
+    let number_of_lines = line_number + 1;
     let number_of_words = current_word_idx;
 
     let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
     let content_size_x = text_layout_options.max_horizontal_width.map(|x| x.0).unwrap_or(longest_line_width);
-    let content_size = LayoutSize::new(content_size_y, content_size_y);
+    let content_size = LayoutSize::new(content_size_x, content_size_y);
 
     WordPositions {
         font_key: scaled_words.font_key,
@@ -591,7 +586,9 @@ pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWor
     let mut last_word_idx = 0;
 
     word_positions.line_breaks.iter().map(|(current_word_idx, line_length)| {
+        println!("line length: {:?} - width: {:?}", line_length, width);
         let remaining_space_px = width - line_length;
+        println!("remaining_space_px: {:?}", remaining_space_px);
         let words = &scaled_words.items[last_word_idx..*current_word_idx];
         let glyphs_in_this_line: usize = words.iter().map(|s| s.glyph_instances.len()).sum();
         current_glyph_count += glyphs_in_this_line;
@@ -605,6 +602,7 @@ pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px
     ((font_size_px + line_height_px) * line_number as f32) + font_size_px
 }
 
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 enum LineCaretIntersection {
     /// OK: Caret does not interset any elements
     NoIntersection,

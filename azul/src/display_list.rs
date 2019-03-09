@@ -757,6 +757,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
+        gl_context.viewport(0, 0, info.rect.size.width as i32, info.rect.size.height as i32);
     }
 
     let texture = match texture {
@@ -816,9 +817,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
         rectangle.window_size.hidpi_factor
     );
 
-    let new_dom;
-
-    {
+    let new_dom = {
         // Make sure that the app data is locked before invoking the callback
         let _lock = referenced_mutable_content.app_data.lock().unwrap();
 
@@ -826,8 +825,9 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
             window: referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
         };
-        new_dom = (iframe_callback.0)(&iframe_pointer, window_info, bounds);
-    }
+
+        (iframe_callback.0)(&iframe_pointer, window_info, bounds)
+    };
 
     // TODO: Right now, no focusing, hovering or :active allowed in iframes!
     let is_mouse_down = false;
@@ -867,9 +867,12 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
         rect_origin,
     );
 
+    println!("iframe layout result: {:?}", layout_result);
+
     let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
         node_hierarchy, &display_list.rectangles, node_data, &layout_result.rects,
-        &layout_result.node_depths, referenced_content.pipeline_id);
+        &layout_result.node_depths, referenced_content.pipeline_id
+    );
 
     let rects_in_rendering_order = determine_rendering_order(
         node_hierarchy, &display_list.rectangles, &layout_result.rects

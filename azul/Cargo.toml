@@ -77,6 +77,11 @@ path = "../examples/async.rs"
 required-features = []
 
 [[example]]
+name = "harfbuzz"
+path = "../examples/harfbuzz.rs"
+required-features = []
+
+[[example]]
 name = "hot_reload"
 path = "../examples/hot_reload.rs"
 required-features = ["image_loading"]

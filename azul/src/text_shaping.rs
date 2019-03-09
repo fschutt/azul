@@ -1,7 +1,7 @@
 //! Contains functions for laying out single words (uses HarfBuzz for context-aware font shaping).
 //! Right now, words are laid out on a word-per-word basis, no inter-word font shaping is done.
 
-use std::{slice, ptr, ops::Deref, os::raw::{c_char, c_uint}};
+use std::{slice, ptr, u32, ops::Deref, os::raw::{c_char, c_uint}};
 use app_units::Au;
 use webrender::api::{
     LayoutPoint, RenderApi, GlyphDimensions,
@@ -13,12 +13,13 @@ use harfbuzz_sys::{
     hb_face_create, hb_face_destroy,
     hb_font_funcs_create, hb_font_funcs_destroy,
     hb_buffer_create, hb_buffer_destroy,
-    hb_shape, hb_buffer_set_language, hb_buffer_set_script, hb_font_set_scale,
-    hb_buffer_set_direction, hb_buffer_add_utf8, hb_language_from_string,
-    hb_buffer_get_glyph_infos, hb_buffer_get_glyph_positions, hb_buffer_get_length,
+    hb_shape, hb_font_set_scale, hb_buffer_add_utf8,
+    hb_buffer_get_glyph_infos, hb_buffer_get_glyph_positions,
+    hb_buffer_guess_segment_properties, hb_buffer_allocation_successful,
     hb_blob_t, hb_memory_mode_t, hb_buffer_t, hb_font_funcs_t,
     hb_glyph_position_t, hb_glyph_info_t, hb_font_t, hb_face_t,
-    HB_MEMORY_MODE_READONLY, HB_SCRIPT_LATIN, HB_DIRECTION_LTR,
+    hb_feature_t, hb_tag_t,
+    HB_MEMORY_MODE_READONLY,
 };
 use {
     ui_solver::au_to_px,
@@ -29,6 +30,51 @@ use {
 pub type GlyphIndex = u32;
 pub type GlyphInfo = GlyphIndex; // TODO: hb_glyph_info_t
 pub type GlyphPosition = GlyphDimensions; // TODO: hb_glyph_position_t
+
+const MEMORY_MODE_READONLY: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
+const HB_SCALE_FACTOR: f32 = 64.0;
+
+// See: https://github.com/tangrams/harfbuzz-example/blob/master/src/hbshaper.h
+
+// hb_tag_t = u32
+
+// We still have to wait a bit for rustc to support const fn -
+// TODO: reason to upgrade compiler version?
+
+// // Translation of the original HB_TAG macro, defined in:
+// // https://github.com/harfbuzz/harfbuzz/blob/90dd255e570bf8ea3436e2f29242068845256e55/src/hb-common.h#L89
+// //
+// const fn create_hb_tag(tag: (char, char, char, char)) -> hb_tag_t {
+//     (((tag.0 as hb_tag_t) & 0xFF) << 24) |
+//     (((tag.1 as hb_tag_t) & 0xFF) << 16) |
+//     (((tag.2 as hb_tag_t) & 0xFF) << 8)  |
+//     (((tag.3 as hb_tag_t) & 0xFF) << 0)
+// }
+//
+// // Kerning operations
+// const KERN_TAG: hb_tag_t = create_hb_tag(['k', 'e', 'r', 'n']);
+// // Standard ligature substitution
+// const LIGA_TAG: hb_tag_t = create_hb_tag(['l', 'i', 'g', 'a']);
+// // Contextual ligature substitution
+// const CLIG_TAG: hb_tag_t = create_hb_tag(['c', 'l', 'i', 'g']);
+
+const KERN_TAG: hb_tag_t =  1801810542;
+const LIGA_TAG: hb_tag_t =  1818847073;
+const CLIG_TAG: hb_tag_t =  1668049255;
+
+const FEATURE_KERNING_OFF: hb_feature_t  = hb_feature_t { tag: KERN_TAG, value: 0, start: 0, end: u32::MAX };
+const FEATURE_KERNING_ON: hb_feature_t   = hb_feature_t { tag: KERN_TAG, value: 1, start: 0, end: u32::MAX };
+const FEATURE_LIGATURE_OFF: hb_feature_t = hb_feature_t { tag: LIGA_TAG, value: 0, start: 0, end: u32::MAX };
+const FEATURE_LIGATURE_ON: hb_feature_t  = hb_feature_t { tag: LIGA_TAG, value: 1, start: 0, end: u32::MAX };
+const FEATURE_CLIG_OFF: hb_feature_t     = hb_feature_t { tag: CLIG_TAG, value: 0, start: 0, end: u32::MAX };
+const FEATURE_CLIG_ON: hb_feature_t      = hb_feature_t { tag: CLIG_TAG, value: 1, start: 0, end: u32::MAX };
+
+// NOTE: kerning is a "feature" and has to be specifically turned on.
+static ACTIVE_HB_FEATURES: [hb_feature_t;3] = [
+    FEATURE_KERNING_ON,
+    FEATURE_LIGATURE_ON,
+    FEATURE_CLIG_ON,
+];
 
 #[derive(Debug, Clone)]
 pub struct ShapedWord {
@@ -48,8 +94,6 @@ pub struct HbFont<'a> {
 impl<'a> HbFont<'a> {
     pub fn from_loaded_font(font: &'a LoadedFont) -> Self {
 
-        const MEMORY_MODE: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
-
         // Create a HbFont with no destroy function (font is cleaned up by Rust destructor)
 
         let hb_font_funcs = unsafe { hb_font_funcs_create() };
@@ -58,7 +102,7 @@ impl<'a> HbFont<'a> {
 
         let font_ptr = font.font_bytes.as_ptr() as *const i8;
         let hb_face_bytes = unsafe {
-            hb_blob_create(font_ptr, font.font_bytes.len() as u32, MEMORY_MODE, user_data_ptr, destroy_func)
+            hb_blob_create(font_ptr, font.font_bytes.len() as u32, MEMORY_MODE_READONLY, user_data_ptr, destroy_func)
         };
         let hb_face = unsafe { hb_face_create(hb_face_bytes, font.font_index as c_uint) };
         let hb_font = unsafe { hb_font_create(hb_face) };
@@ -87,8 +131,6 @@ pub struct HbScaledFont<'a> {
     pub scale: Au,
 }
 
-const HB_SCALE_FACTOR: f32 = 64.0;
-
 impl<'a> HbScaledFont<'a> {
     pub fn from_font(font: &'a HbFont<'a>, scale: Au) -> Self {
         let px = (au_to_px(scale) * HB_SCALE_FACTOR) as i32;
@@ -108,12 +150,8 @@ pub struct HbBuffer<'a> {
 impl<'a> HbBuffer<'a> {
     pub fn from_str(words: &'a str) -> Self {
 
-        // TODO: caching / etc.
-        const LANG: &[u8;2] = b"en";
-        let lang_ptr = LANG as *const u8 as *const i8;
-        let lang = unsafe { hb_language_from_string(lang_ptr, -1) };
-
         let hb_buffer = unsafe { hb_buffer_create() };
+        unsafe { hb_buffer_allocation_successful(hb_buffer); };
         let word_ptr = words.as_ptr() as *const c_char; // HB handles UTF-8
 
         // If layouting a sub-string, substr_len should obviously not be the word_len -
@@ -125,12 +163,9 @@ impl<'a> HbBuffer<'a> {
 
         unsafe {
             hb_buffer_add_utf8(hb_buffer, word_ptr, word_len, substr_offset, substr_len);
-            hb_buffer_set_direction(hb_buffer, HB_DIRECTION_LTR);
-            hb_buffer_set_script(hb_buffer, HB_SCRIPT_LATIN);
-            hb_buffer_set_language(hb_buffer, lang);
+            // Guess the script, language and direction from the buffer
+            hb_buffer_guess_segment_properties(hb_buffer);
         }
-
-        let len = unsafe { hb_buffer_get_length(hb_buffer) };
 
         Self {
             words,
@@ -174,48 +209,18 @@ pub struct HbShapedWord<'a> {
     pub glyph_positions: CVec<HbGlyphPosition>,
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(transparent)]
-pub struct Feature(hb::hb_feature_t);
-
-use std::u32;
-
-const KERN_FEATURE: Feature = Feature(
-    /*
-        pub unsafe extern "C" fn hb_ot_layout_table_get_feature_tags(
-            face: *mut hb_face_t,
-            table_tag: hb_tag_t,
-            start_offset: c_uint,
-            feature_count: *mut c_uint,
-            feature_tags: *mut hb_tag_t
-        ) -> c_uint
-    */
-    // { KernTag, 1, 0, std::numeric_limits<unsigned int>::max() }
-    hb_feature_t {
-        tag: hb_tag_t,
-        value: 1,
-        start: 0,
-        end: u32::MAX,
-    }
-);
-
 pub(crate) fn shape_word_hb<'a>(
     text: &'a HbBuffer<'a>,
     scaled_font: &'a HbScaledFont<'a>,
 ) -> HbShapedWord<'a> {
 
-    // NOTE: kerning is a "feature" and has to be specifically turned on.
-    const HB_FEATURES: [] = [
+    let features = if ACTIVE_HB_FEATURES.is_empty() {
+        ptr::null()
+    } else {
+        &ACTIVE_HB_FEATURES as *const _
+    };
 
-    ];
-
-    // static hb_feature_t KerningOn = { KernTag, 1, 0, std::numeric_limits<unsigned int>::max() };
-    // std::vector<hb_feature_t> hbFeatures;
-    // hbFeatures.push_back(HBFeature::KerningOn);
-    // hb_shape(m_hbFont, m_hbBuffer, hbFeatures.data(), (int32_t)hbFeatures.size());
-
-    let features = ptr::null();
-    let num_features = 0;
+    let num_features = ACTIVE_HB_FEATURES.len() as u32;
 
     unsafe { hb_shape(scaled_font.font.hb_font, text.hb_buffer, features, num_features) };
 
