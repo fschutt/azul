@@ -262,53 +262,80 @@ pub fn split_text_into_words(text: &str) -> Words {
     // which reduces allocations and is important for later on introducing RTL text
     // (where the position of the character data does not correspond to the actual glyph order).
     let mut current_word_start = 0;
-    let mut current_word_end = 0;
-    let mut last_char_was_rn = false;
+    let mut last_char_idx = 0;
+    let mut last_char_was_whitespace = false;
 
     for (ch_idx, ch) in normalized_string.char_indices() {
+
+        println!("ch: {:?}, last_char_idx: {} - ch_idx: {}, ", ch, last_char_idx, ch_idx);
+
         let should_push_delimiter = match ch {
             ' ' => {
                 Some(Word {
-                    start: current_word_end,
+                    start: last_char_idx,
                     end: ch_idx,
                     word_type: WordType::Space
                 })
             },
             '\t' => {
                 Some(Word {
-                    start: current_word_end,
+                    start: last_char_idx,
                     end: ch_idx,
                     word_type: WordType::Tab
                 })
             },
             '\n' => {
-                // if the last item was a '\r\n', this span will take up 2 characters, not just one
-                Some(Word {
-                    start: current_word_end,
-                    end: ch_idx,
-                    word_type: WordType::Return,
-                })
-            }
-            c => None,
+                if &normalized_string[last_char_idx..ch_idx] == "\r" {
+                    // "/r/n" ending
+                    // If the last item was a '\r\n', this span will take up 2 characters, not just one
+                    Some(Word {
+                        start: last_char_idx,
+                        end: ch_idx,
+                        word_type: WordType::Return,
+                    })
+                } else {
+                    Some(Word {
+                        start: last_char_idx,
+                        end: ch_idx + 1,
+                        word_type: WordType::Return,
+                    })
+                }
+            },
+            c => {
+                println!("character: {:?}", c);
+                None
+            },
         };
 
-        if !ch.is_whitespace() {
-            // Regular characters inside of a word
-            current_word_end = ch_idx;
-        } else if current_word_start != current_word_end {
-            // Character is a whitespace, and the current word isn't empty
-            words.push(Word {
+        let current_char_is_whitespace = ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+
+        // Character is a whitespace, and the current word isn't empty
+        let should_push_word = if current_char_is_whitespace && !last_char_was_whitespace {
+            Some(Word {
                 start: current_word_start,
-                end: current_word_end,
+                end: last_char_idx,
                 word_type: WordType::Word
-            });
-            current_word_start = current_word_end;
+            })
+        } else {
+            None
+        };
+
+        last_char_was_whitespace = current_char_is_whitespace;
+
+        if ch.is_whitespace() {
+            current_word_start = ch_idx;
         }
 
         // The Word needs to be pushed first, then the delimiter
+        if let Some(w) = should_push_word {
+            words.push(w);
+        }
+
         if let Some(delim) = should_push_delimiter {
             words.push(delim);
         }
+
+        last_char_idx = ch_idx;
     }
 
     // If the last item is a `Return`, remove it
@@ -317,10 +344,10 @@ pub fn split_text_into_words(text: &str) -> Words {
     }
 
     // Push the last word
-    if current_word_start != current_word_end {
+    if current_word_start != last_char_idx {
         words.push(Word {
             start: current_word_start,
-            end: current_word_end,
+            end: last_char_idx,
             word_type: WordType::Word
         });
     }
@@ -872,30 +899,48 @@ pub struct LayoutTextResult {
 
 #[test]
 fn test_split_words() {
-    use self::Word::*;
-    let words_ascii = split_text_into_words("abc\tdef  \nghi\r\njkl");
-    let words_ascii_expected = Words {
-        items: vec![
-            Word("abc".to_string()),
-            Tab,
-            Word("def".to_string()),
-            Space,
-            Space,
-            Return,
-            Word("ghi".to_string()),
-            Return,
-            Word("jkl".to_string()),
-        ]
-    };
-    assert_eq!(words_ascii, words_ascii_expected);
 
-    let words_unicode = split_text_into_words("㌊㌋㌌㌍㌎㌏㌐㌑ ㌒㌓㌔㌕㌖㌗");
-    let words_unicode_expected = Words {
+    let ascii_str = String::from("abc\tdef  \nghi\r\njkl");
+    let words_ascii = split_text_into_words(&ascii_str);
+    let words_ascii_expected = Words {
+        internal_str: ascii_str,
         items: vec![
-            Word("㌊㌋㌌㌍㌎㌏㌐㌑".to_string()),
-            Space,
-            Word("㌒㌓㌔㌕㌖㌗".to_string()),
-        ]
+            Word { start: 0,    end: 2,     word_type: WordType::Word     }, // "abc"
+            Word { start: 2,    end: 3,     word_type: WordType::Tab      },
+            Word { start: 3,    end: 6,     word_type: WordType::Word     }, // "def"
+            Word { start: 6,    end: 7,     word_type: WordType::Space    },
+            Word { start: 7,    end: 8,     word_type: WordType::Space    },
+            Word { start: 8,    end: 9,     word_type: WordType::Return   },
+            Word { start: 9,    end: 12,    word_type: WordType::Word     }, // "ghi"
+            Word { start: 12,   end: 14,    word_type: WordType::Return   },
+            Word { start: 14,   end: 17,    word_type: WordType::Word     }, // "jkl"
+        ],
     };
-    assert_eq!(words_unicode, words_unicode_expected);
+
+    println!("got: {:#?}", words_ascii);
+
+    for (idx, expected_word) in words_ascii_expected.items.iter().enumerate() {
+        let got = words_ascii.items.get(idx);
+        if got != Some(expected_word) {
+            panic!("Expected word idx {} - expected: {:#?}, got: {:#?}", idx, Some(expected_word), got);
+        }
+    }
+
+    let unicode_str = String::from("㌊㌋㌌㌍㌎㌏㌐㌑ ㌒㌓㌔㌕㌖㌗");
+    let words_unicode = split_text_into_words(&unicode_str);
+    let words_unicode_expected = Words {
+        internal_str: unicode_str,
+        items: vec![
+            Word { start: 0,        end: 24,     word_type: WordType::Word     }, // "㌊㌋㌌㌍㌎㌏㌐㌑"
+            Word { start: 24,       end: 25,     word_type: WordType::Space   },
+            Word { start: 35,       end: 43,     word_type: WordType::Word   }, // "㌒㌓㌔㌕㌖㌗"
+        ],
+    };
+
+    for (idx, expected_word) in words_unicode_expected.items.iter().enumerate() {
+        let got = words_ascii.items.get(idx);
+        if got != Some(expected_word) {
+            panic!("Expected word idx {} - expected: {:#?}, got: {:#?}", idx, Some(expected_word), got);
+        }
+    }
 }

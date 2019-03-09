@@ -396,7 +396,7 @@ fn main() {
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
     let mut app = App::new(Calculator::default(), AppConfig::default()).unwrap();
     let font_id = app.add_css_font_id("KoHo-Light");
-    app.add_font(font_id, FontSource::Embedded(FONT)).unwrap();
+    app.add_font(font_id, FontSource::Embedded(FONT));
     let window = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
     // let window2 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
     // let window3 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
