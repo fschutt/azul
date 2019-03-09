@@ -1009,8 +1009,36 @@ impl FakeDisplay {
 
 impl Drop for FakeDisplay {
     fn drop(&mut self) {
-        let renderer = self.renderer.take().unwrap();
-        renderer.deinit();
+
+        // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
+        //
+        // TODO: This still crashes on Linux because the makeCurrent call doesn't succeed
+        // (likely because the underlying surface has been destroyed). In those cases,
+        // we don't de-initialize the rendered (since this is an application shutdown it
+        // doesn't matter, the resources are going to get cleaned up by the OS).
+        match unsafe { self.hidden_display.gl_window().make_current() } {
+            Ok(_) => { },
+            Err(e) => {
+                error!("Shutdown error: {}", e);
+                return;
+            },
+        }
+
+        let gl_context = match get_gl_context(&self.hidden_display) {
+            Ok(o) => o,
+            Err(e) => {
+                error!("Shutdown error: {}", e);
+                return;
+            },
+        };
+
+        gl_context.disable(gl::FRAMEBUFFER_SRGB);
+        gl_context.disable(gl::MULTISAMPLE);
+        gl_context.disable(gl::POLYGON_SMOOTH);
+
+        if let Some(renderer) = self.renderer.take() {
+            renderer.deinit();
+        }
     }
 }
 
