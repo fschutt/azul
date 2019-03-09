@@ -84,7 +84,6 @@ pub(crate) use azul_dependencies::glium as glium;
 pub(crate) use azul_dependencies::gleam as gleam;
 pub(crate) use azul_dependencies::euclid;
 pub(crate) use azul_dependencies::webrender;
-pub(crate) use azul_dependencies::rusttype;
 pub(crate) use azul_dependencies::app_units;
 pub(crate) use azul_dependencies::unicode_normalization;
 pub(crate) use azul_dependencies::tinyfiledialogs;
@@ -217,7 +216,6 @@ pub mod prelude {
         VirtualKeyCode, ScanCode, Icon,
     };
     pub use azul_css::*;
-    pub use rusttype::Font;
     pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
