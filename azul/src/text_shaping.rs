@@ -34,33 +34,26 @@ pub type GlyphPosition = GlyphDimensions; // TODO: hb_glyph_position_t
 const MEMORY_MODE_READONLY: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
 const HB_SCALE_FACTOR: f32 = 64.0;
 
+// NOTE: hb_tag_t = u32
 // See: https://github.com/tangrams/harfbuzz-example/blob/master/src/hbshaper.h
-
-// hb_tag_t = u32
-
-// We still have to wait a bit for rustc to support const fn -
-// TODO: reason to upgrade compiler version?
-
-// // Translation of the original HB_TAG macro, defined in:
-// // https://github.com/harfbuzz/harfbuzz/blob/90dd255e570bf8ea3436e2f29242068845256e55/src/hb-common.h#L89
-// //
-// const fn create_hb_tag(tag: (char, char, char, char)) -> hb_tag_t {
-//     (((tag.0 as hb_tag_t) & 0xFF) << 24) |
-//     (((tag.1 as hb_tag_t) & 0xFF) << 16) |
-//     (((tag.2 as hb_tag_t) & 0xFF) << 8)  |
-//     (((tag.3 as hb_tag_t) & 0xFF) << 0)
-// }
 //
-// // Kerning operations
-// const KERN_TAG: hb_tag_t = create_hb_tag(['k', 'e', 'r', 'n']);
-// // Standard ligature substitution
-// const LIGA_TAG: hb_tag_t = create_hb_tag(['l', 'i', 'g', 'a']);
-// // Contextual ligature substitution
-// const CLIG_TAG: hb_tag_t = create_hb_tag(['c', 'l', 'i', 'g']);
+// Translation of the original HB_TAG macro, defined in:
+// https://github.com/harfbuzz/harfbuzz/blob/90dd255e570bf8ea3436e2f29242068845256e55/src/hb-common.h#L89
+//
+// NOTE: Minimum required rustc version for const fn is 1.31.
+const fn create_hb_tag(tag: (char, char, char, char)) -> hb_tag_t {
+    (((tag.0 as hb_tag_t) & 0xFF) << 24) |
+    (((tag.1 as hb_tag_t) & 0xFF) << 16) |
+    (((tag.2 as hb_tag_t) & 0xFF) << 8)  |
+    (((tag.3 as hb_tag_t) & 0xFF) << 0)
+}
 
-const KERN_TAG: hb_tag_t =  1801810542;
-const LIGA_TAG: hb_tag_t =  1818847073;
-const CLIG_TAG: hb_tag_t =  1668049255;
+// Kerning operations
+const KERN_TAG: hb_tag_t = create_hb_tag(('k', 'e', 'r', 'n'));
+// Standard ligature substitution
+const LIGA_TAG: hb_tag_t = create_hb_tag(('l', 'i', 'g', 'a'));
+// Contextual ligature substitution
+const CLIG_TAG: hb_tag_t = create_hb_tag(('c', 'l', 'i', 'g'));
 
 const FEATURE_KERNING_OFF: hb_feature_t  = hb_feature_t { tag: KERN_TAG, value: 0, start: 0, end: u32::MAX };
 const FEATURE_KERNING_ON: hb_feature_t   = hb_feature_t { tag: KERN_TAG, value: 1, start: 0, end: u32::MAX };

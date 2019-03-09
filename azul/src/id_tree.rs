@@ -35,25 +35,13 @@ mod node_id {
         /// it is more likely that you run out of RAM before you do that. The only thing
         /// that could lead to an overflow would be a bug. Therefore, overflow-checking is
         /// disabled in release mode.
-        #[cfg_attr(not(debug_assertions), inline(always))]
-        pub(crate) fn new(value: usize) -> Self {
-
-            #[cfg(debug_assertions)] {
-                let (new_value, has_overflown) = value.overflowing_add(1);
-                if has_overflown {
-                    panic!("Overflow when creating DOM Node with ID {}", value);
-                } else {
-                    NodeId { index: NonZeroUsize::new(new_value).unwrap() }
-                }
-            }
-
-            #[cfg(not(debug_assertions))] {
-                NodeId { index: unsafe { NonZeroUsize::new_unchecked(value + 1) } }
-            }
+        #[inline(always)]
+        pub(crate) const fn new(value: usize) -> Self {
+            NodeId { index: unsafe { NonZeroUsize::new_unchecked(value + 1) } }
         }
 
         #[inline]
-        pub fn index(&self) -> usize {
+        pub const fn index(&self) -> usize {
             self.index.get() - 1
         }
     }
@@ -113,7 +101,9 @@ pub struct NodeHierarchy {
 }
 
 impl NodeHierarchy {
-    pub fn new(data: Vec<Node>) -> Self {
+
+    #[inline]
+    pub const fn new(data: Vec<Node>) -> Self {
         Self {
             internal: data,
         }
@@ -202,7 +192,8 @@ impl IndexMut<NodeId> for NodeHierarchy {
 
 impl<T> NodeDataContainer<T> {
 
-    pub fn new(data: Vec<T>) -> Self {
+    #[inline]
+    pub const fn new(data: Vec<T>) -> Self {
         Self {
             internal: data,
         }
@@ -385,7 +376,8 @@ impl NodeId {
     /// Return an iterator of references to this node and its ancestors.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn ancestors(self, node_layout: &NodeHierarchy) -> Ancestors {
+    #[inline]
+    pub const fn ancestors(self, node_layout: &NodeHierarchy) -> Ancestors {
         Ancestors {
             node_layout,
             node: Some(self),
@@ -395,7 +387,8 @@ impl NodeId {
     /// Return an iterator of references to this node and the siblings before it.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn preceding_siblings(self, node_layout: &NodeHierarchy) -> PrecedingSiblings {
+    #[inline]
+    pub const fn preceding_siblings(self, node_layout: &NodeHierarchy) -> PrecedingSiblings {
         PrecedingSiblings {
             node_layout,
             node: Some(self),
@@ -405,7 +398,8 @@ impl NodeId {
     /// Return an iterator of references to this node and the siblings after it.
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn following_siblings(self, node_layout: &NodeHierarchy) -> FollowingSiblings {
+    #[inline]
+    pub const fn following_siblings(self, node_layout: &NodeHierarchy) -> FollowingSiblings {
         FollowingSiblings {
             node_layout,
             node: Some(self),
@@ -413,6 +407,7 @@ impl NodeId {
     }
 
     /// Return an iterator of references to this node’s children.
+    #[inline]
     pub fn children(self, node_layout: &NodeHierarchy) -> Children {
         Children {
             node_layout,
@@ -421,6 +416,7 @@ impl NodeId {
     }
 
     /// Return an iterator of references to this node’s children, in reverse order.
+    #[inline]
     pub fn reverse_children(self, node_layout: &NodeHierarchy) -> ReverseChildren {
         ReverseChildren {
             node_layout,
@@ -432,12 +428,14 @@ impl NodeId {
     ///
     /// Parent nodes appear before the descendants.
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
-    pub fn descendants(self, node_layout: &NodeHierarchy) -> Descendants {
+    #[inline]
+    pub const fn descendants(self, node_layout: &NodeHierarchy) -> Descendants {
         Descendants(self.traverse(node_layout))
     }
 
     /// Return an iterator of references to this node and its descendants, in tree order.
-    pub fn traverse(self, node_layout: &NodeHierarchy) -> Traverse {
+    #[inline]
+    pub const fn traverse(self, node_layout: &NodeHierarchy) -> Traverse {
         Traverse {
             node_layout,
             root: self,
@@ -446,7 +444,8 @@ impl NodeId {
     }
 
     /// Return an iterator of references to this node and its descendants, in tree order.
-    pub fn reverse_traverse(self, node_layout: &NodeHierarchy) -> ReverseTraverse {
+    #[inline]
+    pub const fn reverse_traverse(self, node_layout: &NodeHierarchy) -> ReverseTraverse {
         ReverseTraverse {
             node_layout,
             root: self,
