@@ -352,8 +352,6 @@ pub fn position_words(
     use self::Word::*;
 
     // TODO: Handle scrollbar / content size adjustment!
-    // TODO: How to get the width of the space glyph key?
-    // Currently just using the font size as the space width...
 
     let font_size_px = font_size.0;
     let space_advance = scaled_words.space_dimensions.advance;
@@ -366,7 +364,6 @@ pub fn position_words(
     let mut word_positions = Vec::new();
 
     let mut line_number = 0;
-    // Caret (x position) of the current line
     let mut line_caret_x = 0.0;
     let mut current_word_idx = 0;
     let mut longest_line_width = 0.0;
@@ -381,8 +378,8 @@ pub fn position_words(
             text_layout_options.max_horizontal_width,
         );
 
-        if caret_intersection == LineCaretIntersection::NoIntersection {
-            line_breaks.push((current_word_idx, $line_caret_x)); // TODO: Is this correct?
+        if caret_intersection != LineCaretIntersection::NoIntersection {
+            line_breaks.push((current_word_idx, line_caret_x)); // TODO: Is this correct?
         }
 
         // Correct and advance the line caret position
@@ -407,26 +404,30 @@ pub fn position_words(
     // NOTE: word_idx increases only on words, not on other symbols!
     let mut word_idx = 0;
 
-    for word in &words.items {
+    macro_rules! handle_word {() => ({
+        let scaled_word = match scaled_words.items.get(word_idx) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
+        word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+
+        // Calculate where the caret would be for the next word
+        let mut new_caret_x = line_caret_x
+            + scaled_word.word_width
+            + (scaled_word.glyph_instances.len().saturating_sub(1) as f32 * letter_spacing_px);
+
+        advance_caret!(new_caret_x);
+        line_caret_x = new_caret_x;
+        current_word_idx = word_idx;
+        word_idx += 1;
+    })}
+
+    for word in words.items.iter().take(words.items.len().saturating_sub(2)) {
         match word {
-            Word(w) => {
-                let scaled_word = match scaled_words.items.get(word_idx) {
-                    Some(s) => s,
-                    None => continue,
-                };
-
-                let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
-                word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
-
-                // Calculate where the caret would be for the next word
-                let mut new_caret_x = line_caret_x
-                    + scaled_word.word_width
-                    + (scaled_word.glyph_instances.len().saturating_sub(1) as f32 * letter_spacing_px);
-
-                advance_caret!(new_caret_x);
-                line_caret_x = new_caret_x;
-                current_word_idx = word_idx;
-                word_idx += 1;
+            Word(_) => {
+                handle_word!();
             },
             Return => {
                 line_breaks.push((current_word_idx, line_caret_x));
@@ -447,12 +448,15 @@ pub fn position_words(
         }
     }
 
-    // Push the last lines length into the line breaks
-    line_breaks.push((current_word_idx, line_caret_x)); // TODO: Is this correct?
+    // Handle the last word, but ignore any last Return, Space or Tab characters
+    for word in &words.items[words.items.len().saturating_sub(2)..words.items.len().saturating_sub(1)] {
+        handle_word!();
+        line_breaks.push((current_word_idx, line_caret_x));
+    }
 
     let trailing = line_caret_x;
     let number_of_lines = line_number + 1;
-    let number_of_words = current_word_idx;
+    let number_of_words = current_word_idx + 1;
 
     let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
     let content_size_x = text_layout_options.max_horizontal_width.map(|x| x.0).unwrap_or(longest_line_width);
@@ -489,13 +493,13 @@ pub fn get_layouted_glyphs(
     let letter_spacing_px = font_size_px * word_positions.text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
 
     let mut glyphs = Vec::with_capacity(scaled_words.items.len());
+
     for (scaled_word, word_position) in scaled_words.items.iter().zip(word_positions.word_positions.iter()) {
         glyphs.extend(scaled_word.glyph_instances
             .iter()
             .cloned()
             .enumerate()
             .map(|(glyph_id, mut glyph)| {
-                // TODO: letter spacing
                 glyph.point.x += word_position.x;
                 glyph.point.y += word_position.y;
                 if glyph_id != 0 {
@@ -506,7 +510,10 @@ pub fn get_layouted_glyphs(
         )
     }
 
+    println!("word_positions.line_breaks: {:#?}", word_positions.line_breaks);
     let line_breaks = get_char_indexes(&word_positions, &scaled_words);
+    println!("line breaks after: {:#?}", line_breaks);
+    println!("------------");
     let vertical_overflow = get_vertical_overflow(&word_positions, bounding_size_height_px);
 
     align_text_horz(&mut glyphs, alignment_horz, &line_breaks);
@@ -586,11 +593,9 @@ pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWor
     let mut last_word_idx = 0;
 
     word_positions.line_breaks.iter().map(|(current_word_idx, line_length)| {
-        println!("line length: {:?} - width: {:?}", line_length, width);
         let remaining_space_px = width - line_length;
-        println!("remaining_space_px: {:?}", remaining_space_px);
         let words = &scaled_words.items[last_word_idx..*current_word_idx];
-        let glyphs_in_this_line: usize = words.iter().map(|s| s.glyph_instances.len()).sum();
+        let glyphs_in_this_line: usize = words.iter().map(|s| s.glyph_instances.len()).sum::<usize>();
         current_glyph_count += glyphs_in_this_line;
         last_word_idx = *current_word_idx;
         (current_glyph_count, remaining_space_px)
