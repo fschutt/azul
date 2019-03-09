@@ -3,10 +3,7 @@
 
 use std::{slice, ptr, u32, ops::Deref, os::raw::{c_char, c_uint}};
 use app_units::Au;
-use webrender::api::{
-    LayoutPoint, RenderApi, GlyphDimensions,
-    GlyphInstance as WrGlyphInstance,
-};
+use webrender::api::{LayoutPoint, GlyphInstance as WrGlyphInstance};
 use harfbuzz_sys::{
     hb_blob_create, hb_blob_destroy,
     hb_font_create, hb_font_destroy,
@@ -28,8 +25,8 @@ use {
 
 // Translates to the ".codepoint" in HarfBuzz
 pub type GlyphIndex = u32;
-pub type GlyphInfo = GlyphIndex; // TODO: hb_glyph_info_t
-pub type GlyphPosition = GlyphDimensions; // TODO: hb_glyph_position_t
+pub type GlyphInfo = hb_glyph_info_t;
+pub type GlyphPosition = hb_glyph_position_t;
 
 const MEMORY_MODE_READONLY: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
 const HB_SCALE_FACTOR: f32 = 64.0;
@@ -141,7 +138,7 @@ pub struct HbBuffer<'a> {
 }
 
 impl<'a> HbBuffer<'a> {
-    pub fn from_str(words: &'a str) -> Self {
+    pub fn from_str(words: &'a str, substr_offset: u32, substr_len: u32) -> Self {
 
         let hb_buffer = unsafe { hb_buffer_create() };
         unsafe { hb_buffer_allocation_successful(hb_buffer); };
@@ -151,11 +148,9 @@ impl<'a> HbBuffer<'a> {
         // but here we are just layouting 0..word.len(), i.e. the entire word.
 
         let word_len = words.len() as i32;
-        let substr_offset = 0;
-        let substr_len = word_len;
 
         unsafe {
-            hb_buffer_add_utf8(hb_buffer, word_ptr, word_len, substr_offset, substr_len);
+            hb_buffer_add_utf8(hb_buffer, word_ptr, word_len, substr_offset, substr_len as i32);
             // Guess the script, language and direction from the buffer
             hb_buffer_guess_segment_properties(hb_buffer);
         }
@@ -245,12 +240,24 @@ pub(crate) fn get_word_visual_width_hb(shaped_word: &HbShapedWord) -> f32 {
     glyph_positions.iter().map(|pos| pos.x_advance as f32 / HB_SCALE_FACTOR).sum()
 }
 
-pub(crate) fn get_glyph_instances_hb(
+pub(crate) fn get_glyph_infos_hb(
     shaped_word: &HbShapedWord
-) -> Vec<WrGlyphInstance> {
-
+) -> Vec<GlyphInfo> {
     let glyph_infos = &*shaped_word.glyph_infos;
+    glyph_infos.iter().cloned().collect()
+}
+
+pub(crate) fn get_glyph_positions_hb(
+    shaped_word: &HbShapedWord
+) -> Vec<GlyphPosition> {
     let glyph_positions = &*shaped_word.glyph_positions;
+    glyph_positions.iter().cloned().collect()
+}
+
+pub(crate) fn get_glyph_instances_hb(
+    glyph_infos: &[GlyphInfo],
+    glyph_positions: &[GlyphPosition],
+) -> Vec<WrGlyphInstance> {
 
     let mut current_cursor_x = 0.0;
     let mut current_cursor_y = 0.0;
@@ -273,48 +280,4 @@ pub(crate) fn get_glyph_instances_hb(
             point,
         }
     }).collect()
-}
-
-pub(crate) fn shape_word(
-    word: &str,
-    font: &LoadedFont,
-    font_size: Au,
-    render_api: &RenderApi,
-) -> ShapedWord {
-
-    let font_instance_key = font.font_instances[&font_size];
-    let space_glyph_indices = render_api.get_glyph_indices(font.key, word);
-    let space_glyph_indices = space_glyph_indices.into_iter().filter_map(|e| e).collect::<Vec<u32>>();
-    let space_glyph_dimensions = render_api.get_glyph_dimensions(font_instance_key, space_glyph_indices.clone());
-    let space_glyph_dimensions = space_glyph_dimensions.into_iter().filter_map(|dim| dim).collect::<Vec<GlyphDimensions>>();
-
-    ShapedWord {
-        glyph_infos: space_glyph_indices,
-        glyph_positions: space_glyph_dimensions,
-    }
-}
-
-/// Return the sum of all the GlyphDimension advances.
-/// Note for HarfBuzz migration: This is the "visual" word width, not the sum of the advances!
-pub(crate) fn get_word_visual_width(glyph_dimensions: &[GlyphPosition]) -> f32 {
-    glyph_dimensions.iter().map(|g| g.advance).sum()
-}
-
-/// Transform the indices (of the glyphs) and the dimensions to the final instances
-pub(crate) fn get_glyph_instances(
-    shaped_word: &ShapedWord,
-) -> Vec<WrGlyphInstance> {
-
-    let mut glyph_instances = Vec::with_capacity(shaped_word.glyph_positions.len());
-    let mut current_cursor = 0.0;
-
-    for (g_info, g_position) in shaped_word.glyph_infos.iter().zip(shaped_word.glyph_positions.iter()) {
-        glyph_instances.push(WrGlyphInstance {
-            index: *g_info,
-            point: LayoutPoint::new(current_cursor, 0.0),
-        });
-        current_cursor += g_position.advance;
-    }
-
-    glyph_instances
 }
