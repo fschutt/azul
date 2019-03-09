@@ -70,7 +70,8 @@ pub(crate) fn reset_dom_id() {
 impl DomId {
 
     /// Creates an ID for the root node
-    pub(crate) fn create_root_dom_id() -> Self  {
+    #[inline]
+    pub(crate) const fn create_root_dom_id() -> Self  {
         Self {
             id: 0,
             parent: None,
@@ -217,7 +218,7 @@ impl<T: Layout> PartialEq for NodeType<T> {
 impl<T: Layout> Eq for NodeType<T> { }
 
 impl<T: Layout> NodeType<T> {
-
+    #[inline]
     pub(crate) fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
         match self {
@@ -693,14 +694,15 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tdraggable: {:?}, \
                 \ttab_index: {:?}, \
             }}",
-        self.node_type,
-        self.ids,
-        self.classes,
-        self.callbacks,
-        self.default_callback_ids,
-        self.dynamic_css_overrides,
-        self.draggable,
-        self.tab_index)
+            self.node_type,
+            self.ids,
+            self.classes,
+            self.callbacks,
+            self.default_callback_ids,
+            self.dynamic_css_overrides,
+            self.draggable,
+            self.tab_index,
+        )
     }
 }
 
@@ -771,8 +773,8 @@ impl DomString {
             Heap(h) => h,
         }
     }
-
 }
+
 impl_display!{ DomString, {
     Static(s) => format!("{}", s),
     Heap(h) => h,
@@ -881,29 +883,15 @@ impl<T: Layout> Dom<T> {
         Self::with_capacity(node_type, 0)
     }
 
-    /// Parses and loads a DOM from an XML string
-    pub fn from_xml(xml: &str, component_map: &XmlComponentMap<T>) -> Result<Self, XmlParseError> {
-        use xml;
-        let parsed_xml = xml::parse_xml_string(xml)?;
-        let expanded_xml = xml::expand_xml_components(&parsed_xml)?;
-        xml::render_dom_from_app_node(&expanded_xml, component_map)
-    }
-
-    /// For hot-reloading only: Reloads a DOM from an XML file
-    ///
-    /// This function deliberately never fails: In an error case, the
-    /// error gets rendered as a `NodeType::Label`.
-    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &XmlComponentMap<T>) -> Self {
-        use std::fs;
-
-        let xml = match fs::read_to_string(file_path) {
-            Ok(xml) => xml,
-            Err(e) => return Dom::label(format!("{}", e)),
-        };
-
-        match Self::from_xml(&xml, component_map) {
-            Ok(o) => o,
-            Err(e) => Dom::label(format!("{}", e)),
+    /// Creates an empty DOM with space reserved for `cap` nodes
+    #[inline]
+    pub fn with_capacity(node_type: NodeType<T>, cap: usize) -> Self {
+        let mut arena = Arena::with_capacity(cap.saturating_add(1));
+        let root = arena.new_node(NodeData::new(node_type));
+        Self {
+            arena: arena,
+            root: root,
+            head: root,
         }
     }
 
@@ -914,6 +902,7 @@ impl<T: Layout> Dom<T> {
     }
 
     /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
+    #[inline]
     pub fn label<S: Into<DomString>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
     }
@@ -942,22 +931,35 @@ impl<T: Layout> Dom<T> {
         Self::new(NodeType::IFrame((callback, ptr)))
     }
 
+    /// Parses and loads a DOM from an XML string
+    pub fn from_xml(xml: &str, component_map: &XmlComponentMap<T>) -> Result<Self, XmlParseError> {
+        use xml;
+        let parsed_xml = xml::parse_xml_string(xml)?;
+        let expanded_xml = xml::expand_xml_components(&parsed_xml)?;
+        xml::render_dom_from_app_node(&expanded_xml, component_map)
+    }
+
+    /// Loads, parses and builds a DOM from an XML file - warning: Disk I/O on every
+    /// function call - do not use this in release builds! This function deliberately
+    /// never fails: In an error case, the error gets rendered as a `NodeType::Label`.
+    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &XmlComponentMap<T>) -> Self {
+        use std::fs;
+
+        let xml = match fs::read_to_string(file_path) {
+            Ok(xml) => xml,
+            Err(e) => return Dom::label(format!("{}", e)),
+        };
+
+        match Self::from_xml(&xml, component_map) {
+            Ok(o) => o,
+            Err(e) => Dom::label(format!("{}", e)),
+        }
+    }
+
     /// Returns the number of nodes in this DOM
     #[inline]
     pub fn len(&self) -> usize {
         self.arena.len()
-    }
-
-    /// Creates an empty DOM with space reserved for `cap` nodes
-    #[inline]
-    pub fn with_capacity(node_type: NodeType<T>, cap: usize) -> Self {
-        let mut arena = Arena::with_capacity(cap.saturating_add(1));
-        let root = arena.new_node(NodeData::new(node_type));
-        Self {
-            arena: arena,
-            root: root,
-            head: root,
-        }
     }
 
     /// Adds a child DOM to the current DOM
