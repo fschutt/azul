@@ -1052,13 +1052,15 @@ fn render_inner<T: Layout>(
         // Check that the framebuffer is complete
         assert_eq!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER), gl::FRAMEBUFFER_COMPLETE);
 
-        // Disable SRGB and multisample, otherwise, WebRender will crash
-        gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        gl_context.disable(gl::MULTISAMPLE);
-
         // Invoke WebRender to render the frame - renders to the currently bound FB
         gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
         gl_context.clear_depth(0.0);
+
+        // Disable SRGB and multisample, otherwise, WebRender will crash
+        gl_context.disable(gl::FRAMEBUFFER_SRGB);
+        gl_context.disable(gl::MULTISAMPLE);
+        gl_context.disable(gl::POLYGON_SMOOTH);
+
         app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
         gl_context.delete_framebuffers(&framebuffers);
@@ -1091,6 +1093,8 @@ fn render_inner<T: Layout>(
     }
 }
 
+/// When called with glDrawArrays(0, 3), generates a simple triangle that
+/// spans the whole screen.
 const DISPLAY_VERTEX_SHADER: &[u8] = b"
     #version 140
     out vec2 vTexCoords;
