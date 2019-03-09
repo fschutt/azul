@@ -1254,8 +1254,8 @@ fn create_scaled_words<'a>(
     app_resources: &AppResources,
     words: &BTreeMap<NodeId, Words>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-) -> BTreeMap<NodeId, ScaledWords>
-{
+) -> BTreeMap<NodeId, ScaledWords> {
+
     use text_layout::words_to_scaled_words;
     use app_resources::ImmediateFontId;
 
@@ -1272,7 +1272,6 @@ fn create_scaled_words<'a>(
             words,
             loaded_font,
             font_size,
-            &app_resources.fake_display.render_api,
         );
         Some((*node_id, scaled_words))
     }).collect()

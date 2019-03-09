@@ -1,15 +1,15 @@
 #![allow(unused_variables, dead_code)]
 
 use std::ops::{Mul, Add, Sub};
-use webrender::api::{RenderApi,  FontKey, FontInstanceKey};
+use webrender::api::{FontKey, FontInstanceKey};
 use azul_css::{
     StyleTextAlignmentHorz, ScrollbarInfo,
     StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow,
 };
 pub use webrender::api::{
-    GlyphInstance, GlyphDimensions,
-    LayoutSize, LayoutRect, LayoutPoint,
+    GlyphInstance, LayoutSize, LayoutRect, LayoutPoint,
 };
+pub use text_shaping::{GlyphPosition, GlyphInfo};
 use app_resources::LoadedFont;
 use app_units::Au;
 
@@ -71,13 +71,33 @@ impl From<TextSizePt> for TextSizePx {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Words {
     pub items: Vec<Word>,
+    internal_str: String,
+}
+
+impl Words {
+
+    pub fn get_substr(&self, word: Word) -> &str {
+        &self.internal_str[word.start..word.end]
+    }
+
+    pub fn get_str(&self) -> &str {
+        &self.internal_str
+    }
+}
+
+/// Section of a certain type
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Word {
+    pub start: usize,
+    pub end: usize,
+    pub word_type: WordType,
 }
 
 /// Either a white-space delimited word, tab or return character
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Word {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum WordType {
     /// Encountered a word (delimited by spaces)
-    Word(String),
+    Word,
     // `\t` or `x09`
     Tab,
     /// `\r`, `\n` or `\r\n`, escaped: `\x0D`, `\x0A` or `\x0D\x0A`
@@ -107,17 +127,19 @@ pub struct ScaledWords {
     /// calculating overflow rectangles.
     pub longest_word_width: f32,
     /// Horizontal advance of the space glyph
-    pub space_dimensions: GlyphDimensions,
+    pub space_advance_px: f32,
+    /// Glyph index of the space character
+    pub space_codepoint: u32,
 }
 
 /// Word that is scaled (to a font / font instance), but not yet positioned
 #[derive(Debug, Clone)]
 pub struct ScaledWord {
     /// Glyphs, positions are relative to the first character of the word
-    pub glyph_instances: Vec<GlyphInstance>,
+    pub glyph_infos: Vec<GlyphInfo>,
     /// Horizontal advances of each glyph, necessary for
     /// hit-testing characters later on (for text selection).
-    pub glyph_dimensions: Vec<GlyphDimensions>,
+    pub glyph_positions: Vec<GlyphPosition>,
     /// The sum of the width of all the characters in this word
     pub word_width: f32,
 }
@@ -230,50 +252,82 @@ pub fn split_text_into_words(text: &str) -> Words {
 
     use unicode_normalization::UnicodeNormalization;
 
-    let mut words = Vec::new();
-    let mut current_word = String::with_capacity(10);
-
     // Necessary because we need to handle both \n and \r\n characters
     // If we just look at the characters one-by-one, this wouldn't be possible.
     let normalized_string = text.nfc().collect::<String>();
 
-    let mut line_iterator = normalized_string.lines().peekable();
-    while let Some(line) = line_iterator.next() {
-        for ch in line.chars() {
-            match ch {
-                '\t' => {
-                    if !current_word.is_empty() {
-                        words.push(Word::Word(current_word.clone()));
-                        current_word.clear();
-                    }
-                    words.push(Word::Tab);
-                },
-                c if c.is_whitespace() => {
-                    if !current_word.is_empty() {
-                        words.push(Word::Word(current_word.clone()));
-                        current_word.clear();
-                    }
-                    words.push(Word::Space);
-                }
-                c => {
-                    current_word.push(c);
-                }
+    let mut words = Vec::new();
+
+    // Instead of storing the actual word, the word is only stored as an index instead,
+    // which reduces allocations and is important for later on introducing RTL text
+    // (where the position of the character data does not correspond to the actual glyph order).
+    let mut current_word_start = 0;
+    let mut current_word_end = 0;
+    let mut last_char_was_rn = false;
+
+    for (ch_idx, ch) in normalized_string.char_indices() {
+        let should_push_delimiter = match ch {
+            ' ' => {
+                Some(Word {
+                    start: current_word_end,
+                    end: ch_idx,
+                    word_type: WordType::Space
+                })
+            },
+            '\t' => {
+                Some(Word {
+                    start: current_word_end,
+                    end: ch_idx,
+                    word_type: WordType::Tab
+                })
+            },
+            '\n' => {
+                // if the last item was a '\r\n', this span will take up 2 characters, not just one
+                Some(Word {
+                    start: current_word_end,
+                    end: ch_idx,
+                    word_type: WordType::Return,
+                })
             }
+            c => None,
+        };
+
+        if !ch.is_whitespace() {
+            // Regular characters inside of a word
+            current_word_end = ch_idx;
+        } else if current_word_start != current_word_end {
+            // Character is a whitespace, and the current word isn't empty
+            words.push(Word {
+                start: current_word_start,
+                end: current_word_end,
+                word_type: WordType::Word
+            });
+            current_word_start = current_word_end;
         }
 
-        if !current_word.is_empty() {
-            words.push(Word::Word(current_word.clone()));
-            current_word.clear();
+        // The Word needs to be pushed first, then the delimiter
+        if let Some(delim) = should_push_delimiter {
+            words.push(delim);
         }
+    }
 
-        // If this is not the last line, push a return
-        if line_iterator.peek().is_some() {
-            words.push(Word::Return);
-        }
+    // If the last item is a `Return`, remove it
+    if let Some(Word { word_type: WordType::Return, .. }) = words.last() {
+        words.pop();
+    }
+
+    // Push the last word
+    if current_word_start != current_word_end {
+        words.push(Word {
+            start: current_word_start,
+            end: current_word_end,
+            word_type: WordType::Word
+        });
     }
 
     Words {
         items: words,
+        internal_str: normalized_string,
     }
 }
 
@@ -282,52 +336,51 @@ pub fn split_text_into_words(text: &str) -> Words {
 pub fn words_to_scaled_words(
     words: &Words,
     font: &LoadedFont,
-    font_size: Au,
-    render_api: &RenderApi,
+    font_size: Au
 ) -> ScaledWords {
 
-    use self::Word::*;
     use text_shaping::{self, HbBuffer, HbFont, HbScaledFont};
 
     let mut longest_word_width = 0.0_f32;
 
     // Get the dimensions of the space glyph
-    let shaped_space = text_shaping::shape_word(" ", font, font_size, render_api);
+    const SPACE: &str = " ";
 
-    let hb_buffer = HbBuffer::from_str(" ");
     let hb_font = HbFont::from_loaded_font(font);
     let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size);
 
-    let glyphs = words.items.iter().filter_map(|word| {
+    let hb_space_buffer = HbBuffer::from_str(SPACE, 0, SPACE.len() as u32);
+    let hb_shaped_space = text_shaping::shape_word_hb(&hb_space_buffer, &hb_scaled_font);
+    let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / 64.0;
+    let space_codepoint = hb_shaped_space.glyph_infos[0].codepoint;
 
-        let word = match word {
-            Word(w) => w,
-            _ => return None,
-        };
+    let scaled_words = words.items.iter()
+        .filter(|w| w.word_type == WordType::Word)
+        .filter_map(|word| {
+            let word_len_bytes = word.end - word.start;
 
-        let shaped_word = text_shaping::shape_word(word, font, font_size, render_api);
+            let hb_buffer = HbBuffer::from_str(&words.internal_str, word.start as u32, word_len_bytes as u32);
+            let hb_shaped_word = text_shaping::shape_word_hb(&hb_buffer, &hb_scaled_font);
+            let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_shaped_word);
+            let hb_glyph_positions = text_shaping::get_glyph_positions_hb(&hb_shaped_word);
+            let hb_glyph_infos = text_shaping::get_glyph_infos_hb(&hb_shaped_word);
 
-        let hb_buffer = HbBuffer::from_str(word);
-        let hb_shaped_word = text_shaping::shape_word_hb(&hb_buffer, &hb_scaled_font);
-        let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_shaped_word);
-        let hb_glyph_instances = text_shaping::get_glyph_instances_hb(&hb_shaped_word);
+            longest_word_width = longest_word_width.max(hb_word_width.abs());
 
-        longest_word_width = longest_word_width.max(hb_word_width);
-
-        Some(ScaledWord {
-            glyph_instances: hb_glyph_instances,
-            glyph_dimensions: shaped_word.glyph_positions,
-            word_width: hb_word_width,
-        })
-
-    }).collect();
+            Some(ScaledWord {
+                glyph_infos: hb_glyph_infos,
+                glyph_positions: hb_glyph_positions,
+                word_width: hb_word_width,
+            })
+        }).collect();
 
     ScaledWords {
         font_key: font.key,
         font_instance_key: font.font_instances[&font_size],
-        items: glyphs,
+        items: scaled_words,
         longest_word_width: longest_word_width,
-        space_dimensions: shaped_space.glyph_positions[0],
+        space_advance_px,
+        space_codepoint,
     }
 }
 
@@ -349,12 +402,12 @@ pub fn position_words(
     scrollbar_style: &ScrollbarStyle,
 ) -> WordPositions {
 
-    use self::Word::*;
+    use self::WordType::*;
 
     // TODO: Handle scrollbar / content size adjustment!
 
     let font_size_px = font_size.0;
-    let space_advance = scaled_words.space_dimensions.advance;
+    let space_advance = scaled_words.space_advance_px;
     let word_spacing_px = space_advance + text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
     let letter_spacing_px = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
@@ -416,7 +469,7 @@ pub fn position_words(
         // Calculate where the caret would be for the next word
         let mut new_caret_x = line_caret_x
             + scaled_word.word_width
-            + (scaled_word.glyph_instances.len().saturating_sub(1) as f32 * letter_spacing_px);
+            + (scaled_word.glyph_infos.len().saturating_sub(1) as f32 * letter_spacing_px);
 
         advance_caret!(new_caret_x);
         line_caret_x = new_caret_x;
@@ -425,8 +478,8 @@ pub fn position_words(
     })}
 
     for word in words.items.iter().take(words.items.len().saturating_sub(2)) {
-        match word {
-            Word(_) => {
+        match word.word_type {
+            Word => {
                 handle_word!();
             },
             Return => {
@@ -489,15 +542,17 @@ pub fn get_layouted_glyphs(
     bounding_size_height_px: f32,
 ) -> LayoutedGlyphs {
 
+    use text_shaping;
+
     let font_size_px = word_positions.font_size.0;
     let letter_spacing_px = font_size_px * word_positions.text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
 
     let mut glyphs = Vec::with_capacity(scaled_words.items.len());
 
     for (scaled_word, word_position) in scaled_words.items.iter().zip(word_positions.word_positions.iter()) {
-        glyphs.extend(scaled_word.glyph_instances
-            .iter()
-            .cloned()
+        glyphs.extend(
+            text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
+            .into_iter()
             .enumerate()
             .map(|(glyph_id, mut glyph)| {
                 glyph.point.x += word_position.x;
@@ -539,37 +594,8 @@ pub fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_heigh
     }
 }
 
-/// Combines the `words` back to a string, either using Unix or Windows line endings
-pub fn words_to_string(words: &Words, line_ending: LineEnding) -> String {
-
-    use self::LineEnding::*;
-    use self::Word::*;
-
-    if words.items.is_empty() {
-        return String::new();
-    }
-
-    let line_ending = match line_ending {
-        Unix => "\n",
-        Windows => "\r\n",
-    };
-
-    let mut string = String::with_capacity(words.items.len());
-
-    for w in &words.items {
-        match w {
-            Word(w) => { string.push_str(w); },
-            Tab => { string.push('\t'); },
-            Return => { string.push_str(line_ending); },
-            Space => { string.push(' '); },
-        }
-    }
-
-    string
-}
-
 pub fn word_item_is_return(item: &Word) -> bool {
-    *item == Word::Return
+    item.word_type == WordType::Return
 }
 
 pub fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
@@ -595,7 +621,7 @@ pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWor
     word_positions.line_breaks.iter().map(|(current_word_idx, line_length)| {
         let remaining_space_px = width - line_length;
         let words = &scaled_words.items[last_word_idx..*current_word_idx];
-        let glyphs_in_this_line: usize = words.iter().map(|s| s.glyph_instances.len()).sum::<usize>();
+        let glyphs_in_this_line: usize = words.iter().map(|s| s.glyph_infos.len()).sum::<usize>();
         current_glyph_count += glyphs_in_this_line;
         last_word_idx = *current_word_idx;
         (current_glyph_count, remaining_space_px)
