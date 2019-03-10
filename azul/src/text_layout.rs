@@ -573,7 +573,7 @@ pub fn position_words(
         current_word_idx = word_idx;
     })}
 
-    for word in words.items.iter().take(words.items.len().saturating_sub(2)) {
+    for word in words.items.iter().take(words.items.len().saturating_sub(1)) {
         match word.word_type {
             Word => {
                 handle_word!();
