@@ -1508,13 +1508,13 @@ pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuo
         if !quote_contents.ends_with('"') {
             return Err(UnclosedQuotesError(quote_contents));
         }
-        Ok(QuoteStripped(quote_contents.trim_right_matches("\"")))
+        Ok(QuoteStripped(quote_contents.trim_end_matches("\"")))
     } else if first_single_quote.is_some() {
         let quote_contents = first_single_quote.unwrap();
         if!quote_contents.ends_with('\'') {
             return Err(UnclosedQuotesError(input));
         }
-        Ok(QuoteStripped(quote_contents.trim_right_matches("'")))
+        Ok(QuoteStripped(quote_contents.trim_end_matches("'")))
     } else {
         Err(UnclosedQuotesError(input))
     }

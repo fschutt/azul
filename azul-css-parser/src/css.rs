@@ -534,8 +534,8 @@ pub fn parse_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str) -> R
     use std::char;
 
     // "[[ id | 400px ]]" => "id | 400px"
-    let value = value.trim_left_matches(START_BRACE);
-    let value = value.trim_right_matches(END_BRACE);
+    let value = value.trim_start_matches(START_BRACE);
+    let value = value.trim_end_matches(END_BRACE);
     let value = value.trim();
 
     let mut pipe_split = value.splitn(2, "|");
