@@ -27,7 +27,7 @@ pub type IndexOfLineBreak = usize;
 pub type RemainingSpaceToRight = f32;
 
 const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-const DEFAULT_WORD_SPACING: f32 = 0.0;
+const DEFAULT_WORD_SPACING: f32 = 1.0;
 const DEFAULT_LETTER_SPACING: f32 = 0.0;
 const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
@@ -324,13 +324,13 @@ pub fn split_text_into_words(text: &str) -> Words {
             None
         };
 
+        if current_char_is_whitespace {
+            current_word_start = ch_idx + 1;
+        }
+
         let mut push_words = |arr: [Option<Word>;2]| {
             words.extend(arr.into_iter().filter_map(|e| *e));
         };
-
-        if current_char_is_whitespace {
-            current_word_start = ch_idx + 1; // + 1 doesn't work
-        }
 
         push_words([should_push_word, should_push_delimiter]);
 
@@ -369,29 +369,63 @@ pub fn words_to_scaled_words(
 
     use text_shaping::{self, HbBuffer, HbFont, HbScaledFont};
 
-    let mut longest_word_width = 0.0_f32;
-
-    // Get the dimensions of the space glyph
-    const SPACE: &str = " ";
-
     let hb_font = HbFont::from_loaded_font(font);
     let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size);
 
-    let hb_space_buffer = HbBuffer::from_str(SPACE, 0, SPACE.len() as u32);
+    // Get the dimensions of the space glyph
+    let hb_space_buffer = HbBuffer::from_str(" ");
     let hb_shaped_space = text_shaping::shape_word_hb(&hb_space_buffer, &hb_scaled_font);
-    let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / 64.0;
+    let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / 128.0; // TODO: Half width for spaces?
     let space_codepoint = hb_shaped_space.glyph_infos[0].codepoint;
+
+    // Things like "tab" or "return" might confuse harfbuzz, need to shape
+    // the entire font like it's just one long line
+    let internal_str = words.internal_str.replace("\t", " ");
+    let internal_str = internal_str.replace("\n", " ");
+    let internal_str = internal_str.replace("\r\n", " ");
+
+    let hb_buffer_entire_paragraph = HbBuffer::from_str(&internal_str);
+    let hb_shaped_entire_paragraph = text_shaping::shape_word_hb(&hb_buffer_entire_paragraph, &hb_scaled_font);
+
+    let mut shaped_word_positions = Vec::new();
+    let mut shaped_word_infos = Vec::new();
+    let mut current_word_positions = Vec::new();
+    let mut current_word_infos = Vec::new();
+
+    for i in 0..hb_shaped_entire_paragraph.glyph_positions.len() {
+        let glyph_info = hb_shaped_entire_paragraph.glyph_infos[i];
+        let glyph_position = hb_shaped_entire_paragraph.glyph_positions[i];
+
+        let is_space = glyph_info.codepoint == space_codepoint;
+        if is_space {
+            shaped_word_positions.push(current_word_positions.clone());
+            shaped_word_infos.push(current_word_infos.clone());
+            current_word_positions.clear();
+            current_word_infos.clear();
+        } else {
+            current_word_positions.push(glyph_position);
+            current_word_infos.push(glyph_info);
+        }
+    }
+
+    if !current_word_positions.is_empty() {
+        shaped_word_positions.push(current_word_positions);
+        shaped_word_infos.push(current_word_infos);
+    }
+
+    let mut longest_word_width = 0.0_f32;
 
     let scaled_words = words.items.iter()
         .filter(|w| w.word_type == WordType::Word)
-        .filter_map(|word| {
-            let word_len_bytes = word.end - word.start;
+        .enumerate()
+        .filter_map(|(word_idx, word)| {
 
-            let hb_buffer = HbBuffer::from_str(&words.internal_str, word.start as u32, word_len_bytes as u32);
-            let hb_shaped_word = text_shaping::shape_word_hb(&hb_buffer, &hb_scaled_font);
-            let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_shaped_word);
-            let hb_glyph_positions = text_shaping::get_glyph_positions_hb(&hb_shaped_word);
-            let hb_glyph_infos = text_shaping::get_glyph_infos_hb(&hb_shaped_word);
+            let hb_glyph_positions = shaped_word_positions.get(word_idx)?;
+            let hb_glyph_infos = shaped_word_infos.get(word_idx)?;
+
+            let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_glyph_positions);
+            let hb_glyph_positions = text_shaping::get_glyph_positions_hb(&hb_glyph_positions);
+            let hb_glyph_infos = text_shaping::get_glyph_infos_hb(&hb_glyph_infos);
 
             longest_word_width = longest_word_width.max(hb_word_width.abs());
 
@@ -431,15 +465,16 @@ pub fn position_words(
 ) -> WordPositions {
 
     use self::WordType::*;
+    use std::f32;
 
     // TODO: Handle scrollbar / content size adjustment!
 
     let font_size_px = font_size.0;
     let space_advance = scaled_words.space_advance_px;
-    let word_spacing_px = space_advance + text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_WORD_SPACING);
+    let word_spacing_px = space_advance * text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
-    let letter_spacing_px = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
     let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
+    let letter_spacing_percent = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -447,7 +482,6 @@ pub fn position_words(
     let mut line_number = 0;
     let mut line_caret_x = 0.0;
     let mut current_word_idx = 0;
-    let mut longest_line_width = 0.0;
 
     macro_rules! advance_caret {($line_caret_x:expr) => ({
         let caret_intersection = caret_intersects_with_holes(
@@ -459,8 +493,8 @@ pub fn position_words(
             text_layout_options.max_horizontal_width,
         );
 
-        if caret_intersection != LineCaretIntersection::NoIntersection {
-            line_breaks.push((current_word_idx, line_caret_x)); // TODO: Is this correct?
+        if let LineCaretIntersection::PushCaretOntoNextLine(_, _) = caret_intersection {
+             line_breaks.push((current_word_idx, line_caret_x));
         }
 
         // Correct and advance the line caret position
@@ -469,10 +503,6 @@ pub fn position_words(
             &mut line_number,
             caret_intersection,
         );
-
-        if $line_caret_x > longest_line_width {
-            longest_line_width = $line_caret_x;
-        }
     })}
 
     advance_caret!(line_caret_x);
@@ -491,18 +521,56 @@ pub fn position_words(
             None => continue,
         };
 
-        let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
-        word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+        // let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
+        // word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
 
         // Calculate where the caret would be for the next word
-        let mut new_caret_x = line_caret_x
-            + scaled_word.word_width
-            + (scaled_word.glyph_infos.len().saturating_sub(1) as f32 * letter_spacing_px);
+        let word_advance_x =
+            scaled_word.word_width
+          + (scaled_word.glyph_infos.len().saturating_sub(1) as f32 * letter_spacing_percent);
 
-        advance_caret!(new_caret_x);
+        let mut new_caret_x = line_caret_x + word_advance_x;
+
+        // advance_caret!(new_caret_x);
+
+        let caret_intersection = caret_intersects_with_holes(
+            new_caret_x,
+            line_number,
+            font_size_px,
+            line_height_px,
+            &text_layout_options.holes,
+            text_layout_options.max_horizontal_width,
+        );
+
+        let mut is_line_break = false;
+        if let LineCaretIntersection::PushCaretOntoNextLine(_, _) = caret_intersection {
+            line_breaks.push((current_word_idx, line_caret_x));
+            is_line_break = true;
+        }
+
+        if !is_line_break {
+            let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
+            word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+        }
+
+        // Correct and advance the line caret position
+        advance_caret(
+            &mut new_caret_x,
+            &mut line_number,
+            caret_intersection,
+        );
+
         line_caret_x = new_caret_x;
-        current_word_idx = word_idx;
+
+        if is_line_break {
+            let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
+            word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+            line_caret_x += word_advance_x;
+        }
+
+        // NOTE: Increase before pushing, word indices are 1-indexed (0..word_index)!
         word_idx += 1;
+        current_word_idx = word_idx;
     })}
 
     for word in words.items.iter().take(words.items.len().saturating_sub(2)) {
@@ -512,6 +580,7 @@ pub fn position_words(
             },
             Return => {
                 line_breaks.push((current_word_idx, line_caret_x));
+                line_number += 1;
                 let mut new_caret_x = 0.0;
                 advance_caret!(new_caret_x);
                 line_caret_x = new_caret_x;
@@ -539,6 +608,7 @@ pub fn position_words(
     let number_of_lines = line_number + 1;
     let number_of_words = current_word_idx + 1;
 
+    let longest_line_width = line_breaks.iter().map(|(_word_idx, line_length)| *line_length).fold(0.0_f32, f32::max);
     let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
     let content_size_x = text_layout_options.max_horizontal_width.map(|x| x.0).unwrap_or(longest_line_width);
     let content_size = LayoutSize::new(content_size_x, content_size_y);
@@ -593,10 +663,7 @@ pub fn get_layouted_glyphs(
         )
     }
 
-    println!("word_positions.line_breaks: {:#?}", word_positions.line_breaks);
-    let line_breaks = get_char_indexes(&word_positions, &scaled_words);
-    println!("line breaks after: {:#?}", line_breaks);
-    println!("------------");
+    let line_breaks = get_char_indices(&word_positions, &scaled_words);
     let vertical_overflow = get_vertical_overflow(&word_positions, bounding_size_height_px);
 
     align_text_horz(&mut glyphs, alignment_horz, &line_breaks);
@@ -634,7 +701,7 @@ pub fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
     }
 }
 
-pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWords)
+pub fn get_char_indices(word_positions: &WordPositions, scaled_words: &ScaledWords)
 -> Vec<(GlyphIndex, RemainingSpaceToRight)>
 {
     let width = word_positions.content_size.width;
@@ -649,14 +716,17 @@ pub fn get_char_indexes(word_positions: &WordPositions, scaled_words: &ScaledWor
     word_positions.line_breaks.iter().map(|(current_word_idx, line_length)| {
         let remaining_space_px = width - line_length;
         let words = &scaled_words.items[last_word_idx..*current_word_idx];
-        let glyphs_in_this_line: usize = words.iter().map(|s| s.glyph_infos.len()).sum::<usize>();
+        let glyphs_in_this_line: usize = words.iter().map(|w| w.glyph_infos.len()).sum::<usize>();
+
         current_glyph_count += glyphs_in_this_line;
         last_word_idx = *current_word_idx;
+
         (current_glyph_count, remaining_space_px)
     }).collect()
 }
 
-/// For a given line number, calculates the Y position of the word
+/// For a given line number (**NOTE: 0-indexed!**), calculates the Y
+/// position of the bottom left corner
 pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px: f32) -> f32 {
     ((font_size_px + line_height_px) * line_number as f32) + font_size_px
 }
@@ -712,7 +782,7 @@ fn caret_intersects_with_holes(
         while hole.contains(&current_caret) {
             should_move_caret = true;
             if let Some(max_width) = max_width {
-                if hole.origin.x + hole.size.width > max_width.0 {
+                if hole.origin.x + hole.size.width >= max_width.0 {
                     // Need to break the line here
                     current_line_advance += 1;
                     new_line_number = line_number + current_line_advance;
@@ -834,11 +904,11 @@ pub fn align_text_horz(
     for (line_break_char, line_break_amount) in line_breaks {
 
         // NOTE: Inclusive range - beware: off-by-one-errors!
-        for glyph in &mut glyphs[start_range_char..=*line_break_char] {
+        for glyph in &mut glyphs[start_range_char..*line_break_char] {
             let old_glyph_x = glyph.point.x;
             glyph.point.x += line_break_amount * multiply_factor;
         }
-        start_range_char = *line_break_char + 1; // NOTE: beware off-by-one error - note the +1!
+        start_range_char = *line_break_char; // NOTE: beware off-by-one error - note the +1!
     }
 }
 
@@ -951,13 +1021,164 @@ fn test_split_words() {
         internal_str: unicode_str.clone(),
         internal_chars: string_to_vec(unicode_str),
         items: vec![
-            Word { start: 0,        end: 25,     word_type: WordType::Word     }, // "㌊㌋㌌㌍㌎㌏㌐㌑"
-            Word { start: 25,       end: 26,     word_type: WordType::Space   },
-            Word { start: 26,       end: 44,     word_type: WordType::Word   }, // "㌒㌓㌔㌕㌖㌗"
+            Word { start: 0,        end: 8,         word_type: WordType::Word   }, // "㌊㌋㌌㌍㌎㌏㌐㌑"
+            Word { start: 8,        end: 9,         word_type: WordType::Space  }, // " "
+            Word { start: 9,        end: 15,        word_type: WordType::Word   }, // "㌒㌓㌔㌕㌖㌗"
         ],
     };
 
-    print_words(&words_unicode_expected);
-    print_words(&words_unicode);
-    // assert_words(&words_unicode_expected, &words_unicode);
+    assert_words(&words_unicode_expected, &words_unicode);
+}
+
+#[test]
+fn test_get_line_y_position() {
+
+    assert_eq!(get_line_y_position(0, 20.0, 0.0), 20.0);
+    assert_eq!(get_line_y_position(1, 20.0, 0.0), 40.0);
+    assert_eq!(get_line_y_position(2, 20.0, 0.0), 60.0);
+
+    // lines:
+    // 0 - height 20, padding 5 = 20.0 (padding is for the next line)
+    // 1 - height 20, padding 5 = 45.0 ( = 20 + 20 + 5)
+    // 2 - height 20, padding 5 = 70.0 ( = 20 + 20 + 5 + 20 + 5)
+    assert_eq!(get_line_y_position(0, 20.0, 5.0), 20.0);
+    assert_eq!(get_line_y_position(1, 20.0, 5.0), 45.0);
+    assert_eq!(get_line_y_position(2, 20.0, 5.0), 70.0);
+}
+
+// Scenario 1:
+//
+// +---------+
+// |+ ------>|+
+// |         |
+// +---------+
+// rectangle: 100x200
+// max-width: none, line-height 1.0, font-size: 20
+// cursor is at: 0x, 20y
+// expect cursor to advance to 100x, 20y
+//
+#[test]
+fn test_caret_intersects_with_holes_1() {
+    let line_caret_x = 0.0;
+    let line_number = 0;
+    let font_size_px = 20.0;
+    let line_height_px = 0.0;
+    let max_width = None;
+    let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
+
+    let result = caret_intersects_with_holes(
+        line_caret_x,
+        line_number,
+        font_size_px,
+        line_height_px,
+        &holes,
+        max_width,
+    );
+
+    assert_eq!(result, LineCaretIntersection::AdvanceCaretTo(200.0));
+}
+
+// Scenario 2:
+//
+// +---------+
+// |+ -----> |
+// |-------> |
+// |---------|
+// |+        |
+// |         |
+// +---------+
+// rectangle: 100x200
+// max-width: 200px, line-height 1.0, font-size: 20
+// cursor is at: 0x, 20y
+// expect cursor to advance to 0x, 100y (+= 4 lines)
+//
+#[test]
+fn test_caret_intersects_with_holes_2() {
+    let line_caret_x = 0.0;
+    let line_number = 0;
+    let font_size_px = 20.0;
+    let line_height_px = 0.0;
+    let max_width = Some(TextSizePx(200.0));
+    let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
+
+    let result = caret_intersects_with_holes(
+        line_caret_x,
+        line_number,
+        font_size_px,
+        line_height_px,
+        &holes,
+        max_width,
+    );
+
+    assert_eq!(result, LineCaretIntersection::PushCaretOntoNextLine(4, 0.0));
+}
+
+// Scenario 3:
+//
+// +----------------+
+// |      |         |  +----->
+// |------->+       |
+// |------+         |
+// |                |
+// |                |
+// +----------------+
+// rectangle: 100x200
+// max-width: 400px, line-height 1.0, font-size: 20
+// cursor is at: 450x, 20y
+// expect cursor to advance to 200x, 40y (+= 1 lines, leading of 200px)
+//
+#[test]
+fn test_caret_intersects_with_holes_3() {
+    let line_caret_x = 450.0;
+    let line_number = 0;
+    let font_size_px = 20.0;
+    let line_height_px = 0.0;
+    let max_width = Some(TextSizePx(400.0));
+    let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
+
+    let result = caret_intersects_with_holes(
+        line_caret_x,
+        line_number,
+        font_size_px,
+        line_height_px,
+        &holes,
+        max_width,
+    );
+
+    assert_eq!(result, LineCaretIntersection::PushCaretOntoNextLine(1, 200.0));
+}
+
+// Scenario 4:
+//
+// +----------------+
+// | +   +------+   |
+// |     |      |   |
+// |     |      |   |
+// |     +------+   |
+// |                |
+// +----------------+
+// rectangle: 100x200 @ 80.0x, 20.0y
+// max-width: 400px, line-height 1.0, font-size: 20
+// cursor is at: 40x, 20y
+// expect cursor to not advance at all
+//
+#[test]
+fn test_caret_intersects_with_holes_4() {
+    let line_caret_x = 40.0;
+    let line_number = 0;
+    let font_size_px = 20.0;
+    let line_height_px = 0.0;
+    let max_width = Some(TextSizePx(400.0));
+    let holes = vec![LayoutRect::new(LayoutPoint::new(80.0, 20.0), LayoutSize::new(200.0, 100.0))];
+
+    let result = caret_intersects_with_holes(
+        line_caret_x,
+        line_number,
+        font_size_px,
+        line_height_px,
+        &holes,
+        max_width,
+    );
+
+    assert_eq!(result, LineCaretIntersection::NoIntersection);
 }

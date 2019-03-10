@@ -547,11 +547,12 @@ fn build_add_font_resource_updates(
                 let platform_options = FontInstancePlatformOptions::default();
 
                 let mut font_instance_flags = FontInstanceFlags::empty();
-                font_instance_flags.set(FontInstanceFlags::FORCE_GDI, true);
+                // font_instance_flags.set(FontInstanceFlags::FORCE_GDI, true);
                 // font_instance_flags.set(FontInstanceFlags::FONT_SMOOTHING, true);
                 // font_instance_flags.set(FontInstanceFlags::FORCE_AUTOHINT, true);
                 // font_instance_flags.set(FontInstanceFlags::TRANSPOSE, true);
-                // font_instance_flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
+                font_instance_flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
+                font_instance_flags.set(FontInstanceFlags::NO_AUTOHINT, true);
 
                 let options = FontInstanceOptions {
                     render_mode: FontRenderMode::Subpixel,
