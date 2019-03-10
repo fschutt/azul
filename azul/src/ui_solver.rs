@@ -1184,7 +1184,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
 
     // Layout the words again, this time with the proper width constraints!
     let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
-        (node_id, TextSizePx(solved_widths.solved_widths[node_id].total()))
+        (node_id, TextSizePx(solved_widths.solved_widths[node_id].total() - display_rects[node_id].layout.get_horizontal_padding()))
     }).collect();
 
     let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
