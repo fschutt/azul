@@ -1570,10 +1570,22 @@ impl RectLayout {
         + padding.right.map(|r| r.to_pixels()).unwrap_or(0.0)
     }
 
+    pub fn get_vertical_padding(&self) -> f32 {
+        let padding = self.padding.unwrap_or_default();
+        padding.bottom.map(|l| l.to_pixels()).unwrap_or(0.0)
+        + padding.top.map(|r| r.to_pixels()).unwrap_or(0.0)
+    }
+
     pub fn get_horizontal_margin(&self) -> f32 {
         let margin = self.padding.unwrap_or_default();
         margin.left.map(|l| l.to_pixels()).unwrap_or(0.0)
         + margin.right.map(|r| r.to_pixels()).unwrap_or(0.0)
+    }
+
+    pub fn get_vertical_margin(&self) -> f32 {
+        let margin = self.padding.unwrap_or_default();
+        margin.top.map(|l| l.to_pixels()).unwrap_or(0.0)
+        + margin.bottom.map(|r| r.to_pixels()).unwrap_or(0.0)
     }
 
     pub fn is_horizontal_overflow_visible(&self) -> bool {

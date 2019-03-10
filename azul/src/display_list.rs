@@ -562,6 +562,9 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_content,
         referenced_mutable_content
     );
+/*
+
+    // NOTE: table demo has problems with clipping
 
     if item.clip_children {
         if let Some(last_child) = referenced_content.node_hierarchy[rectangle.rect_idx].last_child {
@@ -579,6 +582,7 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
         referenced_mutable_content.builder.pop_clip_id();
         clip_stack.pop();
     }
+*/
 }
 
 /// Parameters that apply to a single rectangle / div node
@@ -692,6 +696,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
         Text(_) | Label(_) => {
             // Text is laid out and positioned during the layout pass,
             // so this should succeed - if there were problems
+            //
+            // TODO: In the table demo, the numbers don't show - empty glyphs (why?)!
             push_text(
                 &info,
                 referenced_mutable_content.builder,
@@ -867,8 +873,6 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
         rect_origin,
     );
 
-    println!("iframe layout result: {:?}", layout_result);
-
     let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
         node_hierarchy, &display_list.rectangles, node_data, &layout_result.rects,
         &layout_result.node_depths, referenced_content.pipeline_id
@@ -964,6 +968,7 @@ fn push_text(
         Some(s) => s,
         None => return,
     };
+
     let word_positions = match layout_result.positioned_word_cache.get(node_id) {
         Some(s) => s,
         None => return,
@@ -972,8 +977,11 @@ fn push_text(
     let horz_alignment = word_positions.text_layout_options.horz_alignment;
     let vert_alignment = word_positions.text_layout_options.vert_alignment;
 
-    let rect_offset = LayoutPoint::new(info.rect.origin.x, info.rect.origin.y);
-    let bounding_size_height_px = info.rect.size.height;
+    let rect_padding_top = rect_layout.padding.unwrap_or_default().top.map(|top| top.to_pixels()).unwrap_or(0.0);
+    let rect_padding_left = rect_layout.padding.unwrap_or_default().left.map(|left| left.to_pixels()).unwrap_or(0.0);
+    let rect_offset = LayoutPoint::new(info.rect.origin.x + rect_padding_left, info.rect.origin.y + rect_padding_top);
+    let bounding_size_height_px = info.rect.size.height - rect_layout.get_vertical_padding();
+
     let layouted_glyphs = get_layouted_glyphs(
         word_positions,
         scaled_words,
@@ -990,7 +998,8 @@ fn push_text(
     // they seem to interfere with the text layout thereby messing with the actual text layout.
     let mut flags = FontInstanceFlags::empty();
     flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
-    // flags.set(FontInstanceFlags::LCD_VERTICAL, true);
+    flags.set(FontInstanceFlags::NO_AUTOHINT, true);
+    flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
     let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();

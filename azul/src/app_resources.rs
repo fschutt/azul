@@ -553,6 +553,7 @@ fn build_add_font_resource_updates(
                 // font_instance_flags.set(FontInstanceFlags::TRANSPOSE, true);
                 font_instance_flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
                 font_instance_flags.set(FontInstanceFlags::NO_AUTOHINT, true);
+                font_instance_flags.set(FontInstanceFlags::LCD_VERTICAL, true);
 
                 let options = FontInstanceOptions {
                     render_mode: FontRenderMode::Subpixel,
