@@ -29,7 +29,7 @@ pub type GlyphInfo = hb_glyph_info_t;
 pub type GlyphPosition = hb_glyph_position_t;
 
 const MEMORY_MODE_READONLY: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
-const HB_SCALE_FACTOR: f32 = 64.0;
+const HB_SCALE_FACTOR: f32 = 128.0;
 
 // NOTE: hb_tag_t = u32
 // See: https://github.com/tangrams/harfbuzz-example/blob/master/src/hbshaper.h
@@ -116,6 +116,7 @@ impl<'a> Drop for HbFont<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct HbScaledFont<'a> {
     font: &'a HbFont<'a>,
     pub scale: Au,
@@ -132,25 +133,25 @@ impl<'a> HbScaledFont<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct HbBuffer<'a> {
     words: &'a str,
     hb_buffer: *mut hb_buffer_t,
 }
 
 impl<'a> HbBuffer<'a> {
-    pub fn from_str(words: &'a str, substr_offset: u32, substr_len: u32) -> Self {
+    pub fn from_str(words: &'a str) -> Self {
 
         let hb_buffer = unsafe { hb_buffer_create() };
         unsafe { hb_buffer_allocation_successful(hb_buffer); };
         let word_ptr = words.as_ptr() as *const c_char; // HB handles UTF-8
 
-        // If layouting a sub-string, substr_len should obviously not be the word_len -
-        // but here we are just layouting 0..word.len(), i.e. the entire word.
-
         let word_len = words.len() as i32;
 
+        // NOTE: It's not possible to take a sub-string into a UTF-8 buffer!
+
         unsafe {
-            hb_buffer_add_utf8(hb_buffer, word_ptr, word_len, substr_offset, substr_len as i32);
+            hb_buffer_add_utf8(hb_buffer, word_ptr, word_len, 0, word_len);
             // Guess the script, language and direction from the buffer
             hb_buffer_guess_segment_properties(hb_buffer);
         }
@@ -172,6 +173,7 @@ impl<'a> Drop for HbBuffer<'a> {
 // when the font is destroyed. This is a convenience wrapper that
 // directly dereferences the internal hb_glyph_info_t and
 // hb_glyph_position_t, to avoid extra allocations.
+#[derive(Debug)]
 pub struct CVec<T> {
     ptr: *const T,
     len: usize,
@@ -190,6 +192,7 @@ pub type HbGlyphPosition = hb_glyph_position_t;
 
 /// Shaped word - memory of the glyph_infos and glyph_positions is owned by HarfBuzz,
 /// therefore the `buf` and `font` have to live as least as long as the word is in use.
+#[derive(Debug)]
 pub struct HbShapedWord<'a> {
     pub buf: &'a HbBuffer<'a>,
     pub scaled_font: &'a HbScaledFont<'a>,
@@ -235,22 +238,15 @@ pub(crate) fn shape_word_hb<'a>(
     }
 }
 
-pub(crate) fn get_word_visual_width_hb(shaped_word: &HbShapedWord) -> f32 {
-    let glyph_positions = &*shaped_word.glyph_positions;
+pub(crate) fn get_word_visual_width_hb(glyph_positions: &[GlyphPosition]) -> f32 {
     glyph_positions.iter().map(|pos| pos.x_advance as f32 / HB_SCALE_FACTOR).sum()
 }
 
-pub(crate) fn get_glyph_infos_hb(
-    shaped_word: &HbShapedWord
-) -> Vec<GlyphInfo> {
-    let glyph_infos = &*shaped_word.glyph_infos;
+pub(crate) fn get_glyph_infos_hb(glyph_infos: &[GlyphInfo]) -> Vec<GlyphInfo> {
     glyph_infos.iter().cloned().collect()
 }
 
-pub(crate) fn get_glyph_positions_hb(
-    shaped_word: &HbShapedWord
-) -> Vec<GlyphPosition> {
-    let glyph_positions = &*shaped_word.glyph_positions;
+pub(crate) fn get_glyph_positions_hb(glyph_positions: &[GlyphPosition]) -> Vec<GlyphPosition> {
     glyph_positions.iter().cloned().collect()
 }
 

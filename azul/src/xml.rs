@@ -448,7 +448,10 @@ pub struct TextRenderer { }
 impl<T: Layout> XmlComponent<T> for TextRenderer {
 
     fn render_dom(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
-        Ok(Dom::label(content.clone().unwrap_or_default()))
+        let content = content.clone().unwrap_or_default();
+        let lines = content.lines().map(|line| line.trim()).collect::<Vec<&str>>();
+        let content = lines.join(" ");
+        Ok(Dom::label(content))
     }
 
     fn compile_to_rust_code(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<String, CompileError> {
