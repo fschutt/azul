@@ -1,5 +1,9 @@
-#title {
-    font-size: 14px;
+* {
+    font-size: 20px;
+}
+
+#hebrew {
+    font-size: 50px;
 }
 
 #lorem_ipsum {
@@ -8,6 +12,7 @@
     color: white;
     text-align: left;
     padding: 50px;
+    letter-spacing: 10px;
 }
 
 #devangari {
