@@ -476,7 +476,7 @@ pub fn position_words(
     let word_spacing_px = space_advance * text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
     let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
-    let letter_spacing_percent = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
+    let letter_spacing_px = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -518,22 +518,20 @@ pub fn position_words(
     let mut word_idx = 0;
 
     macro_rules! handle_word {() => ({
+
         let scaled_word = match scaled_words.items.get(word_idx) {
             Some(s) => s,
             None => continue,
         };
 
-        // let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
-        // word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
-
         // Calculate where the caret would be for the next word
         let word_advance_x =
             scaled_word.word_width
-          + (scaled_word.glyph_infos.len().saturating_sub(1) as f32 * letter_spacing_percent);
+          + (scaled_word.glyph_infos.len().saturating_sub(1) as f32 * letter_spacing_px);
 
         let mut new_caret_x = line_caret_x + word_advance_x;
 
-        // advance_caret!(new_caret_x);
+        // NOTE: Slightly modified "advance_caret!(new_caret_x);" - due to line breaking behaviour
 
         let caret_intersection = caret_intersects_with_holes(
             new_caret_x,
@@ -564,17 +562,22 @@ pub fn position_words(
 
         line_caret_x = new_caret_x;
 
+        // If there was a line break, the position needs to be determined after the line break happened
         if is_line_break {
             let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
             word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+            // important! - if the word is pushed onto the next line, the caret has to be
+            // advanced by that words width!
             line_caret_x += word_advance_x;
         }
 
-        // NOTE: Increase before pushing, word indices are 1-indexed (0..word_index)!
+        // NOTE: Word index is increased before pushing, since word indices are 1-indexed
+        // (so that paragraphs can be selected via "(0..word_index)").
         word_idx += 1;
         current_word_idx = word_idx;
     })}
 
+    // The last word is a bit special: Any text must have at least one line break!
     for word in words.items.iter().take(words.items.len().saturating_sub(1)) {
         match word.word_type {
             Word => {
@@ -602,8 +605,14 @@ pub fn position_words(
 
     // Handle the last word, but ignore any last Return, Space or Tab characters
     for word in &words.items[words.items.len().saturating_sub(1)..] {
-        handle_word!();
+        if word.word_type == Word {
+            handle_word!();
+        }
         line_breaks.push((current_word_idx, line_caret_x));
+    }
+
+    if !words.items.is_empty() {
+        debug_assert!(line_breaks.len() >= 1);
     }
 
     let trailing = line_caret_x;
@@ -644,8 +653,7 @@ pub fn get_layouted_glyphs(
 
     use text_shaping;
 
-    let font_size_px = word_positions.font_size.0;
-    let letter_spacing_px = font_size_px * word_positions.text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
+    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
 
     let mut glyphs = Vec::with_capacity(scaled_words.items.len());
 
@@ -654,12 +662,10 @@ pub fn get_layouted_glyphs(
             text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
             .into_iter()
             .enumerate()
-            .map(|(glyph_id, mut glyph)| {
+            .map(|(glyph_idx, mut glyph)| {
                 glyph.point.x += word_position.x;
                 glyph.point.y += word_position.y;
-                if glyph_id != 0 {
-                    glyph.point.x += letter_spacing_px;
-                }
+                glyph.point.x += letter_spacing_px * glyph_idx as f32;
                 glyph
             })
         )
