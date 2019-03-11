@@ -273,6 +273,8 @@ pub fn split_text_into_words(text: &str) -> Words {
     let mut last_char_idx = 0;
     let mut last_char_was_whitespace = false;
 
+    let char_len = normalized_chars.len();
+
     for (ch_idx, ch) in normalized_chars.iter().enumerate() {
 
         let ch = *ch;
@@ -313,7 +315,7 @@ pub fn split_text_into_words(text: &str) -> Words {
             _ => None,
         };
 
-        // Character is a whitespace, and the current word isn't empty = end of word
+        // Character is a whitespace or the character is the last character in the text (end of text)
         let should_push_word = if current_char_is_whitespace && !last_char_was_whitespace {
             Some(Word {
                 start: current_word_start,
@@ -339,7 +341,7 @@ pub fn split_text_into_words(text: &str) -> Words {
     }
 
     // Push the last word
-    if current_word_start != last_char_idx {
+    if current_word_start != last_char_idx + 1 {
         words.push(Word {
             start: current_word_start,
             end: normalized_chars.len(),
@@ -599,7 +601,7 @@ pub fn position_words(
     }
 
     // Handle the last word, but ignore any last Return, Space or Tab characters
-    for word in &words.items[words.items.len().saturating_sub(2)..words.items.len().saturating_sub(1)] {
+    for word in &words.items[words.items.len().saturating_sub(1)..] {
         handle_word!();
         line_breaks.push((current_word_idx, line_caret_x));
     }
@@ -1028,6 +1030,18 @@ fn test_split_words() {
     };
 
     assert_words(&words_unicode_expected, &words_unicode);
+
+    let single_str = String::from("A");
+    let words_single_str = split_text_into_words(&single_str);
+    let words_single_str_expected = Words {
+        internal_str: single_str.clone(),
+        internal_chars: string_to_vec(single_str),
+        items: vec![
+            Word { start: 0,        end: 1,         word_type: WordType::Word   }, // "A"
+        ],
+    };
+
+    assert_words(&words_single_str_expected, &words_single_str);
 }
 
 #[test]
