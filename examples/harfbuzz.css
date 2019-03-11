@@ -4,15 +4,17 @@
 
 #hebrew {
     font-size: 50px;
-}
-
-#lorem_ipsum {
     height: 200px;
     background-color: grey;
     color: white;
     text-align: left;
     padding: 50px;
-    letter-spacing: 10px;
+    line-height: 2.8;
+    letter-spacing: 20px;
+}
+
+#lorem_ipsum {
+
 }
 
 #devangari {
