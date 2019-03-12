@@ -149,7 +149,7 @@ pub fn open_file_dialog(default_path: Option<&str>, filter_list: Option<&[&str]>
 pub fn open_directory_dialog(default_path: Option<&str>)
 -> Option<String>
 {
-    ::tinyfiledialogs::select_folder_dialog("Open Filder", default_path.unwrap_or(""))
+    ::tinyfiledialogs::select_folder_dialog("Open Folder", default_path.unwrap_or(""))
 }
 
 /// Open multiple files at once, returns `None` if the user canceled the dialog,
