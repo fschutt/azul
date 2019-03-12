@@ -226,6 +226,8 @@ pub struct WindowState {
     pub is_visible: bool,
     /// Is the window always on top?
     pub is_always_on_top: bool,
+    /// Is the cursor hidden?
+    pub is_cursor_hidden: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -284,6 +286,7 @@ impl Default for WindowState {
             is_visible: true,
             is_always_on_top: false,
             debug_state: DebugState::default(),
+            is_cursor_hidden: false,
         }
     }
 }
