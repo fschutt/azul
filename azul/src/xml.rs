@@ -448,16 +448,87 @@ pub struct TextRenderer { }
 impl<T: Layout> XmlComponent<T> for TextRenderer {
 
     fn render_dom(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
-        let content = content.clone().unwrap_or_default();
-        let lines = content.lines().map(|line| line.trim()).collect::<Vec<&str>>();
-        let content = lines.join(" ");
+        let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
         Ok(Dom::label(content))
     }
 
     fn compile_to_rust_code(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<String, CompileError> {
         Ok(match content {
-            Some(s) => format!("Dom::label(\"{}\")", s.trim()),
+            Some(s) => format!("Dom::label(\"{}\")", content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default()),
             None => format!("Dom::label(\"\")"),
         })
     }
+}
+
+// NOTE: Two sequential returns count as a single return, while single returns get ignored.
+fn prepare_string(input: &str) -> String {
+
+    const SPACE: &str = " ";
+    const RETURN: &str = "\n";
+
+    let input = input.trim();
+
+    if input.is_empty() {
+        return String::new();
+    }
+
+    let input_len = input.len();
+    let mut final_lines: Vec<String> = Vec::new();
+    let mut last_line_was_empty = false;
+
+    for line in input.lines() {
+
+        let line = line.trim();
+        let current_line_is_empty = line.is_empty();
+
+        if !current_line_is_empty {
+            if last_line_was_empty {
+                final_lines.push(format!("{}{}", RETURN, line));
+            } else {
+                final_lines.push(line.to_string());
+            }
+        }
+
+        last_line_was_empty = current_line_is_empty;
+    }
+
+    let mut line_len = final_lines.len();
+    let mut target = String::with_capacity(input_len);
+    for (line_idx, line) in final_lines.iter().enumerate() {
+        if !(line.starts_with(RETURN) || line_idx == 0 || line_idx == line_len.saturating_sub(1)) {
+            target.push_str(SPACE);
+        }
+        target.push_str(line);
+    }
+    target
+}
+
+#[test]
+fn test_prepare_string_1() {
+    let input1 = r#"Test"#;
+    let output = prepare_string(input1);
+    println!("{:?}", output);
+    assert_eq!(output, String::from("Test"));
+}
+
+#[test]
+fn test_prepare_string_2() {
+    let input1 = r#"
+    Hello,
+    123
+
+
+    Test Test2
+
+    Test3
+
+
+
+
+    Test4
+    "#;
+
+    let output = prepare_string(input1);
+    println!("{:?}", output);
+    assert_eq!(output, String::from("Hello, 123\nTest Test2\nTest3\nTest4"));
 }
