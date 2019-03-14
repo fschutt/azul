@@ -260,6 +260,7 @@ impl fmt::Display for ComponentParseError {
         }
     }
 }
+
 /// Parses the XML string into an XML tree, returns
 /// the root `<app></app>` node, with the children attached to it.
 ///
@@ -305,7 +306,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
                     let children_len = current_parent.children.len();
                     current_parent.children.push(XmlNode {
-                        node_type: open_value.to_str().to_string().to_lowercase(),
+                        node_type: normalize_casing(open_value.to_str()),
                         attributes: BTreeMap::new(),
                         children: Vec::new(),
                         text: None,
@@ -317,7 +318,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
                 current_hierarchy.pop();
             },
             ElementEnd(Close(_, close_value)) => {
-                let close_value = close_value.to_str().to_string().to_lowercase();
+                let close_value = normalize_casing(close_value.to_str());
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     if last.node_type != close_value {
                         return Err(MalformedHierarchy(close_value, last.node_type.clone()));
@@ -327,7 +328,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
             },
             Attribute((_, key), value) => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    let lowercase_key = key.to_str().to_string().to_lowercase();
+                    let lowercase_key = normalize_casing(key.to_str());
                     let lowercase_value = value.to_str().to_string().to_lowercase();
                     last.attributes.insert(lowercase_key, lowercase_value);
                 }
@@ -418,6 +419,34 @@ fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseErro
     }
 
     Ok(root_node)
+}
+
+/// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of `abc_def`
+fn normalize_casing(input: &str) -> String {
+
+    let mut words: Vec<String> = Vec::new();
+    let mut cur_str = Vec::new();
+
+    for ch in input.chars() {
+        if ch.is_uppercase() || ch == '_' || ch == '-' {
+            if !cur_str.is_empty() {
+                words.push(cur_str.iter().collect());
+                cur_str.clear();
+            }
+            if ch.is_uppercase() {
+                cur_str.extend(ch.to_lowercase());
+            }
+        } else {
+            cur_str.extend(ch.to_lowercase());
+        }
+    }
+
+    if !cur_str.is_empty() {
+        words.push(cur_str.iter().collect());
+        cur_str.clear();
+    }
+
+    words.join("_")
 }
 
 /// Find the one and only <app /> node, return error if
@@ -601,12 +630,6 @@ fn compile_app_node_to_rust_code<T: Layout>(
     */
 }
 
-/*
-fn render_component() -> String {
-
-}
-*/
-
 fn compile_app_node_to_rust_code_inner<T: Layout>(
     app_node: &XmlNode,
     component_map: &XmlComponentMap<T>
@@ -700,6 +723,18 @@ fn prepare_string(input: &str) -> String {
         target.push_str(line);
     }
     target
+}
+
+#[test]
+fn test_normalize_casing() {
+    assert_eq!(normalize_casing("abcDef"), String::from("abc_def"));
+    assert_eq!(normalize_casing("abc_Def"), String::from("abc_def"));
+    assert_eq!(normalize_casing("abc-Def"), String::from("abc_def"));
+    assert_eq!(normalize_casing("abc-def"), String::from("abc_def"));
+    assert_eq!(normalize_casing("AbcDef"), String::from("abc_def"));
+    assert_eq!(normalize_casing("Abc-Def"), String::from("abc_def"));
+    assert_eq!(normalize_casing("Abc_Def"), String::from("abc_def"));
+    assert_eq!(normalize_casing("aBc_Def"), String::from("a_bc_def")); // wrong, but whatever
 }
 
 #[test]
