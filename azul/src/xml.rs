@@ -186,8 +186,6 @@ pub enum XmlParseError {
     NoRootComponent,
     /// The DOM can only have one root component, not multiple.
     MultipleRootComponents,
-    /// A `<component>` node does not have a `name` attribute.
-    ComponentWithoutName,
     UnknownComponent(String),
     /// **Note**: Sadly, the error type can only be a string because xmlparser
     /// returns all errors as strings. There is an open PR to fix
@@ -198,6 +196,22 @@ pub enum XmlParseError {
     MalformedHierarchy(String, String),
     /// A component raised an error while rendering the DOM - holds the component name + error string
     RenderDomError(String, String),
+    /// Something went wrong while parsing an XML component
+    Component(ComponentParseError),
+}
+
+#[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
+pub enum ComponentParseError {
+    /// A `<component>` node does not have a `name` attribute.
+    UnnamedComponent,
+    /// Argument at position `usize` is either empty or has no name
+    MissingName(usize),
+    /// Argument at position `usize` with the name `String` doesn't have a `: type`
+    MissingType(usize, String),
+    /// Component name may not contain a whitespace (probably missing a `:` between the name and the type)
+    WhiteSpaceInComponentName(usize, String),
+    /// Component type may not contain a whitespace (probably missing a `,` between the type and the next name)
+    WhiteSpaceInComponentType(usize, String, String),
 }
 
 impl fmt::Debug for XmlParseError {
@@ -214,13 +228,38 @@ impl fmt::Display for XmlParseError {
             MultipleRootComponents => write!(f, "Multiple <app/> components present, only one root node is allowed"),
             ParseError(e) => write!(f, "XML parsing error: {}", e),
             MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got, expected),
-            ComponentWithoutName => write!(f, "Found <component/> tag with out a \"name\" attribute, component must have a name"),
             UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name),
             RenderDomError(name, e) => write!(f, "Component \"{}\" raised an error while rendering DOM: \"{}\"", name, e),
+            Component(c) => write!(f, "Error while parsing XML component: \"{}\"", c),
         }
     }
 }
 
+impl fmt::Debug for ComponentParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl fmt::Display for ComponentParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::ComponentParseError::*;
+        match self {
+            UnnamedComponent => write!(f, "Found <component/> tag with out a \"name\" attribute, component must have a name"),
+            MissingName(arg_pos) => write!(f, "Argument at position {} is either empty or has no name", arg_pos),
+            MissingType(arg_pos, arg_name) => write!(f, "Argument \"{}\" at position {} doesn't have a `: type`", arg_pos, arg_name),
+            WhiteSpaceInComponentName(arg_pos, arg_name_unparsed) => {
+                write!(f, "Missing `:` between the name and the type in argument {} (around \"{}\")", arg_pos, arg_name_unparsed)
+            },
+            WhiteSpaceInComponentType(arg_pos, arg_name, arg_type_unparsed) => {
+                write!(f,
+                       "Missing `,` between two arguments (in argument {}, position {}, around \"{}\")",
+                       arg_name, arg_pos, arg_type_unparsed
+                )
+            },
+        }
+    }
+}
 /// Parses the XML string into an XML tree, returns
 /// the root `<app></app>` node, with the children attached to it.
 ///
@@ -327,6 +366,41 @@ fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a m
     Some(unsafe { &mut *mut_node_ptr })
 }
 
+/// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
+fn parse_component_arguments(input: &str) -> Result<ComponentArguments, ComponentParseError> {
+
+    use self::ComponentParseError::*;
+
+    let mut args = ComponentArguments::default();
+
+    for (arg_idx, arg) in input.split(",").enumerate() {
+
+        let mut colon_iterator = arg.split(":");
+
+        let arg_name = colon_iterator.next().ok_or(MissingName(arg_idx))?;
+        let arg_name = arg_name.trim();
+        if arg_name.is_empty() {
+            return Err(MissingName(arg_idx));
+        }
+        if arg_name.chars().any(char::is_whitespace) {
+            return Err(WhiteSpaceInComponentName(arg_idx, arg_name.into()));
+        }
+
+        let arg_type = colon_iterator.next().ok_or(MissingType(arg_idx, arg_name.into()))?;
+        let arg_type = arg_type.trim();
+        if arg_type.is_empty() {
+            return Err(MissingType(arg_idx, arg_name.into()));
+        }
+        if arg_type.chars().any(char::is_whitespace) {
+            return Err(WhiteSpaceInComponentType(arg_idx, arg_name.into(), arg_type.into()));
+        }
+
+        args.insert(arg_name.to_string(), arg_type.to_string());
+    }
+
+    Ok(args)
+}
+
 /// Expands / instantiates all XML `<component />`s in the `<app />`
 fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
 
@@ -364,7 +438,7 @@ fn get_xml_components(root_nodes: &[XmlNode]) -> Result<BTreeMap<&String, &Vec<X
     .filter(|node| &node.node_type == "component")
     .map(|component| {
         match component.attributes.get("name") {
-            None => Err(XmlParseError::ComponentWithoutName),
+            None => Err(XmlParseError::Component(ComponentParseError::UnnamedComponent)),
             Some(s) => Ok((s, &component.children)),
         }
     })
@@ -626,6 +700,45 @@ fn prepare_string(input: &str) -> String {
         target.push_str(line);
     }
     target
+}
+
+#[test]
+fn test_parse_component_arguments() {
+
+    let mut args_1_expected = ComponentArguments::new();
+    args_1_expected.insert("selectedDate".to_string(), "DateTime".to_string());
+    args_1_expected.insert("minimumDate".to_string(), "DateTime".to_string());
+    args_1_expected.insert("gridVisible".to_string(), "bool".to_string());
+
+    /// Everything OK
+    assert_eq!(
+        parse_component_arguments("gridVisible: bool, selectedDate: DateTime, minimumDate: DateTime"),
+        Ok(args_1_expected)
+    );
+
+    // Missing type for selectedDate
+    assert_eq!(
+        parse_component_arguments("gridVisible: bool, selectedDate: , minimumDate: DateTime"),
+        Err(ComponentParseError::MissingType(1, "selectedDate".to_string()))
+    );
+
+    // Missing name for first argument
+    assert_eq!(
+        parse_component_arguments(": bool, selectedDate: DateTime, minimumDate: DateTime"),
+        Err(ComponentParseError::MissingName(0))
+    );
+
+    // Missing comma after DateTime
+    assert_eq!(
+        parse_component_arguments("gridVisible: bool, selectedDate: DateTime  minimumDate: DateTime"),
+        Err(ComponentParseError::WhiteSpaceInComponentType(1, "selectedDate".to_string(), "DateTime  minimumDate".to_string()))
+    );
+
+    // Missing colon after gridVisible
+    assert_eq!(
+        parse_component_arguments("gridVisible: bool, selectedDate DateTime, minimumDate: DateTime"),
+        Err(ComponentParseError::WhiteSpaceInComponentName(1, "selectedDate DateTime".to_string()))
+    );
 }
 
 #[test]
