@@ -19,7 +19,7 @@ use {
     id_tree::{Arena, NodeDataContainer},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
-    xml::{XmlParseError, XmlComponentMap},
+    xml::{self, XmlParseError, XmlComponentMap},
 };
 
 pub use id_tree::{NodeHierarchy, Node, NodeId};
@@ -933,10 +933,7 @@ impl<T: Layout> Dom<T> {
 
     /// Parses and loads a DOM from an XML string
     pub fn from_xml(xml: &str, component_map: &XmlComponentMap<T>) -> Result<Self, XmlParseError> {
-        use xml;
-        let parsed_xml = xml::parse_xml_string(xml)?;
-        let expanded_xml = xml::expand_xml_components(&parsed_xml)?;
-        xml::render_dom_from_app_node(&expanded_xml, component_map)
+        xml::str_to_dom(xml, component_map)
     }
 
     /// Loads, parses and builds a DOM from an XML file - warning: Disk I/O on every

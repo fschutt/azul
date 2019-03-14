@@ -2,7 +2,7 @@
 
 use std::{fmt, collections::BTreeMap};
 use {
-    dom::Dom,
+    dom::{Dom, Callback},
     traits::Layout,
 };
 use xmlparser::Tokenizer;
@@ -17,22 +17,105 @@ pub type CompileError = String;
 
 /// Tag of an XML node, such as the "button" in `<button>Hello</button>`.
 pub type XmlTagName = String;
-/// Unparsed content of an XML node, such as the "Hello" in `<button>Hello</button>`.
-pub type XmlNodeContent = String;
 /// Key of an attribute, such as the "color" in `<button color="blue">Hello</button>`.
 pub type XmlAttributeKey = String;
 /// Value of an attribute, such as the "blue" in `<button color="blue">Hello</button>`.
 pub type XmlAttributeValue = String;
-
-pub type XmlAttributeMap = BTreeMap<XmlAttributeKey, XmlAttributeValue>;
+/// (Unparsed) text content of an XML node, such as the "Hello" in `<button>Hello</button>`.
 pub type XmlTextContent = Option<String>;
+/// Attributes of an XML node, such as `["color" => "blue"]` in `<button color="blue" />`.
+pub type XmlAttributeMap = BTreeMap<XmlAttributeKey, XmlAttributeValue>;
 
-/// Specifies a component that reacts to a parsed XML tree and a list of XML components
+pub type ComponentArgumentName = String;
+pub type ComponentArgumentType = String;
+
+/// A component can take various arguments (to pass down to its children), which are then
+/// later compiled into Rust function arguments - for example
+///
+/// ```xml,no_run,ignore
+/// <component name="test" args="a: String, b: bool, c: HashMap<X, Y>">
+///     <Button id="my_button" class="test_{{ a }}"> Is this true? Scientists say: {{ b }}</Button>
+/// </component>
+/// ```
+///
+/// ... will turn into the following (generated) Rust code:
+///
+/// ```rust,no_run,ignore
+/// struct TestRendererArgs<'a> {
+///     a: &'a String,
+///     b: &'a bool,
+///     c: &'a HashMap<X, Y>,
+/// }
+///
+/// fn render_component_test<'a, T: Layout>(args: &TestRendererArgs<'a>) -> Dom<T> {
+///     Button::with_label(format!("Is this true? Scientists say: {:?}", args.b)).with_class(format!("test_{}", args.a))
+/// }
+/// ```
+///
+/// For this to work, a component has to note all its arguments and types that it can take.
+/// If a type is not `str` or `String`, it will be formatted using the `{:?}` formatter
+/// in the generated source code, otherwise the compiler will use the `{}` formatter.
+pub type ComponentArguments = BTreeMap<ComponentArgumentName, ComponentArgumentType>;
+
+/// Specifies a component that reacts to a parsed XML node
 pub trait XmlComponent<T: Layout> {
-    /// Given a root node and a component map, returns a DOM or a syntax error
-    fn render_dom(&self, attributes: &XmlAttributeMap, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError>;
+
+    /// Should return all arguments that this component can take - for example if you have a
+    /// component called `Calendar`, which can take a `selectedDate` argument:
+    ///
+    /// ```xml,no_run,ignore
+    /// <Calendar
+    ///     selectedDate='01.01.2018'
+    ///     minimumDate='01.01.1970'
+    ///     maximumDate='31.12.2034'
+    ///     firstDayOfWeek='sunday'
+    ///     gridVisible='false'
+    /// />
+    /// ```
+    /// ... then the `ComponentArguments` returned by this function should look something like this:
+    ///
+    /// ```rust,no_run,ignore
+    /// impl XmlComponent for CalendarRenderer {
+    ///     fn get_available_arguments(&self) -> ComponentArguments {
+    ///         btreemap![
+    ///             "selected_date" => "DateTime",
+    ///             "minimum_date" => "DateTime",
+    ///             "maximum_date" => "DateTime",
+    ///             "first_day_of_week" => "WeekDay",
+    ///             "grid_visible" => "bool",
+    ///             /* ... */
+    ///         ]
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// If a user instantiates a component with an invalid argument (i.e. `<Calendar asdf="false">`),
+    /// the user will get an error that the component can't handle this argument. The types are not checked,
+    /// but they are necessary for the XML-to-Rust compiler.
+    ///
+    /// When the XML is then compiled to Rust, the generated Rust code will look like this:
+    ///
+    /// ```rust,no_run,ignore
+    /// render_component_calendar(&CalendarRendererArgs {
+    ///     selected_date: DateTime::from("01.01.2018")
+    ///     minimum_date: DateTime::from("01.01.2018")
+    ///     maximum_date: DateTime::from("01.01.2018")
+    ///     first_day_of_week: WeekDay::from("sunday")
+    ///     grid_visible: false,
+    ///     .. Default::default()
+    /// })
+    /// ```
+    ///
+    /// Of course, the code generation isn't perfect: For non-builtin types, the compiler will use
+    /// `Type::from` to make the conversion. You can then take that generated Rust code and clean it up,
+    /// put it somewhere else and create another component out of it - XML should only be seen as a
+    /// high-level prototyping tool (to get around the problem of compile times), not as the final
+    /// data format.
+    fn get_available_arguments(&self) -> ComponentArguments;
+    /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
+    fn render_dom(&self, arguments: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError>;
     /// Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(&self, attributes: &XmlAttributeMap, content: &XmlTextContent) -> Result<String, CompileError>;
+    fn compile_to_rust_code(&self, attributes: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
 }
 
 /// Represents one XML node tag
@@ -40,7 +123,7 @@ pub trait XmlComponent<T: Layout> {
 pub struct XmlNode {
     /// Type of the node
     pub node_type: XmlTagName,
-    /// Attributes of an XML node
+    /// Attributes of an XML node (note: not yet filtered and / or broken into function arguments!)
     pub attributes: XmlAttributeMap,
     /// Direct children of this node
     pub children: Vec<XmlNode>,
@@ -70,6 +153,31 @@ impl XmlNode {
     pub fn with_text<S: Into<String>>(mut self, text: S) -> Self {
         self.text = Some(text.into());
         self
+    }
+}
+
+/// Holds all XML components - builtin components
+pub struct XmlComponentMap<T: Layout> {
+    components: BTreeMap<String, Box<XmlComponent<T>>>,
+    /// Stores "onclick='do_this'" mappings from the string `do_this` to the actual function pointer
+    callbacks: BTreeMap<String, Callback<T>>,
+}
+
+impl<T: Layout> Default for XmlComponentMap<T> {
+    fn default() -> Self {
+        let mut map = Self { components: BTreeMap::new(), callbacks: BTreeMap::new() };
+        map.register_component("div", Box::new(DivRenderer { }));
+        map.register_component("p", Box::new(TextRenderer { }));
+        map
+    }
+}
+
+impl<T: Layout> XmlComponentMap<T> {
+    pub fn register_component<S: Into<String>>(&mut self, id: S, component: Box<XmlComponent<T>>) {
+        self.components.insert(id.into(), component);
+    }
+    pub fn register_callback<S: Into<String>>(&mut self, id: S, callback: Callback<T>) {
+        self.callbacks.insert(id.into(), callback);
     }
 }
 
@@ -219,79 +327,8 @@ fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a m
     Some(unsafe { &mut *mut_node_ptr })
 }
 
-#[test]
-fn test_xml_get_item() {
-
-    // <a>
-    //     <b/>
-    //     <c/>
-    //     <d/>
-    //     <e/>
-    // </a>
-    // <f>
-    //     <g>
-    //         <h/>
-    //     </g>
-    //     <i/>
-    // </f>
-    // <j/>
-
-    let mut tree = XmlNode::new("component")
-    .with_children(vec![
-        XmlNode::new("a")
-        .with_children(vec![
-            XmlNode::new("b"),
-            XmlNode::new("c"),
-            XmlNode::new("d"),
-            XmlNode::new("e"),
-        ]),
-        XmlNode::new("f")
-        .with_children(vec![
-            XmlNode::new("g")
-            .with_children(vec![XmlNode::new("h")]),
-            XmlNode::new("i"),
-        ]),
-        XmlNode::new("j"),
-    ]);
-
-    assert_eq!(&get_item(&[], &mut tree).unwrap().node_type, "component");
-    assert_eq!(&get_item(&[0], &mut tree).unwrap().node_type, "a");
-    assert_eq!(&get_item(&[0, 0], &mut tree).unwrap().node_type, "b");
-    assert_eq!(&get_item(&[0, 1], &mut tree).unwrap().node_type, "c");
-    assert_eq!(&get_item(&[0, 2], &mut tree).unwrap().node_type, "d");
-    assert_eq!(&get_item(&[0, 3], &mut tree).unwrap().node_type, "e");
-    assert_eq!(&get_item(&[1], &mut tree).unwrap().node_type, "f");
-    assert_eq!(&get_item(&[1, 0], &mut tree).unwrap().node_type, "g");
-    assert_eq!(&get_item(&[1, 0, 0], &mut tree).unwrap().node_type, "h");
-    assert_eq!(&get_item(&[1, 1], &mut tree).unwrap().node_type, "i");
-    assert_eq!(&get_item(&[2], &mut tree).unwrap().node_type, "j");
-
-    assert_eq!(get_item(&[123213], &mut tree), None);
-    assert_eq!(get_item(&[0, 1, 2], &mut tree), None);
-}
-
-/// Holds all XML components - builtin components
-pub struct XmlComponentMap<T: Layout> {
-    components: BTreeMap<String, Box<XmlComponent<T>>>,
-}
-
-impl<T: Layout> Default for XmlComponentMap<T> {
-    fn default() -> Self {
-        let mut map = Self { components: BTreeMap::new() };
-        map.register_component("div", Box::new(DivRenderer { }));
-        map.register_component("p", Box::new(TextRenderer { }));
-        map
-    }
-}
-
-impl<T: Layout> XmlComponentMap<T> {
-    pub fn register_component<S: Into<String>>(&mut self, id: S, component: Box<XmlComponent<T>>) {
-        self.components.insert(id.into(), component);
-    }
-}
-
 /// Expands / instantiates all XML `<component />`s in the `<app />`
-pub(crate) fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
+fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
 
     // Find the root <app /> node
     let mut root_node: XmlNode = get_app_node(root_nodes)?;
@@ -356,7 +393,20 @@ fn expand_component(node: XmlNode, component_map: &BTreeMap<&String, &Vec<XmlNod
     }
 }
 
-pub(crate) fn render_dom_from_app_node<T: Layout>(
+/// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
+pub fn str_to_dom<T: Layout>(xml: &str, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+    let parsed_xml = parse_xml_string(xml)?;
+    let expanded_xml = expand_xml_components(&parsed_xml)?;
+    render_dom_from_app_node(&expanded_xml, component_map)
+}
+
+/// Parses an XML string and returns a `String`, which contains the Rust source code (i.e. it compiles the XML to valid Rust)
+pub fn str_to_rust_code<T: Layout>(xml: &str, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+    let parsed_xml = parse_xml_string(xml).map_err(|e| format!("XML parse error: {}", e))?;
+    compile_app_node_to_rust_code(&parsed_xml, component_map)
+}
+
+fn render_dom_from_app_node<T: Layout>(
     app_node: &XmlNode,
     component_map: &XmlComponentMap<T>
 ) -> Result<Dom<T>, XmlParseError> {
@@ -426,17 +476,88 @@ fn render_dom_from_app_node_inner<T: Layout>(
     Ok(dom)
 }
 
+fn compile_app_node_to_rust_code<T: Layout>(
+    root_nodes: &[XmlNode],
+    component_map: &XmlComponentMap<T>
+) -> Result<String, CompileError> {
+
+    Err("unimplemented".into())
+
+    /*
+    // Find the root <app /> node
+    let mut app_node: XmlNode = get_app_node(root_nodes)?;
+    let component_nodes = get_xml_components(root_nodes)?;
+
+    let mut root_string = String::new();
+
+    // Render all built-in component nodes
+    for (component_node_key, component_nodes) in component_map {
+        match component_map.get(&node.node_type) {
+            Some(s) => {
+                // Turn the node to a div node with the original nodes attributes,
+                // replace the children by the components children
+                XmlNode {
+                    node_type: "div".into(),
+                    attributes: node.attributes.clone(),
+                    children: s.iter().map(|node| expand_component(node.clone(), component_map)).collect(),
+                    text: node.text,
+                }
+            },
+            None => {
+                XmlNode {
+                    children: node.children.iter().map(|n| expand_component(n.clone(), component_map)).collect(),
+                    .. node
+                }
+            },
+        }
+    }
+
+    // Search all nodes of the app, expand them to the proper component
+    for child in &mut root_node.children {
+        *child = expand_component(child.clone(), &component_map);
+    }
+
+    // Don't actually render the <app></app> node itself
+    let mut dom = "Dom::div()";
+    for child_node in &app_node.children {
+        dom.append(compile_app_node_to_rust_code_inner(child_node, component_map)?);
+    }
+
+    Ok(dom)
+    */
+}
+
+/*
+fn render_component() -> String {
+
+}
+*/
+
+fn compile_app_node_to_rust_code_inner<T: Layout>(
+    app_node: &XmlNode,
+    component_map: &XmlComponentMap<T>
+) -> Result<String, CompileError> {
+    // TODO!
+    Err("unimplemented".into())
+}
+
+// --- Renderers for various built-in types
+
 /// Render for a `div` component
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DivRenderer { }
 
 impl<T: Layout> XmlComponent<T> for DivRenderer {
 
-    fn render_dom(&self, _: &XmlAttributeMap, _: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::new()
+    }
+
+    fn render_dom(&self, _: &ComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
         Ok(Dom::div())
     }
 
-    fn compile_to_rust_code(&self, _: &XmlAttributeMap, _: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &ComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::div()".into())
     }
 }
@@ -447,12 +568,16 @@ pub struct TextRenderer { }
 
 impl<T: Layout> XmlComponent<T> for TextRenderer {
 
-    fn render_dom(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::new()
+    }
+
+    fn render_dom(&self, _: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
         Ok(Dom::label(content))
     }
 
-    fn compile_to_rust_code(&self, _: &XmlAttributeMap, content: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
         Ok(match content {
             Some(s) => format!("Dom::label(\"{}\")", content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default()),
             None => format!("Dom::label(\"\")"),
@@ -501,6 +626,57 @@ fn prepare_string(input: &str) -> String {
         target.push_str(line);
     }
     target
+}
+
+#[test]
+fn test_xml_get_item() {
+
+    // <a>
+    //     <b/>
+    //     <c/>
+    //     <d/>
+    //     <e/>
+    // </a>
+    // <f>
+    //     <g>
+    //         <h/>
+    //     </g>
+    //     <i/>
+    // </f>
+    // <j/>
+
+    let mut tree = XmlNode::new("component")
+    .with_children(vec![
+        XmlNode::new("a")
+        .with_children(vec![
+            XmlNode::new("b"),
+            XmlNode::new("c"),
+            XmlNode::new("d"),
+            XmlNode::new("e"),
+        ]),
+        XmlNode::new("f")
+        .with_children(vec![
+            XmlNode::new("g")
+            .with_children(vec![XmlNode::new("h")]),
+            XmlNode::new("i"),
+        ]),
+        XmlNode::new("j"),
+    ]);
+
+    assert_eq!(&get_item(&[], &mut tree).unwrap().node_type, "component");
+    assert_eq!(&get_item(&[0], &mut tree).unwrap().node_type, "a");
+    assert_eq!(&get_item(&[0, 0], &mut tree).unwrap().node_type, "b");
+    assert_eq!(&get_item(&[0, 1], &mut tree).unwrap().node_type, "c");
+    assert_eq!(&get_item(&[0, 2], &mut tree).unwrap().node_type, "d");
+    assert_eq!(&get_item(&[0, 3], &mut tree).unwrap().node_type, "e");
+    assert_eq!(&get_item(&[1], &mut tree).unwrap().node_type, "f");
+    assert_eq!(&get_item(&[1, 0], &mut tree).unwrap().node_type, "g");
+    assert_eq!(&get_item(&[1, 0, 0], &mut tree).unwrap().node_type, "h");
+    assert_eq!(&get_item(&[1, 1], &mut tree).unwrap().node_type, "i");
+    assert_eq!(&get_item(&[2], &mut tree).unwrap().node_type, "j");
+
+    assert_eq!(get_item(&[123213], &mut tree), None);
+    assert_eq!(get_item(&[0, 1, 2], &mut tree), None);
 }
 
 #[test]
