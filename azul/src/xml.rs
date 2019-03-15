@@ -113,9 +113,9 @@ pub trait XmlComponent<T: Layout> {
     /// data format.
     fn get_available_arguments(&self) -> ComponentArguments;
     /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError>;
+    fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError>;
     /// Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(&self, components: &XmlComponentMap<T>, attributes: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
+    fn compile_to_rust_code(&self, components: &XmlComponentMap<T>, attributes: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
 }
 
 /// Component that was created from a XML node (instead of being registered from Rust code).
@@ -155,13 +155,13 @@ impl<T: Layout> XmlComponent<T> for DynamicXmlComponent {
     fn render_dom(
         &self,
         components: &XmlComponentMap<T>,
-        arguments: &ComponentArguments,
+        arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
     ) -> Result<Dom<T>, RenderDomError> {
         // TODO: Instantiate arguments!
         let mut dom = Dom::div();
         for child_node in &self.root.children {
-            dom.add_child(render_dom_from_app_node_inner(child_node, components)?);
+            dom.add_child(render_dom_from_app_node_inner(child_node, components, arguments)?);
         }
         Ok(dom)
     }
@@ -169,7 +169,7 @@ impl<T: Layout> XmlComponent<T> for DynamicXmlComponent {
     fn compile_to_rust_code(
         &self,
         components: &XmlComponentMap<T>,
-        attributes: &ComponentArguments,
+        attributes: &FilteredComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Err("unimplemented".into())
@@ -217,7 +217,8 @@ impl XmlNode {
 /// Holds all XML components - builtin components
 pub struct XmlComponentMap<T: Layout> {
     /// Stores all known components that can be used during DOM rendering
-    components: BTreeMap<String, Box<XmlComponent<T>>>,
+    /// + whether this component should inherit variables from the parent scope
+    components: BTreeMap<String, (Box<XmlComponent<T>>, bool)>,
     /// Stores "onclick='do_this'" mappings from the string `do_this` to the actual function pointer
     callbacks: BTreeMap<String, Callback<T>>,
 }
@@ -225,15 +226,15 @@ pub struct XmlComponentMap<T: Layout> {
 impl<T: Layout> Default for XmlComponentMap<T> {
     fn default() -> Self {
         let mut map = Self { components: BTreeMap::new(), callbacks: BTreeMap::new() };
-        map.register_component("div", Box::new(DivRenderer { }));
-        map.register_component("p", Box::new(TextRenderer { }));
+        map.register_component("div", Box::new(DivRenderer { }), true);
+        map.register_component("p", Box::new(TextRenderer { }), true);
         map
     }
 }
 
 impl<T: Layout> XmlComponentMap<T> {
-    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<XmlComponent<T>>) {
-        self.components.insert(normalize_casing(id.as_ref()), component);
+    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<XmlComponent<T>>, inherit_variables: bool) {
+        self.components.insert(normalize_casing(id.as_ref()), (component, inherit_variables));
     }
     pub fn register_callback<S: AsRef<str>>(&mut self, id: S, callback: Callback<T>) {
         self.callbacks.insert(normalize_casing(id.as_ref()), callback);
@@ -569,9 +570,10 @@ fn get_app_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
 
 /// Filter all `<component />` nodes and insert them into the `components` node
 fn get_xml_components<T: Layout>(root_nodes: &[XmlNode], components: &mut XmlComponentMap<T>) -> Result<(), ComponentParseError> {
+
     for node in root_nodes {
         match DynamicXmlComponent::new(node.clone()) {
-            Ok(node) => { components.register_component(node.name.clone(), Box::new(node)); },
+            Ok(node) => { components.register_component(node.name.clone(), Box::new(node), false); },
             Err(ComponentParseError::NotAComponent) => { }, // not a <component /> node, ignore
             Err(e) => return Err(e), // Error during parsing the XML component, bail
         }
@@ -606,7 +608,7 @@ fn render_dom_from_app_node<T: Layout>(
     // Don't actually render the <app></app> node itself
     let mut dom = Dom::div();
     for child_node in &app_node.children {
-        dom.add_child(render_dom_from_app_node_inner(child_node, component_map)?);
+        dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
     }
     Ok(dom)
 }
@@ -615,17 +617,29 @@ fn render_dom_from_app_node<T: Layout>(
 fn render_dom_from_app_node_inner<T: Layout>(
     xml_node: &XmlNode,
     component_map: &XmlComponentMap<T>,
+    parent_xml_attributes: &FilteredComponentArguments,
 ) -> Result<Dom<T>, RenderDomError> {
 
     use dom::{TabIndex, DomString};
 
     let component_name = normalize_casing(&xml_node.node_type);
 
-    let renderer = component_map.components.get(&component_name)
+    let (renderer, inherit_variables) = component_map.components.get(&component_name)
         .ok_or(RenderDomError::UnknownComponent(component_name.clone()))?;
 
     let available_function_args = renderer.get_available_arguments();
-    let filtered_xml_attributes = validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
+    // Arguments of the current node
+    let mut filtered_xml_attributes = validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
+    if *inherit_variables {
+        // Append all variables that are in scope for the parent node
+        filtered_xml_attributes.extend(parent_xml_attributes.clone().into_iter());
+    }
+
+    // Instantiate the parent arguments in the current child arguments
+    for v in filtered_xml_attributes.values_mut() {
+        *v = format_args_dynamic(v, &parent_xml_attributes);
+    }
+
     let text = xml_node.text.as_ref().map(|t| format_args_dynamic(t, &filtered_xml_attributes));
 
     let mut dom = renderer.render_dom(component_map, &filtered_xml_attributes, &text)?;
@@ -671,7 +685,8 @@ fn render_dom_from_app_node_inner<T: Layout>(
     }
 
     for child_node in &xml_node.children {
-        dom.add_child(render_dom_from_app_node_inner(child_node, component_map)?);
+        // dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &parent_xml_attributes)?);
+        dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &filtered_xml_attributes)?);
     }
 
     Ok(dom)
@@ -745,25 +760,6 @@ pub fn format_args_dynamic(input: &str, variables: &FilteredComponentArguments) 
     final_str
 }
 
-#[test]
-fn test_format_args_dynamic() {
-    let mut variables = FilteredComponentArguments::new();
-    variables.insert("a".to_string(), "value1".to_string());
-    variables.insert("b".to_string(), "value2".to_string());
-    assert_eq!(
-        format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
-        Ok(String::from("hello value1, value2{ {c} }")),
-    );
-    assert_eq!(
-        format_args_dynamic("hello {{a}, {b}{{ {c} }}", &variables),
-        Ok(String::from("hello {a}, value2{ {c} }")),
-    );
-    assert_eq!(
-        format_args_dynamic("hello {{{{{{{ a   }}, {b}{{ {c} }}", &variables),
-        Ok(String::from("hello {{{{{{ a   }, value2{ {c} }")),
-    );
-}
-
 /// Parses a string ("true" or "false")
 fn parse_bool(input: &str) -> Option<bool> {
     match input {
@@ -799,11 +795,11 @@ impl<T: Layout> XmlComponent<T> for DivRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
+    fn render_dom(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
         Ok(Dom::div())
     }
 
-    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::div()".into())
     }
 }
@@ -818,12 +814,12 @@ impl<T: Layout> XmlComponent<T> for TextRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
+    fn render_dom(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
         Ok(Dom::label(content))
     }
 
-    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
         Ok(match content {
             Some(s) => format!("Dom::label(\"{}\")", content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default()),
             None => format!("Dom::label(\"\")"),
@@ -872,6 +868,25 @@ fn prepare_string(input: &str) -> String {
         target.push_str(line);
     }
     target
+}
+
+#[test]
+fn test_format_args_dynamic() {
+    let mut variables = FilteredComponentArguments::new();
+    variables.insert("a".to_string(), "value1".to_string());
+    variables.insert("b".to_string(), "value2".to_string());
+    assert_eq!(
+        format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
+        Ok(String::from("hello value1, value2{ {c} }")),
+    );
+    assert_eq!(
+        format_args_dynamic("hello {{a}, {b}{{ {c} }}", &variables),
+        Ok(String::from("hello {a}, value2{ {c} }")),
+    );
+    assert_eq!(
+        format_args_dynamic("hello {{{{{{{ a   }}, {b}{{ {c} }}", &variables),
+        Ok(String::from("hello {{{{{{ a   }, value2{ {c} }")),
+    );
 }
 
 #[test]

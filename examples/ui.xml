@@ -14,17 +14,21 @@
         </div>
         <div id='map_preview_container'>
             <div id='map_preview' />
-            <Calendar selectedDate="abcdef" minimumDate="test2"/>
+            <Calendar selectedDate="01.01.2019" minimumDate="test2"/>
         </div>
     </div>
 </component>
 
-<component name='Calendar' args="selectedDate: String, minimumDate: String">
-    <p id="month_select">
-        {selectedDate}
+<component name="SubComponent" args="selectedDate: String">
+    <p>{selectedDate} Test</p>
+</component>
 
-        Test
-    </p>
+<component name='Calendar' args="selectedDate: String, minimumDate: String">
+    <div id="month_select">
+        <p>&lt;</p>
+        <p><SubComponent selectedDate="{selectedDate} + 5"/></p>
+        <p>&gt;</p>
+    </div>
 </component>
 
 <app>
