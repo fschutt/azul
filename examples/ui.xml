@@ -7,7 +7,6 @@
                 If you want to insert a return in this text, you'll have to use two line breaks,
                 a single linebreak is ignored (and rendered as a space instead).
              </p>
-             <Toolbar />
              <div id='project_btn_container'>
                 <p id='new_project_btn'>+</p>
                 <p id='open_project_btn'>Open project</p>
@@ -15,18 +14,18 @@
         </div>
         <div id='map_preview_container'>
             <div id='map_preview' />
-            <div id='map_details_view' />
+            <Calendar selectedDate="abcdef" minimumDate="test2"/>
         </div>
     </div>
 </component>
 
-<component name='Toolbar'>
-    <div class='hello'><p>selectedDate</p></div>
-</component>
-
 <component name='Calendar' args="selectedDate: String, minimumDate: String">
-</component>
+    <p id="month_select">
+        {selectedDate}
 
+        Test
+    </p>
+</component>
 
 <app>
     <div id='start_screen_wrapper'>
