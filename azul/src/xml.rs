@@ -484,38 +484,38 @@ fn parse_component_arguments(input: &str) -> Result<ComponentArguments, Componen
             return Err(WhiteSpaceInComponentType(arg_idx, arg_name.into(), arg_type.into()));
         }
 
-        args.insert(arg_name.to_string(), arg_type.to_string());
+        args.insert(normalize_casing(arg_name), arg_type.to_string());
     }
 
     Ok(args)
 }
 
-type FilteredComponentArguments = ComponentArguments;
+pub type FilteredComponentArguments = ComponentArguments;
 
 /// Filters the XML attributes of a component given
-fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &ComponentArguments)
+fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &FilteredComponentArguments)
 -> Result<FilteredComponentArguments, RenderDomError> {
 
     const DEFAULT_ARGS: [&'static str;5] = ["id", "class", "tabindex", "draggable", "focusable"];
 
     let mut map = FilteredComponentArguments::default();
 
-    for attribute_name in xml_attributes.keys() {
+    for (xml_attribute_name, xml_attribute_value) in xml_attributes.iter() {
 
-        let arg_value = match valid_args.get(attribute_name) {
+        let arg_value = match valid_args.get(xml_attribute_name) {
             Some(s) => Some(s),
             None => {
-                if DEFAULT_ARGS.contains(&attribute_name.as_str()) {
+                if DEFAULT_ARGS.contains(&xml_attribute_name.as_str()) {
                     None // no error, but don't insert the attribute name
                 } else {
                     let keys = valid_args.keys().cloned().collect();
-                    return Err(RenderDomError::UselessFunctionArgument(attribute_name.clone(), xml_attributes[attribute_name].clone(), keys));
+                    return Err(RenderDomError::UselessFunctionArgument(xml_attribute_name.clone(), xml_attribute_value.clone(), keys));
                 }
             }
         };
 
         if let Some(value) = arg_value {
-            map.insert(attribute_name.clone(), value.clone());
+            map.insert(xml_attribute_name.clone(), xml_attribute_value.clone());
         }
     }
 
@@ -614,7 +614,7 @@ fn render_dom_from_app_node<T: Layout>(
 /// Takes a single (expanded) app node and renders the DOM or returns an error
 fn render_dom_from_app_node_inner<T: Layout>(
     xml_node: &XmlNode,
-    component_map: &XmlComponentMap<T>
+    component_map: &XmlComponentMap<T>,
 ) -> Result<Dom<T>, RenderDomError> {
 
     use dom::{TabIndex, DomString};
@@ -626,33 +626,43 @@ fn render_dom_from_app_node_inner<T: Layout>(
 
     let available_function_args = renderer.get_available_arguments();
     let filtered_xml_attributes = validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
+    let text = xml_node.text.as_ref().map(|t| format_args_dynamic(t, &filtered_xml_attributes));
 
-    let mut dom = renderer.render_dom(component_map, &filtered_xml_attributes, &xml_node.text)?;
+    let mut dom = renderer.render_dom(component_map, &filtered_xml_attributes, &text)?;
 
     if let Some(ids) = xml_node.attributes.get("id") {
         for id in ids.split_whitespace() {
-            dom.add_id(DomString::Heap(id.to_string()));
+            dom.add_id(DomString::Heap(format_args_dynamic(id, &filtered_xml_attributes)));
         }
     }
 
     if let Some(classes) = xml_node.attributes.get("class") {
         for class in classes.split_whitespace() {
-            dom.add_class(DomString::Heap(class.to_string()));
+            dom.add_class(DomString::Heap(format_args_dynamic(class, &filtered_xml_attributes)));
         }
     }
 
-    if let Some(drag) = xml_node.attributes.get("draggable").and_then(|d| parse_bool(&d)) {
+    if let Some(drag) = xml_node.attributes.get("draggable")
+        .map(|d| format_args_dynamic(d, &filtered_xml_attributes))
+        .and_then(|d| parse_bool(&d))
+    {
         dom.set_draggable(drag);
     }
 
-    if let Some(focusable) = xml_node.attributes.get("focusable").and_then(|f| parse_bool(&f)) {
+    if let Some(focusable) = xml_node.attributes.get("focusable")
+        .map(|f| format_args_dynamic(f, &filtered_xml_attributes))
+        .and_then(|f| parse_bool(&f))
+    {
         match focusable {
             true => dom.set_tab_index(TabIndex::Auto),
             false => dom.set_tab_index(TabIndex::Auto), // TODO
         }
     }
 
-    if let Some(tab_index) = xml_node.attributes.get("tabindex").and_then(|val| val.parse::<isize>().ok()) {
+    if let Some(tab_index) = xml_node.attributes.get("tabindex")
+        .map(|val| format_args_dynamic(val, &filtered_xml_attributes))
+        .and_then(|val| val.parse::<isize>().ok())
+    {
         match tab_index {
             0 => dom.set_tab_index(TabIndex::Auto),
             i if i > 0 => dom.set_tab_index(TabIndex::OverrideInParent(i as usize)),
@@ -665,6 +675,93 @@ fn render_dom_from_app_node_inner<T: Layout>(
     }
 
     Ok(dom)
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum FormatStringParseError {
+    InvalidBrace,
+}
+
+/// Given a string and a key => value mapping, replaces parts of the string with the value, i.e.:
+///
+/// ```rust,no_run,ignore
+/// let variables = btreemap!{ "a" => "value1", "b" => "value2" };
+/// let initial = "hello {a}, {b}{{ {c} }}";
+/// let expected = "hello value1, value2{ {c} }";
+/// assert_eq!(format_args_dynamic(initial, &variables), expected.to_string());
+/// ```
+pub fn format_args_dynamic(input: &str, variables: &FilteredComponentArguments) -> String {
+
+    let mut opening_braces = Vec::new();
+    let mut final_str = String::new();
+    let mut input: Vec<char> = input.chars().collect();
+
+    for (ch_idx, ch) in input.iter().enumerate() {
+        match ch {
+            '{' => {
+                if input.get(ch_idx + 1) == Some(&'{') {
+                    final_str.push('{');
+                } else if ch_idx != 0 && input.get(ch_idx - 1) == Some(&'{') {
+                    // second "{", do nothing
+                } else {
+                    // idx + 1 is not a "{"
+                    opening_braces.push(ch_idx);
+                }
+            },
+            '}' => {
+                if input.get(ch_idx + 1) == Some(&'}') {
+                    final_str.push('}');
+                } else if ch_idx != 0 && input.get(ch_idx - 1) == Some(&'}') {
+                    // second "}", do nothing
+                } else {
+                    // idx + 1 is not a "}"
+                    match opening_braces.pop() {
+                        Some(last_open) => {
+                            let variable_name: String = input[(last_open + 1)..ch_idx].iter().collect();
+                            let variable_name = normalize_casing(variable_name.trim());
+                            match variables.get(&variable_name) {
+                                Some(s) => final_str.push_str(s),
+                                None => {
+                                    final_str.push('{');
+                                    final_str.push_str(&variable_name);
+                                    final_str.push('}');
+                                },
+                            }
+                        },
+                        None => {
+                            final_str.push('}');
+                        },
+                    }
+                }
+            },
+            _ => {
+                if opening_braces.last().is_none() {
+                    final_str.push(*ch);
+                }
+            },
+        }
+    }
+
+    final_str
+}
+
+#[test]
+fn test_format_args_dynamic() {
+    let mut variables = FilteredComponentArguments::new();
+    variables.insert("a".to_string(), "value1".to_string());
+    variables.insert("b".to_string(), "value2".to_string());
+    assert_eq!(
+        format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
+        Ok(String::from("hello value1, value2{ {c} }")),
+    );
+    assert_eq!(
+        format_args_dynamic("hello {{a}, {b}{{ {c} }}", &variables),
+        Ok(String::from("hello {a}, value2{ {c} }")),
+    );
+    assert_eq!(
+        format_args_dynamic("hello {{{{{{{ a   }}, {b}{{ {c} }}", &variables),
+        Ok(String::from("hello {{{{{{ a   }, value2{ {c} }")),
+    );
 }
 
 /// Parses a string ("true" or "false")
@@ -766,7 +863,7 @@ fn prepare_string(input: &str) -> String {
         last_line_was_empty = current_line_is_empty;
     }
 
-    let mut line_len = final_lines.len();
+    let line_len = final_lines.len();
     let mut target = String::with_capacity(input_len);
     for (line_idx, line) in final_lines.iter().enumerate() {
         if !(line.starts_with(RETURN) || line_idx == 0 || line_idx == line_len.saturating_sub(1)) {
@@ -884,7 +981,6 @@ fn test_xml_get_item() {
 fn test_prepare_string_1() {
     let input1 = r#"Test"#;
     let output = prepare_string(input1);
-    println!("{:?}", output);
     assert_eq!(output, String::from("Test"));
 }
 
@@ -906,6 +1002,5 @@ fn test_prepare_string_2() {
     "#;
 
     let output = prepare_string(input1);
-    println!("{:?}", output);
     assert_eq!(output, String::from("Hello, 123\nTest Test2\nTest3\nTest4"));
 }
