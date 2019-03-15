@@ -113,7 +113,7 @@ pub trait XmlComponent<T: Layout> {
     /// data format.
     fn get_available_arguments(&self) -> ComponentArguments;
     /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, XmlParseError>;
+    fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError>;
     /// Used to compile the XML component to Rust code - input
     fn compile_to_rust_code(&self, components: &XmlComponentMap<T>, attributes: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
 }
@@ -157,7 +157,7 @@ impl<T: Layout> XmlComponent<T> for DynamicXmlComponent {
         components: &XmlComponentMap<T>,
         arguments: &ComponentArguments,
         content: &XmlTextContent,
-    ) -> Result<Dom<T>, XmlParseError> {
+    ) -> Result<Dom<T>, RenderDomError> {
         // TODO: Instantiate arguments!
         let mut dom = Dom::div();
         for child_node in &self.root.children {
@@ -245,7 +245,6 @@ pub enum XmlParseError {
     NoRootComponent,
     /// The DOM can only have one root component, not multiple.
     MultipleRootComponents,
-    UnknownComponent(String),
     /// **Note**: Sadly, the error type can only be a string because xmlparser
     /// returns all errors as strings. There is an open PR to fix
     /// this deficiency, but since the XML parsing is only needed for
@@ -254,9 +253,17 @@ pub enum XmlParseError {
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
     MalformedHierarchy(String, String),
     /// A component raised an error while rendering the DOM - holds the component name + error string
-    RenderDomError(String, Box<XmlParseError>),
+    RenderDom(RenderDomError),
     /// Something went wrong while parsing an XML component
     Component(ComponentParseError),
+}
+
+#[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
+pub enum RenderDomError {
+    /// While instantiating a component, a function argument was encountered that the component won't use or react to.
+    UselessFunctionArgument(String, String, Vec<String>),
+    /// A certain node type can't be rendered, because the renderer isn't available
+    UnknownComponent(String),
 }
 
 #[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
@@ -276,6 +283,7 @@ pub enum ComponentParseError {
 }
 
 impl_from!{ ComponentParseError, XmlParseError::Component }
+impl_from!{ RenderDomError, XmlParseError::RenderDom }
 
 impl fmt::Debug for XmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -291,8 +299,7 @@ impl fmt::Display for XmlParseError {
             MultipleRootComponents => write!(f, "Multiple <app/> components present, only one root node is allowed"),
             ParseError(e) => write!(f, "XML parsing error: {}", e),
             MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got, expected),
-            UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name),
-            RenderDomError(name, e) => write!(f, "Component \"{}\" raised an error while rendering DOM: \"{}\"", name, e),
+            RenderDom(e) => write!(f, "Error while rendering DOM: \"{}\"", e),
             Component(c) => write!(f, "Error while parsing XML component: \"{}\"", c),
         }
     }
@@ -321,6 +328,24 @@ impl fmt::Display for ComponentParseError {
                        arg_name, arg_pos, arg_type_unparsed
                 )
             },
+        }
+    }
+}
+
+impl fmt::Debug for RenderDomError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl fmt::Display for RenderDomError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::RenderDomError::*;
+        match self {
+            UselessFunctionArgument(k, v, available_args) => {
+                write!(f, "Useless component argument \"{}\": \"{}\" - available args are: {:#?}", k, v, available_args)
+            },
+            UnknownComponent(name) => write!(f, "Unknown component: \"{}\"", name),
         }
     }
 }
@@ -465,6 +490,38 @@ fn parse_component_arguments(input: &str) -> Result<ComponentArguments, Componen
     Ok(args)
 }
 
+type FilteredComponentArguments = ComponentArguments;
+
+/// Filters the XML attributes of a component given
+fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &ComponentArguments)
+-> Result<FilteredComponentArguments, RenderDomError> {
+
+    const DEFAULT_ARGS: [&'static str;5] = ["id", "class", "tabindex", "draggable", "focusable"];
+
+    let mut map = FilteredComponentArguments::default();
+
+    for attribute_name in xml_attributes.keys() {
+
+        let arg_value = match valid_args.get(attribute_name) {
+            Some(s) => Some(s),
+            None => {
+                if DEFAULT_ARGS.contains(&attribute_name.as_str()) {
+                    None // no error, but don't insert the attribute name
+                } else {
+                    let keys = valid_args.keys().cloned().collect();
+                    return Err(RenderDomError::UselessFunctionArgument(attribute_name.clone(), xml_attributes[attribute_name].clone(), keys));
+                }
+            }
+        };
+
+        if let Some(value) = arg_value {
+            map.insert(attribute_name.clone(), value.clone());
+        }
+    }
+
+    Ok(map)
+}
+
 /// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of `abc_def`
 fn normalize_casing(input: &str) -> String {
 
@@ -528,7 +585,7 @@ pub fn str_to_dom<T: Layout>(xml: &str, component_map: &mut XmlComponentMap<T>) 
     let root_nodes = parse_xml_string(xml)?;
     get_xml_components(&root_nodes, component_map)?;
     let app_node = get_app_node(&root_nodes)?;
-    render_dom_from_app_node(&app_node, component_map)
+    render_dom_from_app_node(&app_node, component_map).map_err(|e| e.into())
 }
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code (i.e. it compiles the XML to valid Rust)
@@ -544,7 +601,7 @@ pub fn str_to_rust_code<T: Layout>(xml: &str, component_map: &mut XmlComponentMa
 fn render_dom_from_app_node<T: Layout>(
     app_node: &XmlNode,
     component_map: &XmlComponentMap<T>
-) -> Result<Dom<T>, XmlParseError> {
+) -> Result<Dom<T>, RenderDomError> {
 
     // Don't actually render the <app></app> node itself
     let mut dom = Dom::div();
@@ -558,17 +615,19 @@ fn render_dom_from_app_node<T: Layout>(
 fn render_dom_from_app_node_inner<T: Layout>(
     xml_node: &XmlNode,
     component_map: &XmlComponentMap<T>
-) -> Result<Dom<T>, XmlParseError> {
+) -> Result<Dom<T>, RenderDomError> {
 
     use dom::{TabIndex, DomString};
 
     let component_name = normalize_casing(&xml_node.node_type);
 
-    let self_node_renderer = component_map.components.get(&component_name)
-        .ok_or(XmlParseError::UnknownComponent(component_name.clone()))?;
+    let renderer = component_map.components.get(&component_name)
+        .ok_or(RenderDomError::UnknownComponent(component_name.clone()))?;
 
-    let mut dom = self_node_renderer.render_dom(component_map, &xml_node.attributes, &xml_node.text)
-        .map_err(|e| XmlParseError::RenderDomError(component_name, Box::new(e)))?;
+    let available_function_args = renderer.get_available_arguments();
+    let filtered_xml_attributes = validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
+
+    let mut dom = renderer.render_dom(component_map, &filtered_xml_attributes, &xml_node.text)?;
 
     if let Some(ids) = xml_node.attributes.get("id") {
         for id in ids.split_whitespace() {
@@ -643,7 +702,7 @@ impl<T: Layout> XmlComponent<T> for DivRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, XmlParseError> {
+    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
         Ok(Dom::div())
     }
 
@@ -662,7 +721,7 @@ impl<T: Layout> XmlComponent<T> for TextRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, XmlParseError> {
+    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
         Ok(Dom::label(content))
     }

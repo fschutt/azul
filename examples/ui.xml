@@ -9,8 +9,8 @@
              </p>
              <Toolbar />
              <div id='project_btn_container'>
-                <p id='new_project_btn' onleftmouseup='menu_new_project'>+</p>
-                <p id='open_project_btn' onleftmouseup='menu_open_project'>Open project</p>
+                <p id='new_project_btn'>+</p>
+                <p id='open_project_btn'>Open project</p>
              </div>
         </div>
         <div id='map_preview_container'>
