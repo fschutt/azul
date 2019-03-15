@@ -113,9 +113,67 @@ pub trait XmlComponent<T: Layout> {
     /// data format.
     fn get_available_arguments(&self) -> ComponentArguments;
     /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(&self, arguments: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError>;
+    fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, XmlParseError>;
     /// Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(&self, attributes: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
+    fn compile_to_rust_code(&self, components: &XmlComponentMap<T>, attributes: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
+}
+
+/// Component that was created from a XML node (instead of being registered from Rust code).
+/// Necessary to
+struct DynamicXmlComponent {
+    /// What the name of this component is, i.e. "test" for `<component name="test" />`
+    name: String,
+    /// Whether this component has any `args="a: String"` arguments
+    arguments: Option<ComponentArguments>,
+    /// Root XML node of this component (the `<component />` Node)
+    root: XmlNode,
+}
+
+impl DynamicXmlComponent {
+    /// Parses a `component` from
+    pub fn new(root: XmlNode) -> Result<Self, ComponentParseError> {
+        let name = root.attributes.get("name").cloned().ok_or(ComponentParseError::NotAComponent)?;
+        let arguments = match root.attributes.get("args") {
+            Some(s) => Some(parse_component_arguments(s)?),
+            None => None,
+        };
+
+        Ok(Self {
+            name: normalize_casing(&name),
+            arguments,
+            root,
+        })
+    }
+}
+
+impl<T: Layout> XmlComponent<T> for DynamicXmlComponent {
+
+    fn get_available_arguments(&self) -> ComponentArguments {
+        self.arguments.clone().unwrap_or_default()
+    }
+
+    fn render_dom(
+        &self,
+        components: &XmlComponentMap<T>,
+        arguments: &ComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<Dom<T>, XmlParseError> {
+        // TODO: Instantiate arguments!
+        let mut dom = Dom::div();
+        for child_node in &self.root.children {
+            dom.add_child(render_dom_from_app_node_inner(child_node, components)?);
+        }
+        Ok(dom)
+    }
+
+    fn compile_to_rust_code(
+        &self,
+        components: &XmlComponentMap<T>,
+        attributes: &ComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<String, CompileError> {
+        Err("unimplemented".into())
+    }
 }
 
 /// Represents one XML node tag
@@ -158,6 +216,7 @@ impl XmlNode {
 
 /// Holds all XML components - builtin components
 pub struct XmlComponentMap<T: Layout> {
+    /// Stores all known components that can be used during DOM rendering
     components: BTreeMap<String, Box<XmlComponent<T>>>,
     /// Stores "onclick='do_this'" mappings from the string `do_this` to the actual function pointer
     callbacks: BTreeMap<String, Callback<T>>,
@@ -173,11 +232,11 @@ impl<T: Layout> Default for XmlComponentMap<T> {
 }
 
 impl<T: Layout> XmlComponentMap<T> {
-    pub fn register_component<S: Into<String>>(&mut self, id: S, component: Box<XmlComponent<T>>) {
-        self.components.insert(id.into(), component);
+    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<XmlComponent<T>>) {
+        self.components.insert(normalize_casing(id.as_ref()), component);
     }
-    pub fn register_callback<S: Into<String>>(&mut self, id: S, callback: Callback<T>) {
-        self.callbacks.insert(id.into(), callback);
+    pub fn register_callback<S: AsRef<str>>(&mut self, id: S, callback: Callback<T>) {
+        self.callbacks.insert(normalize_casing(id.as_ref()), callback);
     }
 }
 
@@ -195,13 +254,15 @@ pub enum XmlParseError {
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
     MalformedHierarchy(String, String),
     /// A component raised an error while rendering the DOM - holds the component name + error string
-    RenderDomError(String, String),
+    RenderDomError(String, Box<XmlParseError>),
     /// Something went wrong while parsing an XML component
     Component(ComponentParseError),
 }
 
 #[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
 pub enum ComponentParseError {
+    /// Given XmlNode is not a `<component />` node.
+    NotAComponent,
     /// A `<component>` node does not have a `name` attribute.
     UnnamedComponent,
     /// Argument at position `usize` is either empty or has no name
@@ -213,6 +274,8 @@ pub enum ComponentParseError {
     /// Component type may not contain a whitespace (probably missing a `,` between the type and the next name)
     WhiteSpaceInComponentType(usize, String, String),
 }
+
+impl_from!{ ComponentParseError, XmlParseError::Component }
 
 impl fmt::Debug for XmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -245,6 +308,7 @@ impl fmt::Display for ComponentParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::ComponentParseError::*;
         match self {
+            NotAComponent => write!(f, "Expected <component/> node, found no such node"),
             UnnamedComponent => write!(f, "Found <component/> tag with out a \"name\" attribute, component must have a name"),
             MissingName(arg_pos) => write!(f, "Argument at position {} is either empty or has no name", arg_pos),
             MissingType(arg_pos, arg_name) => write!(f, "Argument \"{}\" at position {} doesn't have a `: type`", arg_pos, arg_name),
@@ -328,9 +392,8 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
             },
             Attribute((_, key), value) => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    let lowercase_key = normalize_casing(key.to_str());
-                    let lowercase_value = value.to_str().to_string().to_lowercase();
-                    last.attributes.insert(lowercase_key, lowercase_value);
+                    // NOTE: Only lowercase the key, not the value!
+                    last.attributes.insert(normalize_casing(key.to_str()), value.to_str().to_string());
                 }
             },
             Text(t) => {
@@ -402,25 +465,6 @@ fn parse_component_arguments(input: &str) -> Result<ComponentArguments, Componen
     Ok(args)
 }
 
-/// Expands / instantiates all XML `<component />`s in the `<app />`
-fn expand_xml_components(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
-
-    // Find the root <app /> node
-    let mut root_node: XmlNode = get_app_node(root_nodes)?;
-    let component_map = get_xml_components(root_nodes)?;
-
-    if component_map.is_empty() {
-        return Ok(root_node);
-    }
-
-    // Search all nodes of the app, expand them to the proper component
-    for child in &mut root_node.children {
-        *child = expand_component(child.clone(), &component_map);
-    }
-
-    Ok(root_node)
-}
-
 /// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of `abc_def`
 fn normalize_casing(input: &str) -> String {
 
@@ -452,61 +496,49 @@ fn normalize_casing(input: &str) -> String {
 /// Find the one and only <app /> node, return error if
 /// there is no app node or there are multiple app nodes
 fn get_app_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
-    let app_node: Vec<&XmlNode> = root_nodes.iter().filter(|node| &node.node_type == "app").collect();
-    match app_node.len() {
-        0 => return Err(XmlParseError::NoRootComponent),
-        1 => Ok(app_node[0].clone()),
-        _ => return Err(XmlParseError::MultipleRootComponents),
+
+    let mut app_node_iterator = root_nodes.iter().filter(|node| {
+        let node_type_normalized = normalize_casing(&node.node_type);
+        &node_type_normalized == "app"
+    }).cloned();
+
+    let app_node = app_node_iterator.next().ok_or(XmlParseError::NoRootComponent)?;
+    if app_node_iterator.next().is_some() {
+        Err(XmlParseError::MultipleRootComponents)
+    } else {
+        Ok(app_node)
     }
 }
 
-/// Filter all <component /> nodes, error when a component doesn't have a name attribute
-fn get_xml_components(root_nodes: &[XmlNode]) -> Result<BTreeMap<&String, &Vec<XmlNode>>, XmlParseError> {
-    root_nodes
-    .iter()
-    .filter(|node| &node.node_type == "component")
-    .map(|component| {
-        match component.attributes.get("name") {
-            None => Err(XmlParseError::Component(ComponentParseError::UnnamedComponent)),
-            Some(s) => Ok((s, &component.children)),
+/// Filter all `<component />` nodes and insert them into the `components` node
+fn get_xml_components<T: Layout>(root_nodes: &[XmlNode], components: &mut XmlComponentMap<T>) -> Result<(), ComponentParseError> {
+    for node in root_nodes {
+        match DynamicXmlComponent::new(node.clone()) {
+            Ok(node) => { components.register_component(node.name.clone(), Box::new(node)); },
+            Err(ComponentParseError::NotAComponent) => { }, // not a <component /> node, ignore
+            Err(e) => return Err(e), // Error during parsing the XML component, bail
         }
-    })
-    .collect()
-}
-
-/// Expands a single node during hot-reload to a DOM tree (warning: recursive!)
-fn expand_component(node: XmlNode, component_map: &BTreeMap<&String, &Vec<XmlNode>>) -> XmlNode {
-    match component_map.get(&node.node_type) {
-        Some(s) => {
-            // Turn the node to a div node with the original nodes attributes,
-            // replace the children by the components children
-            XmlNode {
-                node_type: "div".into(),
-                attributes: node.attributes.clone(),
-                children: s.iter().map(|node| expand_component(node.clone(), component_map)).collect(),
-                text: node.text,
-            }
-        },
-        None => {
-            XmlNode {
-                children: node.children.iter().map(|n| expand_component(n.clone(), component_map)).collect(),
-                .. node
-            }
-        },
     }
+
+    Ok(())
 }
 
 /// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
-pub fn str_to_dom<T: Layout>(xml: &str, component_map: &XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
-    let parsed_xml = parse_xml_string(xml)?;
-    let expanded_xml = expand_xml_components(&parsed_xml)?;
-    render_dom_from_app_node(&expanded_xml, component_map)
+pub fn str_to_dom<T: Layout>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+    let root_nodes = parse_xml_string(xml)?;
+    get_xml_components(&root_nodes, component_map)?;
+    let app_node = get_app_node(&root_nodes)?;
+    render_dom_from_app_node(&app_node, component_map)
 }
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code (i.e. it compiles the XML to valid Rust)
-pub fn str_to_rust_code<T: Layout>(xml: &str, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
-    let parsed_xml = parse_xml_string(xml).map_err(|e| format!("XML parse error: {}", e))?;
-    compile_app_node_to_rust_code(&parsed_xml, component_map)
+pub fn str_to_rust_code<T: Layout>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<String, CompileError> {
+    let root_nodes = parse_xml_string(xml).map_err(|e| format!("XML parse error: {}", e))?;
+    get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
+    let app_node = get_app_node(&root_nodes).map_err(|e| format!("Could not find <app /> node: {}", e))?;
+    let component_functions_source = compile_components_to_rust_code(&component_map)?;
+    let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
+    Ok(format!("{}\r\n{}", component_functions_source, app_source))
 }
 
 fn render_dom_from_app_node<T: Layout>(
@@ -530,11 +562,13 @@ fn render_dom_from_app_node_inner<T: Layout>(
 
     use dom::{TabIndex, DomString};
 
-    let self_node_renderer = component_map.components.get(&xml_node.node_type)
-        .ok_or(XmlParseError::UnknownComponent(xml_node.node_type.clone()))?;
+    let component_name = normalize_casing(&xml_node.node_type);
 
-    let mut dom = self_node_renderer.render_dom(&xml_node.attributes, &xml_node.text)
-        .map_err(|e| XmlParseError::RenderDomError(xml_node.node_type.clone(), e))?;
+    let self_node_renderer = component_map.components.get(&component_name)
+        .ok_or(XmlParseError::UnknownComponent(component_name.clone()))?;
+
+    let mut dom = self_node_renderer.render_dom(component_map, &xml_node.attributes, &xml_node.text)
+        .map_err(|e| XmlParseError::RenderDomError(component_name, Box::new(e)))?;
 
     if let Some(ids) = xml_node.attributes.get("id") {
         for id in ids.split_whitespace() {
@@ -548,19 +582,14 @@ fn render_dom_from_app_node_inner<T: Layout>(
         }
     }
 
-    if let Some(drag) = xml_node.attributes.get("draggable") {
-        match drag.as_ref() {
-            "true" => dom.set_draggable(true),
-            "false" => dom.set_draggable(false),
-            _ => { },
-        }
+    if let Some(drag) = xml_node.attributes.get("draggable").and_then(|d| parse_bool(&d)) {
+        dom.set_draggable(drag);
     }
 
-    if let Some(focusable) = xml_node.attributes.get("focusable") {
-        match focusable.as_ref() {
-            "true" => dom.set_tab_index(TabIndex::Auto),
-            "false" => dom.set_tab_index(TabIndex::Auto),
-            _ => { },
+    if let Some(focusable) = xml_node.attributes.get("focusable").and_then(|f| parse_bool(&f)) {
+        match focusable {
+            true => dom.set_tab_index(TabIndex::Auto),
+            false => dom.set_tab_index(TabIndex::Auto), // TODO
         }
     }
 
@@ -579,61 +608,25 @@ fn render_dom_from_app_node_inner<T: Layout>(
     Ok(dom)
 }
 
-fn compile_app_node_to_rust_code<T: Layout>(
-    root_nodes: &[XmlNode],
-    component_map: &XmlComponentMap<T>
-) -> Result<String, CompileError> {
-
-    Err("unimplemented".into())
-
-    /*
-    // Find the root <app /> node
-    let mut app_node: XmlNode = get_app_node(root_nodes)?;
-    let component_nodes = get_xml_components(root_nodes)?;
-
-    let mut root_string = String::new();
-
-    // Render all built-in component nodes
-    for (component_node_key, component_nodes) in component_map {
-        match component_map.get(&node.node_type) {
-            Some(s) => {
-                // Turn the node to a div node with the original nodes attributes,
-                // replace the children by the components children
-                XmlNode {
-                    node_type: "div".into(),
-                    attributes: node.attributes.clone(),
-                    children: s.iter().map(|node| expand_component(node.clone(), component_map)).collect(),
-                    text: node.text,
-                }
-            },
-            None => {
-                XmlNode {
-                    children: node.children.iter().map(|n| expand_component(n.clone(), component_map)).collect(),
-                    .. node
-                }
-            },
-        }
+/// Parses a string ("true" or "false")
+fn parse_bool(input: &str) -> Option<bool> {
+    match input {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
     }
-
-    // Search all nodes of the app, expand them to the proper component
-    for child in &mut root_node.children {
-        *child = expand_component(child.clone(), &component_map);
-    }
-
-    // Don't actually render the <app></app> node itself
-    let mut dom = "Dom::div()";
-    for child_node in &app_node.children {
-        dom.append(compile_app_node_to_rust_code_inner(child_node, component_map)?);
-    }
-
-    Ok(dom)
-    */
 }
 
-fn compile_app_node_to_rust_code_inner<T: Layout>(
-    app_node: &XmlNode,
-    component_map: &XmlComponentMap<T>
-) -> Result<String, CompileError> {
+/// Takes all components and generates the source code function from them
+fn compile_components_to_rust_code<T: Layout>(components: &XmlComponentMap<T>) -> Result<String, CompileError> {
+    Err("unimplemented".into())
+}
+
+fn compile_app_node_to_rust_code<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+    Err("unimplemented".into())
+}
+
+fn compile_app_node_to_rust_code_inner<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
     // TODO!
     Err("unimplemented".into())
 }
@@ -650,11 +643,11 @@ impl<T: Layout> XmlComponent<T> for DivRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &ComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
+    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, XmlParseError> {
         Ok(Dom::div())
     }
 
-    fn compile_to_rust_code(&self, _: &ComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::div()".into())
     }
 }
@@ -669,12 +662,12 @@ impl<T: Layout> XmlComponent<T> for TextRenderer {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, SyntaxError> {
+    fn render_dom(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, XmlParseError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
         Ok(Dom::label(content))
     }
 
-    fn compile_to_rust_code(&self, _: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &ComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
         Ok(match content {
             Some(s) => format!("Dom::label(\"{}\")", content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default()),
             None => format!("Dom::label(\"\")"),
@@ -735,6 +728,7 @@ fn test_normalize_casing() {
     assert_eq!(normalize_casing("Abc-Def"), String::from("abc_def"));
     assert_eq!(normalize_casing("Abc_Def"), String::from("abc_def"));
     assert_eq!(normalize_casing("aBc_Def"), String::from("a_bc_def")); // wrong, but whatever
+    assert_eq!(normalize_casing("StartScreen"), String::from("start_screen"));
 }
 
 #[test]

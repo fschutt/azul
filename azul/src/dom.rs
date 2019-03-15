@@ -932,14 +932,14 @@ impl<T: Layout> Dom<T> {
     }
 
     /// Parses and loads a DOM from an XML string
-    pub fn from_xml(xml: &str, component_map: &XmlComponentMap<T>) -> Result<Self, XmlParseError> {
+    pub fn from_xml(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Self, XmlParseError> {
         xml::str_to_dom(xml, component_map)
     }
 
     /// Loads, parses and builds a DOM from an XML file - warning: Disk I/O on every
     /// function call - do not use this in release builds! This function deliberately
     /// never fails: In an error case, the error gets rendered as a `NodeType::Label`.
-    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &XmlComponentMap<T>) -> Self {
+    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap<T>) -> Self {
         use std::fs;
 
         let xml = match fs::read_to_string(file_path) {
