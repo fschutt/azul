@@ -611,10 +611,6 @@ pub fn position_words(
         line_breaks.push((current_word_idx, line_caret_x));
     }
 
-    if !words.items.is_empty() {
-        debug_assert!(line_breaks.len() >= 1);
-    }
-
     let trailing = line_caret_x;
     let number_of_lines = line_number + 1;
     let number_of_words = current_word_idx + 1;
