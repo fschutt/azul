@@ -1,14 +1,13 @@
-<component name='start-screen'>
+<component name='StartScreen'>
     <div id='start_screen'>
         <div id='last_projects_column'>
              <p id='last_projects_header'>
-                You can hot-reload this UI,
-                see /examples/ui.xml
+                You can hot-reload this UI, see /examples/ui.xml.
 
-
-                Test Test2
-                Test3
+                If you want to insert a return in this text, you'll have to use two line breaks,
+                a single linebreak is ignored (and rendered as a space instead).
              </p>
+             <Toolbar />
              <div id='project_btn_container'>
                 <p id='new_project_btn' onleftmouseup='menu_new_project'>+</p>
                 <p id='open_project_btn' onleftmouseup='menu_open_project'>Open project</p>
@@ -21,13 +20,17 @@
     </div>
 </component>
 
-<component name='toolbar' fn='render_calendar'>
+<component name='Toolbar'>
     <div class='hello'><p>selectedDate</p></div>
 </component>
 
+<component name='Calendar' args="selectedDate: String, minimumDate: String">
+</component>
+
+
 <app>
     <div id='start_screen_wrapper'>
-        <start-screen />
+        <StartScreen />
     </div>
 <!--
     <calendar
