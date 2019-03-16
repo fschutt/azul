@@ -547,7 +547,7 @@ pub struct NodeData<T: Layout> {
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
     ///
     /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
-    pub draggable: bool,
+    pub is_draggable: bool,
     /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
     /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
     /// `On::FocusLost` (equivalent to onblur), etc. events.
@@ -600,7 +600,7 @@ impl<T: Layout> PartialEq for NodeData<T> {
         self.callbacks == other.callbacks &&
         self.default_callback_ids == other.default_callback_ids &&
         self.dynamic_css_overrides == other.dynamic_css_overrides &&
-        self.draggable == other.draggable &&
+        self.is_draggable == other.is_draggable &&
         self.tab_index == other.tab_index
     }
 }
@@ -616,7 +616,7 @@ impl<T: Layout> Default for NodeData<T> {
             callbacks: Vec::new(),
             default_callback_ids: Vec::new(),
             dynamic_css_overrides: Vec::new(),
-            draggable: false,
+            is_draggable: false,
             tab_index: None,
         }
     }
@@ -640,7 +640,7 @@ impl<T: Layout> Hash for NodeData<T> {
         for dynamic_css_override in &self.dynamic_css_overrides {
             dynamic_css_override.hash(state);
         }
-        self.draggable.hash(state);
+        self.is_draggable.hash(state);
         self.tab_index.hash(state);
     }
 }
@@ -654,7 +654,7 @@ impl<T: Layout> Clone for NodeData<T> {
             callbacks: self.callbacks.clone(),
             default_callback_ids: self.default_callback_ids.clone(),
             dynamic_css_overrides: self.dynamic_css_overrides.clone(),
-            draggable: self.draggable.clone(),
+            is_draggable: self.is_draggable.clone(),
             tab_index: self.tab_index.clone(),
         }
     }
@@ -691,7 +691,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
                 \tcallbacks: {:?}, \
                 \tdefault_callback_ids: {:?}, \
                 \tdynamic_css_overrides: {:?}, \
-                \tdraggable: {:?}, \
+                \tis_draggable: {:?}, \
                 \ttab_index: {:?}, \
             }}",
             self.node_type,
@@ -700,7 +700,7 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
             self.callbacks,
             self.default_callback_ids,
             self.dynamic_css_overrides,
-            self.draggable,
+            self.is_draggable,
             self.tab_index,
         )
     }
@@ -932,6 +932,7 @@ impl<T: Layout> Dom<T> {
     }
 
     /// Parses and loads a DOM from an XML string
+    #[inline]
     pub fn from_xml(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Self, XmlParseError> {
         xml::str_to_dom(xml, component_map)
     }
@@ -957,6 +958,18 @@ impl<T: Layout> Dom<T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.arena.len()
+    }
+
+    /// Returns an immutable reference to the current HEAD of the DOM structure (the last inserted element)
+    #[inline]
+    pub fn get_head_node(&self) -> &NodeData<T> {
+        &self.arena.node_data[self.head]
+    }
+
+    /// Returns a mutable reference to the current HEAD of the DOM structure (the last inserted element)
+    #[inline]
+    pub fn get_head_node_mut(&self) -> &mut NodeData<T> {
+        &mut self.arena.node_data[self.head]
     }
 
     /// Adds a child DOM to the current DOM
@@ -1111,7 +1124,7 @@ impl<T: Layout> Dom<T> {
 
     #[inline]
     pub fn set_draggable(&mut self, draggable: bool) {
-        self.arena.node_data[self.head].draggable = draggable;
+        self.arena.node_data[self.head].is_draggable = draggable;
     }
 
     /// Prints a debug formatted version of the DOM for easier debugging
@@ -1207,17 +1220,17 @@ impl<T: Layout> Dom<T> {
 
             for node_id in arena.linear_iter() {
 
-                let data = &arena.node_data[node_id];
+                let node = &arena.node_data[node_id];
 
                 let mut node_tag_id = None;
 
                 // Optimization since on most nodes, the callbacks will be empty
-                if !data.callbacks.is_empty() {
+                if !node.callbacks.is_empty() {
 
                     // Filter and insert HoverEventFilter callbacks
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.callbacks,
+                        node.callbacks,
                         HoverEventFilter,
                         Callback<T>,
                         as_hover_event_filter,
@@ -1228,7 +1241,7 @@ impl<T: Layout> Dom<T> {
                     // Filter and insert FocusEventFilter callbacks
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.callbacks,
+                        node.callbacks,
                         FocusEventFilter,
                         Callback<T>,
                         as_focus_event_filter,
@@ -1238,7 +1251,7 @@ impl<T: Layout> Dom<T> {
 
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.callbacks,
+                        node.callbacks,
                         NotEventFilter,
                         Callback<T>,
                         as_not_event_filter,
@@ -1248,7 +1261,7 @@ impl<T: Layout> Dom<T> {
 
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.callbacks,
+                        node.callbacks,
                         WindowEventFilter,
                         Callback<T>,
                         as_window_event_filter,
@@ -1256,12 +1269,12 @@ impl<T: Layout> Dom<T> {
                     );
                 }
 
-                if !data.default_callback_ids.is_empty() {
+                if !node.default_callback_ids.is_empty() {
 
                     // Filter and insert HoverEventFilter callbacks
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.default_callback_ids,
+                        node.default_callback_ids,
                         HoverEventFilter,
                         DefaultCallbackId,
                         as_hover_event_filter,
@@ -1272,7 +1285,7 @@ impl<T: Layout> Dom<T> {
                     // Filter and insert FocusEventFilter callbacks
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.default_callback_ids,
+                        node.default_callback_ids,
                         FocusEventFilter,
                         DefaultCallbackId,
                         as_focus_event_filter,
@@ -1282,7 +1295,7 @@ impl<T: Layout> Dom<T> {
 
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.default_callback_ids,
+                        node.default_callback_ids,
                         NotEventFilter,
                         DefaultCallbackId,
                         as_not_event_filter,
@@ -1292,7 +1305,7 @@ impl<T: Layout> Dom<T> {
 
                     filter_and_insert_callbacks!(
                         node_id,
-                        data.default_callback_ids,
+                        node.default_callback_ids,
                         WindowEventFilter,
                         DefaultCallbackId,
                         as_window_event_filter,
@@ -1300,13 +1313,13 @@ impl<T: Layout> Dom<T> {
                     );
                 }
 
-                if data.draggable {
+                if node.is_draggable {
                     let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
                     draggable_tags.insert(tag_id, node_id);
                     node_tag_id = Some(tag_id);
                 }
 
-                if let Some(tab_index) = data.tab_index {
+                if let Some(tab_index) = node.tab_index {
                     let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
                     tab_index_tags.insert(tag_id, (node_id, tab_index));
                     node_tag_id = Some(tag_id);
@@ -1318,8 +1331,8 @@ impl<T: Layout> Dom<T> {
                 }
 
                 // Collect all the styling overrides into one hash map
-                if !data.dynamic_css_overrides.is_empty() {
-                    dynamic_css_overrides.insert(node_id, data.dynamic_css_overrides.iter().cloned().collect());
+                if !node.dynamic_css_overrides.is_empty() {
+                    dynamic_css_overrides.insert(node_id, node.dynamic_css_overrides.iter().cloned().collect());
                 }
             }
         }
