@@ -57,6 +57,9 @@ pub type ComponentArgumentType = String;
 /// in the generated source code, otherwise the compiler will use the `{}` formatter.
 pub type ComponentArguments = BTreeMap<ComponentArgumentName, ComponentArgumentType>;
 
+type ComponentName = String;
+type CompiledComponent = String;
+
 /// Specifies a component that reacts to a parsed XML node
 pub trait XmlComponent<T: Layout> {
 
@@ -130,7 +133,7 @@ struct DynamicXmlComponent {
 }
 
 impl DynamicXmlComponent {
-    /// Parses a `component` from
+    /// Parses a `component` from an XML node
     pub fn new(root: XmlNode) -> Result<Self, ComponentParseError> {
         let name = root.attributes.get("name").cloned().ok_or(ComponentParseError::NotAComponent)?;
         let arguments = match root.attributes.get("args") {
@@ -158,11 +161,12 @@ impl<T: Layout> XmlComponent<T> for DynamicXmlComponent {
         arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
     ) -> Result<Dom<T>, RenderDomError> {
-        // TODO: Instantiate arguments!
+
         let mut dom = Dom::div();
         for child_node in &self.root.children {
             dom.add_child(render_dom_from_app_node_inner(child_node, components, arguments)?);
         }
+
         Ok(dom)
     }
 
@@ -218,7 +222,7 @@ impl XmlNode {
 pub struct XmlComponentMap<T: Layout> {
     /// Stores all known components that can be used during DOM rendering
     /// + whether this component should inherit variables from the parent scope
-    components: BTreeMap<String, (Box<XmlComponent<T>>, bool)>,
+    components: BTreeMap<String, (Box<dyn XmlComponent<T>>, bool)>,
     /// Stores "onclick='do_this'" mappings from the string `do_this` to the actual function pointer
     callbacks: BTreeMap<String, Callback<T>>,
 }
@@ -233,7 +237,7 @@ impl<T: Layout> Default for XmlComponentMap<T> {
 }
 
 impl<T: Layout> XmlComponentMap<T> {
-    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<XmlComponent<T>>, inherit_variables: bool) {
+    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<dyn XmlComponent<T>>, inherit_variables: bool) {
         self.components.insert(normalize_casing(id.as_ref()), (component, inherit_variables));
     }
     pub fn register_callback<S: AsRef<str>>(&mut self, id: S, callback: Callback<T>) {
@@ -590,14 +594,53 @@ pub fn str_to_dom<T: Layout>(xml: &str, component_map: &mut XmlComponentMap<T>) 
     render_dom_from_app_node(&app_node, component_map).map_err(|e| e.into())
 }
 
-/// Parses an XML string and returns a `String`, which contains the Rust source code (i.e. it compiles the XML to valid Rust)
-pub fn str_to_rust_code<T: Layout>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<String, CompileError> {
+/// Parses an XML string and returns a `String`, which contains the Rust source code
+/// (i.e. it compiles the XML to valid Rust)
+pub fn str_to_rust_code<T: Layout>(
+    xml: &str,
+    imports: &str,
+    component_map: &mut XmlComponentMap<T>,
+) -> Result<String, CompileError> {
+
+    const HEADER_WARNING: &str = "/// Auto-generated UI source code";
+
     let root_nodes = parse_xml_string(xml).map_err(|e| format!("XML parse error: {}", e))?;
     get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
     let app_node = get_app_node(&root_nodes).map_err(|e| format!("Could not find <app /> node: {}", e))?;
-    let component_functions_source = compile_components_to_rust_code(&component_map)?;
+    let components_source = compile_components_to_rust_code(&component_map)?;
     let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
-    Ok(format!("{}\r\n{}", component_functions_source, app_source))
+
+    Ok(
+        format!("{}\r\n{}\r\n{}\r\n{}",
+            HEADER_WARNING,
+            imports,
+            compile_components(components_source),
+            app_source,
+        )
+    )
+}
+
+fn format_component_args(component_args: &FilteredComponentArguments) -> String {
+    let mut args = Vec::new();
+    for (arg_name, arg_type) in component_args {
+        args.push(format!("{}: {}", arg_name, arg_type));
+    }
+    args.join(" ")
+}
+
+fn compile_components(components: BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>) -> String {
+    components.iter().map(|(name, (function_body, function_args))| {
+        compile_component(name, function_args, function_body)
+    }).collect::<Vec<String>>().join("\r\n")
+}
+
+fn compile_component(component_name: &str, component_args: &FilteredComponentArguments, component_function_body: &str) -> String {
+    format!(
+        "fn render_component_{}({}) {{\r\n{}\r\n}}",
+        normalize_casing(component_name),
+        format_component_args(component_args),
+        component_function_body,
+    )
 }
 
 fn render_dom_from_app_node<T: Layout>(
@@ -620,16 +663,15 @@ fn render_dom_from_app_node_inner<T: Layout>(
     parent_xml_attributes: &FilteredComponentArguments,
 ) -> Result<Dom<T>, RenderDomError> {
 
-    use dom::{TabIndex, DomString};
-
     let component_name = normalize_casing(&xml_node.node_type);
 
     let (renderer, inherit_variables) = component_map.components.get(&component_name)
         .ok_or(RenderDomError::UnknownComponent(component_name.clone()))?;
 
-    let available_function_args = renderer.get_available_arguments();
     // Arguments of the current node
+    let available_function_args = renderer.get_available_arguments();
     let mut filtered_xml_attributes = validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
+
     if *inherit_variables {
         // Append all variables that are in scope for the parent node
         filtered_xml_attributes.extend(parent_xml_attributes.clone().into_iter());
@@ -643,27 +685,39 @@ fn render_dom_from_app_node_inner<T: Layout>(
     let text = xml_node.text.as_ref().map(|t| format_args_dynamic(t, &filtered_xml_attributes));
 
     let mut dom = renderer.render_dom(component_map, &filtered_xml_attributes, &text)?;
+    set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
-    if let Some(ids) = xml_node.attributes.get("id") {
+    for child_node in &xml_node.children {
+        dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &filtered_xml_attributes)?);
+    }
+
+    Ok(dom)
+}
+
+fn set_attributes<T: Layout>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
+
+    use dom::{TabIndex, DomString};
+
+    if let Some(ids) = xml_attributes.get("id") {
         for id in ids.split_whitespace() {
             dom.add_id(DomString::Heap(format_args_dynamic(id, &filtered_xml_attributes)));
         }
     }
 
-    if let Some(classes) = xml_node.attributes.get("class") {
+    if let Some(classes) = xml_attributes.get("class") {
         for class in classes.split_whitespace() {
             dom.add_class(DomString::Heap(format_args_dynamic(class, &filtered_xml_attributes)));
         }
     }
 
-    if let Some(drag) = xml_node.attributes.get("draggable")
+    if let Some(drag) = xml_attributes.get("draggable")
         .map(|d| format_args_dynamic(d, &filtered_xml_attributes))
         .and_then(|d| parse_bool(&d))
     {
         dom.set_draggable(drag);
     }
 
-    if let Some(focusable) = xml_node.attributes.get("focusable")
+    if let Some(focusable) = xml_attributes.get("focusable")
         .map(|f| format_args_dynamic(f, &filtered_xml_attributes))
         .and_then(|f| parse_bool(&f))
     {
@@ -673,7 +727,7 @@ fn render_dom_from_app_node_inner<T: Layout>(
         }
     }
 
-    if let Some(tab_index) = xml_node.attributes.get("tabindex")
+    if let Some(tab_index) = xml_attributes.get("tabindex")
         .map(|val| format_args_dynamic(val, &filtered_xml_attributes))
         .and_then(|val| val.parse::<isize>().ok())
     {
@@ -683,18 +737,6 @@ fn render_dom_from_app_node_inner<T: Layout>(
             _ => dom.set_tab_index(TabIndex::NoKeyboardFocus),
         }
     }
-
-    for child_node in &xml_node.children {
-        // dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &parent_xml_attributes)?);
-        dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &filtered_xml_attributes)?);
-    }
-
-    Ok(dom)
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub enum FormatStringParseError {
-    InvalidBrace,
 }
 
 /// Given a string and a key => value mapping, replaces parts of the string with the value, i.e.:
@@ -770,8 +812,26 @@ fn parse_bool(input: &str) -> Option<bool> {
 }
 
 /// Takes all components and generates the source code function from them
-fn compile_components_to_rust_code<T: Layout>(components: &XmlComponentMap<T>) -> Result<String, CompileError> {
-    Err("unimplemented".into())
+fn compile_components_to_rust_code<T: Layout>(components: &XmlComponentMap<T>)
+-> Result<BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>, CompileError>
+{
+    let mut map = BTreeMap::new();
+
+    for (name, (component, should_inherit_variables)) in components.components.iter() {
+        let mut rust_source_code = component.compile_to_rust_code()?;
+        let args = component.get_available_arguments();
+
+        // components: &XmlComponentMap<T>, attributes: &FilteredComponentArguments, content: &XmlTextContent
+        // warning: args = ComponentArguments, not yet filtered
+        // fn get_available_arguments(&self) -> ComponentArguments;
+
+        // let dom = component.render_dom(&components, &xml_node.args, &xml_node.text_content);
+        // render_single_dom_node_to_string(&dom, &mut rust_string);
+
+        map.insert(name.clone(), (rust_source_code, args));
+    }
+
+    Ok(map)
 }
 
 fn compile_app_node_to_rust_code<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
@@ -781,6 +841,85 @@ fn compile_app_node_to_rust_code<T: Layout>(app_node: &XmlNode, component_map: &
 fn compile_app_node_to_rust_code_inner<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
     // TODO!
     Err("unimplemented".into())
+}
+
+/// Takes a DOM node and appends the necessary `.with_id().with_class()`, etc. to the DOMs HEAD
+fn render_single_dom_node_to_string<T: Layout>(dom: &Dom<T>, existing_str: &mut String) {
+
+    let head = dom.get_head_node();
+
+    for id in &head.ids {
+        existing_str.push_str(&format!(".with_id({})", id));
+    }
+
+    for class in &head.classes {
+        existing_str.push_str(&format!(".with_class({})", class));
+    }
+
+    if let Some(tab_index) = &head.tab_index {
+        use dom::TabIndex::*;
+        existing_str.push_str(&format!(".with_tab_index({})", match tab_index {
+            Auto => format!("TabIndex::Auto"),
+            OverrideInParent(u) => format!("TabIndex::OverrideInParent({})", u),
+            Global(u) => format!("TabIndex::Global({})", u),
+            NoKeyboardFocus => format!("TabIndex::NoKeyboardFocus"),
+        }));
+    }
+
+    if head.is_draggable {
+        *existing_str += ".is_draggable(true)";
+    }
+}
+
+#[test]
+fn test_compile_dom_1() {
+
+    // Test the output of a certain component
+    fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
+        let mut component_map = XmlComponentMap::default();
+        let root_nodes = parse_xml_string(input).unwrap();
+        get_xml_components(&root_nodes, &mut component_map).unwrap();
+        let app_node = get_app_node(&root_nodes).unwrap();
+        let components = compile_components_to_rust_code(&component_map)?;
+        assert_eq!(components_source[component_name], expected);
+    }
+
+    fn test_app_source_code(input: &str, expected: &str) {
+        let mut component_map = XmlComponentMap::default();
+        let root_nodes = parse_xml_string(input).unwrap();
+        get_xml_components(&root_nodes, &mut component_map).unwrap();
+        let app_node = get_app_node(&root_nodes).unwrap();
+        let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
+        assert_eq!(app_source, expected);
+    }
+
+    let s1 = r#"
+        <component name="test">
+            <div id="a" class="b" draggable="true"></div>
+        </component>
+
+        <app>
+            <Test />
+        </app>
+    "#;
+    let s1_expected = r#"
+        fn render_component_test<T: Layout>() -> Dom<T> {
+            Dom::div().with_id("a").with_class("b").is_draggable(true)
+        }
+    "#;
+
+    test_component_source_code()
+
+
+
+/*
+    let root_nodes = parse_xml_string(xml).map_err(|e| format!("XML parse error: {}", e))?;
+    get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
+    let app_node = get_app_node(&root_nodes).map_err(|e| format!("Could not find <app /> node: {}", e))?;
+    let component_functions_source = compile_components_to_rust_code(&component_map)?;
+    let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
+*/
+
 }
 
 // --- Renderers for various built-in types
