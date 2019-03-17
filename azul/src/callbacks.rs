@@ -1,16 +1,18 @@
 use std::{
-    collections::BTreeMap,
     fmt,
-    hash::Hasher,
+    rc::Rc,
+    hash::{Hash, Hasher},
+    collections::BTreeMap,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use azul_css::CssPath;
 #[cfg(feature = "css-parser")]
 use azul_css_parser::CssPathParseError;
-use webrender::api::HitTestItem;
-use glium::glutin::WindowId as GliumWindowId;
+use webrender::api::{HitTestItem, LayoutRect};
 use {
-    dom::{UpdateScreen, DontRedraw, NodeType, NodeData},
+    app::AppState,
+    async::TerminateTimer,
+    dom::{Dom, NodeType, NodeData},
     traits::Layout,
     app::AppStateNoData,
     ui_state::UiState,
@@ -19,6 +21,10 @@ use {
     window::FakeWindow,
 };
 pub use stack_checked_pointer::StackCheckedPointer;
+pub use glium::texture::Texture2d;
+pub use glium::framebuffer::SimpleFrameBuffer;
+pub use glium::glutin::WindowId as GliumWindowId;
+pub use glium::glutin::dpi::{LogicalSize, PhysicalSize};
 
 pub type DefaultCallbackType<T, U> = fn(&mut U, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
@@ -35,6 +41,49 @@ pub(crate) fn get_new_unique_default_callback_id() -> DefaultCallbackId {
 pub struct DefaultCallback<T: Layout>(pub DefaultCallbackTypeUnchecked<T>);
 
 impl_callback_bounded!(DefaultCallback<T: Layout>);
+
+/// A callback function has to return if the screen should
+/// be updated after the function has run.
+///
+/// NOTE: This is currently a typedef for `Option<()>`,
+/// so that you can use the `?` operator in callbacks
+/// (to simply not redraw if there is an error). This was an enum previously,
+/// but since Rust doesn't have a "custom try" operator, this led to a lot of
+/// usability problems. In the future, this might change back to an enum therefore
+/// the constants "Redraw" and "DontRedraw" are not capitalized, to minimize breakage.
+pub type UpdateScreen = Option<()>;
+/// After the callback is called, the screen needs to redraw
+/// (layout() function being called again).
+#[allow(non_upper_case_globals)]
+pub const Redraw: Option<()> = Some(());
+/// The screen does not need to redraw after the callback has been called.
+#[allow(non_upper_case_globals)]
+pub const DontRedraw: Option<()> = None;
+
+pub type CallbackType<T> = fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen;
+/// Stores a function pointer that is executed when the given UI element is hit
+///
+/// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
+/// The style is not affected by this, so if you make changes to the window's style
+/// inside the function, the screen will not be automatically redrawn, unless you return
+/// an `UpdateScreen::Redraw` from the function
+pub struct Callback<T: Layout>(pub CallbackType<T>);
+impl_callback_bounded!(Callback<T: Layout>);
+
+pub type GlTextureCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>;
+/// Callbacks that returns a rendered OpenGL texture
+pub struct GlTextureCallback<T: Layout>(pub GlTextureCallbackType<T>);
+impl_callback_bounded!(GlTextureCallback<T: Layout>);
+
+pub type IFrameCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>;
+/// Callback that, given a rectangle area on the screen, returns the DOM appropriate for that bounds (useful for infinite lists)
+pub struct IFrameCallback<T: Layout>(pub IFrameCallbackType<T>);
+impl_callback_bounded!(IFrameCallback<T: Layout>);
+
+pub type TimerCallbackType<T> = fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateTimer);
+/// Callback that can runs on every frame on the main thread - can modify the app data model
+pub struct TimerCallback<T>(pub TimerCallbackType<T>);
+impl_callback!(TimerCallback<T>);
 
 pub(crate) struct DefaultCallbackSystem<T: Layout> {
     callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
@@ -158,6 +207,90 @@ impl<'a, T: 'a + Layout> fmt::Debug for CallbackInfo<'a, T> {
         )
     }
 }
+
+// Only necessary for GlTextures and IFrames that need the
+// width and height of their container to calculate their content
+#[derive(Debug, Copy, Clone)]
+pub struct HidpiAdjustedBounds {
+    logical_size: LogicalSize,
+    hidpi_factor: f64,
+    winit_hidpi_factor: f64,
+}
+
+impl HidpiAdjustedBounds {
+    pub(crate) fn from_bounds(bounds: LayoutRect, hidpi_factor: f64, winit_hidpi_factor: f64) -> Self {
+        let logical_size = LogicalSize::new(bounds.size.width as f64, bounds.size.height as f64);
+        Self {
+            logical_size,
+            hidpi_factor,
+            winit_hidpi_factor,
+        }
+    }
+
+    pub fn get_physical_size(&self) -> PhysicalSize {
+        self.get_logical_size().to_physical(self.winit_hidpi_factor)
+    }
+
+    pub fn get_logical_size(&self) -> LogicalSize {
+        // NOTE: hidpi factor, not winit_hidpi_factor!
+        LogicalSize::new(self.logical_size.width * self.hidpi_factor, self.logical_size.height * self.hidpi_factor)
+    }
+
+    pub fn get_hidpi_factor(&self) -> f64 {
+        self.hidpi_factor
+    }
+}
+
+/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
+///
+/// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
+/// when you are done with your OpenGL drawing, otherwise WebRender will render
+/// to the texture, not the window, so your texture will actually never show up.
+/// If you use a `Texture` and you get a blank screen, this is probably why.
+#[derive(Debug, Clone)]
+pub struct Texture {
+    pub(crate) inner: Rc<Texture2d>,
+}
+
+impl Texture {
+    /// Note: You can initialize this texture from an existing (external texture).
+    pub fn new(tex: Texture2d) -> Self {
+        Self {
+            inner: Rc::new(tex),
+        }
+    }
+
+    /// Prepares the texture for drawing - you can only draw
+    /// on a framebuffer, the texture itself is readonly from the
+    /// OpenGL drivers point of view.
+    ///
+    /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
+    /// when you are done with your OpenGL drawing, otherwise WebRender will render
+    /// to the texture instead of the window, so your texture will actually
+    /// never show up on the screen, since it is never rendered.
+    /// If you use a `Texture` and you get a blank screen, this is probably why.
+    pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
+        self.inner.as_surface()
+    }
+}
+
+impl Hash for Texture {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        use glium::GlObject;
+        self.inner.get_id().hash(state);
+    }
+}
+
+impl PartialEq for Texture {
+    /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
+    /// actual contents of the texture.
+    fn eq(&self, other: &Texture) -> bool {
+        use glium::GlObject;
+        self.inner.get_id() == other.inner.get_id()
+    }
+}
+
+impl Eq for Texture { }
 
 /// Iterator that, starting from a certain starting point, returns the
 /// parent node until it gets to the root node.

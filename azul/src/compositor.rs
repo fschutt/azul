@@ -6,7 +6,7 @@ use webrender::{
 use euclid::TypedPoint2D;
 use {
     FastHashMap,
-    dom::Texture,
+    callbacks::Texture,
 };
 
 static LAST_OPENGL_ID: AtomicUsize = AtomicUsize::new(0);

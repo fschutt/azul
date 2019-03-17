@@ -6,7 +6,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 use {
-    dom::{UpdateScreen, DontRedraw},
+    callbacks::{UpdateScreen, DontRedraw, TimerCallback, TimerCallbackType},
     app_resources::AppResources,
 };
 
@@ -63,13 +63,6 @@ pub struct Timer<T> {
     /// Callback to be called for this timer
     pub callback: TimerCallback<T>,
 }
-
-pub type TimerCallbackType<T> = fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateTimer);
-
-/// Callback that can runs on every frame on the main thread - can modify the app data model
-pub struct TimerCallback<T>(pub TimerCallbackType<T>);
-
-impl_callback!(TimerCallback<T>);
 
 impl<T> Timer<T> {
 

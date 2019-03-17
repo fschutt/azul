@@ -1,6 +1,7 @@
 use std::{fmt, collections::BTreeMap};
 use {
-    dom::{Dom, Callback},
+    callbacks::Callback,
+    dom::Dom,
     traits::Layout,
 };
 use xmlparser::Tokenizer;

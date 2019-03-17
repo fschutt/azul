@@ -11,11 +11,8 @@ use glium::glutin::{
 use webrender::api::HitTestItem;
 use {
     app::FrameEventInfo,
-    dom::{
-        EventFilter, Callback, NotEventFilter, UpdateScreen,
-        HoverEventFilter, FocusEventFilter, WindowEventFilter,
-    },
-    callbacks:: {CallbackInfo, DefaultCallbackId},
+    dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
+    callbacks:: {CallbackInfo, Callback, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
     traits::Layout,

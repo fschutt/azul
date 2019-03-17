@@ -38,7 +38,7 @@ use {
     },
     window_state::{WindowSize, DebugState},
     app_resources::TextId,
-    dom::{ScrollTagId, UpdateScreen, Redraw, DontRedraw},
+    dom::ScrollTagId,
     app_resources::{
         ImageId, FontSource, FontId, ImageReloadError,
         FontReloadError, CssImageId, RawImage,
@@ -47,7 +47,7 @@ use {
     ui_state::UiState,
     ui_description::UiDescription,
     async::{Task, Timer, TimerId, TerminateTimer},
-    callbacks::FocusTarget,
+    callbacks::{FocusTarget, UpdateScreen, Redraw, DontRedraw},
 };
 pub use app_resources::AppResources;
 
@@ -368,7 +368,7 @@ impl<T: Layout> App<T> {
         use std::{thread, time::{Duration, Instant}};
         use glium::glutin::{Event, WindowEvent};
         use self::RuntimeError::*;
-        use dom::Redraw;
+        use callbacks::Redraw;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
@@ -597,7 +597,7 @@ fn render_single_window_content<T: Layout>(
     awakened_task: &mut BTreeMap<GliumWindowId, bool>,
 ) -> Result<(bool, bool), RuntimeError<T>>
 {
-    use dom::Redraw;
+    use callbacks::Redraw;
     use self::RuntimeError::*;
 
     if events.is_empty() {
@@ -819,7 +819,7 @@ fn call_callbacks<T: Layout>(
     use {
         FastHashMap,
         callbacks::CallbackInfo,
-        dom::{Redraw, DontRedraw},
+        callbacks::{Redraw, DontRedraw},
         window_state::{KeyboardState, MouseState},
         self::RuntimeError::*,
     };
