@@ -1,5 +1,3 @@
-//! Window creation module
-
 use std::{
     fmt,
     rc::Rc,

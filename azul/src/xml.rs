@@ -1,5 +1,3 @@
-//! Module for parsing and loading a `Dom<T>` from a XML file
-
 use std::{fmt, collections::BTreeMap};
 use {
     dom::{Dom, Callback},

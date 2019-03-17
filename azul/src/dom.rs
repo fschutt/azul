@@ -13,8 +13,7 @@ use azul_css::{ NodeTypePath, CssProperty };
 use {
     ui_state::UiState,
     callbacks::{CallbackInfo, LayoutInfo},
-    text_cache::TextId,
-    app_resources::ImageId,
+    app_resources::{ImageId, TextId},
     traits::Layout,
     app::AppState,
     id_tree::{Arena, NodeDataContainer},
