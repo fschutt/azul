@@ -180,6 +180,8 @@ mod logging;
 mod ui_solver;
 /// DOM styling module
 mod style;
+/// DOM diffing
+mod diff;
 
 // Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
 

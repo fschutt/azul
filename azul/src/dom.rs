@@ -4,6 +4,7 @@ use std::{
     path::Path,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
+    cmp::Ordering as CmpOrdering,
     collections::BTreeMap,
     iter::FromIterator,
 };
@@ -750,10 +751,34 @@ impl<T: Layout> NodeData<T> {
 /// heap allocations - for `&'static str`, simply stores the pointer,
 /// instead of converting it into a String. This is good for class names
 /// or IDs, whose content rarely changes.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub enum DomString {
     Static(&'static str),
     Heap(String),
+}
+
+impl PartialEq for DomString {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialOrd for DomString {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.as_str().cmp(other.as_str()))
+    }
+}
+
+impl Ord for DomString {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl Hash for DomString {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
+    }
 }
 
 impl DomString {
