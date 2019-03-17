@@ -1363,7 +1363,7 @@ fn push_background(
         },
         Image(style_image_id) => {
             // TODO: background-origin, background-position, background-repeat
-            if let Some(image_id) = app_resources.css_ids_to_image_ids.get(&style_image_id.0) {
+            if let Some(image_id) = app_resources.get_css_image_id(&style_image_id.0) {
 
                 let bounds = info.rect;
                 let image_dimensions = app_resources.get_image_info(image_id)

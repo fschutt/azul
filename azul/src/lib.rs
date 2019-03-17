@@ -118,12 +118,8 @@ extern crate azul_css_parser;
 #[macro_use]
 mod macros;
 
-/// Global application state, wrapping resources and app state
+/// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;
-/// Wrapper for the application data & application state
-pub mod app_state;
-/// Font & image resource handling, lookup and caching
-pub mod app_resources;
 /// Async IO helpers / (`Task` / `Timer` / `Thread`)
 pub mod async;
 /// Focus tracking / input tracking related functions
@@ -179,6 +175,16 @@ mod style;
 /// DOM diffing
 mod diff;
 
+pub(crate) mod app_resources;
+/// Font & image resource handling, lookup and caching
+pub mod resources {
+    // re-export everything *except* the AppResources (which are exported under the "app" module)
+    pub use app_resources::{
+        FontId, ImageId, LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
+        ImageSource, RawImageFormat, CssFontId, CssImageId,
+    };
+}
+
 // Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
 
 #[cfg(feature = "faster-hashing")]
@@ -193,8 +199,7 @@ type FastHashSet<T> = ::std::collections::HashSet<T>;
 /// Quick exports of common types
 pub mod prelude {
     pub use azul_css::ColorU;
-    pub use app::{App, AppConfig};
-    pub use app_state::AppState;
+    pub use app::{App, AppConfig, AppState};
     pub use dom::{
         Dom, DomHash, NodeType, NodeData, Callback, On, DomString,
         UpdateScreen, Redraw, DontRedraw, Texture, GlTextureCallback,

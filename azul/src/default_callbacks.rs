@@ -1,6 +1,6 @@
 //! WARNING: Unsafe code ahead - calls the default methods
 
-use app_state::AppStateNoData;
+use app::AppStateNoData;
 use window::CallbackInfo;
 
 pub type DefaultCallbackType<T, U> = fn(&mut U, app_state_no_data: &mut AppStateNoData<T>, window_event: &mut CallbackInfo<T>) -> UpdateScreen;
@@ -17,7 +17,7 @@ mod stack_checked_pointer {
         traits::Layout,
         dom::{UpdateScreen, Dom, Texture},
         default_callbacks::DefaultCallbackType,
-        app_state::AppStateNoData,
+        app::AppStateNoData,
         window::{CallbackInfo, LayoutInfo, HidpiAdjustedBounds},
     };
 

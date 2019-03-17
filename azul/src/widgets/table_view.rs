@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use {
     dom::{Dom, On, NodeData, DomString, NodeType, IFrameCallback, UpdateScreen, DontRedraw},
-    app_state::AppStateNoData,
+    app::AppStateNoData,
     traits::Layout,
     window::LayoutInfo,
     default_callbacks::{StackCheckedPointer, DefaultCallback},

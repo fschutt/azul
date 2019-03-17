@@ -10,7 +10,7 @@ use {
     window::{FakeWindow, CallbackInfo},
     prelude::{VirtualKeyCode},
     default_callbacks::{StackCheckedPointer, DefaultCallback, DefaultCallbackId},
-    app_state::AppStateNoData,
+    app::AppStateNoData,
 };
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
