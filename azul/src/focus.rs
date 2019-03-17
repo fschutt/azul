@@ -1,4 +1,3 @@
-//! Contains functions related to managing the user focus.
 use azul_css::CssPath;
 #[cfg(feature = "css-parser")]
 use azul_css_parser::CssPathParseError;

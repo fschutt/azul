@@ -4,18 +4,14 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::api::{
-    FontKey, FontInstanceKey,
+    FontKey, FontInstanceKey, ImageKey,
     ResourceUpdate, AddFont, AddFontInstance,
 };
-pub use webrender::api::ImageFormat as RawImageFormat;
-#[cfg(feature = "image_loading")]
-use image::ImageError;
 use FastHashMap;
 use app_units::Au;
 use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use {
     FastHashSet,
-    images::ImageInfo,
     text_cache::{TextId, TextCache},
     window::{FakeDisplay, WindowCreateError},
     app::AppConfig,
@@ -23,6 +19,9 @@ use {
     display_list::DisplayList,
     text_layout::Words,
 };
+pub use webrender::api::{ImageFormat as RawImageFormat, ImageDescriptor};
+#[cfg(feature = "image_loading")]
+pub use image::{self, ImageError, DynamicImage, GenericImageView};
 
 pub type CssImageId = String;
 pub type CssFontId = String;
@@ -627,7 +626,6 @@ fn build_add_image_resource_updates(
 ) -> Vec<ResourceUpdate> {
 
     use webrender::api::{ImageData, ImageDescriptor, AddImage};
-    use images::is_image_opaque;
 
     let mut resource_updates = Vec::new();
 
@@ -927,4 +925,141 @@ fn parse_gsettings_font(input: &str) -> &str {
 fn test_parse_gsettings_font() {
     assert_eq!(parse_gsettings_font("'Ubuntu 11'"), "Ubuntu");
     assert_eq!(parse_gsettings_font("'Ubuntu Mono 13'"), "Ubuntu Mono");
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ImageInfo {
+    pub(crate) key: ImageKey,
+    pub descriptor: ImageDescriptor,
+}
+
+impl ImageInfo {
+    /// Returns the (width, height) of this image.
+    pub fn get_dimensions(&self) -> (usize, usize) {
+        let width = self.descriptor.size.width;
+        let height = self.descriptor.size.height;
+        (width as usize, height as usize)
+    }
+}
+
+// The next three functions are taken from:
+// https://github.com/christolliday/limn/blob/master/core/src/resources/image.rs
+
+#[cfg(feature = "image_loading")]
+fn prepare_image(image_decoded: DynamicImage)
+    -> Result<(ImageData, ImageDescriptor), ImageError>
+{
+    let image_dims = image_decoded.dimensions();
+
+    // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
+    let (format, bytes) = match image_decoded {
+        image::ImageLuma8(bytes) => {
+            let pixels = bytes.into_raw();
+            (RawImageFormat::R8, pixels)
+        },
+        image::ImageLumaA8(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for greyscale_alpha in bytes.chunks(2) {
+                let grey = greyscale_alpha[0];
+                let alpha = greyscale_alpha[1];
+                pixels.extend_from_slice(&[
+                    grey,
+                    grey,
+                    grey,
+                    alpha,
+                ]);
+            }
+            // TODO: necessary for greyscale?
+            premultiply(pixels.as_mut_slice());
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image::ImageRgba8(mut bytes) => {
+            let mut pixels = bytes.into_raw();
+            // no extra allocation necessary, but swizzling
+            for rgba in pixels.chunks_mut(4) {
+                let r = rgba[0];
+                let g = rgba[1];
+                let b = rgba[2];
+                let a = rgba[3];
+                rgba[0] = b;
+                rgba[1] = r;
+                rgba[2] = g;
+                rgba[3] = a;
+            }
+            premultiply(pixels.as_mut_slice());
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image::ImageRgb8(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for rgb in bytes.chunks(3) {
+                pixels.extend_from_slice(&[
+                    rgb[2], // b
+                    rgb[1], // g
+                    rgb[0], // r
+                    0xff    // a
+                ]);
+            }
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image::ImageBgr8(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for bgr in bytes.chunks(3) {
+                pixels.extend_from_slice(&[
+                    bgr[0], // b
+                    bgr[1], // g
+                    bgr[2], // r
+                    0xff    // a
+                ]);
+            }
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image::ImageBgra8(bytes) => {
+            // Already in the correct format
+            let mut pixels = bytes.into_raw();
+            premultiply(pixels.as_mut_slice());
+            (RawImageFormat::BGRA8, pixels)
+        },
+    };
+
+    let opaque = is_image_opaque(format, &bytes[..]);
+    let allow_mipmaps = true;
+    let descriptor = ImageDescriptor::new(image_dims.0 as i32, image_dims.1 as i32, format, opaque, allow_mipmaps);
+    let data = ImageData::new(bytes);
+
+    Ok((data, descriptor))
+}
+
+fn is_image_opaque(format: RawImageFormat, bytes: &[u8]) -> bool {
+    match format {
+        RawImageFormat::BGRA8 => {
+            let mut is_opaque = true;
+            for i in 0..(bytes.len() / 4) {
+                if bytes[i * 4 + 3] != 255 {
+                    is_opaque = false;
+                    break;
+                }
+            }
+            is_opaque
+        }
+        RawImageFormat::R8 => true,
+        _ => unreachable!(),
+    }
+}
+
+// From webrender/wrench
+// These are slow. Gecko's gfx/2d/Swizzle.cpp has better versions
+fn premultiply(data: &mut [u8]) {
+    for pixel in data.chunks_mut(4) {
+        let a = u32::from(pixel[3]);
+        pixel[0] = (((pixel[0] as u32 * a) + 128) / 255) as u8;
+        pixel[1] = (((pixel[1] as u32 * a) + 128) / 255) as u8;
+        pixel[2] = (((pixel[2] as u32 * a) + 128) / 255) as u8;
+    }
+}
+
+#[test]
+fn test_premultiply() {
+    let mut color = [255, 0, 0, 127];
+    premultiply(&mut color);
+    assert_eq!(color, [127, 0, 0, 127]);
 }

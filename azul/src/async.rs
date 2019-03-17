@@ -1,5 +1,3 @@
-//! Asynchronous task helpers (`Timer`, `Task`, `Thread`)
-
 use std::{
     sync::{Arc, Mutex, Weak, atomic::{AtomicUsize, Ordering}},
     thread::{self, JoinHandle},
