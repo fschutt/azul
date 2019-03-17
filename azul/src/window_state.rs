@@ -1,6 +1,3 @@
-//! Contains methods related to event filtering (i.e. detecting whether a
-//! click was a mouseover, mouseout, and so on and calling the correct callbacks)
-
 use std::{
     collections::{HashSet, BTreeMap},
     path::PathBuf,

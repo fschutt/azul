@@ -125,6 +125,7 @@ pub mod async;
 /// Type definitions for `Callback`, `DefaultCallback`, `IFrameCallback`, `FocusTarget`, etc.
 /// - everything relevant for handling callbacks
 pub mod callbacks;
+/// CSS type definitions / CSS parsing functions
 #[cfg(any(feature = "css-parser", feature = "native-style"))]
 pub mod css;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
@@ -133,17 +134,15 @@ pub mod dialogs;
 pub mod dom;
 /// Re-exports of errors
 pub mod error;
-/// Module for caching long texts (including their layout / character positions) across multiple frames
-pub mod text_cache;
-/// Text layout functions - useful for text layout outside of standard containers
+/// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout;
-/// The layout traits for creating a layout-able application
+/// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
 pub mod traits;
-/// Built-in widgets
+/// Container for default widgets (`TextInput` / `Button` / `Label`, `TableView`, ...)
 pub mod widgets;
-/// Window handling
+/// Window state handling and window-related information
 pub mod window;
-/// XML-based DOM serialization
+/// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
 
 /// UI Description & display list handling (webrender)
@@ -182,6 +181,7 @@ pub mod resources {
     pub use app_resources::{
         FontId, ImageId, LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
         ImageSource, RawImageFormat, CssFontId, CssImageId,
+        TextCache, TextId,
     };
 }
 
@@ -200,9 +200,12 @@ type FastHashSet<T> = ::std::collections::HashSet<T>;
 pub mod prelude {
     #[cfg(feature = "css-parser")]
     pub use azul_css::*;
-    pub use app::{App, AppConfig, AppState};
+    pub use app::{App, AppConfig, AppState, AppResources};
     pub use async::{Task, TerminateTimer, TimerId, TimerCallback, Timer};
-    pub use app_resources::{AppResources, RawImageFormat, ImageId, FontId, FontSource, ImageSource};
+    pub use resources::{
+        RawImageFormat, ImageId, FontId, FontSource, ImageSource,
+        TextCache, TextId,
+    };
     pub use callbacks::{CallbackInfo, FocusTarget, LayoutInfo};
     pub use dom::{
         Dom, DomHash, NodeType, NodeData, Callback, On, DomString,
@@ -216,7 +219,6 @@ pub mod prelude {
         WindowMonitorTarget, RendererType, ReadOnlyWindow
     };
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};
-    pub use text_cache::{TextCache, TextId};
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
         VirtualKeyCode, ScanCode, Icon,

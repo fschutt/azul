@@ -37,7 +37,7 @@ use {
         WindowCreateError, WindowCreateOptions, RendererType,
     },
     window_state::{WindowSize, DebugState},
-    text_cache::TextId,
+    app_resources::TextId,
     dom::{ScrollTagId, UpdateScreen, Redraw, DontRedraw},
     app_resources::{
         ImageId, FontSource, FontId, ImageReloadError,
