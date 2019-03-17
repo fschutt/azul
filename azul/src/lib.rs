@@ -27,7 +27,7 @@
 //! - [Styling your app with CSS](https://github.com/maps4print/azul/wiki/Styling-your-application-with-CSS)
 //! - [SVG drawing](https://github.com/maps4print/azul/wiki/SVG-drawing)
 //! - [OpenGL drawing](https://github.com/maps4print/azul/wiki/OpenGL-drawing)
-//! - [Timers, daemons, tasks and async IO](https://github.com/maps4print/azul/wiki/Timers,-daemons,-tasks-and-async-IO)
+//! - [Timers, timers, tasks and async IO](https://github.com/maps4print/azul/wiki/Timers,-timers,-tasks-and-async-IO)
 //! - [Two-way data binding](https://github.com/maps4print/azul/wiki/Two-way-data-binding)
 //! - [Unit testing](https://github.com/maps4print/azul/wiki/Unit-testing)
 //!
@@ -214,7 +214,7 @@ pub mod prelude {
         VirtualKeyCode, ScanCode, Icon,
     };
     pub use azul_css::*;
-    pub use async::{Task, TerminateDaemon, DaemonId, DaemonCallback, Daemon};
+    pub use async::{Task, TerminateTimer, TimerId, TimerCallback, Timer};
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
     pub use xml::{XmlComponent, XmlComponentMap};
