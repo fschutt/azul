@@ -5,9 +5,9 @@ use {
     dom::{Dom, On, NodeData, DomString, NodeType, IFrameCallback, UpdateScreen, DontRedraw},
     app::AppStateNoData,
     traits::Layout,
-    window::LayoutInfo,
-    default_callbacks::{StackCheckedPointer, DefaultCallback},
-    window::{HidpiAdjustedBounds, CallbackInfo, FakeWindow},
+    callbacks::{LayoutInfo, CallbackInfo},
+    callbacks::{StackCheckedPointer, DefaultCallback},
+    window::{HidpiAdjustedBounds, FakeWindow},
 };
 
 #[derive(Debug, Default, Copy, Clone)]

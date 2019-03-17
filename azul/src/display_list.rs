@@ -25,7 +25,7 @@ use azul_css::{
 use {
     FastHashMap,
     app_resources::AppResources,
-    default_callbacks::StackCheckedPointer,
+    callbacks::StackCheckedPointer,
     traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
@@ -38,7 +38,8 @@ use {
     ui_solver::{do_the_layout, LayoutResult, PositionedRectangle},
     app_resources::ImageId,
     compositor::new_opengl_texture_id,
-    window::{Window, LayoutInfo, FakeWindow, ScrollStates, HidpiAdjustedBounds},
+    window::{Window, FakeWindow, ScrollStates, HidpiAdjustedBounds},
+    callbacks::LayoutInfo,
     window_state::WindowSize,
 };
 

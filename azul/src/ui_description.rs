@@ -11,7 +11,7 @@ use {
     dom::{Dom, NodeData, DomString},
     ui_state::UiState,
     style::HoverGroup,
-    focus::FocusTarget,
+    callbacks::FocusTarget,
 };
 
 pub struct UiDescription<T: Layout> {

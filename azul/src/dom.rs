@@ -12,13 +12,13 @@ use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use azul_css::{ NodeTypePath, CssProperty };
 use {
     ui_state::UiState,
-    window::{CallbackInfo, LayoutInfo},
+    callbacks::{CallbackInfo, LayoutInfo},
     text_cache::TextId,
     app_resources::ImageId,
     traits::Layout,
     app::AppState,
     id_tree::{Arena, NodeDataContainer},
-    default_callbacks::{DefaultCallbackId, StackCheckedPointer},
+    callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,
     xml::{self, XmlParseError, XmlComponentMap},
 };

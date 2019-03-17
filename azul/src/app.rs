@@ -47,7 +47,7 @@ use {
     ui_state::UiState,
     ui_description::UiDescription,
     async::{Task, Timer, TimerId, TerminateTimer},
-    focus::FocusTarget,
+    callbacks::FocusTarget,
 };
 pub use app_resources::AppResources;
 
@@ -312,7 +312,7 @@ impl<T: Layout> App<T> {
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     pub fn add_window(&mut self, window: Window<T>) {
-        use default_callbacks::DefaultCallbackSystem;
+        use callbacks::DefaultCallbackSystem;
 
         let window_id = window.id;
         let fake_window = FakeWindow {
@@ -818,7 +818,7 @@ fn call_callbacks<T: Layout>(
 {
     use {
         FastHashMap,
-        window::CallbackInfo,
+        callbacks::CallbackInfo,
         dom::{Redraw, DontRedraw},
         window_state::{KeyboardState, MouseState},
         self::RuntimeError::*,

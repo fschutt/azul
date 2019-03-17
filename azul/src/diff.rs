@@ -1,5 +1,3 @@
-//! Compares and diffs two DOM trees - necessary for tracking stateful events
-//! such as user focus and scroll states across frames
 use std::{collections::BTreeMap, marker::PhantomData};
 use {
     id_tree::{NodeId, NodeHierarchy},
