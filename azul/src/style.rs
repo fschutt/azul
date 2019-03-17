@@ -12,7 +12,7 @@ use {
     dom::NodeData,
     ui_state::UiState,
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
-    focus::FocusTarget,
+    callbacks::FocusTarget,
 };
 
 /// Has all the necessary information about the style CSS path

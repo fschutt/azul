@@ -18,13 +18,12 @@ use {
         EventFilter, Callback, NotEventFilter, UpdateScreen,
         HoverEventFilter, FocusEventFilter, WindowEventFilter,
     },
-    default_callbacks::DefaultCallbackId,
+    callbacks:: {CallbackInfo, DefaultCallbackId},
     id_tree::NodeId,
     ui_state::UiState,
     traits::Layout,
-    focus::FocusTarget,
+    callbacks::FocusTarget,
     app::AppState,
-    window::CallbackInfo,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -33,8 +32,8 @@ const DEFAULT_HEIGHT: f64 = 600.0;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone)]
-pub struct KeyboardState
-{
+pub struct KeyboardState {
+
     // Modifier keys that are currently actively pressed during this frame
     //
     // Note: These are tracked separately by glium to prevent missing state changes

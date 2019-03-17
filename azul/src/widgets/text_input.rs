@@ -7,9 +7,9 @@ use {
         Dom, EventFilter, FocusEventFilter,
         UpdateScreen, Redraw, DontRedraw, TabIndex,
     },
-    window::{FakeWindow, CallbackInfo},
-    prelude::{VirtualKeyCode},
-    default_callbacks::{StackCheckedPointer, DefaultCallback, DefaultCallbackId},
+    window::FakeWindow,
+    prelude::VirtualKeyCode,
+    callbacks::{CallbackInfo, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
     app::AppStateNoData,
 };
 

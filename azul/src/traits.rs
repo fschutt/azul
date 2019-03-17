@@ -4,7 +4,7 @@ use {
 };
 
 #[cfg(not(test))]
-use window::LayoutInfo;
+use callbacks::LayoutInfo;
 
 /// The core trait that has to be implemented for the app model to provide a
 /// Model -> View serialization.

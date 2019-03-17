@@ -5,9 +5,8 @@ use std::{
 use glium::glutin::WindowId as GliumWindowId;
 use azul_css::CssProperty;
 use {
-    app::RuntimeError,
     FastHashMap,
-    window::LayoutInfo,
+    app::RuntimeError,
     traits::Layout,
     dom::{
         Callback, Dom, TagId, TabIndex, DomString,
@@ -17,7 +16,7 @@ use {
     app::AppState,
     id_tree::NodeId,
     style::HoverGroup,
-    default_callbacks::DefaultCallbackId,
+    callbacks::{LayoutInfo, DefaultCallbackId},
 };
 
 pub struct UiState<T: Layout> {

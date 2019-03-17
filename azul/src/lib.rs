@@ -122,14 +122,11 @@ mod macros;
 pub mod app;
 /// Async IO helpers / (`Task` / `Timer` / `Thread`)
 pub mod async;
-/// Focus tracking / input tracking related functions
-pub mod focus;
+/// Type definitions for `Callback`, `DefaultCallback`, `IFrameCallback`, `FocusTarget`, etc.
+/// - everything relevant for handling callbacks
+pub mod callbacks;
 #[cfg(any(feature = "css-parser", feature = "native-style"))]
 pub mod css;
-/// XML-based DOM serialization
-pub mod xml;
-/// Handles default callbacks (such as an automatic text field update) via unsafe code
-pub mod default_callbacks;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
 /// DOM / HTML node handling
@@ -146,8 +143,8 @@ pub mod traits;
 pub mod widgets;
 /// Window handling
 pub mod window;
-/// Window state handling, event filtering
-pub mod window_state;
+/// XML-based DOM serialization
+pub mod xml;
 
 /// UI Description & display list handling (webrender)
 mod ui_description;
@@ -172,8 +169,13 @@ mod ui_solver;
 mod style;
 /// DOM diffing
 mod diff;
+/// Checks that two-way bound values are on the stack
+mod stack_checked_pointer;
 
+/// Window state handling and diffing
+pub(crate) mod window_state;
 pub(crate) mod app_resources;
+
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     // re-export everything *except* the AppResources (which are exported under the "app" module)
@@ -196,8 +198,12 @@ type FastHashSet<T> = ::std::collections::HashSet<T>;
 
 /// Quick exports of common types
 pub mod prelude {
-    pub use azul_css::ColorU;
+    #[cfg(feature = "css-parser")]
+    pub use azul_css::*;
     pub use app::{App, AppConfig, AppState};
+    pub use async::{Task, TerminateTimer, TimerId, TimerCallback, Timer};
+    pub use app_resources::{AppResources, RawImageFormat, ImageId, FontId, FontSource, ImageSource};
+    pub use callbacks::{CallbackInfo, FocusTarget, LayoutInfo};
     pub use dom::{
         Dom, DomHash, NodeType, NodeData, Callback, On, DomString,
         UpdateScreen, Redraw, DontRedraw, Texture, GlTextureCallback,
@@ -207,23 +213,20 @@ pub mod prelude {
     pub use traits::{Layout, Modify};
     pub use window::{
         MonitorIter, Window, WindowCreateOptions, HidpiAdjustedBounds,
-        WindowMonitorTarget, RendererType, CallbackInfo, LayoutInfo, ReadOnlyWindow
+        WindowMonitorTarget, RendererType, ReadOnlyWindow
     };
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};
-    pub use app_resources::{AppResources, RawImageFormat, ImageId, FontId, FontSource, ImageSource};
     pub use text_cache::{TextCache, TextId};
     pub use glium::glutin::{
         dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
         VirtualKeyCode, ScanCode, Icon,
     };
-    pub use azul_css::*;
-    pub use async::{Task, TerminateTimer, TimerId, TimerCallback, Timer};
-    pub use default_callbacks::StackCheckedPointer;
+    pub use stack_checked_pointer::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
     pub use xml::{XmlComponent, XmlComponentMap};
+
     #[cfg(any(feature = "css-parser", feature = "native-style"))]
     pub use css;
-
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
 }
