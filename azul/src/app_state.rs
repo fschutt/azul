@@ -17,11 +17,11 @@ use {
         FontReloadError, ImageReloadError, RawImage,
     },
     error::ClipboardError,
-    async::{Task, Daemon, DaemonId, TerminateDaemon},
+    async::{Task, Timer, TimerId, TerminateTimer},
 };
 
 /// Wrapper for your application data, stores the data, windows and resources, as
-/// well as running daemons and asynchronous tasks.
+/// well as running timers and asynchronous tasks.
 ///
 /// In order to be layout-able, your data model needs to satisfy the `Layout` trait,
 /// which maps the state of your application to a DOM (how the application data should be laid out)
@@ -53,8 +53,8 @@ pub struct AppState<T: Layout> {
     /// Accessing this field is often required to load new fonts or images, so instead of
     /// requiring the `FontHashMap`, a lot of functions just require the whole `AppResources` field.
     pub resources: AppResources,
-    /// Currently running daemons (polling functions, run on the main thread)
-    pub(crate) daemons: FastHashMap<DaemonId, Daemon<T>>,
+    /// Currently running timers (polling functions, run on the main thread)
+    pub(crate) timers: FastHashMap<TimerId, Timer<T>>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
     pub(crate) tasks: Vec<Task<T>>,
 }
@@ -70,30 +70,30 @@ pub struct AppStateNoData<'a, T: 'a + Layout> {
     pub windows: &'a BTreeMap<GliumWindowId, FakeWindow<T>>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
-    /// Currently running daemons (polling functions, run on the main thread)
-    pub(crate) daemons: FastHashMap<DaemonId, Daemon<T>>,
+    /// Currently running timers (polling functions, run on the main thread)
+    pub(crate) timers: FastHashMap<TimerId, Timer<T>>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
     pub(crate) tasks: Vec<Task<T>>,
 }
 
 macro_rules! impl_deamon_api {() => (
 
-    /// Insert a daemon into the list of active daemons.
-    /// Replaces the existing daemon if called with the same DaemonId.
-    pub fn add_daemon(&mut self, id: DaemonId, daemon: Daemon<T>) {
-        self.daemons.insert(id, daemon);
+    /// Insert a timer into the list of active timers.
+    /// Replaces the existing timer if called with the same TimerId.
+    pub fn add_timer(&mut self, id: TimerId, timer: Timer<T>) {
+        self.timers.insert(id, timer);
     }
 
-    pub fn has_daemon(&self, daemon_id: &DaemonId) -> bool {
-        self.get_daemon(daemon_id).is_some()
+    pub fn has_timer(&self, timer_id: &TimerId) -> bool {
+        self.get_timer(timer_id).is_some()
     }
 
-    pub fn get_daemon(&self, daemon_id: &DaemonId) -> Option<Daemon<T>> {
-        self.daemons.get(&daemon_id).cloned()
+    pub fn get_timer(&self, timer_id: &TimerId) -> Option<Timer<T>> {
+        self.timers.get(&timer_id).cloned()
     }
 
-    pub fn delete_daemon(&mut self, daemon_id: &DaemonId) -> Option<Daemon<T>> {
-        self.daemons.remove(daemon_id)
+    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer<T>> {
+        self.timers.remove(timer_id)
     }
 
     /// Custom tasks can be used when the `AppState` isn't `Send`. For example
@@ -124,37 +124,37 @@ impl<T: Layout> AppState<T> {
             data: Arc::new(Mutex::new(initial_data)),
             windows: BTreeMap::new(),
             resources: AppResources::new(config)?,
-            daemons: FastHashMap::default(),
+            timers: FastHashMap::default(),
             tasks: Vec::new(),
         })
     }
 
     impl_deamon_api!();
 
-    /// Run all currently registered daemons
+    /// Run all currently registered timers
     #[must_use]
-    pub(crate) fn run_all_daemons(&mut self)
+    pub(crate) fn run_all_timers(&mut self)
     -> UpdateScreen
     {
         let mut should_update_screen = DontRedraw;
         let mut lock = self.data.lock().unwrap();
-        let mut daemons_to_terminate = Vec::new();
+        let mut timers_to_terminate = Vec::new();
 
-        for (key, daemon) in self.daemons.iter_mut() {
-            let (should_update, should_terminate) = daemon.invoke_callback_with_data(&mut lock, &mut self.resources);
+        for (key, timer) in self.timers.iter_mut() {
+            let (should_update, should_terminate) = timer.invoke_callback_with_data(&mut lock, &mut self.resources);
 
             if should_update == Redraw &&
                should_update_screen == DontRedraw {
                 should_update_screen = Redraw;
             }
 
-            if should_terminate == TerminateDaemon::Terminate {
-                daemons_to_terminate.push(key.clone());
+            if should_terminate == TerminateTimer::Terminate {
+                timers_to_terminate.push(key.clone());
             }
         }
 
-        for key in daemons_to_terminate {
-            self.daemons.remove(&key);
+        for key in timers_to_terminate {
+            self.timers.remove(&key);
         }
 
         should_update_screen
@@ -166,25 +166,25 @@ impl<T: Layout> AppState<T> {
     -> UpdateScreen
     {
         let old_count = self.tasks.len();
-        let mut daemons_to_add = Vec::new();
+        let mut timers_to_add = Vec::new();
         self.tasks.retain(|task| {
             if !task.is_finished() {
                 true
             } else {
-                daemons_to_add.extend(task.after_completion_daemons.iter().cloned());
+                timers_to_add.extend(task.after_completion_timers.iter().cloned());
                 false
             }
         });
 
-        let daemons_is_empty = daemons_to_add.is_empty();
+        let timers_is_empty = timers_to_add.is_empty();
         let new_count = self.tasks.len();
 
-        // Start all the daemons that should run after the completion of the task
-        for (daemon_id, daemon) in daemons_to_add {
-            self.add_daemon(daemon_id, daemon);
+        // Start all the timers that should run after the completion of the task
+        for (timer_id, timer) in timers_to_add {
+            self.add_timer(timer_id, timer);
         }
 
-        if old_count == new_count && daemons_is_empty {
+        if old_count == new_count && timers_is_empty {
             DontRedraw
         } else {
             Redraw

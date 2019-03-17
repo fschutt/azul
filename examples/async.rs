@@ -68,16 +68,16 @@ fn start_connection(app_state: &mut AppState<MyDataModel>, _event: &mut Callback
     app_state.data.modify(|state| state.connection_status = status)?;
     let task = Task::new(&app_state.data, connect_to_db_async);
     app_state.add_task(task);
-    app_state.add_daemon(DaemonId::new(), Daemon::new(timer_daemon));
+    app_state.add_timer(TimerId::new(), Timer::new(timer_timer));
     Redraw
 }
 
-fn timer_daemon(state: &mut MyDataModel, _resources: &mut AppResources) -> (UpdateScreen, TerminateDaemon) {
+fn timer_timer(state: &mut MyDataModel, _resources: &mut AppResources) -> (UpdateScreen, TerminateTimer) {
     if let ConnectionStatus::InProgress(start, duration) = &mut state.connection_status {
         *duration = Instant::now() - *start;
-        (Redraw, TerminateDaemon::Continue)
+        (Redraw, TerminateTimer::Continue)
     } else {
-        (DontRedraw, TerminateDaemon::Terminate)
+        (DontRedraw, TerminateTimer::Terminate)
     }
 }
 

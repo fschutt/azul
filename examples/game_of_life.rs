@@ -116,7 +116,7 @@ impl Board {
 }
 
 // Update the cell state
-fn tick(state: &mut Universe, _: &mut AppResources) -> (UpdateScreen, TerminateDaemon) {
+fn tick(state: &mut Universe, _: &mut AppResources) -> (UpdateScreen, TerminateTimer) {
 
     let mut new_cells = state.board.cells.clone();
 
@@ -154,7 +154,7 @@ fn tick(state: &mut Universe, _: &mut AppResources) -> (UpdateScreen, TerminateD
 
     state.board.cells = new_cells;
 
-    (Redraw, TerminateDaemon::Continue)
+    (Redraw, TerminateTimer::Continue)
 }
 
 /// Callback that starts the main
@@ -162,20 +162,20 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Univ
 
     use std::time::Duration;
 
-    if let Some(daemon) = {
+    if let Some(timer) = {
         let state = &mut app_state.data.lock().ok()?;
         state.board = Board::new_random(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT);
 
         if state.game_is_running {
             None
         } else {
-            let daemon = Daemon::new(tick).with_interval(Duration::from_millis(200));
+            let timer = Timer::new(tick).with_interval(Duration::from_millis(200));
 
             state.game_is_running = true;
-            Some(daemon)
+            Some(timer)
         }
     }{
-        app_state.add_daemon(DaemonId::new(), daemon);
+        app_state.add_timer(TimerId::new(), timer);
     }
 
     Redraw

@@ -46,7 +46,7 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
-    async::{Task, Daemon, DaemonId},
+    async::{Task, Timer, TimerId},
     focus::FocusTarget,
 };
 
@@ -395,11 +395,11 @@ impl<T: Layout> App<T> {
                 self.windows.remove(&closed_window_id);
             });
 
-            let should_redraw_daemons = self.app_state.run_all_daemons();
+            let should_redraw_timers = self.app_state.run_all_timers();
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
-            let should_redraw_daemons_or_tasks = [should_redraw_daemons, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
+            let should_redraw_timers_or_tasks = [should_redraw_timers, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
 
-            if should_redraw_daemons_or_tasks {
+            if should_redraw_timers_or_tasks {
                 // self.windows.iter().for_each(|(_, window)| {
                 //     app_state.resources.fake_display.events_loop.create_proxy().wakeup().unwrap_or(())
                 // });
@@ -444,7 +444,7 @@ image_api!(App::app_state);
 font_api!(App::app_state);
 text_api!(App::app_state);
 clipboard_api!(App::app_state);
-daemon_api!(App::app_state);
+timer_api!(App::app_state);
 
 /// Render the contents of one single window. Returns
 /// (if the event was a resize event, if the window was closed)
@@ -702,7 +702,7 @@ fn call_callbacks<T: Layout>(
 
     let mut callbacks_overwrites_focus = None;
 
-    let mut default_daemons = FastHashMap::default();
+    let mut default_timers = FastHashMap::default();
     let mut default_tasks = Vec::new();
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
@@ -726,7 +726,7 @@ fn call_callbacks<T: Layout>(
                 let mut app_state_no_data = AppStateNoData {
                     windows: &app_state.windows,
                     resources: &mut app_state.resources,
-                    daemons: FastHashMap::default(),
+                    timers: FastHashMap::default(),
                     tasks: Vec::new(),
                 };
 
@@ -739,7 +739,7 @@ fn call_callbacks<T: Layout>(
                     should_update_screen = Redraw;
                 }
 
-                default_daemons.extend(app_state_no_data.daemons.into_iter());
+                default_timers.extend(app_state_no_data.timers.into_iter());
                 default_tasks.extend(app_state_no_data.tasks.into_iter());
 
                 // Overwrite the focus from the callback info
@@ -750,9 +750,9 @@ fn call_callbacks<T: Layout>(
         }
     }
 
-    // If the default callbacks have started daemons or tasks, add them to the main app state
-    for (daemon_id, daemon) in default_daemons {
-        app_state.add_daemon(daemon_id, daemon);
+    // If the default callbacks have started timers or tasks, add them to the main app state
+    for (timer_id, timer) in default_timers {
+        app_state.add_timer(timer_id, timer);
     }
 
     for task in default_tasks {

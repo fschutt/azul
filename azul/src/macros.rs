@@ -420,36 +420,36 @@ impl<T: Layout> $struct_name<T> {
 
 )}
 
-macro_rules! daemon_api {($struct_name:ident::$struct_field:ident) => (
+macro_rules! timer_api {($struct_name:ident::$struct_field:ident) => (
 
 impl<T: Layout> $struct_name<T> {
 
-    /// See [`AppState::add_daemon`]
+    /// See [`AppState::add_timer`]
     ///
-    /// [`AppState::add_daemon`]: ../app_state/struct.AppState.html#method.add_daemon
-    pub fn add_daemon(&mut self, daemon_id: DaemonId, daemon: Daemon<T>) {
-        self.$struct_field.add_daemon(daemon_id, daemon)
+    /// [`AppState::add_timer`]: ../app_state/struct.AppState.html#method.add_timer
+    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer<T>) {
+        self.$struct_field.add_timer(timer_id, timer)
     }
 
-    /// See [`AppState::has_daemon`]
+    /// See [`AppState::has_timer`]
     ///
-    /// [`AppState::has_daemon`]: ../app_state/struct.AppState.html#method.has_daemon
-    pub fn has_daemon(&self, daemon_id: &DaemonId) -> bool {
-        self.$struct_field.has_daemon(daemon_id)
+    /// [`AppState::has_timer`]: ../app_state/struct.AppState.html#method.has_timer
+    pub fn has_timer(&self, timer_id: &TimerId) -> bool {
+        self.$struct_field.has_timer(timer_id)
     }
 
-    /// See [`AppState::get_daemon`]
+    /// See [`AppState::get_timer`]
     ///
-    /// [`AppState::get_daemon`]: ../app_state/struct.AppState.html#method.get_daemon
-    pub fn get_daemon(&self, daemon_id: &DaemonId) -> Option<Daemon<T>> {
-        self.$struct_field.get_daemon(daemon_id)
+    /// [`AppState::get_timer`]: ../app_state/struct.AppState.html#method.get_timer
+    pub fn get_timer(&self, timer_id: &TimerId) -> Option<Timer<T>> {
+        self.$struct_field.get_timer(timer_id)
     }
 
-    /// See [`AppState::delete_daemon`]
+    /// See [`AppState::delete_timer`]
     ///
-    /// [`AppState::delete_daemon`]: ../app_state/struct.AppState.html#method.delete_daemon
-    pub fn delete_daemon(&mut self, daemon_id: &DaemonId) -> Option<Daemon<T>> {
-        self.$struct_field.delete_daemon(daemon_id)
+    /// [`AppState::delete_timer`]: ../app_state/struct.AppState.html#method.delete_timer
+    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer<T>> {
+        self.$struct_field.delete_timer(timer_id)
     }
 }
 
