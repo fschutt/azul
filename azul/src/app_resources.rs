@@ -922,7 +922,7 @@ fn parse_gsettings_font(input: &str) -> &str {
     use std::char;
     let input = input.trim();
     let input = input.trim_matches('\'');
-    let input = input.trim_right_matches(char::is_numeric);
+    let input = input.trim_end_matches(char::is_numeric);
     let input = input.trim();
     input
 }

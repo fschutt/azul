@@ -968,7 +968,7 @@ impl<T: Layout> Dom<T> {
 
     /// Returns a mutable reference to the current HEAD of the DOM structure (the last inserted element)
     #[inline]
-    pub fn get_head_node_mut(&self) -> &mut NodeData<T> {
+    pub fn get_head_node_mut(&mut self) -> &mut NodeData<T> {
         &mut self.arena.node_data[self.head]
     }
 

@@ -380,13 +380,7 @@ pub fn words_to_scaled_words(
     let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / 128.0; // TODO: Half width for spaces?
     let space_codepoint = hb_shaped_space.glyph_infos[0].codepoint;
 
-    // Things like "tab" or "return" might confuse harfbuzz, need to shape
-    // the entire font like it's just one long line
-    let internal_str = words.internal_str.replace("\t", " ");
-    let internal_str = internal_str.replace("\n", " ");
-    let internal_str = internal_str.replace("\r\n", " ");
-
-    let hb_buffer_entire_paragraph = HbBuffer::from_str(&internal_str);
+    let hb_buffer_entire_paragraph = HbBuffer::from_str(&words.internal_str);
     let hb_shaped_entire_paragraph = text_shaping::shape_word_hb(&hb_buffer_entire_paragraph, &hb_scaled_font);
 
     let mut shaped_word_positions = Vec::new();
