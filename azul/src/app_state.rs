@@ -10,7 +10,6 @@ use {
     text_cache::TextId,
     app::AppConfig,
     window::{FakeWindow, WindowCreateError},
-    task::Task,
     dom::{UpdateScreen, Redraw, DontRedraw},
     traits::Layout,
     app_resources::{
@@ -18,7 +17,7 @@ use {
         FontReloadError, ImageReloadError, RawImage,
     },
     error::ClipboardError,
-    daemon::{Daemon, DaemonId, TerminateDaemon},
+    async::{Task, Daemon, DaemonId, TerminateDaemon},
 };
 
 /// Wrapper for your application data, stores the data, windows and resources, as
