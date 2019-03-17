@@ -1,5 +1,3 @@
-//! ID-based node tree
-
 use std::{
     ops::{Index, IndexMut},
     collections::BTreeMap,

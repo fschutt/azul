@@ -1,5 +1,3 @@
-//! WARNING: Unsafe code ahead - calls the default methods
-
 use app::AppStateNoData;
 use window::CallbackInfo;
 

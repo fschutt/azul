@@ -160,8 +160,6 @@ mod display_list;
 mod id_tree;
 /// State handling for user interfaces
 mod ui_state;
-/// Image handling
-mod images;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
 /// top of each other
 mod compositor;

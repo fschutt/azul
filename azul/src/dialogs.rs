@@ -1,5 +1,3 @@
-//! Dialogs (open folder, open file), message boxes and native color pickers
-
 pub use tinyfiledialogs::{MessageBoxIcon, DefaultColorValue};
 
 /// Ok or cancel result, returned from the `msg_box_ok_cancel` function

@@ -1,7 +1,3 @@
-//! The compositor takes all the textures for a frame and draws them on top of each other.
-//! This makes it possible to use OpenGL images in the background and compose SVG elements
-//! into the UI.
-
 use std::sync::{Mutex, atomic::{Ordering, AtomicUsize}};
 use webrender::{
     ExternalImageHandler, ExternalImage, ExternalImageSource,
