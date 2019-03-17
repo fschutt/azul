@@ -201,21 +201,23 @@ pub mod prelude {
     #[cfg(feature = "css-parser")]
     pub use azul_css::*;
     pub use app::{App, AppConfig, AppState, AppResources};
-    pub use async::{Task, TerminateTimer, TimerId, TimerCallback, Timer};
+    pub use async::{Task, TerminateTimer, TimerId, Timer};
     pub use resources::{
         RawImageFormat, ImageId, FontId, FontSource, ImageSource,
         TextCache, TextId,
     };
-    pub use callbacks::{CallbackInfo, FocusTarget, LayoutInfo};
+    pub use callbacks::{
+        Callback, TimerCallback, IFrameCallback, GlTextureCallback,
+        UpdateScreen, Redraw, DontRedraw,
+        CallbackInfo, FocusTarget, LayoutInfo, HidpiAdjustedBounds, Texture,
+    };
     pub use dom::{
-        Dom, DomHash, NodeType, NodeData, Callback, On, DomString,
-        UpdateScreen, Redraw, DontRedraw, Texture, GlTextureCallback,
-        IFrameCallback, TabIndex, EventFilter, HoverEventFilter, FocusEventFilter,
-        NotEventFilter, WindowEventFilter,
+        Dom, DomHash, NodeType, NodeData, On, DomString, TabIndex,
+        EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
     };
     pub use traits::{Layout, Modify};
     pub use window::{
-        MonitorIter, Window, WindowCreateOptions, HidpiAdjustedBounds,
+        MonitorIter, Window, WindowCreateOptions,
         WindowMonitorTarget, RendererType, ReadOnlyWindow
     };
     pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};

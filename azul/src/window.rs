@@ -7,7 +7,7 @@ use std::{
 };
 use webrender::{
     api::{
-        LayoutRect, PipelineId, Epoch, DocumentId,
+        PipelineId, Epoch, DocumentId,
         RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
     },
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
@@ -20,7 +20,7 @@ use glium::{
         self, EventsLoop, AvailableMonitorsIter, ContextTrait, CombinedContext, CreationError,
         MonitorId, ContextError, ContextBuilder, WindowId as GliumWindowId,
         Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Icon, Context,
-        dpi::{LogicalSize, PhysicalSize}
+        dpi::LogicalSize,
     },
     backend::{Context as BackendContext, Facade, glutin::DisplayCreationError},
 };
@@ -30,13 +30,13 @@ use azul_css::{Css, ColorU};
 use azul_css::HotReloadHandler;
 use {
     FastHashMap,
-    dom::{Texture, Callback},
     window_state::{WindowState, MouseState, KeyboardState},
     traits::Layout,
     compositor::Compositor,
     app::FrameEventInfo,
     callbacks::{
-        DefaultCallbackSystem, StackCheckedPointer, DefaultCallback, DefaultCallbackId
+        Callback, DefaultCallbackSystem, StackCheckedPointer,
+        DefaultCallback, DefaultCallbackId, Texture,
     },
     display_list::ScrolledNodes,
 };
@@ -973,39 +973,6 @@ pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateEr
             gl::GlesFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
         }),
         glutin::Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
-    }
-}
-
-// Only necessary for GlTextures and IFrames that need the
-// width and height of their container to calculate their content
-#[derive(Debug, Copy, Clone)]
-pub struct HidpiAdjustedBounds {
-    logical_size: LogicalSize,
-    hidpi_factor: f64,
-    winit_hidpi_factor: f64,
-}
-
-impl HidpiAdjustedBounds {
-    pub fn from_bounds(bounds: LayoutRect, hidpi_factor: f64, winit_hidpi_factor: f64) -> Self {
-        let logical_size = LogicalSize::new(bounds.size.width as f64, bounds.size.height as f64);
-        Self {
-            logical_size,
-            hidpi_factor,
-            winit_hidpi_factor,
-        }
-    }
-
-    pub fn get_physical_size(&self) -> PhysicalSize {
-        self.get_logical_size().to_physical(self.winit_hidpi_factor)
-    }
-
-    pub fn get_logical_size(&self) -> LogicalSize {
-        // NOTE: hidpi factor, not winit_hidpi_factor!
-        LogicalSize::new(self.logical_size.width * self.hidpi_factor, self.logical_size.height * self.hidpi_factor)
-    }
-
-    pub fn get_hidpi_factor(&self) -> f64 {
-        self.hidpi_factor
     }
 }
 

@@ -1,6 +1,5 @@
 use std::{
     fmt,
-    rc::Rc,
     path::Path,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
@@ -8,17 +7,16 @@ use std::{
     collections::BTreeMap,
     iter::FromIterator,
 };
-use glium::{Texture2d, framebuffer::SimpleFrameBuffer};
 use azul_css::{ NodeTypePath, CssProperty };
 use {
     ui_state::UiState,
-    callbacks::{CallbackInfo, LayoutInfo},
+    callbacks::{
+        DefaultCallbackId, StackCheckedPointer,
+        Callback, GlTextureCallback, IFrameCallback,
+    },
     app_resources::{ImageId, TextId},
     traits::Layout,
-    app::AppState,
     id_tree::{Arena, NodeDataContainer},
-    callbacks::{DefaultCallbackId, StackCheckedPointer},
-    window::HidpiAdjustedBounds,
     xml::{self, XmlParseError, XmlComponentMap},
 };
 
@@ -87,43 +85,6 @@ impl DomId {
 /// Calculated hash of a DOM node, used for querying attributes of the DOM node
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct DomHash(pub u64);
-
-/// A callback function has to return if the screen should
-/// be updated after the function has run.
-///
-/// NOTE: This is currently a typedef for `Option<()>`,
-/// so that you can use the `?` operator in callbacks
-/// (to simply not redraw if there is an error). This was an enum previously,
-/// but since Rust doesn't have a "custom try" operator, this led to a lot of
-/// usability problems. In the future, this might change back to an enum therefore
-/// the constants "Redraw" and "DontRedraw" are not capitalized, to minimize breakage.
-pub type UpdateScreen = Option<()>;
-/// After the callback is called, the screen needs to redraw
-/// (layout() function being called again).
-#[allow(non_upper_case_globals)]
-pub const Redraw: Option<()> = Some(());
-/// The screen does not need to redraw after the callback has been called.
-#[allow(non_upper_case_globals)]
-pub const DontRedraw: Option<()> = None;
-
-pub type CallbackType<T> = fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen;
-/// Stores a function pointer that is executed when the given UI element is hit
-///
-/// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
-/// The style is not affected by this, so if you make changes to the window's style
-/// inside the function, the screen will not be automatically redrawn, unless you return
-/// an `UpdateScreen::Redraw` from the function
-pub struct Callback<T: Layout>(pub CallbackType<T>);
-impl_callback_bounded!(Callback<T: Layout>);
-
-pub type GlTextureCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>;
-pub struct GlTextureCallback<T: Layout>(pub GlTextureCallbackType<T>);
-impl_callback_bounded!(GlTextureCallback<T: Layout>);
-
-pub type IFrameCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>;
-pub struct IFrameCallback<T: Layout>(pub IFrameCallbackType<T>);
-impl_callback_bounded!(IFrameCallback<T: Layout>);
-
 
 /// List of core DOM node types built-into by `azul`.
 pub enum NodeType<T: Layout> {
@@ -1384,57 +1345,6 @@ impl<T: Layout> Dom<T> {
         }
     }
 }
-
-/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-///
-/// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-/// when you are done with your OpenGL drawing, otherwise WebRender will render
-/// to the texture, not the window, so your texture will actually never show up.
-/// If you use a `Texture` and you get a blank screen, this is probably why.
-#[derive(Debug, Clone)]
-pub struct Texture {
-    pub(crate) inner: Rc<Texture2d>,
-}
-
-impl Texture {
-    /// Note: You can initialize this texture from an existing (external texture).
-    pub fn new(tex: Texture2d) -> Self {
-        Self {
-            inner: Rc::new(tex),
-        }
-    }
-
-    /// Prepares the texture for drawing - you can only draw
-    /// on a framebuffer, the texture itself is readonly from the
-    /// OpenGL drivers point of view.
-    ///
-    /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-    /// when you are done with your OpenGL drawing, otherwise WebRender will render
-    /// to the texture instead of the window, so your texture will actually
-    /// never show up on the screen, since it is never rendered.
-    /// If you use a `Texture` and you get a blank screen, this is probably why.
-    pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
-        self.inner.as_surface()
-    }
-}
-
-impl Hash for Texture {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        use glium::GlObject;
-        self.inner.get_id().hash(state);
-    }
-}
-
-impl PartialEq for Texture {
-    /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
-    /// actual contents of the texture.
-    fn eq(&self, other: &Texture) -> bool {
-        use glium::GlObject;
-        self.inner.get_id() == other.inner.get_id()
-    }
-}
-
-impl Eq for Texture { }
 
 #[test]
 fn test_dom_sibling_1() {

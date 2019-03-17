@@ -9,14 +9,14 @@ use {
     app::RuntimeError,
     traits::Layout,
     dom::{
-        Callback, Dom, TagId, TabIndex, DomString,
+        Dom, TagId, TabIndex, DomString,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
         WindowEventFilter
     },
     app::AppState,
     id_tree::NodeId,
     style::HoverGroup,
-    callbacks::{LayoutInfo, DefaultCallbackId},
+    callbacks::{Callback, LayoutInfo, DefaultCallbackId},
 };
 
 pub struct UiState<T: Layout> {

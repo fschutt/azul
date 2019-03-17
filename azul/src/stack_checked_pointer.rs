@@ -6,10 +6,12 @@ use std::{
 };
 use {
     traits::Layout,
-    dom::{UpdateScreen, Dom, Texture},
-    callbacks::{DefaultCallbackType, CallbackInfo, LayoutInfo},
+    dom::Dom,
+    callbacks::{
+        DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds,
+        UpdateScreen, Texture,
+    },
     app::AppStateNoData,
-    window::HidpiAdjustedBounds,
 };
 
 /// A `StackCheckedPointer` is a type-erased, non-boxed pointer to a

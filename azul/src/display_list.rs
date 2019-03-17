@@ -25,20 +25,19 @@ use azul_css::{
 use {
     FastHashMap,
     app_resources::AppResources,
-    callbacks::StackCheckedPointer,
+    callbacks::{IFrameCallback, GlTextureCallback, HidpiAdjustedBounds, StackCheckedPointer},
     traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
-        IFrameCallback, NodeData, GlTextureCallback, ScrollTagId, DomHash, DomString,
-        new_scroll_tag_id,
-        NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label}
+        NodeData, ScrollTagId, DomHash, DomString, new_scroll_tag_id,
+        NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
     },
     ui_solver::{do_the_layout, LayoutResult, PositionedRectangle},
     app_resources::ImageId,
     compositor::new_opengl_texture_id,
-    window::{Window, FakeWindow, ScrollStates, HidpiAdjustedBounds},
+    window::{Window, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
     window_state::WindowSize,
 };

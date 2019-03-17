@@ -3,10 +3,8 @@
 use std::ops::Range;
 use {
     traits::Layout,
-    dom::{
-        Dom, EventFilter, FocusEventFilter,
-        UpdateScreen, Redraw, DontRedraw, TabIndex,
-    },
+    callbacks::{UpdateScreen, Redraw, DontRedraw},
+    dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
     window::FakeWindow,
     prelude::VirtualKeyCode,
     callbacks::{CallbackInfo, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
