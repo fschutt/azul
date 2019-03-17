@@ -23,7 +23,7 @@ use {
     ui_state::UiState,
     traits::Layout,
     focus::FocusTarget,
-    app_state::AppState,
+    app::AppState,
     window::CallbackInfo,
 };
 

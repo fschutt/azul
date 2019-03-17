@@ -14,7 +14,7 @@ use {
         HoverEventFilter, FocusEventFilter, NotEventFilter,
         WindowEventFilter
     },
-    app_state::AppState,
+    app::AppState,
     id_tree::NodeId,
     style::HoverGroup,
     default_callbacks::DefaultCallbackId,

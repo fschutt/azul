@@ -30,6 +30,7 @@ use app_resources::ImageSource;
 use log::LevelFilter;
 use azul_css::{Css, ColorU};
 use {
+    FastHashMap,
     error::ClipboardError,
     window::{
         Window, FakeWindow, ScrollStates,
@@ -37,18 +38,18 @@ use {
     },
     window_state::{WindowSize, DebugState},
     text_cache::TextId,
-    dom::{ScrollTagId, UpdateScreen},
+    dom::{ScrollTagId, UpdateScreen, Redraw, DontRedraw},
     app_resources::{
-        AppResources, ImageId, FontId, FontSource, ImageReloadError,
+        ImageId, FontSource, FontId, ImageReloadError,
         FontReloadError, CssImageId, RawImage,
     },
-    app_state::AppState,
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
-    async::{Task, Timer, TimerId},
+    async::{Task, Timer, TimerId, TerminateTimer},
     focus::FocusTarget,
 };
+pub use app_resources::AppResources;
 
 type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
@@ -65,74 +66,6 @@ pub struct App<T: Layout> {
     pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
     pub config: AppConfig,
-}
-
-/// Error returned by the `.run()` function
-///
-/// If the `.run()` function would panic, that would need `T` to
-/// implement `Debug`, which is not necessary if we just return an error.
-pub enum RuntimeError<T: Layout> {
-    // Could not swap the display (drawing error)
-    GlSwapError(SwapBuffersError),
-    ArcUnlockError,
-    MutexPoisonError(PoisonError<T>),
-    MutexLockError,
-    WindowIndexError,
-}
-
-impl<T: Layout> From<PoisonError<T>> for RuntimeError<T> {
-    fn from(e: PoisonError<T>) -> Self {
-        RuntimeError::MutexPoisonError(e)
-    }
-}
-
-impl<T: Layout> From<SwapBuffersError> for RuntimeError<T> {
-    fn from(e: SwapBuffersError) -> Self {
-        RuntimeError::GlSwapError(e)
-    }
-}
-
-impl<T: Layout> fmt::Debug for RuntimeError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::RuntimeError::*;
-        match self {
-            GlSwapError(e) => write!(f, "Failed to swap GL display: {}", e),
-            ArcUnlockError => write!(f, "Failed to unlock arc on application shutdown"),
-            MutexPoisonError(e) => write!(f, "Mutex poisoned (thread panicked unexpectedly): {}", e),
-            MutexLockError => write!(f, "Failed to lock application state mutex"),
-            WindowIndexError => write!(f, "Invalid window index"),
-        }
-    }
-}
-
-impl<T: Layout> fmt::Display for RuntimeError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self))
-    }
-}
-
-pub(crate) struct FrameEventInfo {
-    pub(crate) should_redraw_window: bool,
-    pub(crate) should_swap_window: bool,
-    pub(crate) should_hittest: bool,
-    pub(crate) cur_cursor_pos: LogicalPosition,
-    pub(crate) new_window_size: Option<LogicalSize>,
-    pub(crate) new_dpi_factor: Option<f64>,
-    pub(crate) is_resize_event: bool,
-}
-
-impl Default for FrameEventInfo {
-    fn default() -> Self {
-        Self {
-            should_redraw_window: false,
-            should_swap_window: false,
-            should_hittest: false,
-            cur_cursor_pos: LogicalPosition::new(0.0, 0.0),
-            new_window_size: None,
-            new_dpi_factor: None,
-            is_resize_event: false,
-        }
-    }
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
@@ -183,6 +116,134 @@ impl Default for AppConfig {
             background_color: COLOR_WHITE,
         }
     }
+}
+
+/// Wrapper for your application data, stores the data, windows and resources, as
+/// well as running timers and asynchronous tasks.
+///
+/// In order to be layout-able, your data model needs to satisfy the `Layout` trait,
+/// which maps the state of your application to a DOM (how the application data should be laid out)
+pub struct AppState<T: Layout> {
+    /// Your data (the global struct which all callbacks will have access to)
+    pub data: Arc<Mutex<T>>,
+    /// This field represents the state of the windows, public to the user. You can
+    /// mess around with the state as you like, however, the actual window won't update
+    /// until the next frame. This is done to "decouple" the frameworks internal
+    /// state updating logic from the user code (and to make the API future-proof
+    /// in case extra functions are introduced).
+    ///
+    /// Another reason this is needed is to (later) introduce testing for the window
+    /// state - if the API would directly modify the window itself, these changes
+    /// wouldn't be recorded anywhere, so there wouldn't be a way to unit-test certain APIs.
+    ///
+    /// The state of these `FakeWindow`s gets deleted and recreated on each frame, especially
+    /// the app's style. This should force a user to design his code in a functional way,
+    /// without relying on state-based conditions. Example:
+    ///
+    /// ```no_run,ignore
+    /// let window_state = &mut app_state.windows[event.window];
+    /// // Update the title
+    /// window_state.state.title = "Hello";
+    /// ```
+    pub windows: BTreeMap<GliumWindowId, FakeWindow<T>>,
+    /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
+    ///
+    /// Accessing this field is often required to load new fonts or images, so instead of
+    /// requiring the `FontHashMap`, a lot of functions just require the whole `AppResources` field.
+    pub resources: AppResources,
+    /// Currently running timers (polling functions, run on the main thread)
+    pub(crate) timers: FastHashMap<TimerId, Timer<T>>,
+    /// Currently running tasks (asynchronous functions running each on a different thread)
+    pub(crate) tasks: Vec<Task<T>>,
+}
+
+/// Same as the [AppState](./struct.AppState.html) but without the
+/// `self.data` field - used for default callbacks, so that callbacks can
+/// load and unload fonts or images + access the system clipboard
+///
+/// Default callbacks don't have access to the `AppState.data` field,
+/// since they use a `StackCheckedPointer` instead.
+pub struct AppStateNoData<'a, T: 'a + Layout> {
+    /// See [`AppState.windows`](./struct.AppState.html#structfield.windows)
+    pub windows: &'a BTreeMap<GliumWindowId, FakeWindow<T>>,
+    /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
+    pub resources : &'a mut AppResources,
+    /// Currently running timers (polling functions, run on the main thread)
+    pub(crate) timers: FastHashMap<TimerId, Timer<T>>,
+    /// Currently running tasks (asynchronous functions running each on a different thread)
+    pub(crate) tasks: Vec<Task<T>>,
+}
+
+/// Error returned by the `.run()` function
+///
+/// If the `.run()` function would panic, that would need `T` to
+/// implement `Debug`, which is not necessary if we just return an error.
+pub enum RuntimeError<T: Layout> {
+    // Could not swap the display (drawing error)
+    GlSwapError(SwapBuffersError),
+    ArcUnlockError,
+    MutexPoisonError(PoisonError<T>),
+    MutexLockError,
+    WindowIndexError,
+}
+
+pub(crate) struct FrameEventInfo {
+    pub(crate) should_redraw_window: bool,
+    pub(crate) should_swap_window: bool,
+    pub(crate) should_hittest: bool,
+    pub(crate) cur_cursor_pos: LogicalPosition,
+    pub(crate) new_window_size: Option<LogicalSize>,
+    pub(crate) new_dpi_factor: Option<f64>,
+    pub(crate) is_resize_event: bool,
+}
+
+impl Default for FrameEventInfo {
+    fn default() -> Self {
+        Self {
+            should_redraw_window: false,
+            should_swap_window: false,
+            should_hittest: false,
+            cur_cursor_pos: LogicalPosition::new(0.0, 0.0),
+            new_window_size: None,
+            new_dpi_factor: None,
+            is_resize_event: false,
+        }
+    }
+}
+
+impl<T: Layout> From<PoisonError<T>> for RuntimeError<T> {
+    fn from(e: PoisonError<T>) -> Self {
+        RuntimeError::MutexPoisonError(e)
+    }
+}
+
+impl<T: Layout> From<SwapBuffersError> for RuntimeError<T> {
+    fn from(e: SwapBuffersError) -> Self {
+        RuntimeError::GlSwapError(e)
+    }
+}
+
+impl<T: Layout> fmt::Debug for RuntimeError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::RuntimeError::*;
+        match self {
+            GlSwapError(e) => write!(f, "Failed to swap GL display: {}", e),
+            ArcUnlockError => write!(f, "Failed to unlock arc on application shutdown"),
+            MutexPoisonError(e) => write!(f, "Mutex poisoned (thread panicked unexpectedly): {}", e),
+            MutexLockError => write!(f, "Failed to lock application state mutex"),
+            WindowIndexError => write!(f, "Invalid window index"),
+        }
+    }
+}
+
+impl<T: Layout> fmt::Display for RuntimeError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self))
+    }
+}
+
+impl<'a, T: 'a + Layout> AppStateNoData<'a, T> {
+    impl_deamon_api!();
 }
 
 impl<T: Layout> App<T> {
@@ -446,8 +507,84 @@ text_api!(App::app_state);
 clipboard_api!(App::app_state);
 timer_api!(App::app_state);
 
-/// Render the contents of one single window. Returns
-/// (if the event was a resize event, if the window was closed)
+impl<T: Layout> AppState<T> {
+
+    /// Creates a new `AppState`
+    fn new(initial_data: T, config: &AppConfig) -> Result<Self, WindowCreateError> {
+        Ok(Self {
+            data: Arc::new(Mutex::new(initial_data)),
+            windows: BTreeMap::new(),
+            resources: AppResources::new(config)?,
+            timers: FastHashMap::default(),
+            tasks: Vec::new(),
+        })
+    }
+
+    impl_deamon_api!();
+
+    /// Run all currently registered timers
+    #[must_use]
+    fn run_all_timers(&mut self) -> UpdateScreen {
+        let mut should_update_screen = DontRedraw;
+        let mut lock = self.data.lock().unwrap();
+        let mut timers_to_terminate = Vec::new();
+
+        for (key, timer) in self.timers.iter_mut() {
+            let (should_update, should_terminate) = timer.invoke_callback_with_data(&mut lock, &mut self.resources);
+
+            if should_update == Redraw &&
+               should_update_screen == DontRedraw {
+                should_update_screen = Redraw;
+            }
+
+            if should_terminate == TerminateTimer::Terminate {
+                timers_to_terminate.push(key.clone());
+            }
+        }
+
+        for key in timers_to_terminate {
+            self.timers.remove(&key);
+        }
+
+        should_update_screen
+    }
+
+    /// Remove all tasks that have finished executing
+    #[must_use] fn clean_up_finished_tasks(&mut self) -> UpdateScreen {
+        let old_count = self.tasks.len();
+        let mut timers_to_add = Vec::new();
+        self.tasks.retain(|task| {
+            if !task.is_finished() {
+                true
+            } else {
+                timers_to_add.extend(task.after_completion_timers.iter().cloned());
+                false
+            }
+        });
+
+        let timers_is_empty = timers_to_add.is_empty();
+        let new_count = self.tasks.len();
+
+        // Start all the timers that should run after the completion of the task
+        for (timer_id, timer) in timers_to_add {
+            self.add_timer(timer_id, timer);
+        }
+
+        if old_count == new_count && timers_is_empty {
+            DontRedraw
+        } else {
+            Redraw
+        }
+    }
+}
+
+image_api!(AppState::resources);
+font_api!(AppState::resources);
+text_api!(AppState::resources);
+clipboard_api!(AppState::resources);
+
+/// Render the contents of one single window.
+/// Returns (if the event was a resize event, if the window was closed)
 fn render_single_window_content<T: Layout>(
     config: &AppConfig,
     events: &[WindowEvent],
@@ -681,7 +818,6 @@ fn call_callbacks<T: Layout>(
 {
     use {
         FastHashMap,
-        app_state::AppStateNoData,
         window::CallbackInfo,
         dom::{Redraw, DontRedraw},
         window_state::{KeyboardState, MouseState},

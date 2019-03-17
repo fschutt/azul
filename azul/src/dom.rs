@@ -16,7 +16,7 @@ use {
     text_cache::TextId,
     app_resources::ImageId,
     traits::Layout,
-    app_state::AppState,
+    app::AppState,
     id_tree::{Arena, NodeDataContainer},
     default_callbacks::{DefaultCallbackId, StackCheckedPointer},
     window::HidpiAdjustedBounds,

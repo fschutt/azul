@@ -27,12 +27,54 @@ use {
 pub type CssImageId = String;
 pub type CssFontId = String;
 
+/// Stores the resources for the application, souch as fonts, images and cached
+/// texts, also clipboard strings
+///
+/// Images and fonts can be references across window contexts (not yet tested,
+/// but should work).
+pub struct AppResources {
+    /// In order to properly load / unload fonts and images as well as share resources
+    /// between windows, this field stores the (application-global) Renderer.
+    pub(crate) fake_display: FakeDisplay,
+    /// The CssImageId is the string used in the CSS, i.e. "my_image" -> ImageId(4)
+    css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,
+    /// Same as CssImageId -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
+    css_ids_to_font_ids: FastHashMap<CssFontId, FontId>,
+    /// Stores where the images were loaded from
+    images: FastHashMap<ImageId, ImageSource>,
+    /// Raw images are the same as regular images, but not in PNG or JPEG format, but rather as raw bytes
+    raw_images: FastHashMap<ImageId, RawImage>,
+    /// Stores where the fonts were loaded from
+    fonts: FastHashMap<FontId, FontSource>,
+    /// All image keys currently active in the RenderApi
+    currently_registered_images: FastHashMap<ImageId, ImageInfo>,
+    /// All font keys currently active in the RenderApi
+    currently_registered_fonts: FastHashMap<ImmediateFontId, LoadedFont>,
+    /// If an image isn't displayed, it is deleted from memory, only
+    /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
+    ///
+    /// This way the image can be re-loaded if necessary but doesn't have to reside in memory at all times.
+    last_frame_image_keys: FastHashMap<ImageId, ImageInfo>,
+    pending_frame_image_keys: FastHashMap<ImageId, ImageInfo>,
+    /// If a font does not get used for one frame, the corresponding instance key gets
+    /// deleted. If a FontId has no FontInstanceKeys anymore, the font key gets deleted.
+    ///
+    /// The only thing remaining in memory permanently is the FontSource (which is only
+    /// the string of the file path where the font was loaded from, so no huge memory pressure).
+    /// The reason for this agressive strategy is that the
+    last_frame_font_keys: FastHashMap<ImmediateFontId, LoadedFont>,
+    /// Fonts that were loaded, but not yet used during this frame
+    pending_frame_font_keys: FastHashMap<ImmediateFontId, LoadedFont>,
+    /// Stores long texts across frames
+    text_cache: TextCache,
+    /// Keyboard clipboard storage and retrieval functionality
+    clipboard: SystemClipboard,
+}
+
 static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ImageId {
-    id: usize,
-}
+pub struct ImageId { id: usize }
 
 impl ImageId {
     pub(crate) fn new() -> Self {
@@ -155,50 +197,6 @@ pub struct RawImage {
     pub data_format: RawImageFormat,
 }
 
-/// Stores the resources for the application, souch as fonts, images and cached
-/// texts, also clipboard strings
-///
-/// Images and fonts can be references across window contexts (not yet tested,
-/// but should work).
-pub struct AppResources {
-    /// In order to properly load / unload fonts and images as well as share resources
-    /// between windows, this field stores the (application-global) Renderer.
-    pub(crate) fake_display: FakeDisplay,
-    /// The CssImageId is the string used in the CSS, i.e. "my_image" -> ImageId(4)
-    pub(crate) css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,
-    /// Same as CssImageId -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
-    pub(crate) css_ids_to_font_ids: FastHashMap<CssFontId, FontId>,
-    /// Stores where the images were loaded from
-    pub(crate) images: FastHashMap<ImageId, ImageSource>,
-    /// Raw images are the same as regular images, but not in PNG or JPEG format, but rather as raw bytes
-    pub(crate) raw_images: FastHashMap<ImageId, RawImage>,
-    /// Stores where the fonts were loaded from
-    pub(crate) fonts: FastHashMap<FontId, FontSource>,
-    /// All image keys currently active in the RenderApi
-    currently_registered_images: FastHashMap<ImageId, ImageInfo>,
-    /// All font keys currently active in the RenderApi
-    currently_registered_fonts: FastHashMap<ImmediateFontId, LoadedFont>,
-    /// If an image isn't displayed, it is deleted from memory, only
-    /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
-    ///
-    /// This way the image can be re-loaded if necessary but doesn't have to reside in memory at all times.
-    last_frame_image_keys: FastHashMap<ImageId, ImageInfo>,
-    pending_frame_image_keys: FastHashMap<ImageId, ImageInfo>,
-    /// If a font does not get used for one frame, the corresponding instance key gets
-    /// deleted. If a FontId has no FontInstanceKeys anymore, the font key gets deleted.
-    ///
-    /// The only thing remaining in memory permanently is the FontSource (which is only
-    /// the string of the file path where the font was loaded from, so no huge memory pressure).
-    /// The reason for this agressive strategy is that the
-    last_frame_font_keys: FastHashMap<ImmediateFontId, LoadedFont>,
-    /// Fonts that were loaded, but not yet used during this frame
-    pending_frame_font_keys: FastHashMap<ImmediateFontId, LoadedFont>,
-    /// Stores long texts across frames
-    text_cache: TextCache,
-    /// Keyboard clipboard storage and retrieval functionality
-    clipboard: SystemClipboard,
-}
-
 #[derive(Debug, Clone)]
 pub struct LoadedFont {
     pub key: FontKey,
@@ -224,7 +222,7 @@ impl LoadedFont {
 impl AppResources {
 
     /// Creates a new renderer (the renderer manages the resources and is therefore tied to the resources).
-    pub(crate) fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
+    #[must_use] pub(crate) fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
         Ok(Self {
             fake_display: FakeDisplay::new(app_config.renderer_type)?,
             css_ids_to_image_ids: FastHashMap::default(),
@@ -242,9 +240,6 @@ impl AppResources {
             clipboard: SystemClipboard::new().unwrap(),
         })
     }
-}
-
-impl AppResources {
 
     /// Returns the IDs of all currently loaded fonts in `self.font_data`
     pub fn get_loaded_font_ids(&self) -> Vec<FontId> {
