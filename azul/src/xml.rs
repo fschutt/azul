@@ -176,7 +176,7 @@ impl<T: Layout> XmlComponent<T> for DynamicXmlComponent {
         attributes: &FilteredComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
-        Err("unimplemented".into())
+        Ok("Dom::div()".into())
     }
 }
 
@@ -875,22 +875,28 @@ fn render_single_dom_node_to_string<T: Layout>(dom: &Dom<T>, existing_str: &mut 
 #[test]
 fn test_compile_dom_1() {
 
+    struct Dummy { }
+
+    impl Layout for Dummy { fn layout(&self) -> Dom<Dummy> { Dom::div() }}
+
     // Test the output of a certain component
     fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
-        let mut component_map = XmlComponentMap::default();
+        let mut component_map = XmlComponentMap::<Dummy>::default();
         let root_nodes = parse_xml_string(input).unwrap();
         get_xml_components(&root_nodes, &mut component_map).unwrap();
         let app_node = get_app_node(&root_nodes).unwrap();
-        let components = compile_components_to_rust_code(&component_map)?;
-        assert_eq!(components_source[component_name], expected);
+        let components = compile_components_to_rust_code(&component_map).unwrap();
+        let (searched_component_source, searched_component_args) = components.get(component_name).unwrap();
+        let component_string = compile_component(component_name, searched_component_args, searched_component_source);
+        assert_eq!(component_string, expected);
     }
 
     fn test_app_source_code(input: &str, expected: &str) {
-        let mut component_map = XmlComponentMap::default();
+        let mut component_map = XmlComponentMap::<Dummy>::default();
         let root_nodes = parse_xml_string(input).unwrap();
         get_xml_components(&root_nodes, &mut component_map).unwrap();
         let app_node = get_app_node(&root_nodes).unwrap();
-        let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
+        let app_source = compile_app_node_to_rust_code(&app_node, &component_map).unwrap();
         assert_eq!(app_source, expected);
     }
 
@@ -909,18 +915,7 @@ fn test_compile_dom_1() {
         }
     "#;
 
-    test_component_source_code()
-
-
-
-/*
-    let root_nodes = parse_xml_string(xml).map_err(|e| format!("XML parse error: {}", e))?;
-    get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
-    let app_node = get_app_node(&root_nodes).map_err(|e| format!("Could not find <app /> node: {}", e))?;
-    let component_functions_source = compile_components_to_rust_code(&component_map)?;
-    let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
-*/
-
+    test_component_source_code(&s1, "test", &s1_expected);
 }
 
 // --- Renderers for various built-in types
@@ -1017,15 +1012,15 @@ fn test_format_args_dynamic() {
     variables.insert("b".to_string(), "value2".to_string());
     assert_eq!(
         format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
-        Ok(String::from("hello value1, value2{ {c} }")),
+        String::from("hello value1, value2{ {c} }"),
     );
     assert_eq!(
         format_args_dynamic("hello {{a}, {b}{{ {c} }}", &variables),
-        Ok(String::from("hello {a}, value2{ {c} }")),
+        String::from("hello {a}, value2{ {c} }"),
     );
     assert_eq!(
         format_args_dynamic("hello {{{{{{{ a   }}, {b}{{ {c} }}", &variables),
-        Ok(String::from("hello {{{{{{ a   }, value2{ {c} }")),
+        String::from("hello {{{{{{ a   }, value2{ {c} }"),
     );
 }
 
@@ -1046,9 +1041,9 @@ fn test_normalize_casing() {
 fn test_parse_component_arguments() {
 
     let mut args_1_expected = ComponentArguments::new();
-    args_1_expected.insert("selectedDate".to_string(), "DateTime".to_string());
-    args_1_expected.insert("minimumDate".to_string(), "DateTime".to_string());
-    args_1_expected.insert("gridVisible".to_string(), "bool".to_string());
+    args_1_expected.insert("selected_date".to_string(), "DateTime".to_string());
+    args_1_expected.insert("minimum_date".to_string(), "DateTime".to_string());
+    args_1_expected.insert("grid_visible".to_string(), "bool".to_string());
 
     /// Everything OK
     assert_eq!(
