@@ -254,6 +254,40 @@ pub enum TextOverflow {
     InBounds(TextSizePx),
 }
 
+impl ScaledWord {
+
+    /// Counts the number of unique clusters in this word
+    pub fn number_of_clusters(&self) -> usize {
+        let mut cur_codepoint = None;
+        let mut cur_codepoint_count = 0;
+
+        for glyph in &self.glyph_infos {
+            if cur_codepoint != Some(glyph.cluster) {
+                cur_codepoint_count += 1;
+                cur_codepoint = Some(glyph.cluster);
+            }
+        }
+
+        cur_codepoint_count
+    }
+
+    pub fn cluster_ids(&self) -> Vec<usize> {
+        let mut cur_codepoint = None;
+        let mut cur_codepoint_count = 0;
+        let mut codepoints = Vec::new();
+
+        for glyph in &self.glyph_infos {
+            if cur_codepoint != Some(glyph.cluster) {
+                codepoints.push(cur_codepoint_count);
+                cur_codepoint_count += 1;
+                cur_codepoint = Some(glyph.cluster);
+            }
+        }
+
+        codepoints
+    }
+}
+
 /// Splits the text by whitespace into logical units (word, tab, return, whitespace).
 pub fn split_text_into_words(text: &str) -> Words {
 
@@ -518,10 +552,15 @@ pub fn position_words(
             None => continue,
         };
 
+        let reserved_letter_spacing_px = match text_layout_options.letter_spacing {
+            None => 0.0,
+            Some(spacing_multiplier) => {
+                spacing_multiplier.0 * scaled_word.number_of_clusters().saturating_sub(1) as f32
+            }
+        };
+
         // Calculate where the caret would be for the next word
-        let word_advance_x =
-            scaled_word.word_width
-          + (scaled_word.glyph_infos.len().saturating_sub(1) as f32 * letter_spacing_px);
+        let word_advance_x = scaled_word.word_width + reserved_letter_spacing_px;
 
         let mut new_caret_x = line_caret_x + word_advance_x;
 
@@ -643,22 +682,36 @@ pub fn get_layouted_glyphs(
 
     use text_shaping;
 
-    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
-
     let mut glyphs = Vec::with_capacity(scaled_words.items.len());
 
     for (scaled_word, word_position) in scaled_words.items.iter().zip(word_positions.word_positions.iter()) {
-        glyphs.extend(
-            text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
-            .into_iter()
-            .enumerate()
-            .map(|(glyph_idx, mut glyph)| {
-                glyph.point.x += word_position.x;
-                glyph.point.y += word_position.y;
-                glyph.point.x += letter_spacing_px * glyph_idx as f32;
-                glyph
-            })
-        )
+        match word_positions.text_layout_options.letter_spacing {
+            Some(letter_spacing_px) => {
+                let glyph_cluster_ids = scaled_word.cluster_ids();
+                glyphs.extend(
+                    text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
+                    .into_iter()
+                    .zip(glyph_cluster_ids.into_iter())
+                    .map(|(mut glyph, cluster_idx)| {
+                        glyph.point.x += word_position.x;
+                        glyph.point.y += word_position.y;
+                        glyph.point.x += letter_spacing_px.0 * cluster_idx as f32;
+                        glyph
+                    })
+                )
+            },
+            None => {
+                glyphs.extend(
+                    text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
+                    .into_iter()
+                    .map(|mut glyph| {
+                        glyph.point.x += word_position.x;
+                        glyph.point.y += word_position.y;
+                        glyph
+                    })
+                )
+            }
+        }
     }
 
     let line_breaks = get_char_indices(&word_positions, &scaled_words);
