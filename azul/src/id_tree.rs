@@ -137,6 +137,7 @@ impl NodeHierarchy {
         let mut depth = 1;
 
         loop {
+
             for id in &current_children {
                 for child_id in id.1.children(self).filter(|id| self[*id].first_child.is_some()) {
                     next_children.push((depth, child_id));
