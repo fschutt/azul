@@ -109,29 +109,27 @@ pub(crate) use azul_dependencies::usvg;
 #[cfg(feature = "faster-hashing")]
 pub(crate) use azul_dependencies::twox_hash;
 
-// #[cfg(not(target_os = "linux"))]
-// use azul_dependencies::nfd;
-
 #[cfg(feature = "css-parser")]
 extern crate azul_css;
 extern crate azul_native_style;
 extern crate azul_css_parser;
 
+// Crate-internal macros
 #[macro_use]
 mod macros;
 
 /// Global application state, wrapping resources and app state
 pub mod app;
-/// Focus tracking / input tracking related functions
-pub mod focus;
 /// Wrapper for the application data & application state
 pub mod app_state;
 /// Font & image resource handling, lookup and caching
 pub mod app_resources;
+/// Async IO helpers / (`Task` / `Timer` / `Thread`)
+pub mod async;
+/// Focus tracking / input tracking related functions
+pub mod focus;
 #[cfg(any(feature = "css-parser", feature = "native-style"))]
 pub mod css;
-/// Daemon / timer system
-pub mod daemon;
 /// XML-based DOM serialization
 pub mod xml;
 /// Handles default callbacks (such as an automatic text field update) via unsafe code
@@ -142,8 +140,6 @@ pub mod dialogs;
 pub mod dom;
 /// Re-exports of errors
 pub mod error;
-/// Async IO / task system
-pub mod task;
 /// Module for caching long texts (including their layout / character positions) across multiple frames
 pub mod text_cache;
 /// Text layout functions - useful for text layout outside of standard containers
@@ -218,10 +214,9 @@ pub mod prelude {
         VirtualKeyCode, ScanCode, Icon,
     };
     pub use azul_css::*;
-    pub use daemon::{TerminateDaemon, DaemonId, DaemonCallback, Daemon};
+    pub use async::{Task, TerminateDaemon, DaemonId, DaemonCallback, Daemon};
     pub use default_callbacks::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
-    pub use task::Task;
     pub use xml::{XmlComponent, XmlComponentMap};
     #[cfg(any(feature = "css-parser", feature = "native-style"))]
     pub use css;

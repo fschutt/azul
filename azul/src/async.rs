@@ -1,5 +1,8 @@
+//! Asynchronous task helpers (`Timer`, `Task`, `Thread`)
+
 use std::{
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{Arc, Mutex, Weak, atomic::{AtomicUsize, Ordering}},
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
     fmt,
     hash::{Hash, Hasher},
@@ -198,3 +201,130 @@ impl<T> PartialEq for Daemon<T> {
 impl<T> Eq for Daemon<T> { }
 
 impl<T> Copy for Daemon<T> { }
+
+pub struct Task<T> {
+    // Task is in progress
+    join_handle: Option<JoinHandle<()>>,
+    dropcheck: Weak<()>,
+    /// Daemons that run directly after completion of this task
+    pub(crate) after_completion_daemons: Vec<(DaemonId, Daemon<T>)>
+}
+
+impl<T> Task<T> {
+    pub fn new<U: Send + 'static>(data: &Arc<Mutex<U>>, callback: fn(Arc<Mutex<U>>, Arc<()>)) -> Self {
+
+        let thread_check = Arc::new(());
+        let thread_weak = Arc::downgrade(&thread_check);
+        let app_state_clone = data.clone();
+
+        let thread_handle = thread::spawn(move || {
+            callback(app_state_clone, thread_check)
+        });
+
+        Self {
+            join_handle: Some(thread_handle),
+            dropcheck: thread_weak,
+            after_completion_daemons: Vec::new(),
+        }
+    }
+
+    /// Returns true if the task has been finished, false otherwise
+    pub(crate) fn is_finished(&self) -> bool {
+        self.dropcheck.upgrade().is_none()
+    }
+
+    /// Stores daemons that will run after the task has finished.
+    ///
+    /// Often necessary to "clean up" or copy data from the background task into the UI.
+    #[inline]
+    pub fn then(mut self, deamons: &[(DaemonId, Daemon<T>)]) -> Self {
+        self.after_completion_daemons.extend(deamons.iter().cloned());
+        self
+    }
+}
+
+impl<T> Drop for Task<T> {
+    fn drop(&mut self) {
+        if let Some(thread_handle) = self.join_handle.take() {
+            let _ = thread_handle.join().unwrap();
+        }
+    }
+}
+
+pub struct Thread<T> {
+    data: Option<Arc<Mutex<T>>>,
+    join_handle: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AwaitError {
+    ArcUnlockError,
+    ThreadJoinError,
+    MutexIntoInnerError,
+}
+
+impl<T> Thread<T> {
+
+    /// Creates a new thread that spawns a certain (pure) function on a separate thread.
+    /// This is a workaround until `await` is implemented. Note that invoking this function
+    /// will create an OS-level thread
+    ///
+    /// ```rust
+    /// fn pure_function(input: usize) -> usize { input + 1 }
+    ///
+    /// let thread_1 = Thread::new(5, pure_function);
+    /// let thread_2 = Thread::new(10, pure_function);
+    /// let thread_3 = Thread::new(20, pure_function);
+    ///
+    /// // thread_1, thread_2 and thread_3 run in parallel here...
+    ///
+    /// let result_1 = thread_1.await();
+    /// let result_2 = thread_2.await();
+    /// let result_3 = thread_3.await();
+    ///
+    /// assert_eq!();
+    /// ```
+    pub fn new<U>(initial_data: U, callback: fn(U) -> T) -> Self where T: Send + 'static, U: Send + 'static {
+
+        use std::mem;
+
+        // Reserve memory for T and zero it
+        let data = Arc::new(Mutex::new(unsafe { mem::zeroed() }));
+        let data_arc = data.clone();
+
+        // For some reason, Rust doesn't realize that we're *moving* the data into the
+        // child thread, which is why the 'static is unnecessary - that would only be necessary
+        // if we'd reference the data from the main thread
+        let thread_handle = thread::spawn(move || {
+            *data_arc.lock().unwrap() = callback(initial_data);
+        });
+
+        Self {
+            data: Some(data),
+            join_handle: Some(thread_handle),
+        }
+    }
+
+    /// Block until the internal thread has finished and return T
+    pub fn await(mut self) -> Result<T, AwaitError> {
+
+        // .await() can only be called once, so these .unwrap()s are safe
+        let handle = self.join_handle.take().unwrap();
+        let data = self.data.take().unwrap();
+
+        handle.join().map_err(|_| AwaitError::ThreadJoinError)?;
+
+        let data_arc = Arc::try_unwrap(data).map_err(|_| AwaitError::ArcUnlockError)?;
+        let data = data_arc.into_inner().map_err(|_| AwaitError::MutexIntoInnerError)?;
+
+        Ok(data)
+    }
+}
+
+impl<T> Drop for Thread<T> {
+    fn drop(&mut self) {
+        if self.join_handle.take().is_some() {
+            panic!("Thread has not been await()-ed correctly!");
+        }
+    }
+}

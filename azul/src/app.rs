@@ -46,9 +46,8 @@ use {
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
-    daemon::{Daemon, DaemonId},
+    async::{Task, Daemon, DaemonId},
     focus::FocusTarget,
-    task::Task,
 };
 
 type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
