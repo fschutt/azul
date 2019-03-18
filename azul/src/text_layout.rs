@@ -254,37 +254,64 @@ pub enum TextOverflow {
     InBounds(TextSizePx),
 }
 
+#[derive(Debug, Clone)]
+pub struct ClusterIterator<'a> {
+    cur_codepoint: Option<u32>,
+    cluster_count: usize,
+    word: &'a ScaledWord,
+    /// Store what glyph we are currently processing in this word
+    cur_glyph_idx: usize,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ClusterInfo {
+    /// Cluster index in this word
+    pub cluster_idx: usize,
+    /// Codepoint of this cluster
+    pub codepoint: u32,
+    /// What the glyph index of this cluster is
+    pub glyph_idx: usize,
+}
+
+impl<'a> Iterator for ClusterIterator<'a> {
+
+    type Item = ClusterInfo;
+
+    /// Returns information about the clusters in this word
+    fn next(&mut self) -> Option<ClusterInfo> {
+        let next_glyph = self.word.glyph_infos.get(self.cur_glyph_idx)?;
+        let cur_cluster_count = self.cluster_count;
+
+        if self.cur_codepoint != Some(next_glyph.cluster) {
+            self.cluster_count += 1;
+            self.cur_codepoint = Some(next_glyph.cluster);
+        }
+
+        let glyph_idx = self.cur_glyph_idx;
+        self.cur_glyph_idx += 1;
+
+        Some(ClusterInfo {
+            cluster_idx: cur_cluster_count,
+            codepoint: self.cur_codepoint.unwrap_or(0),
+            glyph_idx,
+        })
+    }
+}
+
 impl ScaledWord {
 
-    /// Counts the number of unique clusters in this word
-    pub fn number_of_clusters(&self) -> usize {
-        let mut cur_codepoint = None;
-        let mut cur_codepoint_count = 0;
-
-        for glyph in &self.glyph_infos {
-            if cur_codepoint != Some(glyph.cluster) {
-                cur_codepoint_count += 1;
-                cur_codepoint = Some(glyph.cluster);
-            }
+    /// Creates an iterator over clusters instead of glyphs
+    pub fn cluster_iter<'a>(&'a self) -> ClusterIterator<'a> {
+        ClusterIterator {
+            cur_codepoint: None,
+            cluster_count: 0,
+            word: &self,
+            cur_glyph_idx: 0,
         }
-
-        cur_codepoint_count
     }
 
-    pub fn cluster_ids(&self) -> Vec<usize> {
-        let mut cur_codepoint = None;
-        let mut cur_codepoint_count = 0;
-        let mut codepoints = Vec::new();
-
-        for glyph in &self.glyph_infos {
-            if cur_codepoint != Some(glyph.cluster) {
-                codepoints.push(cur_codepoint_count);
-                cur_codepoint_count += 1;
-                cur_codepoint = Some(glyph.cluster);
-            }
-        }
-
-        codepoints
+    pub fn number_of_clusters(&self) -> usize {
+        self.cluster_iter().last().map(|l| l.cluster_idx).unwrap_or(0)
     }
 }
 
@@ -687,15 +714,14 @@ pub fn get_layouted_glyphs(
     for (scaled_word, word_position) in scaled_words.items.iter().zip(word_positions.word_positions.iter()) {
         match word_positions.text_layout_options.letter_spacing {
             Some(letter_spacing_px) => {
-                let glyph_cluster_ids = scaled_word.cluster_ids();
                 glyphs.extend(
                     text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
                     .into_iter()
-                    .zip(glyph_cluster_ids.into_iter())
-                    .map(|(mut glyph, cluster_idx)| {
+                    .zip(scaled_word.cluster_iter())
+                    .map(|(mut glyph, cluster_info)| {
                         glyph.point.x += word_position.x;
                         glyph.point.y += word_position.y;
-                        glyph.point.x += letter_spacing_px.0 * cluster_idx as f32;
+                        glyph.point.x += letter_spacing_px.0 * cluster_info.cluster_idx as f32;
                         glyph
                     })
                 )
