@@ -33,7 +33,7 @@ use azul_css::{ColorU, ColorF, StyleFontSize};
 use {
     FastHashMap,
     prelude::GlyphInstance,
-    dom::Texture,
+    callbacks::Texture,
     window::FakeWindow,
     traits::Layout,
     app_resources::{AppResources, FontId},

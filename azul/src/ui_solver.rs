@@ -112,7 +112,7 @@ macro_rules! determine_preferred {
                 if let Some(min_width) = absolute_min {
                     if min_width < width && width < max_width {
                         // normal: min_width < width < max_width
-                        WhConstraint::EqualTo(width)
+                        WhConstraint::Between(width, max_width)
                     } else if width > max_width {
                         WhConstraint::EqualTo(max_width)
                     } else if width < min_width {
@@ -323,8 +323,8 @@ impl NodeDataContainer<$struct_name> {
         node_hierarchy: &NodeHierarchy,
         arena_data: &NodeDataContainer<RectLayout>,
         parent_ids_sorted_by_depth: &[(usize, NodeId)],
-        root_width: f32)
-    {
+        root_width: f32
+    ) {
         /// Does the actual width layout, respects the `width`, `min_width` and `max_width`
         /// properties as well as the `flex_grow` factor. `flex_shrink` currently does nothing.
         fn distribute_space_along_main_axis(
@@ -480,8 +480,13 @@ impl NodeDataContainer<$struct_name> {
                 for variable_child_id in &variable_width_childs {
 
                     let flex_grow = arena_data[*variable_child_id].flex_grow
-                        .and_then(|grow| Some(grow.0.get().max(1.0)))
+                        .and_then(|grow| Some(grow.0.get()))
                         .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
+
+                    // Do not expand the item on "flex-grow: 0" (prevent division by 0)
+                    if flex_grow as usize == 0 {
+                        continue;
+                    }
 
                     let added_space_for_one_child = total_horizontal_space_available * (flex_grow / children_combined_flex_grow);
 
@@ -581,6 +586,8 @@ impl NodeDataContainer<$struct_name> {
             }
         }
 
+        use azul_css::LayoutAlignItems;
+
         debug_assert!(self[NodeId::new(0)].flex_grow_px == 0.0);
 
         // Set the window width on the root node (since there is only one root node, we can
@@ -611,10 +618,13 @@ impl NodeDataContainer<$struct_name> {
                 positioned_node_stack.push(*parent_id);
             }
 
-            if arena_data[*parent_id].direction.unwrap_or_default().get_axis() == LayoutAxis::$main_axis {
-                distribute_space_along_main_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
-            } else {
-                distribute_space_along_cross_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
+            // Only stretch the items, if they have a align-items: stretch!
+            if arena_data[*parent_id].align_items.unwrap_or_default() == LayoutAlignItems::Stretch {
+                if arena_data[*parent_id].direction.unwrap_or_default().get_axis() == LayoutAxis::$main_axis {
+                    distribute_space_along_main_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
+                } else {
+                    distribute_space_along_cross_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
+                }
             }
 
             if parent_is_positioned {
@@ -805,6 +815,7 @@ fn $fn_name(
     }
 
     fn determine_child_x_along_main_axis(
+        parent_id: NodeId,
         main_axis_alignment: LayoutJustifyContent,
         arena_data: &NodeDataContainer<RectLayout>,
         arena_solved_data: &mut NodeDataContainer<$height_solved_position>,
@@ -920,6 +931,7 @@ fn $fn_name(
             if parent_direction.is_reverse() {
                 for child_id in parent_id.reverse_children(node_hierarchy) {
                     determine_child_x_along_main_axis(
+                        *parent_id,
                         main_axis_alignment,
                         &node_data,
                         &mut arena_solved_data,
@@ -934,6 +946,7 @@ fn $fn_name(
             } else {
                 for child_id in parent_id.children(node_hierarchy) {
                     determine_child_x_along_main_axis(
+                        *parent_id,
                         main_axis_alignment,
                         &node_data,
                         &mut arena_solved_data,
@@ -1070,7 +1083,9 @@ fn get_content_height<T: Layout>(
             Some(div_width * (image_size.width as f32 / image_size.height as f32))
         },
         Label(_) | Text(_) => {
-            positioned_words.get(node_id).map(|pos| pos.content_size.height)
+            let height = positioned_words.get(node_id).map(|pos| pos.content_size.height);
+            println!("height: {:?}", height);
+            height
         }
         _ => None,
     }
@@ -1155,8 +1170,22 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     rect_offset: LayoutPoint,
 ) -> LayoutResult {
 
+    // Determine what the width would be if the content didn't matter
+    let widths_content_ignored = solve_flex_layout_width(
+        node_hierarchy,
+        &display_rects,
+        &node_data.transform(|node, node_id| None),
+        rect_size.width as f32,
+    );
+
     // TODO: Determine the absolute preferred width based on the overflow and min-width / max-width constraints
-    let mut max_widths = BTreeMap::<NodeId, TextSizePx>::new();
+    let mut max_widths: BTreeMap<NodeId, TextSizePx>  = node_hierarchy.linear_iter().filter_map(|node_id| {
+        if display_rects[node_id].layout.is_horizontal_overflow_visible() {
+            None // No max width, since overflowing text is visible
+        } else {
+            Some((node_id, TextSizePx(widths_content_ignored.solved_widths[node_id].total())))
+        }
+    }).collect();
 
     // TODO: Filter all inline text blocks: inline blocks + their padding + margin
     // The NodeId has to be the **next** NodeId (the next sibling after the inline element)
@@ -1167,18 +1196,18 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
     let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
     // Layout all words as if there was no max-width constraint (to get the texts "content width").
-    // let word_positions_no_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &max_widths, &inline_text_blocks);
+    let word_positions_no_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &max_widths, &inline_text_blocks);
 
-    // // Determine the preferred **content** width, without any max-width restriction
-    // let content_widths = node_data.transform(|node, node_id| {
-    //     get_content_width(&node_id, &node.node_type, app_resources, &word_positions_no_max_width)
-    // });
+    // Determine the preferred **content** width, without any max-width restriction
+    let content_widths = node_data.transform(|node, node_id| {
+        get_content_width(&node_id, &node.node_type, app_resources, &word_positions_no_max_width)
+    });
 
-    let content_width_pre = node_data.transform(|node, node_id| None);
+    // let content_width_pre = node_data.transform(|node, node_id| None);
     let solved_widths = solve_flex_layout_width(
         node_hierarchy,
         &display_rects,
-        &content_width_pre,
+        &content_widths,
         rect_size.width as f32,
     );
 
@@ -1195,13 +1224,13 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
         get_content_height(&node_id, &node.node_type, app_resources, &word_positions_with_max_width, div_width)
     });
 
-    let content_heights_pre = node_data.transform(|node, node_id| None);
+    // let content_heights_pre = node_data.transform(|node, node_id| None);
 
     // TODO: The content height is not the final height!
     let solved_heights = solve_flex_layout_height(
         node_hierarchy,
         &solved_widths,
-        &content_heights_pre,
+        &content_heights,
         rect_size.height as f32,
     );
 
@@ -1303,6 +1332,7 @@ fn create_word_positions<'a>(
         // TODO: Make this configurable
         let text_holes = Vec::new();
         let text_layout_options = get_text_layout_options(&rect, max_horizontal_width, leading, text_holes);
+
         let scrollbar_style = ScrollbarStyle {
             horizontal: Some(rect.style.get_horizontal_scrollbar_style()),
             vertical: Some(rect.style.get_vertical_scrollbar_style()),
