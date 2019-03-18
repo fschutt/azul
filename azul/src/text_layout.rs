@@ -561,8 +561,6 @@ pub fn position_words(
             text_layout_options.max_horizontal_width,
         );
 
-        println!("caret intersection: {:?}", caret_intersection);
-
         if let LineCaretIntersection::PushCaretOntoNextLine(_, _) = caret_intersection {
              line_breaks.push((current_word_idx, line_caret_x));
         }
@@ -845,8 +843,6 @@ fn caret_intersects_with_holes(
     holes: &[LayoutRect],
     max_width: Option<TextSizePx>,
 ) -> LineCaretIntersection {
-
-    println!("caret intersects with holes: max-width: {:?}", max_width);
 
     let mut new_line_caret_x = None;
     let mut line_advance = 0;

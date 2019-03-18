@@ -1,16 +1,19 @@
 * {
     font-size: 14px;
+    text-align: left;
+}
+
+#align-default {
+    flex-direction: column;
 }
 
 #hebrew {
     font-size: 35px;
-    height: 200px;
     background-color: grey;
     color: white;
-    padding: 50px;
-    text-align: left;
     line-height: 3.8;
-    letter-spacing: 50px;
+    word-spacing: 50px;
+    height: 50px;
 }
 
 #lorem_ipsum {

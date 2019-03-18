@@ -96,23 +96,12 @@ macro_rules! determine_preferred {
             }
         };
 
-        // We only need to correct the width if the preferred width is in the range
-        // between min & max and the width isn't already specified as a style
-        if let Some(preferred_width) = preferred_inner_width {
-            if width.is_none() &&
-               preferred_width > absolute_min.unwrap_or(0.0) &&
-               preferred_width < absolute_max.unwrap_or(f32::MAX)
-            {
-                width = Some(preferred_width);
-            }
-        };
-
         if let Some(width) = width {
             if let Some(max_width) = absolute_max {
                 if let Some(min_width) = absolute_min {
                     if min_width < width && width < max_width {
                         // normal: min_width < width < max_width
-                        WhConstraint::Between(width, max_width)
+                        WhConstraint::EqualTo(width)
                     } else if width > max_width {
                         WhConstraint::EqualTo(max_width)
                     } else if width < min_width {
@@ -132,20 +121,52 @@ macro_rules! determine_preferred {
                 WhConstraint::EqualTo(width)
             }
         } else {
-            // no width, only min_width and max_width
-            if let Some(max_width) = absolute_max {
-                if let Some(min_width) = absolute_min {
-                    WhConstraint::Between(min_width, max_width)
+            if let Some(width) = preferred_inner_width {
+                // -- same as the width() block: width takes precedence over
+                // no width, only min_width and max_width
+                if let Some(max_width) = absolute_max {
+                    if let Some(min_width) = absolute_min {
+                        if min_width < width && width < max_width {
+                            // normal: min_width < width < max_width
+                            WhConstraint::Between(width, max_width)
+                        } else if width > max_width {
+                            WhConstraint::Between(max_width, max_width)
+                        } else if width < min_width {
+                            WhConstraint::Between(min_width, min_width)
+                        } else {
+                            WhConstraint::Unconstrained /* unreachable */
+                        }
+                    } else {
+                        // width & max_width
+                        let min = width.min(max_width);
+                        let max = width.max(max_width);
+                        WhConstraint::Between(min, max)
+                    }
+                } else if let Some(min_width) = absolute_min {
+                    // no max width, only width & min_width
+                    let min = width.min(min_width);
+                    let max = width.max(min_width);
+                    WhConstraint::Between(min, max)
                 } else {
-                    // TODO: check sign positive on max_width!
-                    WhConstraint::Between(0.0, max_width)
+                    // no min-width or max-width
+                    WhConstraint::Between(width, f32::MAX)
                 }
             } else {
-                if let Some(min_width) = absolute_min {
-                    WhConstraint::Between(min_width, f32::MAX)
+                // no width, no preferred width,
+                if let Some(max_width) = absolute_max {
+                    if let Some(min_width) = absolute_min {
+                        WhConstraint::Between(min_width, max_width)
+                    } else {
+                        // TODO: check sign positive on max_width!
+                        WhConstraint::Between(0.0, max_width)
+                    }
                 } else {
-                    // no width, min_width or max_width
-                    WhConstraint::Unconstrained
+                    if let Some(min_width) = absolute_min {
+                        WhConstraint::Between(min_width, f32::MAX)
+                    } else {
+                        // no width, min_width or max_width
+                        WhConstraint::Unconstrained
+                    }
                 }
             }
         }
@@ -355,6 +376,8 @@ impl NodeDataContainer<$struct_name> {
                             None
                         })
                         .collect::<Vec<(NodeId, f32)>>();
+
+                println!("exact width childs: {:#?}", exact_width_childs); // should be empty
 
                 for (exact_width_child_id, exact_width) in exact_width_childs {
 
@@ -1179,7 +1202,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     );
 
     // TODO: Determine the absolute preferred width based on the overflow and min-width / max-width constraints
-    let mut max_widths: BTreeMap<NodeId, TextSizePx>  = node_hierarchy.linear_iter().filter_map(|node_id| {
+    let max_widths: BTreeMap<NodeId, TextSizePx>  = node_hierarchy.linear_iter().filter_map(|node_id| {
         if display_rects[node_id].layout.is_horizontal_overflow_visible() {
             None // No max width, since overflowing text is visible
         } else {
