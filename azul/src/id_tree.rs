@@ -34,12 +34,12 @@ mod node_id {
         /// that could lead to an overflow would be a bug. Therefore, overflow-checking is
         /// disabled in release mode.
         #[inline(always)]
-        pub(crate) const fn new(value: usize) -> Self {
+        pub(crate) fn new(value: usize) -> Self {
             NodeId { index: unsafe { NonZeroUsize::new_unchecked(value + 1) } }
         }
 
-        #[inline]
-        pub const fn index(&self) -> usize {
+        #[inline(always)]
+        pub fn index(&self) -> usize {
             self.index.get() - 1
         }
     }
