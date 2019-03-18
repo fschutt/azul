@@ -6,19 +6,39 @@ use {
 #[cfg(not(test))]
 use callbacks::LayoutInfo;
 
-/// The core trait that has to be implemented for the app model to provide a
-/// Model -> View serialization.
+/// The core trait that has to be implemented for the app model to provide a mapping from an
+/// application state to a user interface state (Model -> View).
 pub trait Layout {
-    /// Updates the DOM, must be provided by the final application.
+    /// This function is called on each frame - if Azul determines that the screen
+    /// needs to be redrawn, it calls this function on the application data, in order
+    /// to get the new UI. This prevents the UI state from getting out-of-sync
+    /// with the application state.
     ///
-    /// On each frame, a completely new DOM tree is generated. The final
-    /// application can cache the DOM tree, but this isn't in the scope of `azul`.
+    /// The `layout_info` can give you important information about the window states current
+    /// size (for example, to return a different DOM depending on the viewport size) as well as
+    /// giving access to the `AppResources` (in order to look up image IDs or create OpenGL textures).
     ///
-    /// The `style_dom` looks through the given DOM rules, applies the style and
-    /// recalculates the layout. This is done on each frame (except there are shortcuts
-    /// when the DOM doesn't have to be recalculated).
+    /// You can append DOMs recursively, i.e. appending a DOM to a DOM - as well as
+    /// breaking up your rendering into separate functions (to re-use DOM components as widgets).
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// use azul::{dom::Dom, traits::Layout, callbacks::LayoutInfo};
+    ///
+    /// struct MyDataModel { }
+    ///
+    /// impl Layout for MyDataModel {
+    ///     fn layout(&self, _: LayoutInfo<MyDataModel>) -> Dom<MyDataModel> {
+    ///         Dom::label("Hello World!").with_id("my-label")
+    ///     }
+    /// }
+    ///
+    /// // This is done by azul internally
+    /// // let new_ui = MyDataModel::layout();
+    /// ```
     #[cfg(not(test))]
-    fn layout(&self, window_id: LayoutInfo<Self>) -> Dom<Self> where Self: Sized;
+    fn layout(&self, layout_info: LayoutInfo<Self>) -> Dom<Self> where Self: Sized;
     #[cfg(test)]
     fn layout(&self) -> Dom<Self> where Self: Sized;
 }
