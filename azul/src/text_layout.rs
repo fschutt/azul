@@ -113,22 +113,15 @@ pub enum WordType {
     Space,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum LineEnding {
-    /// `\n` line ending
-    Unix,
-    /// `\r\n` line ending
-    Windows,
-}
-
+/// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
+/// according to their final size in pixels.
 #[derive(Debug, Clone)]
 pub struct ScaledWords {
     /// Font used to scale this text
     pub font_key: FontKey,
     /// Font instance used to scale this text
     pub font_instance_key: FontInstanceKey,
-    /// Words scaled to their appropriate font size, but not yet positioned
-    /// on the screen
+    /// Words scaled to their appropriate font size, but not yet positioned on the screen
     pub items: Vec<ScaledWord>,
     /// Longest word in the `self.scaled_words`, necessary for
     /// calculating overflow rectangles.
@@ -188,6 +181,12 @@ pub struct WordPositions {
     pub overflow: LayoutOverflow,
 }
 
+/// Width and height of the scrollbars at the side of the text field.
+///
+/// This information is necessary in order to reserve space at
+/// the side of the text field so that the text doesn't overlap the scrollbar.
+/// In some cases (when the scrollbar is set to "auto"), the scrollbar space
+/// is only taken up when the text overflows the rectangle itself.
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct ScrollbarStyle {
     /// Vertical scrollbar style, if any
@@ -243,7 +242,7 @@ pub struct LayoutedGlyphs {
     pub glyphs: Vec<GlyphInstance>,
 }
 
-/// These metrics are important for showing the scrollbars
+/// Whether the text overflows the parent rectangle, and if yes, by how many pixels
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum TextOverflow {
     /// Text is overflowing, by how much?
@@ -254,15 +253,23 @@ pub enum TextOverflow {
     InBounds(TextSizePx),
 }
 
+/// For each glyph, returns information about what cluster this glyph belongs to.
+/// Useful for doing operations per-cluster instead of per-glyph.
+///
+/// Note that the iterator returns once-per-glyph, not once-per-cluster, however
+/// you can merge the clusters into groups by using the `ClusterInfo.cluster_idx`.
 #[derive(Debug, Clone)]
 pub struct ClusterIterator<'a> {
+    /// What codepoint does the current glyph have - set to `None` if the first character isn't yet processed.
     cur_codepoint: Option<u32>,
+    /// What cluster *index* are we currently at - default: 0
     cluster_count: usize,
     word: &'a ScaledWord,
     /// Store what glyph we are currently processing in this word
     cur_glyph_idx: usize,
 }
 
+/// Info about what cluster a certain glyph belongs to.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClusterInfo {
     /// Cluster index in this word
@@ -277,7 +284,10 @@ impl<'a> Iterator for ClusterIterator<'a> {
 
     type Item = ClusterInfo;
 
-    /// Returns information about the clusters in this word
+    /// Returns an iterator over the clusters in this word.
+    ///
+    /// Note: This will return one `ClusterInfo` per glyph, so you can't just
+    /// use `.cluster_iter().count()` to count the glyphs: Instead, use `.cluster_iter().last().cluster_idx`.
     fn next(&mut self) -> Option<ClusterInfo> {
         let next_glyph = self.word.glyph_infos.get(self.cur_glyph_idx)?;
         let cur_cluster_count = self.cluster_count;

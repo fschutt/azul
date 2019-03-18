@@ -31,6 +31,8 @@ pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppS
 
 static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
 
+/// Each default callback is identified by its ID (not by it's function pointer),
+/// since multiple IDs could point to the same function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct DefaultCallbackId(usize);
 
@@ -38,19 +40,21 @@ pub(crate) fn get_new_unique_default_callback_id() -> DefaultCallbackId {
     DefaultCallbackId(LAST_DEFAULT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst))
 }
 
+/// Callback that is invoked "by default", for example a text field that always
+/// has a default "ontextinput" handler
 pub struct DefaultCallback<T: Layout>(pub DefaultCallbackTypeUnchecked<T>);
 
 impl_callback_bounded!(DefaultCallback<T: Layout>);
 
-/// A callback function has to return if the screen should
-/// be updated after the function has run.
+/// A callback function has to return if the screen should be updated after the
+/// function has run.
 ///
-/// NOTE: This is currently a typedef for `Option<()>`,
-/// so that you can use the `?` operator in callbacks
-/// (to simply not redraw if there is an error). This was an enum previously,
-/// but since Rust doesn't have a "custom try" operator, this led to a lot of
-/// usability problems. In the future, this might change back to an enum therefore
-/// the constants "Redraw" and "DontRedraw" are not capitalized, to minimize breakage.
+/// NOTE: This is currently a typedef for `Option<()>`, so that you can use
+/// the `?` operator in callbacks (to simply not redraw if there is an error).
+/// This was an enum previously, but since Rust doesn't have a "custom try" operator,
+/// this led to a lot of usability problems. In the future, this might change back
+/// to an enum therefore the constants "Redraw" and "DontRedraw" are not capitalized,
+/// to minimize breakage.
 pub type UpdateScreen = Option<()>;
 /// After the callback is called, the screen needs to redraw
 /// (layout() function being called again).
@@ -85,6 +89,7 @@ pub type TimerCallbackType<T> = fn(&mut T, app_resources: &mut AppResources) -> 
 pub struct TimerCallback<T>(pub TimerCallbackType<T>);
 impl_callback!(TimerCallback<T>);
 
+/// Wrapper for storing, inserting and registering default callbacks
 pub(crate) struct DefaultCallbackSystem<T: Layout> {
     callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
 }
@@ -98,15 +103,13 @@ impl<T: Layout> DefaultCallbackSystem<T> {
         }
     }
 
-    pub fn add_callback(
-        &mut self,
-        callback_id: DefaultCallbackId,
-        ptr: StackCheckedPointer<T>,
-        func: DefaultCallback<T>)
-    {
-        self.callbacks.insert(callback_id, (ptr, func));
+    /// Registers a new callback
+    pub fn add_callback(&mut self, id: DefaultCallbackId, ptr: StackCheckedPointer<T>, func: DefaultCallback<T>) {
+        self.callbacks.insert(id, (ptr, func));
     }
 
+    /// Invokes a certain default callback and returns its result
+    ///
     /// NOTE: `app_data` is required so we know that we don't
     /// accidentally alias the data in `self.internal` (which could lead to UB).
     ///
@@ -147,7 +150,9 @@ impl<T: Layout> Clone for DefaultCallbackSystem<T> {
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
 pub struct LayoutInfo<'a, 'b, T: 'b + Layout> {
+    /// Gives _mutable_ access to the window
     pub window: &'b mut FakeWindow<T>,
+    /// Allows the layout() function to reference app resources
     pub resources: &'a AppResources,
 }
 
@@ -208,13 +213,16 @@ impl<'a, T: 'a + Layout> fmt::Debug for CallbackInfo<'a, T> {
     }
 }
 
-// Only necessary for GlTextures and IFrames that need the
-// width and height of their container to calculate their content
+/// Information about the bounds of a laid-out div rectangle.
+///
+/// Necessary when invoking `IFrameCallbacks` and `GlTextureCallbacks`, so
+/// that they can change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
 pub struct HidpiAdjustedBounds {
     logical_size: LogicalSize,
     hidpi_factor: f64,
     winit_hidpi_factor: f64,
+    // TODO: Scroll state / focus state of this div!
 }
 
 impl HidpiAdjustedBounds {
@@ -233,7 +241,10 @@ impl HidpiAdjustedBounds {
 
     pub fn get_logical_size(&self) -> LogicalSize {
         // NOTE: hidpi factor, not winit_hidpi_factor!
-        LogicalSize::new(self.logical_size.width * self.hidpi_factor, self.logical_size.height * self.hidpi_factor)
+        LogicalSize::new(
+            self.logical_size.width * self.hidpi_factor,
+            self.logical_size.height * self.hidpi_factor
+        )
     }
 
     pub fn get_hidpi_factor(&self) -> f64 {

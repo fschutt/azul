@@ -14,10 +14,17 @@ use {
     app::AppStateNoData,
 };
 
-/// A `StackCheckedPointer` is a type-erased, non-boxed pointer to a
-/// value **inside** of `T`, i.e. contained within `&T as usize` and
-/// `&T as usize + mem::size_of::<T>()`. `StackCheckedPointer<T>`
-/// has the same lifetime as `T`.
+/// A `StackCheckedPointer<T>` is a type-erased, raw pointer to a
+/// value **inside** of `T`.
+///
+/// Since we know that the pointer is "checked" to be contained (on the stack)
+/// within `&T as usize` and `&T as usize + mem::size_of::<T>()`,
+/// `StackCheckedPointer<T>` has the same lifetime as `T`
+/// (but the type is erased, so it can be stored independent from `T`s lifetime).
+///
+/// Note for enums: Should the pointer point to an enum instead of a struct and
+/// the enum (which in Rust is a union) changes its variant, the behaviour of
+/// invoking this pointer is undefined (likely to segfault).
 pub struct StackCheckedPointer<T: Layout> {
     /// Type-erased pointer to a value on the stack in the `app_data.data`
     /// model. When invoking default methods, we have to store a pointer to
