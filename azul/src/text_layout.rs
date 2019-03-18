@@ -289,19 +289,20 @@ impl<'a> Iterator for ClusterIterator<'a> {
     /// Note: This will return one `ClusterInfo` per glyph, so you can't just
     /// use `.cluster_iter().count()` to count the glyphs: Instead, use `.cluster_iter().last().cluster_idx`.
     fn next(&mut self) -> Option<ClusterInfo> {
-        let next_glyph = self.word.glyph_infos.get(self.cur_glyph_idx)?;
-        let cur_cluster_count = self.cluster_count;
 
-        if self.cur_codepoint != Some(next_glyph.cluster) {
-            self.cluster_count += 1;
-            self.cur_codepoint = Some(next_glyph.cluster);
-        }
+        let next_glyph = self.word.glyph_infos.get(self.cur_glyph_idx)?;
 
         let glyph_idx = self.cur_glyph_idx;
+
+        if self.cur_codepoint != Some(next_glyph.cluster) {
+            self.cur_codepoint = Some(next_glyph.cluster);
+            self.cluster_count += 1;
+        }
+
         self.cur_glyph_idx += 1;
 
         Some(ClusterInfo {
-            cluster_idx: cur_cluster_count,
+            cluster_idx: self.cluster_count,
             codepoint: self.cur_codepoint.unwrap_or(0),
             glyph_idx,
         })

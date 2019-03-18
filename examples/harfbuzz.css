@@ -1,5 +1,5 @@
 * {
-    font-size: 12px;
+    font-size: 14px;
 }
 
 #hebrew {
@@ -10,6 +10,7 @@
     padding: 50px;
     text-align: left;
     line-height: 3.8;
+    letter-spacing: 50px;
 }
 
 #lorem_ipsum {
