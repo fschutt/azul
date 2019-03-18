@@ -30,8 +30,8 @@ serde                   = { version = "1",                    optional = true }
 # (which needs the `svg_parsing` feature).
 default = [
     "logging",
-    "native-style",
-    "css-parser",
+    "native_style",
+    "css_parser",
 ]
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
@@ -52,7 +52,7 @@ svg_parsing = ["azul-dependencies/svg_parsing", "svg"]
 icon_loading = ["azul-dependencies/icon_loading"]
 # For serializing / deserializing CSS colors using serde
 serde_serialization = ["azul-dependencies/serde_serialization", "serde_derive", "serde"]
-serde_serialization_css = ["css-parser", "azul-css-parser/serde_serialization", "serde_serialization"]
+serde_serialization_css = ["css_parser", "azul-css-parser/serde_serialization", "serde_serialization"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
 image_loading = ["azul-dependencies/image_loading"]
@@ -63,8 +63,8 @@ hdr = ["azul-dependencies/hdr"]
 jpeg_rayon = ["azul-dependencies/jpeg_rayon"]
 dxt = ["azul-dependencies/dxt"]
 webp = ["azul-dependencies/webp"]
-css-parser = ["azul-css-parser"]
-native-style = ["azul-native-style"]
+css_parser = ["azul-css-parser"]
+native_style = ["azul-native-style"]
 
 [[example]]
 name = "debug"

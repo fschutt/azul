@@ -172,7 +172,7 @@ pub(crate) use azul_dependencies::usvg;
 #[cfg(feature = "faster-hashing")]
 pub(crate) use azul_dependencies::twox_hash;
 
-#[cfg(feature = "css-parser")]
+#[cfg(feature = "css_parser")]
 extern crate azul_css;
 extern crate azul_native_style;
 extern crate azul_css_parser;
@@ -188,7 +188,7 @@ pub mod async;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
 pub mod callbacks;
 /// CSS type definitions / CSS parsing functions
-#[cfg(any(feature = "css-parser", feature = "native-style"))]
+#[cfg(any(feature = "css_parser", feature = "native_style"))]
 pub mod css;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
@@ -260,7 +260,7 @@ type FastHashSet<T> = ::std::collections::HashSet<T>;
 
 /// Quick exports of common types
 pub mod prelude {
-    #[cfg(feature = "css-parser")]
+    #[cfg(feature = "css_parser")]
     pub use azul_css::*;
     pub use app::{App, AppConfig, AppState, AppResources};
     pub use async::{Task, TerminateTimer, TimerId, Timer};
@@ -291,7 +291,7 @@ pub mod prelude {
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
     pub use xml::{XmlComponent, XmlComponentMap};
 
-    #[cfg(any(feature = "css-parser", feature = "native-style"))]
+    #[cfg(any(feature = "css_parser", feature = "native_style"))]
     pub use css;
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
