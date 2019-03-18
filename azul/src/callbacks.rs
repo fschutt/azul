@@ -6,7 +6,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use azul_css::CssPath;
-#[cfg(feature = "css-parser")]
+#[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use webrender::api::{HitTestItem, LayoutRect};
 use {
@@ -466,7 +466,7 @@ impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
 
     /// Set the focus to a certain div by parsing a string.
     /// Note that the parsing of the string can fail, therefore the Result
-    #[cfg(feature = "css-parser")]
+    #[cfg(feature = "css_parser")]
     pub fn set_focus<'b>(&mut self, input: &'b str) -> Result<(), CssPathParseError<'b>> {
         use azul_css_parser::parse_css_path;
         let path = parse_css_path(input)?;

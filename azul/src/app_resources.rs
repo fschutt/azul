@@ -19,7 +19,9 @@ use {
 };
 pub use webrender::api::{ImageFormat as RawImageFormat, ImageDescriptor};
 #[cfg(feature = "image_loading")]
-pub use image::{self, ImageError, DynamicImage, GenericImageView};
+pub use webrender::api::ImageData;
+#[cfg(feature = "image_loading")]
+pub use image::{ImageError, DynamicImage, GenericImageView};
 
 pub type CssImageId = String;
 pub type CssFontId = String;
@@ -886,12 +888,11 @@ fn decode_image_data<I: Into<Vec<u8>>>(image_data: I)
 -> Result<(ImageData, ImageDescriptor), ImageError>
 {
     use image; // the crate
-    use images; // the module
 
     let image_data = image_data.into();
     let image_format = image::guess_format(&image_data)?;
     let decoded = image::load_from_memory_with_format(&image_data, image_format)?;
-    Ok(images::prepare_image(decoded)?)
+    Ok(prepare_image(decoded)?)
 }
 
 /// Returns the font + the index of the font (in case the font is a collection)
