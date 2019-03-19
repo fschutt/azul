@@ -37,19 +37,19 @@
     </div>
 <!--
     <calendar
-        selectedDate='01.01.2018'
-        minimumDate='01.01.1970'
-        maximumDate='31.12.2034'
-        firstDayOfWeek='sunday'
-        gridVisible='false'
-        dateSelectable='true'
-        horizontalHeaderFormat='Mon'
-        verticalHeaderFormat='S'
-        navigationBarVisible='true'
+        selectedDate="01.01.2018"
+        minimumDate="01.01.1970"
+        maximumDate="31.12.2034"
+        firstDayOfWeek="sunday"
+        gridVisible="false"
+        dateSelectable="true"
+        horizontalHeaderFormat="Mon"
+        verticalHeaderFormat="S"
+        navigationBarVisible="true"
     />
-    <form id='test_form'>
-        <section id='my_test_section'>
-            <textinput placeholder='Type here...' />
+    <form id="test_form">
+        <section id="my_test_section">
+            <textinput placeholder="Type here..." />
         </section>
     </form>
 -->
