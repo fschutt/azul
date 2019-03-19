@@ -11,7 +11,7 @@ use {
     display_list::DisplayRectangle,
     dom::{NodeData, NodeType},
     app_resources::AppResources,
-    text_layout::{Words, ScaledWords, TextSizePx, TextLayoutOptions, WordPositions},
+    text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions},
     traits::Layout,
 };
 use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
@@ -22,6 +22,8 @@ const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
     number: FloatValue { number: (10.0 * FP_PRECISION_MULTIPLIER) as isize },
 });
 const DEFAULT_FONT_ID: &str = "sans-serif";
+
+type PixelSize = f32;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum WhConstraint {
@@ -1178,8 +1180,10 @@ pub struct LayoutResult {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct InlineText {
-    horizontal_padding: TextSizePx,
-    horizontal_margin: TextSizePx,
+    /// Horizontal padding of the text in pixels
+    horizontal_padding: f32,
+    /// Horizontal margin of the text in pixels
+    horizontal_margin: f32,
 }
 
 /// At this point in time, all font keys, image keys, etc. have
@@ -1202,11 +1206,11 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     );
 
     // TODO: Determine the absolute preferred width based on the overflow and min-width / max-width constraints
-    let max_widths: BTreeMap<NodeId, TextSizePx>  = node_hierarchy.linear_iter().filter_map(|node_id| {
+    let max_widths: BTreeMap<NodeId, f32>  = node_hierarchy.linear_iter().filter_map(|node_id| {
         if display_rects[node_id].layout.is_horizontal_overflow_visible() {
             None // No max width, since overflowing text is visible
         } else {
-            Some((node_id, TextSizePx(widths_content_ignored.solved_widths[node_id].total())))
+            Some((node_id, widths_content_ignored.solved_widths[node_id].total()))
         }
     }).collect();
 
@@ -1236,7 +1240,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
 
     // Layout the words again, this time with the proper width constraints!
     let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
-        (node_id, TextSizePx(solved_widths.solved_widths[node_id].total() - display_rects[node_id].layout.get_horizontal_padding()))
+        (node_id, solved_widths.solved_widths[node_id].total() - display_rects[node_id].layout.get_horizontal_padding())
     }).collect();
 
     let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
@@ -1269,7 +1273,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
                     solved_heights.solved_heights[node_id].total(),
                 )
             ),
-            content_width: Some(proper_max_widths[&node_id].0),
+            content_width: Some(proper_max_widths[&node_id]),
             content_height: content_heights[node_id],
         }
     });
@@ -1333,7 +1337,7 @@ fn create_word_positions<'a>(
     words: &BTreeMap<NodeId, Words>,
     scaled_words: &BTreeMap<NodeId, ScaledWords>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    max_widths: &BTreeMap<NodeId, TextSizePx>,
+    max_widths: &BTreeMap<NodeId, PixelSize>,
     inline_texts: &BTreeMap<NodeId, InlineText>,
 ) -> BTreeMap<NodeId, WordPositions> {
 
@@ -1361,9 +1365,10 @@ fn create_word_positions<'a>(
             vertical: Some(rect.style.get_vertical_scrollbar_style()),
         };
 
+        // TODO: handle overflow / scrollbar_style !
         word_positions.insert(*node_id, position_words(
             words, scaled_words, &text_layout_options,
-            TextSizePx(font_size.to_pixels()), overflow, &scrollbar_style,
+            font_size.to_pixels(),
         ));
     }
 
@@ -1372,16 +1377,16 @@ fn create_word_positions<'a>(
 
 fn get_text_layout_options(
     rect: &DisplayRectangle,
-    max_horizontal_width: Option<TextSizePx>,
-    leading: Option<TextSizePx>,
+    max_horizontal_width: Option<f32>,
+    leading: Option<f32>,
     holes: Vec<LayoutRect>,
 ) -> TextLayoutOptions {
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
     TextLayoutOptions {
         line_height: rect.style.line_height,
-        letter_spacing: rect.style.letter_spacing.map(|ls| TextSizePx(ls.0.to_pixels())),
-        word_spacing: rect.style.word_spacing.map(|ws| TextSizePx(ws.0.to_pixels())),
+        letter_spacing: rect.style.letter_spacing.map(|ls| ls.0.to_pixels()),
+        word_spacing: rect.style.word_spacing.map(|ws| ws.0.to_pixels()),
         tab_width: rect.style.tab_width.map(|tw| tw.0.get()),
         max_horizontal_width,
         leading,

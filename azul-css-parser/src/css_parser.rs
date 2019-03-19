@@ -21,7 +21,19 @@ use azul_css::{
 
 /// A parser that can accept a list of items and mappings
 macro_rules! multi_type_parser {
-    ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => (
+    ($fn:ident, $return_str:expr, $return:ident, $import_str:expr, $([$identifier_string:expr, $enum_type:ident, $parse_str:expr]),+) => {
+        #[doc = "Parses a `"]
+        #[doc = $return_str]
+        #[doc = "` attribute from a `&str`"]
+        #[doc = ""]
+        #[doc = "# Example"]
+        #[doc = ""]
+        #[doc = "```rust"]
+        #[doc = $import_str]
+        $(
+            #[doc = $parse_str]
+        )+
+        #[doc = "```"]
         pub fn $fn<'a>(input: &'a str)
         -> Result<$return, InvalidValueErr<'a>>
         {
@@ -32,17 +44,50 @@ macro_rules! multi_type_parser {
                 _ => Err(InvalidValueErr(input)),
             }
         }
-    )
+    };
+    ($fn:ident, $return:ident, $([$identifier_string:expr, $enum_type:ident]),+) => {
+        multi_type_parser!($fn, stringify!($return), $return,
+            concat!(
+                "# extern crate azul_css;", "\r\n",
+                "# extern crate azul_css_parser;", "\r\n",
+                "# use azul_css_parser::", stringify!($fn), ";", "\r\n",
+                "# use azul_css::", stringify!($return), ";"
+            ),
+            $([
+                $identifier_string, $enum_type,
+                concat!("assert_eq!(", stringify!($fn), "(\"", $identifier_string, "\"), Ok(", stringify!($return), "::", stringify!($enum_type), "));")
+            ]),+
+        );
+    };
 }
 
 macro_rules! typed_pixel_value_parser {
-    ($fn:ident, $return:ident) => (
-        pub fn $fn<'a>(input: &'a str)
-        -> Result<$return, PixelParseError<'a>>
-        {
+    ($fn:ident, $fn_str:expr, $return:ident, $return_str:expr, $import_str:expr, $test_str:expr) => {
+        #[doc = "Parses a `"]
+        #[doc = $return_str]
+        #[doc = "` attribute from a `&str`"]
+        #[doc = ""]
+        #[doc = "# Example"]
+        #[doc = ""]
+        #[doc = "```rust"]
+        #[doc = $import_str]
+        #[doc = $test_str]
+        #[doc = "```"]
+        pub fn $fn<'a>(input: &'a str) -> Result<$return, PixelParseError<'a>> {
             parse_pixel_value(input).and_then(|e| Ok($return(e)))
         }
-    )
+    };
+    ($fn:ident, $return:ident) => {
+        typed_pixel_value_parser!($fn, stringify!($fn), $return, stringify!($return),
+            concat!(
+                "# extern crate azul_css;", "\r\n",
+                "# extern crate azul_css_parser;", "\r\n",
+                "# use azul_css_parser::", stringify!($fn), ";", "\r\n",
+                "# use azul_css::{PixelValue, ", stringify!($return), "};"
+            ),
+            concat!("assert_eq!(", stringify!($fn), "(\"5px\"), Ok(", stringify!($return), "(PixelValue::px(5.0))));")
+        );
+    };
 }
 
 /// Main parsing function, takes a stringified key / value pair and either
@@ -294,7 +339,8 @@ impl_display!{CssImageParseError<'a>, {
     UnclosedQuotes(e) => format!("Unclosed quotes: \"{}\"", e),
 }}
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+/// String has unbalanced `'` or `"` quotation marks
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct UnclosedQuotesError<'a>(pub(crate) &'a str);
 
 impl<'a> From<UnclosedQuotesError<'a>> for CssImageParseError<'a> {
@@ -325,7 +371,6 @@ pub enum CssShadowParseError<'a> {
     ValueParseErr(PixelParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
-
 impl_display!{ CssShadowParseError<'a>, {
     InvalidSingleStatement(e) => format!("Invalid single statement: \"{}\"", e),
     TooManyComponents(e) => format!("Too many components: \"{}\"", e),
@@ -1478,6 +1523,7 @@ impl<'a> From<QuoteStripped<'a>> for CssImageId {
     }
 }
 
+/// A string that has been stripped of the beginning and ending quote
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct QuoteStripped<'a>(pub(crate) &'a str);
 
@@ -1487,11 +1533,13 @@ pub fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<
 
 /// Strip quotes from an input, given that both quotes use either `"` or `'`, but not both.
 ///
-/// Example:
+/// # Example
 ///
-/// `"Helvetica"` - valid
-/// `'Helvetica'` - valid
-/// `'Helvetica"` - invalid
+/// ```rust
+/// assert_eq!(strip_quotes("\"Helvecica\""), Ok("Helvetica"));
+/// assert_eq!(strip_quotes("'Arial'"), Ok("Arial"));
+/// assert_eq!(strip_quotes("\"Arial'"), Err(UnclosedQuotesError("Arial'")));
+/// ```
 pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuotesError<'a>> {
     let mut double_quote_iter = input.splitn(2, '"');
     double_quote_iter.next();
@@ -1610,7 +1658,21 @@ impl<'a> From<CssDirectionCornerParseError<'a>> for CssDirectionParseError<'a> {
     }
 }
 
-// parses "50deg", "to right bottom"
+/// Parses an `direction` such as `"50deg"` or `"to right bottom"` (in the context of gradients)
+///
+/// # Example
+///
+/// ```rust
+/// # extern crate azul_css;
+/// # extern crate azul_css_parser;
+/// # use azul_css_parser::parse_direction;
+/// # use azul_css::Direction;
+/// use azul_css::DirectionCorner::*;
+///
+/// assert_eq!(parse_direction("to right bottom"), Ok(Direction::FromTo(TopLeft, BottomRight)));
+/// assert_eq!(parse_direction("to right"), Ok(Direction::FromTo(Left, Right)));
+/// assert_eq!(parse_direction("50deg"), Ok(Direction::Angle(50.0)));
+/// ```
 pub fn parse_direction<'a>(input: &'a str)
 -> Result<Direction, CssDirectionParseError<'a>>
 {
@@ -1847,11 +1909,20 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
     }
 }
 
-// parses a "font-family" declaration, such as:
-//
-// "Webly Sleeky UI", monospace
-// 'Webly Sleeky Ui', monospace
-// sans-serif
+/// Parses a `StyleFontFamily` declaration from a `&str`
+///
+/// # Example
+///
+/// ```rust
+/// # extern crate azul_css;
+/// # extern crate azul_css_parser;
+/// # use azul_css_parser::parse_style_font_family;
+/// # use azul_css::{StyleFontFamily, FontId};
+/// parse_style_font_family(
+///     "\"Helvetica\", 'Arial', Times New Roman",
+///     Ok(StyleFontFamily { fonts: vec![FontId("Helvetica".into(), "Arial".into(), "Times New Roman".into())] })
+/// )
+/// ```
 pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
     let multiple_fonts = input.split(',');
     let mut fonts = Vec::with_capacity(1);
