@@ -17,12 +17,13 @@ notifications:
 # We can't test OpenGL 3.2 on Travis, the shader compilation fails
 # because glium does a check first if it has a OGL 3.2 context
 script:
+  - cargo check --verbose --all-features
   - cargo check --verbose --examples
   - cargo check --no-default-features
   - cargo check --no-default-features --features="svg"
   - cargo check --no-default-features --features="image_loading"
   - cargo check --no-default-features --features="logging"
-  - RUST_BACKTRACE=1 cargo test --verbose
+  - RUST_BACKTRACE=1 cargo test --verbose --all-features
 
 install:
   - PATH=$PATH:/home/travis/.cargo/bin
