@@ -964,12 +964,12 @@ fn push_text(
     use text_layout::get_layouted_glyphs;
     use css::webrender_translate::wr_translate_color_u;
 
-    let scaled_words = match layout_result.scaled_words.get(node_id) {
+    let (scaled_words, _font_instance_key) = match layout_result.scaled_words.get(node_id) {
         Some(s) => s,
         None => return,
     };
 
-    let word_positions = match layout_result.positioned_word_cache.get(node_id) {
+    let (word_positions, font_instance_key) = match layout_result.positioned_word_cache.get(node_id) {
         Some(s) => s,
         None => return,
     };
@@ -1039,7 +1039,7 @@ fn push_text(
     builder.push_text(
         &info,
         &layouted_glyphs.glyphs,
-        word_positions.font_instance_key,
+        *font_instance_key,
         font_color.into(),
         Some(GlyphOptions {
             render_mode: FontRenderMode::Subpixel,

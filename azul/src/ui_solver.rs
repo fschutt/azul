@@ -13,7 +13,7 @@ use {
     text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions},
     traits::Layout,
 };
-use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
+use webrender::api::{LayoutRect, LayoutPoint, LayoutSize, FontInstanceKey};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(10));
@@ -1080,12 +1080,12 @@ fn get_content_width<T: Layout>(
         node_id: &NodeId,
         node_type: &NodeType<T>,
         app_resources: &AppResources,
-        positioned_words: &BTreeMap<NodeId, WordPositions>,
+        positioned_words: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
 ) -> Option<f32> {
     use dom::NodeType::*;
     match node_type {
         Image(image_id) => app_resources.get_image_info(image_id).map(|info| info.descriptor.size.width as f32),
-        Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.content_size.width),
+        Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.0.content_size.width),
         _ => None,
     }
 }
@@ -1094,7 +1094,7 @@ fn get_content_height<T: Layout>(
     node_id: &NodeId,
     node_type: &NodeType<T>,
     app_resources: &AppResources,
-    positioned_words: &BTreeMap<NodeId, WordPositions>,
+    positioned_words: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     div_width: f32,
 ) -> Option<f32> {
     use dom::NodeType::*;
@@ -1104,9 +1104,7 @@ fn get_content_height<T: Layout>(
             Some(div_width * (image_size.width as f32 / image_size.height as f32))
         },
         Label(_) | Text(_) => {
-            let height = positioned_words.get(node_id).map(|pos| pos.content_size.height);
-            println!("height: {:?}", height);
-            height
+            positioned_words.get(node_id).map(|pos| pos.0.content_size.height)
         }
         _ => None,
     }
@@ -1169,8 +1167,8 @@ pub struct PositionedRectangle {
 pub struct LayoutResult {
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub word_cache: BTreeMap<NodeId, Words>,
-    pub scaled_words: BTreeMap<NodeId, ScaledWords>,
-    pub positioned_word_cache: BTreeMap<NodeId, WordPositions>,
+    pub scaled_words: BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
+    pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     pub node_depths: Vec<(usize, NodeId)>,
 }
 
@@ -1306,39 +1304,44 @@ fn create_scaled_words<'a>(
     app_resources: &AppResources,
     words: &BTreeMap<NodeId, Words>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-) -> BTreeMap<NodeId, ScaledWords> {
+) -> BTreeMap<NodeId, (ScaledWords, FontInstanceKey)> {
 
     use text_layout::words_to_scaled_words;
     use app_resources::ImmediateFontId;
 
     words.iter().filter_map(|(node_id, words)| {
         let style = &display_rects[*node_id].style;
-        let font_size = font_size_to_au(get_font_size(&style));
+        let font_size = get_font_size(&style);
+        let font_size_au = font_size_to_au(font_size);
         let css_font_id = get_font_id(&style);
         let font_id = match app_resources.get_css_font_id(css_font_id) {
             Some(s) => ImmediateFontId::Resolved(*s),
             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
+
         let loaded_font = app_resources.get_loaded_font(&font_id)?;
+        let font_instance_key = loaded_font.font_instances.get(&font_size_au)?;
+
         let font_bytes = &loaded_font.font_bytes;
         let font_index = loaded_font.font_index as u32;
+
         let scaled_words = words_to_scaled_words(
             words,
             font_bytes,
             font_index,
-            font_size,
+            font_size.0.to_pixels(),
         );
-        Some((*node_id, scaled_words))
+        Some((*node_id, (scaled_words, *font_instance_key)))
     }).collect()
 }
 
 fn create_word_positions<'a>(
     words: &BTreeMap<NodeId, Words>,
-    scaled_words: &BTreeMap<NodeId, ScaledWords>,
+    scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
     max_widths: &BTreeMap<NodeId, PixelSize>,
     inline_texts: &BTreeMap<NodeId, InlineText>,
-) -> BTreeMap<NodeId, WordPositions> {
+) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
 
     use text_layout::{ScrollbarStyle, position_words};
 
@@ -1346,7 +1349,7 @@ fn create_word_positions<'a>(
 
     for (node_id, words) in words.iter() {
         let rect = &display_rects[*node_id];
-        let scaled_words = match scaled_words.get(&node_id) {
+        let (scaled_words, font_instance_key) = match scaled_words.get(&node_id) {
             Some(s) => s,
             None => continue,
         };
@@ -1365,10 +1368,9 @@ fn create_word_positions<'a>(
         };
 
         // TODO: handle overflow / scrollbar_style !
-        word_positions.insert(*node_id, position_words(
-            words, scaled_words, &text_layout_options,
-            font_size.to_pixels(),
-        ));
+        let positioned_words = position_words(words, scaled_words, &text_layout_options, font_size.to_pixels());
+
+        word_positions.insert(*node_id, (positioned_words, *font_instance_key));
     }
 
     word_positions
