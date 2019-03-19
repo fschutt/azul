@@ -963,6 +963,7 @@ fn push_text(
 ) {
     use text_layout::get_layouted_glyphs;
     use css::webrender_translate::wr_translate_color_u;
+    use ui_solver::determine_text_alignment;
 
     let (scaled_words, _font_instance_key) = match layout_result.scaled_words.get(node_id) {
         Some(s) => s,
@@ -974,8 +975,7 @@ fn push_text(
         None => return,
     };
 
-    let horz_alignment = word_positions.text_layout_options.horz_alignment;
-    let vert_alignment = word_positions.text_layout_options.vert_alignment;
+    let (horz_alignment, vert_alignment) = determine_text_alignment(rect_style, rect_layout);
 
     let rect_padding_top = rect_layout.padding.unwrap_or_default().top.map(|top| top.to_pixels()).unwrap_or(0.0);
     let rect_padding_left = rect_layout.padding.unwrap_or_default().left.map(|left| left.to_pixels()).unwrap_or(0.0);

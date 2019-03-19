@@ -14,6 +14,7 @@ pub type GlyphIndex = usize;
 pub type LineLength = f32;
 pub type IndexOfLineBreak = usize;
 pub type RemainingSpaceToRight = f32;
+pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
 
 const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 const DEFAULT_WORD_SPACING: f32 = 1.0;
@@ -161,10 +162,6 @@ pub struct TextLayoutOptions {
     ///
     /// TODO: Currently unused!
     pub holes: Vec<LayoutRect>,
-    /// Horizontal text aligment
-    pub horz_alignment: StyleTextAlignmentHorz,
-    /// Vertical text aligment
-    pub vert_alignment: StyleTextAlignmentVert,
 }
 
 /// Given the scale of words + the word positions, lays out the words in a
@@ -635,6 +632,49 @@ pub fn position_words(
     }
 }
 
+pub fn get_layouted_glyphs_unpositioned(
+    word_positions: &WordPositions,
+    scaled_words: &ScaledWords,
+) -> LayoutedGlyphs {
+
+    use text_shaping;
+
+    let mut glyphs = Vec::with_capacity(scaled_words.items.len());
+
+    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
+
+    for (scaled_word, word_position) in scaled_words.items.iter()
+    .zip(word_positions.word_positions.iter()) {
+        glyphs.extend(
+            text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
+            .into_iter()
+            .zip(scaled_word.cluster_iter())
+            .map(|(mut glyph, cluster_info)| {
+                glyph.point.x += word_position.x;
+                glyph.point.y += word_position.y;
+                glyph.point.x += letter_spacing_px * cluster_info.cluster_idx as f32;
+                glyph
+            })
+        )
+    }
+
+    LayoutedGlyphs { glyphs }
+}
+
+pub fn get_layouted_glyphs_with_horizonal_alignment(
+    word_positions: &WordPositions,
+    scaled_words: &ScaledWords,
+    alignment_horz: StyleTextAlignmentHorz,
+) -> (LayoutedGlyphs, LineBreaks) {
+    let mut glyphs = get_layouted_glyphs_unpositioned(word_positions, scaled_words);
+
+    // Align glyphs horizontal
+    let line_breaks = get_char_indices(&word_positions, &scaled_words);
+    align_text_horz(&mut glyphs.glyphs, alignment_horz, &line_breaks);
+
+    (glyphs, line_breaks)
+}
+
 /// Returns the final glyphs and positions them relative to the `rect_offset`,
 /// ready for webrender to display
 pub fn get_layouted_glyphs(
@@ -646,49 +686,15 @@ pub fn get_layouted_glyphs(
     bounding_size_height_px: f32,
 ) -> LayoutedGlyphs {
 
-    use text_shaping;
+    let (mut glyphs, line_breaks) = get_layouted_glyphs_with_horizonal_alignment(word_positions, scaled_words, alignment_horz);
 
-    let mut glyphs = Vec::with_capacity(scaled_words.items.len());
-
-    for (scaled_word, word_position) in scaled_words.items.iter().zip(word_positions.word_positions.iter()) {
-        match word_positions.text_layout_options.letter_spacing {
-            Some(letter_spacing_px) => {
-                glyphs.extend(
-                    text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
-                    .into_iter()
-                    .zip(scaled_word.cluster_iter())
-                    .map(|(mut glyph, cluster_info)| {
-                        glyph.point.x += word_position.x;
-                        glyph.point.y += word_position.y;
-                        glyph.point.x += letter_spacing_px * cluster_info.cluster_idx as f32;
-                        glyph
-                    })
-                )
-            },
-            None => {
-                glyphs.extend(
-                    text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
-                    .into_iter()
-                    .map(|mut glyph| {
-                        glyph.point.x += word_position.x;
-                        glyph.point.y += word_position.y;
-                        glyph
-                    })
-                )
-            }
-        }
-    }
-
-    let line_breaks = get_char_indices(&word_positions, &scaled_words);
+    // Align glyphs vertically
     let vertical_overflow = get_vertical_overflow(&word_positions, bounding_size_height_px);
+    align_text_vert(&mut glyphs.glyphs, alignment_vert, &line_breaks, vertical_overflow);
 
-    align_text_horz(&mut glyphs, alignment_horz, &line_breaks);
-    align_text_vert(&mut glyphs, alignment_vert, &line_breaks, vertical_overflow);
-    add_origin(&mut glyphs, rect_offset.x, rect_offset.y);
+    add_origin(&mut glyphs.glyphs, rect_offset.x, rect_offset.y);
 
-    LayoutedGlyphs {
-        glyphs: glyphs,
-    }
+    glyphs
 }
 
 /// Given a width, returns the vertical height and width of the text
@@ -717,9 +723,8 @@ pub fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
     }
 }
 
-pub fn get_char_indices(word_positions: &WordPositions, scaled_words: &ScaledWords)
--> Vec<(GlyphIndex, RemainingSpaceToRight)>
-{
+pub fn get_char_indices(word_positions: &WordPositions, scaled_words: &ScaledWords) -> LineBreaks {
+
     let width = word_positions.content_size.width;
 
     if scaled_words.items.is_empty() {
@@ -976,17 +981,6 @@ pub fn add_origin(positioned_glyphs: &mut [GlyphInstance], x: f32, y: f32) {
         c.point.x += x;
         c.point.y += y;
     }
-}
-
-/// Returned result from the `layout_text` function
-#[derive(Debug, Clone)]
-pub struct LayoutTextResult {
-    /// The words, broken up by whitespace
-    pub words: Words,
-    /// Words, scaled by a certain font size (with font metrics)
-    pub scaled_words: ScaledWords,
-    /// Layout of the positions, word-by-word
-    pub word_positions: WordPositions,
 }
 
 #[test]
