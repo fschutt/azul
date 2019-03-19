@@ -2,8 +2,7 @@ use std::{f32, collections::BTreeMap};
 use azul_css::{
     LayoutPosition, LayoutMargin, LayoutPadding,
     RectLayout, StyleFontSize, RectStyle,
-    StyleTextAlignmentHorz, StyleTextAlignmentVert,
-    FP_PRECISION_MULTIPLIER, FloatValue, PixelValue, SizeMetric,
+    StyleTextAlignmentHorz, StyleTextAlignmentVert, PixelValue,
 };
 use app_units::Au;
 use {
@@ -17,10 +16,7 @@ use {
 use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
-const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
-    metric: SizeMetric::Px,
-    number: FloatValue { number: (10.0 * FP_PRECISION_MULTIPLIER) as isize },
-});
+const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(10));
 const DEFAULT_FONT_ID: &str = "sans-serif";
 
 type PixelSize = f32;
@@ -1324,9 +1320,12 @@ fn create_scaled_words<'a>(
             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
         let loaded_font = app_resources.get_loaded_font(&font_id)?;
+        let font_bytes = &loaded_font.font_bytes;
+        let font_index = loaded_font.font_index as u32;
         let scaled_words = words_to_scaled_words(
             words,
-            loaded_font,
+            font_bytes,
+            font_index,
             font_size,
         );
         Some((*node_id, scaled_words))

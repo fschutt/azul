@@ -1,12 +1,17 @@
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
+use std::collections::BTreeMap;
+use std::fmt;
+
+/// Currently hard-coded: Height of one em in pixels
+const EM_HEIGHT: f32 = 16.0;
+/// WebRender measures in points, not in pixels!
+const PT_TO_PX: f32 = 96.0 / 72.0;
+
 // The following types are present in webrender, however, azul-css should not
 // depend on webrender, just to have the same types, azul-css should be a standalone crate.
 
 /// Only used for calculations: Rectangle (x, y, width, height) in layout space.
-use std::collections::BTreeMap;
-use std::fmt;
-
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
 /// Only used for calculations: Size (width, height) in layout space.
@@ -34,15 +39,15 @@ pub struct PixelSize { pub width: PixelValue, pub height: PixelValue }
 
 impl PixelSize {
 
-    pub fn new(width: PixelValue, height: PixelValue) -> Self {
+    pub const fn new(width: PixelValue, height: PixelValue) -> Self {
         Self {
             width,
             height,
         }
     }
 
-    pub fn zero() -> Self {
-        Self::new(PixelValue::px(0.0), PixelValue::px(0.0))
+    pub const fn zero() -> Self {
+        Self::new(PixelValue::const_px(0), PixelValue::const_px(0))
     }
 }
 
@@ -101,11 +106,11 @@ impl Default for BorderRadius {
 
 impl BorderRadius {
 
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self::uniform(PixelSize::zero())
     }
 
-    pub fn uniform(value: PixelSize) -> Self {
+    pub const fn uniform(value: PixelSize) -> Self {
         Self {
             top_left: value,
             top_right: value,
@@ -165,15 +170,11 @@ pub enum BorderStyle {
     Inset,
     Outset,
 }
+
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct NinePatchBorder {
     // not implemented or parse-able yet, so no fields!
 }
-
-/// Currently hard-coded: Height of one em in pixels
-pub const EM_HEIGHT: f32 = 16.0;
-/// WebRender measures in points, not in pixels!
-pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
 /// Creates `pt`, `px` and `em` constructors for any struct that has a
 /// `PixelValue` as it's self.0 field.
@@ -218,7 +219,8 @@ macro_rules! impl_float_value{($struct:ident) => (
     }
 )}
 
-pub const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);55] = [
+/// Map between CSS keys and a statically typed enum
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);55] = [
     (CssPropertyType::BorderRadius,     "border-radius"),
     (CssPropertyType::BackgroundColor,  "background-color"),
     (CssPropertyType::BackgroundSize,   "background-size"),
@@ -281,8 +283,8 @@ pub fn get_css_key_map() -> BTreeMap<&'static str, CssPropertyType> {
     CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect()
 }
 
-/// Same as CssProperty, but without any data. Used to identify the
-/// key of the CSS key-value pair without parsing the value
+/// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
+/// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssPropertyType {
     BorderRadius,
@@ -351,6 +353,8 @@ impl CssPropertyType {
 
     /// Parses a CSS key, such as `width` from a string:
     ///
+    /// # Example
+    ///
     /// ```rust
     /// # use azul_css::{CssPropertyType, get_css_key_map};
     /// let map = get_css_key_map();
@@ -363,13 +367,13 @@ impl CssPropertyType {
         map.get(input).and_then(|x| Some(*x))
     }
 
+    /// Returns the original string that was used to construct this `CssPropertyType`.
     pub fn to_str(&self, map: &BTreeMap<&'static str, Self>) -> &'static str {
         map.iter().find(|(_, v)| *v == self).and_then(|(k, _)| Some(k)).unwrap()
     }
 
     /// Returns whether this property will be inherited during cascading
     pub fn is_inheritable(&self) -> bool {
-    /// Returns whether this property can trigger a re-layout
         use self::CssPropertyType::*;
         match self {
             | TextColor
@@ -381,8 +385,9 @@ impl CssPropertyType {
         }
     }
 
-    /// Returns whether this property can trigger a re-layout
+    /// Returns whether this property can trigger a re-layout (important for incremental layout and caching layouted DOMs).
     pub fn can_trigger_relayout(&self) -> bool {
+
         use self::CssPropertyType::*;
 
         // Since the border can be larger than the content,
@@ -417,7 +422,7 @@ impl fmt::Display for CssPropertyType {
     }
 }
 
-/// A property that can be used to style DOM nodes
+/// Represents one parsed CSS key-value pair, such as `"width: 20px"` => `CssProperty::Width(LayoutWidth::px(20.0))`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CssProperty {
     BorderRadius(StyleBorderRadius),
@@ -460,6 +465,8 @@ pub enum CssProperty {
 }
 
 impl CssProperty {
+
+    /// Return the type (key) of this property as a statically typed enum
     pub fn get_type(&self) -> CssPropertyType {
         match &self {
             CssProperty::BorderRadius(_) => CssPropertyType::BorderRadius,
@@ -550,7 +557,8 @@ impl_from!(LayoutAlignContent, CssProperty::AlignContent);
 /// they have to be casted to isizes in order to make the f32 values
 /// hash-able: Css has a relatively low precision here, roughly 5 digits, i.e
 /// `1.00001 == 1.0`
-pub const FP_PRECISION_MULTIPLIER: f32 = 10000.0;
+const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
+const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -584,6 +592,36 @@ impl fmt::Debug for FloatValue {
 }
 
 impl PixelValue {
+
+    /// Same as `PixelValue::px()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_px(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Px, value)
+    }
+
+    /// Same as `PixelValue::em()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_em(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Em, value)
+    }
+
+    /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_pt(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Pt, value)
+    }
+
+    #[inline]
+    pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
+        Self {
+            metric: metric,
+            number: FloatValue::const_new(value),
+        }
+    }
+
     #[inline]
     pub fn px(value: f32) -> Self {
         Self::from_metric(SizeMetric::Px, value)
@@ -603,7 +641,7 @@ impl PixelValue {
     pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
         Self {
             metric: metric,
-            number: value.into(),
+            number: FloatValue::new(value),
         }
     }
 
@@ -632,6 +670,13 @@ impl fmt::Debug for PercentageValue {
 }
 
 impl PercentageValue {
+
+    /// Same as `PercentageValue::new()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    pub const fn const_new(value: isize) -> Self {
+        Self { number: FloatValue::const_new(value) }
+    }
+
     pub fn new(value: f32) -> Self {
         Self { number: value.into() }
     }
@@ -649,6 +694,13 @@ pub struct FloatValue {
 }
 
 impl FloatValue {
+
+    /// Same as `FloatValue::new()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    pub const fn const_new(value: isize)  -> Self {
+        Self { number: value * FP_PRECISION_MULTIPLIER_CONST }
+    }
+
     pub fn new(value: f32) -> Self {
         Self { number: (value * FP_PRECISION_MULTIPLIER) as isize }
     }
@@ -676,7 +728,7 @@ pub enum SizeMetric {
 pub struct StyleBorderRadius(pub BorderRadius);
 
 impl StyleBorderRadius {
-    pub fn zero() -> Self {
+    pub const fn zero() -> Self {
         StyleBorderRadius(BorderRadius::zero())
     }
 }

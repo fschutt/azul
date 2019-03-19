@@ -554,11 +554,13 @@ impl<T: Layout> AppState<T> {
         let old_count = self.tasks.len();
         let mut timers_to_add = Vec::new();
         self.tasks.retain(|task| {
-            if !task.is_finished() {
-                true
-            } else {
-                timers_to_add.extend(task.after_completion_timers.iter().cloned());
+            if task.is_finished() {
+                if let Some(timer) = task.after_completion_timer {
+                    timers_to_add.push((TimerId::new(), timer));
+                }
                 false
+            } else {
+                true
             }
         });
 
