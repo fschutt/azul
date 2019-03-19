@@ -943,6 +943,8 @@ pub struct RadialGradient {
     pub stops: Vec<GradientStopPre>,
 }
 
+/// CSS direction (necessary for gradients). Can either be a fixed angle or
+/// a direction ("to right" / "to left", etc.).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Direction {
     Angle(FloatValue),
@@ -1427,8 +1429,8 @@ impl Default for StyleTextAlignmentVert {
     }
 }
 
-/// Stylistic options of the rectangle that don't influence the layout
-/// (todo: border-box?)
+/// Options of a cascaded (styled) DOM node that are only relevant
+/// for styling and don't affect the layout of the rectangle
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectStyle {
     /// Background color of this rectangle
@@ -1532,7 +1534,7 @@ impl Default for ScrollbarInfo {
     }
 }
 
-// Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
+/// Options of a cascaded (styled) DOM node that are relevant for constructing the layout of a div
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectLayout {
 

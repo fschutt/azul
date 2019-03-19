@@ -1,10 +1,9 @@
 #![allow(unused_variables, dead_code)]
 
-use std::ops::{Mul, Add, Sub};
 use webrender::api::{FontKey, FontInstanceKey};
 use azul_css::{
     StyleTextAlignmentHorz, ScrollbarInfo,
-    StyleTextAlignmentVert, StyleLineHeight, LayoutOverflow,
+    StyleTextAlignmentVert, StyleLineHeight,
 };
 pub use webrender::api::{
     GlyphInstance, LayoutSize, LayoutRect, LayoutPoint,
@@ -12,13 +11,6 @@ pub use webrender::api::{
 pub use text_shaping::{GlyphPosition, GlyphInfo};
 use app_resources::LoadedFont;
 use app_units::Au;
-
-/// Font size in point (pt)
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct TextSizePt(pub f32);
-/// Font size in pixel (px) - 1 / (72 * 96)th of a pixel
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct TextSizePx(pub f32);
 
 pub type WordIndex = usize;
 pub type GlyphIndex = usize;
@@ -30,42 +22,6 @@ const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 const DEFAULT_WORD_SPACING: f32 = 1.0;
 const DEFAULT_LETTER_SPACING: f32 = 0.0;
 const DEFAULT_TAB_WIDTH: f32 = 4.0;
-
-const PX_TO_PT: f32 = 72.0 / 96.0;
-const PT_TO_PX: f32 = 96.0 / 72.0;
-
-impl Mul<f32> for TextSizePx {
-    type Output = Self;
-    fn mul(self, rhs: f32) -> Self {
-        TextSizePx(self.0 * rhs)
-    }
-}
-
-impl Add for TextSizePx {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        TextSizePx(self.0 + rhs.0)
-    }
-}
-
-impl Sub for TextSizePx {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self {
-        TextSizePx(self.0 - rhs.0)
-    }
-}
-
-impl From<TextSizePx> for TextSizePt {
-    fn from(original: TextSizePx) -> TextSizePt {
-        TextSizePt(original.0 * PX_TO_PT)
-    }
-}
-
-impl From<TextSizePt> for TextSizePx {
-    fn from(original: TextSizePt) -> TextSizePx {
-        TextSizePx(original.0 * PT_TO_PX)
-    }
-}
 
 /// Text broken up into `Tab`, `Word()`, `Return` characters
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -154,7 +110,9 @@ pub struct WordPositions {
     /// Options like word spacing, character spacing, etc. that were
     /// used to layout these glyphs
     pub text_layout_options: TextLayoutOptions,
-    /// Horizontal offset of the last line, necessary for inline layout later on.
+    /// Horizontal width of the last line (in pixels), necessary for inline layout later on,
+    /// so that the next text run can contine where the last text run left off.
+    ///
     /// Usually, the "trailing" of the current text block is the "leading" of the
     /// next text block, to make it seem like two text runs push into each other.
     pub trailing: f32,
@@ -169,16 +127,11 @@ pub struct WordPositions {
     pub content_size: LayoutSize,
     /// Stores the positions of words.
     pub word_positions: Vec<LayoutPoint>,
-    /// Font size that was used to layout this text
-    pub font_size: TextSizePx,
+    /// Font size that was used to layout this text (value in pixels)
+    pub font_size_px: f32,
     /// Index of the word at which the line breaks + length of line
     /// (useful for text selection + horizontal centering)
     pub line_breaks: Vec<(WordIndex, LineLength)>,
-    /// Whether or not the word positions are already accounting for
-    /// the scrollbar space
-    pub scrollbar_style: ScrollbarStyle,
-    /// The overflow value
-    pub overflow: LayoutOverflow,
 }
 
 /// Width and height of the scrollbars at the side of the text field.
@@ -200,17 +153,18 @@ pub struct ScrollbarStyle {
 pub struct TextLayoutOptions {
     /// Multiplier for the line height
     pub line_height: Option<StyleLineHeight>,
-    /// Additional spacing between glyphs
-    pub letter_spacing: Option<TextSizePx>,
-    /// Additional spacing between words
-    pub word_spacing: Option<TextSizePx>,
-    /// How many spaces should a tab character emulate?
+    /// Additional spacing between glyphs (in pixels)
+    pub letter_spacing: Option<f32>,
+    /// Additional spacing between words (in pixels)
+    pub word_spacing: Option<f32>,
+    /// How many spaces should a tab character emulate
+    /// (multiplying value, i.e. `4.0` = one tab = 4 spaces)?
     pub tab_width: Option<f32>,
-    /// Width that was used to layout these words originally
-    /// (whether the text is unbounded or not).
-    pub max_horizontal_width: Option<TextSizePx>,
-    /// Pixel amount of "leading", into the first line
-    pub leading: Option<TextSizePx>,
+    /// Maximum width of the text (in pixels) - if the text is set to `overflow:visible`, set this to None.
+    pub max_horizontal_width: Option<f32>,
+    /// How many pixels of leading does the first line have? Note that this added onto to the holes,
+    /// so for effects like `:first-letter`, use a hole instead of a leading.
+    pub leading: Option<f32>,
     /// This is more important for inline text layout where items can punch "holes"
     /// into the text flow, for example an image that floats to the right.
     ///
@@ -242,21 +196,22 @@ pub struct LayoutedGlyphs {
     pub glyphs: Vec<GlyphInstance>,
 }
 
-/// Whether the text overflows the parent rectangle, and if yes, by how many pixels
+/// Whether the text overflows the parent rectangle, and if yes, by how many pixels,
+/// necessary for determining if / how to show a scrollbar + aligning / centering text.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum TextOverflow {
-    /// Text is overflowing, by how much?
-    /// Necessary for determining the size of the scrollbar
-    IsOverflowing(TextSizePx),
-    /// Text is in bounds, how much space is available until
-    /// the edge of the rectangle? Necessary for centering / aligning text vertically.
-    InBounds(TextSizePx),
+    /// Text is overflowing, by how much (in pixels)?
+    IsOverflowing(f32),
+    /// Text is in bounds, how much space is available until the edge of the rectangle (in pixels)?
+    InBounds(f32),
 }
 
-/// For each glyph, returns information about what cluster this glyph belongs to.
-/// Useful for doing operations per-cluster instead of per-glyph.
+/// Iterator over glyphs that returns information about the cluster that this glyph belongs to.
+/// Returned by the `ScaledWord::cluster_iter()` function.
 ///
-/// Note that the iterator returns once-per-glyph, not once-per-cluster, however
+/// For each glyph, returns information about what cluster this glyph belongs to. Useful for
+/// doing operations per-cluster instead of per-glyph.
+/// *Note*: The iterator returns once-per-glyph, not once-per-cluster, however
 /// you can merge the clusters into groups by using the `ClusterInfo.cluster_idx`.
 #[derive(Debug, Clone)]
 pub struct ClusterIterator<'a> {
@@ -514,35 +469,23 @@ pub fn words_to_scaled_words(
     }
 }
 
-/// Positions the words on the screen (does not layout any glyph positions!),
-/// necessary for estimating the width + height of items.
-///
-/// NOTE: This will also (depending on the `vertical_scrollbar` or `horizontal_scrollbar` parameter)
-/// shift the glyphs by the scrollbar position - for example, if there are no scrollbars, i.e.
-/// the rectangle is `overflow:visible`, then just pass in `None` to both parameters.
-///
-/// Currently you have to pass in the font size, because there is currently no way
-/// to get the Space character width from a font.
+/// Positions the words on the screen (does not layout any glyph positions!), necessary for estimating
+/// the intrinsic width + height of the text content.
 pub fn position_words(
     words: &Words,
     scaled_words: &ScaledWords,
     text_layout_options: &TextLayoutOptions,
-    font_size: TextSizePx,
-    overflow: LayoutOverflow,
-    scrollbar_style: &ScrollbarStyle,
+    font_size_px: f32,
 ) -> WordPositions {
 
     use self::WordType::*;
     use std::f32;
 
-    // TODO: Handle scrollbar / content size adjustment!
-
-    let font_size_px = font_size.0;
     let space_advance = scaled_words.space_advance_px;
-    let word_spacing_px = space_advance * text_layout_options.word_spacing.map(|s| s.0).unwrap_or(DEFAULT_WORD_SPACING);
+    let word_spacing_px = space_advance * text_layout_options.word_spacing.unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
     let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
-    let letter_spacing_px = text_layout_options.letter_spacing.map(|ls| ls.0).unwrap_or(DEFAULT_LETTER_SPACING);
+    let letter_spacing_px = text_layout_options.letter_spacing.unwrap_or(DEFAULT_LETTER_SPACING);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -576,7 +519,7 @@ pub fn position_words(
     advance_caret!(line_caret_x);
 
     if let Some(leading) = text_layout_options.leading {
-        line_caret_x += leading.0;
+        line_caret_x += leading;
         advance_caret!(line_caret_x);
     }
 
@@ -592,9 +535,7 @@ pub fn position_words(
 
         let reserved_letter_spacing_px = match text_layout_options.letter_spacing {
             None => 0.0,
-            Some(spacing_multiplier) => {
-                spacing_multiplier.0 * scaled_word.number_of_clusters().saturating_sub(1) as f32
-            }
+            Some(spacing_multiplier) => spacing_multiplier * scaled_word.number_of_clusters().saturating_sub(1) as f32,
         };
 
         // Calculate where the caret would be for the next word
@@ -688,13 +629,13 @@ pub fn position_words(
 
     let longest_line_width = line_breaks.iter().map(|(_word_idx, line_length)| *line_length).fold(0.0_f32, f32::max);
     let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
-    let content_size_x = text_layout_options.max_horizontal_width.map(|x| x.0).unwrap_or(longest_line_width);
+    let content_size_x = text_layout_options.max_horizontal_width.unwrap_or(longest_line_width);
     let content_size = LayoutSize::new(content_size_x, content_size_y);
 
     WordPositions {
         font_key: scaled_words.font_key,
         font_instance_key: scaled_words.font_instance_key,
-        font_size,
+        font_size_px,
         text_layout_options: text_layout_options.clone(),
         trailing,
         number_of_words,
@@ -702,8 +643,6 @@ pub fn position_words(
         content_size,
         word_positions,
         line_breaks,
-        overflow,
-        scrollbar_style: scrollbar_style.clone(),
     }
 }
 
@@ -732,7 +671,7 @@ pub fn get_layouted_glyphs(
                     .map(|(mut glyph, cluster_info)| {
                         glyph.point.x += word_position.x;
                         glyph.point.y += word_position.y;
-                        glyph.point.x += letter_spacing_px.0 * cluster_info.cluster_idx as f32;
+                        glyph.point.x += letter_spacing_px * cluster_info.cluster_idx as f32;
                         glyph
                     })
                 )
@@ -771,9 +710,9 @@ pub fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> Layou
 pub fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {
     let content_size = word_positions.content_size;
     if bounding_size_height_px > content_size.height {
-        TextOverflow::InBounds(TextSizePx(bounding_size_height_px - content_size.height))
+        TextOverflow::InBounds(bounding_size_height_px - content_size.height)
     } else {
-        TextOverflow::IsOverflowing(TextSizePx(content_size.height - bounding_size_height_px))
+        TextOverflow::IsOverflowing(content_size.height - bounding_size_height_px)
     }
 }
 
@@ -831,17 +770,22 @@ enum LineCaretIntersection {
     PushCaretOntoNextLine(usize, f32),
 }
 
-/// Check if the caret intersects with any holes and if yes,
-/// what should be done about that.
+/// Check if the caret intersects with any holes and if yes, if the cursor should move to a new line.
 ///
-/// NOTE: `holes` need to be sorted by `y` origin
+/// # Inputs
+///
+/// - `line_caret_x`: The current horizontal caret position
+/// - `line_number`: The current line number
+/// - `holes`: Whether the text should respect any rectangular regions
+///    where the text can't flow (preparation for inline / float layout).
+/// - `max_width`: Does the text have a restriction on how wide it can be (in pixels)
 fn caret_intersects_with_holes(
     line_caret_x: f32,
     line_number: usize,
     font_size_px: f32,
     line_height_px: f32,
     holes: &[LayoutRect],
-    max_width: Option<TextSizePx>,
+    max_width: Option<f32>,
 ) -> LineCaretIntersection {
 
     let mut new_line_caret_x = None;
@@ -849,7 +793,7 @@ fn caret_intersects_with_holes(
 
     // If the caret is outside of the max_width, move it to the start of a new line
     if let Some(max_width) = max_width {
-        if line_caret_x > max_width.0 {
+        if line_caret_x > max_width {
             new_line_caret_x = Some(0.0);
             line_advance += 1;
         }
@@ -870,7 +814,7 @@ fn caret_intersects_with_holes(
         while hole.contains(&current_caret) {
             should_move_caret = true;
             if let Some(max_width) = max_width {
-                if hole.origin.x + hole.size.width >= max_width.0 {
+                if hole.origin.x + hole.size.width >= max_width {
                     // Need to break the line here
                     current_line_advance += 1;
                     new_line_number = line_number + current_line_advance;
@@ -1034,7 +978,7 @@ pub fn align_text_vert(
         },
     };
 
-    glyphs.iter_mut().for_each(|g| g.point.y += space_to_add.0);
+    glyphs.iter_mut().for_each(|g| g.point.y += space_to_add);
 }
 
 /// Adds the X and Y offset to each glyph in the positioned glyph
