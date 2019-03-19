@@ -695,6 +695,7 @@ fn build_add_image_resource_updates(
     let raw_images = &mut app_resources.raw_images;
     let images = &mut app_resources.images;
     let currently_registered_images = &mut app_resources.currently_registered_images;
+    let render_api = &app_resources.fake_display.render_api;
 
     for image_id in images_in_dom.iter().cloned().filter(|id| {
         !currently_registered_images.contains_key(id)
@@ -712,30 +713,30 @@ fn build_add_image_resource_updates(
                     Ok(o) => o,
                     Err(e) => {
                         #[cfg(feature = "logging")] {
-                            warn!("Could not load image with ID: {} - error: {}", font_id, e);
+                            warn!("Could not load image with ID: {:?} - error: {}", image_id, e);
                         }
                         continue;
                     }
                 };
 
-                let (decoded_image_data, image_descriptor) = match decode_image_data() {
+                let (decoded_image_data, image_descriptor) = match decode_image_data(image_bytes) {
                     Ok(o) => o,
                     Err(e) => {
                         #[cfg(feature = "logging")] {
-                            warn!("Could not decode image with ID: {} - error: {}", font_id, e);
+                            warn!("Could not decode image with ID: {:?} - error: {}", image_id, e);
                         }
                         continue;
                     }
                 };
 
-                let image_key = api.generate_image_key();
+                let image_key = render_api.generate_image_key();
                 pending_frame_image_keys.insert(image_id, ImageInfo {
                     key: image_key,
                     descriptor: image_descriptor,
                 });
 
                 resource_updates.push(ResourceUpdate::AddImage(
-                    AddImage { key: image_key, descriptor, data: decoded_image_data, tiling: None }
+                    AddImage { key: image_key, descriptor: image_descriptor, data: decoded_image_data, tiling: None }
                 ));
             }
         }
@@ -755,7 +756,6 @@ fn build_add_image_resource_updates(
                         allow_mipmaps
                     );
                     let data = ImageData::new(pixels);
-                    let render_api = &app_resources.fake_display.render_api;
                     let image_key = render_api.generate_image_key();
 
                     pending_frame_image_keys.insert(image_id, ImageInfo {
@@ -1008,6 +1008,7 @@ impl ImageInfo {
 fn prepare_image(image_decoded: DynamicImage)
     -> Result<(ImageData, ImageDescriptor), ImageError>
 {
+    use image;
     let image_dims = image_decoded.dimensions();
 
     // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
