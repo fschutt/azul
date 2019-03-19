@@ -68,13 +68,15 @@ fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: Layout
 }
 
 fn render_map(map: &mut Map, info: LayoutInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
+    let physical_size = dimensions.get_physical_size();
     Some(
          Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
             .with_pan(map.pan_horz as f32, map.pan_vert as f32)
             .with_zoom(map.zoom as f32)
-            .render_svg(&map.cache, &info.window,
-                        dimensions.physical_size.width as usize,
-                        dimensions.physical_size.height  as usize
+            .render_svg(
+                &map.cache, &info.window,
+                physical_size.width as usize,
+                physical_size.height  as usize,
             )
     )
 }
@@ -104,9 +106,9 @@ fn build_layers(
 
 // Check what text was hovered over
 fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
-    let (cursor_x, cursor_y) = event.cursor_relative_to_item;
+    let (cursor_x, cursor_y) = event.cursor_relative_to_item?;
 
-    let data = app_state.lock().ok()?;
+    let mut data = app_state.data.lock().ok()?;
     let map = data.map.as_mut()?;
 
     let mut should_redraw = DontRedraw;
@@ -123,7 +125,8 @@ fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: &mut CallbackI
 }
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
-    let data = app_state.data.lock().ok()?;
+
+    let mut data = app_state.data.lock().ok()?;
     let map = data.map.as_mut()?;
 
     let mouse_state = app_state.windows.get(event.window_id)?.get_mouse_state();
@@ -146,14 +149,9 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: &mut Callback
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
 
-    let font_id = FontId::BuiltinFont(String::from("sans-serif"));
-    let font_size = StyleFontSize::px(10.0);
-    let font = app_state.resources.get_font(&font_id).unwrap().0;
-
-    let aligned = TextLayoutOptions {
-        horz_alignment: StyleTextAlignmentHorz::Right,
-        .. Default::default()
-    };
+    let font_size = 10.0;
+    let font_id = app_state.resources.get_css_font_id("sans-serif")?;
+    let font_bytes = app_state.resources.get_font_bytes(&font_id)?.ok()?;
 
     let text_style = SvgStyle {
         fill: Some(ColorU { r: 0, g: 0, b: 0, a: 255 }),
@@ -167,9 +165,15 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut Cal
     // Texts only for testing
     let texts = [
         SvgText {
-            font_size: font_size,
+            font_size_px: font_size,
             font_id: font_id.clone(),
-            text_layout: SvgTextLayout::from_str("On Curve!!!!", &font, &font_size, &TextLayoutOptions::default()),
+            text_layout: SvgTextLayout::from_str(
+                "On Curve!!!!",
+                &font_bytes.0,
+                font_bytes.1 as u32,
+                &TextLayoutOptions::default(),
+                StyleTextAlignmentHorz::default(),
+            ),
             style: text_style,
             placement: SvgTextPlacement::OnCubicBezierCurve(SampledBezierCurve::from_curve(&[
                 BezierControlPoint { x: 0.0, y: 0.0 },
@@ -179,16 +183,28 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut Cal
             ])),
         },
         SvgText {
-            font_size: font_size,
+            font_size_px: font_size,
             font_id: font_id.clone(),
-            text_layout: SvgTextLayout::from_str("Rotated", &font, &font_size, &TextLayoutOptions::default()),
+            text_layout: SvgTextLayout::from_str(
+                "Rotated",
+                &font_bytes.0,
+                font_bytes.1 as u32,
+                &TextLayoutOptions::default(),
+                StyleTextAlignmentHorz::default(),
+            ),
             style: text_style,
             placement: SvgTextPlacement::Rotated(-30.0),
         },
         SvgText {
-            font_size: font_size,
+            font_size_px: font_size,
             font_id: font_id.clone(),
-            text_layout: SvgTextLayout::from_str("Unmodified\nCool", &font, &font_size, &aligned),
+            text_layout: SvgTextLayout::from_str(
+                "Unmodified\nCool",
+                &font_bytes.0,
+                font_bytes.1 as u32,
+                &TextLayoutOptions::default(),
+                StyleTextAlignmentHorz::default(),
+            ),
             style: text_style,
             placement: SvgTextPlacement::Unmodified,
         },
