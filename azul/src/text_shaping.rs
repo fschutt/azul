@@ -2,25 +2,19 @@
 //! Right now, words are laid out on a word-per-word basis, no inter-word font shaping is done.
 
 use std::{slice, ptr, u32, ops::Deref, os::raw::{c_char, c_uint}};
-use app_units::Au;
 use webrender::api::{LayoutPoint, GlyphInstance as WrGlyphInstance};
 use harfbuzz_sys::{
     hb_blob_create, hb_blob_destroy,
     hb_font_create, hb_font_destroy,
     hb_face_create, hb_face_destroy,
-    hb_font_funcs_create, hb_font_funcs_destroy,
     hb_buffer_create, hb_buffer_destroy,
     hb_shape, hb_font_set_scale, hb_buffer_add_utf8,
     hb_buffer_get_glyph_infos, hb_buffer_get_glyph_positions,
     hb_buffer_guess_segment_properties, hb_buffer_allocation_successful,
-    hb_blob_t, hb_memory_mode_t, hb_buffer_t, hb_font_funcs_t,
+    hb_blob_t, hb_memory_mode_t, hb_buffer_t,
     hb_glyph_position_t, hb_glyph_info_t, hb_font_t, hb_face_t,
     hb_feature_t, hb_tag_t,
     HB_MEMORY_MODE_READONLY,
-};
-use {
-    ui_solver::au_to_px,
-    app_resources::LoadedFont,
 };
 
 // Translates to the ".codepoint" in HarfBuzz
@@ -74,35 +68,34 @@ pub struct ShapedWord {
 
 #[derive(Debug)]
 pub struct HbFont<'a> {
-    font: &'a LoadedFont,
+    font_bytes: &'a [u8],
+    font_index: u32,
     hb_face_bytes: *mut hb_blob_t,
     hb_face: *mut hb_face_t,
     hb_font: *mut hb_font_t,
-    hb_font_funcs: *mut hb_font_funcs_t,
 }
 
 impl<'a> HbFont<'a> {
-    pub fn from_loaded_font(font: &'a LoadedFont) -> Self {
+    pub fn from_bytes(font_bytes: &'a [u8], font_index: u32) -> Self {
 
         // Create a HbFont with no destroy function (font is cleaned up by Rust destructor)
 
-        let hb_font_funcs = unsafe { hb_font_funcs_create() };
         let user_data_ptr = ptr::null_mut();
         let destroy_func = None;
 
-        let font_ptr = font.font_bytes.as_ptr() as *const i8;
+        let font_ptr = font_bytes.as_ptr() as *const i8;
         let hb_face_bytes = unsafe {
-            hb_blob_create(font_ptr, font.font_bytes.len() as u32, MEMORY_MODE_READONLY, user_data_ptr, destroy_func)
+            hb_blob_create(font_ptr, font_bytes.len() as u32, MEMORY_MODE_READONLY, user_data_ptr, destroy_func)
         };
-        let hb_face = unsafe { hb_face_create(hb_face_bytes, font.font_index as c_uint) };
+        let hb_face = unsafe { hb_face_create(hb_face_bytes, font_index as c_uint) };
         let hb_font = unsafe { hb_font_create(hb_face) };
 
         Self {
-            font,
+            font_bytes,
+            font_index,
             hb_face_bytes,
             hb_face,
             hb_font,
-            hb_font_funcs,
         }
     }
 }
@@ -111,24 +104,25 @@ impl<'a> Drop for HbFont<'a> {
     fn drop(&mut self) {
         unsafe { hb_font_destroy(self.hb_font) };
         unsafe { hb_face_destroy(self.hb_face) };
+        // TODO: Is this safe - memory may be deleted twice?
         unsafe { hb_blob_destroy(self.hb_face_bytes) };
-        unsafe { hb_font_funcs_destroy(self.hb_font_funcs) };
     }
 }
 
 #[derive(Debug)]
 pub struct HbScaledFont<'a> {
-    font: &'a HbFont<'a>,
-    pub scale: Au,
+    pub font: &'a HbFont<'a>,
+    pub font_size_px: f32,
 }
 
 impl<'a> HbScaledFont<'a> {
-    pub fn from_font(font: &'a HbFont<'a>, scale: Au) -> Self {
-        let px = (au_to_px(scale) * HB_SCALE_FACTOR) as i32;
+    /// Create a `HbScaledFont` from a
+    pub fn from_font(font: &'a HbFont<'a>, font_size_px: f32) -> Self {
+        let px = (font_size_px * HB_SCALE_FACTOR) as i32;
         unsafe { hb_font_set_scale(font.hb_font, px, px) };
         Self {
             font,
-            scale,
+            font_size_px,
         }
     }
 }

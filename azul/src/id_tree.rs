@@ -70,6 +70,7 @@ mod node_id {
     }
 }
 
+/// Hierarchical information about a node (stores the indicies of the parent / child nodes).
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Node {
     pub parent: Option<NodeId>,
@@ -93,6 +94,9 @@ pub struct Arena<T> {
     pub(crate) node_data: NodeDataContainer<T>,
 }
 
+/// The hierarchy of nodes is stored separately from the actual node content in order
+/// to save on memory, since the hierarchy can be re-used across several DOM trees even
+/// if the content changes.
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct NodeHierarchy {
     pub(crate) internal: Vec<Node>,

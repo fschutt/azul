@@ -1,6 +1,5 @@
 #![allow(unused_variables, dead_code)]
 
-use webrender::api::{FontKey, FontInstanceKey};
 use azul_css::{
     StyleTextAlignmentHorz, ScrollbarInfo,
     StyleTextAlignmentVert, StyleLineHeight,
@@ -9,8 +8,6 @@ pub use webrender::api::{
     GlyphInstance, LayoutSize, LayoutRect, LayoutPoint,
 };
 pub use text_shaping::{GlyphPosition, GlyphInfo};
-use app_resources::LoadedFont;
-use app_units::Au;
 
 pub type WordIndex = usize;
 pub type GlyphIndex = usize;
@@ -73,10 +70,8 @@ pub enum WordType {
 /// according to their final size in pixels.
 #[derive(Debug, Clone)]
 pub struct ScaledWords {
-    /// Font used to scale this text
-    pub font_key: FontKey,
-    /// Font instance used to scale this text
-    pub font_instance_key: FontInstanceKey,
+    /// Font size (in pixels) that was used to scale these words
+    pub font_size_px: f32,
     /// Words scaled to their appropriate font size, but not yet positioned on the screen
     pub items: Vec<ScaledWord>,
     /// Longest word in the `self.scaled_words`, necessary for
@@ -103,13 +98,16 @@ pub struct ScaledWord {
 /// Stores the positions of the vertically laid out texts
 #[derive(Debug, Clone, PartialEq)]
 pub struct WordPositions {
-    /// Font used to scale this text
-    pub(crate) font_key: FontKey,
-    /// Font instance used to scale this text
-    pub(crate) font_instance_key: FontInstanceKey,
+    /// Font size that was used to layout this text (value in pixels)
+    pub font_size_px: f32,
     /// Options like word spacing, character spacing, etc. that were
     /// used to layout these glyphs
     pub text_layout_options: TextLayoutOptions,
+    /// Stores the positions of words.
+    pub word_positions: Vec<LayoutPoint>,
+    /// Index of the word at which the line breaks + length of line
+    /// (useful for text selection + horizontal centering)
+    pub line_breaks: Vec<(WordIndex, LineLength)>,
     /// Horizontal width of the last line (in pixels), necessary for inline layout later on,
     /// so that the next text run can contine where the last text run left off.
     ///
@@ -125,13 +123,6 @@ pub struct WordPositions {
     /// Note that the vertical extent can be larger than the last words' position,
     /// because of trailing negative glyph advances.
     pub content_size: LayoutSize,
-    /// Stores the positions of words.
-    pub word_positions: Vec<LayoutPoint>,
-    /// Font size that was used to layout this text (value in pixels)
-    pub font_size_px: f32,
-    /// Index of the word at which the line breaks + length of line
-    /// (useful for text selection + horizontal centering)
-    pub line_breaks: Vec<(WordIndex, LineLength)>,
 }
 
 /// Width and height of the scrollbars at the side of the text field.
@@ -392,14 +383,15 @@ pub fn split_text_into_words(text: &str) -> Words {
 /// scales the font accordingly.
 pub fn words_to_scaled_words(
     words: &Words,
-    font: &LoadedFont,
-    font_size: Au
+    font_bytes: &[u8],
+    font_index: u32,
+    font_size_px: f32,
 ) -> ScaledWords {
 
     use text_shaping::{self, HbBuffer, HbFont, HbScaledFont};
 
-    let hb_font = HbFont::from_loaded_font(font);
-    let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size);
+    let hb_font = HbFont::from_bytes(font_bytes, font_index);
+    let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size_px);
 
     // Get the dimensions of the space glyph
     let hb_space_buffer = HbBuffer::from_str(" ");
@@ -460,12 +452,11 @@ pub fn words_to_scaled_words(
         }).collect();
 
     ScaledWords {
-        font_key: font.key,
-        font_instance_key: font.font_instances[&font_size],
         items: scaled_words,
         longest_word_width: longest_word_width,
         space_advance_px,
         space_codepoint,
+        font_size_px,
     }
 }
 
@@ -633,8 +624,6 @@ pub fn position_words(
     let content_size = LayoutSize::new(content_size_x, content_size_y);
 
     WordPositions {
-        font_key: scaled_words.font_key,
-        font_instance_key: scaled_words.font_instance_key,
         font_size_px,
         text_layout_options: text_layout_options.clone(),
         trailing,

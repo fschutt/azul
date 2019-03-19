@@ -39,12 +39,13 @@ impl TimerId {
 
 /// A `Timer` is a function that is run on every frame.
 ///
-/// The reason for needing this is simple - there are often a lot of visual tasks
-/// (such as animations, fetching the next frame for a GIF or video, etc.)
-/// going on, but we don't want to create a new thread for each of these tasks.
+/// There are often a lot of visual tasks such as animations or fetching the
+/// next frame for a GIF or video, etc. - that need to run every frame or every X milliseconds,
+/// but they aren't heavy enough to warrant creating a thread - otherwise the framework
+/// would create too many threads, which leads to a lot of context switching and bad performance.
 ///
-/// They are fast enough to run under 16ms, so they can run on the main thread.
-/// A timer can also act as a timer, so that a function is called every X duration.
+/// The callback of a `Timer` should be fast enough to run under 16ms,
+/// otherwise running timers will block the main UI thread.
 pub struct Timer<T> {
     /// Stores when the timer was created (usually acquired by `Instant::now()`)
     pub created: Instant,
@@ -52,10 +53,10 @@ pub struct Timer<T> {
     pub last_run: Option<Instant>,
     /// If the timer shouldn't start instantly, but rather be delayed by a certain timeframe
     pub delay: Option<Duration>,
-    /// How frequently the timer should run
-    /// (i.e. `Some(Duration::from_millis(16))` to run the timer every 16ms).
-    /// If set to `None`, (default value) will execute the timer on every frame,
-    /// might be  performance intensive.
+    /// How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))`
+    /// to run the timer every 16ms. If this value is set to `None`, (the default), the timer
+    /// will execute the timer as-fast-as-possible (i.e. at a faster framerate
+    /// than the framework itself) - which might be  performance intensive.
     pub interval: Option<Duration>,
     /// When to stop the timer (for example, you can stop the
     /// execution after 5s using `Some(Duration::from_secs(5))`).
@@ -193,44 +194,59 @@ impl<T> Eq for Timer<T> { }
 
 impl<T> Copy for Timer<T> { }
 
+/// Simple struct that is used by Azul internally to determine when the thread has finished executing.
+/// When this struct goes out of scope, Azul will call `.join()` on the thread (so in order to not
+/// block the main thread, simply let it go out of scope naturally.
+pub struct DropCheck(Arc<()>);
+
+/// A `Task` is a seperate thread that is owned by the framework.
+///
+/// In difference to a `Thread`, you don't have to `await()` the result of a `Task`,
+/// you can just hand the task to the framework (via `AppResources::add_task`) and
+/// the framework will automatically update the UI when the task is finished.
+/// This is useful to offload actions such as loading long files, etc. to a background thread.
+///
+/// Azul will join the thread automatically after it is finished (joining won't block the UI).
 pub struct Task<T> {
     // Task is in progress
     join_handle: Option<JoinHandle<()>>,
     dropcheck: Weak<()>,
-    /// Timers that run directly after completion of this task
-    pub(crate) after_completion_timers: Vec<(TimerId, Timer<T>)>
+    /// Timer that will run directly after this task is completed.
+    pub(crate) after_completion_timer: Option<Timer<T>>,
 }
 
 impl<T> Task<T> {
-    pub fn new<U: Send + 'static>(data: &Arc<Mutex<U>>, callback: fn(Arc<Mutex<U>>, Arc<()>)) -> Self {
+
+    /// Creates a new task from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
+    pub fn new<U>(data: &Arc<Mutex<U>>, callback: fn(Arc<Mutex<U>>, DropCheck)) -> Self where U: Send + 'static {
 
         let thread_check = Arc::new(());
         let thread_weak = Arc::downgrade(&thread_check);
         let app_state_clone = data.clone();
 
         let thread_handle = thread::spawn(move || {
-            callback(app_state_clone, thread_check)
+            callback(app_state_clone, DropCheck(thread_check))
         });
 
         Self {
             join_handle: Some(thread_handle),
             dropcheck: thread_weak,
-            after_completion_timers: Vec::new(),
+            after_completion_timer: None,
         }
+    }
+
+    /// Stores a `Timer` that will run after the task has finished.
+    ///
+    /// Often necessary to "clean up" or copy data from the background task into the UI.
+    #[inline]
+    pub fn then(mut self, timer: Timer<T>) -> Self {
+        self.after_completion_timer = Some(timer);
+        self
     }
 
     /// Returns true if the task has been finished, false otherwise
     pub(crate) fn is_finished(&self) -> bool {
         self.dropcheck.upgrade().is_none()
-    }
-
-    /// Stores timers that will run after the task has finished.
-    ///
-    /// Often necessary to "clean up" or copy data from the background task into the UI.
-    #[inline]
-    pub fn then(mut self, deamons: &[(TimerId, Timer<T>)]) -> Self {
-        self.after_completion_timers.extend(deamons.iter().cloned());
-        self
     }
 }
 
@@ -242,15 +258,21 @@ impl<T> Drop for Task<T> {
     }
 }
 
+/// A `Thread` is a simple abstraction over `std::thread` that allows to offload a pure
+/// function to a different thread (essentially emulating async / await for older compilers)
 pub struct Thread<T> {
     data: Option<Arc<Mutex<T>>>,
     join_handle: Option<JoinHandle<()>>,
 }
 
+/// Error that can happen while calling `.await()`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AwaitError {
+    /// Arc::into_inner() failed
     ArcUnlockError,
+    /// The background thread panicked
     ThreadJoinError,
+    /// Mutex::into_inner() failed
     MutexIntoInnerError,
 }
 
@@ -258,7 +280,11 @@ impl<T> Thread<T> {
 
     /// Creates a new thread that spawns a certain (pure) function on a separate thread.
     /// This is a workaround until `await` is implemented. Note that invoking this function
-    /// will create an OS-level thread
+    /// will create an OS-level thread.
+    ///
+    /// **Warning**: You *must* call `.await()`, otherwise the `Thread` will panic when it is dropped!
+    ///
+    /// # Example
     ///
     /// ```rust
     /// # use azul::async::Thread;

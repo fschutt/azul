@@ -348,6 +348,7 @@ impl From<On> for EventFilter {
     }
 }
 
+/// Event filter that only fires when an element is hovered over
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum HoverEventFilter {
     MouseOver,
@@ -396,12 +397,19 @@ impl HoverEventFilter {
     }
 }
 
+/// The inverse of an `onclick` event filter, fires when an item is *not* hovered / focused.
+/// This is useful for cleanly implementing things like popover dialogs or dropdown boxes that
+/// want to close when the user clicks any where *but* the item itself.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NotEventFilter {
     Hover(HoverEventFilter),
     Focus(FocusEventFilter),
 }
 
+/// Event filter similar to `HoverEventFilter` that only fires when the element is focused
+///
+/// **Important**: In order for this to fire, the item must have a `tabindex` attribute
+/// (to indicate that the item is focus-able).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FocusEventFilter {
     MouseOver,
@@ -423,6 +431,8 @@ pub enum FocusEventFilter {
     FocusLost,
 }
 
+/// Event filter that fires when any action fires on the entire window
+/// (regardless of whether any element is hovered or focused over).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum WindowEventFilter {
     MouseOver,
