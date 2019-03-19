@@ -1343,18 +1343,14 @@ fn create_word_positions<'a>(
     inline_texts: &BTreeMap<NodeId, InlineText>,
 ) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
 
-    use text_layout::{ScrollbarStyle, position_words};
+    use text_layout;
 
-    let mut word_positions = BTreeMap::new();
+    words.iter().filter_map(|(node_id, words)| {
 
-    for (node_id, words) in words.iter() {
         let rect = &display_rects[*node_id];
-        let (scaled_words, font_instance_key) = match scaled_words.get(&node_id) {
-            Some(s) => s,
-            None => continue,
-        };
+        let (scaled_words, font_instance_key) = scaled_words.get(&node_id)?;
+
         let font_size = get_font_size(&rect.style).0;
-        let overflow = rect.layout.overflow.unwrap_or_default();
         let max_horizontal_width = max_widths.get(&node_id).cloned();
         let leading = inline_texts.get(&node_id).map(|inline_text| inline_text.horizontal_margin + inline_text.horizontal_padding);
 
@@ -1362,18 +1358,15 @@ fn create_word_positions<'a>(
         let text_holes = Vec::new();
         let text_layout_options = get_text_layout_options(&rect, max_horizontal_width, leading, text_holes);
 
-        let scrollbar_style = ScrollbarStyle {
-            horizontal: Some(rect.style.get_horizontal_scrollbar_style()),
-            vertical: Some(rect.style.get_vertical_scrollbar_style()),
-        };
-
         // TODO: handle overflow / scrollbar_style !
-        let positioned_words = position_words(words, scaled_words, &text_layout_options, font_size.to_pixels());
+        let positioned_words = text_layout::position_words(
+            words, scaled_words,
+            &text_layout_options,
+            font_size.to_pixels()
+        );
 
-        word_positions.insert(*node_id, (positioned_words, *font_instance_key));
-    }
-
-    word_positions
+        Some((*node_id, (positioned_words, *font_instance_key)))
+    }).collect()
 }
 
 fn get_text_layout_options(
@@ -1382,8 +1375,6 @@ fn get_text_layout_options(
     leading: Option<f32>,
     holes: Vec<LayoutRect>,
 ) -> TextLayoutOptions {
-
-    let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
     TextLayoutOptions {
         line_height: rect.style.line_height,
         letter_spacing: rect.style.letter_spacing.map(|ls| ls.0.to_pixels()),
@@ -1392,19 +1383,17 @@ fn get_text_layout_options(
         max_horizontal_width,
         leading,
         holes,
-        horz_alignment,
-        vert_alignment,
     }
 }
 
 /// For a given rectangle, determines what text alignment should be used
-fn determine_text_alignment(rect: &DisplayRectangle)
+pub(crate) fn determine_text_alignment(rect_style: &RectStyle, rect_layout: &RectLayout)
     -> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
 {
     let mut horz_alignment = StyleTextAlignmentHorz::default();
     let mut vert_alignment = StyleTextAlignmentVert::default();
 
-    if let Some(align_items) = rect.layout.align_items {
+    if let Some(align_items) = rect_layout.align_items {
         // Vertical text alignment
         use azul_css::LayoutAlignItems;
         match align_items {
@@ -1415,7 +1404,7 @@ fn determine_text_alignment(rect: &DisplayRectangle)
         }
     }
 
-    if let Some(justify_content) = rect.layout.justify_content {
+    if let Some(justify_content) = rect_layout.justify_content {
         use azul_css::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
@@ -1425,7 +1414,7 @@ fn determine_text_alignment(rect: &DisplayRectangle)
         }
     }
 
-    if let Some(text_align) = rect.style.text_align {
+    if let Some(text_align) = rect_style.text_align {
         // Horizontal text alignment with higher priority
         horz_alignment = text_align;
     }

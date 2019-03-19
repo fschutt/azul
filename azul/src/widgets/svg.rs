@@ -1,7 +1,7 @@
 use std::{
     fmt,
     rc::Rc,
-    sync::{Arc, Mutex, atomic::{Ordering, AtomicUsize}},
+    sync::{Mutex, atomic::{Ordering, AtomicUsize}},
     cell::{RefCell, RefMut},
     collections::hash_map::Entry::*,
 };
@@ -29,7 +29,7 @@ use lyon::{
 };
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
-use azul_css::{ColorU, ColorF, StyleFontSize};
+use azul_css::{ColorU, ColorF, StyleTextAlignmentHorz};
 use {
     FastHashMap,
     prelude::GlyphInstance,
@@ -37,7 +37,7 @@ use {
     window::FakeWindow,
     traits::Layout,
     app_resources::{AppResources, FontId},
-    text_layout::{LayoutTextResult, TextLayoutOptions},
+    text_layout::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs, TextLayoutOptions},
 };
 
 pub use lyon::tessellation::VertexBuffers;
@@ -595,7 +595,7 @@ impl SampledBezierCurve {
     ///
     /// - `Vec<(f32, f32)>`: the x and y offsets of the glyph characters
     /// - `Vec<f32>`: The rotations in degrees of the glyph characters
-    pub fn get_text_offsets_and_rotations(&self, glyphs: &[GlyphInstance], start_offset: f32, font_metrics: &FontMetrics)
+    pub fn get_text_offsets_and_rotations(&self, glyphs: &[GlyphInstance], start_offset: f32)
     -> (Vec<(f32, f32)>, Vec<BezierCharacterRotation>)
     {
         let mut glyph_offsets = Vec::new();
@@ -608,7 +608,7 @@ impl SampledBezierCurve {
         for glyph_idx in 0..glyphs.len() {
             let char_bezier_percentage = self.get_bezier_percentage_from_offset(current_offset);
             let char_bezier_pt = cubic_interpolate_bezier(&self.original_curve, char_bezier_percentage);
-            glyph_offsets.push((char_bezier_pt.x / font_metrics.get_svg_font_scale_factor(), char_bezier_pt.y / font_metrics.get_svg_font_scale_factor()));
+            glyph_offsets.push((char_bezier_pt.x / SVG_FAKE_FONT_SIZE, char_bezier_pt.y / SVG_FAKE_FONT_SIZE));
 
             let char_rotation_percentage = self.get_bezier_percentage_from_offset(last_offset);
             let rotation = cubic_bezier_normal(&self.original_curve, char_rotation_percentage).to_rotation();
@@ -1068,9 +1068,9 @@ pub type GlyphId = u32;
 #[derive(Debug, Clone, Default)]
 pub struct VectorizedFont {
     /// Glyph -> Polygon map
-    glyph_polygon_map: FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>,
+    glyph_polygon_map: RefCell<FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>>,
     /// Glyph -> Stroke map
-    glyph_stroke_map: FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>,
+    glyph_stroke_map: RefCell<FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>>,
     /// Original font bytes
     font_bytes: Vec<u8>,
 }
@@ -1078,6 +1078,7 @@ pub struct VectorizedFont {
 use stb_truetype::{FontInfo, Vertex};
 
 impl VectorizedFont {
+
     /// Prepares a vectorized font from a set of bytes
     pub fn from_bytes(font_bytes: Vec<u8>) -> Self {
         Self {
@@ -1087,10 +1088,15 @@ impl VectorizedFont {
     }
 
     pub fn get_fill_vertices(&self, glyphs: &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>> {
-        let font_info = FontInfo::new(&self.font_bytes);
 
+        let font_info = match FontInfo::new(self.font_bytes.clone(), 0) {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let mut borrow_mut = self.glyph_polygon_map.borrow_mut();
         glyphs.iter().filter_map(|glyph| {
-            match self.glyph_polygon_map.entry(glyph.index) {
+            match borrow_mut.entry(glyph.index) {
                 Occupied(o) => Some(o.get().clone()),
                 Vacant(v) => {
                     let glyph_shape = font_info.get_glyph_shape(glyph.index)?;
@@ -1105,10 +1111,15 @@ impl VectorizedFont {
     }
 
     pub fn get_stroke_vertices(&self, glyphs: &[GlyphInstance], stroke_options: &SvgStrokeOptions) -> Vec<VertexBuffers<SvgVert, u32>> {
-        let font_info = FontInfo::new(&self.font_bytes);
 
+        let font_info = match FontInfo::new(self.font_bytes.clone(), 0) {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let mut borrow_mut = self.glyph_stroke_map.borrow_mut();
         glyphs.iter().filter_map(|glyph| {
-            match self.vectorized_font.glyph_stroke_map.entry(glyph.index) {
+            match borrow_mut.entry(glyph.index) {
                 Occupied(o) => Some(o.get().clone()),
                 Vacant(v) => {
                     let glyph_shape = font_info.get_glyph_shape(glyph.index)?;
@@ -1125,7 +1136,7 @@ impl VectorizedFont {
 
 
 /// Converts a `Vec<stb_truetype::Vertex>` to a `SvgLayerType::Polygon`
-fn glyph_to_svg_layer_type(vertices: Vec<Vertex>) -> Option<SvgLayerType> {
+fn glyph_to_svg_layer_type(vertices: Vec<Vertex>) -> SvgLayerType {
     SvgLayerType::Polygon(vertices.into_iter().map(rusttype_glyph_to_path_events).collect())
 }
 
@@ -1153,7 +1164,7 @@ pub struct VectorizedFontCache {
     ///
     /// Needs to be wrapped in a RefCell / Rc since we want to lazy-load the
     /// fonts to keep the memory usage down
-    vectorized_fonts: FastHashMap<FontId, VectorizedFont>,
+    vectorized_fonts: RefCell<FastHashMap<FontId, Rc<VectorizedFont>>>,
 }
 
 impl VectorizedFontCache {
@@ -1163,30 +1174,35 @@ impl VectorizedFontCache {
     }
 
     pub fn insert_if_not_exist(&mut self, id: FontId, font_bytes: Vec<u8>) {
-        self.vectorized_fonts.entry(id).or_insert_with(|| VectorizedFont::from_bytes(font_bytes));
+        self.vectorized_fonts.borrow_mut().entry(id).or_insert_with(|| Rc::new(VectorizedFont::from_bytes(font_bytes)));
     }
 
     pub fn insert(&mut self, id: FontId, font: VectorizedFont) {
-        self.vectorized_fonts.lock().unwrap().insert(id, font);
+        self.vectorized_fonts.borrow_mut().insert(id, Rc::new(font));
     }
 
     /// Returns true if the font cache has the respective font
     pub fn has_font(&self, id: &FontId) -> bool {
-        self.vectorized_fonts.lock().unwrap().get(id).is_some()
+        self.vectorized_fonts.borrow().get(id).is_some()
     }
 
-    pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Arc<VectorizedFont>> {
-        self.vectorized_fonts
-            .entry(id.clone())
-            .or_insert_with(|| {
-                Arc::new(VectorizedFont::from_font(&*app_resources.get_font(&id).unwrap().0))
-            });
+    pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Rc<VectorizedFont>> {
+        use std::collections::hash_map::Entry::*;
 
-        self.vectorized_fonts.get(&id).and_then(|font| Some(font.clone()))
+        match self.vectorized_fonts.borrow_mut().entry(id.clone()) {
+            Occupied(_) => { },
+            Vacant(v) => {
+                let font_bytes = app_resources.get_font_bytes(&id)?;
+                let (font_bytes, _) = font_bytes.ok()?;
+                v.insert(Rc::new(VectorizedFont::from_bytes(font_bytes)));
+            }
+        }
+
+        self.vectorized_fonts.borrow().get(&id).map(|font| font.clone())
     }
 
     pub fn remove_font(&mut self, id: &FontId) {
-        self.vectorized_fonts.remove(id);
+        self.vectorized_fonts.borrow_mut().remove(id);
     }
 }
 
@@ -1662,12 +1678,12 @@ pub enum SvgTextPlacement {
 
 #[derive(Debug, Clone)]
 pub struct SvgText {
-    /// Font size of the text
-    pub font_size: StyleFontSize,
+    /// Font size of the text, in pixels
+    pub font_size_px: f32,
     /// Font ID, such as FontId(0)
     pub font_id: FontId,
-    /// What are the glyphs in this text
-    pub text_layout: LayoutTextResult,
+    /// What are the words / glyphs in this text
+    pub text_layout: SvgTextLayout,
     /// What is the font color & stroke (if any)?
     pub style: SvgStyle,
     /// Is the text rotated or on a curve?
@@ -1742,25 +1758,56 @@ pub fn side_of_point(target: (f32, f32), start: (f32, f32), end: (f32, f32)) -> 
     ((target.1 - start.1) * (end.0 - start.0))
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct SvgTextLayout(pub LayoutTextResult);
+/// Creates a text layout for a single string of text
+#[derive(Debug, Clone)]
+pub struct SvgTextLayout {
+    /// The words, broken up by whitespace
+    pub words: Words,
+    /// Words, scaled by a certain font size (with font metrics)
+    pub scaled_words: ScaledWords,
+    /// Layout of the positions, word-by-word
+    pub word_positions: WordPositions,
+    /// Positioned and horizontally aligned glyphs
+    pub layouted_glyphs: LayoutedGlyphs,
+    /// At what glyphs does the line actually break (necessary for aligning content)
+    pub line_breaks: LineBreaks,
+}
+
+/// Since the SvgText is scaled on the GPU, the font size doesn't matter here
+const SVG_FAKE_FONT_SIZE: f32 = 64.0;
 
 impl SvgTextLayout {
 
-    /// Calculate the text layout from a font and a font size.
-    ///
-    /// Warning: may be slow on large texts.
-    pub fn from_str(text: &str, font: &Font, font_size: &StyleFontSize, text_layout_options: &TextLayoutOptions) -> Self {
-        let font_metrics = FontMetrics::new(font, font_size, text_layout_options);
-        SvgTextLayout(layout_text(text, font, &font_metrics))
+    /// Calculate the text layout from a font and a font size -
+    /// note: the idea is to let the user cache the returned result,
+    /// it is not recommended to run this function on every frame,
+    /// since it can be very expensive
+    pub fn from_str(
+        text: &str,
+        font_bytes: &[u8],
+        font_index: u32,
+        text_layout_options: &TextLayoutOptions,
+        horizontal_alignment: StyleTextAlignmentHorz,
+    ) -> Self {
+
+        use text_layout;
+
+        let words = text_layout::split_text_into_words(text);
+        let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, SVG_FAKE_FONT_SIZE);
+        let word_positions = text_layout::position_words(&words, &scaled_words, text_layout_options, SVG_FAKE_FONT_SIZE);
+        let (layouted_glyphs, line_breaks) = text_layout::get_layouted_glyphs_with_horizonal_alignment(&word_positions, &scaled_words, horizontal_alignment);
+
+        SvgTextLayout {
+           words, scaled_words, word_positions, layouted_glyphs, line_breaks
+        }
     }
 
     /// Get the bounding box of a layouted text
     pub fn get_bbox(&self, placement: &SvgTextPlacement) -> SvgBbox {
         use self::SvgTextPlacement::*;
 
-        let normal_width = self.0.word_positions.content_size.width;
-        let normal_height = self.0.word_positions.content_size.height;
+        let normal_width = self.word_positions.content_size.width;
+        let normal_height = self.word_positions.content_size.height;
 
         SvgBbox(match placement {
             Unmodified => {
@@ -1810,9 +1857,8 @@ impl SvgTextLayout {
                 // This is not so much about correctness as it is about simply making
                 // it work for now.
 
-                let font_size = self.0.font_metrics.font_size_no_line_height.0;
-                bbox.0.origin.y -= font_size;
-                bbox.0.size.height += font_size;
+                bbox.0.origin.y -= SVG_FAKE_FONT_SIZE;
+                bbox.0.size.height += SVG_FAKE_FONT_SIZE;
                 bbox.0
             }
         })
@@ -1823,30 +1869,26 @@ impl SvgText {
 
     pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache, resources: &AppResources) -> SvgLayerResourceDirect {
 
-        let font = resources.get_font(&self.font_id).unwrap().0;
         let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
-        let font_metrics = FontMetrics::new(&font, &self.font_size, &TextLayoutOptions::default());
 
         // The text contains the vertices and indices in unscaled units. This is so that the font
         // can be cached and later on be scaled and rotated on the GPU instead of the CPU.
         let mut text = match self.placement {
             SvgTextPlacement::Unmodified => {
-                normal_text(&self.text_layout, self.style, &font, &*vectorized_font, &font_metrics)
+                normal_text(&self.text_layout, self.style, &*vectorized_font)
             },
             SvgTextPlacement::Rotated(degrees) => {
-                let mut text = normal_text(&self.text_layout, self.style, &font, &*vectorized_font, &font_metrics);
+                let mut text = normal_text(&self.text_layout, self.style, &*vectorized_font);
                 text.style.rotate(degrees);
                 text
             },
             SvgTextPlacement::OnCubicBezierCurve(curve) => {
-                text_on_curve(&self.text_layout, self.style, &font, &*vectorized_font, &font_metrics, &curve)
+                text_on_curve(&self.text_layout, self.style, &*vectorized_font, &curve)
             },
         };
 
-        let gpu_scale_factor = self.font_size.to_pixels() * font_metrics.height_for_1px;
-
-        // The scaling happens later on the GPU side!
-        text.style.scale(gpu_scale_factor, gpu_scale_factor);
+        // The glyphs are laid out to be 1px high, they are then later scaled to the correct font size
+        text.style.scale(self.font_size_px, self.font_size_px);
         text
     }
 
@@ -1859,20 +1901,19 @@ impl SvgText {
 }
 
 pub fn normal_text(
-    layout: &LayoutTextResult,
+    layout: &SvgTextLayout,
     text_style: SvgStyle,
     vectorized_font: &VectorizedFont,
-    font_metrics: &FontMetrics,
 ) -> SvgLayerResourceDirect
 {
     let fill_vertices = text_style.fill.and_then(|_| {
-        let fill_verts = vectorized_font.get_fill_vertices(&layout.layouted_glyphs);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs, fill_verts, font_metrics))
+        let fill_verts = vectorized_font.get_fill_vertices(&layout.layouted_glyphs.glyphs);
+        Some(normal_text_to_vertices(&layout.layouted_glyphs.glyphs, fill_verts))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
-        let stroke_verts = vectorized_font.get_stroke_vertices(&layout.layouted_glyphs, &stroke.1);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs, stroke_verts, font_metrics))
+        let stroke_verts = vectorized_font.get_stroke_vertices(&layout.layouted_glyphs.glyphs, &stroke.1);
+        Some(normal_text_to_vertices(&layout.layouted_glyphs.glyphs, stroke_verts))
     });
 
     SvgLayerResourceDirect {
@@ -1885,44 +1926,40 @@ pub fn normal_text(
 pub fn normal_text_to_vertices(
     glyph_ids: &[GlyphInstance],
     mut vertex_buffers: Vec<VertexBuffers<SvgVert, u32>>,
-    font_metrics: &FontMetrics,
 ) -> VerticesIndicesBuffer
 {
-    normal_text_to_vertices_inner(glyph_ids, &mut vertex_buffers, font_metrics);
+    normal_text_to_vertices_inner(glyph_ids, &mut vertex_buffers);
     join_vertex_buffers(&vertex_buffers)
 }
 
 fn normal_text_to_vertices_inner(
     glyph_ids: &[GlyphInstance],
     vertex_buffers: &mut Vec<VertexBuffers<SvgVert, u32>>,
-    font_metrics: &FontMetrics
 ) {
-    let scale_factor = font_metrics.get_svg_font_scale_factor(); // x / font_size * scale_factor
     vertex_buffers.iter_mut().zip(glyph_ids).for_each(|(vertex_buf, gid)| {
         // NOTE: The gid.point has the font size already applied to it,
         // so we have to un-do the scaling for the glyph offsets, so all other scaling can be done on the GPU
-        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x / scale_factor, gid.point.y / scale_factor);
+        transform_vertex_buffer(&mut vertex_buf.vertices, gid.point.x / SVG_FAKE_FONT_SIZE, gid.point.y / SVG_FAKE_FONT_SIZE);
     });
 }
 
 pub fn text_on_curve(
-    layout: &LayoutTextResult,
+    layout: &SvgTextLayout,
     text_style: SvgStyle,
     vectorized_font: &VectorizedFont,
-    font_metrics: &FontMetrics,
     curve: &SampledBezierCurve
 ) -> SvgLayerResourceDirect
 {
     // NOTE: char offsets are now in unscaled glyph space!
-    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs, 0.0, font_metrics);
+    let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs.glyphs, 0.0);
 
     let fill_vertices = text_style.fill.and_then(|_| {
-        let fill_verts = vectorized_font.get_fill_vertices(&layout.layouted_glyphs);
+        let fill_verts = vectorized_font.get_fill_vertices(&layout.layouted_glyphs.glyphs);
         Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, fill_verts))
     });
 
     let stroke_vertices = text_style.stroke.and_then(|stroke| {
-        let stroke_verts = vectorized_font.get_stroke_vertices(&layout.layouted_glyphs, &stroke.1);
+        let stroke_verts = vectorized_font.get_stroke_vertices(&layout.layouted_glyphs.glyphs, &stroke.1);
         Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, stroke_verts))
     });
 
