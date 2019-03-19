@@ -375,8 +375,6 @@ impl NodeDataContainer<$struct_name> {
                         })
                         .collect::<Vec<(NodeId, f32)>>();
 
-                println!("exact width childs: {:#?}", exact_width_childs); // should be empty
-
                 for (exact_width_child_id, exact_width) in exact_width_childs {
 
                     // If this child node is `position: absolute`, it doesn't take any space away from
