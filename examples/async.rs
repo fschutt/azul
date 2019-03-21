@@ -29,6 +29,8 @@ impl Layout for MyDataModel {
 
         use self::ConnectionStatus::*;
 
+        println!("layout!");
+
         let status = match &self.connection_status {
             ConnectionStatus::NotConnected       => format!("Not connected!"),
             ConnectionStatus::Connected          => format!("You are connected!"),
@@ -81,7 +83,7 @@ fn timer_timer(state: &mut MyDataModel, _resources: &mut AppResources) -> (Updat
     }
 }
 
-fn connect_to_db_async(app_data: Arc<Mutex<MyDataModel>>, _: Arc<()>) {
+fn connect_to_db_async(app_data: Arc<Mutex<MyDataModel>>, _: DropCheck) {
     thread::sleep(Duration::from_secs(10)); // simulate slow load
     app_data.modify(|state| state.connection_status = ConnectionStatus::Connected);
 }
