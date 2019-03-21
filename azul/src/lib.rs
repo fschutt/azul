@@ -263,7 +263,7 @@ pub mod prelude {
     #[cfg(feature = "css_parser")]
     pub use azul_css::*;
     pub use app::{App, AppConfig, AppState, AppResources};
-    pub use async::{Task, TerminateTimer, TimerId, Timer};
+    pub use async::{Task, TerminateTimer, TimerId, Timer, DropCheck};
     pub use resources::{
         RawImageFormat, ImageId, FontId, FontSource, ImageSource,
         TextCache, TextId,
