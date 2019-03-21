@@ -341,7 +341,7 @@ impl_display!{CssImageParseError<'a>, {
 
 /// String has unbalanced `'` or `"` quotation marks
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct UnclosedQuotesError<'a>(pub(crate) &'a str);
+pub struct UnclosedQuotesError<'a>(pub &'a str);
 
 impl<'a> From<UnclosedQuotesError<'a>> for CssImageParseError<'a> {
     fn from(err: UnclosedQuotesError<'a>) -> Self {
@@ -1525,7 +1525,7 @@ impl<'a> From<QuoteStripped<'a>> for CssImageId {
 
 /// A string that has been stripped of the beginning and ending quote
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct QuoteStripped<'a>(pub(crate) &'a str);
+pub struct QuoteStripped<'a>(pub &'a str);
 
 pub fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<'a>> {
     Ok(strip_quotes(input)?.into())
@@ -1536,9 +1536,11 @@ pub fn parse_image<'a>(input: &'a str) -> Result<CssImageId, CssImageParseError<
 /// # Example
 ///
 /// ```rust
-/// assert_eq!(strip_quotes("\"Helvecica\""), Ok("Helvetica"));
-/// assert_eq!(strip_quotes("'Arial'"), Ok("Arial"));
-/// assert_eq!(strip_quotes("\"Arial'"), Err(UnclosedQuotesError("Arial'")));
+/// # extern crate azul_css_parser;
+/// # use azul_css_parser::{strip_quotes, QuoteStripped, UnclosedQuotesError};
+/// assert_eq!(strip_quotes("\"Helvetica\""), Ok(QuoteStripped("Helvetica")));
+/// assert_eq!(strip_quotes("'Arial'"), Ok(QuoteStripped("Arial")));
+/// assert_eq!(strip_quotes("\"Arial'"), Err(UnclosedQuotesError("\"Arial'")));
 /// ```
 pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuotesError<'a>> {
     let mut double_quote_iter = input.splitn(2, '"');
@@ -1666,12 +1668,12 @@ impl<'a> From<CssDirectionCornerParseError<'a>> for CssDirectionParseError<'a> {
 /// # extern crate azul_css;
 /// # extern crate azul_css_parser;
 /// # use azul_css_parser::parse_direction;
-/// # use azul_css::Direction;
+/// # use azul_css::{Direction, FloatValue};
 /// use azul_css::DirectionCorner::*;
 ///
 /// assert_eq!(parse_direction("to right bottom"), Ok(Direction::FromTo(TopLeft, BottomRight)));
 /// assert_eq!(parse_direction("to right"), Ok(Direction::FromTo(Left, Right)));
-/// assert_eq!(parse_direction("50deg"), Ok(Direction::Angle(50.0)));
+/// assert_eq!(parse_direction("50deg"), Ok(Direction::Angle(FloatValue::new(50.0))));
 /// ```
 pub fn parse_direction<'a>(input: &'a str)
 -> Result<Direction, CssDirectionParseError<'a>>
@@ -1918,10 +1920,14 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 /// # extern crate azul_css_parser;
 /// # use azul_css_parser::parse_style_font_family;
 /// # use azul_css::{StyleFontFamily, FontId};
-/// parse_style_font_family(
-///     "\"Helvetica\", 'Arial', Times New Roman",
-///     Ok(StyleFontFamily { fonts: vec![FontId("Helvetica".into(), "Arial".into(), "Times New Roman".into())] })
-/// )
+/// let input = "\"Helvetica\", 'Arial', Times New Roman";
+/// let fonts = vec![
+///     FontId("Helvetica".into()),
+///     FontId("Arial".into()),
+///     FontId("Times New Roman".into())
+/// ];
+///
+/// assert_eq!(parse_style_font_family(input), Ok(StyleFontFamily { fonts }));
 /// ```
 pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, CssStyleFontFamilyParseError<'a>> {
     let multiple_fonts = input.split(',');

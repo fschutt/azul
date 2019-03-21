@@ -1125,7 +1125,7 @@ fn test_caret_intersects_with_holes_2() {
     let line_number = 0;
     let font_size_px = 20.0;
     let line_height_px = 0.0;
-    let max_width = Some(TextSizePx(200.0));
+    let max_width = Some(200.0);
     let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
 
     let result = caret_intersects_with_holes(
@@ -1160,7 +1160,7 @@ fn test_caret_intersects_with_holes_3() {
     let line_number = 0;
     let font_size_px = 20.0;
     let line_height_px = 0.0;
-    let max_width = Some(TextSizePx(400.0));
+    let max_width = Some(400.0);
     let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
 
     let result = caret_intersects_with_holes(
@@ -1195,7 +1195,7 @@ fn test_caret_intersects_with_holes_4() {
     let line_number = 0;
     let font_size_px = 20.0;
     let line_height_px = 0.0;
-    let max_width = Some(TextSizePx(400.0));
+    let max_width = Some(400.0);
     let holes = vec![LayoutRect::new(LayoutPoint::new(80.0, 20.0), LayoutSize::new(200.0, 100.0))];
 
     let result = caret_intersects_with_holes(
