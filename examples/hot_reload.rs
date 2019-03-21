@@ -21,7 +21,7 @@ impl Layout for MyDataModel {
                 )
                 .with_child(Dom::div().with_id("grey"))
             )
-            .with_child(Dom::image(info.resources.get_image("Cat01").unwrap()).with_id("cat"))
+            .with_child(Dom::image(*info.resources.get_css_image_id("Cat01").unwrap()).with_id("cat"))
             .with_child((0..50).map(|i| Dom::label(format!("{}", i))).collect::<Dom<Self>>().with_id("rows"))
     }
 }
@@ -31,7 +31,8 @@ fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/hot_reload.css")) }
 
     let mut app = App::new(MyDataModel, AppConfig::default()).unwrap();
-    app.add_image("Cat01", &mut TEST_IMAGE, ImageType::Jpeg).unwrap();
+    let image_id = app.add_css_image_id("Cat01");
+    app.add_image(image_id, ImageSource::Embedded(TEST_IMAGE));
 
     #[cfg(debug_assertions)]
     let window = {
