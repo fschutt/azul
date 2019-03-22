@@ -658,14 +658,12 @@ impl<'a, T: Layout> Window<T> {
             old_state.title = new_state.title;
         }
 
-        if old_state.internal.mouse_state.mouse_cursor_type != new_state.internal.mouse_state.mouse_cursor_type {
-            window.set_cursor(new_state.internal.mouse_state.mouse_cursor_type);
-            old_state.internal.mouse_state.mouse_cursor_type = new_state.internal.mouse_state.mouse_cursor_type;
-        }
-        
-        if old_state.is_cursor_hidden != new_state.is_cursor_hidden {
-            old_state.is_cursor_hidden = new_state.is_cursor_hidden;
-            window.hide_cursor(old_state.is_cursor_hidden);
+        if old_state.mouse_cursor != new_state.mouse_cursor {
+            if let Some(cursor) = new_state.mouse_cursor {
+                window.set_cursor(cursor);
+            }
+            window.hide_cursor(new_state.mouse_cursor.is_none());
+            old_state.mouse_cursor = new_state.mouse_cursor;
         }
 
         if old_state.is_maximized != new_state.is_maximized {

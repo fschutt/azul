@@ -74,8 +74,6 @@ impl KeyboardState {
 #[derive(Debug, Copy, Clone)]
 pub struct MouseState
 {
-    /// Current mouse cursor type
-    pub mouse_cursor_type: MouseCursor,
     /// Where is the mouse cursor currently? Set to `None` if the window is not focused
     pub cursor_pos: Option<LogicalPosition>,
     /// Is the left mouse button down?
@@ -101,7 +99,6 @@ impl Default for MouseState {
     /// Creates a new mouse state
     fn default() -> Self {
         Self {
-            mouse_cursor_type: MouseCursor::Default,
             cursor_pos: None,
             left_down: false,
             right_down: false,
@@ -226,8 +223,8 @@ pub struct WindowState {
     pub is_visible: bool,
     /// Is the window always on top?
     pub is_always_on_top: bool,
-    /// Is the cursor hidden?
-    pub is_cursor_hidden: bool,
+    /// The type of the mouse cursor. Hide the cursor if the value is none.
+    pub mouse_cursor: Option<MouseCursor>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -286,7 +283,7 @@ impl Default for WindowState {
             is_visible: true,
             is_always_on_top: false,
             debug_state: DebugState::default(),
-            is_cursor_hidden: false,
+            mouse_cursor: Some(MouseCursor::default()),
         }
     }
 }
