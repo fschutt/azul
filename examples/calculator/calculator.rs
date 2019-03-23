@@ -4,7 +4,10 @@ extern crate azul;
 
 use azul::prelude::*;
 
-const FONT: &[u8] = include_bytes!("../assets/fonts/KoHo-Light.ttf");
+macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/calculator/calculator.css")};}
+macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/fonts/KoHo-Light.ttf")};}
+
+const FONT: &[u8] = include_bytes!(FONT_PATH!());
 
 #[derive(Clone, Debug)]
 enum Event {
@@ -391,18 +394,12 @@ fn perform_operation(left_operand: f32, operation: &Event, right_operand: f32) -
 
 fn main() {
 
-    macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/calculator.css")};}
-
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
+
     let mut app = App::new(Calculator::default(), AppConfig::default()).unwrap();
     let font_id = app.add_css_font_id("KoHo-Light");
     app.add_font(font_id, FontSource::Embedded(FONT));
+
     let window = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    // let window2 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    // let window3 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    // let window4 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    // app.add_window(window2);
-    // app.add_window(window3);
-    // app.add_window(window4);
     app.run(window).unwrap();
 }

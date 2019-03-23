@@ -67,66 +67,71 @@ css_parser = ["azul-css-parser"]
 native_style = ["azul-native-style"]
 
 [[example]]
-name = "debug"
-path = "../examples/debug.rs"
-required-features = ["svg_parsing"]
-
-[[example]]
 name = "async"
-path = "../examples/async.rs"
-required-features = []
-
-[[example]]
-name = "harfbuzz"
-path = "../examples/harfbuzz.rs"
-required-features = []
-
-[[example]]
-name = "hot_reload"
-path = "../examples/hot_reload.rs"
-required-features = ["image_loading"]
-
-[[example]]
-name = "table"
-path = "../examples/table.rs"
-required-features = []
-
-[[example]]
-name = "text_input"
-path = "../examples/text_input.rs"
-required-features = []
-
-[[example]]
-name = "list"
-path = "../examples/list.rs"
+path = "../examples/async/async.rs"
 required-features = []
 
 [[example]]
 name = "calculator"
-path = "../examples/calculator.rs"
-required-features = []
-
-[[example]]
-name = "dragger"
-path = "../examples/dragger.rs"
-required-features = []
-
-[[example]]
-name = "scroll_list"
-path = "../examples/scroll_list.rs"
+path = "../examples/calculator/calculator.rs"
 required-features = []
 
 [[example]]
 name = "game_of_life"
-path = "../examples/game_of_life.rs"
+path = "../examples/game_of_life/game_of_life.rs"
 required-features = []
 
 [[example]]
-name = "xml"
-path = "../examples/xml.rs"
+name = "hot_reload"
+path = "../examples/hot_reload/hot_reload.rs"
+required-features = ["image_loading"]
+
+[[example]]
+name = "list"
+path = "../examples/list/list.rs"
 required-features = []
 
 [[example]]
 name = "opengl"
-path = "../examples/opengl.rs"
+path = "../examples/opengl/opengl.rs"
+required-features = []
+
+[[example]]
+name = "slider"
+path = "../examples/slider/slider.rs"
+required-features = []
+
+[[example]]
+name = "svg"
+path = "../examples/svg/svg.rs"
+required-features = ["svg_parsing"]
+
+[[example]]
+name = "table"
+path = "../examples/table/table.rs"
+required-features = []
+
+# [[example]]
+# name = "text_editor"
+# path = "../examples/text_editor/text_editor.rs"
+# required-features = []
+
+[[example]]
+name = "text_input"
+path = "../examples/text_input/text_input.rs"
+required-features = []
+
+[[example]]
+name = "text_shaping"
+path = "../examples/text_shaping/text_shaping.rs"
+required-features = []
+
+[[example]]
+name = "transparent_window"
+path = "../examples/transparent_window/transparent_window.rs"
+required-features = []
+
+[[example]]
+name = "xml"
+path = "../examples/xml/xml.rs"
 required-features = []

@@ -78,7 +78,7 @@
 //!
 //! impl Layout for MyDataModel {
 //!     fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
-//!         Dom::new(NodeType::Div)
+//!         Dom::label("Hello World")
 //!     }
 //! }
 //!
