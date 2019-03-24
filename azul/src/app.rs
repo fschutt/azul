@@ -723,9 +723,9 @@ fn render_single_window_content<T: Layout>(
     }
 
     // TODO: Render all windows again, not just this one!
-    if should_relayout || should_rerender {
+    // if should_relayout || should_rerender {
         render_inner(window, &mut app_state.resources, Transaction::new(), config.background_color);
-    }
+    // }
 
     Ok((frame_event_info.is_resize_event, false))
 }

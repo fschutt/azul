@@ -400,16 +400,22 @@ impl WindowState
 
         let event_was_mouse_down = if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = event { true } else { false };
         let event_was_mouse_release = if let WindowEvent::MouseInput { state: ElementState::Released, .. } = event { true } else { false };
+        let event_was_mouse_enter = if let WindowEvent::CursorEntered { .. } = event { true } else { false };
+        let event_was_mouse_leave = if let WindowEvent::CursorLeft { .. } = event { true } else { false };
 
         // TODO: If the current mouse is down, but the event
         // wasn't a click, that means it was a drag
 
         // Figure out what the hovered NodeIds are
-        let new_hit_node_ids: BTreeMap<NodeId, HitTestItem> = hit_test_items.iter().filter_map(|hit_test_item| {
+        let mut new_hit_node_ids: BTreeMap<NodeId, HitTestItem> = hit_test_items.iter().filter_map(|hit_test_item| {
             ui_state.tag_ids_to_node_ids
             .get(&hit_test_item.tag.0)
             .map(|node_id| (*node_id, hit_test_item.clone()))
         }).collect();
+
+        if event_was_mouse_leave {
+            new_hit_node_ids = BTreeMap::new();
+        }
 
         // Figure out what the current focused NodeId is
         if event_was_mouse_down || event_was_mouse_release {
@@ -535,7 +541,7 @@ impl WindowState
         // that a :hover or :active state may be invalidated. In that case we need
         // to redraw the screen anyways. Setting relayout to true here in order to
         let event_is_click_or_release = self.internal.mouse_state.mouse_down() != previous_state.internal.mouse_state.mouse_down();
-        if event_is_click_or_release {
+        if event_is_click_or_release || event_was_mouse_enter || event_was_mouse_leave {
             needs_hover_redraw = true;
             needs_hover_relayout = true;
         }
