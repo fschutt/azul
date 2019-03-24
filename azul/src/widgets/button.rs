@@ -1,6 +1,6 @@
 use {
     traits::Layout,
-    dom::{Dom, DomString},
+    dom::{Dom, DomString, TabIndex},
     app_resources::ImageId,
 };
 
@@ -31,11 +31,16 @@ impl Button {
 
     pub fn dom<T: Layout>(self) -> Dom<T> {
         use self::ButtonContent::*;
-        let mut button_root = Dom::div().with_class("__azul-native-button");
+
+        let mut button_root = Dom::div()
+            .with_class("__azul-native-button")
+            .with_tab_index(TabIndex::Auto);
+
         button_root.add_child(match self.content {
             Text(s) => Dom::label(s),
             Image(i) => Dom::image(i),
         });
+
         button_root
     }
 }

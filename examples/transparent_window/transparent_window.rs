@@ -1,12 +1,13 @@
 extern crate azul;
 
 use azul::prelude::*;
+use azul::widgets::button::Button;
 
 struct MyDataModel { }
 
 impl Layout for MyDataModel {
     fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
-        Dom::label("Hello World")
+        Button::with_label("Update counter").dom()
     }
 }
 

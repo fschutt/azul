@@ -1,15 +1,28 @@
 * {
     font-size: 14.66px;
-    font-family: sans-serif;
-    color: #000;
 }
 
 .__azul-native-button {
-    border: 1px solid #3399ff; /* inactive: #acacac */
-    background: linear-gradient(#f0f0f0, #e5e5e5);
+    border: 1px solid rgb(172, 172, 172);
+    background: linear-gradient(to bottom, rgb(239, 239, 239), rgb(229, 229, 229));
     text-align: center;
     flex-direction: column;
     justify-content: center;
+    cursor: hover;
+}
+
+.__azul-native-button:hover {
+    background: linear-gradient(to bottom, rgb(234, 243, 252), rgb(126, 180, 234));
+    border: 1px solid rgb(126, 180, 234);
+}
+
+.__azul-native-button:active {
+    background: linear-gradient(to bottom, rgb(217, 235, 252), rgb(86, 157, 229));
+    border: 1px solid rgb(86, 157, 229);
+}
+
+.__azul-native-button:focus {
+    border: 1px solid rgb(51, 153, 255);
 }
 
 .__azul-native-label {

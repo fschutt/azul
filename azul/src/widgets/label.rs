@@ -10,13 +10,13 @@ pub struct Label {
 
 impl Label {
 
+    #[inline]
     pub fn new<S: Into<DomString>>(text: S) -> Self {
         Self { text: text.into() }
     }
 
+    #[inline]
     pub fn dom<T: Layout>(self) -> Dom<T> {
-        Dom::div()
-        .with_child(Dom::label(self.text))
-        .with_class("__azul-native-label")
+        Dom::label(self.text).with_class("__azul-native-label")
     }
 }
