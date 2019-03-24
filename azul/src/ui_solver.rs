@@ -1374,7 +1374,7 @@ fn get_text_layout_options(
     holes: Vec<LayoutRect>,
 ) -> TextLayoutOptions {
     TextLayoutOptions {
-        line_height: rect.style.line_height,
+        line_height: rect.style.line_height.map(|lh| lh.0.get()),
         letter_spacing: rect.style.letter_spacing.map(|ls| ls.0.to_pixels()),
         word_spacing: rect.style.word_spacing.map(|ws| ws.0.to_pixels()),
         tab_width: rect.style.tab_width.map(|tw| tw.0.get()),

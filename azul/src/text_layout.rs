@@ -1,8 +1,7 @@
 #![allow(unused_variables, dead_code)]
 
 use azul_css::{
-    StyleTextAlignmentHorz, ScrollbarInfo,
-    StyleTextAlignmentVert, StyleLineHeight,
+    StyleTextAlignmentHorz, StyleTextAlignmentVert, ScrollbarInfo,
 };
 pub use webrender::api::{
     GlyphInstance, LayoutSize, LayoutRect, LayoutPoint,
@@ -143,8 +142,8 @@ pub struct ScrollbarStyle {
 /// Layout options that can impact the flow of word positions
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TextLayoutOptions {
-    /// Multiplier for the line height
-    pub line_height: Option<StyleLineHeight>,
+    /// Multiplier for the line height, default to 1.0
+    pub line_height: Option<f32>,
     /// Additional spacing between glyphs (in pixels)
     pub letter_spacing: Option<f32>,
     /// Additional spacing between words (in pixels)
@@ -471,7 +470,7 @@ pub fn position_words(
 
     let space_advance = scaled_words.space_advance_px;
     let word_spacing_px = space_advance * text_layout_options.word_spacing.unwrap_or(DEFAULT_WORD_SPACING);
-    let line_height_px = space_advance * text_layout_options.line_height.map(|lh| lh.0.get()).unwrap_or(DEFAULT_LINE_HEIGHT);
+    let line_height_px = space_advance * text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
     let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
     let letter_spacing_px = text_layout_options.letter_spacing.unwrap_or(DEFAULT_LETTER_SPACING);
 

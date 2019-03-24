@@ -41,7 +41,8 @@ use {
     display_list::ScrolledNodes,
 };
 pub use webrender::api::HitTestItem;
-pub use window_state::*;
+// TODO: "use window_state::*" doesn't actually re-export the item, probably a compiler bug
+pub use ::window_state::*;
 
 static LAST_PIPELINE_ID: AtomicUsize = AtomicUsize::new(0);
 
