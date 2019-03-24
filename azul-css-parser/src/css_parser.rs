@@ -37,6 +37,7 @@ macro_rules! multi_type_parser {
         pub fn $fn<'a>(input: &'a str)
         -> Result<$return, InvalidValueErr<'a>>
         {
+            let input = input.trim();
             match input {
                 $(
                     $identifier_string => Ok($return::$enum_type),
@@ -254,7 +255,7 @@ impl<'a> From<PercentageParseError> for CssParsingError<'a> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CssStyleBorderRadiusParseError<'a> {
     TooManyValues(&'a str),
     PixelParseError(PixelParseError<'a>),
@@ -351,6 +352,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssImageParseError<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssBorderParseError<'a> {
+    MissingThickness(&'a str),
     InvalidBorderStyle(InvalidValueErr<'a>),
     InvalidBorderDeclaration(&'a str),
     ThicknessParseError(PixelParseError<'a>),
@@ -358,6 +360,7 @@ pub enum CssBorderParseError<'a> {
 }
 
 impl_display!{ CssBorderParseError<'a>, {
+    MissingThickness(e) => format!("Missing border thickness: \"{}\"", e),
     InvalidBorderStyle(e) => format!("Invalid style: {}", e.0),
     InvalidBorderDeclaration(e) => format!("Invalid declaration: \"{}\"", e),
     ThicknessParseError(e) => format!("Invalid thickness: {}", e),
@@ -451,39 +454,51 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub enum PixelParseError<'a> {
-    InvalidComponent(&'a str),
-    ValueParseErr(ParseFloatError),
+    EmptyString,
+    NoValueGiven(&'a str),
+    UnsupportedMetric(f32, String, &'a str),
+    ValueParseErr(ParseFloatError, String),
 }
 
+impl_debug_as_display!(PixelParseError<'a>);
+
 impl_display!{ PixelParseError<'a>, {
-    InvalidComponent(component) => format!("Invalid component: \"{}\"", component),
-    ValueParseErr(e) => format!("Unexpected value: \"{}\"", e),
+    EmptyString => format!("Missing [px / pt / em] value"),
+    NoValueGiven(input) => format!("Expected floating-point pixel value, got: \"{}\"", input),
+    UnsupportedMetric(_, metric, input) => format!("Could not parse \"{}\": Metric \"{}\" is not (yet) implemented.", input, metric),
+    ValueParseErr(err, number_str) => format!("Could not parse \"{}\" as floating-point value: \"{}\"", number_str, err),
 }}
 
 /// parse a single value such as "15px"
 pub fn parse_pixel_value<'a>(input: &'a str)
 -> Result<PixelValue, PixelParseError<'a>>
 {
-    let mut split_pos = 0;
-    for (idx, ch) in input.char_indices() {
-        if ch.is_numeric() || ch == '.' {
-            split_pos = idx;
-        }
+    let input = input.trim();
+
+    if input.is_empty() {
+        return Err(PixelParseError::EmptyString);
     }
 
-    split_pos += 1;
+    let is_part_of_number = |ch: &char| ch.is_numeric() || *ch == '.';
 
-    let unit = &input[split_pos..];
-    let unit = match unit {
+    // You can't sub-string pixel values, have to call collect() here!
+    let number_str = input.chars().filter(is_part_of_number).collect::<String>();
+    let unit_str = input.chars().filter(|ch| !is_part_of_number(ch)).collect::<String>();
+
+    if number_str.is_empty() {
+        return Err(PixelParseError::NoValueGiven(input));
+    }
+
+    let number = number_str.parse::<f32>().map_err(|e| PixelParseError::ValueParseErr(e, number_str))?;
+
+    let unit = match unit_str.as_str() {
         "px" => SizeMetric::Px,
         "em" => SizeMetric::Em,
         "pt" => SizeMetric::Pt,
-        _ => { return Err(PixelParseError::InvalidComponent(&input[(split_pos - 1)..])); }
+        _ => return Err(PixelParseError::UnsupportedMetric(number, unit_str, input)),
     };
-
-    let number = input[..split_pos].parse::<f32>().map_err(|e| PixelParseError::ValueParseErr(e))?;
 
     Ok(PixelValue::from_metric(unit, number))
 }
@@ -1078,6 +1093,33 @@ pub fn parse_layout_margin<'a>(input: &'a str)
 parse_tblr!(border_parser, StyleBorder, CssBorderParseError, parse_css_border);
 
 const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+// Default border thickness on the web seems to be 3px
+const DEFAULT_BORDER_THICKNESS: PixelValue = PixelValue::const_px(3);
+
+use std::str::CharIndices;
+
+fn advance_until_next_char(iter: &mut CharIndices) -> Option<usize> {
+    let mut next_char = iter.next()?;
+    while next_char.1.is_whitespace() {
+        match iter.next() {
+            Some(s) => next_char = s,
+            None => return Some(next_char.0 + 1),
+        }
+    }
+    Some(next_char.0)
+}
+
+/// Advances a CharIndices iterator until the next space is encountered
+fn take_until_next_whitespace(iter: &mut CharIndices) -> Option<usize> {
+    let mut next_char = iter.next()?;
+    while !next_char.1.is_whitespace() {
+        match iter.next() {
+            Some(s) => next_char = s,
+            None => return Some(next_char.0 + 1),
+        }
+    }
+    Some(next_char.0)
+}
 
 /// Parse a CSS border such as
 ///
@@ -1085,32 +1127,44 @@ const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 pub fn parse_css_border<'a>(input: &'a str)
 -> Result<StyleBorderSide, CssBorderParseError<'a>>
 {
-    // Default border thickness on the web seems to be 3px
-    const DEFAULT_BORDER_THICKNESS: f32 = 3.0;
+    use self::CssBorderParseError::*;
 
-    let mut input_iter = input.split_whitespace();
+    let input = input.trim();
 
-    let (border_width, border_style, border_color);
+    // The first argument can either be a style or a pixel value
 
-    match input_iter.clone().count() {
-        1 => {
-            border_style = parse_border_style(input_iter.next().unwrap())
-                            .map_err(|e| CssBorderParseError::InvalidBorderStyle(e))?;
-            border_width = PixelValue::px(DEFAULT_BORDER_THICKNESS);
-            border_color = DEFAULT_BORDER_COLOR;
+    let mut char_iter = input.char_indices();
+    let first_arg_end = take_until_next_whitespace(&mut char_iter).ok_or(MissingThickness(input))?;
+    let first_arg_str = &input[0..first_arg_end];
+
+    advance_until_next_char(&mut char_iter);
+
+    let second_argument_end = take_until_next_whitespace(&mut char_iter);
+    let (border_width, border_width_str_end, border_style);
+
+    match second_argument_end {
+        None => {
+            // First argument is the one and only argument, therefore has to be a style such as "double"
+            border_style = parse_border_style(first_arg_str).map_err(|e| InvalidBorderStyle(e))?;
+            return Ok(StyleBorderSide {
+                border_style,
+                border_width: DEFAULT_BORDER_THICKNESS,
+                border_color: DEFAULT_BORDER_COLOR,
+            });
         },
-        3 => {
-            border_width = parse_pixel_value(input_iter.next().unwrap())
-                           .map_err(|e| CssBorderParseError::ThicknessParseError(e))?;
-            border_style = parse_border_style(input_iter.next().unwrap())
-                           .map_err(|e| CssBorderParseError::InvalidBorderStyle(e))?;
-            border_color = parse_css_color(input_iter.next().unwrap())
-                           .map_err(|e| CssBorderParseError::ColorParseError(e))?;
-       },
-       _ => {
-            return Err(CssBorderParseError::InvalidBorderDeclaration(input));
-       }
+        Some(end) => {
+            // First argument is a pixel value, second argument is the border style
+            border_width = parse_pixel_value(first_arg_str).map_err(|e| ThicknessParseError(e))?;
+            let border_style_str = &input[first_arg_end..end];
+            border_style = parse_border_style(border_style_str).map_err(|e| InvalidBorderStyle(e))?;
+            border_width_str_end = end;
+        }
     }
+
+    let border_color_str = &input[border_width_str_end..];
+
+    // Last argument can be either a hex color or a rgb str
+    let border_color = parse_css_color(border_color_str).map_err(|e| ColorParseError(e))?;
 
     Ok(StyleBorderSide {
         border_width,
@@ -2234,6 +2288,18 @@ mod css_tests {
     }
 
     #[test]
+    fn test_parse_css_border_3() {
+        assert_eq!(
+            parse_css_border("1px solid rgb(51, 153, 255)"),
+            Ok(StyleBorderSide {
+                border_width: PixelValue::px(1.0),
+                border_style: BorderStyle::Solid,
+                border_color: ColorU { r: 51, g: 153, b: 255, a: 255 },
+            })
+        );
+    }
+
+    #[test]
     fn test_parse_linear_gradient_1() {
         assert_eq!(parse_style_background("linear-gradient(red, yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradient {
@@ -2661,7 +2727,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_pixel_value_4() {
-        assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::InvalidComponent("aslkfdjasdflk")));
+        assert_eq!(parse_pixel_value("aslkfdjasdflk"), Err(PixelParseError::NoValueGiven("aslkfdjasdflk")));
     }
 
     #[test]
