@@ -1,6 +1,6 @@
 //! Contains utilities to convert strings (CSS strings) to servo types
 
-use std::{fmt, num::{ParseIntError, ParseFloatError}};
+use std::num::{ParseIntError, ParseFloatError};
 use azul_css::{
     CssPropertyType,
     StyleTextAlignmentHorz, Overflow,
@@ -196,7 +196,7 @@ pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<
 /// Error containing all sub-errors that could happen during CSS parsing
 ///
 /// Usually we want to crash on the first error, to notify the user of the problem.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssParsingError<'a> {
     CssBorderParseError(CssBorderParseError<'a>),
     CssShadowParseError(CssShadowParseError<'a>),
@@ -214,6 +214,7 @@ pub enum CssParsingError<'a> {
     FlexGrowParseError(FlexGrowParseError<'a>),
 }
 
+impl_debug_as_display!(CssParsingError<'a>);
 impl_display!{ CssParsingError<'a>, {
     CssStyleBorderRadiusParseError(e) => format!("Invalid border-radius: {}", e),
     CssBorderParseError(e) => format!("Invalid border property: {}", e),
@@ -255,12 +256,13 @@ impl<'a> From<PercentageParseError> for CssParsingError<'a> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssStyleBorderRadiusParseError<'a> {
     TooManyValues(&'a str),
     PixelParseError(PixelParseError<'a>),
 }
 
+impl_debug_as_display!(CssStyleBorderRadiusParseError<'a>);
 impl_display!{ CssStyleBorderRadiusParseError<'a>, {
     TooManyValues(val) => format!("Too many values: \"{}\"", val),
     PixelParseError(e) => format!("{}", e),
@@ -279,7 +281,7 @@ pub enum CssColorComponent {
     Alpha,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssColorParseError<'a> {
     InvalidColor(&'a str),
     InvalidFunctionName(&'a str),
@@ -296,26 +298,22 @@ pub enum CssColorParseError<'a> {
     InvalidPercentage(PercentageParseError),
 }
 
-impl<'a> fmt::Display for CssColorParseError<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::CssColorParseError::*;
-        match self {
-            InvalidColor(i) => write!(f, "Invalid CSS color: \"{}\"", i),
-            InvalidFunctionName(i) => write!(f, "Invalid function name, expected one of: \"rgb\", \"rgba\", \"hsl\", \"hsla\" got: \"{}\"", i),
-            InvalidColorComponent(i) => write!(f, "Invalid color component when parsing CSS color: \"{}\"", i),
-            IntValueParseErr(e) => write!(f, "CSS color component: Value not in range between 00 - FF: \"{}\"", e),
-            FloatValueParseErr(e) => write!(f, "CSS color component: Value cannot be parsed as floating point number: \"{}\"", e),
-            FloatValueOutOfRange(v) => write!(f, "CSS color component: Value not in range between 0.0 - 1.0: \"{}\"", v),
-            MissingColorComponent(c) => write!(f, "CSS color is missing {:?} component", c),
-            ExtraArguments(a) => write!(f, "Extra argument to CSS color: \"{}\"", a),
-            EmptyInput => write!(f, "Empty color string."),
-            UnclosedColor(i) => write!(f, "Unclosed color: \"{}\"", i),
-            DirectionParseError(e) => write!(f, "Could not parse direction argument for CSS color: \"{}\"", e),
-            UnsupportedDirection(d) => write!(f, "Unsupported direction type for CSS color: \"{}\"", d),
-            InvalidPercentage(p) => write!(f, "Invalid percentage when parsing CSS color: \"{}\"", p),
-        }
-    }
-}
+impl_debug_as_display!(CssColorParseError<'a>);
+impl_display!{CssColorParseError<'a>, {
+    InvalidColor(i) => format!("Invalid CSS color: \"{}\"", i),
+    InvalidFunctionName(i) => format!("Invalid function name, expected one of: \"rgb\", \"rgba\", \"hsl\", \"hsla\" got: \"{}\"", i),
+    InvalidColorComponent(i) => format!("Invalid color component when parsing CSS color: \"{}\"", i),
+    IntValueParseErr(e) => format!("CSS color component: Value not in range between 00 - FF: \"{}\"", e),
+    FloatValueParseErr(e) => format!("CSS color component: Value cannot be parsed as floating point number: \"{}\"", e),
+    FloatValueOutOfRange(v) => format!("CSS color component: Value not in range between 0.0 - 1.0: \"{}\"", v),
+    MissingColorComponent(c) => format!("CSS color is missing {:?} component", c),
+    ExtraArguments(a) => format!("Extra argument to CSS color: \"{}\"", a),
+    EmptyInput => format!("Empty color string."),
+    UnclosedColor(i) => format!("Unclosed color: \"{}\"", i),
+    DirectionParseError(e) => format!("Could not parse direction argument for CSS color: \"{}\"", e),
+    UnsupportedDirection(d) => format!("Unsupported direction type for CSS color: \"{}\"", d),
+    InvalidPercentage(p) => format!("Invalid percentage when parsing CSS color: \"{}\"", p),
+}}
 
 impl<'a> From<ParseIntError> for CssColorParseError<'a> {
     fn from(e: ParseIntError) -> Self {
@@ -331,11 +329,12 @@ impl<'a> From<ParseFloatError> for CssColorParseError<'a> {
 
 impl_from!(CssDirectionParseError<'a>, CssColorParseError::DirectionParseError);
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum CssImageParseError<'a> {
     UnclosedQuotes(&'a str),
 }
 
+impl_debug_as_display!(CssImageParseError<'a>);
 impl_display!{CssImageParseError<'a>, {
     UnclosedQuotes(e) => format!("Unclosed quotes: \"{}\"", e),
 }}
@@ -350,7 +349,7 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssImageParseError<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssBorderParseError<'a> {
     MissingThickness(&'a str),
     InvalidBorderStyle(InvalidValueErr<'a>),
@@ -358,7 +357,7 @@ pub enum CssBorderParseError<'a> {
     ThicknessParseError(PixelParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
-
+impl_debug_as_display!(CssBorderParseError<'a>);
 impl_display!{ CssBorderParseError<'a>, {
     MissingThickness(e) => format!("Missing border thickness: \"{}\"", e),
     InvalidBorderStyle(e) => format!("Invalid style: {}", e.0),
@@ -367,13 +366,14 @@ impl_display!{ CssBorderParseError<'a>, {
     ColorParseError(e) => format!("Invalid color: {}", e),
 }}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssShadowParseError<'a> {
     InvalidSingleStatement(&'a str),
     TooManyComponents(&'a str),
     ValueParseErr(PixelParseError<'a>),
     ColorParseError(CssColorParseError<'a>),
 }
+impl_debug_as_display!(CssShadowParseError<'a>);
 impl_display!{ CssShadowParseError<'a>, {
     InvalidSingleStatement(e) => format!("Invalid single statement: \"{}\"", e),
     TooManyComponents(e) => format!("Too many components: \"{}\"", e),
@@ -481,10 +481,10 @@ pub fn parse_pixel_value<'a>(input: &'a str)
         return Err(PixelParseError::EmptyString);
     }
 
-    let is_part_of_number = |ch: &char| ch.is_numeric() || *ch == '.';
+    let is_part_of_number = |ch: &char| ch.is_numeric() || *ch == '.' || *ch == '-';
 
     // You can't sub-string pixel values, have to call collect() here!
-    let number_str = input.chars().filter(is_part_of_number).collect::<String>();
+    let number_str = input.chars().take_while(is_part_of_number).collect::<String>();
     let unit_str = input.chars().filter(|ch| !is_part_of_number(ch)).collect::<String>();
 
     if number_str.is_empty() {
@@ -503,12 +503,13 @@ pub fn parse_pixel_value<'a>(input: &'a str)
     Ok(PixelValue::from_metric(unit, number))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum PercentageParseError {
     ValueParseErr(ParseFloatError),
     NoPercentSign
 }
 
+impl_debug_as_display!(PercentageParseError);
 impl_from!(ParseFloatError, PercentageParseError::ValueParseErr);
 
 impl_display! { PercentageParseError, {
@@ -1302,7 +1303,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
     Ok(Some(box_shadow))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssBackgroundParseError<'a> {
     Error(&'a str),
     InvalidBackground(ParenthesisParseError<'a>),
@@ -1314,7 +1315,7 @@ pub enum CssBackgroundParseError<'a> {
     ShapeParseError(CssShapeParseError<'a>),
     ImageParseError(CssImageParseError<'a>),
 }
-
+impl_debug_as_display!(CssBackgroundParseError<'a>);
 impl_display!{ CssBackgroundParseError<'a>, {
     Error(e) => e,
     InvalidBackground(val) => format!("Invalid background value: \"{}\"", val),
@@ -1624,13 +1625,14 @@ pub fn strip_quotes<'a>(input: &'a str) -> Result<QuoteStripped<'a>, UnclosedQuo
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum CssGradientStopParseError<'a> {
     Error(&'a str),
     Percentage(PercentageParseError),
     ColorParseError(CssColorParseError<'a>),
 }
 
+impl_debug_as_display!(CssGradientStopParseError<'a>);
 impl_display!{ CssGradientStopParseError<'a>, {
     Error(e) => e,
     Percentage(e) => format!("Failed to parse offset percentage: {}", e),
@@ -1648,18 +1650,29 @@ pub fn parse_gradient_stop<'a>(input: &'a str)
 
     let input = input.trim();
 
+    // Whether the string is a rgb() or rgba() function
+    let closing_brace_position = input.char_indices().find(|(idx, c)| *c == ')').map(|x| x.0);
+    let opening_brace_position = input.char_indices().find(|(idx, c)| *c == '(').map(|x| x.0);
+
     // If we'd split by whitespace left-to-right, then an input such as "rgba(0, 0, 0, 0) 40%, "
     // wouldn't parse, since it would split at the first whitespace, independent of the parentheses,
     // i.e. "rgba(0,". To fix that, we simply parse left-to-right.
     let (color_str, percentage_str) = match input.rfind(char::is_whitespace) {
         Some(last_whitespace) => {
-            if input[..last_whitespace].find('(').is_some() {
-                if input[..last_whitespace].find(')').is_some() {
-                    // rgba() with whitespace
-                    (&input[..last_whitespace], Some(&input[(last_whitespace + 1)..]))
+            // TODO: This code is shit
+            let last_whitespace_pos = input.len() - last_whitespace;
+
+            if let Some(opening_brace) = opening_brace_position {
+                if let Some(closing_brace) = closing_brace_position {
+                    if last_whitespace_pos > closing_brace {
+                        // rgba() with percentage
+                        (&input[..=closing_brace], Some(&input[(last_whitespace + 1)..]))
+                    } else {
+                        // rgba(), no percentage
+                        (&input[..=closing_brace], None)
+                    }
                 } else {
-                    // rgba(), no percentage
-                    (&input[..last_whitespace], None)
+                    return Err(CssGradientStopParseError::Error(input));
                 }
             } else {
                 // #abc + percentage_value
@@ -2433,6 +2446,24 @@ mod css_tests {
         ));
     }
 
+    #[test]
+    fn test_parse_linear_gradient_8() {
+        assert_eq!(parse_style_background("linear-gradient(to bottom, rgb(255,0, 0),rgb(0,0,0))"),
+            Ok(StyleBackground::LinearGradient(LinearGradient {
+                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(PercentageValue::new(0.0)),
+                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(100.0)),
+                    color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                }],
+            })
+        ));
+    }
+
 /*  These tests currently fail because linear-gradient splits on commas, which are included in some
  *  kinds of css color specifiers.
 
@@ -2682,32 +2713,37 @@ mod css_tests {
 
     #[test]
     fn test_parse_css_color_30() {
-        assert_eq!(parse_css_color("hsla(240deg, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)))
+        assert_eq!(parse_css_color("hsla(240deg, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
     }
 
     #[test]
     fn test_parse_css_color_31() {
-        assert_eq!(parse_css_color("hsl(, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Hue)))
+        assert_eq!(parse_css_color("hsl(, 0%, 0%, )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Hue)));
     }
 
     #[test]
     fn test_parse_css_color_32() {
-        assert_eq!(parse_css_color("hsl(240deg ,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Saturation)))
+        assert_eq!(parse_css_color("hsl(240deg ,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Saturation)));
     }
 
     #[test]
     fn test_parse_css_color_33() {
-        assert_eq!(parse_css_color("hsl(240deg, 0%,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Lightness)))
+        assert_eq!(parse_css_color("hsl(240deg, 0%,  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Lightness)));
     }
 
     #[test]
     fn test_parse_css_color_34() {
-        assert_eq!(parse_css_color("hsl(240deg, 0%, 0%,  )"), Err(CssColorParseError::ExtraArguments("")))
+        assert_eq!(parse_css_color("hsl(240deg, 0%, 0%,  )"), Err(CssColorParseError::ExtraArguments("")));
     }
 
     #[test]
     fn test_parse_css_color_35() {
-        assert_eq!(parse_css_color("hsla(240deg, 0%, 0%  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)))
+        assert_eq!(parse_css_color("hsla(240deg, 0%, 0%  )"), Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha)));
+    }
+
+    #[test]
+    fn test_parse_css_color_36() {
+        assert_eq!(parse_css_color("rgb(255,0, 0)"), Ok(ColorU { r: 255, g: 0, b: 0, a: 255 }));
     }
 
     #[test]

@@ -8,7 +8,7 @@
     text-align: center;
     flex-direction: column;
     justify-content: center;
-    cursor: hover;
+    cursor: pointer;
 }
 
 .__azul-native-button:hover {
