@@ -1806,6 +1806,8 @@ impl SvgTextLayout {
     pub fn get_bbox(&self, placement: &SvgTextPlacement) -> SvgBbox {
         use self::SvgTextPlacement::*;
 
+        // TODO: Scale by font size!
+
         let normal_width = self.word_positions.content_size.width;
         let normal_height = self.word_positions.content_size.height;
 
