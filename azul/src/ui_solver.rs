@@ -1189,7 +1189,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     rect_offset: LayoutPoint,
 ) -> LayoutResult {
 
-    // Determine what the width would be if the content didn't matter
+    // Determine what the width for each div would be if the content size didn't matter
     let widths_content_ignored = solve_flex_layout_width(
         node_hierarchy,
         &display_rects,
@@ -1197,32 +1197,38 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
         rect_size.width as f32,
     );
 
-    // TODO: Determine the absolute preferred width based on the overflow and min-width / max-width constraints
-    let max_widths: BTreeMap<NodeId, f32>  = node_hierarchy.linear_iter().filter_map(|node_id| {
-        if display_rects[node_id].layout.is_horizontal_overflow_visible() {
-            None // No max width, since overflowing text is visible
-        } else {
-            Some((node_id, widths_content_ignored.solved_widths[node_id].total()))
-        }
-    }).collect();
+    // Determine what the "maximum width" for each div is, except for divs where overflow:visible is set
+    // I.e. for a div width 800px, with 4 text child nodes, each text node gets a width of 200px
+    let max_widths = node_hierarchy
+        .linear_iter()
+        .filter(|node_id| !display_rects[*node_id].layout.is_horizontal_overflow_visible())
+        .map(|node_id| (node_id, widths_content_ignored.solved_widths[node_id].total()))
+        .collect::<BTreeMap<NodeId, f32>>();
 
-    // TODO: Filter all inline text blocks: inline blocks + their padding + margin
-    // The NodeId has to be the **next** NodeId (the next sibling after the inline element)
-    let mut inline_text_blocks = BTreeMap::<NodeId, InlineText>::new();
+    // TODO: Filter all inline text blocks (prepare inline text layout run)
+    let inline_text_blocks = BTreeMap::<NodeId, InlineText>::new();
 
-    // Break all strings into words and / or resolve the TextIds
+    // Resolve cached text IDs or break new, uncached strings into words / text runs
     let word_cache = create_word_cache(app_resources, node_data);
-    // Scale the words to the correct size - TODO: Cache this in the app_resources!
+    // Scale the words to the correct size - TODO: Caching / GC!
     let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
-    // Layout all words as if there was no max-width constraint (to get the texts "content width").
-    let word_positions_no_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &max_widths, &inline_text_blocks);
+    // Layout all words as if there was no max-width constraint
+    let word_positions_no_max_width = create_word_positions(
+        &word_cache,
+        &scaled_words,
+        display_rects,
+        &max_widths,
+        &inline_text_blocks
+    );
 
-    // Determine the preferred **content** width, without any max-width restriction
-    let content_widths = node_data.transform(|node, node_id| {
+    // Determine the preferred **content** width, without any max-width restrictions -
+    // For images that would be the image width / height, for text it would be the text
+    // laid out without any width constraints.
+    let content_widths = node_data.transform(|node, node_id|
         get_content_width(&node_id, &node.node_type, app_resources, &word_positions_no_max_width)
-    });
+    );
 
-    // let content_width_pre = node_data.transform(|node, node_id| None);
+    // Solve the widths again, this time incorporating the maximum widths
     let solved_widths = solve_flex_layout_width(
         node_hierarchy,
         &display_rects,
@@ -1230,22 +1236,29 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
         rect_size.width as f32,
     );
 
-    // Layout the words again, this time with the proper width constraints!
+    // Layout all texts again with the resolved width constraints
     let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
         (node_id, solved_widths.solved_widths[node_id].total() - display_rects[node_id].layout.get_horizontal_padding())
     }).collect();
 
-    let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
+    // Resolve the word positions relative to each divs upper left corner
+    let word_positions_with_max_width = create_word_positions(
+        &word_cache,
+        &scaled_words,
+        display_rects,
+        &proper_max_widths,
+        &inline_text_blocks
+    );
 
-    // Get the content height of the content
+    // Given the final width of a node and the height of the content, resolve the div
+    // height and return whether the node content overflows its parent (width-in-height-out)
     let content_heights = node_data.transform(|node, node_id| {
         let div_width = solved_widths.solved_widths[node_id].total();
         get_content_height(&node_id, &node.node_type, app_resources, &word_positions_with_max_width, div_width)
     });
 
-    // let content_heights_pre = node_data.transform(|node, node_id| None);
-
-    // TODO: The content height is not the final height!
+    // Given the final heights, resolve the heights for flexible-size divs
+    // TODO: Fix justify-content:flex-start: The content height is not the final height!
     let solved_heights = solve_flex_layout_height(
         node_hierarchy,
         &solved_widths,
