@@ -53,14 +53,13 @@ pub mod native_style {
     pub use azul_native_style::*;
 }
 
-use azul_css::{self, Css};
 #[cfg(feature = "css_parser")]
 use azul_css_parser::{self, CssParseError};
 
 /// Returns a style with the native appearance for the operating system. Convenience wrapper
 /// for functionality from the the `azul-native-style` crate.
 #[cfg(feature = "native_style")]
-pub fn native() -> azul_css::Css {
+pub fn native() -> Css {
     azul_native_style::native()
 }
 
@@ -81,15 +80,15 @@ pub fn override_native(input: &str) -> Result<Css, CssParseError> {
 /// Allows dynamic reloading of a CSS file during an applications runtime, useful for
 /// changing the look & feel while the application is running.
 #[cfg(all(debug_assertions, feature = "css_parser"))]
-pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
+pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn HotReloadHandler> {
     Box::new(azul_css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
 }
 
 /// Same as `Self::hot_reload`, but appends the given file to the
 /// `Self::native()` style before the hot-reloaded styles, similar to `override_native`.
 #[cfg(all(debug_assertions, feature = "css_parser", feature = "native_style"))]
-pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn azul_css::HotReloadHandler> {
-    Box::new(azul_css::HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
+pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn HotReloadHandler> {
+    Box::new(HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
 }
 
 /// Type translation functions (from azul-css to webrender types)
