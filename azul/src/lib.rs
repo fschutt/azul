@@ -232,10 +232,10 @@ mod style;
 mod diff;
 /// Checks that two-way bound values are on the stack
 mod stack_checked_pointer;
-
 /// Window state handling and diffing
-pub(crate) mod window_state;
-pub(crate) mod app_resources;
+mod window_state;
+/// ImageId / FontId handling and caching
+mod app_resources;
 
 /// Font & image resource handling, lookup and caching
 pub mod resources {

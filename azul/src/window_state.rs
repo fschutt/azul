@@ -25,7 +25,7 @@ const DEFAULT_WIDTH: f64 = 800.0;
 const DEFAULT_HEIGHT: f64 = 600.0;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct KeyboardState {
 
     // Modifier keys that are currently actively pressed during this frame
