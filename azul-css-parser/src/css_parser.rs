@@ -1650,36 +1650,24 @@ pub fn parse_gradient_stop<'a>(input: &'a str)
 
     let input = input.trim();
 
-    // Whether the string is a rgb() or rgba() function
-    let closing_brace_position = input.char_indices().find(|(idx, c)| *c == ')').map(|x| x.0);
-    let opening_brace_position = input.char_indices().find(|(idx, c)| *c == '(').map(|x| x.0);
-
-    // If we'd split by whitespace left-to-right, then an input such as "rgba(0, 0, 0, 0) 40%, "
-    // wouldn't parse, since it would split at the first whitespace, independent of the parentheses,
-    // i.e. "rgba(0,". To fix that, we simply parse left-to-right.
-    let (color_str, percentage_str) = match input.rfind(char::is_whitespace) {
-        Some(last_whitespace) => {
-            // TODO: This code is shit
-            let last_whitespace_pos = input.len() - last_whitespace;
-
-            if let Some(opening_brace) = opening_brace_position {
-                if let Some(closing_brace) = closing_brace_position {
-                    if last_whitespace_pos > closing_brace {
-                        // rgba() with percentage
-                        (&input[..=closing_brace], Some(&input[(last_whitespace + 1)..]))
-                    } else {
-                        // rgba(), no percentage
-                        (&input[..=closing_brace], None)
-                    }
-                } else {
-                    return Err(CssGradientStopParseError::Error(input));
-                }
-            } else {
-                // #abc + percentage_value
-                (&input[..last_whitespace], None)
-            }
+    // Color functions such as "rgba(...)" can contain spaces, so we parse right-to-left.
+    let (color_str, percentage_str) = match (input.rfind(')'), input.rfind(char::is_whitespace)) {
+        (Some(closing_brace), None) if closing_brace < input.len() - 1 => {
+            // percentage after closing brace, eg. "rgb(...)50%"
+            (&input[..=closing_brace], Some(&input[(closing_brace + 1)..]))
         },
-        None => (input, None) // #abc, no percentage value
+        (None, Some(last_ws)) => {
+            // percentage after last whitespace, eg. "... 50%"
+            (&input[..=last_ws], Some(&input[(last_ws + 1)..]))
+        }
+        (Some(closing_brace), Some(last_ws)) if closing_brace < last_ws => {
+            // percentage after last whitespace, eg. "... 50%"
+            (&input[..=last_ws], Some(&input[(last_ws + 1)..]))
+        },
+        _ => {
+            // no percentage
+            (input, None)
+        },
     };
 
     let color = parse_css_color(color_str)?;
@@ -2464,11 +2452,8 @@ mod css_tests {
         ));
     }
 
-/*  These tests currently fail because linear-gradient splits on commas, which are included in some
- *  kinds of css color specifiers.
-
     #[test]
-    fn test_parse_linear_gradient_8() {
+    fn test_parse_linear_gradient_9() {
         assert_eq!(parse_style_background("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
             Ok(StyleBackground::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(10.0)),
@@ -2485,10 +2470,10 @@ mod css_tests {
     }
 
     #[test]
-    fn test_parse_linear_gradient_8() {
-        assert_eq!(parse_style_background("linear-gradient(50deg, rgb(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
+    fn test_parse_linear_gradient_10() {
+        assert_eq!(parse_style_background("linear-gradient(50deg, rgba(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
             Ok(StyleBackground::LinearGradient(LinearGradient {
-                direction: Direction::Angle(FloatValue::new(40.0)),
+                direction: Direction::Angle(FloatValue::new(50.0)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
                     offset: Some(PercentageValue::new(0.0)),
@@ -2500,7 +2485,29 @@ mod css_tests {
                 }],
         })));
     }
-*/
+
+    #[test]
+    fn test_parse_linear_gradient_11() {
+        // wacky whitespace on purpose
+        assert_eq!(parse_style_background("linear-gradient(to bottom,rgb(255,0, 0)0%, rgb( 0 , 255 , 0 ) 10% ,blue   100%  )"),
+            Ok(StyleBackground::LinearGradient(LinearGradient {
+                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                extend_mode: ExtendMode::Clamp,
+                stops: vec![GradientStopPre {
+                    offset: Some(PercentageValue::new(0.0)),
+                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(10.0)),
+                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                },
+                GradientStopPre {
+                    offset: Some(PercentageValue::new(100.0)),
+                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                }],
+            })
+        ));
+    }
 
     #[test]
     fn test_parse_radial_gradient_1() {
