@@ -602,7 +602,7 @@ fn render_single_window_content<T: Layout>(
     use callbacks::Redraw;
     use self::RuntimeError::*;
 
-    if events.is_empty() {
+    if events.is_empty() && force_redraw_cache[window_id] == 0 {
         // Event was not a resize event, window should **not** close
         return Ok((false, false));
     }

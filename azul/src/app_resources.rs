@@ -456,6 +456,8 @@ impl AppResources {
         let font_keys = scan_ui_description_for_font_keys(&self, display_list);
         let image_keys = scan_ui_description_for_image_keys(&self, display_list);
 
+        println!("adding fonts: {:#?}", font_keys);
+
         let add_font_resource_updates = build_add_font_resource_updates(self, &font_keys);
         let add_image_resource_updates = build_add_image_resource_updates(self, &image_keys);
 
@@ -469,6 +471,8 @@ impl AppResources {
     pub(crate) fn garbage_collect_fonts_and_images(&mut self) {
         let delete_font_keys = build_delete_font_resource_updates(self);
         let delete_image_keys = build_delete_image_resource_updates(self);
+
+        println!("deleting fonts: {}", delete_font_keys.len());
 
         delete_resources(self, delete_font_keys, delete_image_keys);
 
