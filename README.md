@@ -47,15 +47,13 @@ This application is created by the following code:
 ```rust
 extern crate azul;
 
-use azul::{prelude::*, widgets::{label::Label, button::Button}};
+use azul::prelude::*;
 
-struct DataModel {
-    counter: usize,
-}
+struct MyDataModel { }
 
-impl Layout for DataModel {
+impl Layout for MyDataModel {
     // Model renders View
-    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
         let label = Label::new(format!("{}", self.counter)).dom();
         let button = Button::with_label("Update counter").dom()
             .with_callback(On::MouseUp, Callback(update_counter));
@@ -73,8 +71,9 @@ fn update_counter(app_state: &mut AppState<DataModel>, _event: &mut CallbackInfo
 }
 
 fn main() {
-    let app = App::new(DataModel { counter: 0 }, AppConfig::default());
-    app.run(Window::new(WindowCreateOptions::default(), css::native()).unwrap()).unwrap();
+    let mut app = App::new(MyDataModel { }, AppConfig::default()).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css::native()).unwrap();
+    app.run(window).unwrap();
 }
 ```
 
