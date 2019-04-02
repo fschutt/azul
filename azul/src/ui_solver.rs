@@ -75,9 +75,9 @@ macro_rules! determine_preferred {
     /// if the node type is an text, the `preferred_inner_width` is the text height.
     fn $fn_name(layout: &RectLayout, preferred_inner_width: Option<f32>) -> WhConstraint {
 
-        let mut width = layout.$width.and_then(|w| Some(w.0.to_pixels()));
-        let min_width = layout.$min_width.and_then(|w| Some(w.0.to_pixels()));
-        let max_width = layout.$max_width.and_then(|w| Some(w.0.to_pixels()));
+        let mut width = layout.$width.map(|w| w.0.to_pixels());
+        let min_width = layout.$min_width.map(|w| w.0.to_pixels());
+        let max_width = layout.$max_width.map(|w| w.0.to_pixels());
 
         // TODO: correct for width / height less than 0 - "negative" width is impossible!
 
@@ -171,15 +171,15 @@ macro_rules! determine_preferred {
     })
 }
 
-/// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
-/// or `None` if the height can't be determined from the node alone.
-///
+// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
+// or `None` if the height can't be determined from the node alone.
+//
 // fn determine_preferred_width(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_width, width, min_width, max_width);
 
-/// Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
+// Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
 // or `None` if the height can't be determined from the node alone.
-///
+//
 // fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_height, height, min_height, max_height);
 
@@ -195,17 +195,17 @@ struct WidthCalculatedRect {
 impl WidthCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_horizontal(&self) -> f32 {
-        self.preferred_width.min_needed_space().unwrap_or(0.0) +
-        self.margin.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.margin.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.preferred_width.min_needed_space().unwrap_or(0.0)      +
+        self.margin.left.map(|px| px.to_pixels()).unwrap_or(0.0)    +
+        self.margin.right.map(|px| px.to_pixels()).unwrap_or(0.0)   +
+        self.padding.left.map(|px| px.to_pixels()).unwrap_or(0.0)   +
+        self.padding.right.map(|px| px.to_pixels()).unwrap_or(0.0)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
     pub fn get_horizontal_padding(&self) -> f32 {
-        self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.padding.left.map(|px| px.to_pixels()).unwrap_or(0.0)   +
+        self.padding.right.map(|px| px.to_pixels()).unwrap_or(0.0)
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -230,16 +230,16 @@ impl HeightCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_vertical(&self) -> f32 {
         self.preferred_height.min_needed_space().unwrap_or(0.0) +
-        self.margin.top.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.margin.bottom.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.top.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.bottom.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.margin.top.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.margin.bottom.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.padding.top.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.padding.bottom.map(|px| px.to_pixels()).unwrap_or(0.0)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.top + padding.bottom`)
     pub fn get_vertical_padding(&self) -> f32 {
-        self.padding.top.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.bottom.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.padding.top.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.padding.bottom.map(|px| px.to_pixels()).unwrap_or(0.0)
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -491,7 +491,7 @@ impl NodeDataContainer<$struct_name> {
                     .map(|child_id|
                             // Prevent flex-grow and flex-shrink to be less than 1
                             arena_data[*child_id].flex_grow
-                                .and_then(|grow| Some(grow.0.get().max(1.0)))
+                                .map(|grow| grow.0.get().max(1.0))
                                 .unwrap_or(DEFAULT_FLEX_GROW_FACTOR))
                     .sum();
 
@@ -796,16 +796,16 @@ fn $fn_name(
 
         let child_node = &arena_data[child_id];
         let child_margin = child_node.margin.unwrap_or_default();
-        let child_margin_left = child_margin.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let child_margin_right = child_margin.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_left = child_margin.$left.map(|x| x.to_pixels()).unwrap_or(0.0);
+        let child_margin_right = child_margin.$right.map(|x| x.to_pixels()).unwrap_or(0.0);
 
         let zero_node = NodeId::new(0);
         let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
 
         let last_relative_node = arena_data[*last_relative_node_id];
         let last_relative_padding = last_relative_node.padding.unwrap_or_default();
-        let last_relative_padding_left = last_relative_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let last_relative_padding_right = last_relative_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let last_relative_padding_left = last_relative_padding.$left.map(|x| x.to_pixels()).unwrap_or(0.0);
+        let last_relative_padding_right = last_relative_padding.$right.map(|x| x.to_pixels()).unwrap_or(0.0);
 
         let last_relative_node_x = arena_solved_data[*last_relative_node_id].0 + last_relative_padding_left;
         let last_relative_node_inner_width = {
@@ -813,8 +813,8 @@ fn $fn_name(
             last_relative_node.$min_width + last_relative_node.space_added - (last_relative_padding_left + last_relative_padding_right)
         };
 
-        let child_left = &arena_data[child_id].$left.and_then(|s| Some(s.0.to_pixels()));
-        let child_right = &arena_data[child_id].$right.and_then(|s| Some(s.0.to_pixels()));
+        let child_left = &arena_data[child_id].$left.map(|s| s.0.to_pixels());
+        let child_right = &arena_data[child_id].$right.map(|s| s.0.to_pixels());
 
         if let Some(child_right) = child_right {
             // align right / bottom of last relative parent
@@ -855,8 +855,8 @@ fn $fn_name(
         // width: increase X according to the main axis, Y according to the cross_axis
         let child_node = &arena_data[child_id];
         let child_margin = child_node.margin.unwrap_or_default();
-        let child_margin_left = child_margin.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let child_margin_right = child_margin.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_left = child_margin.$left.map(|x| x.to_pixels()).unwrap_or(0.0);
+        let child_margin_right = child_margin.$right.map(|x| x.to_pixels()).unwrap_or(0.0);
 
         if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -900,7 +900,7 @@ fn $fn_name(
         parent_x_position: f32)
     {
         let child_node = &arena_data[child_id];
-        let child_margin_left = child_node.margin.unwrap_or_default().$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_left = child_node.margin.unwrap_or_default().$left.map(|x| x.to_pixels()).unwrap_or(0.0);
 
         if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -926,8 +926,8 @@ fn $fn_name(
 
         let parent_node = node_data[*parent_id];
         let parent_padding = parent_node.padding.unwrap_or_default();
-        let parent_padding_left = parent_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let parent_padding_right = parent_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let parent_padding_left = parent_padding.$left.map(|x| x.to_pixels()).unwrap_or(0.0);
+        let parent_padding_right = parent_padding.$right.map(|x| x.to_pixels()).unwrap_or(0.0);
         let parent_x_position = arena_solved_data[*parent_id].0 + parent_padding_left;
         let parent_direction = parent_node.direction.unwrap_or_default();
 
@@ -1127,7 +1127,7 @@ impl PreferredHeight {
 }
 
 pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
+    use app_units::{AU_PER_PX, MIN_AU, MAX_AU};
     let target_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
     if target_app_units < MIN_AU {
         MIN_AU
@@ -1193,7 +1193,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     let widths_content_ignored = solve_flex_layout_width(
         node_hierarchy,
         &display_rects,
-        &node_data.transform(|node, node_id| None),
+        &node_data.transform(|_, _| None),
         rect_size.width as f32,
     );
 

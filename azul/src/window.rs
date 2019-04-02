@@ -150,7 +150,6 @@ impl ReadOnlyWindow {
     /// Make the window active (OpenGL) - necessary before
     /// starting to draw on any window-owned texture
     pub fn make_current(&self) {
-        use glium::glutin::ContextTrait;
         let gl_window = self.inner.gl_window();
         unsafe { gl_window.make_current().unwrap() };
     }
@@ -588,6 +587,8 @@ impl<'a, T: Layout> Window<T> {
 
         css.sort_by_specificity();
 
+        let last_scrolled_nodes = ScrolledNodes::default();
+
         let window = Window {
             id: window_id,
             create_options: options,
@@ -597,12 +598,7 @@ impl<'a, T: Layout> Window<T> {
             #[cfg(debug_assertions)]
             css_loader: None,
             scroll_states: ScrollStates::new(),
-            internal: WindowInternal {
-                epoch: epoch,
-                pipeline_id: pipeline_id,
-                document_id: document_id,
-                last_scrolled_nodes: ScrolledNodes::default(),
-            },
+            internal: WindowInternal { epoch, pipeline_id, document_id, last_scrolled_nodes },
             marker: PhantomData,
         };
 
@@ -691,12 +687,12 @@ impl<'a, T: Layout> Window<T> {
         }
 
         if old_state.size.min_dimensions != new_state.size.min_dimensions {
-            window.set_min_dimensions(new_state.size.min_dimensions.and_then(|dim| Some(dim.into())));
+            window.set_min_dimensions(new_state.size.min_dimensions.map(Into::into));
             old_state.size.min_dimensions = new_state.size.min_dimensions;
         }
 
         if old_state.size.max_dimensions != new_state.size.max_dimensions {
-            window.set_max_dimensions(new_state.size.max_dimensions.and_then(|dim| Some(dim.into())));
+            window.set_max_dimensions(new_state.size.max_dimensions.map(Into::into));
             old_state.size.max_dimensions = new_state.size.max_dimensions;
         }
     }
@@ -915,7 +911,7 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
     RendererOptions {
         resource_override_path: None,
         precache_flags: PRECACHE_SHADER_FLAGS,
-        device_pixel_ratio: device_pixel_ratio,
+        device_pixel_ratio,
         enable_subpixel_aa: true,
         enable_aa: true,
         cached_programs: Some(ProgramCache::new(None)),

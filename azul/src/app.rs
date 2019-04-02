@@ -365,10 +365,9 @@ impl<T: Layout> App<T> {
 
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
 
-        use std::{thread, time::{Duration, Instant}};
-        use glium::glutin::{Event, WindowEvent};
+        use std::{thread, time::Duration};
+        use glium::glutin::Event;
         use self::RuntimeError::*;
-        use callbacks::Redraw;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
@@ -597,9 +596,8 @@ fn render_single_window_content<T: Layout>(
     ui_description_cache: &mut BTreeMap<GliumWindowId, UiDescription<T>>,
     force_redraw_cache: &mut BTreeMap<GliumWindowId, usize>,
     awakened_task: &mut BTreeMap<GliumWindowId, bool>,
-) -> Result<(bool, bool), RuntimeError<T>>
-{
-    use callbacks::Redraw;
+) -> Result<(bool, bool), RuntimeError<T>> {
+
     use self::RuntimeError::*;
 
     if events.is_empty() && force_redraw_cache[window_id] == 0 {
@@ -683,7 +681,7 @@ fn render_single_window_content<T: Layout>(
     let should_relayout = frame_event_info.should_redraw_window || awakened_task[window_id] || force_redraw_cache[window_id] > 0;
     let should_rerender = should_scroll_render || frame_event_info.is_resize_event;
 
-    if should_relayout {
+    if should_relayout || should_rerender {
 
         // Call the Layout::layout() fn, get the DOM
         *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
@@ -819,9 +817,7 @@ fn call_callbacks<T: Layout>(
 -> Result<CallCallbackReturn, RuntimeError<T>>
 {
     use {
-        FastHashMap,
         callbacks::CallbackInfo,
-        callbacks::{Redraw, DontRedraw},
         window_state::{KeyboardState, MouseState},
         self::RuntimeError::*,
     };
@@ -946,7 +942,6 @@ fn update_display_list<T: Layout>(
     app_resources: &mut AppResources,
 ) {
     use display_list::DisplayList;
-    use webrender::api::Transaction;
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
@@ -1110,7 +1105,6 @@ fn render_inner<T: Layout>(
     background_color: ColorU,
 ) {
 
-    use gleam::gl;
     use window::get_gl_context;
     use glium::glutin::ContextTrait;
     use webrender::api::{DeviceIntRect, DeviceIntPoint};

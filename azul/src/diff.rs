@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 use std::{collections::BTreeMap, marker::PhantomData};
 use {
     id_tree::{NodeId, NodeHierarchy},
@@ -115,7 +117,7 @@ fn node_needs_restyle<T: Layout>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
     result
 }
 
-fn get_leaf_nodes_by_depth<T: FrameMarker>(hierarchy: &NodeHierarchy, marker: T)
+fn get_leaf_nodes_by_depth<T: FrameMarker>(hierarchy: &NodeHierarchy)
 -> BTreeMap<TreeDepth, BTreeMap<ParentNodeId, Vec<DomNode<T>>>>
 {
     let mut map = BTreeMap::new();
@@ -125,10 +127,7 @@ fn get_leaf_nodes_by_depth<T: FrameMarker>(hierarchy: &NodeHierarchy, marker: T)
         for child_id in parent_id.children(hierarchy).filter(|child| hierarchy[*child].first_child.is_some()) {
             map.entry(parent_depth + 1).or_insert_with(|| BTreeMap::new())
                .entry(parent_id).or_insert_with(|| Vec::new())
-               .push(DomNode {
-                    id: child_id,
-                    marker: PhantomData,
-               });
+               .push(DomNode { id: child_id, marker: PhantomData });
         }
     }
 
@@ -137,8 +136,10 @@ fn get_leaf_nodes_by_depth<T: FrameMarker>(hierarchy: &NodeHierarchy, marker: T)
 
 pub(crate) fn diff_dom_tree<T: Layout>(old: &Dom<T>, new:Dom<T>) -> DomDiff {
 
-    let old_leaf_nodes = get_leaf_nodes_by_depth(&old.arena.node_layout, OldState { });
-    let new_leaf_nodes = get_leaf_nodes_by_depth(&new.arena.node_layout, NewState { });
+    // TODO!
+
+    // let old_leaf_nodes = get_leaf_nodes_by_depth(&old.arena.node_layout, OldState { });
+    // let new_leaf_nodes = get_leaf_nodes_by_depth(&new.arena.node_layout, NewState { });
 
     // depth -> parents (in order) -> [leaf children]
 

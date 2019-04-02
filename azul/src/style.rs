@@ -2,7 +2,7 @@
 
 use std::{fmt, collections::BTreeMap};
 use azul_css::{
-    Css, CssContentGroup, CssDeclaration, CssPath,
+    Css, CssContentGroup, CssPath,
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
 };
 use webrender::api::HitTestItem;
@@ -43,80 +43,6 @@ impl<'a, T: 'a + Layout> fmt::Debug for HtmlCascadeInfo<'a, T> {
             self.is_active,
          )
     }
-}
-
-#[test]
-fn test_case_issue_93() {
-
-    use azul_css::CssPathSelector::*;
-    use azul_css::*;
-    use prelude::*;
-
-    struct DataModel { }
-    impl Layout for DataModel { fn layout(&self) -> Dom<DataModel> { Dom::div() } }
-
-    fn render_tab() -> Dom<DataModel> {
-        Dom::div().with_class("tabwidget-tab")
-            .with_child(Dom::label("").with_class("tabwidget-tab-label"))
-            .with_child(Dom::label("").with_class("tabwidget-tab-close"))
-    }
-
-    let dom = Dom::div().with_id("editor-rooms")
-    .with_child(
-        Dom::div().with_class("tabwidget-bar")
-        .with_child(render_tab().with_class("active"))
-        .with_child(render_tab())
-        .with_child(render_tab())
-        .with_child(render_tab())
-    );
-
-    let tab_active_label_default = CssPath { selectors: vec![Class("tabwidget-tab-label".into())] };
-    let tab_active_label = CssPath { selectors: vec![Class("tabwidget-tab".into()), Class("active".into()), Children, Class("tabwidget-tab-label".into())] };
-    let tab_active_close = CssPath { selectors: vec![Class("tabwidget-tab".into()), Class("active".into()), Children, Class("tabwidget-tab-close".into())] };
-
-    let node_hierarchy = &dom.arena.node_layout;
-    let nodes_sorted = node_hierarchy.get_parents_sorted_by_depth();
-    let html_node_tree = construct_html_cascade_tree(
-        &dom.arena.node_data,
-        &node_hierarchy,
-        &nodes_sorted,
-        None,
-        &BTreeMap::new(),
-        false,
-    );
-
-    //  rules: [
-    //    ".tabwidget-tab-label"                        : ColorU::BLACK,
-    //    ".tabwidget-tab.active .tabwidget-tab-label"  : ColorU::WHITE,
-    //    ".tabwidget-tab.active .tabwidget-tab-close"  : ColorU::RED,
-    //  ]
-
-    //  0: [div #editor-rooms ]
-    //   |-- 1: [div  .tabwidget-bar]
-    //   |    |-- 2: [div  .tabwidget-tab .active]
-    //   |    |    |-- 3: [p  .tabwidget-tab-label]
-    //   |    |    |-- 4: [p  .tabwidget-tab-close]
-    //   |    |-- 5: [div  .tabwidget-tab]
-    //   |    |    |-- 6: [p  .tabwidget-tab-label]
-    //   |    |    |-- 7: [p  .tabwidget-tab-close]
-    //   |    |-- 8: [div  .tabwidget-tab]
-    //   |    |    |-- 9: [p  .tabwidget-tab-label]
-    //   |    |    |-- 10: [p  .tabwidget-tab-close]
-    //   |    |-- 11: [div  .tabwidget-tab]
-    //   |    |    |-- 12: [p  .tabwidget-tab-label]
-    //   |    |    |-- 13: [p  .tabwidget-tab-close]
-
-    // Test 1:
-    // ".tabwidget-tab.active .tabwidget-tab-label"
-    // should not match
-    // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(3), &node_hierarchy, &html_node_tree), false);
-
-    // Test 2:
-    // ".tabwidget-tab.active .tabwidget-tab-close"
-    // should match
-    // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(4), &node_hierarchy, &html_node_tree), true);
 }
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
@@ -242,6 +168,83 @@ impl<'a> Iterator for CssGroupIterator<'a> {
             Some((current_path, self.last_reason))
         }
     }
+}
+
+#[test]
+fn test_case_issue_93() {
+
+    use azul_css::CssPathSelector::*;
+    use azul_css::*;
+    use prelude::*;
+
+    struct DataModel { }
+    impl Layout for DataModel { fn layout(&self) -> Dom<DataModel> { Dom::div() } }
+
+    fn render_tab() -> Dom<DataModel> {
+        Dom::div().with_class("tabwidget-tab")
+            .with_child(Dom::label("").with_class("tabwidget-tab-label"))
+            .with_child(Dom::label("").with_class("tabwidget-tab-close"))
+    }
+
+    let dom = Dom::div().with_id("editor-rooms")
+    .with_child(
+        Dom::div().with_class("tabwidget-bar")
+        .with_child(render_tab().with_class("active"))
+        .with_child(render_tab())
+        .with_child(render_tab())
+        .with_child(render_tab())
+    );
+
+    let tab_active_close = CssPath { selectors: vec![
+        Class("tabwidget-tab".into()),
+        Class("active".into()),
+        Children,
+        Class("tabwidget-tab-close".into())
+    ] };
+
+    let node_hierarchy = &dom.arena.node_layout;
+    let nodes_sorted = node_hierarchy.get_parents_sorted_by_depth();
+    let html_node_tree = construct_html_cascade_tree(
+        &dom.arena.node_data,
+        &node_hierarchy,
+        &nodes_sorted,
+        None,
+        &BTreeMap::new(),
+        false,
+    );
+
+    //  rules: [
+    //    ".tabwidget-tab-label"                        : ColorU::BLACK,
+    //    ".tabwidget-tab.active .tabwidget-tab-label"  : ColorU::WHITE,
+    //    ".tabwidget-tab.active .tabwidget-tab-close"  : ColorU::RED,
+    //  ]
+
+    //  0: [div #editor-rooms ]
+    //   |-- 1: [div  .tabwidget-bar]
+    //   |    |-- 2: [div  .tabwidget-tab .active]
+    //   |    |    |-- 3: [p  .tabwidget-tab-label]
+    //   |    |    |-- 4: [p  .tabwidget-tab-close]
+    //   |    |-- 5: [div  .tabwidget-tab]
+    //   |    |    |-- 6: [p  .tabwidget-tab-label]
+    //   |    |    |-- 7: [p  .tabwidget-tab-close]
+    //   |    |-- 8: [div  .tabwidget-tab]
+    //   |    |    |-- 9: [p  .tabwidget-tab-label]
+    //   |    |    |-- 10: [p  .tabwidget-tab-close]
+    //   |    |-- 11: [div  .tabwidget-tab]
+    //   |    |    |-- 12: [p  .tabwidget-tab-label]
+    //   |    |    |-- 13: [p  .tabwidget-tab-close]
+
+    // Test 1:
+    // ".tabwidget-tab.active .tabwidget-tab-label"
+    // should not match
+    // ".tabwidget-tab.active .tabwidget-tab-close"
+    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(3), &node_hierarchy, &html_node_tree), false);
+
+    // Test 2:
+    // ".tabwidget-tab.active .tabwidget-tab-close"
+    // should match
+    // ".tabwidget-tab.active .tabwidget-tab-close"
+    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(4), &node_hierarchy, &html_node_tree), true);
 }
 
 #[test]
@@ -485,14 +488,9 @@ pub(crate) fn match_dom_selectors<T: Layout>(
     pending_focus_target: &mut Option<FocusTarget>,
     hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
     is_mouse_down: bool,
-) -> UiDescription<T>
-{
-    use std::collections::BTreeMap;
+) -> UiDescription<T> {
 
-    let root = ui_state.dom.root;
     let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();
-
-    let mut styled_nodes = BTreeMap::<NodeId, StyledNode>::new();
 
     let mut html_tree = construct_html_cascade_tree(
         &ui_state.dom.arena.node_data,
@@ -512,57 +510,37 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         &mut html_tree,
     );
 
-    for (_depth, parent_id) in non_leaf_nodes {
+    // First, apply all rules normally (no inheritance) of CSS values
+    // This is an O(n^2) operation, but it can be parallelized in the future
+    let mut styled_nodes = ui_state.dom.arena.node_data.transform(|_, node_id| StyledNode {
+        css_constraints: css
+            .rules()
+            .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_layout, &html_tree))
+            .flat_map(|matched_rule| matched_rule.declarations.iter().cloned())
+            .collect(),
+    });
 
-        let mut parent_rules = styled_nodes.get(&parent_id).cloned().unwrap_or_default();
+    // // Then, inherit all values of the parent to the children, but only if the property is
+    // // inheritable and isn't yet set. NOTE: This step can't be parallelized!
+    // for (_depth, parent_id) in non_leaf_nodes {
+    //     let inherited_rules: Vec<CssDeclaration> = styled_nodes[parent_id].css_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
+    //     if inherited_rules.is_empty() {
+    //         continue;
+    //     }
+    //
+    //     for child_id in parent_id.children(&ui_state.dom.arena.node_layout) {
+    //         for inherited_rule in &inherited_rules {
+    //             // Only override the rule if the child already has an inherited rule, don't override it
+    //         }
+    //     }
+    // }
 
-        // Iterate through all CSS rules, test if they match
-        // This is technically O(n ^ 2), however, there are usually not that many CSS blocks,
-        // so the cost of this should be insignificant.
-        for applying_rule in css.rules().filter(|rule| {
-            matches_html_element(&rule.path, parent_id, &ui_state.dom.arena.node_layout, &html_tree)
-        }) {
-            parent_rules.css_constraints.extend(applying_rule.declarations.clone());
-        }
-
-        let inheritable_rules: Vec<CssDeclaration> = parent_rules.css_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
-
-        // For children: inherit from parents - filter children that themselves are not parents!
-        for child_id in parent_id.children(&ui_state.dom.arena.node_layout) {
-            let child_node = &ui_state.dom.arena.node_layout[child_id];
-            match child_node.first_child {
-                None => {
-
-                    // Style children that themselves aren't parents
-                    let mut child_rules = inheritable_rules.clone();
-
-                    // Iterate through all style rules, test if they match
-                    // This is technically O(n ^ 2), however, there are usually not that many style blocks,
-                    // so the cost of this should be insignificant.
-                    for applying_rule in css.rules().filter(|rule| {
-                        matches_html_element(&rule.path, child_id, &ui_state.dom.arena.node_layout, &html_tree)
-                    }) {
-                        child_rules.extend(applying_rule.declarations.clone());
-                    }
-
-                    styled_nodes.insert(child_id, StyledNode { css_constraints: child_rules });
-                },
-                Some(_) => {
-                    // For all children that themselves are parents, simply copy the inheritable rules
-                    styled_nodes.insert(child_id, StyledNode { css_constraints: inheritable_rules.clone() });
-                },
-            }
-        }
-
-        styled_nodes.insert(parent_id, parent_rules);
-    }
-
-    // In order to hit-test :hover and :active nodes, need to select them first
-    // (to insert their TagId later)
+    // In order to hit-test :hover and :active nodes, need to select them
+    // first (to insert their TagId later)
     let selected_hover_nodes = match_hover_selectors(
         collect_hover_groups(css),
         &ui_state.dom.arena.node_layout,
-        &html_tree
+        &html_tree,
     );
 
     UiDescription {
@@ -578,10 +556,9 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         // performance-sensitive operation!
 
         ui_descr_arena: ui_state.dom.arena.clone(),
-        ui_descr_root: root,
-        styled_nodes: styled_nodes,
-        default_style_of_node: StyledNode::default(),
         dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
+        ui_descr_root: ui_state.dom.root,
+        styled_nodes,
         selected_hover_nodes,
     }
 }

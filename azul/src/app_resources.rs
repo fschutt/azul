@@ -689,7 +689,7 @@ fn build_add_image_resource_updates(
     images_in_dom: &FastHashSet<ImageId>,
 ) -> Vec<ResourceUpdate> {
 
-    use webrender::api::{ImageData, ImageDescriptor, AddImage};
+    use webrender::api::{ImageData, AddImage};
 
     let mut resource_updates = Vec::new();
 
@@ -750,6 +750,7 @@ fn build_add_image_resource_updates(
             // Image is not a normal image, but may be a raw image
             match raw_images.remove(&image_id) {
                 Some(RawImage { pixels, image_dimensions, data_format }) => {
+
                     let opaque = is_image_opaque(data_format, &pixels[..]);
                     let allow_mipmaps = true;
                     let descriptor = ImageDescriptor::new(
@@ -760,15 +761,12 @@ fn build_add_image_resource_updates(
                         allow_mipmaps
                     );
                     let data = ImageData::new(pixels);
-                    let image_key = render_api.generate_image_key();
+                    let key = render_api.generate_image_key();
 
-                    pending_frame_image_keys.insert(image_id, ImageInfo {
-                        key: image_key,
-                        descriptor: descriptor
-                    });
+                    pending_frame_image_keys.insert(image_id, ImageInfo { key, descriptor });
 
                     resource_updates.push(ResourceUpdate::AddImage(
-                        AddImage { key: image_key, descriptor, data, tiling: None }
+                        AddImage { key, descriptor, data, tiling: None }
                     ));
                 },
                 None => { }, // invalid image ID

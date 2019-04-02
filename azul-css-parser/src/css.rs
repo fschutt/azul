@@ -161,7 +161,7 @@ fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, Cs
 
     let offset = match offset_iterator.next() {
         Some(offset_string) => {
-            offset_string.trim();
+            let offset_string = offset_string.trim();
             if offset_string.is_empty() {
                 return Err(CssPseudoSelectorParseError::InvalidNthChildPattern(value));
             } else {

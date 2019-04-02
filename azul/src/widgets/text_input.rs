@@ -63,12 +63,10 @@ impl TextInput {
 
     pub fn bind<T: Layout>(self, window: &mut FakeWindow<T>, field: &TextInputState, data: &T) -> Self {
         let ptr = StackCheckedPointer::new(data, field);
-        let on_text_input_callback = ptr.and_then(|ptr|{
-            Some((
-                window.add_callback(ptr, DefaultCallback(TextInputState::on_text_input_private)),
-                window.add_callback(ptr, DefaultCallback(TextInputState::on_virtual_key_down_private))
-            ))
-        });
+        let on_text_input_callback = ptr.map(|ptr|{(
+            window.add_callback(ptr, DefaultCallback(TextInputState::on_text_input_private)),
+            window.add_callback(ptr, DefaultCallback(TextInputState::on_virtual_key_down_private))
+        )});
 
         Self {
             on_text_input_callback,

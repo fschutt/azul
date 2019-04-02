@@ -132,6 +132,7 @@
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
 #![allow(dead_code)]
+#![deny(clippy::all)]
 
 #[macro_use(warn, error, lazy_static)]
 #[cfg_attr(feature = "svg", macro_use(implement_vertex, uniform))]

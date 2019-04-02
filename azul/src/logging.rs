@@ -75,14 +75,14 @@ pub(crate) fn set_up_panic_hooks() {
 
         let payload_str = format!("{:?}", payload);
         let panic_str = payload.downcast_ref::<String>()
-                .and_then(|s| Some(s.as_ref()))
+                .map(|s| s.as_ref())
                 .or_else(||
                     payload.downcast_ref::<&str>()
-                    .and_then(|s| Some(*s))
+                    .map(|s| *s)
                 )
                 .unwrap_or(payload_str.as_str());
 
-        let location_str = location.and_then(|loc| Some(format!("{} at line {}", loc.file(), loc.line())));
+        let location_str = location.map(|loc| format!("{} at line {}", loc.file(), loc.line()));
         let backtrace_str_old = format_backtrace(&Backtrace::new());
         let backtrace_str = backtrace_str_old
             .lines()

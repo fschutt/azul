@@ -223,7 +223,7 @@ impl SvgCache {
         if shader_lock.is_none() {
             *shader_lock = Some(SvgShader::new(display));
         }
-        shader_lock.as_ref().and_then(|s| Some(s.clone())).unwrap()
+        shader_lock.as_ref().map(|s| s.clone()).unwrap()
     }
 
     fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
@@ -236,7 +236,7 @@ impl SvgCache {
             fill_vertex_buffer_cache(id, rmut, rnotmut, window);
         }
 
-        self.stroke_vertex_index_buffer_cache.borrow().get(id).and_then(|x| Some(x.clone()))
+        self.stroke_vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
     }
 
     /// Note: panics if the ID isn't found.
@@ -255,7 +255,7 @@ impl SvgCache {
             fill_vertex_buffer_cache(id, rmut, rnotmut, window);
         }
 
-        self.vertex_index_buffer_cache.borrow().get(id).and_then(|x| Some(x.clone()))
+        self.vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
     }
 
     pub fn add_layer(&mut self, layer: SvgLayerResourceDirect) -> (SvgLayerId, SvgStyle) {
@@ -456,7 +456,7 @@ pub fn quick_rects(rects: &[SvgRect], stroke_color: Option<ColorU>, fill_color: 
 -> SvgLayerResourceDirect
 {
     let style = SvgStyle {
-        stroke: stroke_color.and_then(|col| Some((col, stroke_options.unwrap_or_default()))),
+        stroke: stroke_color.map(|col| (col, stroke_options.unwrap_or_default())),
         fill: fill_color,
         .. Default::default()
     };
@@ -615,7 +615,7 @@ impl SampledBezierCurve {
             glyph_rotations.push(rotation);
 
             last_offset = current_offset;
-            current_offset = start_offset + glyphs.get(glyph_idx + 1).and_then(|g| Some(g.point.x)).unwrap_or(0.0);
+            current_offset = start_offset + glyphs.get(glyph_idx + 1).map(|g| g.point.x).unwrap_or(0.0);
         }
 
         (glyph_offsets, glyph_rotations)
@@ -771,7 +771,7 @@ impl SvgStyle {
     /// If the style already has a translation, adds the new translation,
     /// otherwise initializes the value to the new translation
     pub fn translate(&mut self, x_px: f32, y_px: f32) {
-        let (cur_x, cur_y) = self.transform.translation.and_then(|t| Some((t.x, t.y))).unwrap_or((0.0, 0.0));
+        let (cur_x, cur_y) = self.transform.translation.map(|t| (t.x, t.y)).unwrap_or((0.0, 0.0));
         self.transform.translation = Some(SvgTranslation { x: cur_x + x_px, y: cur_y + y_px });
     }
 
@@ -779,8 +779,8 @@ impl SvgStyle {
     ///
     /// Input is in degrees.
     pub fn rotate(&mut self, degrees: f32) {
-        let current_rotation = self.transform.rotation.and_then(|r| Some(r.1.to_degrees())).unwrap_or(0.0);
-        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        let current_rotation = self.transform.rotation.map(|r| r.1.to_degrees()).unwrap_or(0.0);
+        let current_rotation_point = self.transform.rotation.map(|r| r.0).unwrap_or_default();
         self.transform.rotation = Some((current_rotation_point, SvgRotation::degrees(current_rotation + degrees)));
     }
 
@@ -795,7 +795,7 @@ impl SvgStyle {
 
     /// If the style already has a rotation, adds the rotation, otherwise sets the rotation point to the new value
     pub fn move_rotation_point(&mut self, rotation_point_x: f32, rotation_point_y: f32) {
-        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        let current_rotation_point = self.transform.rotation.map(|r| r.0).unwrap_or_default();
         let current_rotation = self.transform.rotation.unwrap_or_default().1;
         let new_rotation_point = SvgRotationPoint { x: current_rotation_point.x + rotation_point_x, y: current_rotation_point.y + rotation_point_y };
         self.transform.rotation = Some((new_rotation_point, current_rotation));
@@ -808,7 +808,7 @@ impl SvgStyle {
 
     /// Replaces the rotation value with the new rotation values - or initializes it, if set to None
     pub fn set_rotation(&mut self, degrees: f32) {
-        let current_rotation_point = self.transform.rotation.and_then(|r| Some(r.0)).unwrap_or_default();
+        let current_rotation_point = self.transform.rotation.map(|r| r.0).unwrap_or_default();
         let new_rotation = SvgRotation { degrees };
         self.transform.rotation = Some((current_rotation_point, new_rotation));
     }
@@ -1908,14 +1908,14 @@ pub fn normal_text(
     vectorized_font: &VectorizedFont,
 ) -> SvgLayerResourceDirect
 {
-    let fill_vertices = text_style.fill.and_then(|_| {
+    let fill_vertices = text_style.fill.map(|_| {
         let fill_verts = vectorized_font.get_fill_vertices(&layout.layouted_glyphs.glyphs);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs.glyphs, fill_verts))
+        normal_text_to_vertices(&layout.layouted_glyphs.glyphs, fill_verts)
     });
 
-    let stroke_vertices = text_style.stroke.and_then(|stroke| {
+    let stroke_vertices = text_style.stroke.map(|stroke| {
         let stroke_verts = vectorized_font.get_stroke_vertices(&layout.layouted_glyphs.glyphs, &stroke.1);
-        Some(normal_text_to_vertices(&layout.layouted_glyphs.glyphs, stroke_verts))
+        normal_text_to_vertices(&layout.layouted_glyphs.glyphs, stroke_verts)
     });
 
     SvgLayerResourceDirect {
@@ -1955,14 +1955,14 @@ pub fn text_on_curve(
     // NOTE: char offsets are now in unscaled glyph space!
     let (char_offsets, char_rotations) = curve.get_text_offsets_and_rotations(&layout.layouted_glyphs.glyphs, 0.0);
 
-    let fill_vertices = text_style.fill.and_then(|_| {
+    let fill_vertices = text_style.fill.map(|_| {
         let fill_verts = vectorized_font.get_fill_vertices(&layout.layouted_glyphs.glyphs);
-        Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, fill_verts))
+        curved_vector_text_to_vertices(&char_offsets, &char_rotations, fill_verts)
     });
 
-    let stroke_vertices = text_style.stroke.and_then(|stroke| {
+    let stroke_vertices = text_style.stroke.map(|stroke| {
         let stroke_verts = vectorized_font.get_stroke_vertices(&layout.layouted_glyphs.glyphs, &stroke.1);
-        Some(curved_vector_text_to_vertices(&char_offsets, &char_rotations, stroke_verts))
+        curved_vector_text_to_vertices(&char_offsets, &char_rotations, stroke_verts)
     });
 
     SvgLayerResourceDirect {
@@ -2097,19 +2097,19 @@ impl Svg {
 
             let fill_vi = match &layer {
                 SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(&read_only_window, layer_id),
-                SvgLayerResource::Direct(d) => d.fill.as_ref().and_then(|f| {
+                SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
                     let vertex_buffer = VertexBuffer::new(&read_only_window, &f.vertices).unwrap();
                     let index_buffer = IndexBuffer::new(&read_only_window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                    Some(Rc::new((vertex_buffer, index_buffer)))
+                    Rc::new((vertex_buffer, index_buffer))
                 }),
             };
 
             let stroke_vi = match &layer {
                 SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&read_only_window, layer_id),
-                SvgLayerResource::Direct(d) => d.stroke.as_ref().and_then(|f| {
+                SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
                     let vertex_buffer = VertexBuffer::new(&read_only_window, &f.vertices).unwrap();
                     let index_buffer = IndexBuffer::new(&read_only_window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                    Some(Rc::new((vertex_buffer, index_buffer)))
+                    Rc::new((vertex_buffer, index_buffer))
                 }),
             };
 
