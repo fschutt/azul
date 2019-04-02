@@ -663,7 +663,7 @@ fn test_detect_static_or_dynamic_property() {
 #[test]
 fn test_css_parse_1() {
 
-    use azul_css::{ColorU, StyleBackgroundColor, NodeTypePath, CssProperty};
+    use azul_css::{ColorU, StyleBackground, NodeTypePath, CssProperty};
 
     let parsed_css = new_from_str("
         div#my_id .my_class:first {
@@ -684,7 +684,7 @@ fn test_css_parse_1() {
                     CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
                 ],
             },
-            declarations: vec![CssDeclaration::Static(CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
+            declarations: vec![CssDeclaration::Static(CssProperty::Background(StyleBackground::Color(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
         }
     ];
 
@@ -729,9 +729,10 @@ mod stylesheet_parse {
     // Tests that an element with a single class always gets the CSS element applied properly
     #[test]
     fn test_apply_css_pure_class() {
-        let red = CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-        let blue = CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 255, a: 255 }));
-        let black = CssProperty::BackgroundColor(StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+
+        let red = CssProperty::Background(StyleBackground::Color(ColorU { r: 255, g: 0, b: 0, a: 255 }));
+        let blue = CssProperty::Background(StyleBackground::Color(ColorU { r: 0, g: 0, b: 255, a: 255 }));
+        let black = CssProperty::Background(StyleBackground::Color(ColorU { r: 0, g: 0, b: 0, a: 255 }));
 
         // Simple example
         {

@@ -18,7 +18,7 @@ use webrender::api::{
 use azul_css::{
     Css, LayoutPosition,CssProperty, LayoutOverflow,
     StyleBorderRadius, LayoutMargin, LayoutPadding, BoxShadowClipMode,
-    StyleTextColor, StyleBackground, StyleBoxShadow, StyleBackgroundColor,
+    StyleTextColor, StyleBackground, StyleBoxShadow,
     StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder, BoxShadowPreDisplayItem,
     RectStyle, RectLayout, ColorU as StyleColorU, DynamicCssPropertyDefault,
 };
@@ -650,21 +650,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
 
     // If the rect is hit-testing relevant, we need to push a rect anyway.
     // Otherwise the hit-testing gets confused
-    if let Some(bg_col) = &rect.style.background_color {
-        push_rect(
-            &info,
-            referenced_mutable_content.builder,
-            bg_col,
-        );
-    } else if info.tag.is_some() {
-        const TRANSPARENT_BG: StyleBackgroundColor = StyleBackgroundColor(StyleColorU { r: 0, g: 0, b: 0, a: 0 });
-        push_rect(
-            &info,
-            referenced_mutable_content.builder,
-            &TRANSPARENT_BG,
-        );
-    }
-
     if let Some(bg) = &rect.style.background {
         push_background(
             &info,
@@ -674,6 +659,13 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
             &rect.style.background_size,
             &rect.style.background_repeat,
             &referenced_mutable_content.app_resources,
+        );
+    } else if info.tag.is_some() {
+        const TRANSPARENT_BG: StyleColorU = StyleColorU { r: 0, g: 0, b: 0, a: 0 };
+        push_rect(
+            &info,
+            referenced_mutable_content.builder,
+            &TRANSPARENT_BG,
         );
     }
 
@@ -942,10 +934,10 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    color: &StyleBackgroundColor
+    color: &StyleColorU
 ) {
     use css::webrender_translate::wr_translate_color_u;
-    builder.push_rect(&info, wr_translate_color_u(color.0).into());
+    builder.push_rect(&info, wr_translate_color_u(*color).into());
 }
 
 fn push_text(
@@ -1557,7 +1549,6 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
 
     match property {
         BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
-        BackgroundColor(c)  => { rect.style.background_color = Some(*c);                },
         BackgroundSize(s)   => { rect.style.background_size = Some(*s);                 },
         BackgroundRepeat(r) => { rect.style.background_repeat = Some(*r);               },
         TextColor(t)        => { rect.style.font_color = Some(*t);                      },

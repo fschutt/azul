@@ -220,13 +220,15 @@ macro_rules! impl_float_value{($struct:ident) => (
 )}
 
 /// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);55] = [
-    (CssPropertyType::BorderRadius,     "border-radius"),
-    (CssPropertyType::BackgroundColor,  "background-color"),
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);56] = [
+    (CssPropertyType::Background,       "background"),
     (CssPropertyType::BackgroundSize,   "background-size"),
     (CssPropertyType::BackgroundRepeat, "background-repeat"),
+    (CssPropertyType::BackgroundColor,  "background-color"),
+    (CssPropertyType::BackgroundImage,  "background-image"),
+
+    (CssPropertyType::BorderRadius,     "border-radius"),
     (CssPropertyType::TextColor,        "color"),
-    (CssPropertyType::Background,       "background"),
     (CssPropertyType::FontSize,         "font-size"),
     (CssPropertyType::FontFamily,       "font-family"),
     (CssPropertyType::TextAlign,        "text-align"),
@@ -287,12 +289,14 @@ pub fn get_css_key_map() -> BTreeMap<&'static str, CssPropertyType> {
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssPropertyType {
-    BorderRadius,
     BackgroundColor,
+    Background,
     BackgroundSize,
     BackgroundRepeat,
+    BackgroundImage,
+
+    BorderRadius,
     TextColor,
-    Background,
     FontSize,
     FontFamily,
     TextAlign,
@@ -426,7 +430,6 @@ impl fmt::Display for CssPropertyType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CssProperty {
     BorderRadius(StyleBorderRadius),
-    BackgroundColor(StyleBackgroundColor),
     BackgroundSize(StyleBackgroundSize),
     BackgroundRepeat(StyleBackgroundRepeat),
     TextColor(StyleTextColor),
@@ -470,7 +473,6 @@ impl CssProperty {
     pub fn get_type(&self) -> CssPropertyType {
         match &self {
             CssProperty::BorderRadius(_) => CssPropertyType::BorderRadius,
-            CssProperty::BackgroundColor(_) => CssPropertyType::BackgroundColor,
             CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
             CssProperty::BackgroundRepeat(_) => CssPropertyType::BackgroundRepeat,
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
@@ -521,7 +523,6 @@ impl_from!(StyleLineHeight, CssProperty::LineHeight);
 impl_from!(StyleTabWidth, CssProperty::TabWidth);
 impl_from!(StyleWordSpacing, CssProperty::WordSpacing);
 impl_from!(StyleLetterSpacing, CssProperty::LetterSpacing);
-impl_from!(StyleBackgroundColor, CssProperty::BackgroundColor);
 impl_from!(StyleBackgroundSize, CssProperty::BackgroundSize);
 impl_from!(StyleBackgroundRepeat, CssProperty::BackgroundRepeat);
 impl_from!(StyleTextColor, CssProperty::TextColor);
@@ -730,17 +731,6 @@ pub struct StyleBorderRadius(pub BorderRadius);
 impl StyleBorderRadius {
     pub const fn zero() -> Self {
         StyleBorderRadius(BorderRadius::zero())
-    }
-}
-
-/// Represents a `background-color` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBackgroundColor(pub ColorU);
-
-impl Default for StyleBackgroundColor {
-    fn default() -> Self {
-        // Transparent color
-        StyleBackgroundColor(ColorU { r: 0, g: 0, b: 0, a: 0 })
     }
 }
 
@@ -961,7 +951,7 @@ pub enum StyleBackground {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
     Image(CssImageId),
-    Color(StyleBackgroundColor),
+    Color(ColorU),
     NoBackground,
 }
 
@@ -1204,6 +1194,7 @@ impl DirectionCorner {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackgroundType {
+    Color,
     LinearGradient,
     RepeatingLinearGradient,
     RadialGradient,
@@ -1485,8 +1476,6 @@ impl Default for StyleTextAlignmentVert {
 /// for styling and don't affect the layout of the rectangle
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectStyle {
-    /// Background color of this rectangle
-    pub background_color: Option<StyleBackgroundColor>,
     /// Background size of this rectangle
     pub background_size: Option<StyleBackgroundSize>,
     /// Background repetition
@@ -1563,19 +1552,19 @@ impl Default for ScrollbarInfo {
                 .. Default::default()
             },
             track: RectStyle {
-                background_color: Some(StyleBackgroundColor(ColorU {
+                background: Some(StyleBackground::Color(ColorU {
                     r: 241, g: 241, b: 241, a: 255
                 })),
                 .. Default::default()
             },
             thumb: RectStyle {
-                background_color: Some(StyleBackgroundColor(ColorU {
+                background: Some(StyleBackground::Color(ColorU {
                     r: 193, g: 193, b: 193, a: 255
                 })),
                 .. Default::default()
             },
             button: RectStyle {
-                background_color: Some(StyleBackgroundColor(ColorU {
+                background: Some(StyleBackground::Color(ColorU {
                     r: 163, g: 163, b: 163, a: 255
                 })),
                 .. Default::default()
@@ -1638,8 +1627,8 @@ impl RectLayout {
 
     pub fn get_vertical_margin(&self) -> f32 {
         let margin = self.margin.unwrap_or_default();
-        margin.top.map(|l| l.to_pixels()).unwrap_or(0.0)
-        + margin.bottom.map(|r| r.to_pixels()).unwrap_or(0.0)
+        margin.bottom.map(|r| r.to_pixels()).unwrap_or(0.0)
+        + margin.top.map(|l| l.to_pixels()).unwrap_or(0.0)
     }
 
     pub fn is_horizontal_overflow_visible(&self) -> bool {
