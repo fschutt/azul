@@ -23,26 +23,26 @@ mod css_parser;
 mod css;
 mod hot_reloader;
 
-pub use css::{
+pub use crate::css::{
     new_from_str,
     parse_css_path,
     CssParseError,
     CssPathParseError,
 };
 
-pub use css_parser::*;
+pub use crate::css_parser::*;
 
-pub use hot_reloader::{
+pub use crate::hot_reloader::{
     HotReloader,
 };
 
 
-pub use css_color::CssColor;
+pub use crate::css_color::CssColor;
 
 pub mod css_color {
 
     use azul_css::{ColorU, ColorF};
-    use css_parser::{parse_css_color, CssColorParseError};
+    use crate::css_parser::{parse_css_color, CssColorParseError};
 
     /// CssColor is simply a wrapper around the internal CSS color parsing methods.
     ///

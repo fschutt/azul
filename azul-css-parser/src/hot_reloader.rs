@@ -29,7 +29,7 @@ impl HotReloader {
 impl HotReloadHandler for HotReloader {
     fn reload_style(&mut self) -> Result<Css, String> {
         use std::fs;
-        use css;
+        use crate::css;
 
         let file_name = self.file_path.file_name().map(|os_str| os_str.to_string_lossy()).unwrap_or_default();
 

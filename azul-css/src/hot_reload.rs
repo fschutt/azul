@@ -1,6 +1,6 @@
 //! Traits and datatypes associated with reloading styles at runtime.
 
-use css::Css;
+use crate::css::Css;
 use std::time::Duration;
 
 /// Interface that can be used to reload a stylesheet while an application is running.

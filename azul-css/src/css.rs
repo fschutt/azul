@@ -1,5 +1,5 @@
 //! Types and methods used to describe the style of an application
-use css_properties::{CssProperty, CssPropertyType};
+use crate::css_properties::{CssProperty, CssPropertyType};
 use std::fmt;
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
@@ -395,7 +395,7 @@ fn test_specificity() {
 #[test]
 fn test_specificity_sort() {
     use self::CssPathSelector::*;
-    use NodeTypePath::*;
+    use crate::NodeTypePath::*;
 
     let mut input_style = Stylesheet {
         rules: vec![
