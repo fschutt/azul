@@ -391,14 +391,15 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         css_constraints: css
             .rules()
             .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_layout, &html_tree))
-            .flat_map(|matched_rule| matched_rule.declarations.iter().cloned())
+            .flat_map(|matched_rule| matched_rule.declarations.iter().map(|declaration| (declaration.get_type(), declaration.clone())))
             .collect(),
     });
 
     // Then, inherit all values of the parent to the children, but only if the property is
     // inheritable and isn't yet set. NOTE: This step can't be parallelized!
     for (_depth, parent_id) in non_leaf_nodes {
-        let inherited_rules: Vec<CssDeclaration> = styled_nodes[parent_id].css_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
+
+        let inherited_rules: Vec<CssDeclaration> = styled_nodes[parent_id].css_constraints.values().filter(|prop| prop.is_inheritable()).cloned().collect();
         if inherited_rules.is_empty() {
             continue;
         }
@@ -406,9 +407,8 @@ pub(crate) fn match_dom_selectors<T: Layout>(
         for child_id in parent_id.children(&ui_state.dom.arena.node_layout) {
             for inherited_rule in &inherited_rules {
                 // Only override the rule if the child already has an inherited rule, don't override it
-                if !styled_nodes[child_id].css_constraints.iter().any(|existing_rules| existing_rules.get_type() == inherited_rule.get_type()) {
-                    styled_nodes[child_id].css_constraints.insert(inherited_rule.clone());
-                }
+                let inherited_rule_type = inherited_rule.get_type();
+                styled_nodes[child_id].css_constraints.entry(inherited_rule_type).or_insert_with(|| inherited_rule.clone());
             }
         }
     }

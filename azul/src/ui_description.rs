@@ -1,8 +1,8 @@
 use std::{
     fmt,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
 };
-use azul_css::{ Css, CssDeclaration, CssProperty };
+use azul_css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
 use webrender::api::HitTestItem;
 use {
     FastHashMap,
@@ -108,5 +108,5 @@ impl<T: Layout> UiDescription<T> {
 #[derive(Debug, Default, Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
 pub(crate) struct StyledNode {
     /// The CSS constraints, after the cascading step
-    pub(crate) css_constraints: BTreeSet<CssDeclaration>,
+    pub(crate) css_constraints: BTreeMap<CssPropertyType, CssDeclaration>,
 }

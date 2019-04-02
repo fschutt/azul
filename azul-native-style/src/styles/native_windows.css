@@ -9,6 +9,7 @@
     flex-direction: column;
     justify-content: center;
     cursor: pointer;
+    color: green;
 }
 
 .__azul-native-button:hover {
