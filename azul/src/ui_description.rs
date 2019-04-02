@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
 };
 use azul_css::{ Css, CssDeclaration, CssProperty };
 use webrender::api::HitTestItem;
@@ -108,5 +108,5 @@ impl<T: Layout> UiDescription<T> {
 #[derive(Debug, Default, Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
 pub(crate) struct StyledNode {
     /// The CSS constraints, after the cascading step
-    pub(crate) css_constraints: Vec<CssDeclaration>,
+    pub(crate) css_constraints: BTreeSet<CssDeclaration>,
 }
