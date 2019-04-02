@@ -34,6 +34,16 @@ pub enum CssDeclaration {
 }
 
 impl CssDeclaration {
+
+    /// Returns the type of the property (i.e. the CSS key as a typed enum)
+    pub fn get_type(&self) -> CssPropertyType {
+        use css::CssDeclaration::*;
+        match self {
+            Static(s) => s.get_type(),
+            Dynamic(d) => d.property_type,
+        }
+    }
+
     /// Determines if the property will be inherited (applied to the children)
     /// during the recursive application of the style on the DOM tree
     pub fn is_inheritable(&self) -> bool {

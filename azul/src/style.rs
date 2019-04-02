@@ -170,142 +170,15 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-#[test]
-fn test_case_issue_93() {
-
-    use azul_css::CssPathSelector::*;
-    use azul_css::*;
-    use prelude::*;
-
-    struct DataModel { }
-    impl Layout for DataModel { fn layout(&self) -> Dom<DataModel> { Dom::div() } }
-
-    fn render_tab() -> Dom<DataModel> {
-        Dom::div().with_class("tabwidget-tab")
-            .with_child(Dom::label("").with_class("tabwidget-tab-label"))
-            .with_child(Dom::label("").with_class("tabwidget-tab-close"))
-    }
-
-    let dom = Dom::div().with_id("editor-rooms")
-    .with_child(
-        Dom::div().with_class("tabwidget-bar")
-        .with_child(render_tab().with_class("active"))
-        .with_child(render_tab())
-        .with_child(render_tab())
-        .with_child(render_tab())
-    );
-
-    let tab_active_close = CssPath { selectors: vec![
-        Class("tabwidget-tab".into()),
-        Class("active".into()),
-        Children,
-        Class("tabwidget-tab-close".into())
-    ] };
-
-    let node_hierarchy = &dom.arena.node_layout;
-    let nodes_sorted = node_hierarchy.get_parents_sorted_by_depth();
-    let html_node_tree = construct_html_cascade_tree(
-        &dom.arena.node_data,
-        &node_hierarchy,
-        &nodes_sorted,
-        None,
-        &BTreeMap::new(),
-        false,
-    );
-
-    //  rules: [
-    //    ".tabwidget-tab-label"                        : ColorU::BLACK,
-    //    ".tabwidget-tab.active .tabwidget-tab-label"  : ColorU::WHITE,
-    //    ".tabwidget-tab.active .tabwidget-tab-close"  : ColorU::RED,
-    //  ]
-
-    //  0: [div #editor-rooms ]
-    //   |-- 1: [div  .tabwidget-bar]
-    //   |    |-- 2: [div  .tabwidget-tab .active]
-    //   |    |    |-- 3: [p  .tabwidget-tab-label]
-    //   |    |    |-- 4: [p  .tabwidget-tab-close]
-    //   |    |-- 5: [div  .tabwidget-tab]
-    //   |    |    |-- 6: [p  .tabwidget-tab-label]
-    //   |    |    |-- 7: [p  .tabwidget-tab-close]
-    //   |    |-- 8: [div  .tabwidget-tab]
-    //   |    |    |-- 9: [p  .tabwidget-tab-label]
-    //   |    |    |-- 10: [p  .tabwidget-tab-close]
-    //   |    |-- 11: [div  .tabwidget-tab]
-    //   |    |    |-- 12: [p  .tabwidget-tab-label]
-    //   |    |    |-- 13: [p  .tabwidget-tab-close]
-
-    // Test 1:
-    // ".tabwidget-tab.active .tabwidget-tab-label"
-    // should not match
-    // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(3), &node_hierarchy, &html_node_tree), false);
-
-    // Test 2:
-    // ".tabwidget-tab.active .tabwidget-tab-close"
-    // should match
-    // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(4), &node_hierarchy, &html_node_tree), true);
-}
-
-#[test]
-fn test_css_group_iterator() {
-
-    use self::CssPathSelector::*;
-    use azul_css::NodeTypePath;
-
-    // ".hello > #id_text.new_class div.content"
-    // -> ["div.content", "#id_text.new_class", ".hello"]
-    let selectors = vec![
-        Class("hello".into()),
-        DirectChildren,
-        Id("id_test".into()),
-        Class("new_class".into()),
-        Children,
-        Type(NodeTypePath::Div),
-        Class("content".into()),
-    ];
-
-    let mut it = CssGroupIterator::new(&selectors);
-
-    assert_eq!(it.next(), Some((vec![
-       &Type(NodeTypePath::Div),
-       &Class("content".into()),
-    ], CssGroupSplitReason::Children)));
-
-    assert_eq!(it.next(), Some((vec![
-       &Id("id_test".into()),
-       &Class("new_class".into()),
-    ], CssGroupSplitReason::DirectChildren)));
-
-    assert_eq!(it.next(), Some((vec![
-        &Class("hello".into()),
-    ], CssGroupSplitReason::DirectChildren))); // technically not correct
-
-    assert_eq!(it.next(), None);
-
-    // Test single class
-    let selectors_2 = vec![
-        Class("content".into()),
-    ];
-
-    let mut it = CssGroupIterator::new(&selectors_2);
-
-    assert_eq!(it.next(), Some((vec![
-       &Class("content".into()),
-    ], CssGroupSplitReason::Children)));
-
-    assert_eq!(it.next(), None);
-}
-
-pub(crate) fn construct_html_cascade_tree<'a, T: Layout>(
+fn construct_html_cascade_tree<'a, T: Layout>(
     input: &'a NodeDataContainer<NodeData<T>>,
     node_hierarchy: &NodeHierarchy,
     node_depths_sorted: &[(usize, NodeId)],
     focused_item: Option<NodeId>,
     hovered_items: &BTreeMap<NodeId, HitTestItem>,
     is_mouse_down: bool
-)-> NodeDataContainer<HtmlCascadeInfo<'a, T>>
-{
+) -> NodeDataContainer<HtmlCascadeInfo<'a, T>> {
+
     let mut nodes = (0..node_hierarchy.len()).map(|_| HtmlCascadeInfo {
         node_data: &input[NodeId::new(0)],
         index_in_parent: 0,
@@ -490,6 +363,8 @@ pub(crate) fn match_dom_selectors<T: Layout>(
     is_mouse_down: bool,
 ) -> UiDescription<T> {
 
+    use azul_css::CssDeclaration;
+
     let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();
 
     let mut html_tree = construct_html_cascade_tree(
@@ -520,20 +395,23 @@ pub(crate) fn match_dom_selectors<T: Layout>(
             .collect(),
     });
 
-    // // Then, inherit all values of the parent to the children, but only if the property is
-    // // inheritable and isn't yet set. NOTE: This step can't be parallelized!
-    // for (_depth, parent_id) in non_leaf_nodes {
-    //     let inherited_rules: Vec<CssDeclaration> = styled_nodes[parent_id].css_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
-    //     if inherited_rules.is_empty() {
-    //         continue;
-    //     }
-    //
-    //     for child_id in parent_id.children(&ui_state.dom.arena.node_layout) {
-    //         for inherited_rule in &inherited_rules {
-    //             // Only override the rule if the child already has an inherited rule, don't override it
-    //         }
-    //     }
-    // }
+    // Then, inherit all values of the parent to the children, but only if the property is
+    // inheritable and isn't yet set. NOTE: This step can't be parallelized!
+    for (_depth, parent_id) in non_leaf_nodes {
+        let inherited_rules: Vec<CssDeclaration> = styled_nodes[parent_id].css_constraints.iter().filter(|prop| prop.is_inheritable()).cloned().collect();
+        if inherited_rules.is_empty() {
+            continue;
+        }
+
+        for child_id in parent_id.children(&ui_state.dom.arena.node_layout) {
+            for inherited_rule in &inherited_rules {
+                // Only override the rule if the child already has an inherited rule, don't override it
+                if !styled_nodes[child_id].css_constraints.iter().any(|existing_rules| existing_rules.get_type() == inherited_rule.get_type()) {
+                    styled_nodes[child_id].css_constraints.insert(inherited_rule.clone());
+                }
+            }
+        }
+    }
 
     // In order to hit-test :hover and :active nodes, need to select them
     // first (to insert their TagId later)
@@ -612,4 +490,131 @@ fn update_focus_from_callbacks<'a, T: 'a + Layout>(
     }
 
     *pending_focus_target = None;
+}
+
+#[test]
+fn test_case_issue_93() {
+
+    use azul_css::CssPathSelector::*;
+    use azul_css::*;
+    use prelude::*;
+
+    struct DataModel { }
+    impl Layout for DataModel { fn layout(&self) -> Dom<DataModel> { Dom::div() } }
+
+    fn render_tab() -> Dom<DataModel> {
+        Dom::div().with_class("tabwidget-tab")
+            .with_child(Dom::label("").with_class("tabwidget-tab-label"))
+            .with_child(Dom::label("").with_class("tabwidget-tab-close"))
+    }
+
+    let dom = Dom::div().with_id("editor-rooms")
+    .with_child(
+        Dom::div().with_class("tabwidget-bar")
+        .with_child(render_tab().with_class("active"))
+        .with_child(render_tab())
+        .with_child(render_tab())
+        .with_child(render_tab())
+    );
+
+    let tab_active_close = CssPath { selectors: vec![
+        Class("tabwidget-tab".into()),
+        Class("active".into()),
+        Children,
+        Class("tabwidget-tab-close".into())
+    ] };
+
+    let node_hierarchy = &dom.arena.node_layout;
+    let nodes_sorted = node_hierarchy.get_parents_sorted_by_depth();
+    let html_node_tree = construct_html_cascade_tree(
+        &dom.arena.node_data,
+        &node_hierarchy,
+        &nodes_sorted,
+        None,
+        &BTreeMap::new(),
+        false,
+    );
+
+    //  rules: [
+    //    ".tabwidget-tab-label"                        : ColorU::BLACK,
+    //    ".tabwidget-tab.active .tabwidget-tab-label"  : ColorU::WHITE,
+    //    ".tabwidget-tab.active .tabwidget-tab-close"  : ColorU::RED,
+    //  ]
+
+    //  0: [div #editor-rooms ]
+    //   |-- 1: [div  .tabwidget-bar]
+    //   |    |-- 2: [div  .tabwidget-tab .active]
+    //   |    |    |-- 3: [p  .tabwidget-tab-label]
+    //   |    |    |-- 4: [p  .tabwidget-tab-close]
+    //   |    |-- 5: [div  .tabwidget-tab]
+    //   |    |    |-- 6: [p  .tabwidget-tab-label]
+    //   |    |    |-- 7: [p  .tabwidget-tab-close]
+    //   |    |-- 8: [div  .tabwidget-tab]
+    //   |    |    |-- 9: [p  .tabwidget-tab-label]
+    //   |    |    |-- 10: [p  .tabwidget-tab-close]
+    //   |    |-- 11: [div  .tabwidget-tab]
+    //   |    |    |-- 12: [p  .tabwidget-tab-label]
+    //   |    |    |-- 13: [p  .tabwidget-tab-close]
+
+    // Test 1:
+    // ".tabwidget-tab.active .tabwidget-tab-label"
+    // should not match
+    // ".tabwidget-tab.active .tabwidget-tab-close"
+    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(3), &node_hierarchy, &html_node_tree), false);
+
+    // Test 2:
+    // ".tabwidget-tab.active .tabwidget-tab-close"
+    // should match
+    // ".tabwidget-tab.active .tabwidget-tab-close"
+    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(4), &node_hierarchy, &html_node_tree), true);
+}
+
+#[test]
+fn test_css_group_iterator() {
+
+    use self::CssPathSelector::*;
+    use azul_css::NodeTypePath;
+
+    // ".hello > #id_text.new_class div.content"
+    // -> ["div.content", "#id_text.new_class", ".hello"]
+    let selectors = vec![
+        Class("hello".into()),
+        DirectChildren,
+        Id("id_test".into()),
+        Class("new_class".into()),
+        Children,
+        Type(NodeTypePath::Div),
+        Class("content".into()),
+    ];
+
+    let mut it = CssGroupIterator::new(&selectors);
+
+    assert_eq!(it.next(), Some((vec![
+       &Type(NodeTypePath::Div),
+       &Class("content".into()),
+    ], CssGroupSplitReason::Children)));
+
+    assert_eq!(it.next(), Some((vec![
+       &Id("id_test".into()),
+       &Class("new_class".into()),
+    ], CssGroupSplitReason::DirectChildren)));
+
+    assert_eq!(it.next(), Some((vec![
+        &Class("hello".into()),
+    ], CssGroupSplitReason::DirectChildren))); // technically not correct
+
+    assert_eq!(it.next(), None);
+
+    // Test single class
+    let selectors_2 = vec![
+        Class("content".into()),
+    ];
+
+    let mut it = CssGroupIterator::new(&selectors_2);
+
+    assert_eq!(it.next(), Some((vec![
+       &Class("content".into()),
+    ], CssGroupSplitReason::Children)));
+
+    assert_eq!(it.next(), None);
 }
