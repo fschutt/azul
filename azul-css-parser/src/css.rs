@@ -6,8 +6,8 @@ use std::{
 pub use simplecss::Error as CssSyntaxError;
 use simplecss::Tokenizer;
 
-use css_parser;
-pub use css_parser::CssParsingError;
+use crate::css_parser;
+pub use crate::css_parser::CssParsingError;
 use azul_css::{
     Css, CssDeclaration, Stylesheet,
     DynamicCssProperty, DynamicCssPropertyDefault,
@@ -588,7 +588,7 @@ pub fn parse_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str) -> R
 #[test]
 fn test_detect_static_or_dynamic_property() {
     use azul_css::{CssProperty, StyleTextAlignmentHorz};
-    use css_parser::InvalidValueErr;
+    use crate::css_parser::InvalidValueErr;
     assert_eq!(
         determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, " center   "),
         Ok(CssDeclaration::Static(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)))
