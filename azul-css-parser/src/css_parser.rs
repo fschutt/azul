@@ -11,7 +11,7 @@ use azul_css::{
     LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
     StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
     ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
-    GradientStopPre, RadialGradient, StyleBackgroundColor, StyleBackgroundSize, StyleBackgroundRepeat,
+    GradientStopPre, RadialGradient, StyleBackgroundSize, StyleBackgroundRepeat,
     DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradient,
     BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
     BackgroundType,
@@ -108,12 +108,14 @@ pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<
     use self::CssPropertyType::*;
     let value = value.trim();
     match key {
-        BorderRadius     => Ok(parse_style_border_radius(value)?.into()),
-        BackgroundColor  => Ok(parse_style_background_color(value)?.into()),
+        Background       => Ok(parse_style_background(value)?.into()),
+        BackgroundColor  => Ok(StyleBackground::Color(parse_css_color(value)?).into()),
+        BackgroundImage  => Ok(StyleBackground::Image(parse_image(value)?).into()),
         BackgroundSize   => Ok(parse_style_background_size(value)?.into()),
         BackgroundRepeat => Ok(parse_style_background_repeat(value)?.into()),
+
         TextColor        => Ok(parse_style_text_color(value)?.into()),
-        Background       => Ok(parse_style_background(value)?.into()),
+        BorderRadius     => Ok(parse_style_border_radius(value)?.into()),
         FontSize         => Ok(parse_style_font_size(value)?.into()),
         FontFamily       => Ok(parse_style_font_family(value)?.into()),
         LetterSpacing    => Ok(parse_style_letter_spacing(value)?.into()),
@@ -578,12 +580,6 @@ pub fn parse_float_value(input: &str)
 -> Result<FloatValue, ParseFloatError>
 {
     Ok(FloatValue::new(input.trim().parse::<f32>()?))
-}
-
-pub fn parse_style_background_color<'a>(input: &'a str)
--> Result<StyleBackgroundColor, CssColorParseError<'a>>
-{
-    parse_css_color(input).and_then(|ok| Ok(StyleBackgroundColor(ok)))
 }
 
 pub fn parse_style_text_color<'a>(input: &'a str)
@@ -1311,18 +1307,21 @@ pub enum CssBackgroundParseError<'a> {
     GradientParseError(CssGradientStopParseError<'a>),
     ShapeParseError(CssShapeParseError<'a>),
     ImageParseError(CssImageParseError<'a>),
+    ColorParseError(CssColorParseError<'a>),
 }
+
 impl_debug_as_display!(CssBackgroundParseError<'a>);
 impl_display!{ CssBackgroundParseError<'a>, {
     Error(e) => e,
     InvalidBackground(val) => format!("Invalid background value: \"{}\"", val),
     UnclosedGradient(val) => format!("Unclosed gradient: \"{}\"", val),
     NoDirection(val) => format!("Gradient has no direction: \"{}\"", val),
-    TooFewGradientStops(val) => format!("Too few gradient-stops: \"{}\"", val),
-    DirectionParseError(e) => format!("Could not parse gradient direction: \"{}\"", e),
-    GradientParseError(e) => format!("Gradient parse error: {}", e),
-    ShapeParseError(e) => format!("Shape parse error: {}", e),
-    ImageParseError(e) => format!("Image parse error: {}", e),
+    TooFewGradientStops(val) => format!("Failed to parse gradient due to too few gradient steps: \"{}\"", val),
+    DirectionParseError(e) => format!("Failed to parse gradient direction: \"{}\"", e),
+    GradientParseError(e) => format!("Failed to parse gradient: {}", e),
+    ShapeParseError(e) => format!("Failed to parse shape of radial gradient: {}", e),
+    ImageParseError(e) => format!("Failed to parse image() value: {}", e),
+    ColorParseError(e) => format!("Failed to parse color value: {}", e),
 }}
 
 impl_from!(ParenthesisParseError<'a>, CssBackgroundParseError::InvalidBackground);
@@ -1330,27 +1329,33 @@ impl_from!(CssDirectionParseError<'a>, CssBackgroundParseError::DirectionParseEr
 impl_from!(CssGradientStopParseError<'a>, CssBackgroundParseError::GradientParseError);
 impl_from!(CssShapeParseError<'a>, CssBackgroundParseError::ShapeParseError);
 impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
+impl_from!(CssColorParseError<'a>, CssBackgroundParseError::ColorParseError);
 
 // parses a background, such as "linear-gradient(red, green)"
 pub fn parse_style_background<'a>(input: &'a str)
 -> Result<StyleBackground, CssBackgroundParseError<'a>>
 {
-    let (background_type, brace_contents) = parse_parentheses(input, &[
+    match parse_parentheses(input, &[
         "none", "linear-gradient", "repeating-linear-gradient",
-        "radial-gradient", "repeating-radial-gradient", "image"
-    ])?;
+        "radial-gradient", "repeating-radial-gradient", "image",
+    ]) {
+        Ok((background_type, brace_contents)) => {
+            let background_type = match background_type {
+                "none" => { return Ok(StyleBackground::NoBackground); },
+                "linear-gradient" => BackgroundType::LinearGradient,
+                "repeating-linear-gradient" => BackgroundType::RepeatingLinearGradient,
+                "radial-gradient" => BackgroundType::RadialGradient,
+                "repeating-radial-gradient" => BackgroundType::RepeatingRadialGradient,
+                "image" => BackgroundType::Image,
+                _ => { return Ok(StyleBackground::NoBackground); /* unreachable */ },
+            };
 
-    let background_type = match background_type {
-        "none" => { return Ok(StyleBackground::NoBackground); },
-        "linear-gradient" => BackgroundType::LinearGradient,
-        "repeating-linear-gradient" => BackgroundType::RepeatingLinearGradient,
-        "radial-gradient" => BackgroundType::RadialGradient,
-        "repeating-radial-gradient" => BackgroundType::RepeatingRadialGradient,
-        "image" => BackgroundType::Image,
-        _ => unreachable!(),
-    };
-
-    parse_gradient(brace_contents, background_type)
+            parse_gradient(brace_contents, background_type)
+        },
+        Err(_) => {
+            Ok(StyleBackground::Color(parse_css_color(input)?))
+        }
+    }
 }
 
 /// Given a string, returns how many characters need to be skipped
@@ -1392,12 +1397,13 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
 {
     let input = input.trim();
 
-    if background_type == BackgroundType::Image {
-        let image = parse_image(input)?;
-        return Ok(image.into());
+    match background_type {
+        BackgroundType::Image => { return Ok(StyleBackground::Image(parse_image(input)?)); }
+        BackgroundType::Color => { return Ok(StyleBackground::Color(parse_css_color(input)?)); }
+        _ => { },
     }
 
-    // Splittin the input by "," doesn't work since rgba() might contain commas
+    // Splitting the input by "," doesn't work since rgba() might contain commas
     let mut comma_separated_items = Vec::<&str>::new();
     let mut current_input = &input[..];
 
@@ -1507,7 +1513,7 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
                 stops: color_stops,
             }))
         },
-        BackgroundType::Image => unreachable!(),
+        BackgroundType::Image | BackgroundType::Color => unreachable!(),
     }
 }
 
@@ -1825,8 +1831,6 @@ impl_display!{CssShapeParseError<'a>, {
 /// (todo: border-box?)
 #[derive(Default, Debug, Clone, PartialEq, Hash)]
 pub struct RectStyle {
-    /// Background color of this rectangle
-    pub background_color: Option<StyleBackgroundColor>,
     /// Background size of this rectangle
     pub background_size: Option<StyleBackgroundSize>,
     /// Background repeat of this rectangle

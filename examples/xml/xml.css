@@ -22,17 +22,17 @@
 }
 
 #new_project_btn:active {
-    background-color: red;
+    background-color: blue;
 }
 
 #project_btn_container {
     flex-direction: row;
     height: 70px;
-    margin: 10px;
 }
 
 #last_projects_column {
     max-width: 300px;
+    margin: 10px;
 }
 
 #map_preview_container {

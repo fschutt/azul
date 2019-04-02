@@ -388,8 +388,8 @@ impl NodeDataContainer<$struct_name> {
                 };
 
                 let width_vertical_axis = {
-                    let children_margin: f32 = parent_id.children(node_hierarchy).map(|child_id| arena_data[child_id].get_vertical_margin()).sum();
-                    parent_width_metrics.min_inner_size_px + parent_width_metrics.flex_grow_px - parent_node.get_vertical_padding() - children_margin
+                    // let children_margin: f32 = parent_id.children(node_hierarchy).map(|child_id| arena_data[child_id].get_vertical_margin()).sum();
+                    parent_width_metrics.min_inner_size_px + parent_width_metrics.flex_grow_px - parent_node.get_vertical_padding()
                 };
 
                 let width_main_axis = match LayoutAxis::$main_axis {
