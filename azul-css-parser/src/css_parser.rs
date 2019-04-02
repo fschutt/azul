@@ -1174,9 +1174,6 @@ pub fn parse_css_border<'a>(input: &'a str)
     })
 }
 
-/// Parse a border style such as "none", "dotted", etc.
-///
-/// "solid", "none", etc.
 multi_type_parser!(parse_border_style, BorderStyle,
     ["none", None],
     ["solid", Solid],

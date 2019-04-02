@@ -680,7 +680,6 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
 impl<T: Layout> NodeData<T> {
 
     pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
-        use std::hash::Hash;
 
         // Pick hash algorithm based on features
         #[cfg(feature = "faster-hashing")]
@@ -809,8 +808,6 @@ impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
 
 impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=NodeData<T>>>(iter: I) -> Self {
-
-        use id_tree::Node;
 
         // We have to use a "root" node, otherwise we run into problems if
         // the iterator executes 0 times (and therefore pushes 0 nodes)
@@ -1012,10 +1009,7 @@ impl<T: Layout> Dom<T> {
                 }
             }
 
-            if node_id_child.parent.as_mut().and_then(|parent| {
-                *parent += self_len;
-                Some(parent)
-            }).is_none() {
+            if node_id_child.parent.as_mut().map(|parent| { *parent += self_len; parent }).is_none() {
                 // Have we encountered the last root item?
                 if node_id_child.next_sibling.is_none() {
                     last_sibling = Some(node_id);

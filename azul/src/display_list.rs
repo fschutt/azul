@@ -76,12 +76,7 @@ pub(crate) struct DisplayRectangle<'a> {
 impl<'a> DisplayRectangle<'a> {
     #[inline]
     pub fn new(tag: Option<u64>, styled_node: &'a StyledNode) -> Self {
-        Self {
-            tag: tag,
-            styled_node: styled_node,
-            style: RectStyle::default(),
-            layout: RectLayout::default(),
-        }
+        Self { tag, styled_node, style: RectStyle::default(), layout: RectLayout::default() }
     }
 }
 
@@ -95,8 +90,8 @@ impl<'a, T: Layout + 'a> DisplayList<'a, T> {
         let arena = &ui_description.ui_descr_arena;
 
         let display_rect_arena = arena.node_data.transform(|node, node_id| {
-            let style = ui_description.styled_nodes.get(&node_id).unwrap_or(&ui_description.default_style_of_node);
-            let tag = ui_state.node_ids_to_tag_ids.get(&node_id).and_then(|tag| Some(*tag));
+            let style = &ui_description.styled_nodes[node_id];
+            let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
             let mut rect = DisplayRectangle::new(tag, style);
             populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
             rect
@@ -947,8 +942,8 @@ struct DisplayListParametersMut<'a, T: 'a + Layout> {
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
-    color: &StyleBackgroundColor)
-{
+    color: &StyleBackgroundColor
+) {
     use css::webrender_translate::wr_translate_color_u;
     builder.push_rect(&info, wr_translate_color_u(color.0).into());
 }
@@ -1052,6 +1047,12 @@ fn push_text(
     }
 }
 
+enum ShouldPushShadow {
+    OneShadow,
+    TwoShadows,
+    AllShadows,
+}
+
 /// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
 /// shadow will not show up.
 ///
@@ -1064,156 +1065,7 @@ fn push_box_shadow(
     bounds: &LayoutRect,
     shadow_type: BoxShadowClipMode)
 {
-    fn push_box_shadow_inner(
-        builder: &mut DisplayListBuilder,
-        pre_shadow: &Option<BoxShadowPreDisplayItem>,
-        border_radius: StyleBorderRadius,
-        bounds: &LayoutRect,
-        clip_rect: LayoutRect,
-        shadow_type: BoxShadowClipMode)
-    {
-        use webrender::api::LayoutVector2D;
-        use css::webrender_translate::{
-            wr_translate_color_u, wr_translate_border_radius,
-            wr_translate_box_shadow_clip_mode
-        };
-
-        let pre_shadow = match pre_shadow {
-            None => return,
-            Some(ref s) => s,
-        };
-
-        // The pre_shadow is missing the StyleBorderRadius & LayoutRect
-        if pre_shadow.clip_mode != shadow_type {
-            return;
-        }
-
-        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
-
-        // prevent shadows that are larger than the full screen
-        let clip_rect = clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect);
-
-        // Apply a gamma of 2.2 to the original value
-        //
-        // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
-        fn apply_gamma(color: ColorF) -> ColorF {
-
-            const GAMMA: f32 = 2.2;
-            const GAMMA_F: f32 = 1.0 / GAMMA;
-
-            ColorF {
-                r: color.r.powf(GAMMA_F),
-                g: color.g.powf(GAMMA_F),
-                b: color.b.powf(GAMMA_F),
-                a: color.a,
-            }
-        }
-
-        let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-        builder.push_box_shadow(
-            &info,
-            *bounds,
-            LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
-            apply_gamma(wr_translate_color_u(pre_shadow.color).into()),
-            pre_shadow.blur_radius.to_pixels(),
-            pre_shadow.spread_radius.to_pixels(),
-            wr_translate_border_radius(border_radius.0).into(),
-            wr_translate_box_shadow_clip_mode(pre_shadow.clip_mode)
-        );
-    }
-
-    fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: &LayoutRect) -> LayoutRect {
-        if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
-            // inset shadows do not work like outset shadows
-            // for inset shadows, you have to push a clip ID first, so that they are
-            // clipped to the bounds -we trust that the calling function knows to do this
-            *bounds
-        } else {
-            // calculate the maximum extent of the outset shadow
-            let mut clip_rect = *bounds;
-
-            let origin_displace = (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
-            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
-            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
-
-            clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
-            clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
-            clip_rect
-        }
-    }
-
-    fn push_single_box_shadow_edge(
-            builder: &mut DisplayListBuilder,
-            current_shadow: &BoxShadowPreDisplayItem,
-            bounds: &LayoutRect,
-            border_radius: StyleBorderRadius,
-            shadow_type: BoxShadowClipMode,
-            top: &Option<Option<BoxShadowPreDisplayItem>>,
-            bottom: &Option<Option<BoxShadowPreDisplayItem>>,
-            left: &Option<Option<BoxShadowPreDisplayItem>>,
-            right: &Option<Option<BoxShadowPreDisplayItem>>,
-    ) {
-        let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
-        let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
-
-        let mut shadow_bounds = *bounds;
-        let mut clip_rect = *bounds;
-
-        if is_inset_shadow {
-            // If the shadow is inset, we adjust the clip rect to be
-            // exactly the amount of the shadow
-            if let Some(Some(top)) = top {
-                clip_rect.size.height = origin_displace;
-                shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
-            } else if let Some(Some(bottom)) = bottom {
-                clip_rect.size.height = origin_displace;
-                clip_rect.origin.y += bounds.size.height - origin_displace;
-                shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
-            } else if let Some(Some(left)) = left {
-                clip_rect.size.width = origin_displace;
-                shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
-            } else if let Some(Some(right)) = right {
-                clip_rect.size.width = origin_displace;
-                clip_rect.origin.x += bounds.size.width - origin_displace;
-                shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
-            }
-        } else {
-            if let Some(Some(top)) = top {
-                clip_rect.size.height = origin_displace;
-                clip_rect.origin.y -= origin_displace;
-                shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
-            } else if let Some(Some(bottom)) = bottom {
-                clip_rect.size.height = origin_displace;
-                clip_rect.origin.y += bounds.size.height;
-                shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
-            } else if let Some(Some(left)) = left {
-                clip_rect.size.width = origin_displace;
-                clip_rect.origin.x -= origin_displace;
-                shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
-            } else if let Some(Some(right)) = right {
-                clip_rect.size.width = origin_displace;
-                clip_rect.origin.x += bounds.size.width;
-                shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
-            }
-        }
-
-        push_box_shadow_inner(
-            builder,
-            &Some(*current_shadow),
-            border_radius,
-            &shadow_bounds,
-            clip_rect,
-            shadow_type
-        );
-    }
+    use self::ShouldPushShadow::*;
 
     // Box-shadow can be applied to each corner separately. This means, in practice
     // that we simply overlay multiple shadows with shifted clipping rectangles
@@ -1221,23 +1073,18 @@ fn push_box_shadow(
         Some(s) => s,
         None => return,
     };
+
     let border_radius = style.border_radius.unwrap_or(StyleBorderRadius::zero());
 
-    enum ShouldPushShadow {
-        PushOneShadow,
-        PushTwoShadows,
-        PushAllShadows,
-    }
-
     let what_shadow_to_push = match [top, left, bottom, right].iter().filter(|x| x.is_some()).count() {
-        1 => ShouldPushShadow::PushOneShadow,
-        2 => ShouldPushShadow::PushTwoShadows,
-        4 => ShouldPushShadow::PushAllShadows,
+        1 => OneShadow,
+        2 => TwoShadows,
+        4 => AllShadows,
         _ => return,
     };
 
     match what_shadow_to_push {
-        ShouldPushShadow::PushOneShadow => {
+        OneShadow => {
             let current_shadow = match (top, left, bottom, right) {
                  | (Some(Some(shadow)), None, None, None)
                  | (None, Some(Some(shadow)), None, None)
@@ -1256,7 +1103,7 @@ fn push_box_shadow(
         //
         // box-shadow-top: 0px 0px 5px red;
         // box-shadow-bottom: 0px 0px 5px blue;
-        ShouldPushShadow::PushTwoShadows => {
+        TwoShadows => {
             match (top, left, bottom, right) {
 
                 // top + bottom box-shadow pair
@@ -1284,7 +1131,7 @@ fn push_box_shadow(
                 _ => return, // reachable, but invalid
             }
         },
-        ShouldPushShadow::PushAllShadows => {
+        AllShadows => {
 
             // Assumes that all box shadows are the same, so just use the top shadow
             let top_shadow = top.unwrap();
@@ -1303,6 +1150,158 @@ fn push_box_shadow(
             );
         }
     }
+}
+
+fn push_box_shadow_inner(
+    builder: &mut DisplayListBuilder,
+    pre_shadow: &Option<BoxShadowPreDisplayItem>,
+    border_radius: StyleBorderRadius,
+    bounds: &LayoutRect,
+    clip_rect: LayoutRect,
+    shadow_type: BoxShadowClipMode)
+{
+    use webrender::api::LayoutVector2D;
+    use css::webrender_translate::{
+        wr_translate_color_u, wr_translate_border_radius,
+        wr_translate_box_shadow_clip_mode
+    };
+
+    let pre_shadow = match pre_shadow {
+        None => return,
+        Some(ref s) => s,
+    };
+
+    // The pre_shadow is missing the StyleBorderRadius & LayoutRect
+    if pre_shadow.clip_mode != shadow_type {
+        return;
+    }
+
+    let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
+
+    // prevent shadows that are larger than the full screen
+    let clip_rect = clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect);
+
+    // Apply a gamma of 2.2 to the original value
+    //
+    // NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
+    fn apply_gamma(color: ColorF) -> ColorF {
+
+        const GAMMA: f32 = 2.2;
+        const GAMMA_F: f32 = 1.0 / GAMMA;
+
+        ColorF {
+            r: color.r.powf(GAMMA_F),
+            g: color.g.powf(GAMMA_F),
+            b: color.b.powf(GAMMA_F),
+            a: color.a,
+        }
+    }
+
+    let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
+    builder.push_box_shadow(
+        &info,
+        *bounds,
+        LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
+        apply_gamma(wr_translate_color_u(pre_shadow.color).into()),
+        pre_shadow.blur_radius.to_pixels(),
+        pre_shadow.spread_radius.to_pixels(),
+        wr_translate_border_radius(border_radius.0).into(),
+        wr_translate_box_shadow_clip_mode(pre_shadow.clip_mode)
+    );
+}
+
+fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: &LayoutRect) -> LayoutRect {
+    if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
+        // inset shadows do not work like outset shadows
+        // for inset shadows, you have to push a clip ID first, so that they are
+        // clipped to the bounds -we trust that the calling function knows to do this
+        *bounds
+    } else {
+        // calculate the maximum extent of the outset shadow
+        let mut clip_rect = *bounds;
+
+        let origin_displace = (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
+        clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
+        clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
+
+        clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
+        clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
+        clip_rect
+    }
+}
+
+#[allow(clippy::collapsible_if)]
+fn push_single_box_shadow_edge(
+        builder: &mut DisplayListBuilder,
+        current_shadow: &BoxShadowPreDisplayItem,
+        bounds: &LayoutRect,
+        border_radius: StyleBorderRadius,
+        shadow_type: BoxShadowClipMode,
+        top: &Option<Option<BoxShadowPreDisplayItem>>,
+        bottom: &Option<Option<BoxShadowPreDisplayItem>>,
+        left: &Option<Option<BoxShadowPreDisplayItem>>,
+        right: &Option<Option<BoxShadowPreDisplayItem>>,
+) {
+    let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
+    let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
+
+    let mut shadow_bounds = *bounds;
+    let mut clip_rect = *bounds;
+
+    if is_inset_shadow {
+        // If the shadow is inset, we adjust the clip rect to be
+        // exactly the amount of the shadow
+        if let Some(Some(top)) = top {
+            clip_rect.size.height = origin_displace;
+            shadow_bounds.size.width += origin_displace;
+            shadow_bounds.origin.x -= origin_displace / 2.0;
+        } else if let Some(Some(bottom)) = bottom {
+            clip_rect.size.height = origin_displace;
+            clip_rect.origin.y += bounds.size.height - origin_displace;
+            shadow_bounds.size.width += origin_displace;
+            shadow_bounds.origin.x -= origin_displace / 2.0;
+        } else if let Some(Some(left)) = left {
+            clip_rect.size.width = origin_displace;
+            shadow_bounds.size.height += origin_displace;
+            shadow_bounds.origin.y -= origin_displace / 2.0;
+        } else if let Some(Some(right)) = right {
+            clip_rect.size.width = origin_displace;
+            clip_rect.origin.x += bounds.size.width - origin_displace;
+            shadow_bounds.size.height += origin_displace;
+            shadow_bounds.origin.y -= origin_displace / 2.0;
+        }
+    } else {
+        if let Some(Some(top)) = top {
+            clip_rect.size.height = origin_displace;
+            clip_rect.origin.y -= origin_displace;
+            shadow_bounds.size.width += origin_displace;
+            shadow_bounds.origin.x -= origin_displace / 2.0;
+        } else if let Some(Some(bottom)) = bottom {
+            clip_rect.size.height = origin_displace;
+            clip_rect.origin.y += bounds.size.height;
+            shadow_bounds.size.width += origin_displace;
+            shadow_bounds.origin.x -= origin_displace / 2.0;
+        } else if let Some(Some(left)) = left {
+            clip_rect.size.width = origin_displace;
+            clip_rect.origin.x -= origin_displace;
+            shadow_bounds.size.height += origin_displace;
+            shadow_bounds.origin.y -= origin_displace / 2.0;
+        } else if let Some(Some(right)) = right {
+            clip_rect.size.width = origin_displace;
+            clip_rect.origin.x += bounds.size.width;
+            shadow_bounds.size.height += origin_displace;
+            shadow_bounds.origin.y -= origin_displace / 2.0;
+        }
+    }
+
+    push_box_shadow_inner(
+        builder,
+        &Some(*current_shadow),
+        border_radius,
+        &shadow_bounds,
+        clip_rect,
+        shadow_type
+    );
 }
 
 #[inline]
@@ -1490,10 +1489,10 @@ fn push_border(
 fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPadding)
 -> TypedRect<f32, LayoutPixel>
 {
-    let top     = padding.top.and_then(|top| Some(top.to_pixels())).unwrap_or(0.0);
-    let bottom  = padding.bottom.and_then(|bottom| Some(bottom.to_pixels())).unwrap_or(0.0);
-    let left    = padding.left.and_then(|left| Some(left.to_pixels())).unwrap_or(0.0);
-    let right   = padding.right.and_then(|right| Some(right.to_pixels())).unwrap_or(0.0);
+    let top     = padding.top.map(|top| top.to_pixels()).unwrap_or(0.0);
+    let bottom  = padding.bottom.map(|bottom| bottom.to_pixels()).unwrap_or(0.0);
+    let left    = padding.left.map(|left| left.to_pixels()).unwrap_or(0.0);
+    let right   = padding.right.map(|right| right.to_pixels()).unwrap_or(0.0);
 
     let mut new_bounds = *bounds;
 
@@ -1513,8 +1512,8 @@ fn populate_css_properties(
 ) {
     use azul_css::CssDeclaration::*;
 
-    for constraint in &rect.styled_node.css_constraints {
-        match constraint {
+    for constraint in rect.styled_node.css_constraints.iter() {
+        match &constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {
                 let is_dynamic_prop = css_overrides.get(&node_id).and_then(|overrides| {

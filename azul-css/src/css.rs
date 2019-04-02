@@ -25,7 +25,7 @@ impl From<Vec<CssRuleBlock>> for Stylesheet {
 }
 
 /// Contains one parsed `key: value` pair, static or dynamic
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
     Static(CssProperty),
@@ -75,7 +75,7 @@ impl CssDeclaration {
 /// Dynamic style properties can also be used for animations and conditional styles
 /// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
 /// special cases now use one single API.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DynamicCssProperty {
     /// Key for this property
     pub property_type: CssPropertyType,
@@ -96,7 +96,7 @@ pub struct DynamicCssProperty {
 /// that, meaning that if you don't override the property, then you'd set it to 0px - which is
 /// different from `auto`, since `auto` has its width determined by how much space there is
 /// available in the parent.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DynamicCssPropertyDefault  {
     Exact(CssProperty),
     Auto,

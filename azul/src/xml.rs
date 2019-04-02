@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 use std::{fmt, collections::BTreeMap};
 use {
     callbacks::Callback,
@@ -496,11 +498,11 @@ fn parse_component_arguments(input: &str) -> Result<ComponentArguments, Componen
 
 pub type FilteredComponentArguments = ComponentArguments;
 
-/// Filters the XML attributes of a component given
+/// Filters the XML attributes of a component given XmlAttributeMap
 fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &FilteredComponentArguments)
 -> Result<FilteredComponentArguments, RenderDomError> {
 
-    const DEFAULT_ARGS: [&'static str;5] = ["id", "class", "tabindex", "draggable", "focusable"];
+    const DEFAULT_ARGS: [&str;5] = ["id", "class", "tabindex", "draggable", "focusable"];
 
     let mut map = FilteredComponentArguments::default();
 
@@ -519,7 +521,7 @@ fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_ar
         };
 
         if let Some(value) = arg_value {
-            map.insert(xml_attribute_name.clone(), xml_attribute_value.clone());
+            map.insert(xml_attribute_name.clone(), value.clone());
         }
     }
 
@@ -750,7 +752,7 @@ pub fn format_args_dynamic(input: &str, variables: &FilteredComponentArguments) 
 
     let mut opening_braces = Vec::new();
     let mut final_str = String::new();
-    let mut input: Vec<char> = input.chars().collect();
+    let input: Vec<char> = input.chars().collect();
 
     for (ch_idx, ch) in input.iter().enumerate() {
         match ch {
@@ -957,9 +959,9 @@ impl<T: Layout> XmlComponent<T> for TextRenderer {
         Ok(Dom::label(content))
     }
 
-    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
         Ok(match content {
-            Some(s) => format!("Dom::label(\"{}\")", content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default()),
+            Some(c) => format!("Dom::label(format!(\"{}\", {}))", c, args.keys().map(|s| s.as_str()).collect::<Vec<&str>>().join(", ")),
             None => format!("Dom::label(\"\")"),
         })
     }
@@ -1048,7 +1050,7 @@ fn test_parse_component_arguments() {
     args_1_expected.insert("minimum_date".to_string(), "DateTime".to_string());
     args_1_expected.insert("grid_visible".to_string(), "bool".to_string());
 
-    /// Everything OK
+    // Everything OK
     assert_eq!(
         parse_component_arguments("gridVisible: bool, selectedDate: DateTime, minimumDate: DateTime"),
         Ok(args_1_expected)

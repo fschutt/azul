@@ -774,7 +774,6 @@ impl WindowState
 
     /// Updates self.keyboard_state to reflect what characters are currently held down
     fn update_keyboard_pressed_chars(&mut self, event: &WindowEvent) {
-        use glium::glutin::KeyboardInput;
 
         match event {
             WindowEvent::KeyboardInput {
@@ -827,10 +826,8 @@ impl WindowState
 }
 
 fn get_window_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSet<WindowEventFilter> {
-    use glium::glutin::{
-        WindowEvent, KeyboardInput,
-        MouseButton::*,
-    };
+
+    use glium::glutin::MouseButton::*;
 
     let mut events_vec = HashSet::<WindowEventFilter>::new();
 
