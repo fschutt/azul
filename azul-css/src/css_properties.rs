@@ -1631,13 +1631,13 @@ impl RectLayout {
     }
 
     pub fn get_horizontal_margin(&self) -> f32 {
-        let margin = self.padding.unwrap_or_default();
+        let margin = self.margin.unwrap_or_default();
         margin.left.map(|l| l.to_pixels()).unwrap_or(0.0)
         + margin.right.map(|r| r.to_pixels()).unwrap_or(0.0)
     }
 
     pub fn get_vertical_margin(&self) -> f32 {
-        let margin = self.padding.unwrap_or_default();
+        let margin = self.margin.unwrap_or_default();
         margin.top.map(|l| l.to_pixels()).unwrap_or(0.0)
         + margin.bottom.map(|r| r.to_pixels()).unwrap_or(0.0)
     }

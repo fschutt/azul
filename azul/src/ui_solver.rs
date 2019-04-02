@@ -75,7 +75,7 @@ macro_rules! determine_preferred {
     /// if the node type is an text, the `preferred_inner_width` is the text height.
     fn $fn_name(layout: &RectLayout, preferred_inner_width: Option<f32>) -> WhConstraint {
 
-        let mut width = layout.$width.map(|w| w.0.to_pixels());
+        let width = layout.$width.map(|w| w.0.to_pixels());
         let min_width = layout.$min_width.map(|w| w.0.to_pixels());
         let max_width = layout.$max_width.map(|w| w.0.to_pixels());
 
@@ -128,9 +128,9 @@ macro_rules! determine_preferred {
                             // normal: min_width < width < max_width
                             WhConstraint::Between(width, max_width)
                         } else if width > max_width {
-                            WhConstraint::Between(max_width, max_width)
+                            WhConstraint::EqualTo(max_width)
                         } else if width < min_width {
-                            WhConstraint::Between(min_width, min_width)
+                            WhConstraint::EqualTo(min_width)
                         } else {
                             WhConstraint::Unconstrained /* unreachable */
                         }
@@ -344,267 +344,6 @@ impl NodeDataContainer<$struct_name> {
         parent_ids_sorted_by_depth: &[(usize, NodeId)],
         root_width: f32
     ) {
-        /// Does the actual width layout, respects the `width`, `min_width` and `max_width`
-        /// properties as well as the `flex_grow` factor. `flex_shrink` currently does nothing.
-        fn distribute_space_along_main_axis(
-            node_id: &NodeId,
-            node_hierarchy: &NodeHierarchy,
-            arena_data: &NodeDataContainer<RectLayout>,
-            width_calculated_arena: &mut NodeDataContainer<$struct_name>,
-            positioned_node_stack: &[NodeId])
-        {
-            // The inner space of the parent node, without the padding
-            let mut parent_node_inner_width = {
-                let parent_node = &width_calculated_arena[*node_id];
-                parent_node.min_inner_size_px + parent_node.flex_grow_px - parent_node.$get_padding_fn()
-            };
-
-            // 1. Set all child elements that have an exact width to that width, record their violations
-            //    and add their violation to the leftover horizontal space.
-            // let mut horizontal_space_from_fixed_width_items = 0.0;
-            let mut horizontal_space_taken_up_by_fixed_width_items = 0.0;
-
-            {
-                // Vec<(NodeId, PreferredWidth)>
-                let exact_width_childs = node_id
-                        .children(node_hierarchy)
-                        .filter_map(|id| if let WhConstraint::EqualTo(exact) = width_calculated_arena[id].$preferred_field {
-                            Some((id, exact))
-                        } else {
-                            None
-                        })
-                        .collect::<Vec<(NodeId, f32)>>();
-
-                for (exact_width_child_id, exact_width) in exact_width_childs {
-
-                    // If this child node is `position: absolute`, it doesn't take any space away from
-                    // its siblings, since it is taken out of the regular content flow
-                    if arena_data[exact_width_child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
-                        horizontal_space_taken_up_by_fixed_width_items += exact_width;
-                    }
-
-                    // so that node.min_inner_size_px + node.flex_grow_px = exact_width
-                    width_calculated_arena[exact_width_child_id].flex_grow_px =
-                        exact_width - width_calculated_arena[exact_width_child_id].min_inner_size_px;
-                }
-            }
-
-            // The fixed-width items are now considered solved, so subtract them out of the width of the parent.
-            parent_node_inner_width -= horizontal_space_taken_up_by_fixed_width_items;
-
-            // Now we can be sure that if we write #x { width: 500px; } that it will actually be 500px large
-            // and not be influenced by flex in any way.
-
-            // 2. Set all items to their minimum width. Record how much space is gained by doing so.
-            let mut horizontal_space_taken_up_by_variable_items = 0.0;
-
-            use FastHashSet;
-
-            let mut variable_width_childs = node_id
-                .children(node_hierarchy)
-                .filter(|id| !width_calculated_arena[*id].$preferred_field.is_fixed_constraint())
-                .collect::<FastHashSet<NodeId>>();
-
-            let mut absolute_variable_width_nodes = Vec::new();
-
-            for variable_child_id in &variable_width_childs {
-
-                if arena_data[*variable_child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
-
-                    let min_width = width_calculated_arena[*variable_child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
-
-                    horizontal_space_taken_up_by_variable_items += min_width;
-
-                    // so that node.min_inner_size_px + node.flex_grow_px = min_width
-                    width_calculated_arena[*variable_child_id].flex_grow_px =
-                        min_width - width_calculated_arena[*variable_child_id].min_inner_size_px;
-
-                } else {
-
-                    // `position: absolute` items don't take space away from their siblings, rather
-                    // they take the minimum needed space by their content
-
-                    let root_id = NodeId::new(0);
-                    let nearest_relative_parent_node = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&root_id);
-                    let relative_parent_width = {
-                        let relative_parent_node = &width_calculated_arena[*nearest_relative_parent_node];
-                        relative_parent_node.flex_grow_px + relative_parent_node.min_inner_size_px
-                    };
-
-                    // By default, absolute positioned elements take the width of their content
-                    // let min_inner_width = width_calculated_arena[*variable_child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
-
-                    // The absolute positioned node might have a max-width constraint, which has a
-                    // higher precedence than `top, bottom, left, right`.
-                    let max_space_current_node = match width_calculated_arena[*variable_child_id].$preferred_field {
-                        WhConstraint::EqualTo(e) => e,
-                        WhConstraint::Between(min, max) => {
-                            if relative_parent_width > min {
-                                if relative_parent_width < max {
-                                    relative_parent_width
-                                } else {
-                                    max
-                                }
-                            } else {
-                                min
-                            }
-                        },
-                        WhConstraint::Unconstrained => relative_parent_width,
-                    };
-
-                    // so that node.min_inner_size_px + node.flex_grow_px = max_space_current_node
-                    width_calculated_arena[*variable_child_id].flex_grow_px =
-                        max_space_current_node - width_calculated_arena[*variable_child_id].min_inner_size_px;
-
-                    absolute_variable_width_nodes.push(*variable_child_id);
-                }
-
-            }
-
-            // Absolute positioned nodes aren't in the space-to-distribute set
-            for absolute_node in absolute_variable_width_nodes {
-                variable_width_childs.remove(&absolute_node);
-            }
-
-            // This satisfies the `width` and `min_width` constraints. However, we still need to worry about
-            // the `max_width` and unconstrained children.
-            //
-            // By setting the items to their minimum size, we've gained some space that we now need to distribute
-            // according to the flex_grow values
-            parent_node_inner_width -= horizontal_space_taken_up_by_variable_items;
-
-            let mut total_horizontal_space_available = parent_node_inner_width;
-            let mut max_width_violations = Vec::new();
-
-            loop {
-
-                if total_horizontal_space_available <= 0.0 || variable_width_childs.is_empty() {
-                    break;
-                }
-
-                // In order to apply flex-grow correctly, we need the sum of
-                // the flex-grow factors of all the variable-width children
-                //
-                // NOTE: variable_width_childs can change its length, have to recalculate every loop!
-                let children_combined_flex_grow: f32 = variable_width_childs
-                    .iter()
-                    .map(|child_id|
-                            // Prevent flex-grow and flex-shrink to be less than 1
-                            arena_data[*child_id].flex_grow
-                                .map(|grow| grow.0.get().max(1.0))
-                                .unwrap_or(DEFAULT_FLEX_GROW_FACTOR))
-                    .sum();
-
-                // Grow all variable children by the same amount.
-                for variable_child_id in &variable_width_childs {
-
-                    let flex_grow = arena_data[*variable_child_id].flex_grow
-                        .and_then(|grow| Some(grow.0.get()))
-                        .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
-
-                    // Do not expand the item on "flex-grow: 0" (prevent division by 0)
-                    if flex_grow as usize == 0 {
-                        continue;
-                    }
-
-                    let added_space_for_one_child = total_horizontal_space_available * (flex_grow / children_combined_flex_grow);
-
-                    let current_width_of_child = width_calculated_arena[*variable_child_id].min_inner_size_px +
-                                                 width_calculated_arena[*variable_child_id].flex_grow_px;
-
-                    if let Some(max_width) = width_calculated_arena[*variable_child_id].$preferred_field.max_available_space() {
-                        if (current_width_of_child + added_space_for_one_child) > max_width {
-                            // so that node.min_inner_size_px + node.flex_grow_px = max_width
-                            width_calculated_arena[*variable_child_id].flex_grow_px =
-                                max_width - width_calculated_arena[*variable_child_id].min_inner_size_px;
-
-                            max_width_violations.push(*variable_child_id);
-                        } else {
-                            // so that node.min_inner_size_px + node.flex_grow_px = added_space_for_one_child
-                            width_calculated_arena[*variable_child_id].flex_grow_px =
-                                added_space_for_one_child - width_calculated_arena[*variable_child_id].min_inner_size_px;
-                        }
-                    } else {
-                        // so that node.min_inner_size_px + node.flex_grow_px = added_space_for_one_child
-                        width_calculated_arena[*variable_child_id].flex_grow_px =
-                            added_space_for_one_child - width_calculated_arena[*variable_child_id].min_inner_size_px;
-                    }
-                }
-
-                // If we haven't violated any max_width constraints, then we have
-                // added all remaining widths and thereby successfully solved the layout
-                if max_width_violations.is_empty() {
-                    break;
-                } else {
-                    // Nodes that were violated can't grow anymore in the next iteration,
-                    // so we remove them from the solution and consider them "solved".
-                    // Their amount of violation then gets distributed across the remaining
-                    // items in the next iteration.
-                    for solved_node_id in max_width_violations.drain(..) {
-
-                        // Since the node now gets removed, it doesn't contribute to the pool anymore
-                        total_horizontal_space_available -=
-                            width_calculated_arena[solved_node_id].min_inner_size_px +
-                            width_calculated_arena[solved_node_id].flex_grow_px;
-
-                        variable_width_childs.remove(&solved_node_id);
-                    }
-                }
-            }
-        }
-
-        fn distribute_space_along_cross_axis(
-            node_id: &NodeId,
-            node_hierarchy: &NodeHierarchy,
-            arena_data: &NodeDataContainer<RectLayout>,
-            width_calculated_arena: &mut NodeDataContainer<$struct_name>,
-            positioned_node_stack: &[NodeId])
-        {
-            // The inner space of the parent node, without the padding
-            let parent_node_inner_width = {
-                let parent_node = &width_calculated_arena[*node_id];
-                parent_node.min_inner_size_px + parent_node.flex_grow_px - parent_node.$get_padding_fn()
-            };
-
-            let last_relative_node_width = {
-                let zero_node = NodeId::new(0);
-                let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
-                let last_relative_node = &width_calculated_arena[*last_relative_node_id];
-                last_relative_node.min_inner_size_px + last_relative_node.flex_grow_px - last_relative_node.$get_padding_fn()
-            };
-
-            for child_id in node_id.children(node_hierarchy) {
-
-                let parent_node_inner_width = if arena_data[child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
-                    parent_node_inner_width
-                } else {
-                    last_relative_node_width
-                };
-
-                let preferred_width = {
-                    let min_width = width_calculated_arena[child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
-                    // In this case we want to overflow if the min width of the cross axis
-                    if min_width > parent_node_inner_width {
-                        min_width
-                    } else {
-                        if let Some(max_width) = width_calculated_arena[child_id].$preferred_field.max_available_space() {
-                            if max_width > parent_node_inner_width {
-                                parent_node_inner_width
-                            } else {
-                                max_width
-                            }
-                        } else {
-                            parent_node_inner_width
-                        }
-                    }
-                };
-
-                // so that node.min_inner_size_px + node.flex_grow_px = preferred_width
-                width_calculated_arena[child_id].flex_grow_px =
-                    preferred_width - width_calculated_arena[child_id].min_inner_size_px;
-            }
-        }
-
         use azul_css::LayoutAlignItems;
 
         debug_assert!(self[NodeId::new(0)].flex_grow_px == 0.0);
@@ -632,17 +371,46 @@ impl NodeDataContainer<$struct_name> {
 
             use azul_css::{LayoutAxis, LayoutPosition};
 
-            let parent_is_positioned = arena_data[*parent_id].position.unwrap_or_default() != LayoutPosition::Static;
+            let parent_node = &arena_data[*parent_id];
+            let parent_is_positioned = parent_node.position.unwrap_or_default() != LayoutPosition::Static;
+
             if parent_is_positioned {
                 positioned_node_stack.push(*parent_id);
             }
 
+            // How much width is there to distribute along the main and cross axis?
+            let (width_main_axis, width_cross_axis) = {
+                let parent_width_metrics = &self[*parent_id];
+
+                let width_horizontal_axis = {
+                    let children_margin: f32 = parent_id.children(node_hierarchy).map(|child_id| arena_data[child_id].get_horizontal_margin()).sum();
+                    parent_width_metrics.min_inner_size_px + parent_width_metrics.flex_grow_px - parent_node.get_horizontal_padding() - children_margin
+                };
+
+                let width_vertical_axis = {
+                    let children_margin: f32 = parent_id.children(node_hierarchy).map(|child_id| arena_data[child_id].get_vertical_margin()).sum();
+                    parent_width_metrics.min_inner_size_px + parent_width_metrics.flex_grow_px - parent_node.get_vertical_padding() - children_margin
+                };
+
+                let width_main_axis = match LayoutAxis::$main_axis {
+                    LayoutAxis::Horizontal => width_horizontal_axis,
+                    LayoutAxis::Vertical => width_vertical_axis,
+                };
+
+                let width_cross_axis = match LayoutAxis::$main_axis {
+                    LayoutAxis::Horizontal => width_vertical_axis,
+                    LayoutAxis::Vertical => width_horizontal_axis,
+                };
+
+                (width_main_axis, width_cross_axis)
+            };
+
             // Only stretch the items, if they have a align-items: stretch!
-            if arena_data[*parent_id].align_items.unwrap_or_default() == LayoutAlignItems::Stretch {
-                if arena_data[*parent_id].direction.unwrap_or_default().get_axis() == LayoutAxis::$main_axis {
-                    distribute_space_along_main_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
+            if parent_node.align_items.unwrap_or_default() == LayoutAlignItems::Stretch {
+                if parent_node.direction.unwrap_or_default().get_axis() == LayoutAxis::$main_axis {
+                    Self::distribute_space_along_main_axis(parent_id, width_main_axis, node_hierarchy, arena_data, self, &positioned_node_stack);
                 } else {
-                    distribute_space_along_cross_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
+                    Self::distribute_space_along_cross_axis(parent_id, width_cross_axis, node_hierarchy, arena_data, self, &positioned_node_stack);
                 }
             }
 
@@ -665,6 +433,261 @@ impl NodeDataContainer<$struct_name> {
             .filter(|child_node_id| display_arena[*child_node_id].position != Some(LayoutPosition::Absolute))
             .map(|child_node_id| self[child_node_id].$get_flex_basis())
             .sum()
+    }
+
+    /// Does the actual width layout, respects the `width`, `min_width` and `max_width`
+    /// properties as well as the `flex_grow` factor. `flex_shrink` currently does nothing.
+    fn distribute_space_along_main_axis(
+        node_id: &NodeId,
+        width_to_distribute: f32,
+        node_hierarchy: &NodeHierarchy,
+        arena_data: &NodeDataContainer<RectLayout>,
+        width_calculated_arena: &mut NodeDataContainer<$struct_name>,
+        positioned_node_stack: &[NodeId]
+    ) {
+        let mut parent_node_inner_width = width_to_distribute;
+
+        // 1. Set all child elements that have an exact width to that width, record their violations
+        //    and add their violation to the leftover horizontal space.
+        // let mut horizontal_space_from_fixed_width_items = 0.0;
+        let mut horizontal_space_taken_up_by_fixed_width_items = 0.0;
+
+        {
+            // Vec<(NodeId, PreferredWidth)>
+            let exact_width_childs = node_id
+                    .children(node_hierarchy)
+                    .filter_map(|id| if let WhConstraint::EqualTo(exact) = width_calculated_arena[id].$preferred_field {
+                        Some((id, exact))
+                    } else {
+                        None
+                    })
+                    .collect::<Vec<(NodeId, f32)>>();
+
+            for (exact_width_child_id, exact_width) in exact_width_childs {
+
+                // If this child node is `position: absolute`, it doesn't take any space away from
+                // its siblings, since it is taken out of the regular content flow
+                if arena_data[exact_width_child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
+                    horizontal_space_taken_up_by_fixed_width_items += exact_width;
+                }
+
+                // so that node.min_inner_size_px + node.flex_grow_px = exact_width
+                width_calculated_arena[exact_width_child_id].flex_grow_px =
+                    exact_width - width_calculated_arena[exact_width_child_id].min_inner_size_px;
+            }
+        }
+
+        // The fixed-width items are now considered solved, so subtract them out of the width of the parent.
+        parent_node_inner_width -= horizontal_space_taken_up_by_fixed_width_items;
+
+        // Now we can be sure that if we write #x { width: 500px; } that it will actually be 500px large
+        // and not be influenced by flex in any way.
+
+        // 2. Set all items to their minimum width. Record how much space is gained by doing so.
+        let mut horizontal_space_taken_up_by_variable_items = 0.0;
+
+        use FastHashSet;
+
+        let mut variable_width_childs = node_id
+            .children(node_hierarchy)
+            .filter(|id| !width_calculated_arena[*id].$preferred_field.is_fixed_constraint())
+            .collect::<FastHashSet<NodeId>>();
+
+        let mut absolute_variable_width_nodes = Vec::new();
+
+        for variable_child_id in &variable_width_childs {
+
+            if arena_data[*variable_child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
+
+                let min_width = width_calculated_arena[*variable_child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
+
+                horizontal_space_taken_up_by_variable_items += min_width;
+
+                // so that node.min_inner_size_px + node.flex_grow_px = min_width
+                width_calculated_arena[*variable_child_id].flex_grow_px =
+                    min_width - width_calculated_arena[*variable_child_id].min_inner_size_px;
+
+            } else {
+
+                // `position: absolute` items don't take space away from their siblings, rather
+                // they take the minimum needed space by their content
+
+                let root_id = NodeId::new(0);
+                let nearest_relative_parent_node = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&root_id);
+                let relative_parent_width = {
+                    let relative_parent_node = &width_calculated_arena[*nearest_relative_parent_node];
+                    relative_parent_node.flex_grow_px + relative_parent_node.min_inner_size_px
+                };
+
+                // By default, absolute positioned elements take the width of their content
+                // let min_inner_width = width_calculated_arena[*variable_child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
+
+                // The absolute positioned node might have a max-width constraint, which has a
+                // higher precedence than `top, bottom, left, right`.
+                let max_space_current_node = match width_calculated_arena[*variable_child_id].$preferred_field {
+                    WhConstraint::EqualTo(e) => e,
+                    WhConstraint::Between(min, max) => {
+                        if relative_parent_width > min {
+                            if relative_parent_width < max {
+                                relative_parent_width
+                            } else {
+                                max
+                            }
+                        } else {
+                            min
+                        }
+                    },
+                    WhConstraint::Unconstrained => relative_parent_width,
+                };
+
+                // so that node.min_inner_size_px + node.flex_grow_px = max_space_current_node
+                width_calculated_arena[*variable_child_id].flex_grow_px =
+                    max_space_current_node - width_calculated_arena[*variable_child_id].min_inner_size_px;
+
+                absolute_variable_width_nodes.push(*variable_child_id);
+            }
+
+        }
+
+        // Absolute positioned nodes aren't in the space-to-distribute set
+        for absolute_node in absolute_variable_width_nodes {
+            variable_width_childs.remove(&absolute_node);
+        }
+
+        // This satisfies the `width` and `min_width` constraints. However, we still need to worry about
+        // the `max_width` and unconstrained children.
+        //
+        // By setting the items to their minimum size, we've gained some space that we now need to distribute
+        // according to the flex_grow values
+        parent_node_inner_width -= horizontal_space_taken_up_by_variable_items;
+
+        let mut total_horizontal_space_available = parent_node_inner_width;
+        let mut max_width_violations = Vec::new();
+
+        loop {
+
+            if total_horizontal_space_available <= 0.0 || variable_width_childs.is_empty() {
+                break;
+            }
+
+            // In order to apply flex-grow correctly, we need the sum of
+            // the flex-grow factors of all the variable-width children
+            //
+            // NOTE: variable_width_childs can change its length, have to recalculate every loop!
+            let children_combined_flex_grow: f32 = variable_width_childs
+                .iter()
+                .map(|child_id|
+                        // Prevent flex-grow and flex-shrink to be less than 1
+                        arena_data[*child_id].flex_grow
+                            .map(|grow| grow.0.get().max(1.0))
+                            .unwrap_or(DEFAULT_FLEX_GROW_FACTOR))
+                .sum();
+
+            // Grow all variable children by the same amount.
+            for variable_child_id in &variable_width_childs {
+
+                let flex_grow = arena_data[*variable_child_id].flex_grow
+                    .and_then(|grow| Some(grow.0.get()))
+                    .unwrap_or(DEFAULT_FLEX_GROW_FACTOR);
+
+                // Do not expand the item on "flex-grow: 0" (prevent division by 0)
+                if flex_grow as usize == 0 {
+                    continue;
+                }
+
+                let added_space_for_one_child = total_horizontal_space_available * (flex_grow / children_combined_flex_grow);
+
+                let current_width_of_child = width_calculated_arena[*variable_child_id].min_inner_size_px +
+                                             width_calculated_arena[*variable_child_id].flex_grow_px;
+
+                if let Some(max_width) = width_calculated_arena[*variable_child_id].$preferred_field.max_available_space() {
+                    if (current_width_of_child + added_space_for_one_child) > max_width {
+                        // so that node.min_inner_size_px + node.flex_grow_px = max_width
+                        width_calculated_arena[*variable_child_id].flex_grow_px =
+                            max_width - width_calculated_arena[*variable_child_id].min_inner_size_px;
+
+                        max_width_violations.push(*variable_child_id);
+                    } else {
+                        // so that node.min_inner_size_px + node.flex_grow_px = added_space_for_one_child
+                        width_calculated_arena[*variable_child_id].flex_grow_px =
+                            added_space_for_one_child - width_calculated_arena[*variable_child_id].min_inner_size_px;
+                    }
+                } else {
+                    // so that node.min_inner_size_px + node.flex_grow_px = added_space_for_one_child
+                    width_calculated_arena[*variable_child_id].flex_grow_px =
+                        added_space_for_one_child - width_calculated_arena[*variable_child_id].min_inner_size_px;
+                }
+            }
+
+            // If we haven't violated any max_width constraints, then we have
+            // added all remaining widths and thereby successfully solved the layout
+            if max_width_violations.is_empty() {
+                break;
+            } else {
+                // Nodes that were violated can't grow anymore in the next iteration,
+                // so we remove them from the solution and consider them "solved".
+                // Their amount of violation then gets distributed across the remaining
+                // items in the next iteration.
+                for solved_node_id in max_width_violations.drain(..) {
+
+                    // Since the node now gets removed, it doesn't contribute to the pool anymore
+                    total_horizontal_space_available -=
+                        width_calculated_arena[solved_node_id].min_inner_size_px +
+                        width_calculated_arena[solved_node_id].flex_grow_px;
+
+                    variable_width_childs.remove(&solved_node_id);
+                }
+            }
+        }
+    }
+
+    fn distribute_space_along_cross_axis(
+        node_id: &NodeId,
+        width_to_distribute: f32,
+        node_hierarchy: &NodeHierarchy,
+        arena_data: &NodeDataContainer<RectLayout>,
+        width_calculated_arena: &mut NodeDataContainer<$struct_name>,
+        positioned_node_stack: &[NodeId])
+    {
+        let parent_node_inner_width = width_to_distribute;
+
+        let last_relative_node_width = {
+            let zero_node = NodeId::new(0);
+            let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
+            let last_relative_node = &width_calculated_arena[*last_relative_node_id];
+            last_relative_node.min_inner_size_px + last_relative_node.flex_grow_px - last_relative_node.$get_padding_fn()
+        };
+
+        for child_id in node_id.children(node_hierarchy) {
+
+            let parent_node_inner_width = if arena_data[child_id].position.unwrap_or_default() != LayoutPosition::Absolute {
+                parent_node_inner_width
+            } else {
+                last_relative_node_width
+            };
+
+            let preferred_width = {
+                let min_width = width_calculated_arena[child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
+                // In this case we want to overflow if the min width of the cross axis
+                if min_width > parent_node_inner_width {
+                    min_width
+                } else {
+                    if let Some(max_width) = width_calculated_arena[child_id].$preferred_field.max_available_space() {
+                        if max_width > parent_node_inner_width {
+                            parent_node_inner_width
+                        } else {
+                            max_width
+                        }
+                    } else {
+                        parent_node_inner_width
+                    }
+                }
+            };
+
+            // so that node.min_inner_size_px + node.flex_grow_px = preferred_width
+            width_calculated_arena[child_id].flex_grow_px =
+                preferred_width - width_calculated_arena[child_id].min_inner_size_px;
+        }
     }
 }
 
@@ -925,9 +948,11 @@ fn $fn_name(
     for (_node_depth, parent_id) in non_leaf_nodes {
 
         let parent_node = node_data[*parent_id];
+
         let parent_padding = parent_node.padding.unwrap_or_default();
         let parent_padding_left = parent_padding.$left.map(|x| x.to_pixels()).unwrap_or(0.0);
         let parent_padding_right = parent_padding.$right.map(|x| x.to_pixels()).unwrap_or(0.0);
+
         let parent_x_position = arena_solved_data[*parent_id].0 + parent_padding_left;
         let parent_direction = parent_node.direction.unwrap_or_default();
 

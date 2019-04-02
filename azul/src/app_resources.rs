@@ -17,9 +17,7 @@ use {
     display_list::DisplayList,
     text_layout::Words,
 };
-pub use webrender::api::{ImageFormat as RawImageFormat, ImageDescriptor};
-#[cfg(feature = "image_loading")]
-pub use webrender::api::ImageData;
+pub use webrender::api::{ImageFormat as RawImageFormat, ImageData, ImageDescriptor};
 #[cfg(feature = "image_loading")]
 pub use image::{ImageError, DynamicImage, GenericImageView};
 
@@ -456,10 +454,10 @@ impl AppResources {
         let font_keys = scan_ui_description_for_font_keys(&self, display_list);
         let image_keys = scan_ui_description_for_image_keys(&self, display_list);
 
-        println!("adding fonts: {:#?}", font_keys);
-
         let add_font_resource_updates = build_add_font_resource_updates(self, &font_keys);
         let add_image_resource_updates = build_add_image_resource_updates(self, &image_keys);
+
+        println!("adding fonts: {}", add_font_resource_updates.len());
 
         add_resources(self, add_font_resource_updates, add_image_resource_updates);
     }
@@ -469,12 +467,13 @@ impl AppResources {
     /// the last frame, to save on memory. If the font needs to be recreated, it
     /// needs to be reloaded from the `FontSource`.
     pub(crate) fn garbage_collect_fonts_and_images(&mut self) {
-        let delete_font_keys = build_delete_font_resource_updates(self);
-        let delete_image_keys = build_delete_image_resource_updates(self);
 
-        println!("deleting fonts: {}", delete_font_keys.len());
+        let delete_font_resource_updates = build_delete_font_resource_updates(self);
+        let delete_image_resource_updates = build_delete_image_resource_updates(self);
 
-        delete_resources(self, delete_font_keys, delete_image_keys);
+        println!("deleting fonts: {}", delete_font_resource_updates.len());
+
+        delete_resources(self, delete_font_resource_updates, delete_image_resource_updates);
 
         self.last_frame_image_keys = self.pending_frame_image_keys.clone();
         self.last_frame_font_keys = self.pending_frame_font_keys.clone();
@@ -689,7 +688,7 @@ fn build_add_image_resource_updates(
     images_in_dom: &FastHashSet<ImageId>,
 ) -> Vec<ResourceUpdate> {
 
-    use webrender::api::{ImageData, AddImage};
+    use webrender::api::AddImage;
 
     let mut resource_updates = Vec::new();
 
