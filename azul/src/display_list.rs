@@ -1512,7 +1512,7 @@ fn populate_css_properties(
 ) {
     use azul_css::CssDeclaration::*;
 
-    for constraint in rect.styled_node.css_constraints.iter() {
+    for constraint in rect.styled_node.css_constraints.values() {
         match &constraint {
             Static(static_property) => apply_style_property(rect, static_property),
             Dynamic(dynamic_property) => {

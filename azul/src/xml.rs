@@ -979,6 +979,9 @@ fn prepare_string(input: &str) -> String {
         return String::new();
     }
 
+    let input = input.replace("&lt;", "<");
+    let input = input.replace("&gt;", ">");
+
     let input_len = input.len();
     let mut final_lines: Vec<String> = Vec::new();
     let mut last_line_was_empty = false;
