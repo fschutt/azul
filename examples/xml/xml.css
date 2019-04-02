@@ -2,7 +2,7 @@
     color: white;
     background-color: #222;
     font-size: 16px;
-    letter-spacing: 0.5px;
+    border: 1px solid green;
 }
 
 #start_screen {
@@ -28,7 +28,7 @@
 #project_btn_container {
     flex-direction: row;
     height: 70px;
-    padding: 10px;
+    margin: 10px;
 }
 
 #last_projects_column {
@@ -41,8 +41,4 @@
 
 #map_preview {
     background: linear-gradient(300deg, #03001e, #7303c0, #ec38bc, #fdeff9);
-}
-
-#last_projects_header {
-    line-height: 1.5;
 }
