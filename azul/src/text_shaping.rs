@@ -8,7 +8,7 @@ use harfbuzz_sys::{
     hb_font_create, hb_font_destroy,
     hb_face_create, hb_face_destroy,
     hb_buffer_create, hb_buffer_destroy,
-    hb_shape, hb_font_set_scale, hb_buffer_add_utf8,
+    hb_shape, hb_font_set_scale, hb_buffer_add_utf8, hb_ot_font_set_funcs,
     hb_buffer_get_glyph_infos, hb_buffer_get_glyph_positions,
     hb_buffer_guess_segment_properties, hb_buffer_allocation_successful,
     hb_blob_t, hb_memory_mode_t, hb_buffer_t,
@@ -89,6 +89,7 @@ impl<'a> HbFont<'a> {
         };
         let hb_face = unsafe { hb_face_create(hb_face_bytes, font_index as c_uint) };
         let hb_font = unsafe { hb_font_create(hb_face) };
+        unsafe { hb_ot_font_set_funcs(hb_font) };
 
         Self {
             font_bytes,
