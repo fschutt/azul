@@ -43,3 +43,18 @@ impl Button {
         button_root
     }
 }
+
+#[test]
+fn test_button_ui_1() {
+
+    struct Mock;
+
+    let expected = r#"
+        <div class="__azul-native-button" focusable="true">
+            <p>Hello</p>
+        </div>
+    "#;
+    let button: Dom<Mock> = Button::with_label("Hello").dom();
+
+    button.assert_eq(expected);
+}
