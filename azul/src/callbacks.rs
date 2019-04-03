@@ -13,7 +13,6 @@ use {
     app::AppState,
     async::TerminateTimer,
     dom::{Dom, NodeType, NodeData},
-    traits::Layout,
     app::AppStateNoData,
     ui_state::UiState,
     id_tree::{NodeId, Node, NodeHierarchy},
@@ -42,9 +41,9 @@ pub(crate) fn get_new_unique_default_callback_id() -> DefaultCallbackId {
 
 /// Callback that is invoked "by default", for example a text field that always
 /// has a default "ontextinput" handler
-pub struct DefaultCallback<T: Layout>(pub DefaultCallbackTypeUnchecked<T>);
+pub struct DefaultCallback<T>(pub DefaultCallbackTypeUnchecked<T>);
 
-impl_callback_bounded!(DefaultCallback<T: Layout>);
+impl_callback!(DefaultCallback<T>);
 
 /// A callback function has to return if the screen should be updated after the
 /// function has run.
@@ -71,18 +70,18 @@ pub type CallbackType<T> = fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateS
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
 /// an `UpdateScreen::Redraw` from the function
-pub struct Callback<T: Layout>(pub CallbackType<T>);
-impl_callback_bounded!(Callback<T: Layout>);
+pub struct Callback<T>(pub CallbackType<T>);
+impl_callback!(Callback<T>);
 
 pub type GlTextureCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>;
 /// Callbacks that returns a rendered OpenGL texture
-pub struct GlTextureCallback<T: Layout>(pub GlTextureCallbackType<T>);
-impl_callback_bounded!(GlTextureCallback<T: Layout>);
+pub struct GlTextureCallback<T>(pub GlTextureCallbackType<T>);
+impl_callback!(GlTextureCallback<T>);
 
 pub type IFrameCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>;
 /// Callback that, given a rectangle area on the screen, returns the DOM appropriate for that bounds (useful for infinite lists)
-pub struct IFrameCallback<T: Layout>(pub IFrameCallbackType<T>);
-impl_callback_bounded!(IFrameCallback<T: Layout>);
+pub struct IFrameCallback<T>(pub IFrameCallbackType<T>);
+impl_callback!(IFrameCallback<T>);
 
 pub type TimerCallbackType<T> = fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateTimer);
 /// Callback that can runs on every frame on the main thread - can modify the app data model
@@ -90,11 +89,11 @@ pub struct TimerCallback<T>(pub TimerCallbackType<T>);
 impl_callback!(TimerCallback<T>);
 
 /// Wrapper for storing, inserting and registering default callbacks
-pub(crate) struct DefaultCallbackSystem<T: Layout> {
+pub(crate) struct DefaultCallbackSystem<T> {
     callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
 }
 
-impl<T: Layout> DefaultCallbackSystem<T> {
+impl<T> DefaultCallbackSystem<T> {
 
     /// Creates a new, empty list of callbacks
     pub(crate) fn new() -> Self {
@@ -132,14 +131,9 @@ impl<T: Layout> DefaultCallbackSystem<T> {
             DontRedraw
         }
     }
-
-    /// Clears all callbacks
-    pub(crate) fn clear(&mut self) {
-        self.callbacks.clear();
-    }
 }
 
-impl<T: Layout> Clone for DefaultCallbackSystem<T> {
+impl<T> Clone for DefaultCallbackSystem<T> {
     fn clone(&self) -> Self {
         Self {
             callbacks: self.callbacks.clone(),
@@ -149,7 +143,7 @@ impl<T: Layout> Clone for DefaultCallbackSystem<T> {
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
-pub struct LayoutInfo<'a, 'b, T: 'b + Layout> {
+pub struct LayoutInfo<'a, 'b, T: 'b> {
     /// Gives _mutable_ access to the window
     pub window: &'b mut FakeWindow<T>,
     /// Allows the layout() function to reference app resources
@@ -157,7 +151,7 @@ pub struct LayoutInfo<'a, 'b, T: 'b + Layout> {
 }
 
 /// Information about the callback that is passed to the callback whenever a callback is invoked
-pub struct CallbackInfo<'a, T: 'a + Layout> {
+pub struct CallbackInfo<'a, T: 'a> {
     /// The callback can change the focus - note that the focus is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus: Option<FocusTarget>,
@@ -177,7 +171,7 @@ pub struct CallbackInfo<'a, T: 'a + Layout> {
     pub cursor_in_viewport: Option<(f32, f32)>,
 }
 
-impl<'a, T: 'a + Layout> Clone for CallbackInfo<'a, T> {
+impl<'a, T: 'a> Clone for CallbackInfo<'a, T> {
     fn clone(&self) -> Self {
         Self {
             focus: self.focus.clone(),
@@ -191,7 +185,7 @@ impl<'a, T: 'a + Layout> Clone for CallbackInfo<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Layout> fmt::Debug for CallbackInfo<'a, T> {
+impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CallbackInfo {{ \
             focus: {:?}, \
@@ -338,7 +332,7 @@ impl<'a> Iterator for ParentNodesIterator<'a> {
     }
 }
 
-impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
+impl<'a, T: 'a> CallbackInfo<'a, T> {
 
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the parent NodeId, until it gets to the root component.
@@ -462,7 +456,7 @@ pub enum FocusTarget {
     NoFocus,
 }
 
-impl<'a, T: 'a + Layout> CallbackInfo<'a, T> {
+impl<'a, T: 'a> CallbackInfo<'a, T> {
 
     /// Set the focus to a certain div by parsing a string.
     /// Note that the parsing of the string can fail, therefore the Result

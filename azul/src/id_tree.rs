@@ -1,6 +1,5 @@
 use std::{
     ops::{Index, IndexMut},
-    collections::BTreeMap,
     slice::{Iter, IterMut},
 };
 
@@ -16,6 +15,8 @@ mod node_id {
         num::NonZeroUsize,
         ops::{Add, AddAssign},
     };
+
+    pub(crate) const ROOT_NODE_ID: NodeId = NodeId { index: unsafe { NonZeroUsize::new_unchecked(1) } };
 
     /// A node identifier within a particular `Arena`.
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -80,11 +81,27 @@ pub struct Node {
     pub last_child: Option<NodeId>,
 }
 
+pub(crate) use self::node_id::ROOT_NODE_ID;
+
+// Node that initializes a Dom
+pub(crate) const ROOT_NODE: Node = Node {
+    parent: None,
+    previous_sibling: None,
+    next_sibling: None,
+    first_child: None,
+    last_child: None,
+};
+
 impl Node {
+    #[inline]
     pub fn has_parent(&self) -> bool { self.parent.is_some() }
+    #[inline]
     pub fn has_previous_sibling(&self) -> bool { self.previous_sibling.is_some() }
+    #[inline]
     pub fn has_next_sibling(&self) -> bool { self.next_sibling.is_some() }
+    #[inline]
     pub fn has_first_child(&self) -> bool { self.first_child.is_some() }
+    #[inline]
     pub fn has_last_child(&self) -> bool { self.last_child.is_some() }
 }
 
@@ -111,14 +128,17 @@ impl NodeHierarchy {
         }
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.internal.len()
     }
 
+    #[inline]
     pub fn get(&self, id: NodeId) -> Option<&Node> {
         self.internal.get(id.index())
     }
 
+    #[inline]
     pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
             arena_len: self.len(),
@@ -174,22 +194,17 @@ pub struct NodeDataContainer<T> {
 impl Index<NodeId> for NodeHierarchy {
     type Output = Node;
 
+    #[inline]
     fn index(&self, node_id: NodeId) -> &Node {
-        #[cfg(debug_assertions)] {
-            self.internal.get(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
-            unsafe { self.internal.get_unchecked(node_id.index()) }
-        }
+        unsafe { self.internal.get_unchecked(node_id.index()) }
     }
 }
 
 impl IndexMut<NodeId> for NodeHierarchy {
+
+    #[inline]
     fn index_mut(&mut self, node_id: NodeId) -> &mut Node {
-        #[cfg(debug_assertions)] {
-            self.internal.get_mut(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
-            unsafe { self.internal.get_unchecked_mut(node_id.index()) }
-        }
+        unsafe { self.internal.get_unchecked_mut(node_id.index()) }
     }
 }
 
@@ -197,9 +212,7 @@ impl<T> NodeDataContainer<T> {
 
     #[inline]
     pub const fn new(data: Vec<T>) -> Self {
-        Self {
-            internal: data,
-        }
+        Self { internal: data }
     }
 
     pub fn len(&self) -> usize { self.internal.len() }
@@ -218,6 +231,7 @@ impl<T> NodeDataContainer<T> {
     pub fn iter(&self) -> Iter<T> {
         self.internal.iter()
     }
+
     pub fn iter_mut(&mut self) -> IterMut<T> {
         self.internal.iter_mut()
     }
@@ -233,31 +247,32 @@ impl<T> NodeDataContainer<T> {
 impl<T> Index<NodeId> for NodeDataContainer<T> {
     type Output = T;
 
+    #[inline]
     fn index(&self, node_id: NodeId) -> &T {
-        #[cfg(debug_assertions)] {
-            self.internal.get(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
-            unsafe { self.internal.get_unchecked(node_id.index()) }
-        }
+        unsafe { self.internal.get_unchecked(node_id.index()) }
     }
 }
 
 impl<T> IndexMut<NodeId> for NodeDataContainer<T> {
+
+    #[inline]
     fn index_mut(&mut self, node_id: NodeId) -> &mut T {
-        #[cfg(debug_assertions)] {
-            self.internal.get_mut(node_id.index()).unwrap()
-        } #[cfg(not(debug_assertions))] {
-            unsafe { self.internal.get_unchecked_mut(node_id.index()) }
-        }
+        unsafe { self.internal.get_unchecked_mut(node_id.index()) }
     }
 }
 
 impl<T> Arena<T> {
 
+    #[inline]
     pub fn new() -> Arena<T> {
-        Self::with_capacity(0)
+        // NOTE: This is a separate function, since Vec::new() is a const fn (so this function doesn't allocate)
+        Arena {
+            node_layout: NodeHierarchy { internal: Vec::new() },
+            node_data: NodeDataContainer { internal: Vec::<T>::new() },
+        }
     }
 
+    #[inline]
     pub fn with_capacity(cap: usize) -> Arena<T> {
         Arena {
             node_layout: NodeHierarchy { internal: Vec::with_capacity(cap) },
@@ -266,6 +281,7 @@ impl<T> Arena<T> {
     }
 
     /// Create a new node from its associated data.
+    #[inline]
     pub(crate) fn new_node(&mut self, data: T) -> NodeId {
         let next_index = self.node_layout.len();
         self.node_layout.internal.push(Node {
@@ -280,15 +296,18 @@ impl<T> Arena<T> {
     }
 
     // Returns how many nodes there are in the arena
+    #[inline]
     pub fn len(&self) -> usize {
         self.node_layout.len()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Return an iterator over the indices in the internal arenas Vec<T>
+    #[inline]
     pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
             arena_len: self.node_layout.len(),
@@ -300,6 +319,7 @@ impl<T> Arena<T> {
     /// (by simply appending the two Vec of nodes)
     /// Can potentially mess up internal IDs, only use this if you
     /// know what you're doing
+    #[inline]
     pub fn append_arena(&mut self, other: &mut Arena<T>) {
         self.node_layout.internal.append(&mut other.node_layout.internal);
         self.node_data.internal.append(&mut other.node_data.internal);
@@ -308,36 +328,13 @@ impl<T> Arena<T> {
     /// Transform keeps the relative order of parents / children
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
+    #[inline]
     pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
             node_layout: self.node_layout.clone(),
             node_data: self.node_data.transform(closure),
         }
-    }
-
-    pub(crate) fn node_info_ref(&self, node_id: &NodeId) -> Option<&Node> {
-        self.node_layout.internal.get(node_id.index())
-    }
-
-    pub(crate) fn node_data_ref(&self, node_id: &NodeId) -> Option<&T> {
-        self.node_data.internal.get(node_id.index())
-    }
-
-    pub(crate) fn node_info_mut(&self, node_id: &NodeId) -> Option<&Node> {
-        self.node_layout.internal.get(node_id.index())
-    }
-
-    pub(crate) fn node_data_mut(&self, node_id: &NodeId) -> Option<&T> {
-        self.node_data.internal.get(node_id.index())
-    }
-
-    pub(crate) fn get_node_hierarchy(&self) -> &NodeHierarchy {
-        &self.node_layout
-    }
-
-    pub(crate) fn get_node_data(&self) -> &NodeDataContainer<T> {
-        &self.node_data
     }
 
     /// Prints the debug version of the arena, without printing the actual arena
@@ -361,16 +358,6 @@ impl<T> Arena<T> {
         if let Some(next_sibling) = node.next_sibling {
             self.print_tree_recursive(format_cb, string, next_sibling, indent);
         }
-    }
-}
-
-impl<T: Copy> Arena<T> {
-    #[inline]
-    pub fn get_all_node_ids(&self) -> BTreeMap<NodeId, T> {
-        use std::iter::FromIterator;
-        BTreeMap::from_iter(self.node_data.internal.iter().enumerate().map(|(i, node)|
-            (NodeId::new(i), *node)
-        ))
     }
 }
 

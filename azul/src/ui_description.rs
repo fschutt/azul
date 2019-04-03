@@ -7,14 +7,13 @@ use webrender::api::HitTestItem;
 use {
     FastHashMap,
     id_tree::{Arena, NodeId, NodeDataContainer},
-    traits::Layout,
     dom::{Dom, NodeData, DomString},
     ui_state::UiState,
     style::HoverGroup,
     callbacks::FocusTarget,
 };
 
-pub struct UiDescription<T: Layout> {
+pub struct UiDescription<T> {
     pub(crate) ui_descr_arena: Arena<NodeData<T>>,
     /// ID of the root node of the arena (usually NodeId(0))
     pub(crate) ui_descr_root: NodeId,
@@ -28,7 +27,7 @@ pub struct UiDescription<T: Layout> {
     pub(crate) selected_hover_nodes: BTreeMap<NodeId, HoverGroup>,
 }
 
-impl<T: Layout> fmt::Debug for UiDescription<T> {
+impl<T> fmt::Debug for UiDescription<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "UiDescription {{ \
             ui_descr_arena: {:?},
@@ -46,7 +45,7 @@ impl<T: Layout> fmt::Debug for UiDescription<T> {
     }
 }
 
-impl<T: Layout> Clone for UiDescription<T> {
+impl<T> Clone for UiDescription<T> {
     fn clone(&self) -> Self {
         Self {
             ui_descr_arena: self.ui_descr_arena.clone(),
@@ -58,7 +57,7 @@ impl<T: Layout> Clone for UiDescription<T> {
     }
 }
 
-impl<T: Layout> Default for UiDescription<T> {
+impl<T> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
         let default_dom = Dom::new(NodeType::Div);
@@ -77,7 +76,7 @@ impl<T: Layout> Default for UiDescription<T> {
     }
 }
 
-impl<T: Layout> UiDescription<T> {
+impl<T> UiDescription<T> {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.

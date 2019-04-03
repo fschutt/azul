@@ -7,7 +7,6 @@ use azul_css::{
 };
 use webrender::api::HitTestItem;
 use {
-    traits::Layout,
     ui_description::{UiDescription, StyledNode},
     dom::NodeData,
     ui_state::UiState,
@@ -16,7 +15,7 @@ use {
 };
 
 /// Has all the necessary information about the style CSS path
-pub(crate) struct HtmlCascadeInfo<'a, T: 'a + Layout> {
+pub(crate) struct HtmlCascadeInfo<'a, T: 'a> {
     pub node_data: &'a NodeData<T>,
     pub index_in_parent: usize,
     pub is_last_child: bool,
@@ -25,7 +24,7 @@ pub(crate) struct HtmlCascadeInfo<'a, T: 'a + Layout> {
     pub is_active: bool,
 }
 
-impl<'a, T: 'a + Layout> fmt::Debug for HtmlCascadeInfo<'a, T> {
+impl<'a, T: 'a> fmt::Debug for HtmlCascadeInfo<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "HtmlCascadeInfo {{ \
             node_data: {:?}, \
@@ -46,7 +45,7 @@ impl<'a, T: 'a + Layout> fmt::Debug for HtmlCascadeInfo<'a, T> {
 }
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
-pub(crate) fn matches_html_element<'a, T: Layout>(
+pub(crate) fn matches_html_element<'a, T>(
     css_path: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
@@ -170,7 +169,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-fn construct_html_cascade_tree<'a, T: Layout>(
+fn construct_html_cascade_tree<'a, T>(
     input: &'a NodeDataContainer<NodeData<T>>,
     node_hierarchy: &NodeHierarchy,
     node_depths_sorted: &[(usize, NodeId)],
@@ -274,7 +273,7 @@ fn collect_hover_groups(css: &Css) -> BTreeMap<CssPath, HoverGroup> {
 
 /// In order to figure out on which nodes to insert the :hover and :active hit-test tags,
 /// we need to select all items that have a :hover or :active tag.
-fn match_hover_selectors<'a, T: Layout>(
+fn match_hover_selectors<'a, T>(
     hover_selectors: BTreeMap<CssPath, HoverGroup>,
     node_hierarchy: &NodeHierarchy,
     html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>,
@@ -298,7 +297,7 @@ fn match_hover_selectors<'a, T: Layout>(
 ///
 /// The intent is to "split" the CSS path into groups by selectors, then store and cache
 /// whether the direct or any parent has matched the path correctly
-fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_node: &HtmlCascadeInfo<'a, T>) -> bool {
+fn selector_group_matches<'a, T>(selectors: &[&CssPathSelector], html_node: &HtmlCascadeInfo<'a, T>) -> bool {
     use self::CssPathSelector::*;
 
     for selector in selectors {
@@ -354,7 +353,7 @@ fn selector_group_matches<'a, T: Layout>(selectors: &[&CssPathSelector], html_no
     true
 }
 
-pub(crate) fn match_dom_selectors<T: Layout>(
+pub(crate) fn match_dom_selectors<T>(
     ui_state: &UiState<T>,
     css: &Css,
     focused_node: &mut Option<NodeId>,
@@ -447,7 +446,7 @@ pub(crate) fn match_dom_selectors<T: Layout>(
 /// Takes the `WindowState.pending_focus_target` and `WindowState.focused_node`
 /// and updates the `WindowState.focused_node` accordingly.
 /// Should be called before ``
-fn update_focus_from_callbacks<'a, T: 'a + Layout>(
+fn update_focus_from_callbacks<'a, T: 'a>(
     pending_focus_target: &mut Option<FocusTarget>,
     focused_node: &mut Option<NodeId>,
     node_hierarchy: &NodeHierarchy,

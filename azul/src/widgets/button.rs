@@ -1,5 +1,4 @@
 use {
-    traits::Layout,
     dom::{Dom, DomString, TabIndex},
     app_resources::ImageId,
 };
@@ -29,7 +28,7 @@ impl Button {
         }
     }
 
-    pub fn dom<T: Layout>(self) -> Dom<T> {
+    pub fn dom<T>(self) -> Dom<T> {
         use self::ButtonContent::*;
 
         let mut button_root = Dom::div()

@@ -139,58 +139,9 @@ macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
     impl<$t> Copy for $callback_value<$t> { }
 )}
 
-macro_rules! impl_callback_bounded {($callback_value:ident<$t:ident: $trait_bound:ident>) => (
-    impl<$t: $trait_bound> ::std::fmt::Display for $callback_value<$t> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{:?}", self)
-        }
-    }
-
-    impl<$t: $trait_bound> ::std::fmt::Debug for $callback_value<$t> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            let callback = stringify!($callback_value);
-            write!(f, "{} @ 0x{:x}", callback, self.0 as usize)
-        }
-    }
-
-    impl<$t: $trait_bound> Clone for $callback_value<$t> {
-        fn clone(&self) -> Self {
-            $callback_value(self.0.clone())
-        }
-    }
-
-    impl<$t: $trait_bound> ::std::hash::Hash for $callback_value<$t> {
-        fn hash<H>(&self, state: &mut H) where H: Hasher {
-            state.write_usize(self.0 as usize);
-        }
-    }
-
-    impl<$t: $trait_bound> PartialEq for $callback_value<$t> {
-        fn eq(&self, rhs: &Self) -> bool {
-            self.0 as usize == rhs.0 as usize
-        }
-    }
-
-    impl<$t: $trait_bound> PartialOrd for $callback_value<$t> {
-        fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-            Some((self.0 as usize).cmp(&(other.0 as usize)))
-        }
-    }
-
-    impl<$t: $trait_bound> Ord for $callback_value<$t> {
-        fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-            (self.0 as usize).cmp(&(other.0 as usize))
-        }
-    }
-
-    impl<$t: $trait_bound> Eq for $callback_value<$t> { }
-
-    impl<$t: $trait_bound> Copy for $callback_value<$t> { }
-)}
-
 macro_rules! image_api {($struct_name:ident::$struct_field:ident) => (
 
-impl<T: Layout> $struct_name<T> {
+impl<T> $struct_name<T> {
 
     /// See [`AppResources::get_loaded_font_ids`]
     ///
@@ -328,7 +279,7 @@ impl<T: Layout> $struct_name<T> {
 
 macro_rules! font_api {($struct_name:ident::$struct_field:ident) => (
 
-impl<T: Layout> $struct_name<T> {
+impl<T> $struct_name<T> {
 
     /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
     /// See [`AppResources::get_font_bytes`]
@@ -364,7 +315,7 @@ impl<T: Layout> $struct_name<T> {
 
 macro_rules! text_api {($struct_name:ident::$struct_field:ident) => (
 
-impl<T: Layout> $struct_name<T> {
+impl<T> $struct_name<T> {
 
     /// Adds a string to the internal text cache, but only store it as a string,
     /// without caching the layout of the string.
@@ -401,7 +352,7 @@ impl<T: Layout> $struct_name<T> {
 
 macro_rules! clipboard_api {($struct_name:ident::$struct_field:ident) => (
 
-impl<T: Layout> $struct_name<T> {
+impl<T> $struct_name<T> {
 
     /// See [`AppResources::get_clipboard_string`]
     ///
@@ -422,7 +373,7 @@ impl<T: Layout> $struct_name<T> {
 
 macro_rules! timer_api {($struct_name:ident::$struct_field:ident) => (
 
-impl<T: Layout> $struct_name<T> {
+impl<T> $struct_name<T> {
 
     /// See [`AppState::add_timer`]
     ///

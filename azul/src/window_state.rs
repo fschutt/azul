@@ -15,7 +15,6 @@ use {
     callbacks:: {CallbackInfo, Callback, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
-    traits::Layout,
     callbacks::FocusTarget,
     app::AppState,
 };
@@ -288,13 +287,13 @@ impl Default for WindowState {
     }
 }
 
-pub(crate) struct DetermineCallbackResult<T: Layout> {
+pub(crate) struct DetermineCallbackResult<T> {
     pub(crate) hit_test_item: Option<HitTestItem>,
     pub(crate) default_callbacks: BTreeMap<EventFilter, DefaultCallbackId>,
     pub(crate) normal_callbacks: BTreeMap<EventFilter, Callback<T>>,
 }
 
-impl<T: Layout> Default for DetermineCallbackResult<T> {
+impl<T> Default for DetermineCallbackResult<T> {
     fn default() -> Self {
         DetermineCallbackResult {
             hit_test_item: None,
@@ -304,7 +303,7 @@ impl<T: Layout> Default for DetermineCallbackResult<T> {
     }
 }
 
-impl<T: Layout> Clone for DetermineCallbackResult<T> {
+impl<T> Clone for DetermineCallbackResult<T> {
     fn clone(&self) -> Self {
         DetermineCallbackResult {
             hit_test_item: self.hit_test_item.clone(),
@@ -314,7 +313,7 @@ impl<T: Layout> Clone for DetermineCallbackResult<T> {
     }
 }
 
-pub(crate) struct CallbacksOfHitTest<T: Layout> {
+pub(crate) struct CallbacksOfHitTest<T> {
     /// A BTreeMap where each item is already filtered by the proper hit-testing type,
     /// meaning in order to get the proper callbacks, you simply have to iterate through
     /// all node IDs
@@ -329,13 +328,13 @@ pub(crate) struct CallbacksOfHitTest<T: Layout> {
     pub needs_relayout_anyways: bool,
 }
 
-impl<T: Layout> fmt::Debug for DetermineCallbackResult<T> {
+impl<T> fmt::Debug for DetermineCallbackResult<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}, {:?}, {:?}", self.hit_test_item, self.default_callbacks, self.normal_callbacks)
     }
 }
 
-impl<T: Layout> Default for CallbacksOfHitTest<T> {
+impl<T> Default for CallbacksOfHitTest<T> {
     fn default() -> Self {
         Self {
             nodes_with_callbacks: BTreeMap::new(),
@@ -375,7 +374,7 @@ impl WindowState
     ///
     /// This function also updates / mutates the current window state, so that
     /// the window state is updated for the next frame
-    pub(crate) fn determine_callbacks<T: Layout>(
+    pub(crate) fn determine_callbacks<T>(
         &mut self,
         hit_test_items: &[HitTestItem],
         event: &WindowEvent,
@@ -1000,7 +999,7 @@ impl AcceleratorKey {
 /// ```no_run,ignore
 /// use azul::prelude::{AcceleratorKey::*, VirtualKeyCode::*};
 ///
-/// fn my_callback<T: Layout>(app_state: &mut AppState<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
+/// fn my_callback<T>(app_state: &mut AppState<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
 ///     keymap(app_state, event, &[
 ///         [vec![Ctrl, S], save_document],
 ///         [vec![Ctrl, N], create_new_document],
@@ -1009,7 +1008,7 @@ impl AcceleratorKey {
 ///     ])
 /// }
 /// ```
-pub fn keymap<T: Layout>(
+pub fn keymap<T>(
     app_state: &mut AppState<T>,
     event: &mut CallbackInfo<T>,
     events: &[(Vec<AcceleratorKey>, fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen)]

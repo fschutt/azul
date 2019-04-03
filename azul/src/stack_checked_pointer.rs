@@ -5,7 +5,6 @@ use std::{
     marker::PhantomData,
 };
 use {
-    traits::Layout,
     dom::Dom,
     callbacks::{
         DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds,
@@ -25,7 +24,7 @@ use {
 /// Note for enums: Should the pointer point to an enum instead of a struct and
 /// the enum (which in Rust is a union) changes its variant, the behaviour of
 /// invoking this pointer is undefined (likely to segfault).
-pub struct StackCheckedPointer<T: Layout> {
+pub struct StackCheckedPointer<T> {
     /// Type-erased pointer to a value on the stack in the `app_data.data`
     /// model. When invoking default methods, we have to store a pointer to
     /// the data we should update, but storing it in a `Box<T>` to
@@ -37,7 +36,7 @@ pub struct StackCheckedPointer<T: Layout> {
     marker: PhantomData<T>,
 }
 
-impl<T: Layout> StackCheckedPointer<T> {
+impl<T> StackCheckedPointer<T> {
 
     /// Validates that the pointer to U is contained in T.
     ///
@@ -98,7 +97,7 @@ impl<T: Layout> StackCheckedPointer<T> {
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for StackCheckedPointer<T>
 
-impl<T: Layout> fmt::Debug for StackCheckedPointer<T> {
+impl<T> fmt::Debug for StackCheckedPointer<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "StackCheckedPointer {{ internal: 0x{:x}, marker: {:?} }}",
@@ -107,26 +106,26 @@ impl<T: Layout> fmt::Debug for StackCheckedPointer<T> {
     }
 }
 
-impl<T: Layout> Clone for StackCheckedPointer<T> {
+impl<T> Clone for StackCheckedPointer<T> {
     fn clone(&self) -> Self {
         StackCheckedPointer { internal: self.internal, marker: self.marker.clone() }
     }
 }
 
-impl<T: Layout> Hash for StackCheckedPointer<T> {
+impl<T> Hash for StackCheckedPointer<T> {
   fn hash<H>(&self, state: &mut H) where H: Hasher {
     state.write_usize(self.internal as usize);
   }
 }
 
-impl<T: Layout> PartialEq for StackCheckedPointer<T> {
+impl<T> PartialEq for StackCheckedPointer<T> {
   fn eq(&self, rhs: &Self) -> bool {
     self.internal as usize == rhs.internal as usize
   }
 }
 
-impl<T: Layout> Eq for StackCheckedPointer<T> { }
-impl<T: Layout> Copy for StackCheckedPointer<T> { }
+impl<T> Eq for StackCheckedPointer<T> { }
+impl<T> Copy for StackCheckedPointer<T> { }
 
 
 /// Returns true if U is a type inside of T

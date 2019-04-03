@@ -4,7 +4,6 @@ use std::{fmt, collections::BTreeMap};
 use {
     callbacks::Callback,
     dom::Dom,
-    traits::Layout,
 };
 use xmlparser::Tokenizer;
 pub use xmlparser::{Error as XmlError, TokenType, TextPos, StreamError};
@@ -48,7 +47,7 @@ pub type ComponentArgumentType = String;
 ///     c: &'a HashMap<X, Y>,
 /// }
 ///
-/// fn render_component_test<'a, T: Layout>(args: &TestRendererArgs<'a>) -> Dom<T> {
+/// fn render_component_test<'a, T>(args: &TestRendererArgs<'a>) -> Dom<T> {
 ///     Button::with_label(format!("Is this true? Scientists say: {:?}", args.b)).with_class(format!("test_{}", args.a))
 /// }
 /// ```
@@ -62,7 +61,7 @@ type ComponentName = String;
 type CompiledComponent = String;
 
 /// Specifies a component that reacts to a parsed XML node
-pub trait XmlComponent<T: Layout> {
+pub trait XmlComponent<T> {
 
     /// Should return all arguments that this component can take - for example if you have a
     /// component called `Calendar`, which can take a `selectedDate` argument:
@@ -150,7 +149,7 @@ impl DynamicXmlComponent {
     }
 }
 
-impl<T: Layout> XmlComponent<T> for DynamicXmlComponent {
+impl<T> XmlComponent<T> for DynamicXmlComponent {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         self.arguments.clone().unwrap_or_default()
@@ -220,7 +219,7 @@ impl XmlNode {
 }
 
 /// Holds all XML components - builtin components
-pub struct XmlComponentMap<T: Layout> {
+pub struct XmlComponentMap<T> {
     /// Stores all known components that can be used during DOM rendering
     /// + whether this component should inherit variables from the parent scope
     components: BTreeMap<String, (Box<dyn XmlComponent<T>>, bool)>,
@@ -228,7 +227,7 @@ pub struct XmlComponentMap<T: Layout> {
     callbacks: BTreeMap<String, Callback<T>>,
 }
 
-impl<T: Layout> Default for XmlComponentMap<T> {
+impl<T> Default for XmlComponentMap<T> {
     fn default() -> Self {
         let mut map = Self { components: BTreeMap::new(), callbacks: BTreeMap::new() };
         map.register_component("div", Box::new(DivRenderer { }), true);
@@ -237,7 +236,7 @@ impl<T: Layout> Default for XmlComponentMap<T> {
     }
 }
 
-impl<T: Layout> XmlComponentMap<T> {
+impl<T> XmlComponentMap<T> {
     pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<dyn XmlComponent<T>>, inherit_variables: bool) {
         self.components.insert(normalize_casing(id.as_ref()), (component, inherit_variables));
     }
@@ -574,7 +573,7 @@ fn get_app_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
 }
 
 /// Filter all `<component />` nodes and insert them into the `components` node
-fn get_xml_components<T: Layout>(root_nodes: &[XmlNode], components: &mut XmlComponentMap<T>) -> Result<(), ComponentParseError> {
+fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlComponentMap<T>) -> Result<(), ComponentParseError> {
 
     for node in root_nodes {
         match DynamicXmlComponent::new(node.clone()) {
@@ -588,7 +587,7 @@ fn get_xml_components<T: Layout>(root_nodes: &[XmlNode], components: &mut XmlCom
 }
 
 /// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
-pub fn str_to_dom<T: Layout>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+pub fn str_to_dom<T>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
     let root_nodes = parse_xml_string(xml)?;
     get_xml_components(&root_nodes, component_map)?;
     let app_node = get_app_node(&root_nodes)?;
@@ -597,7 +596,7 @@ pub fn str_to_dom<T: Layout>(xml: &str, component_map: &mut XmlComponentMap<T>) 
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
-pub fn str_to_rust_code<T: Layout>(
+pub fn str_to_rust_code<T>(
     xml: &str,
     imports: &str,
     component_map: &mut XmlComponentMap<T>,
@@ -644,7 +643,7 @@ fn compile_component(component_name: &str, component_args: &FilteredComponentArg
     )
 }
 
-fn render_dom_from_app_node<T: Layout>(
+fn render_dom_from_app_node<T>(
     app_node: &XmlNode,
     component_map: &XmlComponentMap<T>
 ) -> Result<Dom<T>, RenderDomError> {
@@ -658,7 +657,7 @@ fn render_dom_from_app_node<T: Layout>(
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error
-fn render_dom_from_app_node_inner<T: Layout>(
+fn render_dom_from_app_node_inner<T>(
     xml_node: &XmlNode,
     component_map: &XmlComponentMap<T>,
     parent_xml_attributes: &FilteredComponentArguments,
@@ -695,7 +694,7 @@ fn render_dom_from_app_node_inner<T: Layout>(
     Ok(dom)
 }
 
-fn set_attributes<T: Layout>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
+fn set_attributes<T>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
     use dom::{TabIndex, DomString};
 
@@ -813,7 +812,7 @@ fn parse_bool(input: &str) -> Option<bool> {
 }
 
 /// Takes all components and generates the source code function from them
-fn compile_components_to_rust_code<T: Layout>(components: &XmlComponentMap<T>)
+fn compile_components_to_rust_code<T>(components: &XmlComponentMap<T>)
 -> Result<BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>, CompileError>
 {
     let mut map = BTreeMap::new();
@@ -836,17 +835,17 @@ fn compile_components_to_rust_code<T: Layout>(components: &XmlComponentMap<T>)
     Ok(map)
 }
 
-fn compile_app_node_to_rust_code<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
-    Err("unimplemented".into())
+fn compile_app_node_to_rust_code<T>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+    compile_app_node_to_rust_code_inner(app_node, component_map)
 }
 
-fn compile_app_node_to_rust_code_inner<T: Layout>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+fn compile_app_node_to_rust_code_inner<T>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
     // TODO!
     Err("unimplemented".into())
 }
 
 /// Takes a DOM node and appends the necessary `.with_id().with_class()`, etc. to the DOMs HEAD
-fn render_single_dom_node_to_string<T: Layout>(dom: &Dom<T>, existing_str: &mut String) {
+fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) {
 
     let head = dom.get_head_node();
 
@@ -915,7 +914,7 @@ fn test_compile_dom_1() {
         </app>
     "#;
     let s1_expected = r#"
-        fn render_component_test<T: Layout>() -> Dom<T> {
+        fn render_component_test<T>() -> Dom<T> {
             Dom::div().with_id("a").with_class("b").is_draggable(true)
         }
     "#;
@@ -929,7 +928,7 @@ fn test_compile_dom_1() {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DivRenderer { }
 
-impl<T: Layout> XmlComponent<T> for DivRenderer {
+impl<T> XmlComponent<T> for DivRenderer {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
@@ -948,7 +947,7 @@ impl<T: Layout> XmlComponent<T> for DivRenderer {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextRenderer { }
 
-impl<T: Layout> XmlComponent<T> for TextRenderer {
+impl<T> XmlComponent<T> for TextRenderer {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()

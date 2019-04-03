@@ -30,7 +30,6 @@ use azul_css::{Css, ColorU};
 use azul_css::HotReloadHandler;
 use {
     FastHashMap,
-    traits::Layout,
     compositor::Compositor,
     app::FrameEventInfo,
     callbacks::{
@@ -50,7 +49,7 @@ fn new_pipeline_id() -> PipelineId {
 
 /// User-modifiable fake window
 #[derive(Clone)]
-pub struct FakeWindow<T: Layout> {
+pub struct FakeWindow<T> {
     /// The window state for the next frame
     pub state: WindowState,
     /// The user can push default callbacks in this `DefaultCallbackSystem`,
@@ -63,7 +62,7 @@ pub struct FakeWindow<T: Layout> {
     pub(crate) read_only_window: Rc<Display>,
 }
 
-impl<T: Layout> FakeWindow<T> {
+impl<T> FakeWindow<T> {
 
     /// Returns a read-only window which can be used to create / draw
     /// custom OpenGL texture during the `.layout()` phase
@@ -112,9 +111,9 @@ impl<T: Layout> FakeWindow<T> {
     pub fn add_callback(
         &mut self,
         callback_ptr: StackCheckedPointer<T>,
-        callback_fn: DefaultCallback<T>)
-    -> DefaultCallbackId
-    {
+        callback_fn: DefaultCallback<T>
+    ) -> DefaultCallbackId {
+
         use callbacks::get_new_unique_default_callback_id;
 
         let default_callback_id = get_new_unique_default_callback_id();
@@ -177,7 +176,7 @@ impl Drop for ReadOnlyWindow {
     }
 }
 
-impl<T: Layout> fmt::Debug for FakeWindow<T> {
+impl<T> fmt::Debug for FakeWindow<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "FakeWindow {{\
@@ -189,7 +188,7 @@ impl<T: Layout> fmt::Debug for FakeWindow<T> {
 
 /// Options on how to initially create the window
 #[derive(Debug, Clone)]
-pub struct WindowCreateOptions<T: Layout> {
+pub struct WindowCreateOptions<T> {
     /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
     /// Which monitor should the window be created on?
@@ -204,7 +203,7 @@ pub struct WindowCreateOptions<T: Layout> {
     pub taskbar_icon: Option<Icon>,
 }
 
-impl<T: Layout> Default for WindowCreateOptions<T> {
+impl<T> Default for WindowCreateOptions<T> {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
@@ -338,7 +337,7 @@ impl Default for WindowMonitorTarget {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window<T: Layout> {
+pub struct Window<T> {
     /// System that can identify this window
     pub(crate) id: GliumWindowId,
     /// Stores the create_options: necessary because by default, the window is hidden
@@ -426,12 +425,13 @@ pub struct ScrollState {
 }
 
 impl ScrollState {
+
     fn new(overflow_x: f32, overflow_y: f32) -> Self {
         ScrollState {
             scroll_amount_x: 0.0,
             scroll_amount_y: 0.0,
-            overflow_x: overflow_x,
-            overflow_y: overflow_y,
+            overflow_x,
+            overflow_y,
             used_this_frame: true,
         }
     }
@@ -470,7 +470,7 @@ pub(crate) struct WindowInternal {
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
 
-impl<'a, T: Layout> Window<T> {
+impl<'a, T> Window<T> {
 
     /// Creates a new window
     pub(crate) fn new(

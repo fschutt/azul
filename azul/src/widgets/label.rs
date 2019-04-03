@@ -1,5 +1,4 @@
 use {
-    traits::Layout,
     dom::{Dom, DomString},
 };
 
@@ -16,7 +15,7 @@ impl Label {
     }
 
     #[inline]
-    pub fn dom<T: Layout>(self) -> Dom<T> {
+    pub fn dom<T>(self) -> Dom<T> {
         Dom::label(self.text).with_class("__azul-native-label")
     }
 }

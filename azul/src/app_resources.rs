@@ -13,7 +13,6 @@ use {
     FastHashMap, FastHashSet,
     window::{FakeDisplay, WindowCreateError},
     app::AppConfig,
-    traits::Layout,
     display_list::DisplayList,
     text_layout::Words,
 };
@@ -450,7 +449,7 @@ impl AppResources {
 
     /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
     /// guaranteed to know about all FontKeys and FontInstanceKey
-    pub(crate) fn add_fonts_and_images<T: Layout>(&mut self, display_list: &DisplayList<T>) {
+    pub(crate) fn add_fonts_and_images<T>(&mut self, display_list: &DisplayList<T>) {
         let font_keys = scan_ui_description_for_font_keys(&self, display_list);
         let image_keys = scan_ui_description_for_image_keys(&self, display_list);
 
@@ -489,7 +488,7 @@ pub(crate) enum ImmediateFontId {
 }
 
 /// Scans the display list for all font IDs + their font size
-fn scan_ui_description_for_font_keys<'a, T: Layout>(
+fn scan_ui_description_for_font_keys<'a, T>(
     app_resources: &AppResources,
     display_list: &DisplayList<'a, T>
 ) -> FastHashMap<ImmediateFontId, FastHashSet<Au>>
@@ -525,7 +524,7 @@ fn scan_ui_description_for_font_keys<'a, T: Layout>(
 }
 
 /// Scans the display list for all image keys
-fn scan_ui_description_for_image_keys<'a, T: Layout>(
+fn scan_ui_description_for_image_keys<'a, T>(
     app_resources: &AppResources,
     display_list: &DisplayList<'a, T>
 ) -> FastHashSet<ImageId>

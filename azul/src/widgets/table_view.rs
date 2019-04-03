@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 use {
-    traits::Layout,
     app::AppStateNoData,
     callbacks::{IFrameCallback, HidpiAdjustedBounds, UpdateScreen, DontRedraw},
     dom::{Dom, On, NodeData, DomString, NodeType},
@@ -61,7 +60,7 @@ impl TableView {
         }
     }
 
-    pub fn dom<T: Layout>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
+    pub fn dom<T>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
         if let Some(ptr) =  StackCheckedPointer::new(t, data) {
             let mut dom = Dom::iframe(IFrameCallback(render_table_callback), ptr);
             let callback_id = window.add_callback(ptr, DefaultCallback(Self::table_view_on_click));
@@ -75,14 +74,14 @@ impl TableView {
         }
     }
 
-    fn table_view_on_click<T: Layout>(ptr: &StackCheckedPointer<T>, data: &mut AppStateNoData<T>, event: &mut CallbackInfo<T>)
+    fn table_view_on_click<T>(ptr: &StackCheckedPointer<T>, data: &mut AppStateNoData<T>, event: &mut CallbackInfo<T>)
     -> UpdateScreen
     {
         unsafe { ptr.invoke_mut(TableViewState::on_click, data, event) }
     }
 }
 
-fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: LayoutInfo<T>, dimensions: HidpiAdjustedBounds)
+fn render_table_callback<T>(ptr: &StackCheckedPointer<T>, info: LayoutInfo<T>, dimensions: HidpiAdjustedBounds)
 -> Dom<T>
 {
     unsafe { ptr.invoke_mut_iframe(TableViewState::render, info, dimensions) }
@@ -90,7 +89,7 @@ fn render_table_callback<T: Layout>(ptr: &StackCheckedPointer<T>, info: LayoutIn
 
 
 impl TableViewState {
-    pub fn render<T: Layout>(state: &mut TableViewState, _info: LayoutInfo<T>, dimensions: HidpiAdjustedBounds)
+    pub fn render<T>(state: &mut TableViewState, _info: LayoutInfo<T>, dimensions: HidpiAdjustedBounds)
     -> Dom<T>
     {
         let logical_size = dimensions.get_logical_size();
@@ -168,7 +167,7 @@ impl TableViewState {
         )
     }
 
-    pub fn on_click<T: Layout>(
+    pub fn on_click<T>(
         &mut self,
         _app_state: &mut AppStateNoData<T>,
         _window_event: &mut CallbackInfo<T>)
