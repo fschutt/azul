@@ -951,6 +951,23 @@ impl<T> Dom<T> {
         xml::str_to_dom(xml, component_map)
     }
 
+    /// Convenience function, only available in tests, useful for quickly writing UI tests.
+    /// Wraps the XML string in the required `<app></app>` braces, panics if the XML couldn't be parsed.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// # use azul::dom::Dom;
+    /// let got = Dom::div().with_id("test");
+    /// let expected = Dom::mock_from_xml("<div id='test' />");
+    /// assert_eq!(expected, got);
+    /// ```
+    #[cfg(test)]
+    pub fn mock_from_xml(xml: &str) -> Self {
+        let actual_str = format!("<app>{}</app>", xml);
+        Self::from_xml(&actual_xml, &mut XmlComponentMap::default()).unwrap()
+    }
+
     /// Loads, parses and builds a DOM from an XML file - warning: Disk I/O on every
     /// function call - do not use this in release builds! This function deliberately
     /// never fails: In an error case, the error gets rendered as a `NodeType::Label`.
