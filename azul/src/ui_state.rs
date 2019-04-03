@@ -7,7 +7,6 @@ use azul_css::CssProperty;
 use {
     FastHashMap,
     app::RuntimeError,
-    traits::Layout,
     dom::{
         Dom, TagId, TabIndex, DomString,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
@@ -19,7 +18,7 @@ use {
     callbacks::{Callback, LayoutInfo, DefaultCallbackId},
 };
 
-pub struct UiState<T: Layout> {
+pub struct UiState<T> {
     /// The actual DOM, rendered from the .layout() function
     pub dom: Dom<T>,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
@@ -54,7 +53,7 @@ pub struct UiState<T: Layout> {
     pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallbackId>>,
 }
 
-impl<T: Layout> fmt::Debug for UiState<T> {
+impl<T> fmt::Debug for UiState<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "UiState {{ \
@@ -95,12 +94,15 @@ impl<T: Layout> fmt::Debug for UiState<T> {
     }
 }
 
-impl<T: Layout> UiState<T> {
+impl<T> UiState<T> {
 
     #[allow(unused_imports, unused_variables)]
-    pub(crate) fn from_app_state(app_state: &mut AppState<T>, window_id: &GliumWindowId)
-    -> Result<Self, RuntimeError<T>>
-    {
+    pub(crate) fn from_app_state(
+        app_state: &mut AppState<T>,
+        window_id: &GliumWindowId,
+        layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>
+    ) -> Result<Self, RuntimeError<T>> {
+
         use dom::{Dom, On, NodeType};
         use std::sync::atomic::Ordering;
         use app::RuntimeError::*;
@@ -113,13 +115,13 @@ impl<T: Layout> UiState<T> {
 
         // Only shortly lock the data to get the dom out
         let dom: Dom<T> = {
-            let dom_lock = app_state.data.lock().unwrap();
             #[cfg(test)]{
                 Dom::<T>::new(NodeType::Div)
             }
 
             #[cfg(not(test))]{
-                dom_lock.layout(window_info)
+                let dom_lock = app_state.data.lock().unwrap();
+                (layout_callback)(&*dom_lock, window_info)
             }
         };
 

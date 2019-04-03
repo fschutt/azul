@@ -2045,7 +2045,7 @@ impl Svg {
     /// The final texture will be width * height large. Note that width and height
     /// need to be multiplied with the current `HiDPI` factor, otherwise the texture
     /// will be blurry on HiDPI screens. This isn't done automatically.
-    pub fn render_svg<T: Layout>(
+    pub fn render_svg<T>(
         &self,
         svg_cache: &SvgCache,
         window: &FakeWindow<T>,

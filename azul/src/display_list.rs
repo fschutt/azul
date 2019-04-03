@@ -26,7 +26,6 @@ use {
     FastHashMap,
     app_resources::AppResources,
     callbacks::{IFrameCallback, GlTextureCallback, HidpiAdjustedBounds, StackCheckedPointer},
-    traits::Layout,
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
@@ -44,12 +43,12 @@ use {
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
 
-pub(crate) struct DisplayList<'a, T: Layout + 'a> {
+pub(crate) struct DisplayList<'a, T: 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
     pub(crate) rectangles: NodeDataContainer<DisplayRectangle<'a>>
 }
 
-impl<'a, T: Layout + 'a> fmt::Debug for DisplayList<'a, T> {
+impl<'a, T: 'a> fmt::Debug for DisplayList<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "DisplayList {{ ui_descr: {:?}, rectangles: {:?} }}",
@@ -80,7 +79,7 @@ impl<'a> DisplayRectangle<'a> {
     }
 }
 
-impl<'a, T: Layout + 'a> DisplayList<'a, T> {
+impl<'a, T: 'a> DisplayList<'a, T> {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
     ///
@@ -400,7 +399,7 @@ pub(crate) struct OverflowingScrollNode {
 /// activated
 /// - Overflow for X and Y needs to be tracked seperately (for overflow-x / overflow-y separation),
 /// so there we'd need to track in which direction the inner_rect is overflowing.
-fn get_nodes_that_need_scroll_clip<'a, T: 'a + Layout>(
+fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
     node_hierarchy: &NodeHierarchy,
     display_list_rects: &NodeDataContainer<DisplayRectangle<'a>>,
     dom_rects: &NodeDataContainer<NodeData<T>>,
@@ -493,7 +492,7 @@ fn test_overflow_parsing() {
     assert_eq!(node_needs_to_clip_children(&layout3), true);
 }
 
-fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
+fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
     epoch: Epoch,
     window_size: WindowSize,
     content_grouped_rectangles: ContentGroupOrder,
@@ -543,7 +542,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T: Layout>(
     }
 }
 
-fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
+fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T>(
     item: RenderableNodeId,
     scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
@@ -582,7 +581,7 @@ fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T: Layout>(
 
 /// Parameters that apply to a single rectangle / div node
 #[derive(Copy, Clone)]
-pub(crate) struct DisplayListRectParams<'a, T: 'a + Layout> {
+pub(crate) struct DisplayListRectParams<'a, T: 'a> {
     pub epoch: Epoch,
     pub rect_idx: NodeId,
     pub html_node: &'a NodeType<T>,
@@ -602,7 +601,7 @@ fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Optio
 
 /// Push a single rectangle into the display list builder
 #[inline]
-fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
+fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
@@ -718,7 +717,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T: Layout>(
     }
 }
 
-fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
+fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
     rectangle: &DisplayListRectParams<'a, T>,
@@ -796,7 +795,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T: Layout>(
     );
 }
 
-fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
+fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
     parent_scrollable_nodes: &mut ScrolledNodes,
@@ -899,7 +898,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T: Layout>(
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Copy, Clone)]
-struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
+struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a> {
     pub node_data: &'a NodeDataContainer<NodeData<T>>,
     /// The CSS that should be applied to the DOM
     pub css: &'b Css,
@@ -915,7 +914,7 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a + Layout> {
 ///
 /// Note: The `'a` in the `'a + Layout` is technically not required.
 /// Only rustc 1.28 requires this, more modern compiler versions insert it automatically.
-struct DisplayListParametersMut<'a, T: 'a + Layout> {
+struct DisplayListParametersMut<'a, T: 'a> {
     /// Needs to be present, because the dom_to_displaylist_builder
     /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
     pub app_data: &'a mut Arc<Mutex<T>>,

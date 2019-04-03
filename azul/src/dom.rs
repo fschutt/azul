@@ -15,7 +15,6 @@ use {
         Callback, GlTextureCallback, IFrameCallback,
     },
     app_resources::{ImageId, TextId},
-    traits::Layout,
     id_tree::{Arena, NodeDataContainer},
     xml::{self, XmlParseError, XmlComponentMap},
 };
@@ -87,7 +86,7 @@ impl DomId {
 pub struct DomHash(pub u64);
 
 /// List of core DOM node types built-into by `azul`.
-pub enum NodeType<T: Layout> {
+pub enum NodeType<T> {
     /// Regular div with no particular type of data attached
     Div,
     /// A small label that can be (optionally) be selectable with the mouse
@@ -107,7 +106,7 @@ pub enum NodeType<T: Layout> {
 
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType<T>
 
-impl<T: Layout> fmt::Debug for NodeType<T> {
+impl<T> fmt::Debug for NodeType<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::NodeType::*;
         match self {
@@ -121,7 +120,7 @@ impl<T: Layout> fmt::Debug for NodeType<T> {
     }
 }
 
-impl<T: Layout> Clone for NodeType<T> {
+impl<T> Clone for NodeType<T> {
     fn clone(&self) -> Self {
         use self::NodeType::*;
         match self {
@@ -135,7 +134,7 @@ impl<T: Layout> Clone for NodeType<T> {
     }
 }
 
-impl<T: Layout> Hash for NodeType<T> {
+impl<T> Hash for NodeType<T> {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
         use self::NodeType::*;
         use std::mem;
@@ -157,7 +156,7 @@ impl<T: Layout> Hash for NodeType<T> {
     }
 }
 
-impl<T: Layout> PartialEq for NodeType<T> {
+impl<T> PartialEq for NodeType<T> {
     fn eq(&self, rhs: &Self) -> bool {
         use self::NodeType::*;
         match (self, rhs) {
@@ -176,9 +175,9 @@ impl<T: Layout> PartialEq for NodeType<T> {
     }
 }
 
-impl<T: Layout> Eq for NodeType<T> { }
+impl<T> Eq for NodeType<T> { }
 
-impl<T: Layout> NodeType<T> {
+impl<T> NodeType<T> {
     #[inline]
     pub(crate) fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
@@ -484,7 +483,7 @@ impl WindowEventFilter {
 }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
-pub struct NodeData<T: Layout> {
+pub struct NodeData<T> {
     /// `div`
     pub node_type: NodeType<T>,
     /// `#main #something`
@@ -563,7 +562,7 @@ impl Default for TabIndex {
     }
 }
 
-impl<T: Layout> PartialEq for NodeData<T> {
+impl<T> PartialEq for NodeData<T> {
     fn eq(&self, other: &Self) -> bool {
         self.node_type == other.node_type &&
         self.ids == other.ids &&
@@ -576,24 +575,15 @@ impl<T: Layout> PartialEq for NodeData<T> {
     }
 }
 
-impl<T: Layout> Eq for NodeData<T> { }
+impl<T> Eq for NodeData<T> { }
 
-impl<T: Layout> Default for NodeData<T> {
+impl<T> Default for NodeData<T> {
     fn default() -> Self {
-        NodeData {
-            node_type: NodeType::Div,
-            ids: Vec::new(),
-            classes: Vec::new(),
-            callbacks: Vec::new(),
-            default_callback_ids: Vec::new(),
-            dynamic_css_overrides: Vec::new(),
-            is_draggable: false,
-            tab_index: None,
-        }
+        NodeData::new(NodeType::Div)
     }
 }
 
-impl<T: Layout> Hash for NodeData<T> {
+impl<T> Hash for NodeData<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
         for id in &self.ids {
@@ -616,7 +606,7 @@ impl<T: Layout> Hash for NodeData<T> {
     }
 }
 
-impl<T: Layout> Clone for NodeData<T> {
+impl<T> Clone for NodeData<T> {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.clone(),
@@ -631,7 +621,7 @@ impl<T: Layout> Clone for NodeData<T> {
     }
 }
 
-impl<T: Layout> fmt::Display for NodeData<T> {
+impl<T> fmt::Display for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
         let html_type = self.node_type.get_path();
@@ -652,7 +642,7 @@ impl<T: Layout> fmt::Display for NodeData<T> {
     }
 }
 
-impl<T: Layout> fmt::Debug for NodeData<T> {
+impl<T> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
             "NodeData {{ \
@@ -677,30 +667,27 @@ impl<T: Layout> fmt::Debug for NodeData<T> {
     }
 }
 
-impl<T: Layout> NodeData<T> {
+impl<T> NodeData<T> {
 
-    pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
-
-        // Pick hash algorithm based on features
-        #[cfg(feature = "faster-hashing")]
-        use twox_hash::XxHash as HashAlgorithm;
-        #[cfg(not(feature = "faster-hashing"))]
-        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
-
-        let mut hasher = HashAlgorithm::default();
-        self.hash(&mut hasher);
-        DomHash(hasher.finish())
-    }
-
-    /// Creates a new NodeData
+    /// Creates a new `NodeData` instance from a given `NodeType`
+    ///
+    /// TODO: promote to const fn once `const_vec_new` is stable!
+    #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
         Self {
             node_type,
-            .. Default::default()
+            ids: Vec::new(),
+            classes: Vec::new(),
+            callbacks: Vec::new(),
+            default_callback_ids: Vec::new(),
+            dynamic_css_overrides: Vec::new(),
+            is_draggable: false,
+            tab_index: None,
         }
     }
 
     /// Checks whether this node is of the given node type (div, image, text)
+    #[inline]
     pub fn is_node_type(&self, searched_type: NodeType<T>) -> bool {
         self.node_type == searched_type
     }
@@ -713,6 +700,20 @@ impl<T: Layout> NodeData<T> {
     /// Checks whether this node has the searched class attached
     pub fn has_class(&self, class: &str) -> bool {
         self.classes.iter().any(|self_class| self_class.equals_str(class))
+    }
+
+    pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
+
+        // Pick hash algorithm based on features
+        #[cfg(feature = "faster-hashing")]
+        use twox_hash::XxHash as HashAlgorithm;
+        #[cfg(not(feature = "faster-hashing"))]
+        use std::collections::hash_map::DefaultHasher as HashAlgorithm;
+
+        let mut hasher = HashAlgorithm::default();
+        self.hash(&mut hasher);
+
+        DomHash(hasher.finish())
     }
 }
 
@@ -780,13 +781,13 @@ impl_from!(StaticString, DomString::Static);
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[derive(Clone, PartialEq, Eq)]
-pub struct Dom<T: Layout> {
+pub struct Dom<T> {
     pub(crate) arena: Arena<NodeData<T>>,
     pub(crate) root: NodeId,
     pub(crate) head: NodeId,
 }
 
-impl<T: Layout> fmt::Debug for Dom<T> {
+impl<T> fmt::Debug for Dom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
         "Dom {{ arena: {:?}, root: {:?}, head: {:?} }}",
@@ -796,7 +797,7 @@ impl<T: Layout> fmt::Debug for Dom<T> {
     }
 }
 
-impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
+impl<T> FromIterator<Dom<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=Dom<T>>>(iter: I) -> Self {
         let mut c = Dom::new(NodeType::Div);
         for i in iter {
@@ -806,7 +807,7 @@ impl<T: Layout> FromIterator<Dom<T>> for Dom<T> {
     }
 }
 
-impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
+impl<T> FromIterator<NodeData<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=NodeData<T>>>(iter: I) -> Self {
 
         // We have to use a "root" node, otherwise we run into problems if
@@ -861,18 +862,39 @@ impl<T: Layout> FromIterator<NodeData<T>> for Dom<T> {
     }
 }
 
-impl<T: Layout> FromIterator<NodeType<T>> for Dom<T> {
+impl<T> FromIterator<NodeType<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=NodeType<T>>>(iter: I) -> Self {
         iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
     }
 }
 
-impl<T: Layout> Dom<T> {
+impl<T> Arena<NodeData<T>> {
+    /// TODO: promote to const fn once `const_vec_new` is stable
+    fn init_with_node_data(node_data: NodeData<T>) -> Self {
+        use id_tree::ROOT_NODE;
+        Arena {
+            node_layout: NodeHierarchy { internal: vec![ROOT_NODE] },
+            node_data: NodeDataContainer { internal: vec![node_data] },
+        }
+    }
+}
 
-    /// Creates an empty DOM with a give `NodeType`.
+impl<T> Dom<T> {
+
+    /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
+    /// doesn't allocate, it only allocates once you add at least one child node.
+    ///
+    /// TODO: promote to const fn once `const_vec_new` is stable
     #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
-        Self::with_capacity(node_type, 0)
+        use id_tree::ROOT_NODE_ID;
+        let node_data = NodeData::new(node_type); // not const fn yet
+        let arena = Arena::init_with_node_data(node_data); // not const fn yet
+        Self {
+            arena,
+            root: ROOT_NODE_ID,
+            head: ROOT_NODE_ID,
+        }
     }
 
     /// Creates an empty DOM with space reserved for `cap` nodes

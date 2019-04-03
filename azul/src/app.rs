@@ -38,7 +38,7 @@ use {
     },
     window_state::{WindowSize, DebugState},
     app_resources::TextId,
-    dom::ScrollTagId,
+    dom::{Dom, ScrollTagId},
     app_resources::{
         ImageId, FontSource, FontId, ImageReloadError,
         FontReloadError, CssImageId, RawImage,
@@ -47,11 +47,10 @@ use {
     ui_state::UiState,
     ui_description::UiDescription,
     async::{Task, Timer, TimerId, TerminateTimer},
-    callbacks::{FocusTarget, UpdateScreen, Redraw, DontRedraw},
+    callbacks::{FocusTarget, UpdateScreen, Redraw, DontRedraw, LayoutInfo},
 };
 pub use app_resources::AppResources;
 
-type DeviceUintSize = ::euclid::TypedSize2D<u32, DevicePixel>;
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
 // Default clear color is white, to signify that there is rendering going on
@@ -59,13 +58,22 @@ type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 
 /// Graphical application that maintains some kind of application state
-pub struct App<T: Layout> {
+pub struct App<T> {
     /// The graphical windows, indexed by their system ID / handle
     windows: BTreeMap<GliumWindowId, Window<T>>,
     /// The global application state
     pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
     pub config: AppConfig,
+    /// The `Layout::layout()` callback, stored as a function pointer,
+    /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
+    ///
+    /// - It seperates the `Dom<T>` from the `Layout` trait, making it possible to split the UI solving and styling into reusable crates
+    /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
+    /// - It's potentially more efficient to compile (less type-checking required)
+    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
+    ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
+    layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>,
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
@@ -123,7 +131,7 @@ impl Default for AppConfig {
 ///
 /// In order to be layout-able, your data model needs to satisfy the `Layout` trait,
 /// which maps the state of your application to a DOM (how the application data should be laid out)
-pub struct AppState<T: Layout> {
+pub struct AppState<T> {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: Arc<Mutex<T>>,
     /// This field represents the state of the windows, public to the user. You can
@@ -163,7 +171,7 @@ pub struct AppState<T: Layout> {
 ///
 /// Default callbacks don't have access to the `AppState.data` field,
 /// since they use a `StackCheckedPointer` instead.
-pub struct AppStateNoData<'a, T: 'a + Layout> {
+pub struct AppStateNoData<'a, T> {
     /// See [`AppState.windows`](./struct.AppState.html#structfield.windows)
     pub windows: &'a BTreeMap<GliumWindowId, FakeWindow<T>>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
@@ -178,7 +186,7 @@ pub struct AppStateNoData<'a, T: 'a + Layout> {
 ///
 /// If the `.run()` function would panic, that would need `T` to
 /// implement `Debug`, which is not necessary if we just return an error.
-pub enum RuntimeError<T: Layout> {
+pub enum RuntimeError<T> {
     // Could not swap the display (drawing error)
     GlSwapError(SwapBuffersError),
     ArcUnlockError,
@@ -189,7 +197,6 @@ pub enum RuntimeError<T: Layout> {
 
 pub(crate) struct FrameEventInfo {
     pub(crate) should_redraw_window: bool,
-    pub(crate) should_swap_window: bool,
     pub(crate) should_hittest: bool,
     pub(crate) cur_cursor_pos: LogicalPosition,
     pub(crate) new_window_size: Option<LogicalSize>,
@@ -201,7 +208,6 @@ impl Default for FrameEventInfo {
     fn default() -> Self {
         Self {
             should_redraw_window: false,
-            should_swap_window: false,
             should_hittest: false,
             cur_cursor_pos: LogicalPosition::new(0.0, 0.0),
             new_window_size: None,
@@ -211,19 +217,19 @@ impl Default for FrameEventInfo {
     }
 }
 
-impl<T: Layout> From<PoisonError<T>> for RuntimeError<T> {
+impl<T> From<PoisonError<T>> for RuntimeError<T> {
     fn from(e: PoisonError<T>) -> Self {
         RuntimeError::MutexPoisonError(e)
     }
 }
 
-impl<T: Layout> From<SwapBuffersError> for RuntimeError<T> {
+impl<T> From<SwapBuffersError> for RuntimeError<T> {
     fn from(e: SwapBuffersError) -> Self {
         RuntimeError::GlSwapError(e)
     }
 }
 
-impl<T: Layout> fmt::Debug for RuntimeError<T> {
+impl<T> fmt::Debug for RuntimeError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RuntimeError::*;
         match self {
@@ -236,13 +242,13 @@ impl<T: Layout> fmt::Debug for RuntimeError<T> {
     }
 }
 
-impl<T: Layout> fmt::Display for RuntimeError<T> {
+impl<T> fmt::Display for RuntimeError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", format!("{:?}", self))
     }
 }
 
-impl<'a, T: 'a + Layout> AppStateNoData<'a, T> {
+impl<'a, T: 'a> AppStateNoData<'a, T> {
     impl_deamon_api!();
 }
 
@@ -277,8 +283,12 @@ impl<T: Layout> App<T> {
             windows: BTreeMap::new(),
             app_state,
             config,
+            layout_callback: T::layout,
         })
     }
+}
+
+impl<T> App<T> {
 
     /// Creates a new window
     pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css)
@@ -373,7 +383,7 @@ impl<T: Layout> App<T> {
             let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
             for window_id in self.windows.keys() {
-              ui_state_map.insert(*window_id, UiState::from_app_state(app_state, window_id)?);
+              ui_state_map.insert(*window_id, UiState::from_app_state(app_state, window_id, self.layout_callback)?);
             }
             ui_state_map
         };
@@ -413,6 +423,7 @@ impl<T: Layout> App<T> {
 
                 let (event_was_resize, window_was_closed) =
                     render_single_window_content(
+                        self.layout_callback,
                         &self.config,
                         &window_events,
                         &current_window_id,
@@ -506,7 +517,7 @@ text_api!(App::app_state);
 clipboard_api!(App::app_state);
 timer_api!(App::app_state);
 
-impl<T: Layout> AppState<T> {
+impl<T> AppState<T> {
 
     /// Creates a new `AppState`
     fn new(initial_data: T, config: &AppConfig) -> Result<Self, WindowCreateError> {
@@ -586,7 +597,8 @@ clipboard_api!(AppState::resources);
 
 /// Render the contents of one single window.
 /// Returns (if the event was a resize event, if the window was closed)
-fn render_single_window_content<T: Layout>(
+fn render_single_window_content<T>(
+    layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
     config: &AppConfig,
     events: &[WindowEvent],
     window_id: &GliumWindowId,
@@ -685,7 +697,7 @@ fn render_single_window_content<T: Layout>(
 
         // Call the Layout::layout() fn, get the DOM
         *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-            UiState::from_app_state(app_state, window_id)?;
+            UiState::from_app_state(app_state, window_id, layout_callback)?;
 
         // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
         let is_mouse_down = window.state.internal.mouse_state.mouse_down();
@@ -730,7 +742,7 @@ fn render_single_window_content<T: Layout>(
 
 /// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
 #[cfg(debug_assertions)]
-fn hot_reload_css<T: Layout>(
+fn hot_reload_css<T>(
     windows: &mut BTreeMap<GliumWindowId, Window<T>>,
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
@@ -777,7 +789,7 @@ fn hot_reload_css<T: Layout>(
 }
 
 /// Returns the currently hit-tested results, in back-to-front order
-fn do_hit_test<T: Layout>(window: &Window<T>, app_resources: &AppResources) -> Option<HitTestResult> {
+fn do_hit_test<T>(window: &Window<T>, app_resources: &AppResources) -> Option<HitTestResult> {
 
     let cursor_location = window.state.internal.mouse_state.cursor_pos
         .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
@@ -807,7 +819,7 @@ struct CallCallbackReturn {
 }
 
 /// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
-fn call_callbacks<T: Layout>(
+fn call_callbacks<T>(
     hit_test_results: Option<&HitTestResult>,
     event: &WindowEvent,
     window: &mut Window<T>,
@@ -933,7 +945,7 @@ fn call_callbacks<T: Layout>(
 }
 
 /// Build the display list and send it to webrender
-fn update_display_list<T: Layout>(
+fn update_display_list<T>(
     app_data: &mut Arc<Mutex<T>>,
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
@@ -1001,7 +1013,7 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 /// significantly less CPU-intensive to just render the last display list instead of
 /// re-layouting on every single scroll event.
 #[must_use]
-fn update_scroll_state<T: Layout>(
+fn update_scroll_state<T>(
     window: &mut Window<T>,
     hit_test_results: Option<HitTestResult>,
     app_resources: &mut AppResources,
@@ -1098,7 +1110,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 //
 // NOTE: For some reason, webrender allows rendering to a framebuffer with a
 // negative width / height, although that doesn't make sense
-fn render_inner<T: Layout>(
+fn render_inner<T>(
     window: &mut Window<T>,
     app_resources: &mut AppResources,
     mut txn: Transaction,

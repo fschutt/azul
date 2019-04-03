@@ -1,10 +1,10 @@
 #![allow(unused_variables)]
+#![allow(dead_code)]
 
 use std::{collections::BTreeMap, marker::PhantomData};
 use {
     id_tree::{NodeId, NodeHierarchy},
     dom::{Dom, NodeData},
-    traits::Layout,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -99,7 +99,7 @@ const NODE_CHANGED_TYPE: u8     = 0x02;
 const NODE_CHANGED_CLASSES: u8  = 0x04;
 const NODE_CHANGED_IDS: u8      = 0x08;
 
-fn node_needs_restyle<T: Layout>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
+fn node_needs_restyle<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
     let mut result = NODE_CHANGED_NOTHING;
 
     if old.node_type != new.node_type {
@@ -134,7 +134,7 @@ fn get_leaf_nodes_by_depth<T: FrameMarker>(hierarchy: &NodeHierarchy)
     map
 }
 
-pub(crate) fn diff_dom_tree<T: Layout>(old: &Dom<T>, new:Dom<T>) -> DomDiff {
+pub(crate) fn diff_dom_tree<T>(old: &Dom<T>, new:Dom<T>) -> DomDiff {
 
     // TODO!
 

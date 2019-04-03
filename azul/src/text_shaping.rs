@@ -17,8 +17,6 @@ use harfbuzz_sys::{
     HB_MEMORY_MODE_READONLY,
 };
 
-// Translates to the ".codepoint" in HarfBuzz
-pub type GlyphIndex = u32;
 pub type GlyphInfo = hb_glyph_info_t;
 pub type GlyphPosition = hb_glyph_position_t;
 

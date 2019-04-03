@@ -128,10 +128,10 @@
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
 )]
 
+#![allow(dead_code)]
 #![deny(unused_must_use)]
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
-#![allow(dead_code)]
 #![deny(clippy::all)]
 
 #[macro_use(warn, error, lazy_static)]

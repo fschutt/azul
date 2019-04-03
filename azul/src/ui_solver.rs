@@ -11,7 +11,6 @@ use {
     dom::{NodeData, NodeType},
     app_resources::AppResources,
     text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions},
-    traits::Layout,
 };
 use webrender::api::{LayoutRect, LayoutPoint, LayoutSize, FontInstanceKey};
 
@@ -1099,7 +1098,7 @@ fn get_y_positions(
 
 /// Returns the preferred width, for example for an image, that would be the
 /// original width (an image always wants to take up the original space)
-fn get_content_width<T: Layout>(
+fn get_content_width<T>(
         node_id: &NodeId,
         node_type: &NodeType<T>,
         app_resources: &AppResources,
@@ -1113,40 +1112,49 @@ fn get_content_width<T: Layout>(
     }
 }
 
-fn get_content_height<T: Layout>(
+fn get_content_height<T>(
     node_id: &NodeId,
     node_type: &NodeType<T>,
     app_resources: &AppResources,
     positioned_words: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     div_width: f32,
-) -> Option<f32> {
+) -> Option<PreferredHeight> {
     use dom::NodeType::*;
     match &node_type {
         Image(i) => {
             let image_size = &app_resources.get_image_info(i)?.descriptor.size;
-            Some(div_width * (image_size.width as f32 / image_size.height as f32))
+            let aspect_ratio = image_size.width as f32 / image_size.height as f32;
+            let preferred_height = div_width * aspect_ratio;
+            Some(PreferredHeight::Image {
+                original_dimensions: (image_size.width as usize, image_size.height as usize),
+                aspect_ratio,
+                preferred_height,
+            })
         },
         Label(_) | Text(_) => {
-            positioned_words.get(node_id).map(|pos| pos.0.content_size.height)
-        }
+            positioned_words
+            .get(node_id)
+            .map(|pos| PreferredHeight::Text { content_size: pos.0.content_size })
+        },
         _ => None,
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PreferredHeight {
-    Image { original_dimensions: (f32, f32), current_height: f32 },
-    Text(WordPositions)
+    Image { original_dimensions: (usize, usize), aspect_ratio: f32, preferred_height: f32 },
+    Text { content_size: LayoutSize }
 }
 
 impl PreferredHeight {
+
     /// Returns the preferred size of the div content.
     /// Note that this can be larger than the actual div content!
     pub fn get_content_size(&self) -> f32 {
         use self::PreferredHeight::*;
         match self {
-            Image { current_height, .. } => *current_height,
-            Text(word_positions) => word_positions.content_size.height,
+            Image { preferred_height, .. } => *preferred_height,
+            Text { content_size } => content_size.height,
         }
     }
 }
@@ -1161,11 +1169,6 @@ pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
     } else {
         target_app_units
     }
-}
-
-pub(crate) fn au_to_px(au: Au) -> f32 {
-    use app_units::AU_PER_PX;
-    (au.0 as f32) / (AU_PER_PX as f32) as f32
 }
 
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
@@ -1205,7 +1208,7 @@ struct InlineText {
 
 /// At this point in time, all font keys, image keys, etc. have
 /// to be already submitted in the RenderApi!
-pub(crate) fn do_the_layout<'a,'b, T: Layout>(
+pub(crate) fn do_the_layout<'a,'b, T>(
     node_hierarchy: &NodeHierarchy,
     node_data: &NodeDataContainer<NodeData<T>>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
@@ -1279,7 +1282,13 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     // height and return whether the node content overflows its parent (width-in-height-out)
     let content_heights = node_data.transform(|node, node_id| {
         let div_width = solved_widths.solved_widths[node_id].total();
-        get_content_height(&node_id, &node.node_type, app_resources, &word_positions_with_max_width, div_width)
+        get_content_height(
+            &node_id,
+            &node.node_type,
+            app_resources,
+            &word_positions_with_max_width,
+            div_width
+        ).map(|ch| ch.get_content_size())
     });
 
     // Given the final heights, resolve the heights for flexible-size divs
@@ -1317,7 +1326,7 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     }
 }
 
-fn create_word_cache<T: Layout>(
+fn create_word_cache<T>(
     app_resources: &AppResources,
     node_data: &NodeDataContainer<NodeData<T>>,
 ) -> BTreeMap<NodeId, Words>
