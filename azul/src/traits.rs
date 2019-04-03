@@ -3,7 +3,6 @@ use {
     dom::Dom,
 };
 
-#[cfg(not(test))]
 use callbacks::LayoutInfo;
 
 /// The core trait that has to be implemented for the app model to provide a mapping from an
@@ -37,10 +36,7 @@ pub trait Layout {
     /// // This is done by azul internally
     /// // let new_ui = MyDataModel::layout();
     /// ```
-    #[cfg(not(test))]
     fn layout(&self, layout_info: LayoutInfo<Self>) -> Dom<Self> where Self: Sized;
-    #[cfg(test)]
-    fn layout(&self) -> Dom<Self> where Self: Sized;
 }
 
 /// Convenience trait that allows the `app_state.modify()` - only implemented for

@@ -1375,24 +1375,20 @@ impl<T> Dom<T> {
 #[test]
 fn test_dom_sibling_1() {
 
-    struct TestLayout { }
+    struct TestLayout;
 
-    impl Layout for TestLayout {
-        fn layout(&self) -> Dom<Self> {
-            Dom::new(NodeType::Div)
-                .with_child(
-                    Dom::new(NodeType::Div)
-                    .with_id("sibling-1")
-                    .with_child(Dom::new(NodeType::Div)
-                        .with_id("sibling-1-child-1")))
+    let dom: Dom<TestLayout> =
+        Dom::new(NodeType::Div)
+            .with_child(
+                Dom::new(NodeType::Div)
+                .with_id("sibling-1")
                 .with_child(Dom::new(NodeType::Div)
-                    .with_id("sibling-2")
-                    .with_child(Dom::new(NodeType::Div)
-                        .with_id("sibling-2-child-1")))
-        }
-    }
+                    .with_id("sibling-1-child-1")))
+            .with_child(Dom::new(NodeType::Div)
+                .with_id("sibling-2")
+                .with_child(Dom::new(NodeType::Div)
+                    .with_id("sibling-2-child-1")));
 
-    let dom = TestLayout{ }.layout();
     let arena = &dom.arena;
 
     assert_eq!(NodeId::new(0), dom.root);
@@ -1435,15 +1431,9 @@ fn test_dom_from_iter_1() {
 
     use id_tree::Node;
 
-    struct TestLayout { }
+    struct TestLayout;
 
-    impl Layout for TestLayout {
-        fn layout(&self) -> Dom<Self> {
-            (0..5).map(|e| NodeData::new(NodeType::Label(DomString::Heap(format!("{}", e + 1))))).collect()
-        }
-    }
-
-    let dom = TestLayout{ }.layout();
+    let dom: Dom<TestLayout> = (0..5).map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1).into()))).collect();
     let arena = &dom.arena;
 
     // We need to have 6 nodes:
@@ -1485,18 +1475,9 @@ fn test_dom_from_iter_1() {
 #[test]
 fn test_zero_size_dom() {
 
-    struct TestLayout { }
+    struct TestLayout;
 
-    impl Layout for TestLayout {
-        fn layout(&self) -> Dom<Self> {
-            Dom::div()
-        }
-    }
-
-    let mut null_dom =
-        (0..0)
-        .map(|_| NodeData { node_type: NodeType::Div, .. Default::default() })
-        .collect::<Dom<TestLayout>>();
+    let mut null_dom: Dom<TestLayout> = (0..0).map(|_| NodeData::default()).collect();
 
     assert!(null_dom.arena.len() == 1);
 

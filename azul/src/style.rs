@@ -498,8 +498,7 @@ fn test_case_issue_93() {
     use azul_css::*;
     use prelude::*;
 
-    struct DataModel { }
-    impl Layout for DataModel { fn layout(&self) -> Dom<DataModel> { Dom::div() } }
+    struct DataModel;
 
     fn render_tab() -> Dom<DataModel> {
         Dom::div().with_class("tabwidget-tab")

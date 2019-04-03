@@ -875,9 +875,7 @@ fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) 
 #[test]
 fn test_compile_dom_1() {
 
-    struct Dummy { }
-
-    impl Layout for Dummy { fn layout(&self) -> Dom<Dummy> { Dom::div() }}
+    struct Dummy;
 
     // Test the output of a certain component
     fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
