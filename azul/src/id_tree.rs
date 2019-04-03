@@ -2,6 +2,7 @@ use std::{
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
 };
+use dom::NodeData;
 
 pub use self::node_id::NodeId;
 
@@ -336,9 +337,12 @@ impl<T> Arena<T> {
             node_data: self.node_data.transform(closure),
         }
     }
+}
+
+impl<T> Arena<NodeData<T>> {
 
     /// Prints the debug version of the arena, without printing the actual arena
-    pub(crate) fn print_tree<F: Fn(&T) -> String + Copy>(&self, format_cb: F) -> String {
+    pub(crate) fn print_tree<F: Fn(&NodeData<T>) -> String + Copy>(&self, format_cb: F) -> String {
         let mut s = String::new();
         if self.len() > 0 {
             self.print_tree_recursive(format_cb, &mut s, NodeId::new(0), 0);
@@ -346,13 +350,16 @@ impl<T> Arena<T> {
         s
     }
 
-    fn print_tree_recursive<F: Fn(&T) -> String + Copy>(&self, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
+    fn print_tree_recursive<F: Fn(&NodeData<T>) -> String + Copy>(&self, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
         let node = &self.node_layout[current_node_id];
-        let tabs = String::from("\t|").repeat(indent);
-        string.push_str(&format!("{}-- {}: {}\n", tabs, current_node_id.index(), format_cb(&self.node_data[current_node_id])));
+        let tabs = String::from("    ").repeat(indent);
+        string.push_str(&format!("{}{}\n", tabs, format_cb(&self.node_data[current_node_id])));
 
         if let Some(first_child) = node.first_child {
             self.print_tree_recursive(format_cb, string, first_child, indent + 1);
+            if node.last_child.is_some() {
+                string.push_str(&format!("{}</{}>\n", tabs, self.node_data[current_node_id].node_type.get_path()));
+            }
         }
 
         if let Some(next_sibling) = node.next_sibling {

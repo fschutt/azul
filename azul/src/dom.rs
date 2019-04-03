@@ -104,6 +104,20 @@ pub enum NodeType<T> {
     IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
 }
 
+impl<T> NodeType<T> {
+    fn get_text_content(&self) -> Option<String> {
+        use self::NodeType::*;
+        match self {
+            Div => None,
+            Label(s) => Some(format!("{}", s)),
+            Image(id) => Some(format!("image({:?})", id)),
+            Text(t) => Some(format!("textid({:?})", t)),
+            GlTexture(g) => Some(format!("gltexture({:?})", g)),
+            IFrame(i) => Some(format!("iframe({:?})", i)),
+        }
+    }
+}
+
 // #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType<T>
 
 impl<T> fmt::Debug for NodeType<T> {
@@ -549,13 +563,22 @@ pub enum TabIndex {
     /// "element3, element2, element4, div", since OverrideInParent elements
     /// take precedence among global order.
     OverrideInParent(usize),
-    /// Set the global tabindex order, independe
-    Global(usize),
     /// Elements can be focused in callbacks, but are not accessible via
-    /// keyboard / tab navigation
+    /// keyboard / tab navigation (-1)
     NoKeyboardFocus,
 }
 
+impl TabIndex {
+    /// Returns the HTML-compatible number of the `tabindex` element
+    pub fn get_index(&self) -> isize {
+        use self::TabIndex::*;
+        match self {
+            Auto => 0,
+            OverrideInParent(x) => *x as isize,
+            NoKeyboardFocus => -1,
+        }
+    }
+}
 impl Default for TabIndex {
     fn default() -> Self {
         TabIndex::Auto
@@ -625,20 +648,59 @@ impl<T> fmt::Display for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
         let html_type = self.node_type.get_path();
+        let text_content = self.node_type.get_text_content();
 
         let id_string = if self.ids.is_empty() {
             String::new()
         } else {
-            self.ids.iter().map(|x| format!("#{}", x)).collect::<Vec<String>>().join(" ")
+            format!(" id=\"{}\"", self.ids.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
         };
 
         let class_string = if self.classes.is_empty() {
             String::new()
         } else {
-            self.classes.iter().map(|x| format!(".{}", x)).collect::<Vec<String>>().join(" ")
+            format!(" class=\"{}\"", self.classes.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
         };
 
-        write!(f, "[{} {} {}]", html_type, id_string, class_string)
+        let draggable = if self.is_draggable {
+            format!(" draggable=\"true\"")
+        } else {
+            String::new()
+        };
+
+        let tabindex = if let Some(tab_index) = self.tab_index {
+            format!(" tabindex=\"{}\"", tab_index.get_index())
+        } else {
+            String::new()
+        };
+
+        let callbacks = if self.callbacks.is_empty() {
+            String::new()
+        } else {
+            format!(" callbacks=\"{}\"", self.callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
+        };
+
+        let default_callbacks = if self.default_callback_ids.is_empty() {
+            String::new()
+        } else {
+            format!(" default-callbacks=\"{}\"", self.default_callback_ids.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
+        };
+
+        let css_overrides = if self.dynamic_css_overrides.is_empty() {
+            String::new()
+        } else {
+            format!(" css-overrides=\"{}\"", self.dynamic_css_overrides.iter().map(|(id, prop)| format!("{}={:?};", id, prop)).collect::<Vec<String>>().join(" "))
+        };
+
+        if let Some(content) = text_content {
+            write!(f, "<{}{}{}{}{}{}{}{}>{}</{}>",
+                html_type, id_string, class_string, tabindex, draggable, callbacks, default_callbacks, css_overrides, content, html_type
+            )
+        } else {
+            write!(f, "<{}{}{}{}{}{}{}{}/>",
+                html_type, id_string, class_string, tabindex, draggable, callbacks, default_callbacks, css_overrides,
+            )
+        }
     }
 }
 
@@ -721,11 +783,13 @@ impl<T> NodeData<T> {
 /// heap allocations - for `&'static str`, simply stores the pointer,
 /// instead of converting it into a String. This is good for class names
 /// or IDs, whose content rarely changes.
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 pub enum DomString {
     Static(&'static str),
     Heap(String),
 }
+
+impl Eq for DomString { }
 
 impl PartialEq for DomString {
     fn eq(&self, other: &Self) -> bool {
@@ -780,12 +844,31 @@ impl_from!(String, DomString::Heap);
 impl_from!(StaticString, DomString::Static);
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
-#[derive(Clone, PartialEq, Eq)]
 pub struct Dom<T> {
     pub(crate) arena: Arena<NodeData<T>>,
     pub(crate) root: NodeId,
     pub(crate) head: NodeId,
 }
+
+impl<T> Clone for Dom<T> {
+    fn clone(&self) -> Self {
+        Dom {
+            arena: self.arena.clone(),
+            root: self.root.clone(),
+            head: self.head.clone(),
+        }
+    }
+}
+
+impl<T> PartialEq for Dom<T> {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.arena == rhs.arena &&
+        self.root == rhs.root &&
+        self.head == rhs.head
+    }
+}
+
+impl<T> Eq for Dom<T> { }
 
 impl<T> fmt::Debug for Dom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -951,6 +1034,12 @@ impl<T> Dom<T> {
         xml::str_to_dom(xml, component_map)
     }
 
+    #[cfg(test)]
+    fn mock_from_xml(xml: &str) -> Self {
+        let actual_xml = format!("<app>{}</app>", xml);
+        Self::from_xml(&actual_xml, &mut XmlComponentMap::default()).unwrap()
+    }
+
     /// Convenience function, only available in tests, useful for quickly writing UI tests.
     /// Wraps the XML string in the required `<app></app>` braces, panics if the XML couldn't be parsed.
     ///
@@ -958,14 +1047,16 @@ impl<T> Dom<T> {
     ///
     /// ```rust
     /// # use azul::dom::Dom;
-    /// let got = Dom::div().with_id("test");
-    /// let expected = Dom::mock_from_xml("<div id='test' />");
-    /// assert_eq!(expected, got);
+    /// let dom = Dom::div().with_id("test");
+    /// dom.assert_eq("<div id='test' />");
     /// ```
     #[cfg(test)]
-    pub fn mock_from_xml(xml: &str) -> Self {
-        let actual_str = format!("<app>{}</app>", xml);
-        Self::from_xml(&actual_xml, &mut XmlComponentMap::default()).unwrap()
+    pub fn assert_eq(self, xml: &str) {
+        let fixed = Self::div().with_child(self);
+        let expected = Self::mock_from_xml(xml);
+        if expected != fixed {
+            panic!("\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: ----------\r\n{}\r\n", expected.debug_dump(), fixed.debug_dump());
+        }
     }
 
     /// Loads, parses and builds a DOM from an XML file - warning: Disk I/O on every
@@ -1155,9 +1246,9 @@ impl<T> Dom<T> {
         self.arena.node_data[self.head].is_draggable = draggable;
     }
 
-    /// Prints a debug formatted version of the DOM for easier debugging
-    pub fn debug_dump(&self) {
-        println!("{}", self.arena.print_tree(|t| format!("{}", t)));
+    /// Returns a debug formatted version of the DOM for easier debugging
+    pub fn debug_dump(&self) -> String {
+        format!("{}", self.arena.print_tree(|t| format!("{}", t)))
     }
 
     /// The UiState contains all the tags (for hit-testing) as well as the mapping

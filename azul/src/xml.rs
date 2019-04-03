@@ -862,7 +862,6 @@ fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) 
         existing_str.push_str(&format!(".with_tab_index({})", match tab_index {
             Auto => format!("TabIndex::Auto"),
             OverrideInParent(u) => format!("TabIndex::OverrideInParent({})", u),
-            Global(u) => format!("TabIndex::Global({})", u),
             NoKeyboardFocus => format!("TabIndex::NoKeyboardFocus"),
         }));
     }
