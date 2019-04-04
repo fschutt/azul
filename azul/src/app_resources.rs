@@ -456,8 +456,6 @@ impl AppResources {
         let add_font_resource_updates = build_add_font_resource_updates(self, &font_keys);
         let add_image_resource_updates = build_add_image_resource_updates(self, &image_keys);
 
-        println!("adding fonts: {}", add_font_resource_updates.len());
-
         add_resources(self, add_font_resource_updates, add_image_resource_updates);
     }
 
@@ -469,8 +467,6 @@ impl AppResources {
 
         let delete_font_resource_updates = build_delete_font_resource_updates(self);
         let delete_image_resource_updates = build_delete_image_resource_updates(self);
-
-        println!("deleting fonts: {}", delete_font_resource_updates.len());
 
         delete_resources(self, delete_font_resource_updates, delete_image_resource_updates);
 
