@@ -23,6 +23,7 @@ script:
   - cargo check --no-default-features --features="svg"
   - cargo check --no-default-features --features="image_loading"
   - cargo check --no-default-features --features="logging"
+  - cargo check --verbose --release --all-features
   - RUST_BACKTRACE=1 cargo test --verbose --all-features
 
 install:

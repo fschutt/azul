@@ -6,7 +6,7 @@ use azul_css::{
 pub use webrender::api::{
     GlyphInstance, LayoutSize, LayoutRect, LayoutPoint,
 };
-pub use text_shaping::{GlyphPosition, GlyphInfo};
+pub use harfbuzz_sys::{hb_glyph_info_t as GlyphInfo, hb_glyph_position_t as GlyphPosition};
 
 pub type WordIndex = usize;
 pub type GlyphIndex = usize;
