@@ -1,11 +1,10 @@
 use std::{
     mem,
     fmt,
+    time::Instant,
     collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
 };
-#[cfg(debug_assertions)]
-use std::time::Instant;
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
 use glium::{
@@ -399,6 +398,7 @@ impl<T> App<T> {
         while !self.windows.is_empty() {
 
             let time_start = Instant::now();
+
             let mut closed_windows = Vec::<GliumWindowId>::new();
             let mut frame_was_resize = false;
             let mut events = Vec::new();
