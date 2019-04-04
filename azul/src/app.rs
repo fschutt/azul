@@ -386,9 +386,9 @@ impl<T> App<T> {
             }
             ui_state_map
         };
-        let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect();
+        let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect::<BTreeMap<_, _>>();
         let mut force_redraw_cache = self.windows.keys().map(|window_id| (*window_id, 2)).collect();
-        let mut awakened_task = self.windows.keys().map(|window_id| (*window_id, false)).collect();
+        let mut awakened_tasks = self.windows.keys().map(|window_id| (*window_id, false)).collect();
 
         #[cfg(debug_assertions)]
         let mut last_style_reload = Instant::now();
@@ -401,45 +401,40 @@ impl<T> App<T> {
 
             let mut closed_windows = Vec::<GliumWindowId>::new();
             let mut frame_was_resize = false;
-            let mut events = Vec::new();
+            let mut events = BTreeMap::new();
 
             self.app_state.resources.fake_display.hidden_events_loop.poll_events(|e| match e {
                 // Filter out all events that are uninteresting or unnecessary
                 Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
-                _ => { events.push(e); },
+                Event::WindowEvent { window_id, event } => {
+                    events.entry(window_id).or_insert_with(|| Vec::new()).push(event);
+                },
+                _ => { },
             });
 
-            // let current_desktop_events = get_desktop_events(window, &events);
+            let mut single_window_results = Vec::with_capacity(self.windows.len());
 
             for (current_window_id, mut window) in self.windows.iter_mut() {
 
                 // Only process the events belong to this window ID...
-                let window_events = events.iter().cloned().filter_map(|e| match e {
-                    Event::WindowEvent { window_id, event } => {
-                        if *current_window_id == window_id { Some(event) } else { None }
-                    },
-                    _ => None
-                }).collect::<Vec<WindowEvent>>();
+                let window_events: Vec<WindowEvent> = events.get(current_window_id).cloned().unwrap_or_default();
 
-                let (event_was_resize, window_was_closed) =
-                    render_single_window_content(
-                        self.layout_callback,
-                        &self.config,
+                let single_window_result =
+                    hit_test_single_window(
                         &window_events,
                         &current_window_id,
                         &mut window,
                         &mut self.app_state,
                         &mut ui_state_cache,
-                        &mut ui_description_cache,
                         &mut force_redraw_cache,
-                        &mut awakened_task,
+                        &mut awakened_tasks,
                     )?;
 
-                if event_was_resize {
+                if single_window_result.needs_relayout_resize {
                     frame_was_resize = true;
                 }
 
-                if window_was_closed {
+                if single_window_result.window_should_close {
                     closed_windows.push(*current_window_id);
 
                     // TODO: Currently there is no way to return from the main event loop
@@ -447,6 +442,8 @@ impl<T> App<T> {
                     // This is a hack, so that windows currently close properly
                     return Ok(());
                 }
+
+                single_window_results.push(single_window_result);
             }
 
             #[cfg(debug_assertions)] {
@@ -454,7 +451,7 @@ impl<T> App<T> {
                     &mut self.windows,
                     &mut last_style_reload,
                     &mut should_print_css_error,
-                    &mut awakened_task
+                    &mut awakened_tasks,
                 )?;
             }
 
@@ -466,15 +463,42 @@ impl<T> App<T> {
                 self.windows.remove(&closed_window_id);
             });
 
+            let should_relayout_all_windows = single_window_results.iter().any(|res| res.should_relayout());
+            let should_rerender_all_windows = single_window_results.iter().any(|res| res.should_rerender());
+
+            // If there is a relayout necessary, re-layout *all* windows!
+            if should_relayout_all_windows {
+                for (current_window_id, mut window) in self.windows.iter_mut() {
+                    relayout_single_window(
+                        self.layout_callback,
+                        &current_window_id,
+                        &mut window,
+                        &mut self.app_state,
+                        &mut ui_state_cache,
+                        &mut ui_description_cache,
+                        &mut force_redraw_cache,
+                        &mut awakened_tasks,
+                    )?;
+                }
+            }
+
+            // If there is a re-render necessary, re-render *all* windows
+            if should_rerender_all_windows {
+                for (current_window_id, mut window) in self.windows.iter_mut() {
+                    rerender_single_window(
+                        &self.config,
+                        &mut window,
+                        &mut self.app_state.resources,
+                    );
+                }
+            }
+
             let should_redraw_timers = self.app_state.run_all_timers();
             let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
             let should_redraw_timers_or_tasks = [should_redraw_timers, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
 
             if should_redraw_timers_or_tasks {
-                // self.windows.iter().for_each(|(_, window)| {
-                //     app_state.resources.fake_display.events_loop.create_proxy().wakeup().unwrap_or(())
-                // });
-                awakened_task = self.windows.keys().map(|window_id| (*window_id, true)).collect();
+                awakened_tasks = self.windows.keys().map(|window_id| (*window_id, true)).collect();
                 for window_id in self.windows.keys() {
                     *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
                 }
@@ -595,67 +619,113 @@ font_api!(AppState::resources);
 text_api!(AppState::resources);
 clipboard_api!(AppState::resources);
 
-/// Render the contents of one single window.
+struct SingleWindowContentResult {
+    needs_rerender_hover_active: bool,
+    needs_relayout_hover_active: bool,
+    needs_relayout_resize: bool,
+    window_should_close: bool,
+    should_scroll_render: bool,
+    needs_relayout_tasks: bool,
+    needs_relayout_refresh: bool,
+    callbacks_update_screen: UpdateScreen,
+    hit_test_results: Option<HitTestResult>,
+    new_focus_target: Option<FocusTarget>,
+}
+
+impl SingleWindowContentResult {
+
+    pub fn should_relayout(&self) -> bool {
+        self.needs_relayout_hover_active ||
+        self.needs_relayout_resize ||
+        self.needs_relayout_tasks ||
+        self.needs_relayout_refresh ||
+        self.callbacks_update_screen == Redraw
+    }
+
+    pub fn should_rerender(&self) -> bool {
+        self.should_relayout() || self.should_scroll_render || self.needs_rerender_hover_active
+    }
+}
+
+/// Call the callbacks / do the hit test
 /// Returns (if the event was a resize event, if the window was closed)
-fn render_single_window_content<T>(
-    layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
-    config: &AppConfig,
+fn hit_test_single_window<T>(
     events: &[WindowEvent],
     window_id: &GliumWindowId,
     window: &mut Window<T>,
     app_state: &mut AppState<T>,
     ui_state_cache: &mut BTreeMap<GliumWindowId, UiState<T>>,
-    ui_description_cache: &mut BTreeMap<GliumWindowId, UiDescription<T>>,
     force_redraw_cache: &mut BTreeMap<GliumWindowId, usize>,
-    awakened_task: &mut BTreeMap<GliumWindowId, bool>,
-) -> Result<(bool, bool), RuntimeError<T>> {
+    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>,
+) -> Result<SingleWindowContentResult, RuntimeError<T>> {
 
     use self::RuntimeError::*;
 
-    if events.is_empty() && force_redraw_cache[window_id] == 0 {
-        // Event was not a resize event, window should **not** close
-        return Ok((false, false));
-    }
-
     let (mut frame_event_info, window_should_close) = window.state.update_window_state(&events);
+    let mut ret = SingleWindowContentResult {
+        needs_rerender_hover_active: false,
+        needs_relayout_hover_active: false,
+        needs_relayout_resize: frame_event_info.is_resize_event,
+        window_should_close,
+        should_scroll_render: false,
+        needs_relayout_tasks: *(awakened_tasks.get(window_id).ok_or(WindowIndexError)?),
+        needs_relayout_refresh: *(force_redraw_cache.get(window_id).ok_or(WindowIndexError)?) > 0,
+        callbacks_update_screen: DontRedraw,
+        hit_test_results: None,
+        new_focus_target: None,
+    };
 
-    if window_should_close {
-        // Event was not a resize event, window should close
-        return Ok((false, true));
+    if events.is_empty() || !ret.should_relayout() {
+        // Event was not a resize event, window should **not** close
+        ret.window_should_close = window_should_close;
+        return Ok(ret);
     }
-
-    let mut hit_test_results = None;
 
     if frame_event_info.should_hittest {
 
-        hit_test_results = do_hit_test(&window, &app_state.resources);
+        ret.hit_test_results = do_hit_test(&window, &app_state.resources);
 
         for event in events.iter() {
 
             let callback_result = call_callbacks(
-                hit_test_results.as_ref(),
+                ret.hit_test_results.as_ref(),
                 event,
                 window,
                 &window_id,
-                &ui_state_cache[&window_id],
+                ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
                 app_state
             )?;
 
             if callback_result.should_update_screen == Redraw {
-                frame_event_info.should_redraw_window = true;
+                ret.callbacks_update_screen = Redraw;
+            }
+            if callback_result.needs_redraw_anyways {
+                ret.needs_rerender_hover_active = true;
+            }
+
+            if callback_result.needs_relayout_anyways {
+                ret.needs_relayout_hover_active = true;
             }
 
             // Note: Don't set `pending_focus_target` directly here, because otherwise
             // callbacks that return `Some()` would get immediately overwritten again
             // by callbacks that return `None`.
             if let Some(overwrites_focus) = callback_result.callbacks_overwrites_focus {
-                window.state.internal.pending_focus_target = Some(overwrites_focus);
+                window.state.internal.pending_focus_target = Some(overwrites_focus.clone());
+                ret.new_focus_target = Some(overwrites_focus);
             }
         }
     }
 
+    ret.hit_test_results = ret.hit_test_results.or_else(|| do_hit_test(window, &app_state.resources));
+
     // Scroll for the scrolled amount for each node that registered a scroll state.
-    let should_scroll_render = update_scroll_state(window, hit_test_results, &mut app_state.resources);
+    let should_scroll_render = match &ret.hit_test_results {
+        Some(hit_test_results) => update_scroll_state(window, hit_test_results, &mut app_state.resources),
+        None => false,
+    };
+
+    ret.should_scroll_render = should_scroll_render;
 
     if frame_event_info.is_resize_event {
         // This is a hack because during a resize event, winit eats the "awakened"
@@ -688,56 +758,66 @@ fn render_single_window_content<T>(
     // Reset the scroll amount to 0 (for the next frame)
     window.clear_scroll_state();
 
-    // If there is already a layout construction in progress, prevent
-    // re-rendering on layout, otherwise this leads to jankiness during scrolling
-    let should_relayout = frame_event_info.should_redraw_window || awakened_task[window_id] || force_redraw_cache[window_id] > 0;
-    let should_rerender = should_scroll_render || frame_event_info.is_resize_event;
+    Ok(ret)
+}
 
-    if should_relayout || should_rerender {
+fn relayout_single_window<T>(
+    layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
+    window_id: &GliumWindowId,
+    window: &mut Window<T>,
+    app_state: &mut AppState<T>,
+    ui_state_cache: &mut BTreeMap<GliumWindowId, UiState<T>>,
+    ui_description_cache: &mut BTreeMap<GliumWindowId, UiDescription<T>>,
+    force_redraw_cache: &mut BTreeMap<GliumWindowId, usize>,
+    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>,
+) -> Result<(), RuntimeError<T>> {
 
-        // Call the Layout::layout() fn, get the DOM
-        *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-            UiState::from_app_state(app_state, window_id, layout_callback)?;
+    use self::RuntimeError::*;
 
-        // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
-        let is_mouse_down = window.state.internal.mouse_state.mouse_down();
+    // Call the Layout::layout() fn, get the DOM
+    *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
+        UiState::from_app_state(app_state, window_id, layout_callback)?;
 
-        *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-            UiDescription::match_css_to_dom(
-                ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
-                &window.css,
-                &mut window.state.internal.focused_node,
-                &mut window.state.internal.pending_focus_target,
-                &window.state.internal.hovered_nodes,
-                is_mouse_down,
-            );
+    // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
+    let is_mouse_down = window.state.internal.mouse_state.mouse_down();
 
-        // Render the window (webrender will send an Awakened event when the frame is done)
-        let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
-        update_display_list(
-            &mut app_state.data,
-            &ui_description_cache[window_id],
-            &ui_state_cache[window_id],
-            &mut *window,
-            &mut fake_window,
-            &mut app_state.resources,
+    *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
+        UiDescription::match_css_to_dom(
+            ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
+            &window.css,
+            &mut window.state.internal.focused_node,
+            &mut window.state.internal.pending_focus_target,
+            &window.state.internal.hovered_nodes,
+            is_mouse_down,
         );
-        *awakened_task.get_mut(window_id).ok_or(WindowIndexError)? = false;
 
-        if let Some(i) = force_redraw_cache.get_mut(window_id) {
-            if *i > 0 { *i -= 1 };
-            if *i == 1 {
-                clean_up_unused_opengl_textures(app_state.resources.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
-            }
+    let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
+    update_display_list(
+        &mut app_state.data,
+        &ui_description_cache[window_id],
+        &ui_state_cache[window_id],
+        &mut *window,
+        &mut fake_window,
+        &mut app_state.resources,
+    );
+    *awakened_tasks.get_mut(window_id).ok_or(WindowIndexError)? = false;
+
+    if let Some(i) = force_redraw_cache.get_mut(window_id) {
+        if *i > 0 { *i -= 1 };
+        if *i == 1 {
+            clean_up_unused_opengl_textures(app_state.resources.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
         }
     }
 
-    // TODO: Render all windows again, not just this one!
-    // if should_relayout || should_rerender {
-        render_inner(window, &mut app_state.resources, Transaction::new(), config.background_color);
-    // }
+    Ok(())
+}
 
-    Ok((frame_event_info.is_resize_event, false))
+fn rerender_single_window<T>(
+    config: &AppConfig,
+    window: &mut Window<T>,
+    resources: &mut AppResources,
+) {
+    render_inner(window, resources, Transaction::new(), config.background_color);
 }
 
 /// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
@@ -816,6 +896,14 @@ struct CallCallbackReturn {
     /// Whether one or more callbacks have messed with the current
     /// focused element i.e. via `.clear_focus()` or similar.
     pub callbacks_overwrites_focus: Option<FocusTarget>,
+    /// Whether the screen should be redrawn even if no Callback returns an `UpdateScreen::Redraw`.
+    /// This is necessary for `:hover` and `:active` mouseovers - otherwise the screen would
+    /// only update on the next resize.
+    pub needs_redraw_anyways: bool,
+    /// Same as `needs_redraw_anyways`, but for reusing the layout from the previous frame.
+    /// Each `:hover` and `:active` group stores whether it modifies the layout, as
+    /// a performance optimization.
+    pub needs_relayout_anyways: bool,
 }
 
 /// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
@@ -929,10 +1017,6 @@ fn call_callbacks<T>(
         }
     }
 
-    if callbacks_filter_list.needs_redraw_anyways {
-        should_update_screen = Redraw;
-    }
-
     app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
         .set_keyboard_state(&KeyboardState::default());
     app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
@@ -941,6 +1025,8 @@ fn call_callbacks<T>(
     Ok(CallCallbackReturn {
         should_update_screen,
         callbacks_overwrites_focus,
+        needs_redraw_anyways: callbacks_filter_list.needs_redraw_anyways,
+        needs_relayout_anyways: callbacks_filter_list.needs_relayout_anyways,
     })
 }
 
@@ -1015,19 +1101,11 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 #[must_use]
 fn update_scroll_state<T>(
     window: &mut Window<T>,
-    hit_test_results: Option<HitTestResult>,
+    hit_test_results: &HitTestResult,
     app_resources: &mut AppResources,
 ) -> bool {
 
     const SCROLL_THRESHOLD: f64 = 0.5; // px
-
-    let hit_test_results = match hit_test_results {
-        Some(s) => s,
-        None => match do_hit_test(&window, app_resources) {
-            Some(s) => s,
-            None => return false,
-        }
-    };
 
     let scroll_x = window.state.internal.mouse_state.scroll_x;
     let scroll_y = window.state.internal.mouse_state.scroll_y;
