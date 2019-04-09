@@ -392,9 +392,19 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
         self.get_node(node_id)?.parent
     }
 
+    /// Returns 'NodeId' of children
+    pub fn children(&self, node_id: NodeId) -> Vec<NodeId> {
+        node_id.children(&self.ui_state.dom.arena.node_layout).collect()
+    }
+
     /// Returns the parent of the current target or None if the target is the root node.
     pub fn target_parent(&self) -> Option<NodeId> {
         self.parent(self.hit_dom_node)
+    }
+
+    /// Returns the NodeIds of children of the current target
+    pub fn target_children(&self) -> Vec<NodeId> {
+        self.children(self.hit_dom_node)
     }
 
     /// Checks whether the target of the CallbackInfo has a certain node type
