@@ -23,6 +23,10 @@
 - Shows how to use timers in order to update the game board every 200ms.
 - Performance demo, performs the layout for 5600 rectangles (TODO: Should be replaced by an image).
 
+## `hello_world`
+
+- Hello World "counter" example, used for checking that the README and the wiki aren't out-of-date.
+
 ## `hot_reload`
 
 - Shows a window where the CSS can be hot-reloaded (you can run the demo, then edit the )
