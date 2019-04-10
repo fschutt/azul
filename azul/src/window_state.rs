@@ -17,6 +17,7 @@ use {
     ui_state::UiState,
     callbacks::FocusTarget,
     app::AppState,
+    ui_solver::LayoutResult,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
@@ -211,6 +212,8 @@ pub struct WindowState {
     pub debug_state: DebugState,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
+    /// The last layout result
+    pub last_layout_result:Option<LayoutResult>,
     /// Current title of the window
     pub title: String,
     /// The x and y position, or None to let the WM decide where to put the window (default)
@@ -277,6 +280,7 @@ impl Default for WindowState {
             title: DEFAULT_TITLE.into(),
             position: None,
             size: WindowSize::default(),
+            last_layout_result: None,
             is_maximized: false,
             is_fullscreen: false,
             has_decorations: true,

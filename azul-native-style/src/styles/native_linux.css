@@ -36,6 +36,15 @@
     border: 1px solid #4286f4;
 }
 
+.__azul-native-input-text-cursor {
+    position: absolute;
+    background-color: black;
+    width: 1.5px;
+    height: [[ height | auto ]];
+    left: [[ left | 0px ]];
+    top: [[ top | 0px ]];
+}
+
 .__azul-native-input-text-label {
 
 }

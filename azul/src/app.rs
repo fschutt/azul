@@ -959,7 +959,7 @@ fn update_display_list<T>(
 
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
-    let (builder, scrolled_nodes, _layout_result) = display_list.into_display_list_builder(
+    let (builder, scrolled_nodes, layout_result) = display_list.into_display_list_builder(
         app_data,
         window,
         fake_window,
@@ -982,6 +982,7 @@ fn update_display_list<T>(
     );
 
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, txn);
+    fake_window.state.last_layout_result = Some(layout_result);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
