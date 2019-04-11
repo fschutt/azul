@@ -1035,7 +1035,7 @@ impl<T> Dom<T> {
     }
 
     #[cfg(test)]
-    fn mock_from_xml(xml: &str) -> Self {
+    pub fn mock_from_xml(xml: &str) -> Self {
         let actual_xml = format!("<app>{}</app>", xml);
         Self::from_xml(&actual_xml, &mut XmlComponentMap::default()).unwrap()
     }
