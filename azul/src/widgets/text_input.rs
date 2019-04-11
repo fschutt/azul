@@ -110,7 +110,7 @@ impl TextInputState {
         unsafe { data.invoke_mut(Self::on_text_input, app_state_no_data, window_event) }
     }
 
-    pub fn update_cursor_position<T>(&mut self, app_state_no_data: &mut AppStateNoData<T>, event: &mut CallbackInfo<T>) {
+    pub fn update_cursor_position<T>(&mut self, event: &mut CallbackInfo<T>) {
         use text_layout::WordType;
 
         // set to None so that it won't be displayed if the positioning fails.
@@ -118,7 +118,7 @@ impl TextInputState {
 
         let children = event.target_children();
         if children.len() > 0 {
-            let maybe_layout = &app_state_no_data.windows[event.window_id].state.last_layout_result;
+            let maybe_layout = &event.ui_state.text_layout;
             let maybe_node   = children.first(); // assuming the display label is the first child
 
             if let (Some(id),Some(layout)) = (maybe_node,maybe_layout) {
@@ -176,7 +176,7 @@ impl TextInputState {
     pub fn on_virtual_key_down<T>(&mut self, app_state_no_data: &mut AppStateNoData<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
 
         let keyboard_state = app_state_no_data.windows[event.window_id].get_keyboard_state();
-        self.update_cursor_position(app_state_no_data,event);
+        self.update_cursor_position(event);
 
         match keyboard_state.latest_virtual_keycode {
             Some(VirtualKeyCode::Back) => {
@@ -258,7 +258,7 @@ impl TextInputState {
     pub fn on_text_input<T>(&mut self, app_state_no_data: &mut AppStateNoData<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
 
         let keyboard_state = app_state_no_data.windows[event.window_id].get_keyboard_state();
-        self.update_cursor_position(app_state_no_data,event);
+        self.update_cursor_position(event);
 
         match keyboard_state.current_char {
             Some(c) => {

@@ -16,6 +16,7 @@ use {
     id_tree::NodeId,
     style::HoverGroup,
     callbacks::{Callback, LayoutInfo, DefaultCallbackId},
+    ui_solver::LayoutResult,
 };
 
 pub struct UiState<T> {
@@ -25,6 +26,9 @@ pub struct UiState<T> {
     pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
     pub tag_ids_to_hover_active_states: BTreeMap<TagId, (NodeId, HoverGroup)>,
+
+    /// The last layout result for text
+    pub text_layout:Option<LayoutResult>,
 
     /// Tags -> Focusable nodes
     pub tab_index_tags: BTreeMap<TagId, (NodeId, TabIndex)>,

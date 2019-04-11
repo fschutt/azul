@@ -714,10 +714,11 @@ fn render_single_window_content<T>(
 
         // Render the window (webrender will send an Awakened event when the frame is done)
         let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
+        let mut ui_state = ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?;
         update_display_list(
             &mut app_state.data,
             &ui_description_cache[window_id],
-            &ui_state_cache[window_id],
+            &mut ui_state,
             &mut *window,
             &mut fake_window,
             &mut app_state.resources,
@@ -948,7 +949,7 @@ fn call_callbacks<T>(
 fn update_display_list<T>(
     app_data: &mut Arc<Mutex<T>>,
     ui_description: &UiDescription<T>,
-    ui_state: &UiState<T>,
+    ui_state: &mut UiState<T>,
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
     app_resources: &mut AppResources,
@@ -982,7 +983,7 @@ fn update_display_list<T>(
     );
 
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, txn);
-    fake_window.state.last_layout_result = Some(layout_result);
+    ui_state.text_layout = Some(layout_result);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
