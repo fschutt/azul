@@ -485,6 +485,14 @@ impl<T> App<T> {
             // If there is a re-render necessary, re-render *all* windows
             if should_rerender_all_windows {
                 for (current_window_id, mut window) in self.windows.iter_mut() {
+                    // TODO: For some reason this function has to be called twice in order
+                    // to actually update the screen. For some reason the first swap_buffers() has
+                    // no effect (winit bug?)
+                    rerender_single_window(
+                        &self.config,
+                        &mut window,
+                        &mut self.app_state.resources,
+                    );
                     rerender_single_window(
                         &self.config,
                         &mut window,
@@ -675,7 +683,7 @@ fn hit_test_single_window<T>(
         new_focus_target: None,
     };
 
-    if events.is_empty() || !ret.should_relayout() {
+    if events.is_empty() && !ret.should_relayout() && !ret.should_rerender() {
         // Event was not a resize event, window should **not** close
         ret.window_should_close = window_should_close;
         return Ok(ret);
@@ -721,7 +729,7 @@ fn hit_test_single_window<T>(
 
     // Scroll for the scrolled amount for each node that registered a scroll state.
     let should_scroll_render = match &ret.hit_test_results {
-        Some(hit_test_results) => update_scroll_state(window, hit_test_results, &mut app_state.resources),
+        Some(hit_test_results) => update_scroll_state(window, hit_test_results),
         None => false,
     };
 
@@ -826,10 +834,11 @@ fn hot_reload_css<T>(
     windows: &mut BTreeMap<GliumWindowId, Window<T>>,
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
-    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>)
--> Result<(), RuntimeError<T>>
-{
+    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>,
+) -> Result<(), RuntimeError<T>> {
+
     use self::RuntimeError::*;
+
     for (window_id, window) in windows.iter_mut() {
         // Hot-reload a style if necessary
         let hot_reloader = match window.css_loader.as_mut() {
@@ -914,8 +923,8 @@ fn call_callbacks<T>(
     window_id: &GliumWindowId,
     ui_state: &UiState<T>,
     app_state: &mut AppState<T>)
--> Result<CallCallbackReturn, RuntimeError<T>>
-{
+-> Result<CallCallbackReturn, RuntimeError<T>> {
+
     use {
         callbacks::CallbackInfo,
         window_state::{KeyboardState, MouseState},
@@ -1102,7 +1111,6 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 fn update_scroll_state<T>(
     window: &mut Window<T>,
     hit_test_results: &HitTestResult,
-    app_resources: &mut AppResources,
 ) -> bool {
 
     const SCROLL_THRESHOLD: f64 = 0.5; // px
@@ -1271,7 +1279,7 @@ fn render_inner<T>(
         gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
 
         // Check that the framebuffer is complete
-        assert_eq!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER), gl::FRAMEBUFFER_COMPLETE);
+        debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
 
         // Invoke WebRender to render the frame - renders to the currently bound FB
         gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
@@ -1290,8 +1298,7 @@ fn render_inner<T>(
         // FBOs can't be shared between windows, but textures can.
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
-        let window_context = get_gl_context(&window.display).unwrap();
-        draw_texture_to_screen(&*window_context, textures[0], framebuffer_size);
+        draw_texture_to_screen(&*gl_context, textures[0], framebuffer_size);
         window.display.swap_buffers().unwrap();
 
         app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
@@ -1355,36 +1362,43 @@ fn compile_screen_shader(context: &Gl) -> GLuint {
     let vertex_shader_object = context.create_shader(gl::VERTEX_SHADER);
     context.shader_source(vertex_shader_object, &[DISPLAY_VERTEX_SHADER]);
     context.compile_shader(vertex_shader_object);
-    if get_gl_shader_error(context, vertex_shader_object) {
-        let err = context.get_shader_info_log(vertex_shader_object);
-        context.delete_shader(vertex_shader_object);
-        panic!("VS compile error: {}", err);
+
+    #[cfg(debug_assertions)] {
+        if get_gl_shader_error(context, vertex_shader_object) {
+            let err = context.get_shader_info_log(vertex_shader_object);
+            context.delete_shader(vertex_shader_object);
+            panic!("VS compile error: {}", err);
+        }
     }
 
     let fragment_shader_object = context.create_shader(gl::FRAGMENT_SHADER);
     context.shader_source(fragment_shader_object, &[DISPLAY_FRAGMENT_SHADER]);
     context.compile_shader(fragment_shader_object);
-    if get_gl_shader_error(context, fragment_shader_object) {
-        let err = context.get_shader_info_log(fragment_shader_object);
-        context.delete_shader(vertex_shader_object);
-        context.delete_shader(fragment_shader_object);
-        panic!("FS compile error: {}", err);
+
+    #[cfg(debug_assertions)] {
+        if get_gl_shader_error(context, fragment_shader_object) {
+            let err = context.get_shader_info_log(fragment_shader_object);
+            context.delete_shader(vertex_shader_object);
+            context.delete_shader(fragment_shader_object);
+            panic!("FS compile error: {}", err);
+        }
     }
 
     let program = context.create_program();
     context.attach_shader(program, vertex_shader_object);
     context.attach_shader(program, fragment_shader_object);
     context.link_program(program);
-    if get_gl_program_error(context, program) {
-        let err = context.get_program_info_log(program);
-        context.delete_shader(vertex_shader_object);
-        context.delete_shader(fragment_shader_object);
-        context.delete_program(program);
-        panic!("Program link error: {}", err);
+
+    #[cfg(debug_assertions)] {
+        if get_gl_program_error(context, program) {
+            let err = context.get_program_info_log(program);
+            context.delete_shader(vertex_shader_object);
+            context.delete_shader(fragment_shader_object);
+            context.delete_program(program);
+            panic!("Program link error: {}", err);
+        }
     }
 
-    // context.detach_shader(program, vertex_shader_object);
-    // context.detach_shader(program, fragment_shader_object);
     context.delete_shader(vertex_shader_object);
     context.delete_shader(fragment_shader_object);
 
@@ -1394,12 +1408,14 @@ fn compile_screen_shader(context: &Gl) -> GLuint {
 }
 
 // Returns true on error, false otherwise
+#[cfg(debug_assertions)]
 fn get_gl_shader_error(context: &Gl, shader_object: GLuint) -> bool {
     let mut err = [0];
     unsafe { context.get_shader_iv(shader_object, gl::COMPILE_STATUS, &mut err) };
     err[0] == 0
 }
 
+#[cfg(debug_assertions)]
 fn get_gl_program_error(context: &Gl, shader_object: GLuint) -> bool {
     let mut err = [0];
     unsafe { context.get_program_iv(shader_object, gl::LINK_STATUS, &mut err) };
