@@ -536,15 +536,6 @@ impl WindowState
             insert_callbacks!(node_id, None, focus_callbacks, focus_default_callbacks, current_focus_leave_events, Focus);
         }
 
-        // If the mouse is down, but was up previously or vice versa, that means
-        // that a :hover or :active state may be invalidated. In that case we need
-        // to redraw the screen anyways. Setting relayout to true here in order to
-        let event_is_click_or_release = self.internal.mouse_state.mouse_down() != previous_state.internal.mouse_state.mouse_down();
-        if event_is_click_or_release || event_was_mouse_enter || event_was_mouse_leave {
-            needs_hover_redraw = true;
-            needs_hover_relayout = true;
-        }
-
         macro_rules! mouse_enter {
             ($node_id:expr, $hit_test_item:expr, $event_filter:ident) => ({
 
@@ -617,6 +608,8 @@ impl WindowState
             .map(|(x, y)| (*x, y.clone()))
             .collect();
 
+        let onmouseenter_empty = onmouseenter_nodes.is_empty();
+
         // Insert Focus(MouseEnter) and Hover(MouseEnter)
         for (node_id, hit_test_item) in onmouseenter_nodes {
             mouse_enter!(node_id, hit_test_item, MouseEnter);
@@ -628,9 +621,20 @@ impl WindowState
             .map(|(x, y)| (*x, y.clone()))
             .collect();
 
+        let onmouseleave_empty = onmouseleave_nodes.is_empty();
+
         // Insert Focus(MouseEnter) and Hover(MouseEnter)
         for (node_id, hit_test_item) in onmouseleave_nodes {
             mouse_enter!(node_id, hit_test_item, MouseLeave);
+        }
+
+        // If the mouse is down, but was up previously or vice versa, that means
+        // that a :hover or :active state may be invalidated. In that case we need
+        // to redraw the screen anyways. Setting relayout to true here in order to
+        let event_is_click_or_release = self.internal.mouse_state.mouse_down() != previous_state.internal.mouse_state.mouse_down();
+        if event_is_click_or_release || event_was_mouse_enter || event_was_mouse_leave || !onmouseenter_empty || !onmouseleave_empty {
+            needs_hover_redraw = true;
+            needs_hover_relayout = true;
         }
 
         // Insert all Not-callbacks, we need to filter out all Hover and Focus callbacks
