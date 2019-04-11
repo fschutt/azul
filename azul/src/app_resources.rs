@@ -523,8 +523,8 @@ fn scan_ui_description_for_font_keys<'a, T>(
 fn scan_ui_description_for_image_keys<'a, T>(
     app_resources: &AppResources,
     display_list: &DisplayList<'a, T>
-) -> FastHashSet<ImageId>
-{
+) -> FastHashSet<ImageId> {
+
     use dom::NodeType::*;
 
     display_list.rectangles
@@ -1118,4 +1118,85 @@ fn test_premultiply() {
     let mut color = [255, 0, 0, 127];
     premultiply(&mut color);
     assert_eq!(color, [127, 0, 0, 127]);
+}
+
+#[test]
+fn test_font_gc() {
+
+    let mut app_resources = AppResources::new(&AppConfig::default());
+    let mut focused_node = None;
+    let mut pending_focus_target = None;
+    let is_mouse_down = false;
+    let hovered_nodes = BTreeMap::new();
+    let css = css::from_str(r#"
+        #one { font-family: Helvetica; }
+        #two { font-family: Arial; }
+        #three { font-family: Times New Roman; }
+    "#).unwrap();
+
+    let ui_state_frame_1 = Dom::mock_from_xml(r#"
+        <p id="one">Hello</p>
+        <p id="two">Hello</p>
+        <p id="three">Hello</p>
+    "#).into_ui_state());
+    let ui_description_frame_1 = UiDescription::match_css_to_dom(&ui_state_frame_1, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
+    let display_list_frame_1 = DisplayList::new_from_ui_description(&ui_description_frame_1, &ui_state_frame_1);
+
+
+    let ui_state_frame_2 = Dom::mock_from_xml(r#"
+        <p>Hello</p>
+    "#).into_ui_state());
+    let ui_description_frame_2 = UiDescription::match_css_to_dom(&ui_state_frame_2, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
+    let display_list_frame_2 = DisplayList::new_from_ui_description(&ui_description_frame_2, &ui_state_frame_2);
+
+
+    let ui_state_frame_3 = Dom::mock_from_xml(r#"
+        <p id="one">Hello</p>
+        <p id="two">Hello</p>
+        <p id="three">Hello</p>
+    "#).into_ui_state());
+    let ui_description_frame_3 = UiDescription::match_css_to_dom(&ui_state_frame_3, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
+    let display_list_frame_3 = DisplayList::new_from_ui_description(&ui_description_frame_3, &ui_state_frame_3);
+
+
+    // Assert that all fonts got added and detected correctly
+    let mut expected_fonts = FastHashMap::new();
+    expected_fonts.insert(FontId::new(), FontSource::System(String::from("Helvetica")));
+    expected_fonts.insert(FontId::new(), FontSource::System(String::from("Arial")));
+    expected_fonts.insert(FontId::new(), FontSource::System(String::from("Times New Roman")));
+
+    app_resources.add_fonts_and_images(&display_list_frame_1);
+    assert_eq!(app_resources.fonts, expected_fonts);
+    assert_eq!(app_resources.currently_registered_fonts.len(), 3);
+
+    // Assert that the first frame doesn't delete the fonts again
+    app_resources.garbage_collect_fonts_and_images();
+    assert_eq!(app_resources.fonts, expected_fonts);
+    assert_eq!(app_resources.currently_registered_fonts.len(), 3);
+
+    // Assert that fonts don't get double-inserted, still the same font sources as previously
+    app_resources.add_fonts_and_images(&display_list_frame_3);
+    app_resources.garbage_collect_fonts_and_images();
+    assert_eq!(app_resources.fonts, expected_fonts);
+    assert_eq!(app_resources.currently_registered_fonts.len(), 3);
+
+    // Assert that no new fonts get added on subsequent frames
+    app_resources.add_fonts_and_images(&display_list_frame_3);
+    app_resources.add_fonts_and_images(&display_list_frame_3);
+    app_resources.add_fonts_and_images(&display_list_frame_3);
+    app_resources.add_fonts_and_images(&display_list_frame_3);
+    app_resources.add_fonts_and_images(&display_list_frame_3);
+    app_resources.garbage_collect_fonts_and_images();
+    assert_eq!(app_resources.fonts, expected_fonts);
+    assert_eq!(app_resources.currently_registered_fonts.len(), 3);
+
+    // If the DOM changes, the font should get deleted
+    app_resources.add_fonts_and_images(&display_list_frame_2);
+    app_resources.garbage_collect_fonts_and_images();
+    assert_eq!(app_resources.fonts, FastHashMap::new());
+    assert_eq!(app_resources.currently_registered_fonts.len(), 0);
+
+    app_resources.add_fonts_and_images(&display_list_frame_1);
+    assert_eq!(app_resources.fonts, expected_fonts);
+    assert_eq!(app_resources.currently_registered_fonts.len(), 3);
 }
