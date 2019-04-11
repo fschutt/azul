@@ -17,7 +17,6 @@ use {
     ui_state::UiState,
     callbacks::FocusTarget,
     app::AppState,
-    ui_solver::LayoutResult,
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
