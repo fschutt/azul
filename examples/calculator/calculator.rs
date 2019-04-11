@@ -401,5 +401,11 @@ fn main() {
     app.add_font(font_id, FontSource::Embedded(FONT));
 
     let window = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
+    let window2 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
+    let window3 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
+    let window4 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
+    app.add_window(window2);
+    app.add_window(window3);
+    app.add_window(window4);
     app.run(window).unwrap();
 }
