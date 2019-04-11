@@ -1160,15 +1160,13 @@ impl PreferredHeight {
 }
 
 pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
+    px_to_au(font_size.0.to_pixels())
+}
+
+pub(crate) fn px_to_au(px: f32) -> Au {
     use app_units::{AU_PER_PX, MIN_AU, MAX_AU};
-    let target_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    if target_app_units < MIN_AU {
-        MIN_AU
-    } else if target_app_units > MAX_AU {
-        MAX_AU
-    } else {
-        target_app_units
-    }
+    let target_app_units = Au((px * AU_PER_PX as f32) as i32);
+    target_app_units.min(MAX_AU).max(MIN_AU)
 }
 
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {

@@ -188,13 +188,6 @@ impl<T> $struct_name<T> {
         self.$struct_field.add_image(image_id, image_source)
     }
 
-    /// See [`AppResources::add_image_raw`]
-    ///
-    /// [`AppResources::add_image_raw`]: ../app_resources/struct.AppResources.html#method.add_image_raw
-    pub fn add_image_raw(&mut self, image_id: ImageId, image: RawImage) {
-        self.$struct_field.add_image_raw(image_id, image)
-    }
-
     /// See [`AppResources::has_image`]
     ///
     /// [`AppResources::has_image`]: ../app_resources/struct.AppResources.html#method.has_image
@@ -207,7 +200,7 @@ impl<T> $struct_name<T> {
     /// See [`AppResources::get_image_bytes`]
     ///
     /// [`AppResources::get_image_bytes`]: ../app_resources/struct.AppResources.html#method.get_image_bytes
-    pub fn get_image_bytes(&self, image_id: &ImageId) -> Option<Result<Vec<u8>, ImageReloadError>> {
+    pub fn get_image_bytes(&self, image_id: &ImageId) -> Option<Result<(ImageData, ImageDescriptor), ImageReloadError>> {
         self.$struct_field.get_image_bytes(image_id)
     }
 

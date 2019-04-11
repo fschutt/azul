@@ -20,7 +20,7 @@ use webrender::{
     api::{
         HitTestResult, HitTestFlags, DevicePixel,
         WorldPoint, LayoutSize, LayoutPoint,
-        Epoch, Transaction,
+        Epoch, Transaction, ImageData, ImageDescriptor,
     },
 };
 #[cfg(feature = "image_loading")]
@@ -40,7 +40,7 @@ use {
     dom::{Dom, ScrollTagId},
     app_resources::{
         ImageId, FontSource, FontId, ImageReloadError,
-        FontReloadError, CssImageId, RawImage,
+        FontReloadError, CssImageId,
     },
     traits::Layout,
     ui_state::UiState,
