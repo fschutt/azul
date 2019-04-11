@@ -48,12 +48,14 @@ mod node_id {
 
     impl Add<usize> for NodeId {
         type Output = NodeId;
+        #[inline(always)]
         fn add(self, other: usize) -> NodeId {
             NodeId::new(self.index() + other)
         }
     }
 
     impl AddAssign<usize> for NodeId {
+        #[inline(always)]
         fn add_assign(&mut self, other: usize) {
             *self = *self + other;
         }
