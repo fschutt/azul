@@ -726,6 +726,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 ) {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
+    use app_resources::FontImageApi;
 
     let bounds = HidpiAdjustedBounds::from_bounds(
         info.rect,
@@ -767,7 +768,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 
     // Note: The ImageDescriptor has no effect on how large the image appears on-screen
     let descriptor = ImageDescriptor::new(texture_width as i32, texture_height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
-    let key = referenced_mutable_content.app_resources.fake_display.render_api.generate_image_key();
+    let key = referenced_mutable_content.app_resources.get_render_api().new_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
     let data = ImageData::External(ExternalImageData {

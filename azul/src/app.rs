@@ -253,6 +253,7 @@ impl<'a, T: 'a> AppStateNoData<'a, T> {
 
 impl<T: Layout> App<T> {
 
+    #[cfg(not(test))]
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
     pub fn new(initial_data: T, config: AppConfig) -> Result<Self, WindowCreateError> {
@@ -290,6 +291,7 @@ impl<T: Layout> App<T> {
 impl<T> App<T> {
 
     /// Creates a new window
+    #[cfg(not(test))]
     pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css)
     -> Result<Window<T>, WindowCreateError>
     {
@@ -304,6 +306,7 @@ impl<T> App<T> {
     }
 
     #[cfg(debug_assertions)]
+    #[cfg(not(test))]
     pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>)
     -> Result<Window<T>, WindowCreateError>
     {
@@ -356,6 +359,7 @@ impl<T> App<T> {
     /// // continue the rest of the program here...
     /// println!("username: {:?}, password: {:?}", username, password);
     /// ```
+    #[cfg(not(test))]
     pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>> {
 
         // Apps need to have at least one window open
@@ -372,11 +376,11 @@ impl<T> App<T> {
         unique_arc.into_inner().map_err(|e| e.into())
     }
 
+    #[cfg(not(test))]
     fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
 
         use std::{thread, time::Duration};
         use glium::glutin::Event;
-        use self::RuntimeError::*;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
@@ -466,8 +470,12 @@ impl<T> App<T> {
             let should_relayout_all_windows = single_window_results.iter().any(|res| res.should_relayout());
             let should_rerender_all_windows = single_window_results.iter().any(|res| res.should_rerender());
 
+            let should_redraw_timers = self.app_state.run_all_timers();
+            let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
+            let should_redraw_timers_or_tasks = [should_redraw_timers, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
+
             // If there is a relayout necessary, re-layout *all* windows!
-            if should_relayout_all_windows {
+            if should_relayout_all_windows || should_redraw_timers_or_tasks{
                 for (current_window_id, mut window) in self.windows.iter_mut() {
                     relayout_single_window(
                         self.layout_callback,
@@ -483,38 +491,26 @@ impl<T> App<T> {
             }
 
             // If there is a re-render necessary, re-render *all* windows
-            if should_rerender_all_windows {
-                for (current_window_id, mut window) in self.windows.iter_mut() {
+            if should_rerender_all_windows || should_redraw_timers_or_tasks {
+                for window in self.windows.values_mut() {
                     // TODO: For some reason this function has to be called twice in order
                     // to actually update the screen. For some reason the first swap_buffers() has
                     // no effect (winit bug?)
                     rerender_single_window(
                         &self.config,
-                        &mut window,
+                        window,
                         &mut self.app_state.resources,
                     );
                     rerender_single_window(
                         &self.config,
-                        &mut window,
+                        window,
                         &mut self.app_state.resources,
                     );
                 }
+                // Automatically remove unused fonts and images from webrender
+                // Tell the font + image GC to start a new frame
+                self.app_state.resources.garbage_collect_fonts_and_images();
             }
-
-            let should_redraw_timers = self.app_state.run_all_timers();
-            let should_redraw_tasks = self.app_state.clean_up_finished_tasks();
-            let should_redraw_timers_or_tasks = [should_redraw_timers, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
-
-            if should_redraw_timers_or_tasks {
-                awakened_tasks = self.windows.keys().map(|window_id| (*window_id, true)).collect();
-                for window_id in self.windows.keys() {
-                    *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
-                }
-            }
-
-            // Automatically remove unused fonts and images from webrender
-            // Tell the font + image GC to start a new frame
-            self.app_state.resources.garbage_collect_fonts_and_images();
 
             if !frame_was_resize {
                 // Wait until 16ms have passed, but not during a resize event
@@ -535,6 +531,7 @@ impl<T> App<T> {
     }
 
     /// Toggles debugging flags in webrender, updates `self.config.debug_state`
+    #[cfg(not(test))]
     pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
         if let Some(r) = &mut self.app_state.resources.fake_display.renderer {
             set_webrender_debug_flags(r, &self.config.debug_state, &new_state);
@@ -657,6 +654,7 @@ impl SingleWindowContentResult {
 
 /// Call the callbacks / do the hit test
 /// Returns (if the event was a resize event, if the window was closed)
+#[cfg(not(test))]
 fn hit_test_single_window<T>(
     events: &[WindowEvent],
     window_id: &GliumWindowId,
@@ -769,6 +767,7 @@ fn hit_test_single_window<T>(
     Ok(ret)
 }
 
+#[cfg(not(test))]
 fn relayout_single_window<T>(
     layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
     window_id: &GliumWindowId,
@@ -820,6 +819,7 @@ fn relayout_single_window<T>(
     Ok(())
 }
 
+#[cfg(not(test))]
 fn rerender_single_window<T>(
     config: &AppConfig,
     window: &mut Window<T>,
@@ -878,6 +878,7 @@ fn hot_reload_css<T>(
 }
 
 /// Returns the currently hit-tested results, in back-to-front order
+#[cfg(not(test))]
 fn do_hit_test<T>(window: &Window<T>, app_resources: &AppResources) -> Option<HitTestResult> {
 
     let cursor_location = window.state.internal.mouse_state.cursor_pos
@@ -1040,6 +1041,7 @@ fn call_callbacks<T>(
 }
 
 /// Build the display list and send it to webrender
+#[cfg(not(test))]
 fn update_display_list<T>(
     app_data: &mut Arc<Mutex<T>>,
     ui_description: &UiDescription<T>,
@@ -1196,6 +1198,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 //
 // NOTE: For some reason, webrender allows rendering to a framebuffer with a
 // negative width / height, although that doesn't make sense
+#[cfg(not(test))]
 fn render_inner<T>(
     window: &mut Window<T>,
     app_resources: &mut AppResources,
