@@ -741,9 +741,9 @@ fn build_add_font_resource_updates(
 
                 let mut font_instance_flags = FontInstanceFlags::empty();
 
-                font_instance_flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
+                font_instance_flags.set(FontInstanceFlags::SUBPIXEL_BGR, false);
                 font_instance_flags.set(FontInstanceFlags::NO_AUTOHINT, true);
-                font_instance_flags.set(FontInstanceFlags::LCD_VERTICAL, true);
+                font_instance_flags.set(FontInstanceFlags::LCD_VERTICAL, false);
 
                 let options = FontInstanceOptions {
                     render_mode: FontRenderMode::Subpixel,
