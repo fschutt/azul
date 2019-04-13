@@ -78,7 +78,7 @@ fn update_drag(state: &mut State, event: &mut Event) -> UpdateScreen {
 }
 
 fn main() {
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/dragger.css")) }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/slider/slider.css")) }
 
     let mut app = App::new(DragMeApp::default(), AppConfig::default()).unwrap();
 
