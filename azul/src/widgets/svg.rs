@@ -35,7 +35,6 @@ use {
     prelude::GlyphInstance,
     callbacks::Texture,
     window::FakeWindow,
-    traits::Layout,
     app_resources::{AppResources, FontId},
     text_layout::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs, TextLayoutOptions},
 };
