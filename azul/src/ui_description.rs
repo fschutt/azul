@@ -3,14 +3,13 @@ use std::{
     collections::BTreeMap,
 };
 use azul_css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
-use webrender::api::HitTestItem;
 use {
     FastHashMap,
     id_tree::{Arena, NodeId, NodeDataContainer},
     dom::{Dom, NodeData, DomString},
     ui_state::UiState,
     style::HoverGroup,
-    callbacks::FocusTarget,
+    callbacks::{FocusTarget, HitTestItem},
 };
 
 pub struct UiDescription<T> {

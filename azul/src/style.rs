@@ -5,13 +5,12 @@ use azul_css::{
     Css, CssContentGroup, CssPath,
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
 };
-use webrender::api::HitTestItem;
 use {
     ui_description::{UiDescription, StyledNode},
     dom::NodeData,
     ui_state::UiState,
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
-    callbacks::FocusTarget,
+    callbacks::{FocusTarget, HitTestItem},
 };
 
 /// Has all the necessary information about the style CSS path

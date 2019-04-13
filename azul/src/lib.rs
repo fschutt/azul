@@ -195,6 +195,8 @@ pub mod css;
 pub mod dialogs;
 /// DOM / HTML node handling
 pub mod dom;
+/// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
+pub mod gl;
 /// Re-exports of errors
 pub mod error;
 /// Handles text layout (modularized, can be used as a standalone module)
@@ -272,20 +274,21 @@ pub mod prelude {
     pub use callbacks::{
         Callback, TimerCallback, IFrameCallback, GlTextureCallback,
         UpdateScreen, Redraw, DontRedraw,
-        CallbackInfo, FocusTarget, LayoutInfo, HidpiAdjustedBounds, Texture,
+        CallbackInfo, FocusTarget, LayoutInfo, HidpiAdjustedBounds,
     };
+    pub use gl::{Texture, GLuint};
     pub use dom::{
         Dom, DomHash, NodeType, NodeData, On, DomString, TabIndex,
         EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
     };
     pub use traits::{Layout, Modify};
     pub use window::{
-        MonitorIter, Window, WindowCreateOptions,
-        WindowMonitorTarget, RendererType, ReadOnlyWindow
+        AvailableMonitorsIter, Window, WindowCreateOptions,
+        WindowMonitorTarget, RendererType,
+        LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
+        WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey,
     };
-    pub use window_state::{WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey};
     pub use glium::glutin::{
-        dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
         VirtualKeyCode, ScanCode, Icon,
     };
     pub use stack_checked_pointer::StackCheckedPointer;

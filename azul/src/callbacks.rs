@@ -1,14 +1,12 @@
 use std::{
     fmt,
-    rc::Rc,
-    hash::{Hash, Hasher},
-    collections::BTreeMap,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use azul_css::CssPath;
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
-use webrender::api::{HitTestItem, LayoutRect};
+use webrender::api::LayoutRect;
+use webrender::api::HitTestItem as WrHitTestItem;
 use {
     app::AppState,
     async::TerminateTimer,
@@ -17,18 +15,61 @@ use {
     ui_state::UiState,
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
-    window::FakeWindow,
+    window::{FakeWindow, LogicalSize, PhysicalSize, LogicalPosition},
+    gl::Texture,
 };
 pub use stack_checked_pointer::StackCheckedPointer;
-pub use glium::texture::Texture2d;
-pub use glium::framebuffer::SimpleFrameBuffer;
 pub use glium::glutin::WindowId as GliumWindowId;
-pub use glium::glutin::dpi::{LogicalSize, PhysicalSize};
 
 pub type DefaultCallbackType<T, U> = fn(&mut U, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 
 static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
+
+/// A tag that can be used to identify items during hit testing. If the tag
+/// is missing then the item doesn't take part in hit testing at all. This
+/// is composed of two numbers. In Servo, the first is an identifier while the
+/// second is used to select the cursor that should be used during mouse
+/// movement. In Gecko, the first is a scrollframe identifier, while the second
+/// is used to store various flags that APZ needs to properly process input
+/// events.
+pub type ItemTag = (u64, u16);
+
+/// This type carries no valuable semantics for WR. However, it reflects the fact that
+/// clients (Servo) may generate pipelines by different semi-independent sources.
+/// These pipelines still belong to the same `IdNamespace` and the same `DocumentId`.
+/// Having this extra Id field enables them to generate `PipelineId` without collision.
+pub type PipelineSourceId = u32;
+
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct PipelineId(pub PipelineSourceId, pub u32);
+
+impl PipelineId {
+    pub const DUMMY: PipelineId = PipelineId(0, 0);
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct HitTestItem {
+    /// The pipeline that the display item that was hit belongs to.
+    pub pipeline: PipelineId,
+    /// The tag of the hit display item.
+    pub tag: ItemTag,
+    /// The hit point in the coordinate space of the "viewport" of the display item.
+    /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
+    pub point_in_viewport: LogicalPosition,
+    /// The coordinates of the original hit test point relative to the origin of this item.
+    /// This is useful for calculating things like text offsets in the client.
+    pub point_relative_to_item: LogicalPosition,
+}
+
+pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
+    HitTestItem {
+        pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
+        tag: input.tag,
+        point_in_viewport: LogicalPosition::new(input.point_in_viewport.x, input.point_in_viewport.y),
+        point_relative_to_item: LogicalPosition::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
+    }
+}
 
 /// Each default callback is identified by its ID (not by it's function pointer),
 /// since multiple IDs could point to the same function.
@@ -73,7 +114,7 @@ pub type CallbackType<T> = fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateS
 pub struct Callback<T>(pub CallbackType<T>);
 impl_callback!(Callback<T>);
 
-pub type GlTextureCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>;
+pub type GlTextureCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Texture;
 /// Callbacks that returns a rendered OpenGL texture
 pub struct GlTextureCallback<T>(pub GlTextureCallbackType<T>);
 impl_callback!(GlTextureCallback<T>);
@@ -87,59 +128,6 @@ pub type TimerCallbackType<T> = fn(&mut T, app_resources: &mut AppResources) -> 
 /// Callback that can runs on every frame on the main thread - can modify the app data model
 pub struct TimerCallback<T>(pub TimerCallbackType<T>);
 impl_callback!(TimerCallback<T>);
-
-/// Wrapper for storing, inserting and registering default callbacks
-pub(crate) struct DefaultCallbackSystem<T> {
-    callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
-}
-
-impl<T> DefaultCallbackSystem<T> {
-
-    /// Creates a new, empty list of callbacks
-    pub(crate) fn new() -> Self {
-        Self {
-            callbacks: BTreeMap::new(),
-        }
-    }
-
-    /// Registers a new callback
-    pub fn add_callback(&mut self, id: DefaultCallbackId, ptr: StackCheckedPointer<T>, func: DefaultCallback<T>) {
-        self.callbacks.insert(id, (ptr, func));
-    }
-
-    /// Invokes a certain default callback and returns its result
-    ///
-    /// NOTE: `app_data` is required so we know that we don't
-    /// accidentally alias the data in `self.internal` (which could lead to UB).
-    ///
-    /// What we know is that the pointer (`self.internal`) points to somewhere
-    /// in `T`, so we know that `self.internal` isn't aliased
-    pub(crate) fn run_callback(
-        &self,
-        _app_data: &mut T,
-        callback_id: &DefaultCallbackId,
-        app_state_no_data: &mut AppStateNoData<T>,
-        window_event: &mut CallbackInfo<T>)
-    -> UpdateScreen
-    {
-        if let Some((callback_ptr, callback_fn)) = self.callbacks.get(callback_id) {
-            (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
-        } else {
-            #[cfg(feature = "logging")] {
-                warn!("Calling default callback with invalid ID {:?}", callback_id);
-            }
-            DontRedraw
-        }
-    }
-}
-
-impl<T> Clone for DefaultCallbackSystem<T> {
-    fn clone(&self) -> Self {
-        Self {
-            callbacks: self.callbacks.clone(),
-        }
-    }
-}
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
@@ -214,20 +202,12 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
 #[derive(Debug, Copy, Clone)]
 pub struct HidpiAdjustedBounds {
     logical_size: LogicalSize,
-    hidpi_factor: f64,
-    winit_hidpi_factor: f64,
+    hidpi_factor: f32,
+    winit_hidpi_factor: f32,
     // TODO: Scroll state / focus state of this div!
 }
 
 impl HidpiAdjustedBounds {
-    pub(crate) fn from_bounds(bounds: LayoutRect, hidpi_factor: f64, winit_hidpi_factor: f64) -> Self {
-        let logical_size = LogicalSize::new(bounds.size.width as f64, bounds.size.height as f64);
-        Self {
-            logical_size,
-            hidpi_factor,
-            winit_hidpi_factor,
-        }
-    }
 
     pub fn get_physical_size(&self) -> PhysicalSize {
         self.get_logical_size().to_physical(self.winit_hidpi_factor)
@@ -241,61 +221,19 @@ impl HidpiAdjustedBounds {
         )
     }
 
-    pub fn get_hidpi_factor(&self) -> f64 {
+    pub fn get_hidpi_factor(&self) -> f32 {
         self.hidpi_factor
     }
-}
 
-/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-///
-/// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-/// when you are done with your OpenGL drawing, otherwise WebRender will render
-/// to the texture, not the window, so your texture will actually never show up.
-/// If you use a `Texture` and you get a blank screen, this is probably why.
-#[derive(Debug, Clone)]
-pub struct Texture {
-    pub(crate) inner: Rc<Texture2d>,
-}
-
-impl Texture {
-    /// Note: You can initialize this texture from an existing (external texture).
-    pub fn new(tex: Texture2d) -> Self {
+    pub(crate) fn from_bounds(bounds: LayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> Self {
+        let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
         Self {
-            inner: Rc::new(tex),
+            logical_size,
+            hidpi_factor,
+            winit_hidpi_factor,
         }
     }
-
-    /// Prepares the texture for drawing - you can only draw
-    /// on a framebuffer, the texture itself is readonly from the
-    /// OpenGL drivers point of view.
-    ///
-    /// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-    /// when you are done with your OpenGL drawing, otherwise WebRender will render
-    /// to the texture instead of the window, so your texture will actually
-    /// never show up on the screen, since it is never rendered.
-    /// If you use a `Texture` and you get a blank screen, this is probably why.
-    pub fn as_surface<'a>(&'a self) -> SimpleFrameBuffer<'a> {
-        self.inner.as_surface()
-    }
 }
-
-impl Hash for Texture {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        use glium::GlObject;
-        self.inner.get_id().hash(state);
-    }
-}
-
-impl PartialEq for Texture {
-    /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
-    /// actual contents of the texture.
-    fn eq(&self, other: &Texture) -> bool {
-        use glium::GlObject;
-        self.inner.get_id() == other.inner.get_id()
-    }
-}
-
-impl Eq for Texture { }
 
 /// Iterator that, starting from a certain starting point, returns the
 /// parent node until it gets to the root node.

@@ -6,13 +6,14 @@ use std::{
 use glium::glutin::{
     Window, WindowEvent, KeyboardInput, ScanCode, ElementState,
     MouseCursor, VirtualKeyCode, MouseScrollDelta, AxisId,
-    ModifiersState, dpi::{LogicalPosition, LogicalSize},
+    ModifiersState,
+    dpi::LogicalPosition as WinitLogicalPosition,
+
 };
-use webrender::api::HitTestItem;
 use {
     app::FrameEventInfo,
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {CallbackInfo, Callback, DefaultCallbackId, UpdateScreen},
+    callbacks:: {CallbackInfo, Callback, HitTestItem, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
     callbacks::FocusTarget,
@@ -20,11 +21,104 @@ use {
 };
 
 const DEFAULT_TITLE: &str = "Azul App";
-const DEFAULT_WIDTH: f64 = 800.0;
-const DEFAULT_HEIGHT: f64 = 600.0;
+const DEFAULT_WIDTH: f32 = 800.0;
+const DEFAULT_HEIGHT: f32 = 600.0;
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct LogicalPosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct LogicalSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct PhysicalPosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct PhysicalSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+impl LogicalPosition {
+    pub fn new(x: f32, y: f32) -> Self { Self { x, y } }
+
+    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition {
+        PhysicalPosition {
+            x: self.x * hidpi_factor,
+            y: self.y * hidpi_factor,
+        }
+    }
+}
+
+impl PhysicalPosition {
+    pub fn new(x: f32, y: f32) -> Self { Self { x, y } }
+
+    pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
+        LogicalPosition {
+            x: self.x / hidpi_factor,
+            y: self.y / hidpi_factor,
+        }
+    }
+}
+
+impl LogicalSize {
+    pub fn new(width: f32, height: f32) -> Self { Self { width, height } }
+
+    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize {
+        PhysicalSize {
+            width: self.width * hidpi_factor,
+            height: self.height * hidpi_factor,
+        }
+    }
+}
+
+impl PhysicalSize {
+    pub fn new(width: f32, height: f32) -> Self { Self { width, height } }
+
+    pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
+        LogicalSize {
+            width: self.width / hidpi_factor,
+            height: self.height / hidpi_factor,
+        }
+    }
+}
+
+pub(crate) mod winit_translate {
+
+    pub(crate) use super::{LogicalPosition, LogicalSize};
+    pub(crate) use super::{PhysicalPosition, PhysicalSize};
+    pub(crate) use glium::glutin::dpi::{LogicalPosition as WinitLogicalPosition, LogicalSize as WinitLogicalSize};
+    pub(crate) use glium::glutin::dpi::{PhysicalPosition as WinitPhysicalPosition, PhysicalSize as WinitPhysicalSize};
+
+    pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
+        WinitLogicalPosition::new(input.x as f64, input.y as f64)
+    }
+
+    pub(crate) fn translate_logical_size(input: LogicalSize) -> WinitLogicalSize {
+        WinitLogicalSize::new(input.width as f64, input.height as f64)
+
+    }
+
+    pub(crate) fn translate_physical_position(input: PhysicalPosition) -> WinitPhysicalPosition {
+        WinitPhysicalPosition::new(input.x as f64, input.y as f64)
+    }
+
+    pub(crate) fn translate_physical_size(input: PhysicalSize) -> WinitPhysicalSize {
+        WinitPhysicalSize::new(input.width as f64, input.height as f64)
+    }
+}
 
 /// Determines which keys are pressed currently (modifiers, etc.)
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeyboardState {
 
     // Modifier keys that are currently actively pressed during this frame
@@ -70,9 +164,8 @@ impl KeyboardState {
 }
 
 /// Mouse position on the screen
-#[derive(Debug, Copy, Clone)]
-pub struct MouseState
-{
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct MouseState {
     /// Current mouse cursor type
     pub mouse_cursor_type: MouseCursor,
     /// Where is the mouse cursor currently? Set to `None` if the window is not focused
@@ -84,9 +177,9 @@ pub struct MouseState
     /// Is the middle mouse button down?
     pub middle_down: bool,
     /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame
-    pub scroll_x: f64,
+    pub scroll_x: f32,
     /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame
-    pub scroll_y: f64,
+    pub scroll_y: f32,
 }
 
 impl MouseState {
@@ -113,7 +206,7 @@ impl Default for MouseState {
 
 /// Toggles webrender debug flags (will make stuff appear on
 /// the screen that you might not want to - used for debugging purposes)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DebugState {
     /// Toggles `webrender::DebugFlags::PROFILER_DBG`
     pub profiler_dbg: bool,
@@ -163,7 +256,7 @@ impl Default for DebugState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CrateInternalWindowState {
     /// The state of the keyboard for this frame
     pub(crate) keyboard_state: KeyboardState,
@@ -202,7 +295,7 @@ impl Default for CrateInternalWindowState {
 }
 
 /// State, size, etc of the window, for comparing to the last frame
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindowState {
     /// Internal, read-only state (TODO: move this out of here!)
     pub(crate) internal: CrateInternalWindowState,
@@ -227,15 +320,15 @@ pub struct WindowState {
     pub is_always_on_top: bool,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct WindowSize {
     /// Width and height of the window, in logical
     /// units (may not correspond to the physical on-screen size)
     pub dimensions: LogicalSize,
     /// DPI factor of the window
-    pub hidpi_factor: f64,
+    pub hidpi_factor: f32,
     /// (Internal only, unused): winit HiDPI factor
-    pub winit_hidpi_factor: f64,
+    pub winit_hidpi_factor: f32,
     /// Minimum dimensions of the window
     pub min_dimensions: Option<LogicalSize>,
     /// Maximum dimensions of the window
@@ -745,8 +838,8 @@ impl WindowState
     fn update_mouse_cursor_position(&mut self, event: &WindowEvent) {
         match event {
             WindowEvent::CursorMoved { position, .. } => {
-                let world_pos_x = position.x / self.size.hidpi_factor * self.size.winit_hidpi_factor;
-                let world_pos_y = position.y / self.size.hidpi_factor * self.size.winit_hidpi_factor;
+                let world_pos_x = position.x as f32 / self.size.hidpi_factor * self.size.winit_hidpi_factor;
+                let world_pos_y = position.y as f32 / self.size.hidpi_factor * self.size.winit_hidpi_factor;
                 self.internal.mouse_state.cursor_pos = Some(LogicalPosition::new(world_pos_x, world_pos_y));
             },
             WindowEvent::CursorLeft { .. } => {
@@ -762,11 +855,11 @@ impl WindowState
     fn update_scroll_state(&mut self, event: &WindowEvent) {
         match event {
             WindowEvent::MouseWheel { delta, .. } => {
-                const LINE_DELTA: f64 = 38.0;
+                const LINE_DELTA: f32 = 38.0;
 
                 let (scroll_x_px, scroll_y_px) = match delta {
-                    MouseScrollDelta::PixelDelta(LogicalPosition { x, y }) => (*x, *y),
-                    MouseScrollDelta::LineDelta(x, y) => (*x as f64 * LINE_DELTA, *y as f64 * LINE_DELTA),
+                    MouseScrollDelta::PixelDelta(WinitLogicalPosition { x, y }) => (*x as f32, *y as f32),
+                    MouseScrollDelta::LineDelta(x, y) => (*x * LINE_DELTA, *y * LINE_DELTA),
                 };
                 self.internal.mouse_state.scroll_x = -scroll_x_px;
                 self.internal.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
@@ -933,15 +1026,15 @@ pub(crate) fn window_should_close(event: &WindowEvent, frame_event_info: &mut Fr
     match event {
         WindowEvent::CursorMoved { position, .. } => {
             frame_event_info.should_hittest = true;
-            frame_event_info.cur_cursor_pos = *position;
+            frame_event_info.cur_cursor_pos = LogicalPosition { x: position.x as f32, y: position.y as f32 };
         },
         WindowEvent::Resized(wh) => {
-            frame_event_info.new_window_size = Some(*wh);
+            frame_event_info.new_window_size = Some(LogicalSize { width: wh.width as f32, height: wh.height as f32 });
             frame_event_info.is_resize_event = true;
             frame_event_info.should_redraw_window = true;
         },
         WindowEvent::HiDpiFactorChanged(dpi) => {
-            frame_event_info.new_dpi_factor = Some(*dpi);
+            frame_event_info.new_dpi_factor = Some(*dpi as f32);
             frame_event_info.should_redraw_window = true;
         },
         WindowEvent::CloseRequested | WindowEvent::Destroyed => {

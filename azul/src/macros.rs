@@ -111,7 +111,7 @@ macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
     }
 
     impl<$t> ::std::hash::Hash for $callback_value<$t> {
-        fn hash<H>(&self, state: &mut H) where H: Hasher {
+        fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
             state.write_usize(self.0 as usize);
         }
     }

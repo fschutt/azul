@@ -111,7 +111,7 @@ impl<'a, T: 'a> DisplayList<'a, T> {
         app_resources: &mut AppResources
     ) -> (DisplayListBuilder, ScrolledNodes, LayoutResult) {
 
-        use glium::glutin::dpi::LogicalSize;
+        use window::LogicalSize;
 
         let mut resource_updates = Vec::<ResourceUpdate>::new();
 
@@ -745,29 +745,22 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
         }, bounds);
 
         // Reset the framebuffer and SRGB color target to 0
-        let gl_context = referenced_mutable_content.fake_window.read_only_window().get_gl_context();
+        let gl_context = referenced_mutable_content.fake_window.get_gl_context();
 
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
-        gl_context.viewport(0, 0, info.rect.size.width as i32, info.rect.size.height as i32);
     }
 
-    let texture = match texture {
-        Some(s) => s,
-        None => return,
-    };
-
-    let texture_width = texture.inner.width() as f32;
-    let texture_height = texture.inner.height() as f32;
-
     let opaque = false;
-
     // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
     let allow_mipmaps = false;
 
+    let texture_width = texture.width as f32;
+    let texture_height = texture.height as f32;
+
     // Note: The ImageDescriptor has no effect on how large the image appears on-screen
-    let descriptor = ImageDescriptor::new(texture_width as i32, texture_height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
+    let descriptor = ImageDescriptor::new(texture.width as i32, texture.height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
     let key = referenced_mutable_content.app_resources.get_render_api().new_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
@@ -779,7 +772,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 
     ACTIVE_GL_TEXTURES.lock().unwrap()
         .entry(rectangle.epoch).or_insert_with(|| FastHashMap::default())
-        .insert(external_image_id, ActiveTexture { texture: texture.clone() });
+        .insert(external_image_id, ActiveTexture { texture });
 
     referenced_mutable_content.resource_updates.push(ResourceUpdate::AddImage(
         AddImage { key, descriptor, data, tiling: None }
@@ -787,7 +780,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 
     referenced_mutable_content.builder.push_image(
         &info,
-        LayoutSize::new(texture_width, texture_height),
+        LayoutSize::new(texture_width as f32, texture_height as f32),
         LayoutSize::zero(),
         ImageRendering::Auto,
         AlphaType::Alpha,

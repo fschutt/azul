@@ -6,10 +6,8 @@ use std::{
 };
 use {
     dom::Dom,
-    callbacks::{
-        DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds,
-        UpdateScreen, Texture,
-    },
+    callbacks::{DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds, UpdateScreen},
+    gl::Texture,
     app::AppStateNoData,
 };
 

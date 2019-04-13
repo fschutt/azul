@@ -30,10 +30,11 @@ use lyon::{
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
 use azul_css::{ColorU, ColorF, StyleTextAlignmentHorz};
+use gleam::gl::Gl;
 use {
     FastHashMap,
     prelude::GlyphInstance,
-    callbacks::Texture,
+    gl::{Texture, GlShader},
     window::FakeWindow,
     app_resources::{AppResources, FontId},
     text_layout::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs, TextLayoutOptions},
@@ -131,37 +132,21 @@ fn prefix_gl_version(shader: &str, gl: Api) -> String {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SvgShader {
-    pub program: Rc<Program>,
+    pub program: GlShader,
 }
 
 impl SvgShader {
-    pub fn new<F: Facade + ?Sized>(display: &F) -> Self {
-        use glium::program::ProgramCreationInput;
 
-        let current_gl_api = display.get_context().get_opengl_version().0;
+    pub fn new(gl_context: Rc<Gl>) -> Self {
+
+        let current_gl_api = gl_context.get_opengl_version().0;
         let vertex_source_prefixed = prefix_gl_version(SVG_VERTEX_SHADER, current_gl_api);
         let fragment_source_prefixed = prefix_gl_version(SVG_FRAGMENT_SHADER, current_gl_api);
 
-        let program_creation_input = ProgramCreationInput::SourceCode {
-            vertex_shader: &vertex_source_prefixed,
-            fragment_shader: &fragment_source_prefixed,
-            geometry_shader: None,
-            tessellation_control_shader: None,
-            tessellation_evaluation_shader: None,
-            transform_feedback_varyings: None,
-
-            // Important: Disable automatic gl::GL_FRAMEBUFFER_SRGB -
-            // webrender expects SRGB textures and will handle this conversion for us
-            // See https://github.com/servo/webrender/issues/3262
-
-            outputs_srgb: true,
-            uses_point_size: false,
-        };
-
         Self {
-            program: Rc::new(Program::new(display, program_creation_input).unwrap()),
+            program: GlShader::new(context, vertex_source_prefixed, fragment_source_prefixed).unwrap(),
         }
     }
 }
@@ -2050,14 +2035,10 @@ impl Svg {
         window: &FakeWindow<T>,
         width: usize,
         height: usize
-    ) -> Texture
-    {
-        let read_only_window = window.read_only_window();
+    ) -> Texture {
 
         let texture_width = (width as f32 * self.multisampling_factor) as u32;
         let texture_height = (height as f32 * self.multisampling_factor) as u32;
-
-        // let (window_width, window_height) = window.get_physical_size();
 
         // TODO: This currently doesn't work - only the first draw call is drawn
         // This is probably because either webrender or glium messes with the texture
@@ -2065,7 +2046,6 @@ impl Svg {
         let bg_col: ColorF = self.background_color.into();
 
         let z_index: f32 = 0.5;
-        // let bbox_size = TypedSize2D::new(window_width as f32, window_height as f32);
         let bbox_size = TypedSize2D::new(texture_width as f32, texture_height as f32);
         let shader = svg_cache.init_shader(&read_only_window);
 
@@ -2075,17 +2055,20 @@ impl Svg {
         let pan = if self.enable_hidpi { (self.pan.0 * hidpi, self.pan.1 * hidpi) } else { self.pan };
         let pan = (pan.0 * self.multisampling_factor, pan.1 * self.multisampling_factor);
 
+/*
         let draw_options = DrawParameters {
             primitive_restart_index: true,
             .. Default::default()
         };
+*/
+        let gl_context = window.get_gl_context();
 
-        let tex = read_only_window.create_texture(texture_width, texture_height);
+        let mut tex = Texture::new(gl_context.clone(), texture_width, texture_height);
+        let fb = tex.get_framebuffer();
 
-        {
+        fb.bind();
 
-        let mut surface = tex.as_surface();
-        surface.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+        gl_context.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
 
         for layer in &self.layers {
 
@@ -2126,9 +2109,7 @@ impl Svg {
             }
         }
 
-        // TODO: apply FXAA shader
-
-        } // unbind surface framebuffer
+        fb.unbind();
 
         tex
     }

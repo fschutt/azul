@@ -6,7 +6,7 @@ use webrender::{
 use euclid::TypedPoint2D;
 use {
     FastHashMap,
-    callbacks::Texture,
+    gl::Texture,
 };
 
 static LAST_OPENGL_ID: AtomicUsize = AtomicUsize::new(0);
@@ -58,7 +58,6 @@ impl Default for Compositor {
 
 impl ExternalImageHandler for Compositor {
     fn lock(&mut self, key: ExternalImageId, _channel_index: u8, _rendering: ImageRendering) -> ExternalImage {
-        use glium::GlObject;
 
         let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
 
@@ -78,11 +77,8 @@ impl ExternalImageHandler for Compositor {
             .next()
             .and_then(|tex| {
                 Some((
-                    ExternalImageSource::NativeTexture(tex.texture.inner.get_id()),
-                    TypedPoint2D::<f32, DevicePixel>::new(
-                        tex.texture.inner.width() as f32,
-                        tex.texture.inner.height() as f32,
-                    )
+                    ExternalImageSource::NativeTexture(tex.texture.texture_id),
+                    TypedPoint2D::<f32, DevicePixel>::new(tex.texture.width as f32, tex.texture.height as f32)
                 ))
             })
             .unwrap_or((ExternalImageSource::Invalid, TypedPoint2D::zero()));

@@ -1,6 +1,7 @@
 use std::{
     mem,
     fmt,
+    rc::Rc,
     time::Instant,
     collections::BTreeMap,
     sync::{Arc, Mutex, PoisonError},
@@ -9,16 +10,13 @@ use std::{
 use azul_css::HotReloadHandler;
 use glium::{
     SwapBuffersError,
-    glutin::{
-        WindowEvent, WindowId as GliumWindowId,
-        dpi::{LogicalPosition, LogicalSize}
-    },
+    glutin::{WindowEvent, WindowId as GliumWindowId},
 };
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
     api::{
-        HitTestResult, HitTestFlags, DevicePixel,
+        HitTestFlags, DevicePixel,
         WorldPoint, LayoutSize, LayoutPoint,
         Epoch, Transaction, ImageData, ImageDescriptor,
     },
@@ -32,7 +30,7 @@ use {
     FastHashMap,
     error::ClipboardError,
     window::{
-        Window, FakeWindow, ScrollStates,
+        Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize,
         WindowCreateError, WindowCreateOptions, RendererType,
     },
     window_state::{WindowSize, DebugState},
@@ -42,11 +40,14 @@ use {
         ImageId, FontSource, FontId, ImageReloadError,
         FontReloadError, CssImageId,
     },
+    gl::GlShader,
     traits::Layout,
     ui_state::UiState,
     ui_description::UiDescription,
     async::{Task, Timer, TimerId, TerminateTimer},
-    callbacks::{FocusTarget, UpdateScreen, Redraw, DontRedraw, LayoutInfo},
+    callbacks::{
+        FocusTarget, UpdateScreen, HitTestItem, Redraw, DontRedraw, LayoutInfo,
+    },
 };
 pub use app_resources::AppResources;
 
@@ -199,7 +200,7 @@ pub(crate) struct FrameEventInfo {
     pub(crate) should_hittest: bool,
     pub(crate) cur_cursor_pos: LogicalPosition,
     pub(crate) new_window_size: Option<LogicalSize>,
-    pub(crate) new_dpi_factor: Option<f64>,
+    pub(crate) new_dpi_factor: Option<f32>,
     pub(crate) is_resize_event: bool,
 }
 
@@ -292,7 +293,7 @@ impl<T> App<T> {
 
     /// Creates a new window
     #[cfg(not(test))]
-    pub fn create_window(&mut self, options: WindowCreateOptions<T>, css: Css)
+    pub fn create_window(&mut self, options: WindowCreateOptions, css: Css)
     -> Result<Window<T>, WindowCreateError>
     {
         Window::new(
@@ -307,9 +308,8 @@ impl<T> App<T> {
 
     #[cfg(debug_assertions)]
     #[cfg(not(test))]
-    pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions<T>, css_loader: Box<dyn HotReloadHandler>)
-    -> Result<Window<T>, WindowCreateError>
-    {
+    pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions, css_loader: Box<dyn HotReloadHandler>)
+    -> Result<Window<T>, WindowCreateError> {
         Window::new_hot_reload(
             &mut self.app_state.resources.fake_display.render_api,
             &mut self.app_state.resources.fake_display.hidden_display.gl_window().context(),
@@ -324,13 +324,11 @@ impl<T> App<T> {
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     pub fn add_window(&mut self, window: Window<T>) {
-        use callbacks::DefaultCallbackSystem;
-
         let window_id = window.id;
         let fake_window = FakeWindow {
             state: window.state.clone(),
-            default_callbacks: DefaultCallbackSystem::new(),
-            read_only_window: window.display.clone(),
+            default_callbacks: BTreeMap::new(),
+            gl_context: window.get_gl_context(),
         };
 
         self.app_state.windows.insert(window_id, fake_window);
@@ -571,8 +569,7 @@ impl<T> AppState<T> {
         for (key, timer) in self.timers.iter_mut() {
             let (should_update, should_terminate) = timer.invoke_callback_with_data(&mut lock, &mut self.resources);
 
-            if should_update == Redraw &&
-               should_update_screen == DontRedraw {
+            if should_update == Redraw {
                 should_update_screen = Redraw;
             }
 
@@ -633,7 +630,7 @@ struct SingleWindowContentResult {
     needs_relayout_tasks: bool,
     needs_relayout_refresh: bool,
     callbacks_update_screen: UpdateScreen,
-    hit_test_results: Option<HitTestResult>,
+    hit_test_results: Option<Vec<HitTestItem>>,
     new_focus_target: Option<FocusTarget>,
 }
 
@@ -879,20 +876,22 @@ fn hot_reload_css<T>(
 
 /// Returns the currently hit-tested results, in back-to-front order
 #[cfg(not(test))]
-fn do_hit_test<T>(window: &Window<T>, app_resources: &AppResources) -> Option<HitTestResult> {
+fn do_hit_test<T>(window: &Window<T>, app_resources: &AppResources) -> Option<Vec<HitTestItem>> {
+
+    use callbacks::translate_wr_hittest_item;
 
     let cursor_location = window.state.internal.mouse_state.cursor_pos
         .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
 
-    let mut hit_test_results = app_resources.fake_display.render_api.hit_test(
+    let mut hit_test_results: Vec<HitTestItem> = app_resources.fake_display.render_api.hit_test(
         window.internal.document_id,
         Some(window.internal.pipeline_id),
         cursor_location,
         HitTestFlags::FIND_ALL
-    );
+    ).items.into_iter().map(translate_wr_hittest_item).collect();
 
     // Execute callbacks back-to-front, not front-to-back
-    hit_test_results.items.reverse();
+    hit_test_results.reverse();
 
     Some(hit_test_results)
 }
@@ -918,7 +917,7 @@ struct CallCallbackReturn {
 
 /// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
 fn call_callbacks<T>(
-    hit_test_results: Option<&HitTestResult>,
+    hit_test_results: Option<&Vec<HitTestItem>>,
     event: &WindowEvent,
     window: &mut Window<T>,
     window_id: &GliumWindowId,
@@ -934,7 +933,7 @@ fn call_callbacks<T>(
 
     let mut should_update_screen = DontRedraw;
 
-    let hit_test_items = hit_test_results.map(|h| h.items.clone()).unwrap_or_default();
+    let hit_test_items = hit_test_results.map(|items| items.clone()).unwrap_or_default();
 
     let callbacks_filter_list = window.state.determine_callbacks(&hit_test_items, event, ui_state);
 
@@ -974,7 +973,7 @@ fn call_callbacks<T>(
                     tasks: Vec::new(),
                 };
 
-                if app_state.windows[window_id].default_callbacks.run_callback(
+                if app_state.windows[window_id].run_default_callback(
                     &mut *lock,
                     default_callback_id,
                     &mut app_state_no_data,
@@ -1112,10 +1111,10 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 #[must_use]
 fn update_scroll_state<T>(
     window: &mut Window<T>,
-    hit_test_results: &HitTestResult,
+    hit_test_items: &[HitTestItem],
 ) -> bool {
 
-    const SCROLL_THRESHOLD: f64 = 0.5; // px
+    const SCROLL_THRESHOLD: f32 = 0.5; // px
 
     let scroll_x = window.state.internal.mouse_state.scroll_x;
     let scroll_y = window.state.internal.mouse_state.scroll_y;
@@ -1129,7 +1128,7 @@ fn update_scroll_state<T>(
     let scrolled_nodes = &window.internal.last_scrolled_nodes;
     let scroll_states = &mut window.scroll_states;
 
-    for scroll_node in hit_test_results.items.iter()
+    for scroll_node in hit_test_items.iter()
         .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag.0)))
         .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id)) {
 
@@ -1284,15 +1283,14 @@ fn render_inner<T>(
         // Check that the framebuffer is complete
         debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
 
-        // Invoke WebRender to render the frame - renders to the currently bound FB
-        gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
-        gl_context.clear_depth(0.0);
-
         // Disable SRGB and multisample, otherwise, WebRender will crash
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
         gl_context.disable(gl::POLYGON_SMOOTH);
 
+        // Invoke WebRender to render the frame - renders to the currently bound FB
+        gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+        gl_context.clear_depth(0.0);
         app_resources.fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
         gl_context.delete_framebuffers(&framebuffers);
@@ -1301,7 +1299,7 @@ fn render_inner<T>(
         // FBOs can't be shared between windows, but textures can.
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
-        draw_texture_to_screen(&*gl_context, textures[0], framebuffer_size);
+        draw_texture_to_screen(gl_context.clone(), textures[0], framebuffer_size);
         window.display.swap_buffers().unwrap();
 
         app_resources.fake_display.hidden_display.gl_window().make_current().unwrap();
@@ -1326,7 +1324,7 @@ fn render_inner<T>(
 
 /// When called with glDrawArrays(0, 3), generates a simple triangle that
 /// spans the whole screen.
-const DISPLAY_VERTEX_SHADER: &[u8] = b"
+const DISPLAY_VERTEX_SHADER: &str = "
     #version 140
     out vec2 vTexCoords;
     void main() {
@@ -1335,10 +1333,10 @@ const DISPLAY_VERTEX_SHADER: &[u8] = b"
         vTexCoords = vec2((x+1.0)*0.5, (y+1.0)*0.5);
         gl_Position = vec4(x, y, 0, 1);
     }
-\0";
+";
 
 /// Shader that samples an input texture (`fScreenTex`) to the output FB.
-const DISPLAY_FRAGMENT_SHADER: &[u8] = b"
+const DISPLAY_FRAGMENT_SHADER: &str = "
     #version 140
     in vec2 vTexCoords;
     uniform sampler2D fScreenTex;
@@ -1347,91 +1345,25 @@ const DISPLAY_FRAGMENT_SHADER: &[u8] = b"
     void main() {
         fColorOut = texture(fScreenTex, vTexCoords);
     }
-\0";
+";
 
 // NOTE: Compilation is thread-unsafe, should only be compiled on the main thread
-static mut DISPLAY_SHADER: Option<GLuint> = None;
+static mut DISPLAY_SHADER: Option<GlShader> = None;
 
 /// Compiles the display vertex / fragment shader, returns the compiled shaders.
-fn compile_screen_shader(context: &Gl) -> GLuint {
-
-    unsafe {
-        match DISPLAY_SHADER {
-            Some(s) => return s,
-            None => { },
-        }
-    }
-
-    let vertex_shader_object = context.create_shader(gl::VERTEX_SHADER);
-    context.shader_source(vertex_shader_object, &[DISPLAY_VERTEX_SHADER]);
-    context.compile_shader(vertex_shader_object);
-
-    #[cfg(debug_assertions)] {
-        if get_gl_shader_error(context, vertex_shader_object) {
-            let err = context.get_shader_info_log(vertex_shader_object);
-            context.delete_shader(vertex_shader_object);
-            panic!("VS compile error: {}", err);
-        }
-    }
-
-    let fragment_shader_object = context.create_shader(gl::FRAGMENT_SHADER);
-    context.shader_source(fragment_shader_object, &[DISPLAY_FRAGMENT_SHADER]);
-    context.compile_shader(fragment_shader_object);
-
-    #[cfg(debug_assertions)] {
-        if get_gl_shader_error(context, fragment_shader_object) {
-            let err = context.get_shader_info_log(fragment_shader_object);
-            context.delete_shader(vertex_shader_object);
-            context.delete_shader(fragment_shader_object);
-            panic!("FS compile error: {}", err);
-        }
-    }
-
-    let program = context.create_program();
-    context.attach_shader(program, vertex_shader_object);
-    context.attach_shader(program, fragment_shader_object);
-    context.link_program(program);
-
-    #[cfg(debug_assertions)] {
-        if get_gl_program_error(context, program) {
-            let err = context.get_program_info_log(program);
-            context.delete_shader(vertex_shader_object);
-            context.delete_shader(fragment_shader_object);
-            context.delete_program(program);
-            panic!("Program link error: {}", err);
-        }
-    }
-
-    context.delete_shader(vertex_shader_object);
-    context.delete_shader(fragment_shader_object);
-
-    unsafe { DISPLAY_SHADER = Some(program) };
-
-    program
-}
-
-// Returns true on error, false otherwise
-#[cfg(debug_assertions)]
-fn get_gl_shader_error(context: &Gl, shader_object: GLuint) -> bool {
-    let mut err = [0];
-    unsafe { context.get_shader_iv(shader_object, gl::COMPILE_STATUS, &mut err) };
-    err[0] == 0
-}
-
-#[cfg(debug_assertions)]
-fn get_gl_program_error(context: &Gl, shader_object: GLuint) -> bool {
-    let mut err = [0];
-    unsafe { context.get_program_iv(shader_object, gl::LINK_STATUS, &mut err) };
-    err[0] == 0
+fn compile_screen_shader(context: Rc<Gl>) -> GLuint {
+    unsafe { DISPLAY_SHADER.get_or_insert_with(|| {
+        GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER).unwrap()
+    }) }.shader_program
 }
 
 // Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
-fn draw_texture_to_screen(context: &Gl, texture: GLuint, framebuffer_size: DeviceIntSize) {
+fn draw_texture_to_screen(context: Rc<Gl>, texture: GLuint, framebuffer_size: DeviceIntSize) {
 
     context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 
     // Compile or get the cached shader
-    let shader = compile_screen_shader(context);
+    let shader = compile_screen_shader(context.clone());
     let texture_location = context.get_uniform_location(shader, "fScreenTex");
 
     // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:
