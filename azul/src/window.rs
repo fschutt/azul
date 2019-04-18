@@ -635,8 +635,6 @@ impl<T> Window<T> {
     /// application developer)
     pub(crate) fn update_from_user_window_state(&mut self, new_state: WindowState) {
 
-        use window_state::winit_translate;
-
         let gl_window = self.display.gl_window();
         let window = gl_window.window();
         let old_state = &mut self.state;

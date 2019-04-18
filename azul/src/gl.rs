@@ -1,10 +1,13 @@
 
 /// Typedef for an OpenGL handle
 pub type GLuint = u32;
+pub type GLint = i32;
 
 use std::{
     rc::Rc,
     hash::{Hasher, Hash},
+    ffi::c_void,
+    marker::PhantomData,
 };
 use gleam::gl::{self, Gl};
 
@@ -60,17 +63,7 @@ impl Texture {
 
     /// Sets the current texture as the target for `gl::COLOR_ATTACHEMENT0`, so that
     pub fn get_framebuffer<'a>(&'a mut self) -> FrameBuffer<'a> {
-
-        let fb = FrameBuffer::new(self);
-
-        // Set "textures[0]" as the color attachement #0
-        self.gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, self.texture_id, 0);
-        self.gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
-
-        // Check that the framebuffer is complete
-        debug_assert!(self.gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
-
-        fb
+        FrameBuffer::new(self)
     }
 }
 
@@ -96,8 +89,6 @@ macro_rules! impl_traits_for_gl_object {
         }
 
         impl PartialEq for $struct_name {
-            /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
-            /// actual contents of the texture.
             fn eq(&self, other: &$struct_name) -> bool {
                 self.$gl_id_field == other.$gl_id_field
             }
@@ -131,8 +122,6 @@ macro_rules! impl_traits_for_gl_object {
         }
 
         impl<$lt>PartialEq for $struct_name<$lt> {
-            /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
-            /// actual contents of the texture.
             fn eq(&self, other: &$struct_name) -> bool {
                 self.$gl_id_field == other.$gl_id_field
             }
@@ -152,6 +141,39 @@ macro_rules! impl_traits_for_gl_object {
             }
         }
     };
+    ($struct_name:ident<$t:ident: $constraint:ident>, $gl_id_field:ident) => {
+        impl<$t: $constraint> ::std::fmt::Debug for $struct_name<$t> {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                write!(f, "{}", self)
+            }
+        }
+
+        impl<$t: $constraint> Hash for $struct_name<$t> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.$gl_id_field.hash(state);
+            }
+        }
+
+        impl<$t: $constraint>PartialEq for $struct_name<$t> {
+            fn eq(&self, other: &$struct_name<$t>) -> bool {
+                self.$gl_id_field == other.$gl_id_field
+            }
+        }
+
+        impl<$t: $constraint> Eq for $struct_name<$t> { }
+
+        impl<$t: $constraint> PartialOrd for $struct_name<$t> {
+            fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+                Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
+            }
+        }
+
+        impl<$t: $constraint> Ord for $struct_name<$t> {
+            fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+                (self.$gl_id_field).cmp(&(other.$gl_id_field))
+            }
+        }
+    };
 }
 
 impl_traits_for_gl_object!(Texture, texture_id);
@@ -159,6 +181,280 @@ impl_traits_for_gl_object!(Texture, texture_id);
 impl Drop for Texture {
     fn drop(&mut self) {
         self.gl_context.delete_textures(&[self.texture_id]);
+    }
+}
+
+/// Describes the vertex layout and offsets
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VertexLayout {
+    pub fields: Vec<VertexAttribute>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VertexAttribute {
+    pub name: String,
+    pub offset: usize,
+    pub layout_location: Option<usize>,
+    pub size: usize,
+    pub stride: usize,
+    pub attribute_type: VertexAttributeType,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VertexAttributeType {
+    /// Vertex attribute has type `f32`
+    Float,
+    /// Vertex attribute has type `f64`
+    Double,
+    /// Vertex attribute has type `u8`
+    UnsignedByte,
+    /// Vertex attribute has type `u16`
+    UnsignedShort,
+    /// Vertex attribute has type `u32`
+    UnsignedInt,
+}
+
+impl VertexAttributeType {
+
+    /// Returns the OpenGL id for the vertex attribute type, ex. `gl::UNSIGNED_BYTE` for `VertexAttributeType::UnsignedByte`.
+    pub fn get_gl_id(&self) -> GLuint {
+        use self::VertexAttributeType::*;
+        match self {
+            Float => gl::FLOAT,
+            Double => gl::DOUBLE,
+            UnsignedByte => gl::UNSIGNED_BYTE,
+            UnsignedShort => gl::UNSIGNED_SHORT,
+            UnsignedInt => gl::UNSIGNED_INT,
+        }
+    }
+}
+
+pub trait VertexLayoutDescription {
+    fn get_description() -> VertexLayout;
+}
+
+pub struct VertexBuffer<T: VertexLayoutDescription> {
+    pub vertex_buffer_id: GLuint,
+    pub vertex_buffer_len: usize,
+    pub vertex_layout: VertexLayout,
+    pub gl_context: Rc<Gl>,
+    pub vertex_buffer_type: PhantomData<T>,
+}
+
+impl<T: VertexLayoutDescription> ::std::fmt::Display for VertexBuffer<T> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f,
+            "VertexBuffer {{ buffer: {} (length: {}), layout: {:#?} }})",
+            self.vertex_buffer_id, self.vertex_buffer_len, self.vertex_layout
+        )
+    }
+}
+
+impl_traits_for_gl_object!(VertexBuffer<T: VertexLayoutDescription>, vertex_buffer_id);
+
+impl<T: VertexLayoutDescription> Drop for VertexBuffer<T> {
+    fn drop(&mut self) {
+        self.gl_context.delete_buffers(&[self.vertex_buffer_id]);
+    }
+}
+
+impl<T: VertexLayoutDescription> VertexBuffer<T> {
+
+    pub fn new(gl_context: Rc<Gl>, vertices: &[T]) -> Self {
+
+        use std::mem;
+
+        let vertex_layout = T::get_description();
+
+        let vertex_buffer_id = gl_context.gen_buffers(1);
+        let vertex_buffer_id = vertex_buffer_id[0];
+
+        // Upload vertex data to GPU
+        gl_context.bind_buffer(gl::ARRAY_BUFFER, 0);
+        gl_context.buffer_data_untyped(
+            gl::ARRAY_BUFFER,
+            (mem::size_of::<T>() * vertices.len()) as isize,
+            vertices.as_ptr() as *const c_void,
+            gl::STATIC_DRAW
+        );
+        gl_context.bind_buffer(gl::ARRAY_BUFFER, 0);
+
+        Self {
+            vertex_buffer_id,
+            vertex_buffer_len: vertices.len(),
+            vertex_layout,
+            gl_context,
+            vertex_buffer_type: PhantomData,
+        }
+    }
+
+    pub fn empty(gl_context: Rc<Gl>) -> Self {
+        Self::new(gl_context, &[])
+    }
+
+    /// Submits the vertex buffer description to OpenGL
+    pub fn bind(&mut self, shader: &GlShader) {
+        let gl_context = &*self.gl_context;
+        let vertices_are_normalized = false;
+        for vertex_attribute in self.vertex_layout.fields.iter() {
+            let attribute_location = vertex_attribute.layout_location
+                .map(|ll| ll as i32)
+                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, vertex_attribute.name.as_str()));
+
+            gl_context.vertex_attrib_pointer(
+                attribute_location as u32,
+                vertex_attribute.size as i32,
+                vertex_attribute.attribute_type.get_gl_id(),
+                vertices_are_normalized,
+                vertex_attribute.stride as i32,
+                vertex_attribute.offset as u32,
+            );
+            gl_context.enable_vertex_attrib_array(attribute_location as u32);
+        }
+    }
+
+    /// Unsets the vertex buffer description
+    pub fn unbind(&mut self, shader: &GlShader) {
+        let gl_context = &*self.gl_context;
+        for vertex_attribute in self.vertex_layout.fields.iter() {
+            let attribute_location = vertex_attribute.layout_location
+                .map(|ll| ll as i32)
+                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, vertex_attribute.name.as_str()));
+            gl_context.disable_vertex_attrib_array(attribute_location as u32);
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IndexBufferFormat {
+    Points,
+    Lines,
+    LineStrip,
+    Triangles,
+    TriangleStrip,
+    TriangleFan,
+}
+
+impl IndexBufferFormat {
+    /// Returns the `gl::TRIANGLE_STRIP` / `gl::POINTS`, etc.
+    pub fn get_gl_id(&self) -> GLuint {
+        use self::IndexBufferFormat::*;
+        match self {
+            Points => gl::POINTS,
+            Lines => gl::LINES,
+            LineStrip => gl::LINE_STRIP,
+            Triangles => gl::TRIANGLES,
+            TriangleStrip => gl::TRIANGLE_STRIP,
+            TriangleFan => gl::TRIANGLE_FAN,
+        }
+    }
+}
+
+pub struct IndexBuffer {
+    pub index_buffer_id: GLuint,
+    pub index_buffer_len: usize,
+    pub index_buffer_format: IndexBufferFormat,
+    pub gl_context: Rc<Gl>,
+}
+
+impl IndexBuffer {
+
+    pub fn new(gl_context: Rc<Gl>, indices: &[u32], format: IndexBufferFormat) -> Self {
+        use std::mem;
+
+        let index_buffer_id = gl_context.gen_buffers(1);
+        let index_buffer_id = index_buffer_id[0];
+
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, index_buffer_id);
+        gl_context.buffer_data_untyped(
+            gl::ELEMENT_ARRAY_BUFFER,
+            (mem::size_of::<u32>() * indices.len()) as isize,
+            indices.as_ptr() as *const c_void,
+            gl::STATIC_DRAW
+        );
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+
+        Self {
+            index_buffer_id,
+            index_buffer_len: indices.len(),
+            index_buffer_format: format,
+            gl_context,
+        }
+    }
+
+    /// Creates an empty `IndexBuffer` with a `gl::TRIANGLES` format.
+    pub fn empty(gl_context: Rc<Gl>) -> Self {
+        Self::new(gl_context, &[], IndexBufferFormat::Triangles)
+    }
+}
+
+impl ::std::fmt::Display for IndexBuffer {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "IndexBuffer {{ id: {}, length: {} }}", self.index_buffer_id, self.index_buffer_len)
+    }
+}
+
+impl Drop for IndexBuffer {
+    fn drop(&mut self) {
+        self.gl_context.delete_buffers(&[self.index_buffer_id]);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct Uniform {
+    pub name: String,
+    pub uniform_type: UniformType,
+}
+
+impl Uniform {
+    /// Calls `glGetUniformLocation` and then `glUniform4f` with the uniform value (depending on the type of the uniform)
+    pub fn bind(&self, shader: &GlShader) {
+        let gl_context = &*shader.gl_context;
+        let uniform_location = gl_context.get_uniform_location(shader.program_id, &self.name);
+        self.uniform_type.set(gl_context, uniform_location);
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum UniformType {
+    Float(f32),
+    FloatVec2([f32;2]),
+    FloatVec3([f32;3]),
+    FloatVec4([f32;4]),
+    Int(i32),
+    IntVec2([i32;2]),
+    IntVec3([i32;3]),
+    IntVec4([i32;4]),
+    UnsignedInt(u32),
+    UnsignedIntVec2([u32;2]),
+    UnsignedIntVec3([u32;3]),
+    UnsignedIntVec4([u32;4]),
+    Matrix2 { transpose: bool, matrix: [f32;2*2] },
+    Matrix3 { transpose: bool, matrix: [f32;3*3] },
+    Matrix4 { transpose: bool, matrix: [f32;4*4] },
+}
+
+impl UniformType {
+    /// Set a specific uniform
+    pub fn set(self, gl_context: &Gl, location: GLint) {
+        use self::UniformType::*;
+        match self {
+            Float(r) => gl_context.uniform_1f(location, r),
+            FloatVec2([r,g]) => gl_context.uniform_2f(location, r, g),
+            FloatVec3([r,g,b]) => gl_context.uniform_3f(location, r, g, b),
+            FloatVec4([r,g,b,a]) => gl_context.uniform_4f(location, r, g, b, a),
+            Int(r) => gl_context.uniform_1i(location, r),
+            IntVec2([r,g]) => gl_context.uniform_2i(location, r, g),
+            IntVec3([r,g,b]) => gl_context.uniform_3i(location, r, g, b),
+            IntVec4([r,g,b,a]) => gl_context.uniform_4i(location, r, g, b, a),
+            UnsignedInt(r) => gl_context.uniform_1ui(location, r),
+            UnsignedIntVec2([r,g]) => gl_context.uniform_2ui(location, r, g),
+            UnsignedIntVec3([r,g,b]) => gl_context.uniform_3ui(location, r, g, b),
+            UnsignedIntVec4([r,g,b,a]) => gl_context.uniform_4ui(location, r, g, b, a),
+            Matrix2 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
+            Matrix3 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
+            Matrix4 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
+        }
     }
 }
 
@@ -176,137 +472,16 @@ impl<'a> ::std::fmt::Display for FrameBuffer<'a> {
 
 impl_traits_for_gl_object!(FrameBuffer<'a>, framebuffer_id);
 
-pub struct VertexBuffer {
-    pub vertex_buffer_id: GLuint,
-    pub vertex_buffer_len: usize,
-    pub vertex_layout: VertexLayout,
-    pub gl_context: Rc<Gl>,
-}
-
-impl ::std::fmt::Display for VertexBuffer {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f,
-            "VertexBuffer {{ buffer: {} (length: {}), layout: {:#?} }})",
-            self.vertex_buffer_id, self.vertex_buffer_len, self.vertex_layout
-        )
-    }
-}
-
-impl_traits_for_gl_object!(VertexBuffer, vertex_buffer_id);
-
-impl Drop for VertexBuffer {
-    fn drop(&mut self) {
-        self.gl_context.delete_buffers(&[self.vertex_buffer_id]);
-    }
-}
-
-/// Describes the vertex layout and offsets
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VertexLayout {
-    pub fields: Vec<VertexAttribute>,
-};
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct VertexAttribute {
-    pub name: String,
-    pub offset: usize,
-    pub layout_location: Option<usize>,
-    pub size: usize,
-    pub stride: usize,
-    pub attribute_type: VertexAttributeType,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum VertexAttributeType {
-    Float,
-    UnsignedInt,
-    Int,
-}
-
-pub trait VertexLayoutDescription {
-    fn get_description() -> VertexLayout;
-}
-
-impl VertexBuffer {
-
-    pub fn new<T: VertexLayoutDescription>(gl_context: Rc<Gl>, vertices: &[T]) -> Self {
-
-        use std::mem;
-
-        let vertex_layout = T::get_description();
-
-        let vertex_buffer_id = gl::gen_buffers(1);
-        let vertex_buffer_id = index_buffer_id[0];
-
-        gl::buffer_data(gl::GL_ARRAY_BUFFER, mem::size_of::<T>() * vertices.len(), vertices, gl::STATIC_DRAW);
-
-        Self {
-            vertex_buffer_id,
-            vertex_buffer_len: vertices.len(),
-            vertex_layout,
-            gl_context,
-        }
-    }
-
-    pub fn empty<T: VertexLayoutDescription>(gl_context: Rc<Gl>) -> Self {
-        Self::new(&[])
-    }
-}
-
-impl Drop for VertexBuffer {
-    fn drop(&mut self) {
-        self.gl_context.delete_buffers(&[self.index_buffer_id]);
-    }
-}
-
-impl IndexBuffer {
-    pub fn new(gl_context: Rc<Gl>, indices: &[u32]) -> Self {
-        use std::mem;
-
-        let index_buffer_id = gl::gen_buffers(1);
-        let index_buffer_id = index_buffer_id[0];
-
-        gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, mem::size_of::<u32>() * indices.len(), indices, gl::STATIC_DRAW);
-
-        Self {
-            index_buffer_id,
-            index_buffer_len: indices.len(),
-            gl_context,
-        }
-    }
-}
-
-pub struct IndexBuffer {
-    pub index_buffer_id: GLuint,
-    pub index_buffer_len: usize,
-    pub gl_context: Rc<Gl>,
-}
-
-impl ::std::fmt::Display for IndexBuffer {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "IndexBuffer {{ id: {}, length: {} }}", self.index_buffer_id, self.index_buffer_len)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct Uniform {
-    pub name: String,
-    pub uniform_type: UniformType,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub enum UniformType {
-    Float(f32),
-    Double(f64),
-    UnsignedInt(usize),
-    SignedInt(usize),
-}
-
-
 impl<'a> FrameBuffer<'a> {
 
-    fn new(texture: &'a mut Texture) -> Self {
+    pub fn new(texture: &'a mut Texture) -> Self {
         let framebuffers = texture.gl_context.gen_framebuffers(1);
+
+        // Set "textures[0]" as the color attachement #0
+        texture.gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture.texture_id, 0);
+
+        // Check that the framebuffer is complete
+        debug_assert!(texture.gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
 
         Self {
             framebuffer_id: framebuffers[0],
@@ -318,10 +493,6 @@ impl<'a> FrameBuffer<'a> {
         self.texture.gl_context.bind_texture(gl::TEXTURE_2D, self.texture.texture_id);
         self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
         self.texture.gl_context.viewport(0, 0, self.texture.width as i32, self.texture.height as i32);
-    }
-
-    pub fn draw(&mut self, shader: GlShader, vertices: VertexBuffer) {
-        // TODO!
     }
 
     pub fn unbind(&mut self) {
@@ -343,7 +514,7 @@ pub struct GlShader {
 
 impl ::std::fmt::Display for GlShader {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "GlShader({})", self.program_id)
+        write!(f, "GlShader {{ program_id: {} }}", self.program_id)
     }
 }
 
@@ -485,6 +656,31 @@ impl GlShader {
         gl_context.delete_shader(fragment_shader_object);
 
         Ok(GlShader { program_id, gl_context })
+    }
+
+    /// Binds the appropriate vertex buffer
+    ///
+    /// **NOTE: `FrameBuffer::bind()` and `VertexBuffer::bind()` have to be called first!**
+    pub fn draw<T>(&mut self, fb: &mut FrameBuffer, vertices: &VertexBuffer<T>, indices: &IndexBuffer, uniforms: &[Uniform])
+        where T: VertexLayoutDescription
+    {
+        const INDEX_TYPE: GLuint = gl::UNSIGNED_INT; // since indices are in u32 format
+
+        let gl_context = &*fb.texture.gl_context;
+
+        gl_context.bind_buffer(gl::ARRAY_BUFFER, vertices.vertex_buffer_id);
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, vertices.vertex_buffer_id);
+        gl_context.use_program(self.program_id);
+
+        for uniform in uniforms {
+            uniform.bind(&self);
+        }
+
+        gl_context.draw_elements(indices.index_buffer_format.get_gl_id(), indices.index_buffer_len as i32, INDEX_TYPE, 0);
+
+        gl_context.use_program(0);
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+        gl_context.bind_buffer(gl::ARRAY_BUFFER, 0);
     }
 }
 
