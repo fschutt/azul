@@ -60,11 +60,6 @@ impl Texture {
             gl_context,
         }
     }
-
-    /// Sets the current texture as the target for `gl::COLOR_ATTACHEMENT0`, so that
-    pub fn get_framebuffer<'a>(&'a mut self) -> FrameBuffer<'a> {
-        FrameBuffer::new(self)
-    }
 }
 
 impl ::std::fmt::Display for Texture {
@@ -190,14 +185,19 @@ pub struct VertexLayout {
     pub fields: Vec<VertexAttribute>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VertexAttribute {
-    pub name: String,
-    pub offset: usize,
+    /// Attribute name of the vertex attribute in the vertex shader, i.e. `"vAttrXY"`
+    pub name: &'static str,
+    /// If the vertex shader has a specific location, (like `layout(location = 2) vAttrXY`),
+    /// use this instead of the name to look up the uniform location.
     pub layout_location: Option<usize>,
-    pub size: usize,
-    pub stride: usize,
+    /// Type of items of this attribute (i.e. for a `FloatVec2`, would be `VertexAttributeType::Float`)
     pub attribute_type: VertexAttributeType,
+    /// Size of a *single* item (i.e. for a `FloatVec2`, would be `mem::size_of::<f32>()`)
+    pub item_size: usize,
+    /// Number of items of this attribute (i.e. for a `FloatVec2`, would be `2` (= 2 consecutive f32 values))
+    pub item_count: usize,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -294,22 +294,28 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
 
     /// Submits the vertex buffer description to OpenGL
     pub fn bind(&mut self, shader: &GlShader) {
+
+        const VERTICES_ARE_NORMALIZED: bool = false;
+
         let gl_context = &*self.gl_context;
-        let vertices_are_normalized = false;
+
+        let mut offset = 0;
+
         for vertex_attribute in self.vertex_layout.fields.iter() {
             let attribute_location = vertex_attribute.layout_location
                 .map(|ll| ll as i32)
-                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, vertex_attribute.name.as_str()));
-
+                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, &vertex_attribute.name));
+            let stride = vertex_attribute.item_size * vertex_attribute.item_count;
             gl_context.vertex_attrib_pointer(
                 attribute_location as u32,
-                vertex_attribute.size as i32,
+                vertex_attribute.item_count as i32,
                 vertex_attribute.attribute_type.get_gl_id(),
-                vertices_are_normalized,
-                vertex_attribute.stride as i32,
-                vertex_attribute.offset as u32,
+                VERTICES_ARE_NORMALIZED,
+                stride as i32,
+                offset as u32,
             );
             gl_context.enable_vertex_attrib_array(attribute_location as u32);
+            offset += stride;
         }
     }
 
@@ -319,9 +325,27 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         for vertex_attribute in self.vertex_layout.fields.iter() {
             let attribute_location = vertex_attribute.layout_location
                 .map(|ll| ll as i32)
-                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, vertex_attribute.name.as_str()));
+                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, &vertex_attribute.name));
             gl_context.disable_vertex_attrib_array(attribute_location as u32);
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum GlApiVersion {
+    Gl { major: usize, minor: usize },
+    GlEs { major: usize, minor: usize },
+}
+
+impl GlApiVersion {
+    /// Returns the OpenGL version of the context
+    pub fn get(gl_context: &Gl) -> Self {
+        let mut major = [0];
+        unsafe { gl_context.get_integer_v(gl::MAJOR_VERSION, &mut major) };
+        let mut minor = [0];
+        unsafe { gl_context.get_integer_v(gl::MINOR_VERSION, &mut minor) };
+
+        GlApiVersion::Gl { major: major[0] as usize, minor: minor[0] as usize }
     }
 }
 
@@ -407,6 +431,11 @@ pub struct Uniform {
 }
 
 impl Uniform {
+
+    pub fn new<S: Into<String>>(name: S, uniform_type: UniformType) -> Self {
+        Self { name: name.into(), uniform_type }
+    }
+
     /// Calls `glGetUniformLocation` and then `glUniform4f` with the uniform value (depending on the type of the uniform)
     pub fn bind(&self, shader: &GlShader) {
         let gl_context = &*shader.gl_context;
@@ -499,6 +528,9 @@ impl<'a> FrameBuffer<'a> {
         self.texture.gl_context.bind_texture(gl::TEXTURE_2D, 0);
         self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
     }
+
+    /// Calls the destructor for this framebuffer and deletes the framebuffer
+    pub fn finish(self) { }
 }
 
 impl<'a> Drop for FrameBuffer<'a> {
@@ -554,7 +586,7 @@ impl ::std::fmt::Display for FragmentShaderCompileError {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GlShaderCompileError {
     Vertex(VertexShaderCompileError),
     Fragment(FragmentShaderCompileError),
@@ -564,6 +596,12 @@ impl_display!(GlShaderCompileError, {
     Vertex(vert_err) => format!("Failed to compile vertex shader: {}", vert_err),
     Fragment(frag_err) => format!("Failed to compile fragment shader: {}", frag_err),
 });
+
+impl ::std::fmt::Debug for GlShaderCompileError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
 #[derive(Clone)]
 pub struct GlShaderLinkError {
@@ -579,7 +617,7 @@ impl ::std::fmt::Display for GlShaderLinkError {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GlShaderCreateError {
     Compile(GlShaderCompileError),
     Link(GlShaderLinkError),
@@ -590,12 +628,20 @@ impl_display!(GlShaderCreateError, {
     Link(link_err) => format!("Shader linking error: {}", link_err),
 });
 
+impl ::std::fmt::Debug for GlShaderCreateError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 impl GlShader {
 
     /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader string.
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup necessary.
-    pub fn new(gl_context: Rc<Gl>, vertex_shader_source: &str, fragment_shader_source: &str) -> Result<Self, GlShaderCreateError> {
+    pub fn new(gl_context: Rc<Gl>, vertex_shader_source: &str, fragment_shader_source: &str)
+    -> Result<Self, GlShaderCreateError>
+    {
 
         fn str_to_bytes(input: &str) -> Vec<u8> {
             let mut v: Vec<u8> = input.into();

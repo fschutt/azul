@@ -18,16 +18,21 @@ fn render_my_texture(
     _state: &StackCheckedPointer<OpenGlAppState>,
     info: LayoutInfo<OpenGlAppState>,
     hi_dpi_bounds: HidpiAdjustedBounds)
--> Option<Texture>
-{
-    let physical_size = hi_dpi_bounds.get_physical_size();
-    let texture = info.window.read_only_window().create_texture(
-        physical_size.width as u32,
-        physical_size.height as u32
-    );
+-> Texture {
 
-    texture.as_surface().clear_color(0.0, 1.0, 0.0, 1.0);
-    Some(texture)
+    let physical_size = hi_dpi_bounds.get_physical_size();
+
+    let mut texture = Texture::new(info.gl_context.clone(), physical_size.width, physical_size.height);
+
+    {
+        let mut fb = FrameBuffer::new(&mut texture);
+        fb.bind();
+        info.gl_context.clear_color(0.0, 1.0, 0.0, 1.0);
+        fb.unbind();
+        fb.finish();
+    }
+
+    texture
 }
 
 fn main() {

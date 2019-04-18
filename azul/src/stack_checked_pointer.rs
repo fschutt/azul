@@ -84,10 +84,10 @@ impl<T> StackCheckedPointer<T> {
 
     pub unsafe fn invoke_mut_texture<U: Sized>(
         &self,
-        callback: fn(&mut U, LayoutInfo<T>, HidpiAdjustedBounds) -> Option<Texture>,
+        callback: fn(&mut U, LayoutInfo<T>, HidpiAdjustedBounds) -> Texture,
         window_info: LayoutInfo<T>,
         dimensions: HidpiAdjustedBounds)
-    -> Option<Texture>
+    -> Texture
     {
         callback(&mut *(self.internal as *mut U), window_info, dimensions)
     }

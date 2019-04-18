@@ -1,17 +1,12 @@
 use std::{
     fmt,
     rc::Rc,
-    sync::{Mutex, atomic::{Ordering, AtomicUsize}},
+    sync::{atomic::{Ordering, AtomicUsize}},
     cell::{RefCell, RefMut},
     collections::hash_map::Entry::*,
 };
 #[cfg(feature = "svg_parsing")]
 use std::io::{Error as IoError};
-use glium::{
-    backend::Facade, index::PrimitiveType,
-    DrawParameters, IndexBuffer, VertexBuffer,
-    Program, Api, Surface,
-};
 use lyon::{
     tessellation::{
         FillOptions, BuffersBuilder, FillVertex, FillTessellator,
@@ -30,11 +25,14 @@ use lyon::{
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
 use azul_css::{ColorU, ColorF, StyleTextAlignmentHorz};
-use gleam::gl::Gl;
+use gleam::gl::{self, Gl};
 use {
     FastHashMap,
     prelude::GlyphInstance,
-    gl::{Texture, GlShader},
+    gl::{
+        VertexBuffer, VertexLayout, VertexLayoutDescription, VertexAttributeType, FrameBuffer,
+        VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
+    },
     window::FakeWindow,
     app_resources::{AppResources, FontId},
     text_layout::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs, TextLayoutOptions},
@@ -80,31 +78,35 @@ const SVG_VERTEX_SHADER: &str = "
     #define attribute in
     #define varying out
 
-    in vec2 xy;
-    in vec2 normal;
+    in vec2 vAttrXY;
+    in vec2 vAttrNormal;
 
-    uniform vec2 bbox_size;
-    uniform vec2 offset;
-    uniform float z_index;
-    uniform float zoom;
-    uniform vec2 rotation_center;
-    uniform float rotation_sin;
-    uniform float rotation_cos;
-    uniform vec2 scale_factor;
-    uniform vec2 translate_px;
+    uniform vec2 vBboxSize;
+    uniform vec2 vGlobalOffset;
+    uniform float vZIndex;
+    uniform float vZoom;
+    uniform vec2 vRotationCenter;
+    uniform float vRotationSin;
+    uniform float vRotationCos;
+    uniform vec2 vScaleFactor;
+    uniform vec2 vTranslatePx;
 
     void main() {
-        // Rotation first, then scale, then translation -- all in pixel space
-        vec2 rotation_center_xy = xy - rotation_center;
-        float new_x = (rotation_center_xy.x * rotation_cos) - (rotation_center_xy.y * rotation_sin);
-        float new_y = (xy.x * rotation_sin) + (xy.y * rotation_cos);
-        vec2 rotated_xy = vec2(new_x, new_y);
-        vec2 scaled_xy = rotated_xy * scale_factor;
-        vec2 translated_xy = scaled_xy + translate_px + rotation_center;
 
-        vec2 position_centered = translated_xy / bbox_size;
-        vec2 position_zoomed = position_centered * vec2(zoom);
-        gl_Position = vec4(position_zoomed + (offset / bbox_size) - vec2(1.0), z_index, 1.0);
+        // Rotation first, then scale, then translation -- all in pixel space
+        vec2 vRotationCenterXY = vAttrXY - vRotationCenter;
+        vec2 vAttrXYRotated = vec2(
+            (vRotationCenterXY.x * rotation_cos) - (vRotationCenterXY.y * vRotationSin),
+            (vAttrXY.x * vRotationSin) + (vAttrXY.y * rotation_cos)
+        );
+
+        vec2 vAttrXYScaled = vAttrXYRotated * scale_factor;
+        vec2 vAttrXYTranslated = vAttrXYScaled + vTranslatePx + vRotationCenter;
+
+        vec2 vPositionCentered = vAttrXYTranslated / vBboxSize;
+        vec2 vPositionZoomed = vPositionCentered * vec2(vZoom);
+
+        gl_Position = vec4(vPositionZoomed + (vGlobalOffset / vBboxSize) - vec2(1.0), vZIndex, 1.0);
     }";
 
 const SVG_FRAGMENT_SHADER: &str = "
@@ -114,21 +116,21 @@ const SVG_FRAGMENT_SHADER: &str = "
     #define attribute in
     #define varying out
 
-    uniform vec4 color;
-    out vec4 out_color;
+    uniform vec4 fFillColor;
+    out vec4 fOutColor;
 
     // The shader output is in SRGB color space,
     // and the shader assumes that the input colors are in SRGB, too.
 
     void main() {
-        out_color = color;
+        fOutColor = fFillColor;
     }
 ";
 
-fn prefix_gl_version(shader: &str, gl: Api) -> String {
+fn prefix_gl_version(shader: &str, gl: GlApiVersion) -> String {
     match gl {
-        Api::Gl => format!("{}\n{}", SHADER_VERSION_GL, shader),
-        Api::GlEs => format!("{}\n{}", SHADER_VERSION_GLES, shader),
+        GlApiVersion::Gl { .. } => format!("{}\n{}", SHADER_VERSION_GL, shader),
+        GlApiVersion::GlEs { .. } => format!("{}\n{}", SHADER_VERSION_GLES, shader),
     }
 }
 
@@ -141,12 +143,12 @@ impl SvgShader {
 
     pub fn new(gl_context: Rc<Gl>) -> Self {
 
-        let current_gl_api = gl_context.get_opengl_version().0;
+        let current_gl_api = GlApiVersion::get(&*gl_context);
         let vertex_source_prefixed = prefix_gl_version(SVG_VERTEX_SHADER, current_gl_api);
         let fragment_source_prefixed = prefix_gl_version(SVG_FRAGMENT_SHADER, current_gl_api);
 
         Self {
-            program: GlShader::new(context, vertex_source_prefixed, fragment_source_prefixed).unwrap(),
+            program: GlShader::new(gl_context, &vertex_source_prefixed, &fragment_source_prefixed).unwrap(),
         }
     }
 }
@@ -155,9 +157,9 @@ pub struct SvgCache {
     // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
     gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
     stroke_gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
-    stroke_vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
-    shader: Mutex<Option<SvgShader>>,
+    vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
+    stroke_vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
+    shader: RefCell<Option<SvgShader>>,
 }
 
 impl Default for SvgCache {
@@ -167,17 +169,17 @@ impl Default for SvgCache {
             stroke_gpu_ready_to_upload_cache: FastHashMap::default(),
             vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
             stroke_vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
-            shader: Mutex::new(None),
+            shader: RefCell::new(None),
         }
     }
 }
 
-fn fill_vertex_buffer_cache<'a, F: Facade>(
+fn fill_vertex_buffer_cache<'a>(
     id: &SvgLayerId,
-    mut rmut: RefMut<'a, FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>>,
+    mut rmut: RefMut<'a, FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
     rnotmut: &FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    window: &F)
-{
+    gl_context: Rc<Gl>,
+) {
     use std::collections::hash_map::Entry::*;
 
     match rmut.entry(*id) {
@@ -187,8 +189,8 @@ fn fill_vertex_buffer_cache<'a, F: Facade>(
                 Some(s) => s,
                 None => return,
             };
-            let vertex_buffer = VertexBuffer::new(window, vbuf).unwrap();
-            let index_buffer = IndexBuffer::new(window, PrimitiveType::TrianglesList, ibuf).unwrap();
+            let vertex_buffer = VertexBuffer::new(gl_context.clone(), vbuf);
+            let index_buffer = IndexBuffer::new(gl_context, ibuf, IndexBufferFormat::TriangleStrip);
             v.insert(Rc::new((vertex_buffer, index_buffer)));
         }
     }
@@ -202,22 +204,17 @@ impl SvgCache {
     }
 
     /// Builds and compiles the SVG shader if the shader isn't already present
-    fn init_shader<F: Facade + ?Sized>(&self, display: &F) -> SvgShader {
-        let mut shader_lock = self.shader.lock().unwrap();
-        if shader_lock.is_none() {
-            *shader_lock = Some(SvgShader::new(display));
-        }
-        shader_lock.as_ref().map(|s| s.clone()).unwrap()
+    fn init_shader<'a>(&'a self, gl_context: Rc<Gl>) {
+        self.shader.borrow_mut().get_or_insert_with(|| SvgShader::new(gl_context));
     }
 
-    fn get_stroke_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
+    fn get_stroke_vertices_and_indices(&self, gl_context: Rc<Gl>, id: &SvgLayerId)
+    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
     {
-
         {
             let rmut = self.stroke_vertex_index_buffer_cache.borrow_mut();
             let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
-            fill_vertex_buffer_cache(id, rmut, rnotmut, window);
+            fill_vertex_buffer_cache(id, rmut, rnotmut, gl_context);
         }
 
         self.stroke_vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
@@ -227,8 +224,8 @@ impl SvgCache {
     ///
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
     /// in sync, a panic should never happen
-    fn get_vertices_and_indices<'a, F: Facade>(&'a self, window: &F, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer<u32>)>>
+    fn get_vertices_and_indices(&self, gl_context: Rc<Gl>, id: &SvgLayerId)
+    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
     {
         // We need the SvgCache to call this function immutably, otherwise we can't
         // use it from the Layout::layout() function
@@ -236,7 +233,7 @@ impl SvgCache {
             let rmut = self.vertex_index_buffer_cache.borrow_mut();
             let rnotmut = &self.gpu_ready_to_upload_cache;
 
-            fill_vertex_buffer_cache(id, rmut, rnotmut, window);
+            fill_vertex_buffer_cache(id, rmut, rnotmut, gl_context);
         }
 
         self.vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
@@ -1041,7 +1038,30 @@ pub struct SvgVert {
     pub normal: (f32, f32),
 }
 
-implement_vertex!(SvgVert, xy, normal);
+// implement_vertex!(SvgVert, xy, normal);
+impl VertexLayoutDescription for SvgVert {
+    fn get_description() -> VertexLayout {
+        use std::mem;
+        VertexLayout {
+            fields: vec![
+                VertexAttribute {
+                    name: "vAttrXY",
+                    layout_location: None,
+                    attribute_type: VertexAttributeType::Float,
+                    item_size: mem::size_of::<f32>(),
+                    item_count: 2,
+                },
+                VertexAttribute {
+                    name: "vAttrNormal",
+                    layout_location: None,
+                    attribute_type: VertexAttributeType::Float,
+                    item_size: mem::size_of::<f32>(),
+                    item_count: 2,
+                }
+            ],
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct SvgWorldPixel;
@@ -1483,7 +1503,7 @@ pub struct Svg {
     pub background_color: ColorU,
     /// Multisampling (default: 1.0) - since there is no anti-aliasing yet, simply
     /// increases the texture size that is drawn to.
-    pub multisampling_factor: f32,
+    pub multisampling_factor: usize,
 }
 
 impl Default for Svg {
@@ -1495,7 +1515,7 @@ impl Default for Svg {
             enable_fxaa: false,
             enable_hidpi: true,
             background_color: ColorU { r: 0, b: 0, g: 0, a: 0 },
-            multisampling_factor: 1.0,
+            multisampling_factor: 1,
         }
     }
 }
@@ -2012,7 +2032,7 @@ impl Svg {
     /// Since there is no anti-aliasing yet, this will enlarge the texture that is drawn to by
     /// the factor X. Default is `1.0`, but you could for example, render to a `1.2x` texture.
     #[inline]
-    pub fn with_multisampling_factor(mut self, multisampling_factor: f32) -> Self {
+    pub fn with_multisampling_factor(mut self, multisampling_factor: usize) -> Self {
         self.multisampling_factor = multisampling_factor;
         self
     }
@@ -2029,105 +2049,105 @@ impl Svg {
     /// The final texture will be width * height large. Note that width and height
     /// need to be multiplied with the current `HiDPI` factor, otherwise the texture
     /// will be blurry on HiDPI screens. This isn't done automatically.
-    pub fn render_svg<T>(
-        &self,
-        svg_cache: &SvgCache,
-        window: &FakeWindow<T>,
-        width: usize,
-        height: usize
-    ) -> Texture {
+    pub fn render_svg<T>(&self, svg_cache: &SvgCache, window: &FakeWindow<T>, width: usize, height: usize) -> Texture {
 
-        let texture_width = (width as f32 * self.multisampling_factor) as u32;
-        let texture_height = (height as f32 * self.multisampling_factor) as u32;
+        let texture_width = width;
+        let texture_height = height;
 
-        // TODO: This currently doesn't work - only the first draw call is drawn
-        // This is probably because either webrender or glium messes with the texture
-        // in some way. Need to investigate.
         let bg_col: ColorF = self.background_color.into();
+
+        let multisampling_factor = match self.multisampling_factor {
+            0 => None,
+            i if i <= 2 => Some(2),
+            i if i <= 4 => Some(4),
+            i if i <= 8 => Some(8),
+            i if i <= 16 => Some(16),
+            _ => None,
+        };
 
         let z_index: f32 = 0.5;
         let bbox_size = TypedSize2D::new(texture_width as f32, texture_height as f32);
-        let shader = svg_cache.init_shader(&read_only_window);
 
         let hidpi = window.get_hidpi_factor() as f32;
 
-        let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom } * self.multisampling_factor;
+        let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom } * self.multisampling_factor as f32;
         let pan = if self.enable_hidpi { (self.pan.0 * hidpi, self.pan.1 * hidpi) } else { self.pan };
-        let pan = (pan.0 * self.multisampling_factor, pan.1 * self.multisampling_factor);
+        let pan = (pan.0 * self.multisampling_factor as f32, pan.1 * self.multisampling_factor as f32);
 
-/*
-        let draw_options = DrawParameters {
-            primitive_restart_index: true,
-            .. Default::default()
-        };
-*/
         let gl_context = window.get_gl_context();
+        svg_cache.init_shader(gl_context.clone());
+
+        let mut shader = svg_cache.shader.borrow_mut();
+        let shader = &mut (*shader).as_mut().unwrap().program;
 
         let mut tex = Texture::new(gl_context.clone(), texture_width, texture_height);
-        let fb = tex.get_framebuffer();
 
-        fb.bind();
+        {
+            let mut fb = FrameBuffer::new(&mut tex);
 
-        gl_context.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+            fb.bind();
 
-        for layer in &self.layers {
+            gl_context.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+            gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
 
-            let style = match &layer {
-                SvgLayerResource::Reference((_, style)) => *style,
-                SvgLayerResource::Direct(d) => d.style,
-            };
+            for layer in &self.layers {
 
-            let fill_vi = match &layer {
-                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(&read_only_window, layer_id),
-                SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
-                    let vertex_buffer = VertexBuffer::new(&read_only_window, &f.vertices).unwrap();
-                    let index_buffer = IndexBuffer::new(&read_only_window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                    Rc::new((vertex_buffer, index_buffer))
-                }),
-            };
+                let style = match &layer {
+                    SvgLayerResource::Reference((_, style)) => *style,
+                    SvgLayerResource::Direct(d) => d.style,
+                };
 
-            let stroke_vi = match &layer {
-                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&read_only_window, layer_id),
-                SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
-                    let vertex_buffer = VertexBuffer::new(&read_only_window, &f.vertices).unwrap();
-                    let index_buffer = IndexBuffer::new(&read_only_window, PrimitiveType::TrianglesList, &f.indices).unwrap();
-                    Rc::new((vertex_buffer, index_buffer))
-                }),
-            };
+                let fill_vi = match &layer {
+                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(gl_context.clone(), layer_id),
+                    SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
+                        let vertex_buffer = VertexBuffer::new(gl_context.clone(), &f.vertices);
+                        let index_buffer = IndexBuffer::new(gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
+                        Rc::new((vertex_buffer, index_buffer))
+                    }),
+                };
 
-            if let (Some(fill_color), Some(fill_vi))  = (style.fill, fill_vi) {
-                let (fill_vertices, fill_indices) = &*fill_vi;
-                draw_vertex_buffer_to_surface(
-                    &mut surface, &shader.program, &fill_vertices, &fill_indices,
-                    &draw_options, &bbox_size, fill_color, z_index, pan, zoom, &style.transform);
+                let stroke_vi = match &layer {
+                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(gl_context.clone(), layer_id),
+                    SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
+                        let vertex_buffer = VertexBuffer::new(gl_context.clone(), &f.vertices);
+                        let index_buffer = IndexBuffer::new(gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
+                        Rc::new((vertex_buffer, index_buffer))
+                    }),
+                };
+
+                if let (Some(fill_color), Some(fill_vi))  = (style.fill, fill_vi) {
+                    let (fill_vertices, fill_indices) = &*fill_vi;
+                    let uniforms = build_uniforms(&bbox_size, fill_color, z_index, pan, zoom, &style.transform);
+                    shader.draw(&mut fb, fill_vertices, fill_indices, &uniforms);
+                }
+
+                if let (Some(stroke_color), Some(stroke_vi))  = (style.stroke, stroke_vi) {
+                    let (stroke_vertices, stroke_indices) = &*stroke_vi;
+                    let uniforms = build_uniforms(&bbox_size, stroke_color.0, z_index, pan, zoom, &style.transform);
+                    shader.draw(&mut fb, stroke_vertices, stroke_indices, &uniforms);
+                }
             }
 
-            if let (Some(stroke_color), Some(stroke_vi))  = (style.stroke, stroke_vi) {
-                let (stroke_vertices, stroke_indices) = &*stroke_vi;
-                draw_vertex_buffer_to_surface(&mut surface, &shader.program, &stroke_vertices, &stroke_indices,
-                    &draw_options, &bbox_size, stroke_color.0, z_index, pan, zoom, &style.transform);
-            }
+            gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+            fb.unbind();
+            fb.finish();
         }
-
-        fb.unbind();
 
         tex
     }
 }
 
-fn draw_vertex_buffer_to_surface<S: Surface>(
-        surface: &mut S,
-        shader: &Program,
-        vertices: &VertexBuffer<SvgVert>,
-        indices: &IndexBuffer<u32>,
-        draw_options: &DrawParameters,
-        bbox_size: &TypedSize2D<f32, SvgWorldPixel>,
-        color: ColorU,
-        z_index: f32,
-        pan: (f32, f32),
-        zoom: f32,
-        layer_transform: &SvgTransform)
-{
+fn build_uniforms(
+    bbox_size: &TypedSize2D<f32, SvgWorldPixel>,
+    color: ColorU,
+    z_index: f32,
+    pan: (f32, f32),
+    zoom: f32,
+    layer_transform: &SvgTransform
+) -> Vec<Uniform> {
+
+    use gl::UniformType::*;
+
     let color: ColorF = color.into();
 
     let (layer_rotation_center, layer_rotation_degrees) = layer_transform.rotation.unwrap_or_default();
@@ -2135,27 +2155,20 @@ fn draw_vertex_buffer_to_surface<S: Surface>(
     let layer_translation = layer_transform.translation.unwrap_or_default();
     let layer_scale_factor = layer_transform.scale.unwrap_or_default();
 
-    let uniforms = uniform! {
+    vec! [
 
-        // vertex shader
-        bbox_size: (bbox_size.width / 2.0, bbox_size.height / 2.0),
-        offset: (pan.0, pan.1),
-        z_index: z_index,
-        zoom: zoom,
-        rotation_center: (layer_rotation_center.x, layer_rotation_center.y),
-        rotation_sin: rotation_sin,
-        rotation_cos: rotation_cos,
-        scale_factor: (layer_scale_factor.x, layer_scale_factor.y),
-        translate_px: (layer_translation.x, layer_translation.y),
+        // Vertex shader
+        Uniform::new("vBboxSize", FloatVec2([bbox_size.width / 2.0, bbox_size.height / 2.0])),
+        Uniform::new("vGlobalOffset", FloatVec2([pan.0, pan.1])),
+        Uniform::new("vZIndex", Float(z_index)),
+        Uniform::new("vZoom", Float(zoom)),
+        Uniform::new("vRotationCenter", FloatVec2([layer_rotation_center.x, layer_rotation_center.y])),
+        Uniform::new("vRotationSin", Float(rotation_sin)),
+        Uniform::new("vRotationCos", Float(rotation_cos)),
+        Uniform::new("vScaleFactor", FloatVec2([layer_scale_factor.x, layer_scale_factor.y])),
+        Uniform::new("vTranslatePx", FloatVec2([layer_translation.x, layer_translation.y])),
 
-        // fragment shader
-        color: (
-            color.r as f32,
-            color.g as f32,
-            color.b as f32,
-            color.a as f32
-        ),
-    };
-
-    surface.draw(vertices, indices, shader, &uniforms, draw_options).unwrap();
+        // Fragment shader
+        Uniform::new("fFillColor", FloatVec4([color.r, color.g, color.b, color.a])),
+    ]
 }

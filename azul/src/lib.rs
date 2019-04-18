@@ -135,7 +135,6 @@
 #![deny(clippy::all)]
 
 #[macro_use(warn, error, lazy_static)]
-#[cfg_attr(feature = "svg", macro_use(implement_vertex, uniform))]
 pub extern crate azul_dependencies;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]

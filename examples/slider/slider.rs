@@ -5,6 +5,8 @@ extern crate azul;
 use azul::prelude::*;
 use std::time::Duration;
 
+macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/slider/slider.css")) }
+
 #[derive(Default)]
 struct DragMeApp {
     width: Option<f32>,
@@ -78,7 +80,6 @@ fn update_drag(state: &mut State, event: &mut Event) -> UpdateScreen {
 }
 
 fn main() {
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/dragger.css")) }
 
     let mut app = App::new(DragMeApp::default(), AppConfig::default()).unwrap();
 

@@ -14,6 +14,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/svg/svg.css")) }
+
 static TEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -35,9 +37,9 @@ pub struct Map {
     pub font_cache: VectorizedFontCache,
     pub texts: HashMap<TextId, SvgText>,
     pub hovered_text: Option<TextId>,
-    pub zoom: f64,
-    pub pan_horz: f64,
-    pub pan_vert: f64,
+    pub zoom: f32,
+    pub pan_horz: f32,
+    pub pan_vert: f32,
 }
 
 impl Layout for MyAppData {
@@ -63,22 +65,20 @@ fn gl_texture_dom(map: &Map, data: &MyAppData) -> Dom<MyAppData> {
         .with_callback(On::MouseOver, Callback(check_hovered_font))
 }
 
-fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: LayoutInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
+fn render_map_callback(ptr: &StackCheckedPointer<MyAppData>, window_info: LayoutInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Texture {
     unsafe { ptr.invoke_mut_texture(render_map, window_info, dimensions) }
 }
 
-fn render_map(map: &mut Map, info: LayoutInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Option<Texture> {
+fn render_map(map: &mut Map, info: LayoutInfo<MyAppData>, dimensions: HidpiAdjustedBounds) -> Texture {
     let physical_size = dimensions.get_physical_size();
-    Some(
-         Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
-            .with_pan(map.pan_horz as f32, map.pan_vert as f32)
-            .with_zoom(map.zoom as f32)
-            .render_svg(
-                &map.cache, &info.window,
-                physical_size.width as usize,
-                physical_size.height  as usize,
-            )
-    )
+    Svg::with_layers(build_layers(&map.layers, &map.texts, &map.hovered_text, &map.font_cache, &info.resources))
+        .with_pan(map.pan_horz as f32, map.pan_vert as f32)
+        .with_zoom(map.zoom as f32)
+        .render_svg(
+            &map.cache, &info.window,
+            physical_size.width as usize,
+            physical_size.height  as usize,
+        )
 }
 
 fn build_layers(
@@ -240,9 +240,6 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut Cal
 }
 
 fn main() {
-
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/debug.css")) }
-
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
     let mut app = App::new(MyAppData { map: None }, AppConfig::default()).unwrap();
     let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
