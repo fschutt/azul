@@ -268,7 +268,7 @@ pub enum WindowMonitorTarget {
 type NativeMonitorId = u32;
 // HMONITOR, (*mut c_void), casted to a usize
 #[cfg(target_os = "windows")]
-type MonitorIdExt = usize;
+type NativeMonitorId = usize;
 #[cfg(target_os = "macos")]
 type NativeMonitorId = u32;
 
@@ -470,8 +470,6 @@ impl<T> Window<T> {
         mut css: Css,
         background_color: ColorU,
     ) -> Result<Self, WindowCreateError> {
-
-        use window_state::winit_translate;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.

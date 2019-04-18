@@ -80,39 +80,81 @@ impl ::std::fmt::Display for Texture {
     }
 }
 
-impl ::std::fmt::Debug for Texture {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}", self)
-    }
+macro_rules! impl_traits_for_gl_object {
+    ($struct_name:ident, $gl_id_field:ident) => {
+
+        impl ::std::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                write!(f, "{}", self)
+            }
+        }
+
+        impl Hash for $struct_name {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.$gl_id_field.hash(state);
+            }
+        }
+
+        impl PartialEq for $struct_name {
+            /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
+            /// actual contents of the texture.
+            fn eq(&self, other: &$struct_name) -> bool {
+                self.$gl_id_field == other.$gl_id_field
+            }
+        }
+
+        impl Eq for $struct_name { }
+
+        impl PartialOrd for $struct_name {
+            fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+                Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
+            }
+        }
+
+        impl Ord for $struct_name {
+            fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+                (self.$gl_id_field).cmp(&(other.$gl_id_field))
+            }
+        }
+    };
+    ($struct_name:ident<$lt:lifetime>, $gl_id_field:ident) => {
+        impl<$lt> ::std::fmt::Debug for $struct_name<$lt> {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                write!(f, "{}", self)
+            }
+        }
+
+        impl<$lt> Hash for $struct_name<$lt> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.$gl_id_field.hash(state);
+            }
+        }
+
+        impl<$lt>PartialEq for $struct_name<$lt> {
+            /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
+            /// actual contents of the texture.
+            fn eq(&self, other: &$struct_name) -> bool {
+                self.$gl_id_field == other.$gl_id_field
+            }
+        }
+
+        impl<$lt> Eq for $struct_name<$lt> { }
+
+        impl<$lt> PartialOrd for $struct_name<$lt> {
+            fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+                Some((self.$gl_id_field).cmp(&(other.$gl_id_field)))
+            }
+        }
+
+        impl<$lt> Ord for $struct_name<$lt> {
+            fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+                (self.$gl_id_field).cmp(&(other.$gl_id_field))
+            }
+        }
+    };
 }
 
-impl Hash for Texture {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.texture_id.hash(state);
-    }
-}
-
-impl PartialEq for Texture {
-    /// Note: Comparison uses only the OpenGL ID, it doesn't compare the
-    /// actual contents of the texture.
-    fn eq(&self, other: &Texture) -> bool {
-        self.texture_id == other.texture_id
-    }
-}
-
-impl Eq for Texture { }
-
-impl PartialOrd for Texture {
-    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-        Some((self.texture_id).cmp(&(other.texture_id)))
-    }
-}
-
-impl Ord for Texture {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-        (self.texture_id).cmp(&(other.texture_id))
-    }
-}
+impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
@@ -121,27 +163,149 @@ impl Drop for Texture {
 }
 
 /// RGBA-backed framebuffer
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FrameBuffer<'a> {
     pub framebuffer_id: GLuint,
     pub texture: &'a mut Texture,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct VertexBuffer {
-    pub vertex_buffer_id: GLuint,
-    // pub gl_context: Rc<Gl>,
+impl<'a> ::std::fmt::Display for FrameBuffer<'a> {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "FrameBuffer {{ id: {}, texture: {} }}", self.framebuffer_id, self.texture)
+    }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+impl_traits_for_gl_object!(FrameBuffer<'a>, framebuffer_id);
+
+pub struct VertexBuffer {
+    pub vertex_buffer_id: GLuint,
+    pub vertex_buffer_len: usize,
+    pub vertex_layout: VertexLayout,
+    pub gl_context: Rc<Gl>,
+}
+
+impl ::std::fmt::Display for VertexBuffer {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f,
+            "VertexBuffer {{ buffer: {} (length: {}), layout: {:#?} }})",
+            self.vertex_buffer_id, self.vertex_buffer_len, self.vertex_layout
+        )
+    }
+}
+
+impl_traits_for_gl_object!(VertexBuffer, vertex_buffer_id);
+
+impl Drop for VertexBuffer {
+    fn drop(&mut self) {
+        self.gl_context.delete_buffers(&[self.vertex_buffer_id]);
+    }
+}
+
+/// Describes the vertex layout and offsets
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VertexLayout {
+    pub fields: Vec<VertexAttribute>,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VertexAttribute {
+    pub name: String,
+    pub offset: usize,
+    pub layout_location: Option<usize>,
+    pub size: usize,
+    pub stride: usize,
+    pub attribute_type: VertexAttributeType,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VertexAttributeType {
+    Float,
+    UnsignedInt,
+    Int,
+}
+
+pub trait VertexLayoutDescription {
+    fn get_description() -> VertexLayout;
+}
+
+impl VertexBuffer {
+
+    pub fn new<T: VertexLayoutDescription>(gl_context: Rc<Gl>, vertices: &[T]) -> Self {
+
+        use std::mem;
+
+        let vertex_layout = T::get_description();
+
+        let vertex_buffer_id = gl::gen_buffers(1);
+        let vertex_buffer_id = index_buffer_id[0];
+
+        gl::buffer_data(gl::GL_ARRAY_BUFFER, mem::size_of::<T>() * vertices.len(), vertices, gl::STATIC_DRAW);
+
+        Self {
+            vertex_buffer_id,
+            vertex_buffer_len: vertices.len(),
+            vertex_layout,
+            gl_context,
+        }
+    }
+
+    pub fn empty<T: VertexLayoutDescription>(gl_context: Rc<Gl>) -> Self {
+        Self::new(&[])
+    }
+}
+
+impl Drop for VertexBuffer {
+    fn drop(&mut self) {
+        self.gl_context.delete_buffers(&[self.index_buffer_id]);
+    }
+}
+
+impl IndexBuffer {
+    pub fn new(gl_context: Rc<Gl>, indices: &[u32]) -> Self {
+        use std::mem;
+
+        let index_buffer_id = gl::gen_buffers(1);
+        let index_buffer_id = index_buffer_id[0];
+
+        gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, mem::size_of::<u32>() * indices.len(), indices, gl::STATIC_DRAW);
+
+        Self {
+            index_buffer_id,
+            index_buffer_len: indices.len(),
+            gl_context,
+        }
+    }
+}
+
 pub struct IndexBuffer {
     pub index_buffer_id: GLuint,
-    // pub gl_context: Rc<Gl>,
+    pub index_buffer_len: usize,
+    pub gl_context: Rc<Gl>,
 }
+
+impl ::std::fmt::Display for IndexBuffer {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "IndexBuffer {{ id: {}, length: {} }}", self.index_buffer_id, self.index_buffer_len)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct Uniform {
+    pub name: String,
+    pub uniform_type: UniformType,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum UniformType {
+    Float(f32),
+    Double(f64),
+    UnsignedInt(usize),
+    SignedInt(usize),
+}
+
 
 impl<'a> FrameBuffer<'a> {
 
-    fn new(texture: &'a Texture) -> Self {
+    fn new(texture: &'a mut Texture) -> Self {
         let framebuffers = texture.gl_context.gen_framebuffers(1);
 
         Self {
@@ -173,64 +337,50 @@ impl<'a> Drop for FrameBuffer<'a> {
 }
 
 pub struct GlShader {
-    pub shader_program: GLuint,
+    pub program_id: GLuint,
     pub gl_context: Rc<Gl>,
 }
 
 impl ::std::fmt::Display for GlShader {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "GlShader({})", self.shader_program)
+        write!(f, "GlShader({})", self.program_id)
     }
 }
 
-impl ::std::fmt::Debug for GlShader {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "{}", self)
-    }
-}
-
-impl ::std::hash::Hash for GlShader {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-        state.write_usize(self.shader_program as usize);
-    }
-}
-
-impl PartialEq for GlShader {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.shader_program as usize == rhs.shader_program as usize
-    }
-}
-
-impl PartialOrd for GlShader {
-    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-        Some((self.shader_program as usize).cmp(&(other.shader_program as usize)))
-    }
-}
-
-impl Ord for GlShader {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-        (self.shader_program as usize).cmp(&(other.shader_program as usize))
-    }
-}
-
-impl Eq for GlShader { }
+impl_traits_for_gl_object!(GlShader, program_id);
 
 impl Drop for GlShader {
     fn drop(&mut self) {
-        self.gl_context.delete_program(self.shader_program);
+        self.gl_context.delete_program(self.program_id);
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone)]
 pub struct VertexShaderCompileError {
     pub error_id: i32,
     pub info_log: String
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+impl_traits_for_gl_object!(VertexShaderCompileError, error_id);
+
+impl ::std::fmt::Display for VertexShaderCompileError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "E{}: {}", self.error_id, self.info_log)
+    }
+}
+
+#[derive(Clone)]
 pub struct FragmentShaderCompileError {
     pub error_id: i32,
     pub info_log: String
+}
+
+impl_traits_for_gl_object!(FragmentShaderCompileError, error_id);
+
+impl ::std::fmt::Display for FragmentShaderCompileError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "E{}: {}", self.error_id, self.info_log)
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -239,10 +389,23 @@ pub enum GlShaderCompileError {
     Fragment(FragmentShaderCompileError),
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+impl_display!(GlShaderCompileError, {
+    Vertex(vert_err) => format!("Failed to compile vertex shader: {}", vert_err),
+    Fragment(frag_err) => format!("Failed to compile fragment shader: {}", frag_err),
+});
+
+#[derive(Clone)]
 pub struct GlShaderLinkError {
     pub error_id: i32,
     pub info_log: String
+}
+
+impl_traits_for_gl_object!(GlShaderLinkError, error_id);
+
+impl ::std::fmt::Display for GlShaderLinkError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "E{}: {}", self.error_id, self.info_log)
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -251,12 +414,17 @@ pub enum GlShaderCreateError {
     Link(GlShaderLinkError),
 }
 
+impl_display!(GlShaderCreateError, {
+    Compile(compile_err) => format!("Shader compile error: {}", compile_err),
+    Link(link_err) => format!("Shader linking error: {}", link_err),
+});
+
 impl GlShader {
 
     /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader string.
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup necessary.
-    pub fn new(context: Rc<Gl>, vertex_shader_source: &str, fragment_shader_source: &str) -> Result<Self, GlShaderCreateError> {
+    pub fn new(gl_context: Rc<Gl>, vertex_shader_source: &str, fragment_shader_source: &str) -> Result<Self, GlShaderCreateError> {
 
         fn str_to_bytes(input: &str) -> Vec<u8> {
             let mut v: Vec<u8> = input.into();
@@ -269,57 +437,54 @@ impl GlShader {
 
         // Compile vertex shader
 
-        let vertex_shader_object = context.create_shader(gl::VERTEX_SHADER);
-        context.shader_source(vertex_shader_object, &[&vertex_shader_source]);
-        context.compile_shader(vertex_shader_object);
+        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+        gl_context.shader_source(vertex_shader_object, &[&vertex_shader_source]);
+        gl_context.compile_shader(vertex_shader_object);
 
         #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_shader_error(&*context, vertex_shader_object) {
-                let info_log = context.get_shader_info_log(vertex_shader_object);
-                context.delete_shader(vertex_shader_object);
+            if let Some(error_id) = get_gl_shader_error(&*gl_context, vertex_shader_object) {
+                let info_log = gl_context.get_shader_info_log(vertex_shader_object);
+                gl_context.delete_shader(vertex_shader_object);
                 return Err(GlShaderCreateError::Compile(GlShaderCompileError::Vertex(VertexShaderCompileError { error_id, info_log })));
             }
         }
 
         // Compile fragment shader
 
-        let fragment_shader_object = context.create_shader(gl::FRAGMENT_SHADER);
-        context.shader_source(fragment_shader_object, &[&fragment_shader_source]);
-        context.compile_shader(fragment_shader_object);
+        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+        gl_context.shader_source(fragment_shader_object, &[&fragment_shader_source]);
+        gl_context.compile_shader(fragment_shader_object);
 
         #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_shader_error(&*context, fragment_shader_object) {
-                let info_log = context.get_shader_info_log(fragment_shader_object);
-                context.delete_shader(vertex_shader_object);
-                context.delete_shader(fragment_shader_object);
+            if let Some(error_id) = get_gl_shader_error(&*gl_context, fragment_shader_object) {
+                let info_log = gl_context.get_shader_info_log(fragment_shader_object);
+                gl_context.delete_shader(vertex_shader_object);
+                gl_context.delete_shader(fragment_shader_object);
                 return Err(GlShaderCreateError::Compile(GlShaderCompileError::Fragment(FragmentShaderCompileError { error_id, info_log })));
             }
         }
 
         // Link program
 
-        let program = context.create_program();
-        context.attach_shader(program, vertex_shader_object);
-        context.attach_shader(program, fragment_shader_object);
-        context.link_program(program);
+        let program_id = gl_context.create_program();
+        gl_context.attach_shader(program_id, vertex_shader_object);
+        gl_context.attach_shader(program_id, fragment_shader_object);
+        gl_context.link_program(program_id);
 
         #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_program_error(&*context, program) {
-                let info_log = context.get_program_info_log(program);
-                context.delete_shader(vertex_shader_object);
-                context.delete_shader(fragment_shader_object);
-                context.delete_program(program);
+            if let Some(error_id) = get_gl_program_error(&*gl_context, program_id) {
+                let info_log = gl_context.get_program_info_log(program_id);
+                gl_context.delete_shader(vertex_shader_object);
+                gl_context.delete_shader(fragment_shader_object);
+                gl_context.delete_program(program_id);
                 return Err(GlShaderCreateError::Link(GlShaderLinkError { error_id, info_log }));
             }
         }
 
-        context.delete_shader(vertex_shader_object);
-        context.delete_shader(fragment_shader_object);
+        gl_context.delete_shader(vertex_shader_object);
+        gl_context.delete_shader(fragment_shader_object);
 
-        Ok(GlShader {
-            shader_program: program,
-            gl_context: context,
-        })
+        Ok(GlShader { program_id, gl_context })
     }
 }
 

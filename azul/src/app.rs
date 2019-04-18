@@ -1354,7 +1354,7 @@ static mut DISPLAY_SHADER: Option<GlShader> = None;
 fn compile_screen_shader(context: Rc<Gl>) -> GLuint {
     unsafe { DISPLAY_SHADER.get_or_insert_with(|| {
         GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER).unwrap()
-    }) }.shader_program
+    }) }.program_id
 }
 
 // Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
