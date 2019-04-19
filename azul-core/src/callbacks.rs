@@ -33,11 +33,21 @@ pub struct Texture {
     pub gl_context: Rc<Gl>,
 }
 
-
 pub type DefaultCallbackType<T, U> = fn(&mut U, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 
 static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
+
+/// Each default callback is identified by its ID (not by it's function pointer),
+/// since multiple IDs could point to the same function.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct DefaultCallbackId { id: usize }
+
+impl DefaultCallbackId {
+    pub fn new() -> Self {
+        DefaultCallbackId { id: LAST_DEFAULT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst) }
+    }
+}
 
 /// A tag that can be used to identify items during hit testing. If the tag
 /// is missing then the item doesn't take part in hit testing at all. This
@@ -135,15 +145,6 @@ macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
 
     impl<$t> Copy for $callback_value<$t> { }
 )}
-
-/// Each default callback is identified by its ID (not by it's function pointer),
-/// since multiple IDs could point to the same function.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct DefaultCallbackId(usize);
-
-pub(crate) fn get_new_unique_default_callback_id() -> DefaultCallbackId {
-    DefaultCallbackId(LAST_DEFAULT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst))
-}
 
 /// Callback that is invoked "by default", for example a text field that always
 /// has a default "ontextinput" handler

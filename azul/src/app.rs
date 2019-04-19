@@ -485,7 +485,6 @@ impl<T> App<T> {
 image_api!(App::app_state);
 font_api!(App::app_state);
 text_api!(App::app_state);
-clipboard_api!(App::app_state);
 timer_api!(App::app_state);
 
 impl<T> AppState<T> {

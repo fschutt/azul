@@ -42,9 +42,9 @@ pub struct AppState<T> {
     /// requiring the `FontHashMap`, a lot of functions just require the whole `AppResources` field.
     pub resources: AppResources,
     /// Currently running timers (polling functions, run on the main thread)
-    pub(crate) timers: FastHashMap<TimerId, Timer<T>>,
+    pub timers: FastHashMap<TimerId, Timer<T>>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub(crate) tasks: Vec<Task<T>>,
+    pub tasks: Vec<Task<T>>,
 }
 
 /// Same as the [AppState](./struct.AppState.html) but without the
@@ -59,7 +59,7 @@ pub struct AppStateNoData<'a, T> {
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
-    pub(crate) timers: FastHashMap<TimerId, Timer<T>>,
+    pub timers: FastHashMap<TimerId, Timer<T>>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub(crate) tasks: Vec<Task<T>>,
+    pub tasks: Vec<Task<T>>,
 }

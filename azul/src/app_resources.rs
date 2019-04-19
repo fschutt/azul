@@ -5,7 +5,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::api::{
-    FontKey, FontInstanceKey, ImageKey, AddImage,
+    FontKey as WrFontKey, FontInstanceKey as WrFontInstanceKey, ImageKey, AddImage,
     ResourceUpdate, AddFont, AddFontInstance, RenderApi,
 };
 use app_units::Au;
@@ -17,95 +17,9 @@ use {
     display_list::DisplayList,
     text_layout::Words,
 };
-pub use webrender::api::{ImageFormat as RawImageFormat, ImageData, ImageDescriptor};
+pub use webrender::api::{ImageFormat as WrImageFormat, ImageData, ImageDescriptor};
 #[cfg(feature = "image_loading")]
 pub use image::{ImageError, DynamicImage, GenericImageView};
-
-pub type CssImageId = String;
-pub type CssFontId = String;
-
-/// Stores the resources for the application, souch as fonts, images and cached
-/// texts, also clipboard strings
-///
-/// Images and fonts can be references across window contexts (not yet tested,
-/// but should work).
-pub struct AppResources {
-    /// In order to properly load / unload fonts and images as well as share resources
-    /// between windows, this field stores the (application-global) Renderer.
-    #[cfg(not(test))]
-    pub(crate) fake_display: FakeDisplay,
-    /// Necessary to unit-test module-internal font GC without creating a visual display
-    #[cfg(test)]
-    fake_render_api: FakeRenderApi,
-    /// The CssImageId is the string used in the CSS, i.e. "my_image" -> ImageId(4)
-    css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,
-    /// Same as CssImageId -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
-    css_ids_to_font_ids: FastHashMap<CssFontId, FontId>,
-    /// Stores where the images were loaded from
-    image_sources: FastHashMap<ImageId, ImageSource>,
-    /// Stores where the fonts were loaded from
-    font_sources: FastHashMap<FontId, FontSource>,
-    /// All image keys currently active in the RenderApi
-    currently_registered_images: FastHashMap<ImageId, ImageInfo>,
-    /// All font keys currently active in the RenderApi
-    currently_registered_fonts: FastHashMap<ImmediateFontId, LoadedFont>,
-    /// If an image isn't displayed, it is deleted from memory, only
-    /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
-    ///
-    /// This way the image can be re-loaded if necessary but doesn't have to reside in memory at all times.
-    last_frame_image_keys: FastHashSet<ImageId>,
-    /// If a font does not get used for one frame, the corresponding instance key gets
-    /// deleted. If a FontId has no FontInstanceKeys anymore, the font key gets deleted.
-    ///
-    /// The only thing remaining in memory permanently is the FontSource (which is only
-    /// the string of the file path where the font was loaded from, so no huge memory pressure).
-    /// The reason for this agressive strategy is that the
-    last_frame_font_keys: FastHashMap<ImmediateFontId, FastHashSet<Au>>,
-    /// Stores long texts across frames
-    text_cache: TextCache,
-    /// Keyboard clipboard storage and retrieval functionality
-    clipboard: SystemClipboard,
-}
-
-macro_rules! unique_id {($struct_name:ident) => ({
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-    pub struct $struct_name {
-        id: usize,
-    }
-
-    impl $struct_name {
-
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-        fn new() -> Self {
-            Self { id: Self::COUNTER.fetch_add(1, Ordering::SeqCst) }
-        }
-    }
-})}
-
-unique_id!(TextId);
-unique_id!(ImageId);
-unique_id!(FontId);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImageSource {
-    /// The image is embedded inside the binary file
-    Embedded(&'static [u8]),
-    /// The image is already decoded and loaded from a set of bytes
-    Raw(RawImage),
-    /// The image is loaded from a file
-    File(PathBuf),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FontSource {
-    /// The font is embedded inside the binary file
-    Embedded(&'static [u8]),
-    /// The font is loaded from a file
-    File(PathBuf),
-    /// The font is a system built-in font
-    System(String),
-}
 
 #[derive(Debug)]
 pub enum ImageReloadError {
@@ -163,83 +77,6 @@ impl_display!(FontReloadError, {
     FontNotFound(id) => format!("Could not locate system font: \"{}\" found", id),
 });
 
-/// Raw image made up of raw pixels (either BRGA8 or A8)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RawImage {
-    pub pixels: Vec<u8>,
-    pub image_dimensions: (u32, u32),
-    pub data_format: RawImageFormat,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoadedFont {
-    pub font_key: FontKey,
-    pub font_bytes: Vec<u8>,
-    /// Index of the font in case the bytes indicate a font collection
-    pub font_index: i32,
-    pub font_instances: FastHashMap<Au, FontInstanceKey>,
-}
-
-impl LoadedFont {
-
-    /// Creates a new loaded font with 0 font instances
-    pub fn new(font_key: FontKey, font_bytes: Vec<u8>, font_index: i32) -> Self {
-        Self {
-            font_key,
-            font_bytes,
-            font_index,
-            font_instances: FastHashMap::default(),
-        }
-    }
-
-    fn delete_font_instance(&mut self, size: &Au) {
-        self.font_instances.remove(size);
-    }
-}
-
-/// Cache for accessing large amounts of text
-#[derive(Debug, Default, Clone)]
-pub struct TextCache {
-    /// Mapping from the TextID to the actual, UTF-8 String
-    ///
-    /// This is stored outside of the actual glyph calculation, because usually you don't
-    /// need the string, except for rebuilding a cached string (for example, when the font is changed)
-    pub(crate) string_cache: FastHashMap<TextId, Words>,
-
-    // -- for now, don't cache ScaledWords, it's too complicated...
-
-    // /// Caches the layout of the strings / words.
-    // ///
-    // /// TextId -> FontId (to look up by font)
-    // /// FontId -> PixelValue (to categorize by size within a font)
-    // /// PixelValue -> layouted words (to cache the glyph widths on a per-font-size basis)
-    // pub(crate) layouted_strings_cache: FastHashMap<TextId, FastHashMap<FontInstanceKey, ScaledWords>>,
-}
-
-impl TextCache {
-
-    /// Add a new, large text to the resources
-    pub fn add_text(&mut self, text: &str) -> TextId {
-        use text_layout::split_text_into_words;
-        let id = TextId::new();
-        self.string_cache.insert(id, split_text_into_words(text));
-        id
-    }
-
-    pub fn get_text(&self, text_id: &TextId) -> Option<&Words> {
-        self.string_cache.get(text_id)
-    }
-
-    /// Removes a string from the string cache, but not the layouted text cache
-    pub fn delete_text(&mut self, id: TextId) {
-        self.string_cache.remove(&id);
-    }
-
-    pub fn clear_all_texts(&mut self) {
-        self.string_cache.clear();
-    }
-}
-
 /// Used only for debugging, so that the AppResource garbage
 /// collection tests can run without a real RenderApi
 #[cfg(test)]
@@ -278,211 +115,34 @@ impl FontImageApi for FakeRenderApi {
     fn flush_scene_builder(&self) { }
 }
 
-impl AppResources {
+/// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
+/// guaranteed to know about all FontKeys and FontInstanceKey
+pub(crate) fn add_fonts_and_images<T>(app_resources: &mut AppResources<T>, display_list: &DisplayList<T>) {
+    let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list);
+    let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list);
 
-    /// Creates a new renderer (the renderer manages the resources and is therefore tied to the resources).
-    #[must_use] pub(crate) fn new(app_config: &AppConfig) -> Result<Self, WindowCreateError> {
-        Ok(Self {
-            #[cfg(not(test))]
-            fake_display: FakeDisplay::new(app_config.renderer_type)?,
-            #[cfg(test)]
-            fake_render_api: FakeRenderApi::new(),
-            css_ids_to_font_ids: FastHashMap::default(),
-            css_ids_to_image_ids: FastHashMap::default(),
-            font_sources: FastHashMap::default(),
-            image_sources: FastHashMap::default(),
-            currently_registered_fonts: FastHashMap::default(),
-            currently_registered_images: FastHashMap::default(),
-            last_frame_font_keys: FastHashMap::default(),
-            last_frame_image_keys: FastHashSet::default(),
-            text_cache: TextCache::default(),
-            clipboard: SystemClipboard::new().unwrap(),
-        })
-    }
+    app_resources.last_frame_font_keys.extend(font_keys.clone().into_iter());
+    app_resources.last_frame_image_keys.extend(image_keys.clone().into_iter());
 
-    pub(crate) fn get_render_api(&self) -> &impl FontImageApi {
-        #[cfg(not(test))] {
-            &self.fake_display.render_api
-        }
-        #[cfg(test)] {
-            &self.fake_render_api
-        }
-    }
+    let add_font_resource_updates = build_add_font_resource_updates(app_resources, &font_keys);
+    let add_image_resource_updates = build_add_image_resource_updates(app_resources, &image_keys);
 
-    /// Returns the IDs of all currently loaded fonts in `self.font_data`
-    pub fn get_loaded_font_ids(&self) -> Vec<FontId> {
-        self.font_sources.keys().cloned().collect()
-    }
-
-    pub fn get_loaded_image_ids(&self) -> Vec<ImageId> {
-        self.image_sources.keys().cloned().collect()
-    }
-
-    pub fn get_loaded_css_image_ids(&self) -> Vec<CssImageId> {
-        self.css_ids_to_image_ids.keys().cloned().collect()
-    }
-
-    pub fn get_loaded_css_font_ids(&self) -> Vec<CssFontId> {
-        self.css_ids_to_font_ids.keys().cloned().collect()
-    }
-
-    pub fn get_loaded_text_ids(&self) -> Vec<TextId> {
-        self.text_cache.string_cache.keys().cloned().collect()
-    }
-
-    // -- ImageId cache
-
-    /// Add an image from a PNG, JPEG or other - note that for specialized image formats,
-    /// you have to enable them as features in the Cargo.toml file.
-    #[cfg(feature = "image_loading")]
-    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) {
-        self.image_sources.insert(image_id, image_source);
-    }
-
-    /// Returns whether the AppResources has currently a certain image ID registered
-    pub fn has_image(&self, image_id: &ImageId) -> bool {
-        self.image_sources.get(image_id).is_some()
-    }
-
-    /// Given an `ImageId`, returns the decoded bytes of that image or `None`, if the `ImageId` is invalid.
-    /// Returns an error on IO failure / image decoding failure or image
-    pub fn get_image_bytes(&self, image_id: &ImageId) -> Option<Result<(ImageData, ImageDescriptor), ImageReloadError>> {
-        self.image_sources.get(image_id).map(image_source_get_bytes)
-    }
-
-    pub fn delete_image(&mut self, image_id: &ImageId) {
-        self.image_sources.remove(image_id);
-    }
-
-    pub fn add_css_image_id<S: Into<String>>(&mut self, css_id: S) -> ImageId {
-        *self.css_ids_to_image_ids.entry(css_id.into()).or_insert_with(|| ImageId::new())
-    }
-
-    pub fn has_css_image_id(&self, css_id: &str) -> bool {
-        self.get_css_image_id(css_id).is_some()
-    }
-
-    pub fn get_css_image_id(&self, css_id: &str) -> Option<&ImageId> {
-        self.css_ids_to_image_ids.get(css_id)
-    }
-
-    pub fn delete_css_image_id(&mut self, css_id: &str) -> Option<ImageId> {
-        self.css_ids_to_image_ids.remove(css_id)
-    }
-
-    pub fn get_image_info(&self, key: &ImageId) -> Option<&ImageInfo> {
-        self.currently_registered_images.get(key)
-    }
-
-    // -- FontId cache
-
-    pub fn add_css_font_id<S: Into<String>>(&mut self, css_id: S) -> FontId {
-        *self.css_ids_to_font_ids.entry(css_id.into()).or_insert_with(|| FontId::new())
-    }
-
-    pub fn has_css_font_id(&self, css_id: &str) -> bool {
-        self.get_css_font_id(css_id).is_some()
-    }
-
-    pub fn get_css_font_id(&self, css_id: &str) -> Option<&FontId> {
-        self.css_ids_to_font_ids.get(css_id)
-    }
-
-    pub fn delete_css_font_id(&mut self, css_id: &str) -> Option<FontId> {
-        self.css_ids_to_font_ids.remove(css_id)
-    }
-
-    pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) {
-        self.font_sources.insert(font_id, font_source);
-    }
-
-    /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
-    pub fn get_font_bytes(&self, font_id: &FontId) -> Option<Result<(Vec<u8>, i32), FontReloadError>> {
-        self.font_sources.get(font_id).map(font_source_get_bytes)
-    }
-
-    /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
-    pub fn has_font(&self, id: &FontId) -> bool {
-        self.font_sources.get(id).is_some()
-    }
-
-    pub fn delete_font(&mut self, id: &FontId) {
-        self.font_sources.remove(id);
-    }
-
-    // -- TextId cache
-
-    /// Adds a string to the internal text cache, but only store it as a string,
-    /// without caching the layout of the string.
-    pub fn add_text(&mut self, text: &str) -> TextId {
-        self.text_cache.add_text(text)
-    }
-
-    pub fn get_text(&self, id: &TextId) -> Option<&Words> {
-        self.text_cache.get_text(id)
-    }
-
-    /// Removes a string from both the string cache and the layouted text cache
-    pub fn delete_text(&mut self, id: TextId) {
-        self.text_cache.delete_text(id);
-    }
-
-    /// Empties the entire internal text cache, invalidating all `TextId`s. Use with care.
-    pub fn clear_all_texts(&mut self) {
-        self.text_cache.clear_all_texts();
-    }
-
-    // -- Clipboard
-
-    /// Returns the contents of the system clipboard
-    pub fn get_clipboard_string(&self) -> Result<String, ClipboardError> {
-        self.clipboard.get_string_contents()
-    }
-
-    /// Sets the contents of the system clipboard - currently only strings are supported
-    pub fn set_clipboard_string<S: Into<String>>(&mut self, contents: S) -> Result<(), ClipboardError> {
-        self.clipboard.set_string_contents(contents.into())
-    }
-
-    pub(crate) fn get_loaded_font(&self, font_id: &ImmediateFontId) -> Option<&LoadedFont> {
-        self.currently_registered_fonts.get(font_id)
-    }
-
-    /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
-    /// guaranteed to know about all FontKeys and FontInstanceKey
-    pub(crate) fn add_fonts_and_images<T>(&mut self, display_list: &DisplayList<T>) {
-        let font_keys = scan_ui_description_for_font_keys(&self, display_list);
-        let image_keys = scan_ui_description_for_image_keys(&self, display_list);
-
-        self.last_frame_font_keys.extend(font_keys.clone().into_iter());
-        self.last_frame_image_keys.extend(image_keys.clone().into_iter());
-
-        let add_font_resource_updates = build_add_font_resource_updates(self, &font_keys);
-        let add_image_resource_updates = build_add_image_resource_updates(self, &image_keys);
-
-        add_resources(self, add_font_resource_updates, add_image_resource_updates);
-    }
-
-    /// To be called at the end of a frame (after the UI has rendered):
-    /// Deletes all FontKeys and FontImageKeys that weren't used in
-    /// the last frame, to save on memory. If the font needs to be recreated, it
-    /// needs to be reloaded from the `FontSource`.
-    pub(crate) fn garbage_collect_fonts_and_images(&mut self) {
-
-        let delete_font_resource_updates = build_delete_font_resource_updates(self);
-        let delete_image_resource_updates = build_delete_image_resource_updates(self);
-
-        delete_resources(self, delete_font_resource_updates, delete_image_resource_updates);
-
-        self.last_frame_font_keys.clear();
-        self.last_frame_image_keys.clear();
-    }
+    add_resources(app_resources, add_font_resource_updates, add_image_resource_updates);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum ImmediateFontId {
-    Resolved(FontId),
-    Unresolved(CssFontId),
+/// To be called at the end of a frame (after the UI has rendered):
+/// Deletes all FontKeys and FontImageKeys that weren't used in
+/// the last frame, to save on memory. If the font needs to be recreated, it
+/// needs to be reloaded from the `FontSource`.
+pub(crate) fn garbage_collect_fonts_and_images<T>(app_resources: &mut AppResources<T>) {
+
+    let delete_font_resource_updates = build_delete_font_resource_updates(app_resources);
+    let delete_image_resource_updates = build_delete_image_resource_updates(app_resources);
+
+    delete_resources(app_resources, delete_font_resource_updates, delete_image_resource_updates);
+
+    app_resources.last_frame_font_keys.clear();
+    app_resources.last_frame_image_keys.clear();
 }
 
 /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
@@ -997,21 +657,6 @@ fn parse_gsettings_font(input: &str) -> &str {
 fn test_parse_gsettings_font() {
     assert_eq!(parse_gsettings_font("'Ubuntu 11'"), "Ubuntu");
     assert_eq!(parse_gsettings_font("'Ubuntu Mono 13'"), "Ubuntu Mono");
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct ImageInfo {
-    pub(crate) key: ImageKey,
-    pub descriptor: ImageDescriptor,
-}
-
-impl ImageInfo {
-    /// Returns the (width, height) of this image.
-    pub fn get_dimensions(&self) -> (usize, usize) {
-        let width = self.descriptor.size.width;
-        let height = self.descriptor.size.height;
-        (width as usize, height as usize)
-    }
 }
 
 // The next three functions are taken from:

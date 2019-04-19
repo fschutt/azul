@@ -19,18 +19,20 @@ pub use id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
-pub(crate) type TagId = u64;
+pub type TagId = u64;
 
 /// Same as the `TagId`, but only for scrollable nodes
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub(crate) struct ScrollTagId(pub TagId);
+pub struct ScrollTagId(pub TagId);
 
-pub(crate) fn new_tag_id() -> TagId {
+pub fn new_tag_id() -> TagId {
     TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
 }
 
-pub(crate) fn new_scroll_tag_id() -> ScrollTagId {
-    ScrollTagId(new_tag_id())
+impl ScrollTagId {
+    pub fn new() -> ScrollTagId {
+        ScrollTagId(new_tag_id())
+    }
 }
 
 static DOM_ID: AtomicUsize = AtomicUsize::new(1);
@@ -47,17 +49,18 @@ pub struct DomId {
     parent: Option<(Box<DomId>, NodeId)>,
 }
 
-pub(crate) fn new_dom_id(parent: Option<(DomId, NodeId)>) -> DomId {
-    let new_dom_id = DOM_ID.fetch_add(1, Ordering::SeqCst);
-    DomId {
-        id: new_dom_id,
-        parent: parent.map(|(p, node_id)| (Box::new(p), node_id)),
+impl DomId {
+    pub fn new(parent: Option<(DomId, NodeId)>) -> DomId {
+        DomId {
+            id: DOM_ID.fetch_add(1, Ordering::SeqCst),
+            parent: parent.map(|(p, node_id)| (Box::new(p), node_id)),
+        }
     }
-}
 
-/// Reset the DOM ID to 1, usually done once-per-frame for the root DOM
-pub(crate) fn reset_dom_id() {
-    DOM_ID.swap(1, Ordering::SeqCst);
+    /// Reset the DOM ID to 1, usually done once-per-frame for the root DOM
+    pub fn reset() {
+        DOM_ID.swap(1, Ordering::SeqCst);
+    }
 }
 
 impl DomId {
@@ -311,7 +314,7 @@ pub enum EventFilter {
 /// ```
 macro_rules! get_single_enum_type {
     ($fn_name:ident, $enum_name:ident::$variant:ident($return_type:ty)) => (
-        fn $fn_name(&self) -> Option<$return_type> {
+        pub fn $fn_name(&self) -> Option<$return_type> {
             use self::$enum_name::*;
             match self {
                 $variant(e) => Some(*e),
@@ -381,7 +384,7 @@ pub enum HoverEventFilter {
 }
 
 impl HoverEventFilter {
-    pub(crate) fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
+    pub fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
         use self::HoverEventFilter::*;
         match self {
             MouseOver => Some(FocusEventFilter::MouseOver),
@@ -465,7 +468,7 @@ pub enum WindowEventFilter {
 }
 
 impl WindowEventFilter {
-    pub(crate) fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
+    pub fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
         use self::WindowEventFilter::*;
         match self {
             MouseOver => Some(HoverEventFilter::MouseOver),
@@ -760,12 +763,8 @@ impl<T> NodeData<T> {
         self.classes.iter().any(|self_class| self_class.equals_str(class))
     }
 
-    pub(crate) fn calculate_node_data_hash(&self) -> DomHash {
+    pub fn calculate_node_data_hash(&self) -> DomHash {
 
-        // Pick hash algorithm based on features
-        #[cfg(feature = "faster-hashing")]
-        use twox_hash::XxHash as HashAlgorithm;
-        #[cfg(not(feature = "faster-hashing"))]
         use std::collections::hash_map::DefaultHasher as HashAlgorithm;
 
         let mut hasher = HashAlgorithm::default();
