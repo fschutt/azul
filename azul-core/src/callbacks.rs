@@ -1,23 +1,38 @@
 use std::{
     fmt,
+    rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use azul_css::CssPath;
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use {
-    app::AppState,
+    app::{AppState, AppStateNoData},
     async::TerminateTimer,
     dom::{Dom, NodeType, NodeData},
-    app::AppStateNoData,
     ui_state::UiState,
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
     window::{FakeWindow, LogicalSize, PhysicalSize, LogicalPosition},
-    gl::Texture,
 };
 pub use stack_checked_pointer::StackCheckedPointer;
-pub use glium::glutin::WindowId as GliumWindowId;
+pub use gleam::gl::Gl;
+
+pub type WindowId = usize;
+pub type GLuint = u32;
+
+/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
+pub struct Texture {
+    /// Raw OpenGL texture ID
+    pub texture_id: GLuint,
+    /// Width of this texture in pixels
+    pub width: usize,
+    /// Height of this texture in pixels
+    pub height: usize,
+    /// Reference to the OpenGL context
+    pub gl_context: Rc<Gl>,
+}
+
 
 pub type DefaultCallbackType<T, U> = fn(&mut U, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
@@ -59,6 +74,67 @@ pub struct HitTestItem {
     /// This is useful for calculating things like text offsets in the client.
     pub point_relative_to_item: LogicalPosition,
 }
+
+/// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
+/// for a Callback with a `.0` field:
+///
+/// ```
+/// struct MyCallback<T>(fn (&T));
+///
+/// // impl <T> Display, Debug, etc. for MyCallback<T>
+/// impl_callback!(MyCallback<T>);
+/// ```
+///
+/// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
+
+    impl<$t> ::std::fmt::Display for $callback_value<$t> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{:?}", self)
+        }
+    }
+
+    impl<$t> ::std::fmt::Debug for $callback_value<$t> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let callback = stringify!($callback_value);
+            write!(f, "{} @ 0x{:x}", callback, self.0 as usize)
+        }
+    }
+
+    impl<$t> Clone for $callback_value<$t> {
+        fn clone(&self) -> Self {
+            $callback_value(self.0.clone())
+        }
+    }
+
+    impl<$t> ::std::hash::Hash for $callback_value<$t> {
+        fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+            state.write_usize(self.0 as usize);
+        }
+    }
+
+    impl<$t> PartialEq for $callback_value<$t> {
+        fn eq(&self, rhs: &Self) -> bool {
+            self.0 as usize == rhs.0 as usize
+        }
+    }
+
+    impl<$t> PartialOrd for $callback_value<$t> {
+        fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+            Some((self.0 as usize).cmp(&(other.0 as usize)))
+        }
+    }
+
+    impl<$t> Ord for $callback_value<$t> {
+        fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+            (self.0 as usize).cmp(&(other.0 as usize))
+        }
+    }
+
+    impl<$t> Eq for $callback_value<$t> { }
+
+    impl<$t> Copy for $callback_value<$t> { }
+)}
 
 /// Each default callback is identified by its ID (not by it's function pointer),
 /// since multiple IDs could point to the same function.
@@ -134,7 +210,7 @@ pub struct CallbackInfo<'a, T: 'a> {
     pub focus: Option<FocusTarget>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
-    pub window_id: &'a GliumWindowId,
+    pub window_id: &'a WindowId,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
@@ -365,29 +441,6 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
     /// Clears the focus for the next frame.
     pub fn clear_focus(&mut self) {
         self.focus = Some(FocusTarget::NoFocus);
-    }
-}
-
-// ---
-
-use webrender::api::LayoutRect as WrLayoutRect;
-use webrender::api::HitTestItem as WrHitTestItem;
-
-pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
-    HitTestItem {
-        pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
-        tag: input.tag,
-        point_in_viewport: LogicalPosition::new(input.point_in_viewport.x, input.point_in_viewport.y),
-        point_relative_to_item: LogicalPosition::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
-    }
-}
-
-pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> Self {
-    let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
-    Self {
-        logical_size,
-        hidpi_factor,
-        winit_hidpi_factor,
     }
 }
 

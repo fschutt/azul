@@ -48,21 +48,7 @@ fn new_pipeline_id() -> PipelineId {
     PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
 }
 
-/// User-modifiable fake window: Actions performed on this "fake" window don't
-/// have a direct impact on the actual OS-level window, changes are deferred and
-/// syncronized with the OS window at the end of the frame.
-pub struct FakeWindow<T> {
-    /// The window state for the next frame
-    pub state: WindowState,
-    /// The user can push default callbacks in this `DefaultCallbackSystem`,
-    /// which get called later in the hit-testing logic
-    pub default_callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
-    /// An Rc to the original WindowContext - this is only so that
-    /// the user can create textures and other OpenGL content in the window
-    /// but not change any window properties from underneath - this would
-    /// lead to mismatch between the
-    pub gl_context: Rc<Gl>,
-}
+
 
 impl<T> FakeWindow<T> {
 
@@ -94,6 +80,10 @@ impl<T> FakeWindow<T> {
     pub fn get_mouse_state<'a>(&'a self) -> &'a MouseState {
         self.state.get_mouse_state()
     }
+}
+
+/*
+impl<T> FakeWindow<T> {
 
     /// Adds a default callback to the window. The default callbacks are
     /// cleared after every frame, so two-way data binding widgets have to call this
@@ -134,6 +124,7 @@ impl<T> FakeWindow<T> {
         (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
     }
 }
+*/
 
 /// Options on how to initially create the window
 #[derive(Debug, Clone, PartialEq)]

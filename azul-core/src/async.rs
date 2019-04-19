@@ -105,12 +105,8 @@ impl<T> Timer<T> {
 
     /// Crate-internal: Invokes the timer if the timer and
     /// the `self.timeout` allow it to
-    pub(crate) fn invoke_callback_with_data(
-        &mut self,
-        data: &mut T,
-        app_resources: &mut AppResources)
-    -> (UpdateScreen, TerminateTimer)
-    {
+    pub fn invoke_callback_with_data(&mut self, data: &mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateTimer) {
+
         let instant_now = Instant::now();
         let delay = self.delay.unwrap_or_else(|| Duration::from_millis(0));
 
@@ -245,7 +241,7 @@ impl<T> Task<T> {
     }
 
     /// Returns true if the task has been finished, false otherwise
-    pub(crate) fn is_finished(&self) -> bool {
+    pub fn is_finished(&self) -> bool {
         self.dropcheck.upgrade().is_none()
     }
 }

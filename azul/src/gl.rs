@@ -11,56 +11,41 @@ use std::{
 };
 use gleam::gl::{self, Gl};
 
-/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-///
-/// **WARNING**: Don't forget to call `ReadOnlyWindow::unbind_framebuffer()`
-/// when you are done with your OpenGL drawing, otherwise WebRender will render
-/// to the texture, not the window, so your texture will actually never show up.
-/// If you use a `Texture` and you get a blank screen, this is probably why.
-pub struct Texture {
-    /// Raw OpenGL texture ID
-    pub texture_id: GLuint,
-    /// Dimensions (width, height in pixels).
-    pub width: usize,
-    pub height: usize,
-    /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
-    pub gl_context: Rc<Gl>,
-}
+//    /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
+//    pub gl_context: Rc<Gl>,
 
-impl Texture {
+/// Note: Creates a new texture (calls `gen_textures()`)
+pub fn new_texture(gl_context: Rc<Gl>, width: usize, height: usize) -> Texture {
 
-    /// Note: Creates a new texture (calls `gen_textures()`)
-    pub fn new(gl_context: Rc<Gl>, width: usize, height: usize) -> Self {
+    let textures = gl_context.gen_textures(1);
+    let texture_id = textures[0];
 
-        let textures = gl_context.gen_textures(1);
-        let texture_id = textures[0];
+    gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
+    gl_context.tex_image_2d(
+        gl::TEXTURE_2D,
+        0,
+        gl::RGBA as i32,
+        width as i32,
+        height as i32,
+        0,
+        gl::RGBA,
+        gl::UNSIGNED_BYTE,
+        None
+    );
 
-        gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
-        gl_context.tex_image_2d(
-            gl::TEXTURE_2D,
-            0,
-            gl::RGBA as i32,
-            width as i32,
-            height as i32,
-            0,
-            gl::RGBA,
-            gl::UNSIGNED_BYTE,
-            None
-        );
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-
-        Self {
-            texture_id,
-            width,
-            height,
-            gl_context,
-        }
+    Self {
+        texture_id,
+        width,
+        height,
+        gl_context,
     }
 }
+
 
 impl ::std::fmt::Display for Texture {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {

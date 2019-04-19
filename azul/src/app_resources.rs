@@ -163,70 +163,6 @@ impl_display!(FontReloadError, {
     FontNotFound(id) => format!("Could not locate system font: \"{}\" found", id),
 });
 
-impl ImageSource {
-
-    /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
-    /// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
-    #[allow(unused_variables)]
-    pub fn get_bytes(&self) -> Result<(ImageData, ImageDescriptor), ImageReloadError> {
-
-        use self::ImageSource::*;
-
-        match self {
-            Embedded(bytes) => {
-                #[cfg(feature = "image_loading")] {
-                    decode_image_data(bytes.to_vec()).map_err(|e| ImageReloadError::DecodingError(e))
-                }
-                #[cfg(not(feature = "image_loading"))] {
-                    Err(ImageReloadError::DecodingModuleNotActive)
-                }
-            },
-            Raw(raw_image) => {
-                let opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels[..]);
-                let allow_mipmaps = true;
-                let descriptor = ImageDescriptor::new(
-                    raw_image.image_dimensions.0 as i32,
-                    raw_image.image_dimensions.1 as i32,
-                    raw_image.data_format,
-                    opaque,
-                    allow_mipmaps
-                );
-                let data = ImageData::new(raw_image.pixels.clone());
-                Ok((data, descriptor))
-            },
-            File(file_path) => {
-                #[cfg(feature = "image_loading")] {
-                    use std::fs;
-                    let bytes = fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone()))?;
-                    decode_image_data(bytes).map_err(|e| ImageReloadError::DecodingError(e))
-                }
-                #[cfg(not(feature = "image_loading"))] {
-                    Err(ImageReloadError::DecodingModuleNotActive)
-                }
-            },
-        }
-    }
-}
-
-impl FontSource {
-
-    /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
-    /// Also returns the index into the font (in case the font is a font collection).
-    pub fn get_bytes(&self) -> Result<(Vec<u8>, i32), FontReloadError> {
-        use std::fs;
-        use self::FontSource::*;
-        match self {
-            Embedded(bytes) => Ok((bytes.to_vec(), 0)),
-            File(file_path) => {
-                fs::read(file_path)
-                .map_err(|e| FontReloadError::Io(e, file_path.clone()))
-                .map(|f| (f, 0))
-            },
-            System(id) => load_system_font(id).ok_or(FontReloadError::FontNotFound(id.clone())),
-        }
-    }
-}
-
 /// Raw image made up of raw pixels (either BRGA8 or A8)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawImage {
@@ -411,7 +347,7 @@ impl AppResources {
     /// Given an `ImageId`, returns the decoded bytes of that image or `None`, if the `ImageId` is invalid.
     /// Returns an error on IO failure / image decoding failure or image
     pub fn get_image_bytes(&self, image_id: &ImageId) -> Option<Result<(ImageData, ImageDescriptor), ImageReloadError>> {
-        self.image_sources.get(image_id).map(|image_source| image_source.get_bytes())
+        self.image_sources.get(image_id).map(image_source_get_bytes)
     }
 
     pub fn delete_image(&mut self, image_id: &ImageId) {
@@ -462,8 +398,7 @@ impl AppResources {
 
     /// Given a `FontId`, returns the bytes for that font or `None`, if the `FontId` is invalid.
     pub fn get_font_bytes(&self, font_id: &FontId) -> Option<Result<(Vec<u8>, i32), FontReloadError>> {
-        let font_source = self.font_sources.get(font_id)?;
-        Some(font_source.get_bytes())
+        self.font_sources.get(font_id).map(font_source_get_bytes)
     }
 
     /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
@@ -548,6 +483,62 @@ impl AppResources {
 pub(crate) enum ImmediateFontId {
     Resolved(FontId),
     Unresolved(CssFontId),
+}
+
+/// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
+/// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
+#[allow(unused_variables)]
+fn image_source_get_bytes(image_source: &ImageSource)
+-> Result<(ImageData, ImageDescriptor), ImageReloadError>
+{
+    match image_source {
+        ImageSource::Embedded(bytes) => {
+            #[cfg(feature = "image_loading")] {
+                decode_image_data(bytes.to_vec()).map_err(|e| ImageReloadError::DecodingError(e))
+            }
+            #[cfg(not(feature = "image_loading"))] {
+                Err(ImageReloadError::DecodingModuleNotActive)
+            }
+        },
+        ImageSource::Raw(raw_image) => {
+            let opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels[..]);
+            let allow_mipmaps = true;
+            let descriptor = ImageDescriptor::new(
+                raw_image.image_dimensions.0 as i32,
+                raw_image.image_dimensions.1 as i32,
+                raw_image.data_format,
+                opaque,
+                allow_mipmaps
+            );
+            let data = ImageData::new(raw_image.pixels.clone());
+            Ok((data, descriptor))
+        },
+        ImageSource::File(file_path) => {
+            #[cfg(feature = "image_loading")] {
+                use std::fs;
+                let bytes = fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone()))?;
+                decode_image_data(bytes).map_err(|e| ImageReloadError::DecodingError(e))
+            }
+            #[cfg(not(feature = "image_loading"))] {
+                Err(ImageReloadError::DecodingModuleNotActive)
+            }
+        },
+    }
+}
+
+/// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
+/// Also returns the index into the font (in case the font is a font collection).
+fn font_source_get_bytes(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
+    use std::fs;
+    match font_source {
+        FontSource::Embedded(bytes) => Ok((bytes.to_vec(), 0)),
+        FontSource::File(file_path) => {
+            fs::read(file_path)
+            .map_err(|e| FontReloadError::Io(e, file_path.clone()))
+            .map(|f| (f, 0))
+        },
+        FontSource::System(id) => load_system_font(id).ok_or(FontReloadError::FontNotFound(id.clone())),
+    }
 }
 
 /// Scans the display list for all font IDs + their font size
@@ -756,7 +747,7 @@ fn build_add_font_resource_updates(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
                 };
 
-                let (font_bytes, font_index) = match font_source.get_bytes() {
+                let (font_bytes, font_index) = match font_source_get_bytes(&font_source) {
                     Ok(o) => o,
                     Err(e) => {
                         #[cfg(feature = "logging")] {
@@ -799,7 +790,7 @@ fn build_add_image_resource_updates(
     images_in_dom.iter()
     .filter(|image_id| !app_resources.currently_registered_images.contains_key(*image_id))
     .filter_map(|image_id| {
-        let (data, descriptor) = match app_resources.image_sources.get(image_id)?.get_bytes() {
+        let (data, descriptor) = match image_source_get_bytes(app_resources.image_sources.get(image_id)?) {
             Ok(o) => o,
             Err(e) => {
                 #[cfg(feature = "logging")] {

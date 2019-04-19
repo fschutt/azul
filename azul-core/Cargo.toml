@@ -17,3 +17,4 @@ autoexamples = false
 
 [dependencies]
 azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
+gleam                   = { version = "0.6"                                                                     }

@@ -221,24 +221,6 @@ fn construct_html_cascade_tree<'a, T>(
     NodeDataContainer { internal: nodes }
 }
 
-/// In order to support :hover, the element must have a TagId, otherwise it
-/// will be disregarded in the hit-testing. A hover group
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
-pub struct HoverGroup {
-    /// Whether any property in the hover group will trigger a re-layout.
-    /// This is important for creating
-    pub affects_layout: bool,
-    /// Whether this path ends with `:active` or with `:hover`
-    pub active_or_hover: ActiveHover,
-}
-
-/// Sets whether an element needs to be selected for `:active` or for `:hover`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub enum ActiveHover {
-    Active,
-    Hover,
-}
-
 /// Returns all CSS paths that have a `:hover` or `:active` in their path
 /// (since they need to have tags for hit-testing)
 fn collect_hover_groups(css: &Css) -> BTreeMap<CssPath, HoverGroup> {

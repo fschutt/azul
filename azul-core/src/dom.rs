@@ -1,10 +1,8 @@
 use std::{
     fmt,
-    path::Path,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
     cmp::Ordering as CmpOrdering,
-    collections::BTreeMap,
     iter::FromIterator,
 };
 use azul_css::{NodeTypePath, CssProperty};

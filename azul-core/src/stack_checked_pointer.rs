@@ -6,8 +6,7 @@ use std::{
 };
 use {
     dom::Dom,
-    callbacks::{DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds, UpdateScreen},
-    gl::Texture,
+    callbacks::{DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds, UpdateScreen, Texture},
     app::AppStateNoData,
 };
 

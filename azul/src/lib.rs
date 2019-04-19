@@ -143,8 +143,9 @@ extern crate serde;
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde_derive;
 
+extern crate gleam;
+
 pub(crate) use azul_dependencies::glium as glium;
-pub(crate) use azul_dependencies::gleam as gleam;
 pub(crate) use azul_dependencies::euclid;
 pub(crate) use azul_dependencies::webrender;
 pub(crate) use azul_dependencies::app_units;
