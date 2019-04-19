@@ -20,6 +20,7 @@ use {
 pub use webrender::api::{ImageFormat as WrImageFormat, ImageData, ImageDescriptor};
 #[cfg(feature = "image_loading")]
 pub use image::{ImageError, DynamicImage, GenericImageView};
+pub use azul_core::app_resources::*;
 
 #[derive(Debug)]
 pub enum ImageReloadError {
@@ -117,7 +118,7 @@ impl FontImageApi for FakeRenderApi {
 
 /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
 /// guaranteed to know about all FontKeys and FontInstanceKey
-pub(crate) fn add_fonts_and_images<T>(app_resources: &mut AppResources<T>, display_list: &DisplayList<T>) {
+pub(crate) fn add_fonts_and_images<T>(app_resources: &mut AppResources, display_list: &DisplayList<T>) {
     let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list);
     let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list);
 
@@ -134,7 +135,7 @@ pub(crate) fn add_fonts_and_images<T>(app_resources: &mut AppResources<T>, displ
 /// Deletes all FontKeys and FontImageKeys that weren't used in
 /// the last frame, to save on memory. If the font needs to be recreated, it
 /// needs to be reloaded from the `FontSource`.
-pub(crate) fn garbage_collect_fonts_and_images<T>(app_resources: &mut AppResources<T>) {
+pub(crate) fn garbage_collect_fonts_and_images(app_resources: &mut AppResources) {
 
     let delete_font_resource_updates = build_delete_font_resource_updates(app_resources);
     let delete_image_resource_updates = build_delete_image_resource_updates(app_resources);

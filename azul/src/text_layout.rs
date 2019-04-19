@@ -7,6 +7,7 @@ pub use webrender::api::{
     GlyphInstance, LayoutSize, LayoutRect, LayoutPoint,
 };
 pub use harfbuzz_sys::{hb_glyph_info_t as GlyphInfo, hb_glyph_position_t as GlyphPosition};
+pub use azul_core::app_resources::{Words, Word, WordType};
 
 pub type WordIndex = usize;
 pub type GlyphIndex = usize;
@@ -19,52 +20,6 @@ const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 const DEFAULT_WORD_SPACING: f32 = 1.0;
 const DEFAULT_LETTER_SPACING: f32 = 0.0;
 const DEFAULT_TAB_WIDTH: f32 = 4.0;
-
-/// Text broken up into `Tab`, `Word()`, `Return` characters
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Words {
-    pub items: Vec<Word>,
-    // NOTE: Can't be a string, because it wouldn't be possible to take substrings
-    // (since in UTF-8, multiple characters can be encoded in one byte).
-    internal_str: String,
-    internal_chars: Vec<char>,
-}
-
-impl Words {
-
-    pub fn get_substr(&self, word: &Word) -> String {
-        self.internal_chars[word.start..word.end].iter().collect()
-    }
-
-    pub fn get_str(&self) -> &str {
-        &self.internal_str
-    }
-
-    pub fn get_char(&self, idx: usize) -> Option<char> {
-        self.internal_chars.get(idx).cloned()
-    }
-}
-
-/// Section of a certain type
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Word {
-    pub start: usize,
-    pub end: usize,
-    pub word_type: WordType,
-}
-
-/// Either a white-space delimited word, tab or return character
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum WordType {
-    /// Encountered a word (delimited by spaces)
-    Word,
-    // `\t` or `x09`
-    Tab,
-    /// `\r`, `\n` or `\r\n`, escaped: `\x0D`, `\x0A` or `\x0D\x0A`
-    Return,
-    /// Space character
-    Space,
-}
 
 /// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
 /// according to their final size in pixels.

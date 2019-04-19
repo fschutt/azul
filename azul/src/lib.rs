@@ -136,14 +136,18 @@
 
 #[macro_use(warn, error, lazy_static)]
 pub extern crate azul_dependencies;
+extern crate azul_native_style;
+extern crate azul_css_parser;
+extern crate azul_core;
+extern crate gleam;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde_derive;
-
-extern crate gleam;
+#[cfg(feature = "css_parser")]
+extern crate azul_css;
 
 pub(crate) use azul_dependencies::glium as glium;
 pub(crate) use azul_dependencies::euclid;
@@ -173,12 +177,6 @@ pub(crate) use azul_dependencies::usvg;
 #[cfg(feature = "faster-hashing")]
 pub(crate) use azul_dependencies::twox_hash;
 
-#[cfg(feature = "css_parser")]
-extern crate azul_css;
-extern crate azul_native_style;
-extern crate azul_css_parser;
-extern crate azul_core;
-
 // Crate-internal macros
 #[macro_use]
 mod macros;
@@ -186,24 +184,26 @@ mod macros;
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;
 /// Async IO helpers / (`Task` / `Timer` / `Thread`)
-pub mod async;
+pub use azul_core::async;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
-pub mod callbacks;
+pub use azul_core::callbacks;
 /// CSS type definitions / CSS parsing functions
 #[cfg(any(feature = "css_parser", feature = "native_style"))]
 pub mod css;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
 /// DOM / HTML node handling
-pub use azul_core::dom as dom;
+pub use azul_core::dom;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
-pub mod gl;
+pub use azul_core::gl;
 /// Re-exports of errors
 pub mod error;
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout;
 /// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
 pub mod traits;
+/// State handling for user interfaces
+pub use azul_core::ui_state;
 /// Container for default widgets (`TextInput` / `Button` / `Label`, `TableView`, ...)
 pub mod widgets;
 /// Window state handling and window-related information
@@ -212,8 +212,7 @@ pub mod window;
 pub mod xml;
 
 /// Slab-allocated DOM nodes
-pub(crate) use azul_core::id_tree as id_tree;
-
+use azul_core::id_tree;
 /// UI Description & display list handling (webrender)
 mod ui_description;
 /// HarfBuzz text shaping utilities
@@ -221,8 +220,6 @@ mod text_shaping;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;
-/// State handling for user interfaces
-mod ui_state;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
 /// top of each other
 mod compositor;
@@ -235,12 +232,12 @@ mod ui_solver;
 mod style;
 /// DOM diffing
 mod diff;
-/// Checks that two-way bound values are on the stack
-mod stack_checked_pointer;
 /// Window state handling and diffing
 mod window_state;
 /// ImageId / FontId handling and caching
 mod app_resources;
+/// Translation between data types (so that Azuls API can be independent of the actual "backend" type)
+mod wr_translate;
 
 /// Font & image resource handling, lookup and caching
 pub mod resources {
@@ -291,9 +288,11 @@ pub mod prelude {
         WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey,
     };
     pub use glium::glutin::{
-        VirtualKeyCode, ScanCode, Icon,
+        VirtualKeyCode, ScanCode,
     };
-    pub use stack_checked_pointer::StackCheckedPointer;
+    pub use azul_core::{
+        callbacks::StackCheckedPointer,
+    };
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
     pub use xml::{XmlComponent, XmlComponentMap};
 

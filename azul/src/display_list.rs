@@ -30,15 +30,14 @@ use {
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
-        NodeData, ScrollTagId, DomHash, DomString, new_scroll_tag_id,
+        NodeData, ScrollTagId, DomHash, DomString,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
     },
     ui_solver::{do_the_layout, LayoutResult, PositionedRectangle},
     app_resources::ImageId,
     compositor::new_opengl_texture_id,
-    window::{Window, FakeWindow, ScrollStates},
+    window::{Window, WindowSize, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
-    window_state::WindowSize,
 };
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -440,7 +439,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
         // Create a unique scroll tag for hit-testing
         let scroll_tag_id = match display_list_rects.get(*parent).and_then(|node| node.tag) {
             Some(existing_tag) => ScrollTagId(existing_tag),
-            None => new_scroll_tag_id(),
+            None => ScrollTagId::new(),
         };
 
         tags_to_node_ids.insert(scroll_tag_id, *parent);

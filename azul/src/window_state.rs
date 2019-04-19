@@ -19,6 +19,10 @@ use {
     callbacks::FocusTarget,
     app::AppState,
 };
+pub use azul_core::window::{
+    WindowState, KeyboardState, MouseState, DebugState,
+    LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize
+};
 
 pub(crate) mod winit_translate {
 
@@ -45,11 +49,11 @@ pub(crate) mod winit_translate {
     }
 }
 
-fn update_keyboard_state_from_modifier_state(&mut KeyboardState, state: ModifiersState) {
-    self.shift_down = state.shift;
-    self.ctrl_down = state.ctrl;
-    self.alt_down = state.alt;
-    self.super_down = state.logo;
+fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState, state: ModifiersState) {
+    keyboard_state.shift_down = state.shift;
+    keyboard_state.ctrl_down = state.ctrl;
+    keyboard_state.alt_down = state.alt;
+    keyboard_state.super_down = state.logo;
 }
 
 pub(crate) struct DetermineCallbackResult<T> {
@@ -500,7 +504,7 @@ impl WindowState
         };
 
         if let Some(modifiers) = modifiers {
-            self.internal.keyboard_state.update_from_modifier_state(*modifiers);
+            update_keyboard_state_from_modifier_state(self.internal.keyboard_state, *modifiers);
         }
     }
 

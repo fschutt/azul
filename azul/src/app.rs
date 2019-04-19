@@ -31,9 +31,8 @@ use {
     error::ClipboardError,
     window::{
         Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize,
-        WindowCreateError, WindowCreateOptions, RendererType,
+        WindowCreateError, WindowCreateOptions, RendererType, WindowSize, DebugState,
     },
-    window_state::{WindowSize, DebugState},
     app_resources::TextId,
     dom::{Dom, ScrollTagId},
     app_resources::{
@@ -50,6 +49,7 @@ use {
     },
 };
 pub use app_resources::AppResources;
+pub use azul_core::app::{AppState, AppStateNoData};
 
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
@@ -822,7 +822,7 @@ fn hot_reload_css<T>(
 #[cfg(not(test))]
 fn do_hit_test<T>(window: &Window<T>, app_resources: &AppResources) -> Option<Vec<HitTestItem>> {
 
-    use callbacks::translate_wr_hittest_item;
+    use wr_translate::translate_wr_hittest_item;
 
     let cursor_location = window.state.internal.mouse_state.cursor_pos
         .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;

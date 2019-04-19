@@ -6,8 +6,9 @@ use std::{
 };
 use {
     dom::Dom,
-    callbacks::{DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds, UpdateScreen, Texture},
+    callbacks::{DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds, UpdateScreen},
     app::AppStateNoData,
+    gl::Texture,
 };
 
 /// A `StackCheckedPointer<T>` is a type-erased, raw pointer to a

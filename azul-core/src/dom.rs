@@ -29,6 +29,10 @@ pub fn new_tag_id() -> TagId {
     TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
 }
 
+pub fn reset_tag_id() {
+    TAG_ID.swap(1, Ordering::SeqCst);
+}
+
 impl ScrollTagId {
     pub fn new() -> ScrollTagId {
         ScrollTagId(new_tag_id())

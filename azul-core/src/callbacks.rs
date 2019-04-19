@@ -1,6 +1,5 @@
 use std::{
     fmt,
-    rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use azul_css::CssPath;
@@ -14,24 +13,12 @@ use {
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
     window::{FakeWindow, LogicalSize, PhysicalSize, LogicalPosition},
+    gl::Texture,
 };
 pub use stack_checked_pointer::StackCheckedPointer;
 pub use gleam::gl::Gl;
 
 pub type WindowId = usize;
-pub type GLuint = u32;
-
-/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-pub struct Texture {
-    /// Raw OpenGL texture ID
-    pub texture_id: GLuint,
-    /// Width of this texture in pixels
-    pub width: usize,
-    /// Height of this texture in pixels
-    pub height: usize,
-    /// Reference to the OpenGL context
-    pub gl_context: Rc<Gl>,
-}
 
 pub type DefaultCallbackType<T, U> = fn(&mut U, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;

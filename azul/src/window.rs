@@ -36,6 +36,7 @@ use {
 };
 pub use webrender::api::HitTestItem;
 pub use glium::glutin::AvailableMonitorsIter;
+pub use azul_core::window::*;
 pub use window_state::*;
 
 // TODO: Right now it's not very ergonomic to cache shaders between

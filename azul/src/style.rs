@@ -12,6 +12,7 @@ use {
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
     callbacks::{FocusTarget, HitTestItem},
 };
+pub use azul_core::ui_state::{HoverGroup, ActiveHover};
 
 /// Has all the necessary information about the style CSS path
 pub(crate) struct HtmlCascadeInfo<'a, T: 'a> {

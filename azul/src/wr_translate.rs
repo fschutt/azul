@@ -1,7 +1,17 @@
-// ---
-
-use webrender::api::LayoutRect as WrLayoutRect;
-use webrender::api::HitTestItem as WrHitTestItem;
+use std::collections::BTreeMap;
+use azul_core::{
+    app::AppState,
+    dom::new_tag_id,
+    ui_state::{UiState, HoverGroup},
+    callbacks::{DefaultCallbackId, WindowId, Callback, LayoutInfo, HidpiAdjustedBounds, PipelineId, HitTestItem},
+    window::{LogicalPosition, LogicalSize},
+    dom::{self, Dom, WindowEventFilter, NotEventFilter, FocusEventFilter, HoverEventFilter},
+    id_tree::NodeId,
+};
+use {
+    app::RuntimeError,
+};
+use webrender::api::{LayoutRect as WrLayoutRect, HitTestItem as WrHitTestItem};
 
 pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
     HitTestItem {
@@ -12,9 +22,9 @@ pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
     }
 }
 
-pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> Self {
+pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> HidpiAdjustedBounds {
     let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
-    Self {
+    HidpiAdjustedBounds {
         logical_size,
         hidpi_factor,
         winit_hidpi_factor,
@@ -26,7 +36,7 @@ pub(crate) fn ui_state_from_app_state<T>(
     app_state: &mut AppState<T>,
     window_id: &WindowId,
     layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>
-) -> Result<UiState<T>>, RuntimeError<T>> {
+) -> Result<UiState<T>, RuntimeError<T>> {
 
     use dom::{Dom, On, NodeType};
     use std::sync::atomic::Ordering;
@@ -145,8 +155,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
         };
     }
 
-    // Reset the tag
-    TAG_ID.swap(1, Ordering::SeqCst);
+    dom::reset_tag_id();
 
     {
         let arena = &dom.arena;

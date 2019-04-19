@@ -11,41 +11,52 @@ use std::{
 };
 use gleam::gl::{self, Gl};
 
-//    /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
-//    pub gl_context: Rc<Gl>,
-
-/// Note: Creates a new texture (calls `gen_textures()`)
-pub fn new_texture(gl_context: Rc<Gl>, width: usize, height: usize) -> Texture {
-
-    let textures = gl_context.gen_textures(1);
-    let texture_id = textures[0];
-
-    gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
-    gl_context.tex_image_2d(
-        gl::TEXTURE_2D,
-        0,
-        gl::RGBA as i32,
-        width as i32,
-        height as i32,
-        0,
-        gl::RGBA,
-        gl::UNSIGNED_BYTE,
-        None
-    );
-
-    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-
-    Self {
-        texture_id,
-        width,
-        height,
-        gl_context,
-    }
+/// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
+pub struct Texture {
+    /// Raw OpenGL texture ID
+    pub texture_id: GLuint,
+    /// Width of this texture in pixels
+    pub width: usize,
+    /// Height of this texture in pixels
+    pub height: usize,
+    /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
+    pub gl_context: Rc<Gl>,
 }
 
+/// Note: Creates a new texture (calls `gen_textures()`)
+impl Texture {
+
+    pub fn new(gl_context: Rc<Gl>, width: usize, height: usize) -> Texture {
+
+        let textures = gl_context.gen_textures(1);
+        let texture_id = textures[0];
+
+        gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
+        gl_context.tex_image_2d(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32,
+            width as i32,
+            height as i32,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            None
+        );
+
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+        Self {
+            texture_id,
+            width,
+            height,
+            gl_context,
+        }
+    }
+}
 
 impl ::std::fmt::Display for Texture {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -577,10 +588,15 @@ pub enum GlShaderCompileError {
     Fragment(FragmentShaderCompileError),
 }
 
-impl_display!(GlShaderCompileError, {
-    Vertex(vert_err) => format!("Failed to compile vertex shader: {}", vert_err),
-    Fragment(frag_err) => format!("Failed to compile fragment shader: {}", frag_err),
-});
+impl ::std::fmt::Display for GlShaderCompileError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use self::GlShaderCompileError::*;
+        match self {
+            Vertex(vert_err) => write!(f, "Failed to compile vertex shader: {}", vert_err),
+            Fragment(frag_err) => write!(f, "Failed to compile fragment shader: {}", frag_err),
+        }
+    }
+}
 
 impl ::std::fmt::Debug for GlShaderCompileError {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -608,10 +624,15 @@ pub enum GlShaderCreateError {
     Link(GlShaderLinkError),
 }
 
-impl_display!(GlShaderCreateError, {
-    Compile(compile_err) => format!("Shader compile error: {}", compile_err),
-    Link(link_err) => format!("Shader linking error: {}", link_err),
-});
+impl ::std::fmt::Display for GlShaderCreateError {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use self::GlShaderCreateError::*;
+        match self {
+            Compile(compile_err) => write!(f, "Shader compile error: {}", compile_err),
+            Link(link_err) => write!(f, "Shader linking error: {}", link_err),
+        }
+    }
+}
 
 impl ::std::fmt::Debug for GlShaderCreateError {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
