@@ -7,16 +7,14 @@ use std::{
     collections::BTreeMap,
     iter::FromIterator,
 };
-use azul_css::{ NodeTypePath, CssProperty };
+use azul_css::{NodeTypePath, CssProperty};
 use {
-    ui_state::UiState,
     callbacks::{
         DefaultCallbackId, StackCheckedPointer,
         Callback, GlTextureCallback, IFrameCallback,
     },
     app_resources::{ImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
-    xml::{self, XmlParseError, XmlComponentMap},
 };
 
 pub use id_tree::{NodeHierarchy, Node, NodeId};
@@ -499,19 +497,19 @@ impl WindowEventFilter {
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub struct NodeData<T> {
     /// `div`
-    pub node_type: NodeType<T>,
+    node_type: NodeType<T>,
     /// `#main #something`
-    pub ids: Vec<DomString>,
+    ids: Vec<DomString>,
     /// `.myclass .otherclass`
-    pub classes: Vec<DomString>,
+    classes: Vec<DomString>,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
-    pub callbacks: Vec<(EventFilter, Callback<T>)>,
+    callbacks: Vec<(EventFilter, Callback<T>)>,
     /// Usually not set by the user directly - `FakeWindow::add_default_callback`
     /// returns a callback ID, so that we know which default callback(s) are attached
     /// to this node.
     ///
     /// This is only important if this node has any default callbacks.
-    pub default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>,
+    default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>,
     /// Override certain dynamic styling properties in this frame. For this,
     /// these properties have to have a name (the ID).
     ///
@@ -527,15 +525,15 @@ pub struct NodeData<T> {
     ///     dynamic_css_overrides: vec![("my_custom_width".into(), CssProperty::Width(LayoutWidth::px(500.0)))]
     /// }
     /// ```
-    pub dynamic_css_overrides: Vec<(DomString, CssProperty)>,
+    dynamic_css_overrides: Vec<(DomString, CssProperty)>,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
     ///
     /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
-    pub is_draggable: bool,
+    is_draggable: bool,
     /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
     /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
     /// `On::FocusLost` (equivalent to onblur), etc. events.
-    pub tab_index: Option<TabIndex>,
+    tab_index: Option<TabIndex>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -834,14 +832,27 @@ impl DomString {
     }
 }
 
-impl_display!{ DomString, {
-    Static(s) => format!("{}", s),
-    Heap(h) => h,
-}}
+impl fmt::Display for DomString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::DomString::*;
+        match &self {
+            Static(s) => write!(f, "{}", s),
+            Heap(h) => write!(f, "{}", h),
+        }
+    }
+}
 
-type StaticString = &'static str;
-impl_from!(String, DomString::Heap);
-impl_from!(StaticString, DomString::Static);
+impl From<String> for DomString {
+    fn from(e: String) -> Self {
+        DomString::Heap(e)
+    }
+}
+
+impl From<&'static str> for DomString {
+    fn from(e: &'static str) -> Self {
+        DomString::Static(e)
+    }
+}
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 pub struct Dom<T> {
@@ -1052,54 +1063,6 @@ impl<T> Dom<T> {
         Self::new(NodeType::IFrame((callback, ptr)))
     }
 
-    /// Parses and loads a DOM from an XML string
-    #[inline]
-    pub fn from_xml(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Self, XmlParseError> {
-        xml::str_to_dom(xml, component_map)
-    }
-
-    #[cfg(test)]
-    pub fn mock_from_xml(xml: &str) -> Self {
-        let actual_xml = format!("<app>{}</app>", xml);
-        Self::from_xml(&actual_xml, &mut XmlComponentMap::default()).unwrap()
-    }
-
-    /// Convenience function, only available in tests, useful for quickly writing UI tests.
-    /// Wraps the XML string in the required `<app></app>` braces, panics if the XML couldn't be parsed.
-    ///
-    /// ## Example
-    ///
-    /// ```rust
-    /// # use azul::dom::Dom;
-    /// let dom = Dom::div().with_id("test");
-    /// dom.assert_eq("<div id='test' />");
-    /// ```
-    #[cfg(test)]
-    pub fn assert_eq(self, xml: &str) {
-        let fixed = Self::div().with_child(self);
-        let expected = Self::mock_from_xml(xml);
-        if expected != fixed {
-            panic!("\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: ----------\r\n{}\r\n", expected.debug_dump(), fixed.debug_dump());
-        }
-    }
-
-    /// Loads, parses and builds a DOM from an XML file - warning: Disk I/O on every
-    /// function call - do not use this in release builds! This function deliberately
-    /// never fails: In an error case, the error gets rendered as a `NodeType::Label`.
-    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap<T>) -> Self {
-        use std::fs;
-
-        let xml = match fs::read_to_string(file_path) {
-            Ok(xml) => xml,
-            Err(e) => return Dom::label(format!("{}", e)),
-        };
-
-        match Self::from_xml(&xml, component_map) {
-            Ok(o) => o,
-            Err(e) => Dom::label(format!("{}", e)),
-        }
-    }
-
     /// Returns the number of nodes in this DOM
     #[inline]
     pub fn len(&self) -> usize {
@@ -1273,234 +1236,6 @@ impl<T> Dom<T> {
     /// Returns a debug formatted version of the DOM for easier debugging
     pub fn debug_dump(&self) -> String {
         format!("{}", print_tree(&self.arena, |t| format!("{}", t)))
-    }
-
-    /// The UiState contains all the tags (for hit-testing) as well as the mapping
-    /// from Hit-testing tags to NodeIds (which are important for filtering input events
-    /// and routing input events to the callbacks).
-    pub(crate) fn into_ui_state(self) -> UiState<T> {
-
-        // NOTE: Originally it was allowed to create a DOM with
-        // multiple root elements using `add_sibling()` and `with_sibling()`.
-        //
-        // However, it was decided to remove these functions (in commit #586933),
-        // as they aren't practical (you can achieve the same thing with one
-        // wrapper div and multiple add_child() calls) and they create problems
-        // when layouting elements since add_sibling() essentially modifies the
-        // space that the parent can distribute, which in code, simply looks weird
-        // and led to bugs.
-        //
-        // It is assumed that the DOM returned by the user has exactly one root node
-        // with no further siblings and that the root node is the Node with the ID 0.
-
-        // All tags that have can be focused (necessary for hit-testing)
-        let mut tab_index_tags = BTreeMap::new();
-        // All tags that have can be dragged & dropped (necessary for hit-testing)
-        let mut draggable_tags = BTreeMap::new();
-
-        // Mapping from tags to nodes (necessary so that the hit-testing can resolve the NodeId from any given tag)
-        let mut tag_ids_to_node_ids = BTreeMap::new();
-        // Mapping from nodes to tags, reverse mapping (not used right now, may be useful in the future)
-        let mut node_ids_to_tag_ids = BTreeMap::new();
-        // Which nodes have extra dynamic CSS overrides?
-        let mut dynamic_css_overrides = BTreeMap::new();
-
-        let mut hover_callbacks = BTreeMap::new();
-        let mut hover_default_callbacks = BTreeMap::new();
-        let mut focus_callbacks = BTreeMap::new();
-        let mut focus_default_callbacks = BTreeMap::new();
-        let mut not_callbacks = BTreeMap::new();
-        let mut not_default_callbacks = BTreeMap::new();
-        let mut window_callbacks = BTreeMap::new();
-        let mut window_default_callbacks = BTreeMap::new();
-
-        // data.callbacks, HoverEventFilter, Callback<T>, as_hover_event_filter, hover_callbacks, <node_tag_id> (optional)
-        macro_rules! filter_and_insert_callbacks {
-            (
-                    $node_id:ident,
-                    $data_source:expr,
-                    $event_filter:ident,
-                    $callback_type:ty,
-                    $filter_func:ident,
-                    $final_callback_list:ident,
-            ) => {
-                let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
-                .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, *cb)))
-                .collect();
-
-                if !node_hover_callbacks.is_empty() {
-                    $final_callback_list.insert($node_id, node_hover_callbacks);
-                }
-            };
-            (
-                $node_id:ident,
-                $data_source:expr,
-                $event_filter:ident,
-                $callback_type:ty,
-                $filter_func:ident,
-                $final_callback_list:ident,
-                $node_tag_id:ident,
-            ) => {
-                let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
-                .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, *cb)))
-                .collect();
-
-                if !node_hover_callbacks.is_empty() {
-                    $final_callback_list.insert($node_id, node_hover_callbacks);
-                    let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
-                    $node_tag_id = Some(tag_id);
-                }
-            };
-        }
-
-        // Reset the tag
-        TAG_ID.swap(1, Ordering::SeqCst);
-
-        {
-            let arena = &self.arena;
-
-            debug_assert!(arena.node_layout[NodeId::new(0)].next_sibling.is_none());
-
-            for node_id in arena.linear_iter() {
-
-                let node = &arena.node_data[node_id];
-
-                let mut node_tag_id = None;
-
-                // Optimization since on most nodes, the callbacks will be empty
-                if !node.callbacks.is_empty() {
-
-                    // Filter and insert HoverEventFilter callbacks
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.callbacks,
-                        HoverEventFilter,
-                        Callback<T>,
-                        as_hover_event_filter,
-                        hover_callbacks,
-                        node_tag_id,
-                    );
-
-                    // Filter and insert FocusEventFilter callbacks
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.callbacks,
-                        FocusEventFilter,
-                        Callback<T>,
-                        as_focus_event_filter,
-                        focus_callbacks,
-                        node_tag_id,
-                    );
-
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.callbacks,
-                        NotEventFilter,
-                        Callback<T>,
-                        as_not_event_filter,
-                        not_callbacks,
-                        node_tag_id,
-                    );
-
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.callbacks,
-                        WindowEventFilter,
-                        Callback<T>,
-                        as_window_event_filter,
-                        window_callbacks,
-                    );
-                }
-
-                if !node.default_callback_ids.is_empty() {
-
-                    // Filter and insert HoverEventFilter callbacks
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.default_callback_ids,
-                        HoverEventFilter,
-                        DefaultCallbackId,
-                        as_hover_event_filter,
-                        hover_default_callbacks,
-                        node_tag_id,
-                    );
-
-                    // Filter and insert FocusEventFilter callbacks
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.default_callback_ids,
-                        FocusEventFilter,
-                        DefaultCallbackId,
-                        as_focus_event_filter,
-                        focus_default_callbacks,
-                        node_tag_id,
-                    );
-
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.default_callback_ids,
-                        NotEventFilter,
-                        DefaultCallbackId,
-                        as_not_event_filter,
-                        not_default_callbacks,
-                        node_tag_id,
-                    );
-
-                    filter_and_insert_callbacks!(
-                        node_id,
-                        node.default_callback_ids,
-                        WindowEventFilter,
-                        DefaultCallbackId,
-                        as_window_event_filter,
-                        window_default_callbacks,
-                    );
-                }
-
-                if node.is_draggable {
-                    let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
-                    draggable_tags.insert(tag_id, node_id);
-                    node_tag_id = Some(tag_id);
-                }
-
-                if let Some(tab_index) = node.tab_index {
-                    let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
-                    tab_index_tags.insert(tag_id, (node_id, tab_index));
-                    node_tag_id = Some(tag_id);
-                }
-
-                if let Some(tag_id) = node_tag_id {
-                    tag_ids_to_node_ids.insert(tag_id, node_id);
-                    node_ids_to_tag_ids.insert(node_id, tag_id);
-                }
-
-                // Collect all the styling overrides into one hash map
-                if !node.dynamic_css_overrides.is_empty() {
-                    dynamic_css_overrides.insert(node_id, node.dynamic_css_overrides.iter().cloned().collect());
-                }
-            }
-        }
-
-        UiState {
-
-            dom: self,
-            dynamic_css_overrides,
-            tag_ids_to_hover_active_states: BTreeMap::new(),
-
-            tab_index_tags,
-            draggable_tags,
-            node_ids_to_tag_ids,
-            tag_ids_to_node_ids,
-
-            hover_callbacks,
-            hover_default_callbacks,
-            focus_callbacks,
-            focus_default_callbacks,
-            not_callbacks,
-            not_default_callbacks,
-            window_callbacks,
-            window_default_callbacks,
-
-        }
     }
 }
 

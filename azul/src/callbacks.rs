@@ -5,8 +5,6 @@ use std::{
 use azul_css::CssPath;
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
-use webrender::api::LayoutRect;
-use webrender::api::HitTestItem as WrHitTestItem;
 use {
     app::AppState,
     async::TerminateTimer,
@@ -60,15 +58,6 @@ pub struct HitTestItem {
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
     pub point_relative_to_item: LogicalPosition,
-}
-
-pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
-    HitTestItem {
-        pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
-        tag: input.tag,
-        point_in_viewport: LogicalPosition::new(input.point_in_viewport.x, input.point_in_viewport.y),
-        point_relative_to_item: LogicalPosition::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
-    }
 }
 
 /// Each default callback is identified by its ID (not by it's function pointer),
@@ -224,50 +213,14 @@ impl HidpiAdjustedBounds {
     pub fn get_hidpi_factor(&self) -> f32 {
         self.hidpi_factor
     }
-
-    pub(crate) fn from_bounds(bounds: LayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> Self {
-        let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
-        Self {
-            logical_size,
-            hidpi_factor,
-            winit_hidpi_factor,
-        }
-    }
 }
 
-/// Iterator that, starting from a certain starting point, returns the
-/// parent node until it gets to the root node.
-pub struct ParentNodesIterator<'a> {
-    current_item: NodeId,
-    node_hierarchy: &'a NodeHierarchy,
-}
-
-impl<'a> ParentNodesIterator<'a> {
-
-    /// Returns what node ID the iterator is currently processing
-    pub fn current_node(&self) -> NodeId {
-        self.current_item
-    }
-
-    /// Returns the offset into the parent of the current node or None if the item has no parent
-    pub fn current_index_in_parent(&self) -> Option<usize> {
-        if self.node_hierarchy[self.current_item].has_parent() {
-            Some(self.node_hierarchy.get_index_in_parent(self.current_item))
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> Iterator for ParentNodesIterator<'a> {
-    type Item = NodeId;
-
-    /// For each item in the current item path, returns the index of the item in the parent
-    fn next(&mut self) -> Option<NodeId> {
-        let new_parent = self.node_hierarchy[self.current_item].parent?;
-        self.current_item = new_parent;
-        Some(new_parent)
-    }
+/// Defines the focused node ID for the next frame
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FocusTarget {
+    Id(NodeId),
+    Path(CssPath),
+    NoFocus,
 }
 
 impl<'a, T: 'a> CallbackInfo<'a, T> {
@@ -384,17 +337,6 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
             }
         })
     }
-}
-
-/// Defines the focused node ID for the next frame
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum FocusTarget {
-    Id(NodeId),
-    Path(CssPath),
-    NoFocus,
-}
-
-impl<'a, T: 'a> CallbackInfo<'a, T> {
 
     /// Set the focus to a certain div by parsing a string.
     /// Note that the parsing of the string can fail, therefore the Result
@@ -423,5 +365,63 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
     /// Clears the focus for the next frame.
     pub fn clear_focus(&mut self) {
         self.focus = Some(FocusTarget::NoFocus);
+    }
+}
+
+// ---
+
+use webrender::api::LayoutRect as WrLayoutRect;
+use webrender::api::HitTestItem as WrHitTestItem;
+
+pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
+    HitTestItem {
+        pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
+        tag: input.tag,
+        point_in_viewport: LogicalPosition::new(input.point_in_viewport.x, input.point_in_viewport.y),
+        point_relative_to_item: LogicalPosition::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
+    }
+}
+
+pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> Self {
+    let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
+    Self {
+        logical_size,
+        hidpi_factor,
+        winit_hidpi_factor,
+    }
+}
+
+/// Iterator that, starting from a certain starting point, returns the
+/// parent node until it gets to the root node.
+pub struct ParentNodesIterator<'a> {
+    current_item: NodeId,
+    node_hierarchy: &'a NodeHierarchy,
+}
+
+impl<'a> ParentNodesIterator<'a> {
+
+    /// Returns what node ID the iterator is currently processing
+    pub fn current_node(&self) -> NodeId {
+        self.current_item
+    }
+
+    /// Returns the offset into the parent of the current node or None if the item has no parent
+    pub fn current_index_in_parent(&self) -> Option<usize> {
+        if self.node_hierarchy[self.current_item].has_parent() {
+            Some(self.node_hierarchy.get_index_in_parent(self.current_item))
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> Iterator for ParentNodesIterator<'a> {
+    type Item = NodeId;
+
+    /// For each item in the current item path, returns the index of the item in the parent
+    fn next(&mut self) -> Option<NodeId> {
+        let new_parent = self.node_hierarchy[self.current_item].parent?;
+        self.current_item = new_parent;
+        Some(new_parent)
     }
 }

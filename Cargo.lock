@@ -64,6 +64,9 @@ dependencies = [
 [[package]]
 name = "azul-core"
 version = "0.1.0"
+dependencies = [
+ "azul-css 0.1.0",
+]
 
 [[package]]
 name = "azul-css"

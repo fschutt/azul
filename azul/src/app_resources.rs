@@ -67,51 +67,25 @@ pub struct AppResources {
     clipboard: SystemClipboard,
 }
 
-static TEXT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-impl TextId {
-    fn new() -> Self {
-        Self { inner: TEXT_ID_COUNTER.fetch_add(1, Ordering::SeqCst) }
+macro_rules! unique_id {($struct_name:ident) => ({
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+    pub struct $struct_name {
+        id: usize,
     }
-}
 
-/// A unique ID by which a large block of text can be uniquely identified
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct TextId {
-    inner: usize,
-}
+    impl $struct_name {
 
-static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// A unique ID by which an image can be uniquely identified
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ImageId { id: usize }
-
-impl ImageId {
-    pub(crate) fn new() -> Self {
-        let unique_id = IMAGE_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        Self {
-            id: unique_id,
+        fn new() -> Self {
+            Self { id: Self::COUNTER.fetch_add(1, Ordering::SeqCst) }
         }
     }
-}
+})}
 
-static FONT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-/// A unique ID by which a font can be uniquely identified
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FontId {
-    id: usize,
-}
-
-impl FontId {
-    pub(crate) fn new() -> Self {
-        let unique_id = FONT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-        Self {
-            id: unique_id,
-        }
-    }
-}
+unique_id!(TextId);
+unique_id!(ImageId);
+unique_id!(FontId);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageSource {

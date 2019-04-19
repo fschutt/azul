@@ -194,7 +194,7 @@ pub mod css;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
 /// DOM / HTML node handling
-pub mod dom;
+pub use azul_core::dom as dom;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
 pub mod gl;
 /// Re-exports of errors
@@ -210,6 +210,7 @@ pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
 
+/// Slab-allocated DOM nodes
 pub(crate) use azul_core::id_tree as id_tree;
 
 /// UI Description & display list handling (webrender)
