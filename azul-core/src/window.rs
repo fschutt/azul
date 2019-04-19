@@ -31,6 +31,38 @@ pub struct FakeWindow<T> {
     pub gl_context: Rc<Gl>,
 }
 
+impl<T> FakeWindow<T> {
+
+    /// Returns a reference-counted pointer to the OpenGL context
+    pub fn get_gl_context(&self) -> Rc<Gl> {
+        self.gl_context.clone()
+    }
+
+    /// Returns the physical (width, height) in pixel of this window
+    pub fn get_physical_size(&self) -> (usize, usize) {
+        let hidpi = self.get_hidpi_factor();
+        let physical = self.state.size.dimensions.to_physical(hidpi);
+        (physical.width as usize, physical.height as usize)
+    }
+
+    /// Returns the current HiDPI factor for this window.
+    pub fn get_hidpi_factor(&self) -> f32 {
+        self.state.size.hidpi_factor
+    }
+
+    /// Returns the current keyboard keyboard state. We don't want the library
+    /// user to be able to modify this state, only to read it.
+    pub fn get_keyboard_state<'a>(&'a self) -> &'a KeyboardState {
+        self.state.get_keyboard_state()
+    }
+
+    /// Returns the current windows mouse state. We don't want the library
+    /// user to be able to modify this state, only to read it
+    pub fn get_mouse_state<'a>(&'a self) -> &'a MouseState {
+        self.state.get_mouse_state()
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MouseCursorType {
     /// The platform-dependent default cursor.
@@ -91,6 +123,7 @@ impl Default for MouseCursorType {
         MouseCursorType::Default
     }
 }
+
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeyboardState {
@@ -209,6 +242,29 @@ pub struct WindowState {
     pub is_visible: bool,
     /// Is the window always on top?
     pub is_always_on_top: bool,
+}
+
+impl WindowState {
+
+    pub fn get_mouse_state(&self) -> &MouseState {
+        &self.internal.mouse_state
+    }
+
+    pub fn get_keyboard_state(&self) -> &KeyboardState {
+        &self.internal.keyboard_state
+    }
+
+    pub fn get_hovered_file(&self) -> Option<&PathBuf> {
+        self.internal.hovered_file.as_ref()
+    }
+
+    /// Returns the window state of the previous frame, useful for calculating
+    /// metrics for dragging motions. Note that you can't call this function
+    /// recursively - calling `get_previous_window_state()` on the returned
+    /// `WindowState` will yield a `None` value.
+    pub fn get_previous_window_state(&self) -> Option<&Box<WindowState>> {
+        self.internal.previous_window_state.as_ref()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

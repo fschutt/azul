@@ -2,20 +2,14 @@ use std::{
     fmt,
     path::PathBuf,
     io::Error as IoError,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::api::{
-    FontKey as WrFontKey, FontInstanceKey as WrFontInstanceKey, ImageKey, AddImage,
-    ResourceUpdate, AddFont, AddFontInstance, RenderApi,
+    ImageKey, AddImage, ResourceUpdate, AddFont, AddFontInstance, RenderApi,
 };
 use app_units::Au;
-use clipboard2::{Clipboard, ClipboardError, SystemClipboard};
 use {
     FastHashMap, FastHashSet,
-    window::{FakeDisplay, WindowCreateError},
-    app::AppConfig,
     display_list::DisplayList,
-    text_layout::Words,
 };
 pub use webrender::api::{ImageFormat as WrImageFormat, ImageData, ImageDescriptor};
 #[cfg(feature = "image_loading")]

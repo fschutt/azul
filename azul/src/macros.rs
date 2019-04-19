@@ -282,27 +282,6 @@ impl<T> $struct_name<T> {
 
 )}
 
-macro_rules! clipboard_api {($struct_name:ident::$struct_field:ident) => (
-
-impl<T> $struct_name<T> {
-
-    /// See [`AppResources::get_clipboard_string`]
-    ///
-    /// [`AppResources::get_clipboard_string`]: ../app_resources/struct.AppResources.html#method.get_clipboard_string
-    pub fn get_clipboard_string(&mut self) -> Result<String, ClipboardError> {
-        self.$struct_field.get_clipboard_string()
-    }
-
-    /// See [`AppResources::set_clipboard_string`]
-    ///
-    /// [`AppResources::set_clipboard_string`]: ../app_resources/struct.AppResources.html#method.set_clipboard_string
-    pub fn set_clipboard_string<I: Into<String>>(&mut self, contents: I) -> Result<(), ClipboardError> {
-        self.$struct_field.set_clipboard_string(contents)
-    }
-}
-
-)}
-
 macro_rules! timer_api {($struct_name:ident::$struct_field:ident) => (
 
 impl<T> $struct_name<T> {

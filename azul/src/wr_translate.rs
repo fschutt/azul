@@ -7,12 +7,18 @@ use azul_core::{
     window::{LogicalPosition, LogicalSize},
     dom::{self, Dom, WindowEventFilter, NotEventFilter, FocusEventFilter, HoverEventFilter},
     id_tree::NodeId,
+    app_resources::{FontKey, FontInstanceKey, ImageKey},
 };
-use {
-    app::RuntimeError,
+use app::RuntimeError;
+use webrender::api::{
+    LayoutRect as WrLayoutRect,
+    HitTestItem as WrHitTestItem,
+    FontKey as WrFontKey,
+    FontInstanceKey as WrFontInstanceKey,
+    ImageKey as WrImageKey
 };
-use webrender::api::{LayoutRect as WrLayoutRect, HitTestItem as WrHitTestItem};
 
+#[inline(always)]
 pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
     HitTestItem {
         pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
@@ -22,6 +28,7 @@ pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {
     }
 }
 
+#[inline(always)]
 pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> HidpiAdjustedBounds {
     let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
     HidpiAdjustedBounds {
@@ -29,6 +36,21 @@ pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, wi
         hidpi_factor,
         winit_hidpi_factor,
     }
+}
+
+#[inline(always)]
+pub(crate) fn translate_wr_font_key(font_key: FontKey) -> WrFontKey {
+
+}
+
+#[inline(always)]
+pub(crate) fn translate_wr_font_instance_key(font_key: FontInstanceKey) -> WrFontInstanceKey {
+
+}
+
+#[inline(always)]
+pub(crate) fn translate_wr_image_key(font_key: ImageKey) -> WrImageKey {
+
 }
 
 #[allow(unused_imports, unused_variables)]

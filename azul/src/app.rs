@@ -16,9 +16,8 @@ use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
     api::{
-        HitTestFlags, DevicePixel,
-        WorldPoint, LayoutSize, LayoutPoint,
-        Epoch, Transaction, ImageData, ImageDescriptor,
+        HitTestFlags, DevicePixel, WorldPoint,
+        LayoutSize, LayoutPoint, Epoch, Transaction,
     },
 };
 #[cfg(feature = "image_loading")]
@@ -28,17 +27,11 @@ use log::LevelFilter;
 use azul_css::{Css, ColorU};
 use {
     FastHashMap,
-    error::ClipboardError,
     window::{
         Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize,
         WindowCreateError, WindowCreateOptions, RendererType, WindowSize, DebugState,
     },
-    app_resources::TextId,
     dom::{Dom, ScrollTagId},
-    app_resources::{
-        ImageId, FontSource, FontId, ImageReloadError,
-        FontReloadError, CssImageId,
-    },
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
@@ -482,88 +475,72 @@ impl<T> App<T> {
     }
 }
 
-image_api!(App::app_state);
-font_api!(App::app_state);
-text_api!(App::app_state);
-timer_api!(App::app_state);
-
-impl<T> AppState<T> {
-
-    /// Creates a new `AppState`
-    fn new(initial_data: T, config: &AppConfig) -> Result<Self, WindowCreateError> {
-        Ok(Self {
-            data: Arc::new(Mutex::new(initial_data)),
-            windows: BTreeMap::new(),
-            resources: AppResources::new(config)?,
-            timers: FastHashMap::default(),
-            tasks: Vec::new(),
-        })
-    }
-
-    impl_deamon_api!();
-
-    /// Run all currently registered timers
-    #[must_use]
-    fn run_all_timers(&mut self) -> UpdateScreen {
-        let mut should_update_screen = DontRedraw;
-        let mut lock = self.data.lock().unwrap();
-        let mut timers_to_terminate = Vec::new();
-
-        for (key, timer) in self.timers.iter_mut() {
-            let (should_update, should_terminate) = timer.invoke_callback_with_data(&mut lock, &mut self.resources);
-
-            if should_update == Redraw {
-                should_update_screen = Redraw;
-            }
-
-            if should_terminate == TerminateTimer::Terminate {
-                timers_to_terminate.push(key.clone());
-            }
-        }
-
-        for key in timers_to_terminate {
-            self.timers.remove(&key);
-        }
-
-        should_update_screen
-    }
-
-    /// Remove all tasks that have finished executing
-    #[must_use] fn clean_up_finished_tasks(&mut self) -> UpdateScreen {
-        let old_count = self.tasks.len();
-        let mut timers_to_add = Vec::new();
-        self.tasks.retain(|task| {
-            if task.is_finished() {
-                if let Some(timer) = task.after_completion_timer {
-                    timers_to_add.push((TimerId::new(), timer));
-                }
-                false
-            } else {
-                true
-            }
-        });
-
-        let timers_is_empty = timers_to_add.is_empty();
-        let new_count = self.tasks.len();
-
-        // Start all the timers that should run after the completion of the task
-        for (timer_id, timer) in timers_to_add {
-            self.add_timer(timer_id, timer);
-        }
-
-        if old_count == new_count && timers_is_empty {
-            DontRedraw
-        } else {
-            Redraw
-        }
-    }
-
+/// Creates a new `AppState` struct
+fn app_state_new<T>(initial_data: T, config: &AppConfig) -> Result<AppState<T>, WindowCreateError> {
+    Ok(AppState {
+        data: Arc::new(Mutex::new(initial_data)),
+        windows: BTreeMap::new(),
+        resources: AppResources::new(config)?,
+        timers: FastHashMap::default(),
+        tasks: Vec::new(),
+    })
 }
 
-image_api!(AppState::resources);
-font_api!(AppState::resources);
-text_api!(AppState::resources);
-clipboard_api!(AppState::resources);
+/// Run all currently registered timers
+#[must_use]
+fn app_state_run_all_timers<T>(app_state: &mut AppState<T>) -> UpdateScreen {
+    let mut should_update_screen = DontRedraw;
+    let mut lock = app_state.data.lock().unwrap();
+    let mut timers_to_terminate = Vec::new();
+
+    for (key, timer) in app_state.timers.iter_mut() {
+        let (should_update, should_terminate) = timer.invoke_callback_with_data(&mut lock, &mut app_state.resources);
+
+        if should_update == Redraw {
+            should_update_screen = Redraw;
+        }
+
+        if should_terminate == TerminateTimer::Terminate {
+            timers_to_terminate.push(key.clone());
+        }
+    }
+
+    for key in timers_to_terminate {
+        app_state.timers.remove(&key);
+    }
+
+    should_update_screen
+}
+
+/// Remove all tasks that have finished executing
+#[must_use] fn app_state_clean_up_finished_tasks<T>(app_state: &mut AppState<T>) -> UpdateScreen {
+    let old_count = app_state.tasks.len();
+    let mut timers_to_add = Vec::new();
+    app_state.tasks.retain(|task| {
+        if task.is_finished() {
+            if let Some(timer) = task.after_completion_timer {
+                timers_to_add.push((TimerId::new(), timer));
+            }
+            false
+        } else {
+            true
+        }
+    });
+
+    let timers_is_empty = timers_to_add.is_empty();
+    let new_count = app_state.tasks.len();
+
+    // Start all the timers that should run after the completion of the task
+    for (timer_id, timer) in timers_to_add {
+        app_state.add_timer(timer_id, timer);
+    }
+
+    if old_count == new_count && timers_is_empty {
+        DontRedraw
+    } else {
+        Redraw
+    }
+}
 
 struct SingleWindowContentResult {
     needs_rerender_hover_active: bool,

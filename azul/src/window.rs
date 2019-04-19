@@ -1,7 +1,6 @@
 use std::{
     rc::Rc,
     marker::PhantomData,
-    collections::BTreeMap,
     io::Error as IoError,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -30,9 +29,15 @@ use azul_css::HotReloadHandler;
 use {
     FastHashMap,
     compositor::Compositor,
-    app::{FrameEventInfo, AppStateNoData},
-    callbacks::{UpdateScreen, CallbackInfo, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
+    app::FrameEventInfo,
     display_list::ScrolledNodes,
+};
+use azul_core::{
+    app::AppStateNoData,
+    callbacks::{
+        DefaultCallback, StackCheckedPointer, DefaultCallbackId,
+        UpdateScreen, CallbackInfo
+    }
 };
 pub use webrender::api::HitTestItem;
 pub use glium::glutin::AvailableMonitorsIter;
@@ -49,83 +54,41 @@ fn new_pipeline_id() -> PipelineId {
     PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
 }
 
-
-
-impl<T> FakeWindow<T> {
-
-    /// Returns a read-only window which can be used to create / draw
-    /// custom OpenGL texture during the `.layout()` phase
-    pub fn get_gl_context(&self) -> Rc<Gl> {
-        self.gl_context.clone()
-    }
-
-    pub fn get_physical_size(&self) -> (usize, usize) {
-        let hidpi = self.get_hidpi_factor();
-        let physical = self.state.size.dimensions.to_physical(hidpi);
-        (physical.width as usize, physical.height as usize)
-    }
-
-    /// Returns the current HiDPI factor.
-    pub fn get_hidpi_factor(&self) -> f32 {
-        self.state.size.hidpi_factor
-    }
-
-    /// Returns the current keyboard keyboard state. We don't want the library
-    /// user to be able to modify this state, only to read it.
-    pub fn get_keyboard_state<'a>(&'a self) -> &'a KeyboardState {
-        self.state.get_keyboard_state()
-    }
-
-    /// Returns the current windows mouse state. We don't want the library
-    /// user to be able to modify this state, only to read it
-    pub fn get_mouse_state<'a>(&'a self) -> &'a MouseState {
-        self.state.get_mouse_state()
-    }
+/// Adds a default callback to the window. The default callbacks are
+/// cleared after every frame, so two-way data binding widgets have to call this
+/// on every frame they want to insert a default callback.
+///
+/// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
+#[must_use]
+pub fn fake_window_add_callback<T>(
+    fake_window: &mut FakeWindow<T>,
+    callback_ptr: StackCheckedPointer<T>,
+    callback_fn: DefaultCallback<T>
+) -> DefaultCallbackId {
+    let default_callback_id = DefaultCallbackId::new();
+    fake_window.default_callbacks.insert(default_callback_id, (callback_ptr, callback_fn));
+    default_callback_id
 }
 
-/*
-impl<T> FakeWindow<T> {
-
-    /// Adds a default callback to the window. The default callbacks are
-    /// cleared after every frame, so two-way data binding widgets have to call this
-    /// on every frame they want to insert a default callback.
-    ///
-    /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
-    #[must_use]
-    pub fn add_callback(
-        &mut self,
-        callback_ptr: StackCheckedPointer<T>,
-        callback_fn: DefaultCallback<T>
-    ) -> DefaultCallbackId {
-
-        use callbacks::get_new_unique_default_callback_id;
-
-        let default_callback_id = get_new_unique_default_callback_id();
-        self.default_callbacks.insert(default_callback_id, (callback_ptr, callback_fn));
-        default_callback_id
-    }
-
-    pub(crate) fn set_keyboard_state(&mut self, kb: &KeyboardState) {
-        self.state.internal.keyboard_state = kb.clone();
-    }
-
-    pub(crate) fn set_mouse_state(&mut self, mouse: &MouseState) {
-        self.state.internal.mouse_state = *mouse;
-    }
-
-    /// Invokes a certain default callback and returns its result
-    ///
-    /// NOTE: `app_data` is required so we know that we don't
-    /// accidentally alias the data in `self.internal` (which could lead to UB).
-    pub(crate) fn run_default_callback(&self, _app_data: &mut T, id: &DefaultCallbackId,
-        app_state_no_data: &mut AppStateNoData<T>,
-        window_event: &mut CallbackInfo<T>
-    ) -> UpdateScreen {
-        let (callback_ptr, callback_fn) = self.default_callbacks.get(id)?;
-        (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
-    }
+pub(crate) fn fake_window_set_keyboard_state<T>(fake_window: &mut FakeWindow<T>, kb: &KeyboardState) {
+    fake_window.state.internal.keyboard_state = kb.clone();
 }
-*/
+
+pub(crate) fn fake_window_set_mouse_state<T>(fake_window: &mut FakeWindow<T>, mouse: &MouseState) {
+    fake_window.state.internal.mouse_state = *mouse;
+}
+
+/// Invokes a certain default callback and returns its result
+///
+/// NOTE: `app_data` is required so we know that we don't
+/// accidentally alias the data in `fake_window.internal` (which could lead to UB).
+pub(crate) fn fake_window_run_default_callback<T>(fake_window: &mut FakeWindow<T>, _app_data: &mut T, id: &DefaultCallbackId,
+    app_state_no_data: &mut AppStateNoData<T>,
+    window_event: &mut CallbackInfo<T>
+) -> UpdateScreen {
+    let (callback_ptr, callback_fn) = fake_window.default_callbacks.get(id)?;
+    (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
+}
 
 /// Options on how to initially create the window
 #[derive(Debug, Clone, PartialEq)]
