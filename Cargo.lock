@@ -52,6 +52,7 @@ dependencies = [
 name = "azul"
 version = "0.1.0"
 dependencies = [
+ "azul-core 0.1.0",
  "azul-css 0.1.0",
  "azul-css-parser 0.1.0",
  "azul-dependencies 0.1.0 (git+https://github.com/maps4print/azul-dependencies?rev=380b7e7cba8b728a3fc89fe28952e3b07aa624e7)",
@@ -59,6 +60,10 @@ dependencies = [
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.87 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "azul-core"
+version = "0.1.0"
 
 [[package]]
 name = "azul-css"

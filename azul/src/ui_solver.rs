@@ -252,6 +252,7 @@ impl HeightCalculatedRect {
 
 // `typed_arena!(WidthCalculatedRect, preferred_width, determine_preferred_width, get_horizontal_padding, get_flex_basis_horizontal)`
 macro_rules! typed_arena {(
+    $module_name:ident,
     $struct_name:ident,
     $preferred_field:ident,
     $determine_preferred_fn:ident,
@@ -261,7 +262,9 @@ macro_rules! typed_arena {(
     $main_axis:ident
 ) => (
 
-impl NodeDataContainer<$struct_name> {
+mod $module_name  {
+
+    use super::*;
 
     /// Fill out the preferred width of all nodes.
     ///
@@ -271,7 +274,7 @@ impl NodeDataContainer<$struct_name> {
     ///
     /// NOTE: Later on, this could maybe be a NodeDataContainer<&'a RectLayout>.
     #[must_use]
-    fn from_rect_layout_arena(node_data: &NodeDataContainer<RectLayout>, widths: &NodeDataContainer<Option<f32>>) -> Self {
+    pub(in super) fn from_rect_layout_arena(node_data: &NodeDataContainer<RectLayout>, widths: &NodeDataContainer<Option<f32>>) -> NodeDataContainer<$struct_name> {
         let new_nodes = node_data.internal.iter().enumerate().map(|(node_id, node_data)|{
             let id = NodeId::new(node_id);
             $struct_name {
@@ -289,8 +292,8 @@ impl NodeDataContainer<$struct_name> {
     /// Bubble the inner sizes to their parents -  on any parent nodes, fill out
     /// the width so that the `preferred_width` can contain the child nodes (if
     /// that doesn't violate the constraints of the parent)
-    fn $bubble_fn_name(
-        &mut self,
+    pub(in super) fn $bubble_fn_name(
+        node_width_container: &mut NodeDataContainer<$struct_name>,
         node_hierarchy: &NodeHierarchy,
         arena_data: &NodeDataContainer<RectLayout>,
         non_leaf_nodes: &[(usize, NodeId)])
@@ -303,13 +306,13 @@ impl NodeDataContainer<$struct_name> {
             use self::WhConstraint::*;
 
             // Sum of the direct children's flex-basis = the parents preferred width
-            let children_flex_basis = self.sum_children_flex_basis(*non_leaf_id, node_hierarchy, arena_data);
+            let children_flex_basis = sum_children_flex_basis(node_width_container, *non_leaf_id, node_hierarchy, arena_data);
 
             // Calculate the new flex-basis width
-            let parent_width_metrics = self[*non_leaf_id];
+            let parent_width_metrics = node_width_container[*non_leaf_id];
 
             // For calculating the inner width, subtract the parents padding
-            let parent_padding = self[*non_leaf_id].$get_padding_fn();
+            let parent_padding = node_width_container[*non_leaf_id].$get_padding_fn();
 
             // If the children are larger than the parents preferred max-width or smaller
             // than the parents min-width, adjust
@@ -327,7 +330,7 @@ impl NodeDataContainer<$struct_name> {
                 Unconstrained => children_flex_basis,
             };
 
-            self[*non_leaf_id].min_inner_size_px = child_width;
+            node_width_container[*non_leaf_id].min_inner_size_px = child_width;
         }
 
         // Now, the width of all elements should be filled,
@@ -336,8 +339,8 @@ impl NodeDataContainer<$struct_name> {
 
     /// Go from the root down and flex_grow the children if needed - respects the `width`, `min_width` and `max_width` properties
     /// The layout step doesn't account for the min_width and max_width constraints, so we have to adjust them manually
-    fn apply_flex_grow(
-        &mut self,
+    pub(in super) fn apply_flex_grow(
+        node_width_container: &mut NodeDataContainer<$struct_name>,
         node_hierarchy: &NodeHierarchy,
         arena_data: &NodeDataContainer<RectLayout>,
         parent_ids_sorted_by_depth: &[(usize, NodeId)],
@@ -345,23 +348,23 @@ impl NodeDataContainer<$struct_name> {
     ) {
         use azul_css::LayoutAlignItems;
 
-        debug_assert!(self[NodeId::new(0)].flex_grow_px == 0.0);
+        debug_assert!(node_width_container[NodeId::new(0)].flex_grow_px == 0.0);
 
         // Set the window width on the root node (since there is only one root node, we can
         // calculate the `flex_grow_px` directly)
         //
         // Usually `top_level_flex_basis` is NOT 0.0, rather it's the sum of all widths in the DOM,
         // i.e. the sum of the whole DOM tree
-        let top_level_flex_basis = self[NodeId::new(0)].min_inner_size_px;
+        let top_level_flex_basis = node_width_container[NodeId::new(0)].min_inner_size_px;
 
         // The root node can still have some sort of max-width attached, so we need to check for that
-        let root_preferred_width = if let Some(max_width) = self[NodeId::new(0)].$preferred_field.max_available_space() {
+        let root_preferred_width = if let Some(max_width) = node_width_container[NodeId::new(0)].$preferred_field.max_available_space() {
             if root_width > max_width { max_width } else { root_width }
         } else {
             root_width
         };
 
-        self[NodeId::new(0)].flex_grow_px = root_preferred_width - top_level_flex_basis;
+        node_width_container[NodeId::new(0)].flex_grow_px = root_preferred_width - top_level_flex_basis;
 
         // Keep track of the nearest relative or absolute positioned element
         let mut positioned_node_stack = vec![NodeId::new(0)];
@@ -379,7 +382,7 @@ impl NodeDataContainer<$struct_name> {
 
             // How much width is there to distribute along the main and cross axis?
             let (width_main_axis, width_cross_axis) = {
-                let parent_width_metrics = &self[*parent_id];
+                let parent_width_metrics = &node_width_container[*parent_id];
 
                 let width_horizontal_axis = {
                     let children_margin: f32 = parent_id.children(node_hierarchy).map(|child_id| arena_data[child_id].get_horizontal_margin()).sum();
@@ -407,9 +410,9 @@ impl NodeDataContainer<$struct_name> {
             // Only stretch the items, if they have a align-items: stretch!
             if parent_node.align_items.unwrap_or_default() == LayoutAlignItems::Stretch {
                 if parent_node.direction.unwrap_or_default().get_axis() == LayoutAxis::$main_axis {
-                    Self::distribute_space_along_main_axis(parent_id, width_main_axis, node_hierarchy, arena_data, self, &positioned_node_stack);
+                    distribute_space_along_main_axis(parent_id, width_main_axis, node_hierarchy, arena_data, node_width_container, &positioned_node_stack);
                 } else {
-                    Self::distribute_space_along_cross_axis(parent_id, width_cross_axis, node_hierarchy, arena_data, self, &positioned_node_stack);
+                    distribute_space_along_cross_axis(parent_id, width_cross_axis, node_hierarchy, arena_data, node_width_container, &positioned_node_stack);
                 }
             }
 
@@ -420,8 +423,8 @@ impl NodeDataContainer<$struct_name> {
     }
 
     /// Returns the sum of the flex-basis of the current nodes' children
-    fn sum_children_flex_basis(
-        &self,
+    pub(in super) fn sum_children_flex_basis(
+        node_width_container: &NodeDataContainer<$struct_name>,
         node_id: NodeId,
         node_hierarchy: &NodeHierarchy,
         display_arena: &NodeDataContainer<RectLayout>)
@@ -430,13 +433,13 @@ impl NodeDataContainer<$struct_name> {
         node_id
             .children(node_hierarchy)
             .filter(|child_node_id| display_arena[*child_node_id].position != Some(LayoutPosition::Absolute))
-            .map(|child_node_id| self[child_node_id].$get_flex_basis())
+            .map(|child_node_id| node_width_container[child_node_id].$get_flex_basis())
             .sum()
     }
 
     /// Does the actual width layout, respects the `width`, `min_width` and `max_width`
     /// properties as well as the `flex_grow` factor. `flex_shrink` currently does nothing.
-    fn distribute_space_along_main_axis(
+    pub(in super) fn distribute_space_along_main_axis(
         node_id: &NodeId,
         width_to_distribute: f32,
         node_hierarchy: &NodeHierarchy,
@@ -640,7 +643,7 @@ impl NodeDataContainer<$struct_name> {
         }
     }
 
-    fn distribute_space_along_cross_axis(
+    pub(in super) fn distribute_space_along_cross_axis(
         node_id: &NodeId,
         width_to_distribute: f32,
         node_hierarchy: &NodeHierarchy,
@@ -693,6 +696,7 @@ impl NodeDataContainer<$struct_name> {
 )}
 
 typed_arena!(
+    solve_width,
     WidthCalculatedRect,
     preferred_width,
     determine_preferred_width,
@@ -703,6 +707,7 @@ typed_arena!(
 );
 
 typed_arena!(
+    solve_height,
     HeightCalculatedRect,
     preferred_height,
     determine_preferred_height,
@@ -756,10 +761,10 @@ pub(crate) fn solve_flex_layout_width<'a>(
     window_width: f32
 ) -> SolvedWidthLayout {
     let layout_only_arena = display_rectangles.transform(|node, _| node.layout);
-    let mut width_calculated_arena = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_widths);
+    let mut width_calculated_arena = solve_width::from_rect_layout_arena(&layout_only_arena, preferred_widths);
     let non_leaf_nodes_sorted_by_depth = node_hierarchy.get_parents_sorted_by_depth();
-    width_calculated_arena.bubble_preferred_widths_to_parents(node_hierarchy, &layout_only_arena, &non_leaf_nodes_sorted_by_depth);
-    width_calculated_arena.apply_flex_grow(node_hierarchy, &layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_width);
+    solve_width::bubble_preferred_widths_to_parents(&mut width_calculated_arena, node_hierarchy, &layout_only_arena, &non_leaf_nodes_sorted_by_depth);
+    solve_width::apply_flex_grow(&mut width_calculated_arena, node_hierarchy, &layout_only_arena, &non_leaf_nodes_sorted_by_depth, window_width);
     let solved_widths = width_calculated_arena.transform(|node, _| node.solved_result());
     SolvedWidthLayout { solved_widths , layout_only_arena, non_leaf_nodes_sorted_by_depth }
 }
@@ -772,9 +777,9 @@ pub(crate) fn solve_flex_layout_height(
     window_height: f32
 ) -> SolvedHeightLayout {
     let SolvedWidthLayout { layout_only_arena, .. } = solved_widths;
-    let mut height_calculated_arena = NodeDataContainer::<HeightCalculatedRect>::from_rect_layout_arena(&layout_only_arena, preferred_heights);
-    height_calculated_arena.bubble_preferred_heights_to_parents(node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth);
-    height_calculated_arena.apply_flex_grow(node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, window_height);
+    let mut height_calculated_arena = solve_height::from_rect_layout_arena(&layout_only_arena, preferred_heights);
+    solve_height::bubble_preferred_heights_to_parents(&mut height_calculated_arena, node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth);
+    solve_height::apply_flex_grow(&mut height_calculated_arena, node_hierarchy, &layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, window_height);
     let solved_heights = height_calculated_arena.transform(|node, _| node.solved_result());
     SolvedHeightLayout { solved_heights }
 }

@@ -176,6 +176,7 @@ pub(crate) use azul_dependencies::twox_hash;
 extern crate azul_css;
 extern crate azul_native_style;
 extern crate azul_css_parser;
+extern crate azul_core;
 
 // Crate-internal macros
 #[macro_use]
@@ -209,6 +210,8 @@ pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
 
+pub(crate) use azul_core::id_tree as id_tree;
+
 /// UI Description & display list handling (webrender)
 mod ui_description;
 /// HarfBuzz text shaping utilities
@@ -216,8 +219,6 @@ mod text_shaping;
 /// Converts the UI description (the styled HTML nodes)
 /// to an actual display list (+ layout)
 mod display_list;
-/// Slab allocator for nodes, based on IDs (replaces kuchiki + markup5ever)
-mod id_tree;
 /// State handling for user interfaces
 mod ui_state;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on

@@ -2,7 +2,6 @@ use std::{
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
 };
-use dom::NodeData;
 
 pub use self::node_id::NodeId;
 
@@ -17,7 +16,7 @@ mod node_id {
         ops::{Add, AddAssign},
     };
 
-    pub(crate) const ROOT_NODE_ID: NodeId = NodeId { index: unsafe { NonZeroUsize::new_unchecked(1) } };
+    pub const ROOT_NODE_ID: NodeId = NodeId { index: unsafe { NonZeroUsize::new_unchecked(1) } };
 
     /// A node identifier within a particular `Arena`.
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -36,7 +35,7 @@ mod node_id {
         /// that could lead to an overflow would be a bug. Therefore, overflow-checking is
         /// disabled in release mode.
         #[inline(always)]
-        pub(crate) fn new(value: usize) -> Self {
+        pub fn new(value: usize) -> Self {
             NodeId { index: unsafe { NonZeroUsize::new_unchecked(value + 1) } }
         }
 
@@ -84,10 +83,10 @@ pub struct Node {
     pub last_child: Option<NodeId>,
 }
 
-pub(crate) use self::node_id::ROOT_NODE_ID;
+pub use self::node_id::ROOT_NODE_ID;
 
 // Node that initializes a Dom
-pub(crate) const ROOT_NODE: Node = Node {
+pub const ROOT_NODE: Node = Node {
     parent: None,
     previous_sibling: None,
     next_sibling: None,
@@ -110,8 +109,8 @@ impl Node {
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct Arena<T> {
-    pub(crate) node_layout: NodeHierarchy,
-    pub(crate) node_data: NodeDataContainer<T>,
+    pub node_layout: NodeHierarchy,
+    pub node_data: NodeDataContainer<T>,
 }
 
 /// The hierarchy of nodes is stored separately from the actual node content in order
@@ -119,7 +118,7 @@ pub struct Arena<T> {
 /// if the content changes.
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct NodeHierarchy {
-    pub(crate) internal: Vec<Node>,
+    pub internal: Vec<Node>,
 }
 
 impl NodeHierarchy {
@@ -191,7 +190,7 @@ impl NodeHierarchy {
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct NodeDataContainer<T> {
-    pub(crate) internal: Vec<T>,
+    pub internal: Vec<T>,
 }
 
 impl Index<NodeId> for NodeHierarchy {
@@ -285,7 +284,7 @@ impl<T> Arena<T> {
 
     /// Create a new node from its associated data.
     #[inline]
-    pub(crate) fn new_node(&mut self, data: T) -> NodeId {
+    pub fn new_node(&mut self, data: T) -> NodeId {
         let next_index = self.node_layout.len();
         self.node_layout.internal.push(Node {
             parent: None,
@@ -332,40 +331,11 @@ impl<T> Arena<T> {
     /// but transforms an Arena<T> into an Arena<U>, by running the closure on each of the
     /// items. The `NodeId` for the root is then valid for the newly created `Arena<U>`, too.
     #[inline]
-    pub(crate) fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
+    pub fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
             node_layout: self.node_layout.clone(),
             node_data: self.node_data.transform(closure),
-        }
-    }
-}
-
-impl<T> Arena<NodeData<T>> {
-
-    /// Prints the debug version of the arena, without printing the actual arena
-    pub(crate) fn print_tree<F: Fn(&NodeData<T>) -> String + Copy>(&self, format_cb: F) -> String {
-        let mut s = String::new();
-        if self.len() > 0 {
-            self.print_tree_recursive(format_cb, &mut s, NodeId::new(0), 0);
-        }
-        s
-    }
-
-    fn print_tree_recursive<F: Fn(&NodeData<T>) -> String + Copy>(&self, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
-        let node = &self.node_layout[current_node_id];
-        let tabs = String::from("    ").repeat(indent);
-        string.push_str(&format!("{}{}\n", tabs, format_cb(&self.node_data[current_node_id])));
-
-        if let Some(first_child) = node.first_child {
-            self.print_tree_recursive(format_cb, string, first_child, indent + 1);
-            if node.last_child.is_some() {
-                string.push_str(&format!("{}</{}>\n", tabs, self.node_data[current_node_id].node_type.get_path()));
-            }
-        }
-
-        if let Some(next_sibling) = node.next_sibling {
-            self.print_tree_recursive(format_cb, string, next_sibling, indent);
         }
     }
 }

@@ -951,14 +951,38 @@ impl<T> FromIterator<NodeType<T>> for Dom<T> {
     }
 }
 
-impl<T> Arena<NodeData<T>> {
-    /// TODO: promote to const fn once `const_vec_new` is stable
-    fn init_with_node_data(node_data: NodeData<T>) -> Self {
-        use id_tree::ROOT_NODE;
-        Arena {
-            node_layout: NodeHierarchy { internal: vec![ROOT_NODE] },
-            node_data: NodeDataContainer { internal: vec![node_data] },
+/// TODO: promote to const fn once `const_vec_new` is stable
+fn init_arena_with_node_data<T>(node_data: NodeData<T>) -> Arena<NodeData<T>> {
+    use id_tree::ROOT_NODE;
+    Arena {
+        node_layout: NodeHierarchy { internal: vec![ROOT_NODE] },
+        node_data: NodeDataContainer { internal: vec![node_data] },
+    }
+}
+
+/// Prints the debug version of the arena, without printing the actual arena
+pub(crate) fn print_tree<T, F: Fn(&NodeData<T>) -> String + Copy>(arena: &Arena<NodeData<T>>, format_cb: F) -> String {
+    let mut s = String::new();
+    if arena.len() > 0 {
+        print_tree_recursive(arena, format_cb, &mut s, NodeId::new(0), 0);
+    }
+    s
+}
+
+fn print_tree_recursive<T, F: Fn(&NodeData<T>) -> String + Copy>(arena: &Arena<NodeData<T>>, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
+    let node = &arena.node_layout[current_node_id];
+    let tabs = String::from("    ").repeat(indent);
+    string.push_str(&format!("{}{}\n", tabs, format_cb(&arena.node_data[current_node_id])));
+
+    if let Some(first_child) = node.first_child {
+        print_tree_recursive(arena, format_cb, string, first_child, indent + 1);
+        if node.last_child.is_some() {
+            string.push_str(&format!("{}</{}>\n", tabs, arena.node_data[current_node_id].node_type.get_path()));
         }
+    }
+
+    if let Some(next_sibling) = node.next_sibling {
+        print_tree_recursive(arena, format_cb, string, next_sibling, indent);
     }
 }
 
@@ -972,7 +996,7 @@ impl<T> Dom<T> {
     pub fn new(node_type: NodeType<T>) -> Self {
         use id_tree::ROOT_NODE_ID;
         let node_data = NodeData::new(node_type); // not const fn yet
-        let arena = Arena::init_with_node_data(node_data); // not const fn yet
+        let arena = init_arena_with_node_data(node_data); // not const fn yet
         Self {
             arena,
             root: ROOT_NODE_ID,
@@ -1248,7 +1272,7 @@ impl<T> Dom<T> {
 
     /// Returns a debug formatted version of the DOM for easier debugging
     pub fn debug_dump(&self) -> String {
-        format!("{}", self.arena.print_tree(|t| format!("{}", t)))
+        format!("{}", print_tree(&self.arena, |t| format!("{}", t)))
     }
 
     /// The UiState contains all the tags (for hit-testing) as well as the mapping

@@ -19,6 +19,7 @@ autoexamples = false
 
 [dependencies]
 azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
+azul-core               = { version = "0.1.0",                path = "../azul-core"                             }
 azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
 azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "380b7e7cba8b728a3fc89fe28952e3b07aa624e7" }
