@@ -1,3 +1,5 @@
+ #![allow(unused_macros)]
+
 /// Implement the `From` trait for any type.
 /// Example usage:
 /// ```
@@ -315,40 +317,4 @@ impl<T> $struct_name<T> {
     }
 }
 
-)}
-
-macro_rules! impl_deamon_api {() => (
-
-    /// Insert a timer into the list of active timers.
-    /// Replaces the existing timer if called with the same TimerId.
-    pub fn add_timer(&mut self, id: TimerId, timer: Timer<T>) {
-        self.timers.insert(id, timer);
-    }
-
-    pub fn has_timer(&self, timer_id: &TimerId) -> bool {
-        self.get_timer(timer_id).is_some()
-    }
-
-    pub fn get_timer(&self, timer_id: &TimerId) -> Option<Timer<T>> {
-        self.timers.get(&timer_id).cloned()
-    }
-
-    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer<T>> {
-        self.timers.remove(timer_id)
-    }
-
-    /// Custom tasks can be used when the `AppState` isn't `Send`. For example
-    /// `SvgCache` isn't thread-safe, since it has to interact with OpenGL, so
-    /// it can't be sent to other threads safely.
-    ///
-    /// What you can do instead, is take a part of your application data, wrap
-    /// that in an `Arc<Mutex<>>` and push a task that takes it onto the queue.
-    /// This way you can modify a part of the application state on a different
-    /// thread, while not requiring that everything is thread-safe.
-    ///
-    /// While you can't modify the `SvgCache` from a different thread, you can
-    /// modify other things in the `AppState` and leave the SVG cache alone.
-    pub fn add_task(&mut self, task: Task<T>) {
-        self.tasks.push(task);
-    }
 )}
