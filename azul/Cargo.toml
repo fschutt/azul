@@ -77,6 +77,11 @@ path = "../examples/calculator/calculator.rs"
 required-features = []
 
 [[example]]
+name = "checkbox"
+path = "../examples/checkbox/checkbox.rs"
+required-features = []
+
+[[example]]
 name = "game_of_life"
 path = "../examples/game_of_life/game_of_life.rs"
 required-features = []

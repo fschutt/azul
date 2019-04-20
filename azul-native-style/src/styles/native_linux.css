@@ -14,6 +14,18 @@
     justify-content: center;
 }
 
+.__azul-native-checkbox-container {
+    flex-direction: row;
+}
+
+.__azul-native-checkbox-ballot {
+    justify-content: center;
+}
+
+.__azul-native-checkbox-label {
+    overflow: hidden;
+}
+
 .__azul-native-label {
     text-align: center;
     flex-direction: column;
