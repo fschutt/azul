@@ -11,6 +11,7 @@ use {
     style::HoverGroup,
     callbacks::{FocusTarget, HitTestItem},
 };
+use wr_translate::ui_state_from_app_state;
 
 pub struct UiDescription<T> {
     pub(crate) ui_descr_arena: Arena<NodeData<T>>,
@@ -59,13 +60,15 @@ impl<T> Clone for UiDescription<T> {
 impl<T> Default for UiDescription<T> {
     fn default() -> Self {
         use dom::NodeType;
+
         let default_dom = Dom::new(NodeType::Div);
         let hovered_nodes = BTreeMap::new();
         let is_mouse_down = false;
         let mut focused_node = None;
         let mut focus_target = None;
+
         Self::match_css_to_dom(
-            &mut default_dom.into_ui_state(),
+            ui_state_from_app_state(AppState::from_dom(default_dom)),
             &Css::default(),
             &mut focused_node,
             &mut focus_target,
@@ -88,6 +91,8 @@ impl<T> UiDescription<T> {
         is_mouse_down: bool,
     ) -> Self
     {
+        use wr_translate::ui_state_create_tags_for_hover_nodes;
+
         let ui_description = ::style::match_dom_selectors(
             ui_state,
             &style,
@@ -98,7 +103,8 @@ impl<T> UiDescription<T> {
         );
 
         // Important: Create all the tags for the :hover and :active selectors
-        ui_state.create_tags_for_hover_nodes(&ui_description.selected_hover_nodes);
+        ui_state_create_tags_for_hover_nodes(ui_state, &ui_description.selected_hover_nodes);
+
         ui_description
     }
 }

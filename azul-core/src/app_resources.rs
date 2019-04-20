@@ -48,7 +48,7 @@ pub enum RawImageFormat {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Au(pub usize);
+pub struct Au(pub i32);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageKey {

@@ -8,7 +8,7 @@ use std::{
 use euclid::{TypedRect, TypedSize2D};
 use webrender::api::{
     LayoutPixel, DisplayListBuilder, PrimitiveInfo, GradientStop,
-    ColorF, PipelineId, Epoch, ImageData, ImageDescriptor,
+    ColorF, Epoch, ImageData, ImageDescriptor,
     ResourceUpdate, AddImage, BorderRadius, ClipMode,
     LayoutPoint, LayoutSize, GlyphOptions, LayoutRect, ExternalScrollId,
     ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
@@ -39,6 +39,7 @@ use {
     window::{Window, WindowSize, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
 };
+use azul_core::callbacks::PipelineId;
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
 
@@ -111,6 +112,8 @@ impl<'a, T: 'a> DisplayList<'a, T> {
     ) -> (DisplayListBuilder, ScrolledNodes, LayoutResult) {
 
         use window::LogicalSize;
+        use app_resources::add_fonts_and_images;
+        use wr_translate::translate_pipeline_id;
 
         let mut resource_updates = Vec::<ResourceUpdate>::new();
 
@@ -132,7 +135,7 @@ impl<'a, T: 'a> DisplayList<'a, T> {
         //      - Insert the new font keys and image keys into the render API
         //      - Scan all IFrameCallbacks, generate the DomID for each callback
         //      - Repeat while number_of_iframe_callbacks != 0
-        app_resources.add_fonts_and_images(&self);
+        add_fonts_and_images(app_resources, &self);
 
         let window_size = window.state.size.get_reverse_logical_size();
         let layout_result = do_the_layout(
@@ -156,9 +159,17 @@ impl<'a, T: 'a> DisplayList<'a, T> {
         window.scroll_states.remove_unused_scroll_states();
 
         let LogicalSize { width, height } = window.state.size.dimensions;
-        let mut builder = DisplayListBuilder::with_capacity(window.internal.pipeline_id, TypedSize2D::new(width as f32, height as f32), self.rectangles.len());
+        let mut builder = DisplayListBuilder::with_capacity(
+            translate_pipeline_id(window.internal.pipeline_id),
+            TypedSize2D::new(width as f32, height as f32),
+            self.rectangles.len()
+        );
 
-        let rects_in_rendering_order = determine_rendering_order(node_hierarchy, &self.rectangles, &layout_result.rects);
+        let rects_in_rendering_order = determine_rendering_order(
+            node_hierarchy,
+            &self.rectangles,
+            &layout_result.rects
+        );
 
         push_rectangles_into_displaylist(
             window.internal.epoch,
@@ -796,6 +807,8 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) {
+    use app_resources;
+
     let bounds = HidpiAdjustedBounds::from_bounds(
         info.rect,
         rectangle.window_size.hidpi_factor,
@@ -831,7 +844,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     );
 
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
-    referenced_mutable_content.app_resources.add_fonts_and_images(&display_list);
+    app_resources::add_fonts_and_images(referenced_mutable_content.app_resources, &display_list);
 
     let arena = &ui_description.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;
@@ -1350,7 +1363,7 @@ fn push_background(
 
                 let bounds = info.rect;
                 let image_dimensions = app_resources.get_image_info(image_id)
-                    .map(|info| (info.descriptor.size.width, info.descriptor.size.height))
+                    .map(|info| (info.descriptor.width, info.descriptor.height))
                     .unwrap_or((bounds.size.width as i32, bounds.size.height as i32)); // better than crashing...
 
                 let size = match background_size {
@@ -1435,6 +1448,7 @@ fn push_image(
     image_id: &ImageId,
     size: TypedSize2D<f32, LayoutPixel>
 ) {
+    use wr_translate::translate_image_key;
     if let Some(image_info) = app_resources.get_image_info(image_id) {
         builder.push_image(
             info,
@@ -1442,7 +1456,7 @@ fn push_image(
             LayoutSize::zero(),
             ImageRendering::Auto,
             AlphaType::PremultipliedAlpha,
-            image_info.key,
+            translate_image_key(image_info.key),
             ColorF::WHITE,
         );
     }

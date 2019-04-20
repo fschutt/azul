@@ -2,6 +2,7 @@ use std::{
     path::PathBuf,
     collections::BTreeMap,
     rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use gleam::gl::Gl;
 use {
@@ -14,6 +15,19 @@ use {
 const DEFAULT_TITLE: &str = "Azul App";
 const DEFAULT_WIDTH: f32 = 800.0;
 const DEFAULT_HEIGHT: f32 = 600.0;
+
+static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
+
+/// Each default callback is identified by its ID (not by it's function pointer),
+/// since multiple IDs could point to the same function.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct WindowId { id: usize }
+
+impl WindowId {
+    pub fn new() -> Self {
+        WindowId { id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst) }
+    }
+}
 
 /// User-modifiable fake window: Actions performed on this "fake" window don't
 /// have a direct impact on the actual OS-level window, changes are deferred and
@@ -53,13 +67,13 @@ impl<T> FakeWindow<T> {
     /// Returns the current keyboard keyboard state. We don't want the library
     /// user to be able to modify this state, only to read it.
     pub fn get_keyboard_state<'a>(&'a self) -> &'a KeyboardState {
-        self.state.get_keyboard_state()
+        &self.state.keyboard_state
     }
 
     /// Returns the current windows mouse state. We don't want the library
     /// user to be able to modify this state, only to read it
     pub fn get_mouse_state<'a>(&'a self) -> &'a MouseState {
-        self.state.get_mouse_state()
+        &self.state.mouse_state
     }
 }
 
@@ -197,39 +211,12 @@ pub struct DebugState {
     pub gpu_cache_dbg: bool,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct CrateInternalWindowState {
-    /// The state of the keyboard for this frame
-    pub(crate) keyboard_state: KeyboardState,
-    /// The state of the mouse, read-only
-    pub(crate) mouse_state: MouseState,
-    /// Whether there is a file currently hovering over the window
-    pub(crate) hovered_file: Option<PathBuf>,
-    /// What node is currently hovered over, default to None. Only necessary internal
-    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
-    /// as well as styling `:focus` elements
-    pub(crate) focused_node: Option<NodeId>,
-    /// Currently hovered nodes, default to an empty Vec. Important for
-    /// styling `:hover` elements.
-    pub(crate) hovered_nodes: BTreeMap<NodeId, HitTestItem>,
-    /// Previous window state, used for determining mouseout, etc. events
-    pub(crate) previous_window_state: Option<Box<WindowState>>,
-    /// Whether there is a focus field overwrite from the last callback calls.
-    pub(crate) pending_focus_target: Option<FocusTarget>,
-}
-
-/// State, size, etc of the window, for comparing to the last frame
 #[derive(Debug, Clone, PartialEq)]
-pub struct WindowState {
-    /// Internal, read-only state (TODO: move this out of here!)
-    pub(crate) internal: CrateInternalWindowState,
-    /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
-    /// Used for performance monitoring and displaying frame times (rendering-only).
-    pub debug_state: DebugState,
-    /// Size of the window + max width / max height: 800 x 600 by default
-    pub size: WindowSize,
+pub struct CrateInternalWindowState {
     /// Current title of the window
     pub title: String,
+    /// Size of the window + max width / max height: 800 x 600 by default
+    pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
     pub position: Option<LogicalPosition>,
     /// Is the window currently maximized
@@ -242,20 +229,69 @@ pub struct WindowState {
     pub is_visible: bool,
     /// Is the window always on top?
     pub is_always_on_top: bool,
+    /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
+    /// Used for performance monitoring and displaying frame times (rendering-only).
+    pub debug_state: DebugState,
+    /// Current keyboard state - NOTE: mutating this field (currently) does nothing
+    /// (doesn't get synchronized with OS-level window)!
+    pub keyboard_state: KeyboardState,
+    /// Current mouse state - NOTE: mutating this field (currently) does nothing
+    /// (doesn't get synchronized with OS-level window)!
+    pub mouse_state: MouseState,
+
+    // --
+
+    /// Previous window state, used for determining mouseout, etc. events
+    pub previous_window_state: Option<Box<WindowState>>,
+    /// Whether there is a file currently hovering over the window
+    pub hovered_file: Option<PathBuf>,
+    /// What node is currently hovered over, default to None. Only necessary internal
+    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
+    /// as well as styling `:focus` elements
+    pub focused_node: Option<NodeId>,
+    /// Currently hovered nodes, default to an empty Vec. Important for
+    /// styling `:hover` elements.
+    pub hovered_nodes: BTreeMap<NodeId, HitTestItem>,
+    /// Whether there is a focus field overwrite from the last callback calls.
+    pub pending_focus_target: Option<FocusTarget>,
 }
 
-impl WindowState {
+impl Default for CrateInternalWindowState {
+    fn default() -> Self {
+        Self {
+            title: DEFAULT_TITLE.into(),
+            position: None,
+            size: WindowSize::default(),
+            is_maximized: false,
+            is_fullscreen: false,
+            has_decorations: true,
+            is_visible: true,
+            is_always_on_top: false,
+            mouse_state: MouseState::default(),
+            keyboard_state: KeyboardState::default(),
+            debug_state: DebugState::default(),
 
+            // --
+
+            previous_window_state: None,
+            hovered_file: None,
+            focused_node: None,
+            hovered_nodes: BTreeMap::default(),
+            pending_focus_target: None,
+        }
+    }
+}
+impl CrateInternalWindowState {
     pub fn get_mouse_state(&self) -> &MouseState {
-        &self.internal.mouse_state
+        &self.mouse_state
     }
 
     pub fn get_keyboard_state(&self) -> &KeyboardState {
-        &self.internal.keyboard_state
+        &self.keyboard_state
     }
 
     pub fn get_hovered_file(&self) -> Option<&PathBuf> {
-        self.internal.hovered_file.as_ref()
+        self.hovered_file.as_ref()
     }
 
     /// Returns the window state of the previous frame, useful for calculating
@@ -263,8 +299,38 @@ impl WindowState {
     /// recursively - calling `get_previous_window_state()` on the returned
     /// `WindowState` will yield a `None` value.
     pub fn get_previous_window_state(&self) -> Option<&Box<WindowState>> {
-        self.internal.previous_window_state.as_ref()
+        self.previous_window_state.as_ref()
     }
+}
+
+/// State, size, etc of the window, for comparing to the last frame
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowState {
+    /// Current title of the window
+    pub title: String,
+    /// Size of the window + max width / max height: 800 x 600 by default
+    pub size: WindowSize,
+    /// The x and y position, or None to let the WM decide where to put the window (default)
+    pub position: Option<LogicalPosition>,
+    /// Is the window currently maximized
+    pub is_maximized: bool,
+    /// Is the window currently fullscreened?
+    pub is_fullscreen: bool,
+    /// Does the window have decorations (close, minimize, maximize, title bar)?
+    pub has_decorations: bool,
+    /// Is the window currently visible?
+    pub is_visible: bool,
+    /// Is the window always on top?
+    pub is_always_on_top: bool,
+    /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
+    /// Used for performance monitoring and displaying frame times (rendering-only).
+    pub debug_state: DebugState,
+    /// Current keyboard state - NOTE: mutating this field (currently) does nothing
+    /// (doesn't get synchronized with OS-level window)!
+    pub keyboard_state: KeyboardState,
+    /// Current mouse state - NOTE: mutating this field (currently) does nothing
+    /// (doesn't get synchronized with OS-level window)!
+    pub mouse_state: MouseState,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -313,7 +379,6 @@ impl Default for WindowSize {
 impl Default for WindowState {
     fn default() -> Self {
         Self {
-            internal: CrateInternalWindowState::default(),
             title: DEFAULT_TITLE.into(),
             position: None,
             size: WindowSize::default(),
@@ -322,6 +387,8 @@ impl Default for WindowState {
             has_decorations: true,
             is_visible: true,
             is_always_on_top: false,
+            mouse_state: MouseState::default(),
+            keyboard_state: KeyboardState::default(),
             debug_state: DebugState::default(),
         }
     }

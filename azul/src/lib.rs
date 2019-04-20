@@ -243,9 +243,9 @@ mod wr_translate;
 pub mod resources {
     // re-export everything *except* the AppResources (which are exported under the "app" module)
     pub use app_resources::{
-        FontId, ImageId, LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
+        LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
         ImageSource, RawImageFormat, CssFontId, CssImageId,
-        TextCache, TextId,
+        TextCache, TextId, FontId, ImageId,
     };
 }
 

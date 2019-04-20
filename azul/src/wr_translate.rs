@@ -1,21 +1,33 @@
 use std::collections::BTreeMap;
-use azul_core::{
-    app::AppState,
-    dom::new_tag_id,
-    ui_state::{UiState, HoverGroup},
-    callbacks::{DefaultCallbackId, WindowId, Callback, LayoutInfo, HidpiAdjustedBounds, PipelineId, HitTestItem},
-    window::{LogicalPosition, LogicalSize},
-    dom::{self, Dom, WindowEventFilter, NotEventFilter, FocusEventFilter, HoverEventFilter},
-    id_tree::NodeId,
-    app_resources::{FontKey, FontInstanceKey, ImageKey},
-};
-use app::RuntimeError;
 use webrender::api::{
     LayoutRect as WrLayoutRect,
     HitTestItem as WrHitTestItem,
     FontKey as WrFontKey,
     FontInstanceKey as WrFontInstanceKey,
-    ImageKey as WrImageKey
+    ImageKey as WrImageKey,
+    IdNamespace as WrIdNamespace,
+    PipelineId as WrPipelineId,
+};
+use azul_core::{
+    app::AppState,
+    dom::new_tag_id,
+    ui_state::{UiState, HoverGroup},
+    callbacks::{
+        DefaultCallbackId, Callback, LayoutInfo, HidpiAdjustedBounds,
+        HitTestItem, PipelineId,
+    },
+    window::{
+        LogicalPosition, LogicalSize, WindowId, CrateInternalWindowState,
+        KeyboardState, MouseState,
+    },
+    dom::{self, Dom, WindowEventFilter, NotEventFilter, FocusEventFilter, HoverEventFilter},
+    id_tree::NodeId,
+    app_resources::{FontKey, Au, FontInstanceKey, ImageKey, IdNamespace},
+};
+use app_units::Au as WrAu;
+use {
+    window::Window,
+    app::RuntimeError,
 };
 
 #[inline(always)]
@@ -39,18 +51,45 @@ pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, wi
 }
 
 #[inline(always)]
-pub(crate) fn translate_wr_font_key(font_key: FontKey) -> WrFontKey {
-
+fn translate_id_namespace(ns: IdNamespace) -> WrIdNamespace {
+    WrIdNamespace(ns.0)
 }
 
 #[inline(always)]
-pub(crate) fn translate_wr_font_instance_key(font_key: FontInstanceKey) -> WrFontInstanceKey {
-
+pub(crate) fn translate_font_key(font_key: FontKey) -> WrFontKey {
+    WrFontKey(translate_id_namespace(font_key.namespace), font_key.key)
 }
 
 #[inline(always)]
-pub(crate) fn translate_wr_image_key(font_key: ImageKey) -> WrImageKey {
+pub(crate) fn translate_font_instance_key(font_instance_key: FontInstanceKey) -> WrFontInstanceKey {
+    WrFontInstanceKey(translate_id_namespace(font_instance_key.namespace), font_instance_key.key)
+}
 
+#[inline(always)]
+pub(crate) fn translate_image_key(image_key: ImageKey) -> WrImageKey {
+    WrImageKey(translate_id_namespace(image_key.namespace), image_key.key)
+}
+
+#[inline(always)]
+pub(crate) fn translate_pipeline_id(pipeline_id: PipelineId) -> WrPipelineId {
+    WrPipelineId(pipeline_id.0, pipeline_id.1)
+}
+
+#[inline(always)]
+pub(crate) fn translate_au(au: Au) -> WrAu {
+    WrAu(au.0)
+}
+
+pub(crate) fn window_state_from_window<T>(window: &Window<T>) -> CrateInternalWindowState {
+    CrateInternalWindowState {
+        previous_window_state: None,
+        keyboard_state: KeyboardState::default(),
+        mouse_state: MouseState::default(),
+        hovered_file: None,
+        focused_node: None,
+        hovered_nodes: BTreeMap::new(),
+        pending_focus_target: None,
+    }
 }
 
 #[allow(unused_imports, unused_variables)]
@@ -85,7 +124,10 @@ pub(crate) fn ui_state_from_app_state<T>(
     Ok(ui_state_from_dom(dom))
 }
 
-pub(crate) fn ui_statecreate_tags_for_hover_nodes<T>(ui_state: &mut UiState<T>, hover_nodes: &BTreeMap<NodeId, HoverGroup>) {
+pub(crate) fn ui_state_create_tags_for_hover_nodes<T>(
+    ui_state: &mut UiState<T>,
+    hover_nodes: &BTreeMap<NodeId, HoverGroup>
+) {
     use dom::new_tag_id;
     for (hover_node_id, hover_group) in hover_nodes {
         let hover_tag = match ui_state.node_ids_to_tag_ids.get(hover_node_id) {
@@ -110,7 +152,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
     // However, it was decided to remove these functions (in commit #586933),
     // as they aren't practical (you can achieve the same thing with one
     // wrapper div and multiple add_child() calls) and they create problems
-    // when layouting elements since add_sibling() essentially modifies the
+    // when laying out elements since add_sibling() essentially modifies the
     // space that the parent can distribute, which in code, simply looks weird
     // and led to bugs.
     //
@@ -191,12 +233,12 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
             let mut node_tag_id = None;
 
             // Optimization since on most nodes, the callbacks will be empty
-            if !node.callbacks.is_empty() {
+            if !node.get_callbacks().is_empty() {
 
                 // Filter and insert HoverEventFilter callbacks
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.callbacks,
+                    node.get_callbacks(),
                     HoverEventFilter,
                     Callback<T>,
                     as_hover_event_filter,
@@ -207,7 +249,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
                 // Filter and insert FocusEventFilter callbacks
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.callbacks,
+                    node.get_callbacks(),
                     FocusEventFilter,
                     Callback<T>,
                     as_focus_event_filter,
@@ -217,7 +259,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
 
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.callbacks,
+                    node.get_callbacks(),
                     NotEventFilter,
                     Callback<T>,
                     as_not_event_filter,
@@ -227,7 +269,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
 
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.callbacks,
+                    node.get_callbacks(),
                     WindowEventFilter,
                     Callback<T>,
                     as_window_event_filter,
@@ -235,12 +277,12 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
                 );
             }
 
-            if !node.default_callback_ids.is_empty() {
+            if !node.get_default_callback_ids().is_empty() {
 
                 // Filter and insert HoverEventFilter callbacks
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.default_callback_ids,
+                    node.get_default_callback_ids(),
                     HoverEventFilter,
                     DefaultCallbackId,
                     as_hover_event_filter,
@@ -251,7 +293,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
                 // Filter and insert FocusEventFilter callbacks
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.default_callback_ids,
+                    node.get_default_callback_ids(),
                     FocusEventFilter,
                     DefaultCallbackId,
                     as_focus_event_filter,
@@ -261,7 +303,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
 
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.default_callback_ids,
+                    node.get_default_callback_ids(),
                     NotEventFilter,
                     DefaultCallbackId,
                     as_not_event_filter,
@@ -271,7 +313,7 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
 
                 filter_and_insert_callbacks!(
                     node_id,
-                    node.default_callback_ids,
+                    node.get_default_callback_ids(),
                     WindowEventFilter,
                     DefaultCallbackId,
                     as_window_event_filter,
@@ -279,13 +321,13 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
                 );
             }
 
-            if node.is_draggable {
+            if node.get_is_draggable() {
                 let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
                 draggable_tags.insert(tag_id, node_id);
                 node_tag_id = Some(tag_id);
             }
 
-            if let Some(tab_index) = node.tab_index {
+            if let Some(tab_index) = node.get_tab_index() {
                 let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
                 tab_index_tags.insert(tag_id, (node_id, tab_index));
                 node_tag_id = Some(tag_id);
@@ -297,8 +339,8 @@ fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
             }
 
             // Collect all the styling overrides into one hash map
-            if !node.dynamic_css_overrides.is_empty() {
-                dynamic_css_overrides.insert(node_id, node.dynamic_css_overrides.iter().cloned().collect());
+            if !node.get_dynamic_css_overrides().is_empty() {
+                dynamic_css_overrides.insert(node_id, node.get_dynamic_css_overrides().iter().cloned().collect());
             }
         }
     }

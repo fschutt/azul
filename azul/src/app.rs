@@ -10,7 +10,7 @@ use std::{
 use azul_css::HotReloadHandler;
 use glium::{
     SwapBuffersError,
-    glutin::{WindowEvent, WindowId as GliumWindowId},
+    glutin::WindowEvent,
 };
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
@@ -28,7 +28,7 @@ use azul_css::{Css, ColorU};
 use {
     FastHashMap,
     window::{
-        Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize,
+        Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize, FakeDisplay,
         WindowCreateError, WindowCreateOptions, RendererType, WindowSize, DebugState,
     },
     dom::{Dom, ScrollTagId},
@@ -42,7 +42,10 @@ use {
     },
 };
 pub use app_resources::AppResources;
-pub use azul_core::app::{AppState, AppStateNoData};
+pub use azul_core::{
+    app::{AppState, AppStateNoData},
+    window::{WindowId, CrateInternalWindowState},
+};
 
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
@@ -53,7 +56,9 @@ const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 /// Graphical application that maintains some kind of application state
 pub struct App<T> {
     /// The graphical windows, indexed by their system ID / handle
-    windows: BTreeMap<GliumWindowId, Window<T>>,
+    windows: BTreeMap<WindowId, Window<T>>,
+    /// Actual state of the window (synchronized with the OS window)
+    window_states: BTreeMap<WindowId, CrateInternalWindowState>,
     /// The global application state
     pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
@@ -213,14 +218,15 @@ impl<T: Layout> App<T> {
         }
 
         #[cfg(not(test))] {
-            let fake_display = FakeDisplay::new(app_config.renderer_type)?;
+            let mut fake_display = FakeDisplay::new(app_config.renderer_type)?;
             if let Some(r) = &mut fake_display.renderer {
-                set_webrender_debug_flags(r, &DebugState::default(), &config.debug_state);
+                set_webrender_debug_flags(r, &DebugState::default(), &app_config.debug_state);
             }
             Ok(Self {
                 windows: BTreeMap::new(),
+                window_states: BTreeMap::new(),
                 app_state: AppState::new(initial_data),
-                config,
+                config: app_config,
                 layout_callback: T::layout,
                 fake_display,
             })
@@ -229,8 +235,9 @@ impl<T: Layout> App<T> {
         #[cfg(test)] {
            Ok(Self {
                windows: BTreeMap::new(),
+               window_states: BTreeMap::new(),
                app_state: AppState::new(initial_data),
-               config,
+               config: app_config,
                layout_callback: T::layout,
                render_api: FakeRenderApi::new(),
            })
@@ -273,15 +280,17 @@ impl<T> App<T> {
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     pub fn add_window(&mut self, window: Window<T>) {
+        use wr_translate::window_state_from_window;
         let window_id = window.id;
         let fake_window = FakeWindow {
             state: window.state.clone(),
             default_callbacks: BTreeMap::new(),
             gl_context: window.get_gl_context(),
         };
-
+        let window_state = window_state_from_window(&window);
         self.app_state.windows.insert(window_id, fake_window);
         self.windows.insert(window_id, window);
+        self.window_states.insert(window_id, window_state);
     }
 
     /// Start the rendering loop for the currently open windows
@@ -328,12 +337,13 @@ impl<T> App<T> {
 
         use std::{thread, time::Duration};
         use glium::glutin::Event;
+        use wr_translate::ui_state_from_app_state;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
             for window_id in self.windows.keys() {
-              ui_state_map.insert(*window_id, UiState::from_app_state(app_state, window_id, self.layout_callback)?);
+              ui_state_map.insert(*window_id, ui_state_from_app_state(app_state, window_id, self.layout_callback)?);
             }
             ui_state_map
         };
@@ -350,7 +360,13 @@ impl<T> App<T> {
 
             let time_start = Instant::now();
 
-            let mut closed_windows = Vec::<GliumWindowId>::new();
+            use glium::glutin::WindowId as GliumWindowId;
+
+            let glium_window_id_to_window_id = self.windows.iter()
+                .map(|(window_id, window)| (window.display.gl_window().id(), *window_id))
+                .collect::<BTreeMap<GliumWindowId, WindowId>>();
+
+            let mut closed_windows = Vec::<WindowId>::new();
             let mut frame_was_resize = false;
             let mut events = BTreeMap::new();
 
@@ -358,7 +374,7 @@ impl<T> App<T> {
                 // Filter out all events that are uninteresting or unnecessary
                 Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
                 Event::WindowEvent { window_id, event } => {
-                    events.entry(window_id).or_insert_with(|| Vec::new()).push(event);
+                    events.entry(glium_window_id_to_window_id[&window_id]).or_insert_with(|| Vec::new()).push(event);
                 },
                 _ => { },
             });
@@ -441,6 +457,9 @@ impl<T> App<T> {
 
             // If there is a re-render necessary, re-render *all* windows
             if should_rerender_all_windows || should_redraw_timers_or_tasks {
+
+                use app_resources::garbage_collect_fonts_and_images;
+
                 for window in self.windows.values_mut() {
                     // TODO: For some reason this function has to be called twice in order
                     // to actually update the screen. For some reason the first swap_buffers() has
@@ -456,9 +475,24 @@ impl<T> App<T> {
                         &mut self.fake_display,
                     );
                 }
+
                 // Automatically remove unused fonts and images from webrender
                 // Tell the font + image GC to start a new frame
-                self.app_state.resources.garbage_collect_fonts_and_images();
+                #[cfg(not(test))] {
+                    if let Some(render_api) = &mut self.fake_display.render_api {
+                        garbage_collect_fonts_and_images(
+                            &mut self.app_state.resources,
+                            render_api,
+                        );
+                    }
+                }
+
+                #[cfg(test)] {
+                    garbage_collect_fonts_and_images(
+                        &mut self.app_state.resources,
+                        &mut self.fake_render_api,
+                    );
+                }
             }
 
             if !frame_was_resize {
@@ -578,18 +612,19 @@ impl SingleWindowContentResult {
 #[cfg(not(test))]
 fn hit_test_single_window<T>(
     events: &[WindowEvent],
-    window_id: &GliumWindowId,
+    window_id: &WindowId,
     window: &mut Window<T>,
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
-    ui_state_cache: &mut BTreeMap<GliumWindowId, UiState<T>>,
-    force_redraw_cache: &mut BTreeMap<GliumWindowId, usize>,
-    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>,
+    ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
+    force_redraw_cache: &mut BTreeMap<WindowId, usize>,
+    awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<SingleWindowContentResult, RuntimeError<T>> {
 
     use self::RuntimeError::*;
+    use window;
 
-    let (mut frame_event_info, window_should_close) = window.state.update_window_state(&events);
+    let (mut frame_event_info, window_should_close) = window::update_window_state(&mut window.state, &events);
     let mut ret = SingleWindowContentResult {
         needs_rerender_hover_active: false,
         needs_relayout_hover_active: false,
@@ -627,6 +662,7 @@ fn hit_test_single_window<T>(
             if callback_result.should_update_screen == Redraw {
                 ret.callbacks_update_screen = Redraw;
             }
+
             if callback_result.needs_redraw_anyways {
                 ret.needs_rerender_hover_active = true;
             }
@@ -680,11 +716,16 @@ fn hit_test_single_window<T>(
 
     // Update the window state that we got from the frame event (updates window dimensions and DPI)
     // Sets frame_event_info.needs redraw if the event was a
-    window.update_from_external_window_state(&mut frame_event_info, &fake_display.hidden_events_loop);
+    window::update_from_external_window_state(&mut window.state, &mut frame_event_info, &fake_display.hidden_events_loop);
     // Update the window state every frame that was set by the user
-    window.update_from_user_window_state(app_state.windows[&window_id].state.clone());
+    /*
+        old_state: &mut CrateInternalWindowState,
+    new_state: WindowState,
+    window: &mut GliumWindow,
+    */
+    window::update_from_user_window_state(&mut window.state, app_state.windows[&window_id].state.clone());
     // Reset the scroll amount to 0 (for the next frame)
-    window.clear_scroll_state();
+    window::clear_scroll_state(&mut window.state);
 
     Ok(ret)
 }
@@ -692,21 +733,22 @@ fn hit_test_single_window<T>(
 #[cfg(not(test))]
 fn relayout_single_window<T>(
     layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
-    window_id: &GliumWindowId,
+    window_id: &WindowId,
     window: &mut Window<T>,
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
-    ui_state_cache: &mut BTreeMap<GliumWindowId, UiState<T>>,
-    ui_description_cache: &mut BTreeMap<GliumWindowId, UiDescription<T>>,
-    force_redraw_cache: &mut BTreeMap<GliumWindowId, usize>,
-    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>,
+    ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
+    ui_description_cache: &mut BTreeMap<WindowId, UiDescription<T>>,
+    force_redraw_cache: &mut BTreeMap<WindowId, usize>,
+    awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<(), RuntimeError<T>> {
 
     use self::RuntimeError::*;
+    use wr_translate::ui_state_from_app_state;
 
     // Call the Layout::layout() fn, get the DOM
     *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-        UiState::from_app_state(app_state, window_id, layout_callback)?;
+        ui_state_from_app_state(app_state, window_id, layout_callback)?;
 
     // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
     let is_mouse_down = window.state.internal.mouse_state.mouse_down();
@@ -755,10 +797,10 @@ fn rerender_single_window<T>(
 /// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
 #[cfg(debug_assertions)]
 fn hot_reload_css<T>(
-    windows: &mut BTreeMap<GliumWindowId, Window<T>>,
+    windows: &mut BTreeMap<WindowId, Window<T>>,
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
-    awakened_tasks: &mut BTreeMap<GliumWindowId, bool>,
+    awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<(), RuntimeError<T>> {
 
     use self::RuntimeError::*;
@@ -847,7 +889,7 @@ fn call_callbacks<T>(
     hit_test_results: Option<&Vec<HitTestItem>>,
     event: &WindowEvent,
     window: &mut Window<T>,
-    window_id: &GliumWindowId,
+    window_id: &WindowId,
     ui_state: &UiState<T>,
     app_state: &mut AppState<T>)
 -> Result<CallCallbackReturn, RuntimeError<T>> {
@@ -1137,6 +1179,7 @@ fn render_inner<T>(
     use glium::glutin::ContextTrait;
     use webrender::api::{DeviceIntRect, DeviceIntPoint};
     use azul_css::ColorF;
+    use wr_translate;
 
     let (_, framebuffer_size) = convert_window_size(&window.state.size);
 
@@ -1154,7 +1197,7 @@ fn render_inner<T>(
         DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size),
         window.state.size.hidpi_factor as f32
     );
-    txn.set_root_pipeline(window.internal.pipeline_id);
+    txn.set_root_pipeline(wr_translate::translate_pipeline_id(window.internal.pipeline_id));
     scroll_all_nodes(&mut window.scroll_states, &mut txn);
     txn.generate_frame();
 

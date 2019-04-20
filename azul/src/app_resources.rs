@@ -4,17 +4,25 @@ use std::{
     io::Error as IoError,
 };
 use webrender::api::{
-    ImageKey, AddImage, ResourceUpdate, AddFont, AddFontInstance, RenderApi,
+    AddImage, ResourceUpdate, AddFont, AddFontInstance, RenderApi,
 };
-use app_units::Au;
 use {
     FastHashMap, FastHashSet,
     display_list::DisplayList,
 };
-pub use webrender::api::{ImageFormat as WrImageFormat, ImageData, ImageDescriptor};
+pub use webrender::api::{
+    ImageFormat as WrImageFormat,
+    ImageData as WrImageData,
+    ImageDescriptor as WrImageDescriptor
+};
 #[cfg(feature = "image_loading")]
 pub use image::{ImageError, DynamicImage, GenericImageView};
-pub use azul_core::app_resources::*;
+pub use azul_core::app_resources::{
+    AppResources, Au, ImmediateFontId, LoadedFont, RawImageFormat,
+    FontKey, FontInstanceKey, ImageKey, ImageSource, FontSource,
+    RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
+    ImageInfo,
+};
 
 #[derive(Debug)]
 pub enum ImageReloadError {
@@ -112,29 +120,35 @@ impl FontImageApi for FakeRenderApi {
 
 /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
 /// guaranteed to know about all FontKeys and FontInstanceKey
-pub(crate) fn add_fonts_and_images<T>(app_resources: &mut AppResources, display_list: &DisplayList<T>) {
+pub(crate) fn add_fonts_and_images<T, U: FontImageApi>(
+    app_resources: &mut AppResources,
+    render_api: &mut U,
+    display_list: &DisplayList<T>
+) {
     let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list);
     let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list);
 
     app_resources.last_frame_font_keys.extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.extend(image_keys.clone().into_iter());
 
-    let add_font_resource_updates = build_add_font_resource_updates(app_resources, &font_keys);
-    let add_image_resource_updates = build_add_image_resource_updates(app_resources, &image_keys);
+    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, &font_keys);
+    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, &image_keys);
 
-    add_resources(app_resources, add_font_resource_updates, add_image_resource_updates);
+    add_resources(app_resources, add_font_resource_updates, render_api, add_image_resource_updates);
 }
 
 /// To be called at the end of a frame (after the UI has rendered):
 /// Deletes all FontKeys and FontImageKeys that weren't used in
 /// the last frame, to save on memory. If the font needs to be recreated, it
 /// needs to be reloaded from the `FontSource`.
-pub(crate) fn garbage_collect_fonts_and_images(app_resources: &mut AppResources) {
-
+pub(crate) fn garbage_collect_fonts_and_images<U: FontImageApi>(
+    app_resources: &mut AppResources,
+    render_api: &mut U,
+) {
     let delete_font_resource_updates = build_delete_font_resource_updates(app_resources);
     let delete_image_resource_updates = build_delete_image_resource_updates(app_resources);
 
-    delete_resources(app_resources, delete_font_resource_updates, delete_image_resource_updates);
+    delete_resources(app_resources, render_api, delete_font_resource_updates, delete_image_resource_updates);
 
     app_resources.last_frame_font_keys.clear();
     app_resources.last_frame_image_keys.clear();
@@ -144,7 +158,7 @@ pub(crate) fn garbage_collect_fonts_and_images(app_resources: &mut AppResources)
 /// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
 #[allow(unused_variables)]
 fn image_source_get_bytes(image_source: &ImageSource)
--> Result<(ImageData, ImageDescriptor), ImageReloadError>
+-> Result<(WrImageData, WrImageDescriptor), ImageReloadError>
 {
     match image_source {
         ImageSource::Embedded(bytes) => {
@@ -158,14 +172,14 @@ fn image_source_get_bytes(image_source: &ImageSource)
         ImageSource::Raw(raw_image) => {
             let opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels[..]);
             let allow_mipmaps = true;
-            let descriptor = ImageDescriptor::new(
+            let descriptor = WrImageDescriptor::new(
                 raw_image.image_dimensions.0 as i32,
                 raw_image.image_dimensions.1 as i32,
                 raw_image.data_format,
                 opaque,
                 allow_mipmaps
             );
-            let data = ImageData::new(raw_image.pixels.clone());
+            let data = WrImageData::new(raw_image.pixels.clone());
             Ok((data, descriptor))
         },
         ImageSource::File(file_path) => {
@@ -212,7 +226,7 @@ fn scan_ui_description_for_font_keys<'a, T>(
         let node_data = &display_list.ui_descr.ui_descr_arena.node_data[node_id];
         let display_rect = &display_list.rectangles[node_id];
 
-        match node_data.node_type {
+        match node_data.get_node_type() {
             Text(_) | Label(_) => {
                 let css_font_id = ui_solver::get_font_id(&display_rect.style);
                 let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
@@ -244,7 +258,7 @@ fn scan_ui_description_for_image_keys<'a, T>(
     .iter()
     .zip(display_list.ui_descr.ui_descr_arena.node_data.iter())
     .filter_map(|(display_rect, node_data)| {
-        match node_data.node_type {
+        match node_data.get_node_type() {
             Image(id) => Some(id),
             _ => {
                 let background = display_rect.style.background.as_ref()?;
@@ -290,9 +304,10 @@ impl AddFontMsg {
 impl DeleteFontMsg {
     fn into_resource_update(&self) -> ResourceUpdate {
         use self::DeleteFontMsg::*;
+        use wr_translate::{translate_font_key, translate_font_instance_key};
         match self {
-            Font(f) => ResourceUpdate::DeleteFont(*f),
-            Instance(fi, _) => ResourceUpdate::DeleteFontInstance(*fi),
+            Font(f) => ResourceUpdate::DeleteFont(translate_font_key(*f)),
+            Instance(fi, _) => ResourceUpdate::DeleteFontInstance(translate_font_instance_key(*fi)),
         }
     }
 }
@@ -318,8 +333,9 @@ impl DeleteImageMsg {
 /// otherwise (if removing fonts would happen after every DOM) we'd constantly
 /// add-and-remove fonts after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
-fn build_add_font_resource_updates(
+fn build_add_font_resource_updates<T: FontImageApi>(
     app_resources: &AppResources,
+    render_api: &mut T,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
@@ -338,7 +354,7 @@ fn build_add_font_resource_updates(
 
             if !font_instance_key_exists {
 
-                let font_instance_key = app_resources.get_render_api().new_font_instance_key();
+                let font_instance_key = render_api.new_font_instance_key();
 
                 // For some reason the gamma is way to low on Windows
                 #[cfg(target_os = "windows")]
@@ -389,7 +405,7 @@ fn build_add_font_resource_updates(
                 }
             },
             None => {
-                use self::ImmediateFontId::*;
+                use azul_core::app_resources::ImmediateFontId::*;
 
                 // If there is no font key, that means there's also no font instances
                 let font_source = match im_font_id {
@@ -413,7 +429,7 @@ fn build_add_font_resource_updates(
                 };
 
                 if !font_sizes.is_empty() {
-                    let font_key = app_resources.get_render_api().new_font_key();
+                    let font_key = render_api.new_font_key();
 
                     resource_updates.push((im_font_id.clone(), AddFontMsg::Font(LoadedFont::new(font_key, font_bytes, font_index))));
 
@@ -437,8 +453,9 @@ fn build_add_font_resource_updates(
 /// add-and-remove images after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
 #[allow(unused_variables)]
-fn build_add_image_resource_updates(
+fn build_add_image_resource_updates<T: FontImageApi>(
     app_resources: &AppResources,
+    render_api: &mut T,
     images_in_dom: &FastHashSet<ImageId>,
 ) -> Vec<(ImageId, AddImageMsg)> {
 
@@ -455,7 +472,7 @@ fn build_add_image_resource_updates(
             }
         };
 
-        let key = app_resources.get_render_api().new_image_key();
+        let key = render_api.new_image_key();
         let add_image = AddImage { key, data, descriptor, tiling: None };
         Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor })))
 
@@ -466,8 +483,9 @@ fn build_add_image_resource_updates(
 /// Extends `currently_registered_images` and `currently_registered_fonts` by the
 /// `last_frame_image_keys` and `last_frame_font_keys`, so that we don't lose track of
 /// what font and image keys are currently in the API.
-fn add_resources(
+fn add_resources<T: FontImageApi>(
     app_resources: &mut AppResources,
+    render_api: &mut T,
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
@@ -477,9 +495,9 @@ fn add_resources(
     merged_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
     if !merged_resource_updates.is_empty() {
-        app_resources.get_render_api().update_resources(merged_resource_updates);
+        render_api.update_resources(merged_resource_updates);
         // Assure that the AddFont / AddImage updates get processed immediately
-        app_resources.get_render_api().flush_scene_builder();
+        render_api.flush_scene_builder();
     }
 
     for (image_id, add_image_msg) in add_image_resources.iter() {
@@ -527,8 +545,9 @@ fn build_delete_image_resource_updates(
     .collect()
 }
 
-fn delete_resources(
+fn delete_resources<T: FontImageApi>(
     app_resources: &mut AppResources,
+    render_api: &mut T,
     delete_font_resources: Vec<(ImmediateFontId, DeleteFontMsg)>,
     delete_image_resources: Vec<(ImageId, DeleteImageMsg)>,
 ) {
@@ -538,7 +557,7 @@ fn delete_resources(
     merged_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
     if !merged_resource_updates.is_empty() {
-        app_resources.get_render_api().update_resources(merged_resource_updates);
+        render_api.update_resources(merged_resource_updates);
     }
 
     for (removed_id, _removed_info) in delete_image_resources {
@@ -555,7 +574,7 @@ fn delete_resources(
 }
 
 #[cfg(feature = "image_loading")]
-fn decode_image_data(image_data: Vec<u8>) -> Result<(ImageData, ImageDescriptor), ImageError> {
+fn decode_image_data(image_data: Vec<u8>) -> Result<(WrImageData, WrImageDescriptor), ImageError> {
     use image; // the crate
 
     let image_format = image::guess_format(&image_data)?;
@@ -659,7 +678,7 @@ fn test_parse_gsettings_font() {
 
 #[cfg(feature = "image_loading")]
 fn prepare_image(image_decoded: DynamicImage)
-    -> Result<(ImageData, ImageDescriptor), ImageError>
+    -> Result<(WrImageData, WrImageDescriptor), ImageError>
 {
     use image;
     let image_dims = image_decoded.dimensions();

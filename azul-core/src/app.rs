@@ -1,8 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::collections::BTreeMap;
 use {
-    callbacks::WindowId,
-    window::FakeWindow,
+    window::{FakeWindow, WindowId},
     app_resources::AppResources,
     async::{Timer, Task, TimerId},
     FastHashMap,
@@ -47,18 +46,6 @@ pub struct AppState<T> {
     pub tasks: Vec<Task<T>>,
 }
 
-impl<T> AppState<T> {
-    pub fn new(initial_data: T) -> Self {
-        Self {
-            data: Arc::new(Mutex::new(initial_data)),
-            windows: BTreeMap::new(),
-            resources: AppResources::default(),
-            timers: FastHashMap::default(),
-            tasks: Vec::new(),
-        }
-    }
-}
-
 /// Same as the [AppState](./struct.AppState.html) but without the
 /// `self.data` field - used for default callbacks, so that callbacks can
 /// load and unload fonts or images + access the system clipboard
@@ -76,8 +63,7 @@ pub struct AppStateNoData<'a, T> {
     pub tasks: Vec<Task<T>>,
 }
 
-impl<'a, T: 'a> AppStateNoData<'a, T> {
-
+macro_rules! impl_task_api {() => {
     /// Insert a timer into the list of active timers.
     /// Replaces the existing timer if called with the same TimerId.
     pub fn add_timer(&mut self, id: TimerId, timer: Timer<T>) {
@@ -110,4 +96,22 @@ impl<'a, T: 'a> AppStateNoData<'a, T> {
     pub fn add_task(&mut self, task: Task<T>) {
         self.tasks.push(task);
     }
+}}
+
+impl<T> AppState<T> {
+    pub fn new(initial_data: T) -> Self {
+        Self {
+            data: Arc::new(Mutex::new(initial_data)),
+            windows: BTreeMap::new(),
+            resources: AppResources::default(),
+            timers: FastHashMap::default(),
+            tasks: Vec::new(),
+        }
+    }
+
+    impl_task_api!();
+}
+
+impl<'a, T: 'a> AppStateNoData<'a, T> {
+    impl_task_api!();
 }

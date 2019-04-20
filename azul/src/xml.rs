@@ -849,15 +849,15 @@ fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) 
 
     let head = dom.get_head_node();
 
-    for id in &head.ids {
+    for id in head.get_ids().iter() {
         existing_str.push_str(&format!(".with_id({})", id));
     }
 
-    for class in &head.classes {
+    for class in head.get_classes().iter() {
         existing_str.push_str(&format!(".with_class({})", class));
     }
 
-    if let Some(tab_index) = &head.tab_index {
+    if let Some(tab_index) = head.get_tab_index() {
         use dom::TabIndex::*;
         existing_str.push_str(&format!(".with_tab_index({})", match tab_index {
             Auto => format!("TabIndex::Auto"),
@@ -866,7 +866,7 @@ fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) 
         }));
     }
 
-    if head.is_draggable {
+    if head.get_is_draggable() {
         *existing_str += ".is_draggable(true)";
     }
 }

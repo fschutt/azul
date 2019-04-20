@@ -2,12 +2,10 @@ use std::{
     rc::Rc,
     marker::PhantomData,
     io::Error as IoError,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::{
     api::{
-        PipelineId, Epoch, DocumentId,
-        RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
+        Epoch, DocumentId, RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
     },
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
     // renderer::RendererError; -- not currently public in WebRender
@@ -17,8 +15,8 @@ use glium::{
     debug::DebugCallbackBehavior,
     glutin::{
         self, EventsLoop, ContextTrait, CombinedContext, CreationError,
-        MonitorId, ContextError, ContextBuilder, WindowId as GliumWindowId,
-        Window as GliumWindow, WindowBuilder as GliumWindowBuilder, Context,
+        MonitorId, ContextError, ContextBuilder, Window as GliumWindow,
+        WindowBuilder as GliumWindowBuilder, Context,
     },
     backend::glutin::DisplayCreationError,
 };
@@ -36,8 +34,9 @@ use azul_core::{
     app::AppStateNoData,
     callbacks::{
         DefaultCallback, StackCheckedPointer, DefaultCallbackId,
-        UpdateScreen, CallbackInfo
-    }
+        UpdateScreen, CallbackInfo, PipelineId,
+    },
+    window::WindowId,
 };
 pub use webrender::api::HitTestItem;
 pub use glium::glutin::AvailableMonitorsIter;
@@ -47,12 +46,6 @@ pub use window_state::*;
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
-
-static LAST_PIPELINE_ID: AtomicUsize = AtomicUsize::new(0);
-
-fn new_pipeline_id() -> PipelineId {
-    PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
-}
 
 /// Adds a default callback to the window. The default callbacks are
 /// cleared after every frame, so two-way data binding widgets have to call this
@@ -68,14 +61,6 @@ pub fn fake_window_add_callback<T>(
     let default_callback_id = DefaultCallbackId::new();
     fake_window.default_callbacks.insert(default_callback_id, (callback_ptr, callback_fn));
     default_callback_id
-}
-
-pub(crate) fn fake_window_set_keyboard_state<T>(fake_window: &mut FakeWindow<T>, kb: &KeyboardState) {
-    fake_window.state.internal.keyboard_state = kb.clone();
-}
-
-pub(crate) fn fake_window_set_mouse_state<T>(fake_window: &mut FakeWindow<T>, mouse: &MouseState) {
-    fake_window.state.internal.mouse_state = *mouse;
 }
 
 /// Invokes a certain default callback and returns its result
@@ -287,7 +272,7 @@ impl Default for WindowMonitorTarget {
 /// Represents one graphical window to be rendered
 pub struct Window<T> {
     /// System that can identify this window
-    pub(crate) id: GliumWindowId,
+    pub(crate) id: WindowId,
     /// Stores the create_options: necessary because by default, the window is hidden
     /// and only gets shown after the first redraw.
     pub(crate) create_options: WindowCreateOptions,
@@ -522,9 +507,7 @@ impl<T> Window<T> {
         // however, there is only one global renderer, in order to save on memory,
         // The pipeline ID is important, in order to coordinate the rendered textures
         // back to their windows and window positions.
-        let pipeline_id = new_pipeline_id();
-
-        let window_id = display.gl_window().id();
+        let pipeline_id = PipelineId::new();
 
         // let (sender, receiver) = channel();
         // let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
@@ -534,9 +517,9 @@ impl<T> Window<T> {
         let last_scrolled_nodes = ScrolledNodes::default();
 
         let window = Window {
-            id: window_id,
+            id: WindowId::new(),
             create_options: options,
-            state: state,
+            state,
             display: Rc::new(display),
             css,
             #[cfg(debug_assertions)]
@@ -580,98 +563,112 @@ impl<T> Window<T> {
     pub fn get_gl_context(&self) -> Rc<Gl> {
         get_gl_context(&*self.display).unwrap()
     }
+}
 
-    /// Updates the window state, diff the `self.state` with the `new_state`
-    /// and updating the platform window to reflect the changes
-    ///
-    /// Note: Currently, setting `mouse_state.position`, `window.size` or
-    /// `window.position` has no effect on the platform window, since they are very
-    /// frequently modified by the user (other properties are always set by the
-    /// application developer)
-    pub(crate) fn update_from_user_window_state(&mut self, new_state: WindowState) {
+/// Synchronize the CrateInternalWindowState with the WindowState,
+pub(crate) fn update_from_user_window_state(
+    old_state: &mut CrateInternalWindowState,
+    new_state: WindowState,
+    window: &mut GliumWindow,
+) {
+    let current_window_state = crate_internal_state_to_window_state(&old_state);
 
-        let gl_window = self.display.gl_window();
-        let window = gl_window.window();
-        let old_state = &mut self.state;
+    if old_state.title != new_state.title {
+        window.set_title(&new_state.title);
+        old_state.title = new_state.title;
+    }
 
-        // Compare the old and new state, field by field
+    if old_state.internal.mouse_state.mouse_cursor_type != new_state.internal.mouse_state.mouse_cursor_type {
+        window.set_cursor(new_state.internal.mouse_state.mouse_cursor_type);
+        old_state.mouse_state.mouse_cursor_type = new_state.internal.mouse_state.mouse_cursor_type;
+    }
 
-        if old_state.title != new_state.title {
-            window.set_title(&new_state.title);
-            old_state.title = new_state.title;
+    if old_state.is_maximized != new_state.is_maximized {
+        window.set_maximized(new_state.is_maximized);
+        old_state.is_maximized = new_state.is_maximized;
+    }
+
+    if old_state.is_fullscreen != new_state.is_fullscreen {
+        if new_state.is_fullscreen {
+            window.set_fullscreen(Some(window.get_current_monitor()));
+        } else {
+            window.set_fullscreen(None);
         }
+        old_state.is_fullscreen = new_state.is_fullscreen;
+    }
 
-        if old_state.internal.mouse_state.mouse_cursor_type != new_state.internal.mouse_state.mouse_cursor_type {
-            window.set_cursor(new_state.internal.mouse_state.mouse_cursor_type);
-            old_state.internal.mouse_state.mouse_cursor_type = new_state.internal.mouse_state.mouse_cursor_type;
+    if old_state.has_decorations != new_state.has_decorations {
+        window.set_decorations(new_state.has_decorations);
+        old_state.has_decorations = new_state.has_decorations;
+    }
+
+    if old_state.is_visible != new_state.is_visible {
+        if new_state.is_visible {
+            window.show();
+        } else {
+            window.hide();
         }
+        old_state.is_visible = new_state.is_visible;
+    }
 
-        if old_state.is_maximized != new_state.is_maximized {
-            window.set_maximized(new_state.is_maximized);
-            old_state.is_maximized = new_state.is_maximized;
-        }
+    if old_state.size.min_dimensions != new_state.size.min_dimensions {
+        window.set_min_dimensions(new_state.size.min_dimensions.map(|min| winit_translate::translate_logical_size(min).into()));
+        old_state.size.min_dimensions = new_state.size.min_dimensions;
+    }
 
-        if old_state.is_fullscreen != new_state.is_fullscreen {
-            if new_state.is_fullscreen {
-                window.set_fullscreen(Some(window.get_current_monitor()));
-            } else {
-                window.set_fullscreen(None);
-            }
-            old_state.is_fullscreen = new_state.is_fullscreen;
-        }
+    if old_state.size.max_dimensions != new_state.size.max_dimensions {
+        window.set_max_dimensions(new_state.size.max_dimensions.map(|max| winit_translate::translate_logical_size(max).into()));
+        old_state.size.max_dimensions = new_state.size.max_dimensions;
+    }
 
-        if old_state.has_decorations != new_state.has_decorations {
-            window.set_decorations(new_state.has_decorations);
-            old_state.has_decorations = new_state.has_decorations;
-        }
+    old_state.previous_window_state = Some(Box::new(current_window_state));
+}
 
-        if old_state.is_visible != new_state.is_visible {
-            if new_state.is_visible {
-                window.show();
-            } else {
-                window.hide();
-            }
-            old_state.is_visible = new_state.is_visible;
-        }
+fn crate_internal_state_to_window_state(internal: &CrateInternalWindowState) -> WindowState {
+    WindowState {
+        title: internal.title.clone(),
+        size: internal.size,
+        position: internal.position,
+        is_maximized: internal.is_maximized,
+        is_fullscreen: internal.is_fullscreen,
+        has_decorations: internal.has_decorations,
+        is_visible: internal.is_visible,
+        is_always_on_top: internal.is_always_on_top,
+        debug_state: internal.debug_state,
+        keyboard_state: internal.keyboard_state.clone(),
+        mouse_state: internal.mouse_state,
+    }
+}
 
-        if old_state.size.min_dimensions != new_state.size.min_dimensions {
-            window.set_min_dimensions(new_state.size.min_dimensions.map(|min| winit_translate::translate_logical_size(min).into()));
-            old_state.size.min_dimensions = new_state.size.min_dimensions;
-        }
-
-        if old_state.size.max_dimensions != new_state.size.max_dimensions {
-            window.set_max_dimensions(new_state.size.max_dimensions.map(|max| winit_translate::translate_logical_size(max).into()));
-            old_state.size.max_dimensions = new_state.size.max_dimensions;
+#[allow(unused_variables)]
+pub(crate) fn update_from_external_window_state(
+    window_state: &mut WindowState,
+    frame_event_info: &mut FrameEventInfo,
+    events_loop: &EventsLoop
+) {
+    #[cfg(target_os = "linux")] {
+        if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
+            window_state.state.size.hidpi_factor = linux_get_hidpi_factor(
+                &window_state.display.gl_window().window().get_current_monitor(),
+                events_loop
+            );
         }
     }
 
-    #[allow(unused_variables)]
-    pub(crate) fn update_from_external_window_state(&mut self, frame_event_info: &mut FrameEventInfo, events_loop: &EventsLoop) {
-
-        #[cfg(target_os = "linux")] {
-            if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
-                self.state.size.hidpi_factor = linux_get_hidpi_factor(
-                    &self.display.gl_window().window().get_current_monitor(),
-                    events_loop
-                );
-            }
-        }
-
-        if let Some(new_size) = frame_event_info.new_window_size {
-            self.state.size.dimensions = new_size;
-        }
-
-        if let Some(dpi) = frame_event_info.new_dpi_factor {
-            self.state.size.winit_hidpi_factor = dpi;
-            frame_event_info.should_redraw_window = true;
-        }
+    if let Some(new_size) = frame_event_info.new_window_size {
+        window_state.state.size.dimensions = new_size;
     }
 
-    /// Resets the mouse states `scroll_x` and `scroll_y` to 0
-    pub(crate) fn clear_scroll_state(&mut self) {
-        self.state.internal.mouse_state.scroll_x = 0.0;
-        self.state.internal.mouse_state.scroll_y = 0.0;
+    if let Some(dpi) = frame_event_info.new_dpi_factor {
+        window_state.state.size.winit_hidpi_factor = dpi;
+        frame_event_info.should_redraw_window = true;
     }
+}
+
+/// Resets the mouse states `scroll_x` and `scroll_y` to 0
+pub(crate) fn clear_scroll_state(window_state: &mut WindowState) {
+    window_state.mouse_state.scroll_x = 0.0;
+    window_state.mouse_state.scroll_y = 0.0;
 }
 
 /// Since the rendering is single-threaded anyways, the renderer is shared across windows.

@@ -21,19 +21,14 @@ pub enum TerminateTimer {
 
 static MAX_DAEMON_ID: AtomicUsize = AtomicUsize::new(0);
 
-/// Generate a new, unique TimerId
-fn new_timer_id() -> TimerId {
-    TimerId(MAX_DAEMON_ID.fetch_add(1, Ordering::SeqCst))
-}
-
 /// ID for uniquely identifying a timer
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct TimerId(usize);
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TimerId { id: usize }
 
 impl TimerId {
     /// Generates a new, unique `TimerId`.
     pub fn new() -> Self {
-        new_timer_id()
+        TimerId { id: MAX_DAEMON_ID.fetch_add(1, Ordering::SeqCst) }
     }
 }
 
@@ -208,7 +203,7 @@ pub struct Task<T> {
     join_handle: Option<JoinHandle<()>>,
     dropcheck: Weak<()>,
     /// Timer that will run directly after this task is completed.
-    pub(crate) after_completion_timer: Option<Timer<T>>,
+    pub after_completion_timer: Option<Timer<T>>,
 }
 
 impl<T> Task<T> {

@@ -65,13 +65,10 @@ impl DomId {
     pub fn reset() {
         DOM_ID.swap(1, Ordering::SeqCst);
     }
-}
-
-impl DomId {
 
     /// Creates an ID for the root node
     #[inline]
-    pub(crate) const fn create_root_dom_id() -> Self  {
+    pub const fn create_root_dom_id() -> Self  {
         Self {
             id: 0,
             parent: None,
@@ -776,6 +773,18 @@ impl<T> NodeData<T> {
 
         DomHash(hasher.finish())
     }
+
+    // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
+    // in the future (which is why the fields are all private).
+
+    pub const fn get_node_type(&self) -> &NodeType<T> { &self.node_type }
+    pub const fn get_ids(&self) -> &Vec<DomString> { &self.ids }
+    pub const fn get_classes(&self) -> &Vec<DomString> { &self.classes }
+    pub const fn get_callbacks(&self) -> &Vec<(EventFilter, Callback<T>)> { &self.callbacks }
+    pub const fn get_default_callback_ids(&self) -> &Vec<(EventFilter, DefaultCallbackId)> { &self.default_callback_ids }
+    pub const fn get_dynamic_css_overrides(&self) -> &Vec<(DomString, CssProperty)> { &self.dynamic_css_overrides }
+    pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
+    pub const fn get_tab_index(&self) -> Option<TabIndex> { self.tab_index }
 }
 
 /// Most strings are known at compile time, spares a bit of
@@ -857,7 +866,7 @@ impl From<&'static str> for DomString {
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 pub struct Dom<T> {
-    pub(crate) arena: Arena<NodeData<T>>,
+    pub arena: Arena<NodeData<T>>,
     pub(crate) root: NodeId,
     pub(crate) head: NodeId,
 }

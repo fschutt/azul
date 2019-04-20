@@ -12,13 +12,11 @@ use {
     ui_state::UiState,
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
-    window::{FakeWindow, LogicalSize, PhysicalSize, LogicalPosition},
+    window::{FakeWindow, LogicalSize, WindowId, PhysicalSize, LogicalPosition},
     gl::Texture,
 };
 pub use stack_checked_pointer::StackCheckedPointer;
 pub use gleam::gl::Gl;
-
-pub type WindowId = usize;
 
 pub type DefaultCallbackType<T, U> = fn(&mut U, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
 pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
@@ -54,8 +52,14 @@ pub type PipelineSourceId = u32;
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
 
+static LAST_PIPELINE_ID: AtomicUsize = AtomicUsize::new(0);
+
 impl PipelineId {
     pub const DUMMY: PipelineId = PipelineId(0, 0);
+
+    pub fn new() -> Self {
+        PipelineId(LAST_PIPELINE_ID.fetch_add(1, Ordering::SeqCst) as u32, 0)
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

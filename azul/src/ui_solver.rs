@@ -4,7 +4,6 @@ use azul_css::{
     RectLayout, StyleFontSize, RectStyle,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, PixelValue,
 };
-use app_units::Au;
 use {
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
     display_list::DisplayRectangle,
@@ -12,6 +11,7 @@ use {
     app_resources::AppResources,
     text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions},
 };
+use azul_core::app_resources::Au;
 use webrender::api::{LayoutRect, LayoutPoint, LayoutSize, FontInstanceKey};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
@@ -1127,11 +1127,11 @@ fn get_content_height<T>(
     use dom::NodeType::*;
     match &node_type {
         Image(i) => {
-            let image_size = &app_resources.get_image_info(i)?.descriptor.size;
-            let aspect_ratio = image_size.width as f32 / image_size.height as f32;
+            let (image_size_width, image_size_height) = app_resources.get_image_info(i)?.descriptor.dimensions;
+            let aspect_ratio = image_size_width as f32 / image_size_height as f32;
             let preferred_height = div_width * aspect_ratio;
             Some(PreferredHeight::Image {
-                original_dimensions: (image_size.width as usize, image_size.height as usize),
+                original_dimensions: (image_size_width, image_size_height),
                 aspect_ratio,
                 preferred_height,
             })
@@ -1256,7 +1256,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
     // For images that would be the image width / height, for text it would be the text
     // laid out without any width constraints.
     let content_widths = node_data.transform(|node, node_id|
-        get_content_width(&node_id, &node.node_type, app_resources, &word_positions_no_max_width)
+        get_content_width(&node_id, &node.get_node_type(), app_resources, &word_positions_no_max_width)
     );
 
     // Solve the widths again, this time incorporating the maximum widths
@@ -1338,7 +1338,7 @@ fn create_word_cache<T>(
     node_data
     .linear_iter()
     .filter_map(|node_id| {
-        match &node_data[node_id].node_type {
+        match &node_data[node_id].get_node_type() {
             NodeType::Label(string) => Some((node_id, split_text_into_words(string.as_str()))),
             NodeType::Text(text_id) => {
                 app_resources.get_text(text_id).map(|words| (node_id, words.clone()))
