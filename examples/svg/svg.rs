@@ -241,7 +241,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut Cal
 
 fn main() {
 
-    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/debug.css")) }
+    macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/svg/svg.css")) }
 
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
     let mut app = App::new(MyAppData { map: None }, AppConfig::default()).unwrap();
