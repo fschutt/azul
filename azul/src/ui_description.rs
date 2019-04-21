@@ -10,8 +10,8 @@ use {
     ui_state::UiState,
     style::HoverGroup,
     callbacks::{FocusTarget, HitTestItem},
+    ui_state::ui_state_from_app_state,
 };
-use wr_translate::ui_state_from_app_state;
 
 pub struct UiDescription<T> {
     pub(crate) ui_descr_arena: Arena<NodeData<T>>,
@@ -59,8 +59,10 @@ impl<T> Clone for UiDescription<T> {
 
 impl<T> Default for UiDescription<T> {
     fn default() -> Self {
-        use dom::NodeType;
 
+        use dom::NodeType;
+        use azul_core::app::AppState;
+        use
         let default_dom = Dom::new(NodeType::Div);
         let hovered_nodes = BTreeMap::new();
         let is_mouse_down = false;
@@ -68,7 +70,7 @@ impl<T> Default for UiDescription<T> {
         let mut focus_target = None;
 
         Self::match_css_to_dom(
-            ui_state_from_app_state(AppState::from_dom(default_dom)),
+            ui_state_from_dom(default_dom),
             &Css::default(),
             &mut focused_node,
             &mut focus_target,
@@ -91,7 +93,7 @@ impl<T> UiDescription<T> {
         is_mouse_down: bool,
     ) -> Self
     {
-        use wr_translate::ui_state_create_tags_for_hover_nodes;
+        use ui_state::ui_state_create_tags_for_hover_nodes;
 
         let ui_description = ::style::match_dom_selectors(
             ui_state,

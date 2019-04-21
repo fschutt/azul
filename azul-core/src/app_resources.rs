@@ -229,11 +229,12 @@ impl TextCache {
 /// Text broken up into `Tab`, `Word()`, `Return` characters
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Words {
+    /// Words (and spaces), broken up into semantic items
     pub items: Vec<Word>,
-    // NOTE: Can't be a string, because it wouldn't be possible to take substrings
-    // (since in UTF-8, multiple characters can be encoded in one byte).
-    internal_str: String,
-    internal_chars: Vec<char>,
+    /// String that makes up this paragraph of words
+    pub internal_str: String,
+    /// `internal_chars` is used in order to enable copy-paste (since taking a sub-string isn't possible using UTF-8)
+    pub internal_chars: Vec<char>,
 }
 
 impl Words {

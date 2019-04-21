@@ -565,22 +565,23 @@ impl<T> Window<T> {
     }
 }
 
-/// Synchronize the CrateInternalWindowState with the WindowState,
+/// Synchronize the FullWindowState with the WindowState,
+/// updating the OS-level window to reflect the new state
 pub(crate) fn update_from_user_window_state(
-    old_state: &mut CrateInternalWindowState,
-    new_state: WindowState,
+    old_state: &mut FullWindowState,
+    new_state: &WindowState,
     window: &mut GliumWindow,
 ) {
-    let current_window_state = crate_internal_state_to_window_state(&old_state);
+    let current_window_state = full_window_state_to_window_state(&old_state);
 
     if old_state.title != new_state.title {
         window.set_title(&new_state.title);
         old_state.title = new_state.title;
     }
 
-    if old_state.internal.mouse_state.mouse_cursor_type != new_state.internal.mouse_state.mouse_cursor_type {
-        window.set_cursor(new_state.internal.mouse_state.mouse_cursor_type);
-        old_state.mouse_state.mouse_cursor_type = new_state.internal.mouse_state.mouse_cursor_type;
+    if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
+        window.set_cursor(new_state.mouse_state.mouse_cursor_type);
+        old_state.mouse_state.mouse_cursor_type = new_state.mouse_state.mouse_cursor_type;
     }
 
     if old_state.is_maximized != new_state.is_maximized {
@@ -621,34 +622,39 @@ pub(crate) fn update_from_user_window_state(
         old_state.size.max_dimensions = new_state.size.max_dimensions;
     }
 
+    if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
+        window.set_cursor(new_state.mouse_state.mouse_cursor_type);
+        old_state.mouse_state.mouse_cursor_type = new_state.mouse_state.mouse_cursor_type;
+    }
+
     old_state.previous_window_state = Some(Box::new(current_window_state));
 }
 
-fn crate_internal_state_to_window_state(internal: &CrateInternalWindowState) -> WindowState {
+pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowState) -> WindowState {
     WindowState {
-        title: internal.title.clone(),
-        size: internal.size,
-        position: internal.position,
-        is_maximized: internal.is_maximized,
-        is_fullscreen: internal.is_fullscreen,
-        has_decorations: internal.has_decorations,
-        is_visible: internal.is_visible,
-        is_always_on_top: internal.is_always_on_top,
-        debug_state: internal.debug_state,
-        keyboard_state: internal.keyboard_state.clone(),
-        mouse_state: internal.mouse_state,
+        title: full_window_state.title.clone(),
+        size: full_window_state.size,
+        position: full_window_state.position,
+        is_maximized: full_window_state.is_maximized,
+        is_fullscreen: full_window_state.is_fullscreen,
+        has_decorations: full_window_state.has_decorations,
+        is_visible: full_window_state.is_visible,
+        is_always_on_top: full_window_state.is_always_on_top,
+        debug_state: full_window_state.debug_state,
+        keyboard_state: full_window_state.keyboard_state.clone(),
+        mouse_state: full_window_state.mouse_state,
     }
 }
 
 #[allow(unused_variables)]
 pub(crate) fn update_from_external_window_state(
     window_state: &mut WindowState,
-    frame_event_info: &mut FrameEventInfo,
+    frame_event_info: &FrameEventInfo,
     events_loop: &EventsLoop
 ) {
     #[cfg(target_os = "linux")] {
         if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
-            window_state.state.size.hidpi_factor = linux_get_hidpi_factor(
+            window_state.size.hidpi_factor = linux_get_hidpi_factor(
                 &window_state.display.gl_window().window().get_current_monitor(),
                 events_loop
             );
@@ -656,17 +662,16 @@ pub(crate) fn update_from_external_window_state(
     }
 
     if let Some(new_size) = frame_event_info.new_window_size {
-        window_state.state.size.dimensions = new_size;
+        window_state.size.dimensions = new_size;
     }
 
     if let Some(dpi) = frame_event_info.new_dpi_factor {
-        window_state.state.size.winit_hidpi_factor = dpi;
-        frame_event_info.should_redraw_window = true;
+        window_state.size.winit_hidpi_factor = dpi;
     }
 }
 
 /// Resets the mouse states `scroll_x` and `scroll_y` to 0
-pub(crate) fn clear_scroll_state(window_state: &mut WindowState) {
+pub(crate) fn clear_scroll_state(window_state: &mut FullWindowState) {
     window_state.mouse_state.scroll_x = 0.0;
     window_state.mouse_state.scroll_y = 0.0;
 }

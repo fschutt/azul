@@ -286,17 +286,17 @@ fn selector_group_matches<'a, T>(selectors: &[&CssPathSelector], html_node: &Htm
         match selector {
             Global => { },
             Type(t) => {
-                if html_node.node_data.node_type.get_path() != *t {
+                if html_node.node_data.get_node_type().get_path() != *t {
                     return false;
                 }
             },
             Class(c) => {
-                if !html_node.node_data.classes.iter().any(|class| class.equals_str(c)) {
+                if !html_node.node_data.get_classes().iter().any(|class| class.equals_str(c)) {
                     return false;
                 }
             },
             Id(id) => {
-                if !html_node.node_data.ids.iter().any(|html_id| html_id.equals_str(id)) {
+                if !html_node.node_data.get_ids().iter().any(|html_id| html_id.equals_str(id)) {
                     return false;
                 }
             },

@@ -11,8 +11,10 @@ use {
     app_resources::AppResources,
     text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions},
 };
-use azul_core::app_resources::Au;
-use webrender::api::{LayoutRect, LayoutPoint, LayoutSize, FontInstanceKey};
+use azul_core::{
+    app_resources::{Au, FontInstanceKey},
+};
+use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(10));
@@ -1111,7 +1113,7 @@ fn get_content_width<T>(
 ) -> Option<f32> {
     use dom::NodeType::*;
     match node_type {
-        Image(image_id) => app_resources.get_image_info(image_id).map(|info| info.descriptor.size.width as f32),
+        Image(image_id) => app_resources.get_image_info(image_id).map(|info| info.descriptor.dimensions.0 as f32),
         Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.0.content_size.width),
         _ => None,
     }
@@ -1169,9 +1171,10 @@ pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
 }
 
 pub(crate) fn px_to_au(px: f32) -> Au {
-    use app_units::{AU_PER_PX, MIN_AU, MAX_AU};
-    let target_app_units = Au((px * AU_PER_PX as f32) as i32);
-    target_app_units.min(MAX_AU).max(MIN_AU)
+    use app_units::{Au as WrAu, AU_PER_PX, MIN_AU, MAX_AU};
+
+    let target_app_units = WrAu((px * AU_PER_PX as f32) as i32);
+    Au(target_app_units.min(MAX_AU).max(MIN_AU).0)
 }
 
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
@@ -1287,7 +1290,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
         let div_width = solved_widths.solved_widths[node_id].total();
         get_content_height(
             &node_id,
-            &node.node_type,
+            node.get_node_type(),
             app_resources,
             &word_positions_with_max_width,
             div_width

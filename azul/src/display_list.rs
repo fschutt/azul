@@ -14,6 +14,7 @@ use webrender::api::{
     ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
     ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode,
+    RenderApi,
 };
 use azul_css::{
     Css, LayoutPosition,CssProperty, LayoutOverflow,
@@ -108,7 +109,8 @@ impl<'a, T: 'a> DisplayList<'a, T> {
         app_data_access: &mut Arc<Mutex<T>>,
         window: &mut Window<T>,
         fake_window: &mut FakeWindow<T>,
-        app_resources: &mut AppResources
+        app_resources: &mut AppResources,
+        render_api: &mut RenderApi,
     ) -> (DisplayListBuilder, ScrolledNodes, LayoutResult) {
 
         use window::LogicalSize;
@@ -135,7 +137,7 @@ impl<'a, T: 'a> DisplayList<'a, T> {
         //      - Insert the new font keys and image keys into the render API
         //      - Scan all IFrameCallbacks, generate the DomID for each callback
         //      - Repeat while number_of_iframe_callbacks != 0
-        add_fonts_and_images(app_resources, &self);
+        add_fonts_and_images(app_resources, render_api, &self);
 
         let window_size = window.state.size.get_reverse_logical_size();
         let layout_result = do_the_layout(
@@ -191,7 +193,7 @@ impl<'a, T: 'a> DisplayList<'a, T> {
                 fake_window,
                 builder: &mut builder,
                 resource_updates: &mut resource_updates,
-                pipeline_id: window.internal.pipeline_id,
+                render_api,
             },
         );
 
@@ -418,6 +420,8 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
     pipeline_id: PipelineId,
 ) -> ScrolledNodes {
 
+    use wr_translate;
+
     let mut nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
 
@@ -445,7 +449,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
         // Create an external scroll id. This id is required to preserve its
         // scroll state accross multiple frames.
-        let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, pipeline_id);
+        let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, wr_translate::translate_pipeline_id(pipeline_id));
 
         // Create a unique scroll tag for hit-testing
         let scroll_tag_id = match display_list_rects.get(*parent).and_then(|node| node.tag) {
@@ -517,7 +521,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
         let rectangle = DisplayListRectParams {
             epoch,
             rect_idx: content_group.root.node_id,
-            html_node: &referenced_content.node_data[content_group.root.node_id].node_type,
+            html_node: referenced_content.node_data[content_group.root.node_id].get_node_type(),
             window_size,
         };
 
@@ -536,7 +540,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             let rectangle = DisplayListRectParams {
                 epoch,
                 rect_idx: item.node_id,
-                html_node: &referenced_content.node_data[item.node_id].node_type,
+                html_node: referenced_content.node_data[item.node_id].get_node_type(),
                 window_size,
             };
 
@@ -844,7 +848,11 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     );
 
     let display_list = DisplayList::new_from_ui_description(&ui_description, &ui_state);
-    app_resources::add_fonts_and_images(referenced_mutable_content.app_resources, &display_list);
+    app_resources::add_fonts_and_images(
+        referenced_mutable_content.app_resources,
+        referenced_mutable_content.render_api,
+        &display_list
+    );
 
     let arena = &ui_description.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;
@@ -912,7 +920,10 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a> {
     pub layout_result: &'c LayoutResult,
     /// Reference to the arena that contains all the styled rectangles
     pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
+    /// Reference to the arena that contains the node hierarchy data, so
+    /// that the node hierarchy can be re-used
     pub node_hierarchy: &'e NodeHierarchy,
+    /// The current pipeline of the display list
     pub pipeline_id: PipelineId,
 }
 
@@ -933,7 +944,8 @@ struct DisplayListParametersMut<'a, T: 'a> {
     pub resource_updates: &'a mut Vec<ResourceUpdate>,
     /// Window access, so that sub-items can register OpenGL textures
     pub fake_window: &'a mut FakeWindow<T>,
-    pub pipeline_id: PipelineId,
+    /// The render API that fonts and images should be added onto.
+    pub render_api: &'a mut RenderApi,
 }
 
 fn push_rect(
@@ -1363,7 +1375,7 @@ fn push_background(
 
                 let bounds = info.rect;
                 let image_dimensions = app_resources.get_image_info(image_id)
-                    .map(|info| (info.descriptor.width, info.descriptor.height))
+                    .map(|info| (info.descriptor.dimensions.width, info.descriptor.dimensions.height))
                     .unwrap_or((bounds.size.width as i32, bounds.size.height as i32)); // better than crashing...
 
                 let size = match background_size {

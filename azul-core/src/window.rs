@@ -79,28 +79,15 @@ impl<T> FakeWindow<T> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MouseCursorType {
-    /// The platform-dependent default cursor.
     Default,
-    /// A simple crosshair.
     Crosshair,
-    /// A hand (often used to indicate links in web browsers).
     Hand,
-    /// Self explanatory.
     Arrow,
-    /// Indicates something is to be moved.
     Move,
-    /// Indicates text that may be selected or edited.
     Text,
-    /// Program busy indicator.
     Wait,
-    /// Help indicator (often rendered as a "?")
     Help,
-    /// Progress indicator. Shows that processing is being done. But in contrast
-    /// with "Wait" the user may still interact with the program. Often rendered
-    /// as a spinning beach ball, or an arrow with a watch or hourglass.
     Progress,
-
-    /// Cursor showing that something cannot be done.
     NotAllowed,
     ContextMenu,
     Cell,
@@ -113,9 +100,6 @@ pub enum MouseCursorType {
     AllScroll,
     ZoomIn,
     ZoomOut,
-
-    /// Indicate that some edge is to be moved. For example, the 'SeResize' cursor
-    /// is used when the movement starts from the south-east corner of the box.
     EResize,
     NResize,
     NeResize,
@@ -209,98 +193,6 @@ pub struct DebugState {
     pub show_overdraw: bool,
     /// Toggles `webrender::DebugFlags::GPU_CACHE_DBG`
     pub gpu_cache_dbg: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CrateInternalWindowState {
-    /// Current title of the window
-    pub title: String,
-    /// Size of the window + max width / max height: 800 x 600 by default
-    pub size: WindowSize,
-    /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<LogicalPosition>,
-    /// Is the window currently maximized
-    pub is_maximized: bool,
-    /// Is the window currently fullscreened?
-    pub is_fullscreen: bool,
-    /// Does the window have decorations (close, minimize, maximize, title bar)?
-    pub has_decorations: bool,
-    /// Is the window currently visible?
-    pub is_visible: bool,
-    /// Is the window always on top?
-    pub is_always_on_top: bool,
-    /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
-    /// Used for performance monitoring and displaying frame times (rendering-only).
-    pub debug_state: DebugState,
-    /// Current keyboard state - NOTE: mutating this field (currently) does nothing
-    /// (doesn't get synchronized with OS-level window)!
-    pub keyboard_state: KeyboardState,
-    /// Current mouse state - NOTE: mutating this field (currently) does nothing
-    /// (doesn't get synchronized with OS-level window)!
-    pub mouse_state: MouseState,
-
-    // --
-
-    /// Previous window state, used for determining mouseout, etc. events
-    pub previous_window_state: Option<Box<WindowState>>,
-    /// Whether there is a file currently hovering over the window
-    pub hovered_file: Option<PathBuf>,
-    /// What node is currently hovered over, default to None. Only necessary internal
-    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
-    /// as well as styling `:focus` elements
-    pub focused_node: Option<NodeId>,
-    /// Currently hovered nodes, default to an empty Vec. Important for
-    /// styling `:hover` elements.
-    pub hovered_nodes: BTreeMap<NodeId, HitTestItem>,
-    /// Whether there is a focus field overwrite from the last callback calls.
-    pub pending_focus_target: Option<FocusTarget>,
-}
-
-impl Default for CrateInternalWindowState {
-    fn default() -> Self {
-        Self {
-            title: DEFAULT_TITLE.into(),
-            position: None,
-            size: WindowSize::default(),
-            is_maximized: false,
-            is_fullscreen: false,
-            has_decorations: true,
-            is_visible: true,
-            is_always_on_top: false,
-            mouse_state: MouseState::default(),
-            keyboard_state: KeyboardState::default(),
-            debug_state: DebugState::default(),
-
-            // --
-
-            previous_window_state: None,
-            hovered_file: None,
-            focused_node: None,
-            hovered_nodes: BTreeMap::default(),
-            pending_focus_target: None,
-        }
-    }
-}
-impl CrateInternalWindowState {
-    pub fn get_mouse_state(&self) -> &MouseState {
-        &self.mouse_state
-    }
-
-    pub fn get_keyboard_state(&self) -> &KeyboardState {
-        &self.keyboard_state
-    }
-
-    pub fn get_hovered_file(&self) -> Option<&PathBuf> {
-        self.hovered_file.as_ref()
-    }
-
-    /// Returns the window state of the previous frame, useful for calculating
-    /// metrics for dragging motions. Note that you can't call this function
-    /// recursively - calling `get_previous_window_state()` on the returned
-    /// `WindowState` will yield a `None` value.
-    pub fn get_previous_window_state(&self) -> Option<&Box<WindowState>> {
-        self.previous_window_state.as_ref()
-    }
 }
 
 /// State, size, etc of the window, for comparing to the last frame

@@ -1,6 +1,7 @@
 use std::{
     collections::{HashSet, BTreeMap},
     fmt,
+    path::PathBuf,
 };
 use glium::glutin::{
     Window, WindowEvent, KeyboardInput, ElementState,
@@ -17,15 +18,16 @@ use {
 };
 pub use azul_core::window::{
     WindowState, KeyboardState, MouseState, DebugState,
-    LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize
+    LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
 };
+use azul_core::callbacks::FocusTarget;
 
 pub(crate) mod winit_translate {
 
-    pub(crate) use super::{LogicalPosition, LogicalSize};
-    pub(crate) use super::{PhysicalPosition, PhysicalSize};
-    pub(crate) use glium::glutin::dpi::{LogicalPosition as WinitLogicalPosition, LogicalSize as WinitLogicalSize};
-    pub(crate) use glium::glutin::dpi::{PhysicalPosition as WinitPhysicalPosition, PhysicalSize as WinitPhysicalSize};
+    use super::{LogicalPosition, LogicalSize};
+    use super::{PhysicalPosition, PhysicalSize};
+    use glium::glutin::dpi::{LogicalPosition as WinitLogicalPosition, LogicalSize as WinitLogicalSize};
+    use glium::glutin::dpi::{PhysicalPosition as WinitPhysicalPosition, PhysicalSize as WinitPhysicalSize};
 
     pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
         WinitLogicalPosition::new(input.x as f64, input.y as f64)
@@ -42,6 +44,163 @@ pub(crate) mod winit_translate {
 
     pub(crate) fn translate_physical_size(input: PhysicalSize) -> WinitPhysicalSize {
         WinitPhysicalSize::new(input.width as f64, input.height as f64)
+    }
+
+    use azul_core::window::MouseCursorType;
+    use glium::glutin::MouseCursor as WinitMouseCursorType;
+
+    pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitMouseCursorType {
+        use azul_core::window::MouseCursorType::*;
+        match mouse_cursor_type {
+            Default => WinitMouseCursorType::Default,
+            Crosshair => WinitMouseCursorType::Crosshair,
+            Hand => WinitMouseCursorType::Hand,
+            Arrow => WinitMouseCursorType::Arrow,
+            Move => WinitMouseCursorType::Move,
+            Text => WinitMouseCursorType::Text,
+            Wait => WinitMouseCursorType::Wait,
+            Help => WinitMouseCursorType::Help,
+            Progress => WinitMouseCursorType::Progress,
+            NotAllowed => WinitMouseCursorType::NotAllowed,
+            ContextMenu => WinitMouseCursorType::ContextMenu,
+            Cell => WinitMouseCursorType::Cell,
+            VerticalText => WinitMouseCursorType::VerticalText,
+            Alias => WinitMouseCursorType::Alias,
+            Copy => WinitMouseCursorType::Copy,
+            NoDrop => WinitMouseCursorType::NoDrop,
+            Grab => WinitMouseCursorType::Grab,
+            Grabbing => WinitMouseCursorType::Grabbing,
+            AllScroll => WinitMouseCursorType::AllScroll,
+            ZoomIn => WinitMouseCursorType::ZoomIn,
+            ZoomOut => WinitMouseCursorType::ZoomOut,
+            EResize => WinitMouseCursorType::EResize,
+            NResize => WinitMouseCursorType::NResize,
+            NeResize => WinitMouseCursorType::NeResize,
+            NwResize => WinitMouseCursorType::NwResize,
+            SResize => WinitMouseCursorType::SResize,
+            SeResize => WinitMouseCursorType::SeResize,
+            SwResize => WinitMouseCursorType::SwResize,
+            WResize => WinitMouseCursorType::WResize,
+            EwResize => WinitMouseCursorType::EwResize,
+            NsResize => WinitMouseCursorType::NsResize,
+            NeswResize => WinitMouseCursorType::NeswResize,
+            NwseResize => WinitMouseCursorType::NwseResize,
+            ColResize => WinitMouseCursorType::ColResize,
+            RowResize => WinitMouseCursorType::RowResize,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FullWindowState {
+    /// Current title of the window
+    pub title: String,
+    /// Size of the window + max width / max height: 800 x 600 by default
+    pub size: WindowSize,
+    /// The x and y position, or None to let the WM decide where to put the window (default)
+    pub position: Option<LogicalPosition>,
+    /// Is the window currently maximized
+    pub is_maximized: bool,
+    /// Is the window currently fullscreened?
+    pub is_fullscreen: bool,
+    /// Does the window have decorations (close, minimize, maximize, title bar)?
+    pub has_decorations: bool,
+    /// Is the window currently visible?
+    pub is_visible: bool,
+    /// Is the window always on top?
+    pub is_always_on_top: bool,
+    /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
+    /// Used for performance monitoring and displaying frame times (rendering-only).
+    pub debug_state: DebugState,
+    /// Current keyboard state - NOTE: mutating this field (currently) does nothing
+    /// (doesn't get synchronized with OS-level window)!
+    pub keyboard_state: KeyboardState,
+    /// Current mouse state - NOTE: mutating this field (currently) does nothing
+    /// (doesn't get synchronized with OS-level window)!
+    pub mouse_state: MouseState,
+
+    // --
+
+    /// Previous window state, used for determining mouseout, etc. events
+    pub previous_window_state: Option<Box<FullWindowState>>,
+    /// Whether there is a file currently hovering over the window
+    pub hovered_file: Option<PathBuf>,
+    /// What node is currently hovered over, default to None. Only necessary internal
+    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
+    /// as well as styling `:focus` elements
+    pub focused_node: Option<NodeId>,
+    /// Currently hovered nodes, default to an empty Vec. Important for
+    /// styling `:hover` elements.
+    pub hovered_nodes: BTreeMap<NodeId, HitTestItem>,
+    /// Whether there is a focus field overwrite from the last callback calls.
+    pub pending_focus_target: Option<FocusTarget>,
+}
+
+impl Default for FullWindowState {
+    fn default() -> Self {
+        Self {
+            title: DEFAULT_TITLE.into(),
+            position: None,
+            size: WindowSize::default(),
+            is_maximized: false,
+            is_fullscreen: false,
+            has_decorations: true,
+            is_visible: true,
+            is_always_on_top: false,
+            mouse_state: MouseState::default(),
+            keyboard_state: KeyboardState::default(),
+            debug_state: DebugState::default(),
+
+            // --
+
+            previous_window_state: None,
+            hovered_file: None,
+            focused_node: None,
+            hovered_nodes: BTreeMap::default(),
+            pending_focus_target: None,
+        }
+    }
+}
+
+impl FullWindowState {
+
+    pub fn get_mouse_state(&self) -> &MouseState {
+        &self.mouse_state
+    }
+
+    pub fn get_keyboard_state(&self) -> &KeyboardState {
+        &self.keyboard_state
+    }
+
+    pub fn get_hovered_file(&self) -> Option<&PathBuf> {
+        self.hovered_file.as_ref()
+    }
+
+    /// Returns the window state of the previous frame, useful for calculating
+    /// metrics for dragging motions. Note that you can't call this function
+    /// recursively - calling `get_previous_window_state()` on the returned
+    /// `WindowState` will yield a `None` value.
+    pub(crate) fn get_previous_window_state(&self) -> Option<&Box<FullWindowState>> {
+        self.previous_window_state.as_ref()
+    }
+}
+
+/// Creates a FullWindowState from a regular WindowState, fills non-available
+/// fields with their default values
+pub(crate) fn full_window_state_from_normal_state(window_state: WindowState) -> FullWindowState {
+    FullWindowState {
+        title: window_state.title,
+        position: window_state.position,
+        size: window_state.size,
+        is_maximized: window_state.is_maximized,
+        is_fullscreen: window_state.is_fullscreen,
+        has_decorations: window_state.has_decorations,
+        is_visible: window_state.is_visible,
+        is_always_on_top: window_state.is_always_on_top,
+        mouse_state: window_state.mouse_state,
+        keyboard_state: window_state.keyboard_state,
+        debug_state: window_state.debug_state,
+        .. Default::default()
     }
 }
 
@@ -114,17 +273,17 @@ impl<T> Default for CallbacksOfHitTest<T> {
 /// This function also updates / mutates the current window state, so that
 /// the window state is updated for the next frame
 pub(crate) fn determine_callbacks<T>(
-    window_state: &mut WindowState,
+    window_state: &mut FullWindowState,
     hit_test_items: &[HitTestItem],
     event: &WindowEvent,
-    ui_state: &UiState<T>
+    ui_state: &UiState<T>,
 ) -> CallbacksOfHitTest<T> {
 
     use std::collections::BTreeSet;
 
     // Store the current window state so we can set it in this.previous_window_state later on
     let mut previous_state = Box::new(window_state.clone());
-    previous_state.internal.previous_window_state = None;
+    previous_state.previous_window_state = None;
 
     let mut needs_hover_redraw = false;
     let mut needs_hover_relayout = false;
@@ -164,7 +323,7 @@ pub(crate) fn determine_callbacks<T>(
         .cloned();
 
         // Even if the focused node is None, we still have to update window_state.focused_node!
-        window_state.internal.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| node_id);
+        window_state.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| node_id);
     }
 
     macro_rules! insert_only_non_empty_callbacks {
@@ -246,14 +405,14 @@ pub(crate) fn determine_callbacks<T>(
     }
 
     // Insert (normal + default) focus events
-    if let Some(current_focused_node) = &window_state.internal.focused_node {
+    if let Some(current_focused_node) = &window_state.focused_node {
         insert_callbacks!(current_focused_node, None, focus_callbacks, focus_default_callbacks, current_focus_events, Focus);
     }
 
     // If the last focused node and the current focused node aren't the same,
     // submit a FocusLost for the last node and a FocusReceived for the current one.
     let mut focus_received_lost_events: BTreeMap<NodeId, FocusEventFilter> = BTreeMap::new();
-    match (window_state.internal.focused_node, previous_state.internal.focused_node) {
+    match (window_state.focused_node, previous_state.focused_node) {
         (Some(cur), None) => {
             focus_received_lost_events.insert(cur, FocusEventFilter::FocusReceived);
         },
@@ -278,7 +437,7 @@ pub(crate) fn determine_callbacks<T>(
     macro_rules! mouse_enter {
         ($node_id:expr, $hit_test_item:expr, $event_filter:ident) => ({
 
-            let node_is_focused = window_state.internal.focused_node == Some($node_id);
+            let node_is_focused = window_state.focused_node == Some($node_id);
 
             // BTreeMap<EventFilter, Callback<T>>
             let mut normal_callbacks = BTreeMap::new();
@@ -343,7 +502,7 @@ pub(crate) fn determine_callbacks<T>(
 
     // Collect all On::MouseEnter nodes (for both hover and focus events)
     let onmouseenter_nodes: BTreeMap<NodeId, HitTestItem> = new_hit_node_ids.iter()
-        .filter(|(current_node_id, _)| previous_state.internal.hovered_nodes.get(current_node_id).is_none())
+        .filter(|(current_node_id, _)| previous_state.hovered_nodes.get(current_node_id).is_none())
         .map(|(x, y)| (*x, y.clone()))
         .collect();
 
@@ -355,7 +514,7 @@ pub(crate) fn determine_callbacks<T>(
     }
 
     // Collect all On::MouseLeave nodes (for both hover and focus events)
-    let onmouseleave_nodes: BTreeMap<NodeId, HitTestItem> = previous_state.internal.hovered_nodes.iter()
+    let onmouseleave_nodes: BTreeMap<NodeId, HitTestItem> = previous_state.hovered_nodes.iter()
         .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
         .map(|(x, y)| (*x, y.clone()))
         .collect();
@@ -370,7 +529,7 @@ pub(crate) fn determine_callbacks<T>(
     // If the mouse is down, but was up previously or vice versa, that means
     // that a :hover or :active state may be invalidated. In that case we need
     // to redraw the screen anyways. Setting relayout to true here in order to
-    let event_is_click_or_release = window_state.internal.mouse_state.mouse_down() != previous_state.internal.mouse_state.mouse_down();
+    let event_is_click_or_release = window_state.mouse_state.mouse_down() != previous_state.mouse_state.mouse_down();
     if event_is_click_or_release || event_was_mouse_enter || event_was_mouse_leave || !onmouseenter_empty || !onmouseleave_empty {
         needs_hover_redraw = true;
         needs_hover_relayout = true;
@@ -433,8 +592,8 @@ pub(crate) fn determine_callbacks<T>(
         }
     }
 
-    window_state.internal.hovered_nodes = new_hit_node_ids;
-    window_state.internal.previous_window_state = Some(previous_state);
+    window_state.hovered_nodes = new_hit_node_ids;
+    window_state.previous_window_state = Some(previous_state);
 
     CallbacksOfHitTest {
         needs_redraw_anyways: needs_hover_redraw,
@@ -444,7 +603,7 @@ pub(crate) fn determine_callbacks<T>(
 }
 
 // Returns the frame events + if the window should close
-pub(crate) fn update_window_state(window_state: &mut WindowState, events: &[WindowEvent]) -> (FrameEventInfo, bool) {
+pub(crate) fn update_window_state(window_state: &mut FullWindowState, events: &[WindowEvent]) -> (FrameEventInfo, bool) {
     let mut frame_event_info = FrameEventInfo::default();
     let mut should_window_close = false;
 
@@ -462,7 +621,7 @@ pub(crate) fn update_window_state(window_state: &mut WindowState, events: &[Wind
     (frame_event_info, should_window_close)
 }
 
-fn update_keyboard_modifiers(window_state: &mut WindowState, event: &WindowEvent) {
+fn update_keyboard_modifiers(window_state: &mut FullWindowState, event: &WindowEvent) {
     let modifiers = match event {
         WindowEvent::KeyboardInput { input: KeyboardInput { modifiers, .. }, .. } |
         WindowEvent::CursorMoved { modifiers, .. } |
@@ -474,31 +633,31 @@ fn update_keyboard_modifiers(window_state: &mut WindowState, event: &WindowEvent
     };
 
     if let Some(modifiers) = modifiers {
-        update_keyboard_state_from_modifier_state(window_state.internal.keyboard_state, *modifiers);
+        update_keyboard_state_from_modifier_state(&mut window_state.keyboard_state, *modifiers);
     }
 }
 
 /// After the initial events are filtered, this will update the mouse
 /// cursor position, if the event is a `CursorMoved` and set it to `None`
 /// if the cursor has left the window
-fn update_mouse_cursor_position(window_state: &mut WindowState, event: &WindowEvent) {
+fn update_mouse_cursor_position(window_state: &mut FullWindowState, event: &WindowEvent) {
     match event {
         WindowEvent::CursorMoved { position, .. } => {
             let world_pos_x = position.x as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
             let world_pos_y = position.y as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
-            window_state.internal.mouse_state.cursor_pos = Some(LogicalPosition::new(world_pos_x, world_pos_y));
+            window_state.mouse_state.cursor_pos = Some(LogicalPosition::new(world_pos_x, world_pos_y));
         },
         WindowEvent::CursorLeft { .. } => {
-            window_state.internal.mouse_state.cursor_pos = None;
+            window_state.mouse_state.cursor_pos = None;
         },
         WindowEvent::CursorEntered { .. } => {
-            window_state.internal.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
+            window_state.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
         },
         _ => { }
     }
 }
 
-fn update_scroll_state(window_state: &mut WindowState, event: &WindowEvent) {
+fn update_scroll_state(window_state: &mut FullWindowState, event: &WindowEvent) {
     match event {
         WindowEvent::MouseWheel { delta, .. } => {
             const LINE_DELTA: f32 = 38.0;
@@ -507,66 +666,66 @@ fn update_scroll_state(window_state: &mut WindowState, event: &WindowEvent) {
                 MouseScrollDelta::PixelDelta(WinitLogicalPosition { x, y }) => (*x as f32, *y as f32),
                 MouseScrollDelta::LineDelta(x, y) => (*x * LINE_DELTA, *y * LINE_DELTA),
             };
-            window_state.internal.mouse_state.scroll_x = -scroll_x_px;
-            window_state.internal.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
+            window_state.mouse_state.scroll_x = -scroll_x_px;
+            window_state.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
         },
         _ => { },
     }
 }
 
 /// Updates self.keyboard_state to reflect what characters are currently held down
-fn update_keyboard_pressed_chars(window_state: &mut WindowState, event: &WindowEvent) {
+fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &WindowEvent) {
 
     match event {
         WindowEvent::KeyboardInput {
             input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, ..
         } => {
             if let Some(vk) = virtual_keycode {
-                window_state.internal.keyboard_state.current_virtual_keycodes.insert(*vk);
-                window_state.internal.keyboard_state.latest_virtual_keycode = Some(*vk);
+                window_state.keyboard_state.current_virtual_keycodes.insert(*vk);
+                window_state.keyboard_state.latest_virtual_keycode = Some(*vk);
             }
-            window_state.internal.keyboard_state.current_scancodes.insert(*scancode);
+            window_state.keyboard_state.current_scancodes.insert(*scancode);
         },
         // The char event is sliced inbetween a keydown and a keyup event
         // so the keyup has to clear the character again
         WindowEvent::ReceivedCharacter(c) => {
-            window_state.internal.keyboard_state.current_char = Some(*c);
+            window_state.keyboard_state.current_char = Some(*c);
         },
         WindowEvent::KeyboardInput {
             input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, ..
         } => {
             if let Some(vk) = virtual_keycode {
-                window_state.internal.keyboard_state.current_virtual_keycodes.remove(vk);
-                window_state.internal.keyboard_state.latest_virtual_keycode = None;
+                window_state.keyboard_state.current_virtual_keycodes.remove(vk);
+                window_state.keyboard_state.latest_virtual_keycode = None;
             }
-            window_state.internal.keyboard_state.current_scancodes.remove(scancode);
+            window_state.keyboard_state.current_scancodes.remove(scancode);
         },
         WindowEvent::Focused(false) => {
-            window_state.internal.keyboard_state.current_char = None;
-            window_state.internal.keyboard_state.current_virtual_keycodes.clear();
-            window_state.internal.keyboard_state.latest_virtual_keycode = None;
-            window_state.internal.keyboard_state.current_scancodes.clear();
+            window_state.keyboard_state.current_char = None;
+            window_state.keyboard_state.current_virtual_keycodes.clear();
+            window_state.keyboard_state.latest_virtual_keycode = None;
+            window_state.keyboard_state.current_scancodes.clear();
         },
         _ => { },
     }
 }
 
-fn update_misc_events(window_state: &mut WindowState, event: &WindowEvent) {
+fn update_misc_events(window_state: &mut FullWindowState, event: &WindowEvent) {
     match event {
         WindowEvent::HoveredFile(path) => {
-            window_state.internal.hovered_file = Some(path.clone());
+            window_state.hovered_file = Some(path.clone());
         },
         WindowEvent::DroppedFile(path) => {
-            window_state.internal.hovered_file = Some(path.clone());
+            window_state.hovered_file = Some(path.clone());
         },
         WindowEvent::HoveredFileCancelled => {
-            window_state.internal.hovered_file = None;
+            window_state.hovered_file = None;
         },
         _ => { },
     }
 }
 
-fn get_window_events(window_state: &mut WindowState, event: &WindowEvent) -> HashSet<WindowEventFilter> {
+fn get_window_events(window_state: &mut FullWindowState, event: &WindowEvent) -> HashSet<WindowEventFilter> {
 
     use glium::glutin::MouseButton::*;
 
@@ -578,15 +737,15 @@ fn get_window_events(window_state: &mut WindowState, event: &WindowEvent) -> Has
             match button {
                 Left => {
                     events_vec.insert(WindowEventFilter::LeftMouseDown);
-                    window_state.internal.mouse_state.left_down = true;
+                    window_state.mouse_state.left_down = true;
                 },
                 Right => {
                     events_vec.insert(WindowEventFilter::RightMouseDown);
-                    window_state.internal.mouse_state.right_down = true;
+                    window_state.mouse_state.right_down = true;
                 },
                 Middle => {
                     events_vec.insert(WindowEventFilter::MiddleMouseDown);
-                    window_state.internal.mouse_state.middle_down = true;
+                    window_state.mouse_state.middle_down = true;
                 },
                 _ => { }
             }
@@ -596,15 +755,15 @@ fn get_window_events(window_state: &mut WindowState, event: &WindowEvent) -> Has
             match button {
                 Left => {
                     events_vec.insert(WindowEventFilter::LeftMouseUp);
-                    window_state.internal.mouse_state.left_down = false;
+                    window_state.mouse_state.left_down = false;
                 },
                 Right => {
                     events_vec.insert(WindowEventFilter::RightMouseUp);
-                    window_state.internal.mouse_state.right_down = false;
+                    window_state.mouse_state.right_down = false;
                 },
                 Middle => {
                     events_vec.insert(WindowEventFilter::MiddleMouseUp);
-                    window_state.internal.mouse_state.middle_down = false;
+                    window_state.mouse_state.middle_down = false;
                 },
                 _ => { }
             }
@@ -698,12 +857,6 @@ pub(crate) fn window_should_close(event: &WindowEvent, frame_event_info: &mut Fr
     // by force_redraw_cache anyways
 
     false
-}
-
-fn update_mouse_cursor(window: &Window, old: &MouseCursor, new: &MouseCursor) {
-    if *old != *new {
-        window.set_cursor(*new);
-    }
 }
 
 /// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`

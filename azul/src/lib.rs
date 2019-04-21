@@ -202,8 +202,6 @@ pub mod error;
 pub mod text_layout;
 /// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
 pub mod traits;
-/// State handling for user interfaces
-pub use azul_core::ui_state;
 /// Container for default widgets (`TextInput` / `Button` / `Label`, `TableView`, ...)
 pub mod widgets;
 /// Window state handling and window-related information
@@ -215,6 +213,8 @@ pub mod xml;
 use azul_core::id_tree;
 /// UI Description & display list handling (webrender)
 mod ui_description;
+/// Manages the hover / focus tags for the DOM items
+mod ui_state;
 /// HarfBuzz text shaping utilities
 mod text_shaping;
 /// Converts the UI description (the styled HTML nodes)
@@ -238,6 +238,8 @@ mod window_state;
 mod app_resources;
 /// Translation between data types (so that Azuls API can be independent of the actual "backend" type)
 mod wr_translate;
+///
+mod ui_state;
 
 /// Font & image resource handling, lookup and caching
 pub mod resources {

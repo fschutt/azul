@@ -102,15 +102,15 @@ const NODE_CHANGED_IDS: u8      = 0x08;
 fn node_needs_restyle<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
     let mut result = NODE_CHANGED_NOTHING;
 
-    if old.node_type != new.node_type {
+    if old.get_node_type() != new.get_node_type() {
         result &= NODE_CHANGED_TYPE;
     }
 
-    if old.classes != new.classes {
+    if old.get_classes() != new.get_classes() {
         result &= NODE_CHANGED_CLASSES;
     }
 
-    if old.ids != new.ids {
+    if old.get_ids() != new.get_ids() {
         result &= NODE_CHANGED_CLASSES;
     }
 

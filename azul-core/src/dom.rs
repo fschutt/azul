@@ -193,7 +193,7 @@ impl<T> Eq for NodeType<T> { }
 
 impl<T> NodeType<T> {
     #[inline]
-    pub(crate) fn get_path(&self) -> NodeTypePath {
+    pub fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
         match self {
             Div => NodeTypePath::Div,
@@ -867,7 +867,7 @@ impl From<&'static str> for DomString {
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 pub struct Dom<T> {
     pub arena: Arena<NodeData<T>>,
-    pub(crate) root: NodeId,
+    pub root: NodeId,
     pub(crate) head: NodeId,
 }
 

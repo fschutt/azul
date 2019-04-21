@@ -30,6 +30,7 @@ use {
     window::{
         Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize, FakeDisplay,
         WindowCreateError, WindowCreateOptions, RendererType, WindowSize, DebugState,
+        ScolledNodes, FullWindowState,
     },
     dom::{Dom, ScrollTagId},
     gl::GlShader,
@@ -44,7 +45,7 @@ use {
 pub use app_resources::AppResources;
 pub use azul_core::{
     app::{AppState, AppStateNoData},
-    window::{WindowId, CrateInternalWindowState},
+    window::WindowId,
 };
 
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
@@ -58,7 +59,7 @@ pub struct App<T> {
     /// The graphical windows, indexed by their system ID / handle
     windows: BTreeMap<WindowId, Window<T>>,
     /// Actual state of the window (synchronized with the OS window)
-    window_states: BTreeMap<WindowId, CrateInternalWindowState>,
+    window_states: BTreeMap<WindowId, FullWindowState>,
     /// The global application state
     pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
@@ -280,17 +281,17 @@ impl<T> App<T> {
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     pub fn add_window(&mut self, window: Window<T>) {
-        use wr_translate::window_state_from_window;
+        use window_state::full_window_state_from_normal_state;
         let window_id = window.id;
         let fake_window = FakeWindow {
             state: window.state.clone(),
             default_callbacks: BTreeMap::new(),
             gl_context: window.get_gl_context(),
         };
-        let window_state = window_state_from_window(&window);
+        let full_window_state = full_window_state_from_normal_state(window.state.clone());
         self.app_state.windows.insert(window_id, fake_window);
         self.windows.insert(window_id, window);
-        self.window_states.insert(window_id, window_state);
+        self.window_states.insert(window_id, full_window_state);
     }
 
     /// Start the rendering loop for the currently open windows
@@ -337,13 +338,18 @@ impl<T> App<T> {
 
         use std::{thread, time::Duration};
         use glium::glutin::Event;
-        use wr_translate::ui_state_from_app_state;
+        use ui_state::ui_state_from_app_state;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
             for window_id in self.windows.keys() {
-              ui_state_map.insert(*window_id, ui_state_from_app_state(app_state, window_id, self.layout_callback)?);
+                ui_state_map.insert(*window_id, ui_state_from_app_state(
+                        &app_state.resources,
+                        app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
+                        self.layout_callback
+                    )?
+                );
             }
             ui_state_map
         };
@@ -391,6 +397,7 @@ impl<T> App<T> {
                         &window_events,
                         &current_window_id,
                         &mut window,
+                        &mut self.window_states.get_mut(current_window_id).ok_or(WindowIndexError)?,
                         &mut self.app_state,
                         &mut self.fake_display,
                         &mut ui_state_cache,
@@ -429,6 +436,7 @@ impl<T> App<T> {
                 ui_description_cache.remove(&closed_window_id);
                 force_redraw_cache.remove(&closed_window_id);
                 self.windows.remove(&closed_window_id);
+                self.window_states.remove(&closed_window_id);
             });
 
             let should_relayout_all_windows = single_window_results.iter().any(|res| res.should_relayout());
@@ -479,14 +487,11 @@ impl<T> App<T> {
                 // Automatically remove unused fonts and images from webrender
                 // Tell the font + image GC to start a new frame
                 #[cfg(not(test))] {
-                    if let Some(render_api) = &mut self.fake_display.render_api {
-                        garbage_collect_fonts_and_images(
-                            &mut self.app_state.resources,
-                            render_api,
-                        );
-                    }
+                    garbage_collect_fonts_and_images(
+                        &mut self.app_state.resources,
+                        &mut self.fake_display.render_api,
+                    );
                 }
-
                 #[cfg(test)] {
                     garbage_collect_fonts_and_images(
                         &mut self.app_state.resources,
@@ -614,6 +619,7 @@ fn hit_test_single_window<T>(
     events: &[WindowEvent],
     window_id: &WindowId,
     window: &mut Window<T>,
+    full_window_state: &mut FullWindowState,
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
     ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
@@ -624,7 +630,7 @@ fn hit_test_single_window<T>(
     use self::RuntimeError::*;
     use window;
 
-    let (mut frame_event_info, window_should_close) = window::update_window_state(&mut window.state, &events);
+    let (mut frame_event_info, window_should_close) = window::update_window_state(full_window_state, &events);
     let mut ret = SingleWindowContentResult {
         needs_rerender_hover_active: false,
         needs_relayout_hover_active: false,
@@ -646,14 +652,16 @@ fn hit_test_single_window<T>(
 
     if frame_event_info.should_hittest {
 
-        ret.hit_test_results = do_hit_test(&window, fake_display);
+        ret.hit_test_results = do_hit_test(&window, full_window_state, fake_display);
 
         for event in events.iter() {
+
+            app_state.windows[&window_id].state = full_window_state_to_window_state(full_window_state);
 
             let callback_result = call_callbacks(
                 ret.hit_test_results.as_ref(),
                 event,
-                window,
+                full_window_state,
                 &window_id,
                 ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
                 app_state
@@ -675,17 +683,23 @@ fn hit_test_single_window<T>(
             // callbacks that return `Some()` would get immediately overwritten again
             // by callbacks that return `None`.
             if let Some(overwrites_focus) = callback_result.callbacks_overwrites_focus {
-                window.state.internal.pending_focus_target = Some(overwrites_focus.clone());
                 ret.new_focus_target = Some(overwrites_focus);
             }
         }
     }
 
-    ret.hit_test_results = ret.hit_test_results.or_else(|| do_hit_test(window, fake_display));
+    ret.hit_test_results = ret.hit_test_results.or_else(|| do_hit_test(window, full_window_state, fake_display));
 
     // Scroll for the scrolled amount for each node that registered a scroll state.
     let should_scroll_render = match &ret.hit_test_results {
-        Some(hit_test_results) => update_scroll_state(window, hit_test_results),
+        Some(hit_test_results) => {
+            update_scroll_state(
+                full_window_state,
+                &window.internal.last_scrolled_nodes,
+                &mut window.scroll_states,
+                hit_test_results,
+            )
+        }
         None => false,
     };
 
@@ -714,18 +728,25 @@ fn hit_test_single_window<T>(
         }
     }
 
-    // Update the window state that we got from the frame event (updates window dimensions and DPI)
-    // Sets frame_event_info.needs redraw if the event was a
-    window::update_from_external_window_state(&mut window.state, &mut frame_event_info, &fake_display.hidden_events_loop);
+    // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
+    full_window_state.pending_focus_target = ret.new_focus_target.clone();
+    window::update_from_external_window_state(
+        full_window_state,
+        &mut frame_event_info,
+        &fake_display.hidden_events_loop
+    );
+
     // Update the window state every frame that was set by the user
-    /*
-        old_state: &mut CrateInternalWindowState,
-    new_state: WindowState,
-    window: &mut GliumWindow,
-    */
-    window::update_from_user_window_state(&mut window.state, app_state.windows[&window_id].state.clone());
+    window::update_from_user_window_state(
+        full_window_state,
+        &app_state.windows[&window_id].state,
+        &mut window.display.gl_window(),
+    );
+
     // Reset the scroll amount to 0 (for the next frame)
-    window::clear_scroll_state(&mut window.state);
+    window::clear_scroll_state(full_window_state);
+
+    app_state.windows[&window_id].state = full_window_state_to_window_state(full_window_state);
 
     Ok(ret)
 }
@@ -744,22 +765,26 @@ fn relayout_single_window<T>(
 ) -> Result<(), RuntimeError<T>> {
 
     use self::RuntimeError::*;
-    use wr_translate::ui_state_from_app_state;
+    use ui_state::ui_state_from_app_state;
 
     // Call the Layout::layout() fn, get the DOM
     *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-        ui_state_from_app_state(app_state, window_id, layout_callback)?;
+        ui_state_from_app_state(
+            &mut app_state.resources,
+            app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
+            layout_callback
+        )?;
 
     // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
-    let is_mouse_down = window.state.internal.mouse_state.mouse_down();
+    let is_mouse_down = full_window_state.mouse_state.mouse_down();
 
     *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
         UiDescription::match_css_to_dom(
             ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
             &window.css,
-            &mut window.state.internal.focused_node,
-            &mut window.state.internal.pending_focus_target,
-            &window.state.internal.hovered_nodes,
+            &mut full_window_state.focused_node,
+            &mut full_window_state.pending_focus_target,
+            &full_window_state.hovered_nodes,
             is_mouse_down,
         );
 
@@ -845,16 +870,20 @@ fn hot_reload_css<T>(
 
 /// Returns the currently hit-tested results, in back-to-front order
 #[cfg(not(test))]
-fn do_hit_test<T>(window: &Window<T>, fake_display: &mut FakeDisplay) -> Option<Vec<HitTestItem>> {
+fn do_hit_test<T>(
+    window: &Window<T>,
+    full_window_state: &FullWindowState,
+    fake_display: &mut FakeDisplay,
+) -> Option<Vec<HitTestItem>> {
 
-    use wr_translate::translate_wr_hittest_item;
+    use wr_translate::{translate_wr_hittest_item, translate_pipeline_id};
 
-    let cursor_location = window.state.internal.mouse_state.cursor_pos
+    let cursor_location = full_window_state.mouse_state.cursor_pos
         .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
 
     let mut hit_test_results: Vec<HitTestItem> = fake_display.render_api.hit_test(
         window.internal.document_id,
-        Some(window.internal.pipeline_id),
+        Some(translate_pipeline_id(window.internal.pipeline_id)),
         cursor_location,
         HitTestFlags::FIND_ALL
     ).items.into_iter().map(translate_wr_hittest_item).collect();
@@ -888,15 +917,15 @@ struct CallCallbackReturn {
 fn call_callbacks<T>(
     hit_test_results: Option<&Vec<HitTestItem>>,
     event: &WindowEvent,
-    window: &mut Window<T>,
+    full_window_state: &mut FullWindowState,
     window_id: &WindowId,
     ui_state: &UiState<T>,
-    app_state: &mut AppState<T>)
--> Result<CallCallbackReturn, RuntimeError<T>> {
+    app_state: &mut AppState<T>
+) -> Result<CallCallbackReturn, RuntimeError<T>> {
 
     use {
         callbacks::CallbackInfo,
-        window_state::{KeyboardState, MouseState},
+        window_state::{KeyboardState, MouseState, determine_callbacks},
         self::RuntimeError::*,
     };
 
@@ -904,13 +933,7 @@ fn call_callbacks<T>(
 
     let hit_test_items = hit_test_results.map(|items| items.clone()).unwrap_or_default();
 
-    let callbacks_filter_list = window.state.determine_callbacks(&hit_test_items, event, ui_state);
-
-    // TODO: this should be refactored - currently very stateful and error-prone!
-    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
-        .set_keyboard_state(&window.state.internal.keyboard_state);
-    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
-        .set_mouse_state(&window.state.internal.mouse_state);
+    let callbacks_filter_list = determine_callbacks(full_window_state, &hit_test_items, event, ui_state);
 
     let mut callbacks_overwrites_focus = None;
 
@@ -995,11 +1018,6 @@ fn call_callbacks<T>(
         }
     }
 
-    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
-        .set_keyboard_state(&KeyboardState::default());
-    app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?
-        .set_mouse_state(&MouseState::default());
-
     Ok(CallCallbackReturn {
         should_update_screen,
         callbacks_overwrites_focus,
@@ -1020,6 +1038,7 @@ fn update_display_list<T>(
     app_resources: &mut AppResources,
 ) {
     use display_list::DisplayList;
+    use wr_translate::translate_pipeline_id;
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
@@ -1030,6 +1049,7 @@ fn update_display_list<T>(
         window,
         fake_window,
         app_resources,
+        &mut fake_display.render_api,
     );
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
@@ -1043,7 +1063,7 @@ fn update_display_list<T>(
         window.internal.epoch,
         None,
         logical_size.clone(),
-        (window.internal.pipeline_id, logical_size, display_list_builder),
+        (translate_pipeline_id(window.internal.pipeline_id), logical_size, display_list_builder),
         true,
     );
 
@@ -1079,24 +1099,23 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 /// significantly less CPU-intensive to just render the last display list instead of
 /// re-layouting on every single scroll event.
 #[must_use]
-fn update_scroll_state<T>(
-    window: &mut Window<T>,
+fn update_scroll_state(
+    full_window_state: &mut FullWindowState,
+    scrolled_nodes: &ScolledNodes,
+    scroll_states: &mut ScrollStates,
     hit_test_items: &[HitTestItem],
 ) -> bool {
 
     const SCROLL_THRESHOLD: f32 = 0.5; // px
 
-    let scroll_x = window.state.internal.mouse_state.scroll_x;
-    let scroll_y = window.state.internal.mouse_state.scroll_y;
+    let scroll_x = full_window_state.mouse_state.scroll_x;
+    let scroll_y = full_window_state.mouse_state.scroll_y;
 
     if scroll_x.abs() < SCROLL_THRESHOLD && scroll_y.abs() < SCROLL_THRESHOLD {
         return false;
     }
 
     let mut should_scroll_render = false;
-
-    let scrolled_nodes = &window.internal.last_scrolled_nodes;
-    let scroll_states = &mut window.scroll_states;
 
     for scroll_node in hit_test_items.iter()
         .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag.0)))
