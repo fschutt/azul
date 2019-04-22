@@ -30,7 +30,7 @@ use {
     window::{
         Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize, FakeDisplay,
         WindowCreateError, WindowCreateOptions, RendererType, WindowSize, DebugState,
-        ScolledNodes, FullWindowState,
+        FullWindowState,
     },
     dom::{Dom, ScrollTagId},
     gl::GlShader,
@@ -41,6 +41,7 @@ use {
     callbacks::{
         FocusTarget, UpdateScreen, HitTestItem, Redraw, DontRedraw, LayoutInfo,
     },
+    display_list::ScrolledNodes,
 };
 pub use app_resources::AppResources;
 pub use azul_core::{
@@ -339,18 +340,16 @@ impl<T> App<T> {
         use std::{thread, time::Duration};
         use glium::glutin::Event;
         use ui_state::ui_state_from_app_state;
+        use self::RuntimeError::*;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
+
             for window_id in self.windows.keys() {
-                ui_state_map.insert(*window_id, ui_state_from_app_state(
-                        &app_state.resources,
-                        app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
-                        self.layout_callback
-                    )?
-                );
+                ui_state_map.insert(*window_id, ui_state_from_app_state(app_state, window_id, self.layout_callback)?);
             }
+
             ui_state_map
         };
         let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect::<BTreeMap<_, _>>();
@@ -397,7 +396,7 @@ impl<T> App<T> {
                         &window_events,
                         &current_window_id,
                         &mut window,
-                        &mut self.window_states.get_mut(current_window_id).ok_or(WindowIndexError)?,
+                        self.window_states.get_mut(current_window_id).ok_or(WindowIndexError)?,
                         &mut self.app_state,
                         &mut self.fake_display,
                         &mut ui_state_cache,
@@ -449,10 +448,12 @@ impl<T> App<T> {
             // If there is a relayout necessary, re-layout *all* windows!
             if should_relayout_all_windows || should_redraw_timers_or_tasks{
                 for (current_window_id, mut window) in self.windows.iter_mut() {
+                    let full_window_state = &self.window_states[&current_window_id];
                     relayout_single_window(
                         self.layout_callback,
                         &current_window_id,
                         &mut window,
+                        &full_window_state,
                         &mut self.app_state,
                         &mut self.fake_display,
                         &mut ui_state_cache,
@@ -656,7 +657,7 @@ fn hit_test_single_window<T>(
 
         for event in events.iter() {
 
-            app_state.windows[&window_id].state = full_window_state_to_window_state(full_window_state);
+            app_state.windows[&window_id].state = window::full_window_state_to_window_state(full_window_state);
 
             let callback_result = call_callbacks(
                 ret.hit_test_results.as_ref(),
@@ -746,7 +747,7 @@ fn hit_test_single_window<T>(
     // Reset the scroll amount to 0 (for the next frame)
     window::clear_scroll_state(full_window_state);
 
-    app_state.windows[&window_id].state = full_window_state_to_window_state(full_window_state);
+    app_state.windows[&window_id].state = window::full_window_state_to_window_state(full_window_state);
 
     Ok(ret)
 }
@@ -756,6 +757,7 @@ fn relayout_single_window<T>(
     layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
     window_id: &WindowId,
     window: &mut Window<T>,
+    full_window_state: &FullWindowState,
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
     ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
@@ -770,8 +772,8 @@ fn relayout_single_window<T>(
     // Call the Layout::layout() fn, get the DOM
     *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
         ui_state_from_app_state(
-            &mut app_state.resources,
-            app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
+            &mut app_state,
+            window_id,
             layout_callback
         )?;
 
@@ -925,8 +927,8 @@ fn call_callbacks<T>(
 
     use {
         callbacks::CallbackInfo,
-        window_state::{KeyboardState, MouseState, determine_callbacks},
-        self::RuntimeError::*,
+        window_state::determine_callbacks,
+        window::fake_window_run_default_callback,
     };
 
     let mut should_update_screen = DontRedraw;
@@ -965,7 +967,8 @@ fn call_callbacks<T>(
                     tasks: Vec::new(),
                 };
 
-                if app_state.windows[window_id].run_default_callback(
+                if fake_window_run_default_callback(
+                    &app_state.windows[window_id],
                     &mut *lock,
                     default_callback_id,
                     &mut app_state_no_data,
@@ -1101,7 +1104,7 @@ fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
 #[must_use]
 fn update_scroll_state(
     full_window_state: &mut FullWindowState,
-    scrolled_nodes: &ScolledNodes,
+    scrolled_nodes: &ScrolledNodes,
     scroll_states: &mut ScrollStates,
     hit_test_items: &[HitTestItem],
 ) -> bool {

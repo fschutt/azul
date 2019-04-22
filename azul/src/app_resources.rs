@@ -259,7 +259,7 @@ fn scan_ui_description_for_image_keys<'a, T>(
     .zip(display_list.ui_descr.ui_descr_arena.node_data.iter())
     .filter_map(|(display_rect, node_data)| {
         match node_data.get_node_type() {
-            Image(id) => Some(id),
+            Image(id) => Some(*id),
             _ => {
                 let background = display_rect.style.background.as_ref()?;
                 let css_image_id = background.get_css_image_id()?;

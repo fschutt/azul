@@ -1,20 +1,17 @@
 use std::{
-    path::PathBuf,
     collections::BTreeMap,
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use gleam::gl::Gl;
 use {
-    id_tree::NodeId,
-    callbacks::{FocusTarget, DefaultCallbackId, DefaultCallback},
+    callbacks::{DefaultCallbackId, DefaultCallback},
     stack_checked_pointer::StackCheckedPointer,
-    callbacks::HitTestItem,
 };
 
-const DEFAULT_TITLE: &str = "Azul App";
-const DEFAULT_WIDTH: f32 = 800.0;
-const DEFAULT_HEIGHT: f32 = 600.0;
+pub const DEFAULT_TITLE: &str = "Azul App";
+pub const DEFAULT_WIDTH: f32 = 800.0;
+pub const DEFAULT_HEIGHT: f32 = 600.0;
 
 static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -74,6 +71,18 @@ impl<T> FakeWindow<T> {
     /// user to be able to modify this state, only to read it
     pub fn get_mouse_state<'a>(&'a self) -> &'a MouseState {
         &self.state.mouse_state
+    }
+
+    /// Adds a default callback to the window. The default callbacks are
+    /// cleared after every frame, so two-way data binding widgets have to call this
+    /// on every frame they want to insert a default callback.
+    ///
+    /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
+    #[must_use]
+    pub fn add_callback(&mut self, callback_ptr: StackCheckedPointer<T>, callback_fn: DefaultCallback<T>) -> DefaultCallbackId {
+        let default_callback_id = DefaultCallbackId::new();
+        self.default_callbacks.insert(default_callback_id, (callback_ptr, callback_fn));
+        default_callback_id
     }
 }
 

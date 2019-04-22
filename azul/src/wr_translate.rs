@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use webrender::api::{
     LayoutRect as WrLayoutRect,
     HitTestItem as WrHitTestItem,
@@ -9,22 +8,11 @@ use webrender::api::{
     PipelineId as WrPipelineId,
 };
 use azul_core::{
-    app::AppState,
-    dom::new_tag_id,
-    callbacks::{
-        DefaultCallbackId, Callback, LayoutInfo, HidpiAdjustedBounds,
-        HitTestItem, PipelineId,
-    },
-    window::{LogicalPosition, LogicalSize, WindowId, KeyboardState, MouseState},
-    dom::{self, Dom, WindowEventFilter, NotEventFilter, FocusEventFilter, HoverEventFilter},
-    id_tree::NodeId,
+    callbacks::{HidpiAdjustedBounds, HitTestItem, PipelineId},
+    window::{LogicalPosition, LogicalSize},
     app_resources::{FontKey, Au, FontInstanceKey, ImageKey, IdNamespace},
 };
 use app_units::Au as WrAu;
-use {
-    window::{Window, FullWindowState},
-    app::RuntimeError,
-};
 
 #[inline(always)]
 pub(crate) fn translate_wr_hittest_item(input: WrHitTestItem) -> HitTestItem {

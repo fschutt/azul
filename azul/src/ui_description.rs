@@ -6,11 +6,10 @@ use azul_css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
 use {
     FastHashMap,
     id_tree::{Arena, NodeId, NodeDataContainer},
-    dom::{Dom, NodeData, DomString},
+    dom::{NodeData, DomString},
     ui_state::UiState,
     style::HoverGroup,
     callbacks::{FocusTarget, HitTestItem},
-    ui_state::ui_state_from_app_state,
 };
 
 pub struct UiDescription<T> {
@@ -60,10 +59,10 @@ impl<T> Clone for UiDescription<T> {
 impl<T> Default for UiDescription<T> {
     fn default() -> Self {
 
-        use dom::NodeType;
-        use azul_core::app::AppState;
-        use
-        let default_dom = Dom::new(NodeType::Div);
+        use azul_core::dom::Dom;
+        use ui_state::ui_state_from_dom;
+
+        let default_dom = Dom::div();
         let hovered_nodes = BTreeMap::new();
         let is_mouse_down = false;
         let mut focused_node = None;

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use azul_core::{
-    app_resources::AppResources,
-    window::FakeWindow,
+    app::AppState,
+    window::WindowId,
     callbacks::LayoutInfo,
     dom::Dom,
     id_tree::NodeId,
@@ -12,10 +12,12 @@ pub use azul_core::ui_state::*;
 
 #[allow(unused_imports, unused_variables)]
 pub(crate) fn ui_state_from_app_state<T>(
-    app_resources: &mut AppResources,
-    fake_window: &mut FakeWindow<T>,
+    app_state: &mut AppState<T>,
+    window_id: &WindowId,
     layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>
 ) -> Result<UiState<T>, RuntimeError<T>> {
+
+    use app::RuntimeError::*;
 
     // Only shortly lock the data to get the dom out
     let dom: Dom<T> = {
@@ -25,8 +27,8 @@ pub(crate) fn ui_state_from_app_state<T>(
 
         #[cfg(not(test))]{
             let window_info = LayoutInfo {
-                window: fake_window,
-                resources: &app_resources,
+                window: app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
+                resources: &app_state.resources,
             };
             let dom_lock = app_state.data.lock()?;
             (layout_callback)(&*dom_lock, window_info)

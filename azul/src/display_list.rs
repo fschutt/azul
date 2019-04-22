@@ -386,7 +386,7 @@ fn determine_rendering_order_inner<'a>(
 }
 
 #[derive(Default, Debug, Clone)]
-pub(crate)  struct ScrolledNodes {
+pub(crate) struct ScrolledNodes {
     pub(crate) overflowing_nodes: BTreeMap<NodeId, OverflowingScrollNode>,
     pub(crate) tags_to_node_ids: BTreeMap<ScrollTagId, NodeId>,
 }
@@ -740,7 +740,6 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 ) {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
-    use app_resources::FontImageApi;
 
     let bounds = HidpiAdjustedBounds::from_bounds(
         info.rect,

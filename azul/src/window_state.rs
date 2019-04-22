@@ -4,8 +4,8 @@ use std::{
     path::PathBuf,
 };
 use glium::glutin::{
-    Window, WindowEvent, KeyboardInput, ElementState,
-    MouseCursor, VirtualKeyCode, MouseScrollDelta, ModifiersState,
+    WindowEvent, KeyboardInput, ElementState,
+    VirtualKeyCode, MouseScrollDelta, ModifiersState,
     dpi::LogicalPosition as WinitLogicalPosition,
 };
 use {
@@ -138,6 +138,7 @@ pub(crate) struct FullWindowState {
 
 impl Default for FullWindowState {
     fn default() -> Self {
+        use azul_core::window::DEFAULT_TITLE;
         Self {
             title: DEFAULT_TITLE.into(),
             position: None,

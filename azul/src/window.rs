@@ -32,10 +32,7 @@ use {
 };
 use azul_core::{
     app::AppStateNoData,
-    callbacks::{
-        DefaultCallback, StackCheckedPointer, DefaultCallbackId,
-        UpdateScreen, CallbackInfo, PipelineId,
-    },
+    callbacks::{DefaultCallbackId, UpdateScreen, CallbackInfo, PipelineId},
     window::WindowId,
 };
 pub use webrender::api::HitTestItem;
@@ -47,27 +44,14 @@ pub use window_state::*;
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
 
-/// Adds a default callback to the window. The default callbacks are
-/// cleared after every frame, so two-way data binding widgets have to call this
-/// on every frame they want to insert a default callback.
-///
-/// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
-#[must_use]
-pub fn fake_window_add_callback<T>(
-    fake_window: &mut FakeWindow<T>,
-    callback_ptr: StackCheckedPointer<T>,
-    callback_fn: DefaultCallback<T>
-) -> DefaultCallbackId {
-    let default_callback_id = DefaultCallbackId::new();
-    fake_window.default_callbacks.insert(default_callback_id, (callback_ptr, callback_fn));
-    default_callback_id
-}
-
 /// Invokes a certain default callback and returns its result
 ///
 /// NOTE: `app_data` is required so we know that we don't
 /// accidentally alias the data in `fake_window.internal` (which could lead to UB).
-pub(crate) fn fake_window_run_default_callback<T>(fake_window: &mut FakeWindow<T>, _app_data: &mut T, id: &DefaultCallbackId,
+pub(crate) fn fake_window_run_default_callback<T>(
+    fake_window: &FakeWindow<T>,
+    _app_data: &mut T,
+    id: &DefaultCallbackId,
     app_state_no_data: &mut AppStateNoData<T>,
     window_event: &mut CallbackInfo<T>
 ) -> UpdateScreen {
@@ -648,7 +632,7 @@ pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowSt
 
 #[allow(unused_variables)]
 pub(crate) fn update_from_external_window_state(
-    window_state: &mut WindowState,
+    window_state: &mut FullWindowState,
     frame_event_info: &FrameEventInfo,
     events_loop: &EventsLoop
 ) {

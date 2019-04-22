@@ -238,8 +238,6 @@ mod window_state;
 mod app_resources;
 /// Translation between data types (so that Azuls API can be independent of the actual "backend" type)
 mod wr_translate;
-///
-mod ui_state;
 
 /// Font & image resource handling, lookup and caching
 pub mod resources {
