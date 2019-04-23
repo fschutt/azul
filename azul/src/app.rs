@@ -734,7 +734,8 @@ fn hit_test_single_window<T>(
     window::update_from_external_window_state(
         full_window_state,
         &mut frame_event_info,
-        &fake_display.hidden_events_loop
+        &fake_display.hidden_events_loop,
+        &window.display.gl_window()
     );
 
     // Update the window state every frame that was set by the user
@@ -878,17 +879,17 @@ fn do_hit_test<T>(
     fake_display: &mut FakeDisplay,
 ) -> Option<Vec<HitTestItem>> {
 
-    use wr_translate::{translate_wr_hittest_item, translate_pipeline_id};
+    use wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
 
     let cursor_location = full_window_state.mouse_state.cursor_pos
         .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
 
     let mut hit_test_results: Vec<HitTestItem> = fake_display.render_api.hit_test(
         window.internal.document_id,
-        Some(translate_pipeline_id(window.internal.pipeline_id)),
+        Some(wr_translate_pipeline_id(window.internal.pipeline_id)),
         cursor_location,
         HitTestFlags::FIND_ALL
-    ).items.into_iter().map(translate_wr_hittest_item).collect();
+    ).items.into_iter().map(wr_translate_hittest_item).collect();
 
     // Execute callbacks back-to-front, not front-to-back
     hit_test_results.reverse();
@@ -1041,7 +1042,7 @@ fn update_display_list<T>(
     app_resources: &mut AppResources,
 ) {
     use display_list::DisplayList;
-    use wr_translate::translate_pipeline_id;
+    use wr_translate::wr_translate_pipeline_id;
 
     let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
 
@@ -1066,7 +1067,7 @@ fn update_display_list<T>(
         window.internal.epoch,
         None,
         logical_size.clone(),
-        (translate_pipeline_id(window.internal.pipeline_id), logical_size, display_list_builder),
+        (wr_translate_pipeline_id(window.internal.pipeline_id), logical_size, display_list_builder),
         true,
     );
 
@@ -1219,7 +1220,7 @@ fn render_inner<T>(
         DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size),
         window.state.size.hidpi_factor as f32
     );
-    txn.set_root_pipeline(wr_translate::translate_pipeline_id(window.internal.pipeline_id));
+    txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(window.internal.pipeline_id));
     scroll_all_nodes(&mut window.scroll_states, &mut txn);
     txn.generate_frame();
 

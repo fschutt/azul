@@ -65,11 +65,13 @@ impl<T> Default for UiDescription<T> {
         let default_dom = Dom::div();
         let hovered_nodes = BTreeMap::new();
         let is_mouse_down = false;
+
         let mut focused_node = None;
         let mut focus_target = None;
+        let mut ui_state = ui_state_from_dom(default_dom);
 
         Self::match_css_to_dom(
-            ui_state_from_dom(default_dom),
+            &mut ui_state,
             &Css::default(),
             &mut focused_node,
             &mut focus_target,

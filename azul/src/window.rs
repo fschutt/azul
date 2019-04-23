@@ -556,7 +556,9 @@ pub(crate) fn update_from_user_window_state(
     new_state: &WindowState,
     window: &mut GliumWindow,
 ) {
-    let current_window_state = full_window_state_to_window_state(&old_state);
+    use wr_translate::winit_translate_cursor;
+
+    let current_window_state = old_state.clone();
 
     if old_state.title != new_state.title {
         window.set_title(&new_state.title);
@@ -564,7 +566,7 @@ pub(crate) fn update_from_user_window_state(
     }
 
     if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
-        window.set_cursor(new_state.mouse_state.mouse_cursor_type);
+        window.set_cursor(winit_translate_cursor(new_state.mouse_state.mouse_cursor_type));
         old_state.mouse_state.mouse_cursor_type = new_state.mouse_state.mouse_cursor_type;
     }
 
@@ -606,11 +608,6 @@ pub(crate) fn update_from_user_window_state(
         old_state.size.max_dimensions = new_state.size.max_dimensions;
     }
 
-    if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
-        window.set_cursor(new_state.mouse_state.mouse_cursor_type);
-        old_state.mouse_state.mouse_cursor_type = new_state.mouse_state.mouse_cursor_type;
-    }
-
     old_state.previous_window_state = Some(Box::new(current_window_state));
 }
 
@@ -634,12 +631,13 @@ pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowSt
 pub(crate) fn update_from_external_window_state(
     window_state: &mut FullWindowState,
     frame_event_info: &FrameEventInfo,
-    events_loop: &EventsLoop
+    events_loop: &EventsLoop,
+    window: &GliumWindow,
 ) {
     #[cfg(target_os = "linux")] {
         if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
             window_state.size.hidpi_factor = linux_get_hidpi_factor(
-                &window_state.display.gl_window().window().get_current_monitor(),
+                &window.get_current_monitor(),
                 events_loop
             );
         }

@@ -4,7 +4,8 @@ use std::{
     io::Error as IoError,
 };
 use webrender::api::{
-    AddImage, ResourceUpdate, AddFont, AddFontInstance, RenderApi,
+    AddImage, ResourceUpdate, AddFont,
+    AddFontInstance, RenderApi,
 };
 use {
     FastHashMap, FastHashSet,
@@ -21,7 +22,7 @@ pub use azul_core::app_resources::{
     AppResources, Au, ImmediateFontId, LoadedFont, RawImageFormat,
     FontKey, FontInstanceKey, ImageKey, ImageSource, FontSource,
     RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
-    ImageInfo,
+    ImageInfo, IdNamespace,
 };
 
 #[derive(Debug)]
@@ -98,15 +99,21 @@ pub(crate) trait FontImageApi {
 }
 
 impl FontImageApi for RenderApi {
-    fn new_image_key(&self) -> ImageKey { self.generate_image_key() }
-    fn new_font_key(&self) -> FontKey { self.generate_font_key() }
-    fn new_font_instance_key(&self) -> FontInstanceKey { self.generate_font_instance_key() }
+    fn new_image_key(&self) -> ImageKey {
+        use wr_translate::translate_image_key_wr;
+        translate_image_key_wr(self.generate_image_key())
+    }
+    fn new_font_key(&self) -> FontKey {
+        use wr_translate::translate_font_key_wr;
+        translate_font_key_wr(self.generate_font_key())
+    }
+    fn new_font_instance_key(&self) -> FontInstanceKey {
+        use wr_translate::translate_font_instance_key_wr;
+        translate_font_instance_key_wr(self.generate_font_instance_key())
+    }
     fn update_resources(&self, updates: Vec<ResourceUpdate>) { self.update_resources(updates); }
     fn flush_scene_builder(&self) { self.flush_scene_builder(); }
 }
-
-#[cfg(test)]
-use webrender::api::IdNamespace;
 
 // Fake RenderApi for unit testing
 #[cfg(test)]
@@ -134,7 +141,7 @@ pub(crate) fn add_fonts_and_images<T, U: FontImageApi>(
     let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, &font_keys);
     let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, &image_keys);
 
-    add_resources(app_resources, add_font_resource_updates, render_api, add_image_resource_updates);
+    add_resources(app_resources, render_api, add_font_resource_updates, add_image_resource_updates);
 }
 
 /// To be called at the end of a frame (after the UI has rendered):
@@ -160,6 +167,8 @@ pub(crate) fn garbage_collect_fonts_and_images<U: FontImageApi>(
 fn image_source_get_bytes(image_source: &ImageSource)
 -> Result<(WrImageData, WrImageDescriptor), ImageReloadError>
 {
+    use wr_translate::wr_translate_image_format;
+
     match image_source {
         ImageSource::Embedded(bytes) => {
             #[cfg(feature = "image_loading")] {
@@ -175,7 +184,7 @@ fn image_source_get_bytes(image_source: &ImageSource)
             let descriptor = WrImageDescriptor::new(
                 raw_image.image_dimensions.0 as i32,
                 raw_image.image_dimensions.1 as i32,
-                raw_image.data_format,
+                wr_translate_image_format(raw_image.data_format),
                 opaque,
                 allow_mipmaps
             );
@@ -283,6 +292,7 @@ enum DeleteFontMsg {
     Font(FontKey),
     Instance(FontInstanceKey, Au),
 }
+
 // Debug, PartialEq, Eq, PartialOrd, Ord
 #[derive(Clone)]
 struct AddImageMsg(AddImage, ImageInfo);
@@ -294,8 +304,9 @@ struct DeleteImageMsg(ImageKey, ImageInfo);
 impl AddFontMsg {
     fn into_resource_update(&self) -> ResourceUpdate {
         use self::AddFontMsg::*;
+        use wr_translate::wr_translate_font_key;
         match self {
-            Font(f) => ResourceUpdate::AddFont(AddFont::Raw(f.font_key, f.font_bytes.clone(), f.font_index as u32)),
+            Font(f) => ResourceUpdate::AddFont(AddFont::Raw(wr_translate_font_key(f.font_key), f.font_bytes.clone(), f.font_index as u32)),
             Instance(fi, _) => ResourceUpdate::AddFontInstance(fi.clone()),
         }
     }
@@ -304,10 +315,10 @@ impl AddFontMsg {
 impl DeleteFontMsg {
     fn into_resource_update(&self) -> ResourceUpdate {
         use self::DeleteFontMsg::*;
-        use wr_translate::{translate_font_key, translate_font_instance_key};
+        use wr_translate::{wr_translate_font_key, wr_translate_font_instance_key};
         match self {
-            Font(f) => ResourceUpdate::DeleteFont(translate_font_key(*f)),
-            Instance(fi, _) => ResourceUpdate::DeleteFontInstance(translate_font_instance_key(*fi)),
+            Font(f) => ResourceUpdate::DeleteFont(wr_translate_font_key(*f)),
+            Instance(fi, _) => ResourceUpdate::DeleteFontInstance(wr_translate_font_instance_key(*fi)),
         }
     }
 }
@@ -320,8 +331,8 @@ impl AddImageMsg {
 
 impl DeleteImageMsg {
     fn into_resource_update(&self) -> ResourceUpdate {
-        ResourceUpdate::DeleteImage(self.0.clone())
-
+        use wr_translate::wr_translate_image_key;
+        ResourceUpdate::DeleteImage(wr_translate_image_key(self.0.clone()))
     }
 }
 
@@ -346,6 +357,7 @@ fn build_add_font_resource_updates<T: FontImageApi>(
     for (im_font_id, font_sizes) in fonts_in_dom {
 
         macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_index:expr, $font_size:expr) => ({
+            use wr_translate::{wr_translate_font_instance_key, wr_translate_font_key, translate_au};
 
             let font_instance_key_exists = app_resources.currently_registered_fonts
                 .get(&$font_id)
@@ -388,9 +400,9 @@ fn build_add_font_resource_updates<T: FontImageApi>(
                 };
 
                 resource_updates.push(($font_id, AddFontMsg::Instance(AddFontInstance {
-                    key: font_instance_key,
-                    font_key: $font_key,
-                    glyph_size: $font_size,
+                    key: wr_translate_font_instance_key(font_instance_key),
+                    font_key: wr_translate_font_key($font_key),
+                    glyph_size: translate_au($font_size),
                     options: Some(options),
                     platform_options: Some(platform_options),
                     variations: Vec::new(),
@@ -459,6 +471,8 @@ fn build_add_image_resource_updates<T: FontImageApi>(
     images_in_dom: &FastHashSet<ImageId>,
 ) -> Vec<(ImageId, AddImageMsg)> {
 
+    use wr_translate::{wr_translate_image_key, translate_image_descriptor_wr};
+
     images_in_dom.iter()
     .filter(|image_id| !app_resources.currently_registered_images.contains_key(*image_id))
     .filter_map(|image_id| {
@@ -473,8 +487,8 @@ fn build_add_image_resource_updates<T: FontImageApi>(
         };
 
         let key = render_api.new_image_key();
-        let add_image = AddImage { key, data, descriptor, tiling: None };
-        Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor })))
+        let add_image = AddImage { key: wr_translate_image_key(key), data, descriptor, tiling: None };
+        Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor: translate_image_descriptor_wr(descriptor) })))
 
     }).collect()
 }
@@ -489,6 +503,8 @@ fn add_resources<T: FontImageApi>(
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
+    use wr_translate::translate_font_instance_key_wr;
+
     let mut merged_resource_updates = Vec::new();
 
     merged_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
@@ -507,8 +523,13 @@ fn add_resources<T: FontImageApi>(
     for (font_id, add_font_msg) in add_font_resources {
         use self::AddFontMsg::*;
         match add_font_msg {
-            Font(f) => { app_resources.currently_registered_fonts.insert(font_id, LoadedFont::new(f.font_key, f.font_bytes, f.font_index)); },
-            Instance(fi, size) => { app_resources.currently_registered_fonts.get_mut(&font_id).unwrap().font_instances.insert(size, fi.key); },
+            Font(f) => {
+                app_resources.currently_registered_fonts.insert(font_id, LoadedFont::new(f.font_key, f.font_bytes, f.font_index));
+            },
+            Instance(fi, size) => {
+                let fi_key = translate_font_instance_key_wr(fi.key);
+                app_resources.currently_registered_fonts.get_mut(&font_id).unwrap().font_instances.insert(size, fi_key);
+            },
         }
     }
 }

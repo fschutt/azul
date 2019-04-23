@@ -26,7 +26,7 @@ use azul_css::{
 use {
     FastHashMap,
     app_resources::AppResources,
-    callbacks::{IFrameCallback, GlTextureCallback, HidpiAdjustedBounds, StackCheckedPointer},
+    callbacks::{IFrameCallback, GlTextureCallback, StackCheckedPointer},
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
@@ -115,7 +115,7 @@ impl<'a, T: 'a> DisplayList<'a, T> {
 
         use window::LogicalSize;
         use app_resources::add_fonts_and_images;
-        use wr_translate::translate_pipeline_id;
+        use wr_translate::wr_translate_pipeline_id;
 
         let mut resource_updates = Vec::<ResourceUpdate>::new();
 
@@ -162,7 +162,7 @@ impl<'a, T: 'a> DisplayList<'a, T> {
 
         let LogicalSize { width, height } = window.state.size.dimensions;
         let mut builder = DisplayListBuilder::with_capacity(
-            translate_pipeline_id(window.internal.pipeline_id),
+            wr_translate_pipeline_id(window.internal.pipeline_id),
             TypedSize2D::new(width as f32, height as f32),
             self.rectangles.len()
         );
@@ -449,7 +449,9 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
         // Create an external scroll id. This id is required to preserve its
         // scroll state accross multiple frames.
-        let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, wr_translate::translate_pipeline_id(pipeline_id));
+        let parent_external_scroll_id  = ExternalScrollId(
+            parent_dom_hash.0, wr_translate::wr_translate_pipeline_id(pipeline_id)
+        );
 
         // Create a unique scroll tag for hit-testing
         let scroll_tag_id = match display_list_rects.get(*parent).and_then(|node| node.tag) {
@@ -603,7 +605,7 @@ pub(crate) struct DisplayListRectParams<'a, T: 'a> {
 }
 
 fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Option<ComplexClipRegion> {
-    use css::webrender_translate::wr_translate_border_radius;
+    use wr_translate::wr_translate_border_radius;
     rect.style.border_radius.and_then(|border_radius| {
         Some(ComplexClipRegion {
             rect: bounds,
@@ -740,8 +742,10 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 ) {
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
+    use wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key};
+    use app_resources::FontImageApi;
 
-    let bounds = HidpiAdjustedBounds::from_bounds(
+    let bounds = hidpi_rect_from_bounds(
         info.rect,
         rectangle.window_size.hidpi_factor,
         rectangle.window_size.winit_hidpi_factor
@@ -774,7 +778,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 
     // Note: The ImageDescriptor has no effect on how large the image appears on-screen
     let descriptor = ImageDescriptor::new(texture.width as i32, texture.height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
-    let key = referenced_mutable_content.app_resources.get_render_api().new_image_key();
+    let key = referenced_mutable_content.render_api.new_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
     let data = ImageData::External(ExternalImageData {
@@ -788,7 +792,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
         .insert(external_image_id, ActiveTexture { texture });
 
     referenced_mutable_content.resource_updates.push(ResourceUpdate::AddImage(
-        AddImage { key, descriptor, data, tiling: None }
+        AddImage { key: wr_translate_image_key(key), descriptor, data, tiling: None }
     ));
 
     referenced_mutable_content.builder.push_image(
@@ -797,7 +801,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
         LayoutSize::zero(),
         ImageRendering::Auto,
         AlphaType::Alpha,
-        key,
+        wr_translate_image_key(key),
         ColorF::WHITE
     );
 }
@@ -811,8 +815,10 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) {
     use app_resources;
+    use ui_state::ui_state_from_dom;
+    use wr_translate::hidpi_rect_from_bounds;
 
-    let bounds = HidpiAdjustedBounds::from_bounds(
+    let bounds = hidpi_rect_from_bounds(
         info.rect,
         rectangle.window_size.hidpi_factor,
         rectangle.window_size.hidpi_factor
@@ -836,7 +842,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     let mut focus_target = None;
     let hovered_nodes = BTreeMap::new();
 
-    let mut ui_state = new_dom.into_ui_state();
+    let mut ui_state = ui_state_from_dom(new_dom);
     let ui_description = UiDescription::<T>::match_css_to_dom(
         &mut ui_state,
         &referenced_content.css,
@@ -952,7 +958,7 @@ fn push_rect(
     builder: &mut DisplayListBuilder,
     color: &StyleColorU
 ) {
-    use css::webrender_translate::wr_translate_color_u;
+    use wr_translate::wr_translate_color_u;
     builder.push_rect(&info, wr_translate_color_u(*color).into());
 }
 
@@ -965,7 +971,7 @@ fn push_text(
     rect_layout: &RectLayout,
 ) {
     use text_layout::get_layouted_glyphs;
-    use css::webrender_translate::wr_translate_color_u;
+    use wr_translate::{wr_translate_color_u, wr_translate_font_instance_key};
     use ui_solver::determine_text_alignment;
 
     let (scaled_words, _font_instance_key) = match layout_result.scaled_words.get(node_id) {
@@ -1042,7 +1048,7 @@ fn push_text(
     builder.push_text(
         &info,
         &layouted_glyphs.glyphs,
-        *font_instance_key,
+        wr_translate_font_instance_key(*font_instance_key),
         font_color.into(),
         Some(GlyphOptions {
             render_mode: FontRenderMode::Subpixel,
@@ -1169,7 +1175,7 @@ fn push_box_shadow_inner(
     shadow_type: BoxShadowClipMode)
 {
     use webrender::api::LayoutVector2D;
-    use css::webrender_translate::{
+    use wr_translate::{
         wr_translate_color_u, wr_translate_border_radius,
         wr_translate_box_shadow_clip_mode
     };
@@ -1323,7 +1329,7 @@ fn push_background(
     app_resources: &AppResources)
 {
     use azul_css::{Shape, StyleBackground::*};
-    use css::webrender_translate::{
+    use wr_translate::{
         wr_translate_color_u, wr_translate_extend_mode, wr_translate_layout_point,
         wr_translate_layout_rect,
     };
@@ -1374,7 +1380,7 @@ fn push_background(
 
                 let bounds = info.rect;
                 let image_dimensions = app_resources.get_image_info(image_id)
-                    .map(|info| (info.descriptor.dimensions.width, info.descriptor.dimensions.height))
+                    .map(|info| (info.descriptor.dimensions.0 as i32, info.descriptor.dimensions.1 as i32))
                     .unwrap_or((bounds.size.width as i32, bounds.size.height as i32)); // better than crashing...
 
                 let size = match background_size {
@@ -1459,7 +1465,7 @@ fn push_image(
     image_id: &ImageId,
     size: TypedSize2D<f32, LayoutPixel>
 ) {
-    use wr_translate::translate_image_key;
+    use wr_translate::wr_translate_image_key;
     if let Some(image_info) = app_resources.get_image_info(image_id) {
         builder.push_image(
             info,
@@ -1467,7 +1473,7 @@ fn push_image(
             LayoutSize::zero(),
             ImageRendering::Auto,
             AlphaType::PremultipliedAlpha,
-            translate_image_key(image_info.key),
+            wr_translate_image_key(image_info.key),
             ColorF::WHITE,
         );
     }
@@ -1480,7 +1486,7 @@ fn push_border(
     border: &StyleBorder,
     border_radius: &Option<StyleBorderRadius>)
 {
-    use css::webrender_translate::{
+    use wr_translate::{
         wr_translate_layout_side_offsets, wr_translate_border_details
     };
 

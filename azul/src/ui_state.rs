@@ -30,7 +30,7 @@ pub(crate) fn ui_state_from_app_state<T>(
                 window: app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
                 resources: &app_state.resources,
             };
-            let dom_lock = app_state.data.lock()?;
+            let dom_lock = app_state.data.lock().unwrap();
             (layout_callback)(&*dom_lock, window_info)
         }
     };
