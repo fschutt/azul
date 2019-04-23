@@ -5,7 +5,7 @@ use std::{
 };
 use glium::glutin::{
     WindowEvent, KeyboardInput, ElementState,
-    VirtualKeyCode, MouseScrollDelta, ModifiersState,
+    MouseScrollDelta, ModifiersState,
     dpi::LogicalPosition as WinitLogicalPosition,
 };
 use {
@@ -17,7 +17,7 @@ use {
     app::AppState,
 };
 pub use azul_core::window::{
-    WindowState, KeyboardState, MouseState, DebugState,
+    WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
 };
 use azul_core::callbacks::FocusTarget;
@@ -676,14 +676,15 @@ fn update_scroll_state(window_state: &mut FullWindowState, event: &WindowEvent) 
 
 /// Updates self.keyboard_state to reflect what characters are currently held down
 fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &WindowEvent) {
-
+    use wr_translate::winit_translate_virtual_keycode;
     match event {
         WindowEvent::KeyboardInput {
             input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, ..
         } => {
             if let Some(vk) = virtual_keycode {
-                window_state.keyboard_state.current_virtual_keycodes.insert(*vk);
-                window_state.keyboard_state.latest_virtual_keycode = Some(*vk);
+                let vk = winit_translate_virtual_keycode(*vk);
+                window_state.keyboard_state.current_virtual_keycodes.insert(vk);
+                window_state.keyboard_state.latest_virtual_keycode = Some(vk);
             }
             window_state.keyboard_state.current_scancodes.insert(*scancode);
         },
@@ -696,7 +697,8 @@ fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &Win
             input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, ..
         } => {
             if let Some(vk) = virtual_keycode {
-                window_state.keyboard_state.current_virtual_keycodes.remove(vk);
+                let vk = winit_translate_virtual_keycode(*vk);
+                window_state.keyboard_state.current_virtual_keycodes.remove(&vk);
                 window_state.keyboard_state.latest_virtual_keycode = None;
             }
             window_state.keyboard_state.current_scancodes.remove(scancode);
@@ -858,30 +860,6 @@ pub(crate) fn window_should_close(event: &WindowEvent, frame_event_info: &mut Fr
     // by force_redraw_cache anyways
 
     false
-}
-
-/// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum AcceleratorKey {
-    Ctrl,
-    Alt,
-    Shift,
-    Key(VirtualKeyCode),
-}
-
-impl AcceleratorKey {
-    /// Checks if the current keyboard state contains the given char or modifier,
-    /// i.e. if the keyboard state currently has the shift key pressed and the
-    /// accelerator key is `Shift`, evaluates to true, otherwise to false.
-    pub fn matches(&self, keyboard_state: &KeyboardState) -> bool {
-        use self::AcceleratorKey::*;
-        match self {
-            Ctrl => keyboard_state.ctrl_down,
-            Alt => keyboard_state.alt_down,
-            Shift => keyboard_state.shift_down,
-            Key(k) => keyboard_state.current_virtual_keycodes.contains(k),
-        }
-    }
 }
 
 /// Utility function that, given the current keyboard state and a list of

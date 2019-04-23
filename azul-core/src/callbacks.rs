@@ -207,9 +207,9 @@ pub struct CallbackInfo<'a, T: 'a> {
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
     /// UiState containing the necessary data for testing what
-    pub(crate) ui_state: &'a UiState<T>,
+    pub ui_state: &'a UiState<T>,
     /// What items are currently being hit
-    pub(crate) hit_test_items: &'a [HitTestItem],
+    pub hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: Option<(f32, f32)>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -258,9 +258,9 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
 /// that they can change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
 pub struct HidpiAdjustedBounds {
-    logical_size: LogicalSize,
-    hidpi_factor: f32,
-    winit_hidpi_factor: f32,
+    pub logical_size: LogicalSize,
+    pub hidpi_factor: f32,
+    pub winit_hidpi_factor: f32,
     // TODO: Scroll state / focus state of this div!
 }
 

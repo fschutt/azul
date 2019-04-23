@@ -448,12 +448,12 @@ impl<T> App<T> {
             // If there is a relayout necessary, re-layout *all* windows!
             if should_relayout_all_windows || should_redraw_timers_or_tasks{
                 for (current_window_id, mut window) in self.windows.iter_mut() {
-                    let full_window_state = &self.window_states[&current_window_id];
+                    let full_window_state = self.window_states.get_mut(current_window_id).unwrap();
                     relayout_single_window(
                         self.layout_callback,
                         &current_window_id,
                         &mut window,
-                        &full_window_state,
+                        full_window_state,
                         &mut self.app_state,
                         &mut self.fake_display,
                         &mut ui_state_cache,
@@ -657,7 +657,8 @@ fn hit_test_single_window<T>(
 
         for event in events.iter() {
 
-            app_state.windows[&window_id].state = window::full_window_state_to_window_state(full_window_state);
+            app_state.windows.get_mut(window_id).unwrap().state =
+                window::full_window_state_to_window_state(full_window_state);
 
             let callback_result = call_callbacks(
                 ret.hit_test_results.as_ref(),
@@ -741,14 +742,14 @@ fn hit_test_single_window<T>(
     // Update the window state every frame that was set by the user
     window::update_from_user_window_state(
         full_window_state,
-        &app_state.windows[&window_id].state,
-        &mut window.display.gl_window(),
+        &mut app_state.windows.get_mut(window_id).unwrap().state,
+        &*window.display.gl_window(),
     );
 
     // Reset the scroll amount to 0 (for the next frame)
     window::clear_scroll_state(full_window_state);
 
-    app_state.windows[&window_id].state = window::full_window_state_to_window_state(full_window_state);
+    app_state.windows.get_mut(window_id).unwrap().state = window::full_window_state_to_window_state(full_window_state);
 
     Ok(ret)
 }
@@ -758,7 +759,7 @@ fn relayout_single_window<T>(
     layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
     window_id: &WindowId,
     window: &mut Window<T>,
-    full_window_state: &FullWindowState,
+    full_window_state: &mut FullWindowState,
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
     ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
@@ -773,7 +774,7 @@ fn relayout_single_window<T>(
     // Call the Layout::layout() fn, get the DOM
     *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
         ui_state_from_app_state(
-            &mut app_state,
+            app_state,
             window_id,
             layout_callback
         )?;

@@ -774,17 +774,95 @@ impl<T> NodeData<T> {
         DomHash(hasher.finish())
     }
 
+    /// Shorthand for `NodeData::new(NodeType::Div)`.
+    #[inline(always)]
+    pub fn div() -> Self {
+        Self::new(NodeType::Div)
+    }
+
+    /// Shorthand for `NodeData::new(NodeType::Label(value.into()))`
+    #[inline(always)]
+    pub fn label<S: Into<DomString>>(value: S) -> Self {
+        Self::new(NodeType::Label(value.into()))
+    }
+
+    /// Shorthand for `NodeData::new(NodeType::Text(text_id))`
+    #[inline(always)]
+    pub fn text_id(text_id: TextId) -> Self {
+        Self::new(NodeType::Text(text_id))
+    }
+
+    /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
+    #[inline(always)]
+    pub fn image(image: ImageId) -> Self {
+        Self::new(NodeType::Image(image))
+    }
+
+    /// Shorthand for `NodeData::new(NodeType::GlTexture((callback, ptr)))`
+    #[inline(always)]
+    pub fn gl_texture(callback: GlTextureCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
+        Self::new(NodeType::GlTexture((callback, ptr)))
+    }
+
+    /// Shorthand for `NodeData::new(NodeType::IFrame((callback, ptr)))`
+    #[inline(always)]
+    pub fn iframe(callback: IFrameCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
+        Self::new(NodeType::IFrame((callback, ptr)))
+    }
+
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
     // in the future (which is why the fields are all private).
 
+    #[inline(always)]
     pub const fn get_node_type(&self) -> &NodeType<T> { &self.node_type }
+    #[inline(always)]
     pub const fn get_ids(&self) -> &Vec<DomString> { &self.ids }
+    #[inline(always)]
     pub const fn get_classes(&self) -> &Vec<DomString> { &self.classes }
+    #[inline(always)]
     pub const fn get_callbacks(&self) -> &Vec<(EventFilter, Callback<T>)> { &self.callbacks }
+    #[inline(always)]
     pub const fn get_default_callback_ids(&self) -> &Vec<(EventFilter, DefaultCallbackId)> { &self.default_callback_ids }
+    #[inline(always)]
     pub const fn get_dynamic_css_overrides(&self) -> &Vec<(DomString, CssProperty)> { &self.dynamic_css_overrides }
+    #[inline(always)]
     pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
+    #[inline(always)]
     pub const fn get_tab_index(&self) -> Option<TabIndex> { self.tab_index }
+
+    #[inline(always)]
+    pub fn set_node_type(&mut self, node_type: NodeType<T>) { self.node_type = node_type; }
+    #[inline(always)]
+    pub fn set_ids(&mut self, ids: Vec<DomString>) { self.ids = ids; }
+    #[inline(always)]
+    pub fn set_classes(&mut self, classes: Vec<DomString>) { self.classes = classes; }
+    #[inline(always)]
+    pub fn set_callbacks(&mut self, callbacks: Vec<(EventFilter, Callback<T>)>) { self.callbacks = callbacks; }
+    #[inline(always)]
+    pub fn set_default_callback_ids(&mut self, default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>) { self.default_callback_ids = default_callback_ids; }
+    #[inline(always)]
+    pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) { self.dynamic_css_overrides = dynamic_css_overrides; }
+    #[inline(always)]
+    pub fn set_is_draggable(&mut self, is_draggable: bool) { self.is_draggable = is_draggable; }
+    #[inline(always)]
+    pub fn set_tab_index(&mut self, tab_index: Option<TabIndex>) { self.tab_index = tab_index; }
+
+    #[inline(always)]
+    pub fn with_node_type(self, node_type: NodeType<T>) -> Self { Self { node_type, .. self } }
+    #[inline(always)]
+    pub fn with_ids(self, ids: Vec<DomString>) -> Self { Self { ids, .. self } }
+    #[inline(always)]
+    pub fn with_classes(self, classes: Vec<DomString>) -> Self { Self { classes, .. self } }
+    #[inline(always)]
+    pub fn with_callbacks(self, callbacks: Vec<(EventFilter, Callback<T>)>) -> Self { Self { callbacks, .. self } }
+    #[inline(always)]
+    pub fn with_default_callback_ids(self, default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>) -> Self { Self { default_callback_ids, .. self } }
+    #[inline(always)]
+    pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) -> Self { Self { dynamic_css_overrides, .. self } }
+    #[inline(always)]
+    pub fn is_draggable(self, is_draggable: bool) -> Self { Self { is_draggable, .. self } }
+    #[inline(always)]
+    pub fn with_tab_index(self, tab_index: Option<TabIndex>) -> Self { Self { tab_index, .. self } }
 }
 
 /// Most strings are known at compile time, spares a bit of

@@ -285,14 +285,10 @@ pub mod prelude {
         AvailableMonitorsIter, Window, WindowCreateOptions,
         WindowMonitorTarget, RendererType,
         LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
-        WindowState, KeyboardState, MouseState, DebugState, keymap, AcceleratorKey,
+        WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
+        VirtualKeyCode, ScanCode, keymap,
     };
-    pub use glium::glutin::{
-        VirtualKeyCode, ScanCode,
-    };
-    pub use azul_core::{
-        callbacks::StackCheckedPointer,
-    };
+    pub use azul_core::callbacks::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
     pub use xml::{XmlComponent, XmlComponentMap};
 

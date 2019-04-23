@@ -121,11 +121,8 @@ impl TableViewState {
                 // Rows - "1", "2", "3"
                 (0..necessary_rows.saturating_sub(1))
                 .map(|row_idx|
-                    NodeData {
-                        node_type: NodeType::Label(DomString::Heap(format!("{}", row_idx + 1))),
-                        classes: vec![DomString::Static("__azul-native-table-row")],
-                        .. Default::default()
-                    }
+                    NodeData::label(format!("{}", row_idx + 1))
+                    .with_classes(vec![DomString::Static("__azul-native-table-row")])
                 )
                 .collect::<Dom<T>>()
                 .with_class("__azul-native-table-row-numbers")
@@ -142,15 +139,13 @@ impl TableViewState {
                     // Actual rows - if no content is given, they are simply empty
                     (0..necessary_rows)
                     .map(|row_idx|
-                        NodeData {
-                            node_type: if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
+                        NodeData::new(
+                            if let Some(data) = state.work_sheet.data.get(&col_idx).and_then(|col| col.get(&row_idx)) {
                                 NodeType::Label(DomString::Heap(data.clone()))
                             } else {
                                 NodeType::Div
-                            },
-                            classes: vec![DomString::Static("__azul-native-table-cell")],
-                            .. Default::default()
-                        }
+                            }
+                        ).with_classes(vec![DomString::Static("__azul-native-table-cell")])
                     )
                     .collect::<Dom<T>>()
                     .with_class("__azul-native-table-rows")

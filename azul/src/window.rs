@@ -554,7 +554,7 @@ impl<T> Window<T> {
 pub(crate) fn update_from_user_window_state(
     old_state: &mut FullWindowState,
     new_state: &WindowState,
-    window: &mut GliumWindow,
+    window: &GliumWindow,
 ) {
     use wr_translate::winit_translate_cursor;
 
@@ -562,7 +562,7 @@ pub(crate) fn update_from_user_window_state(
 
     if old_state.title != new_state.title {
         window.set_title(&new_state.title);
-        old_state.title = new_state.title;
+        old_state.title = new_state.title.clone();
     }
 
     if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {

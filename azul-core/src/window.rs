@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -131,6 +131,9 @@ impl Default for MouseCursorType {
     }
 }
 
+/// Hardware-dependent keyboard scan code.
+pub type ScanCode = u32;
+
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct KeyboardState {
@@ -144,6 +147,21 @@ pub struct KeyboardState {
     pub super_down: bool,
     /// Currently pressed key, already converted to a `char`
     pub current_char: Option<char>,
+    /// Holds the key that was pressed last if there is Some. Holds None otherwise.
+    pub latest_virtual_keycode: Option<VirtualKeyCode>,
+    /// Currently pressed virtual keycodes - this is essentially an "extension"
+    /// of `current_keys` - `current_keys` stores the characters, but what if the
+    /// pressed key is not a character (such as `ArrowRight` or `PgUp`)?
+    ///
+    /// Note that this can have an overlap, so pressing "a" on the keyboard will insert
+    /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and an `"a"` as a char into `current_keys`.
+    pub current_virtual_keycodes: HashSet<VirtualKeyCode>,
+    /// Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed.
+    ///
+    /// This should not change if the user adjusts the host's keyboard map.
+    /// Use when the physical location of the key is more important than the key's host GUI semantics,
+    /// such as for movement controls in a first-person game (German keyboard: Z key, UK keyboard: Y key, etc.)
+    pub current_scancodes: HashSet<ScanCode>,
 }
 
 /// Mouse position on the screen
@@ -361,4 +379,195 @@ impl PhysicalSize {
             height: self.height / hidpi_factor,
         }
     }
+}
+
+/// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AcceleratorKey {
+    Ctrl,
+    Alt,
+    Shift,
+    Key(VirtualKeyCode),
+}
+
+impl AcceleratorKey {
+
+    /// Checks if the current keyboard state contains the given char or modifier,
+    /// i.e. if the keyboard state currently has the shift key pressed and the
+    /// accelerator key is `Shift`, evaluates to true, otherwise to false.
+    pub fn matches(&self, keyboard_state: &KeyboardState) -> bool {
+        use self::AcceleratorKey::*;
+        match self {
+            Ctrl => keyboard_state.ctrl_down,
+            Alt => keyboard_state.alt_down,
+            Shift => keyboard_state.shift_down,
+            Key(k) => keyboard_state.current_virtual_keycodes.contains(k),
+        }
+    }
+}
+
+/// Symbolic name for a keyboard key, does NOT take the keyboard locale into account
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VirtualKeyCode {
+    Key1,
+    Key2,
+    Key3,
+    Key4,
+    Key5,
+    Key6,
+    Key7,
+    Key8,
+    Key9,
+    Key0,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Escape,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+    F21,
+    F22,
+    F23,
+    F24,
+    Snapshot,
+    Scroll,
+    Pause,
+    Insert,
+    Home,
+    Delete,
+    End,
+    PageDown,
+    PageUp,
+    Left,
+    Up,
+    Right,
+    Down,
+    Back,
+    Return,
+    Space,
+    Compose,
+    Caret,
+    Numlock,
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    AbntC1,
+    AbntC2,
+    Add,
+    Apostrophe,
+    Apps,
+    At,
+    Ax,
+    Backslash,
+    Calculator,
+    Capital,
+    Colon,
+    Comma,
+    Convert,
+    Decimal,
+    Divide,
+    Equals,
+    Grave,
+    Kana,
+    Kanji,
+    LAlt,
+    LBracket,
+    LControl,
+    LShift,
+    LWin,
+    Mail,
+    MediaSelect,
+    MediaStop,
+    Minus,
+    Multiply,
+    Mute,
+    MyComputer,
+    NavigateForward,
+    NavigateBackward,
+    NextTrack,
+    NoConvert,
+    NumpadComma,
+    NumpadEnter,
+    NumpadEquals,
+    OEM102,
+    Period,
+    PlayPause,
+    Power,
+    PrevTrack,
+    RAlt,
+    RBracket,
+    RControl,
+    RShift,
+    RWin,
+    Semicolon,
+    Slash,
+    Sleep,
+    Stop,
+    Subtract,
+    Sysrq,
+    Tab,
+    Underline,
+    Unlabeled,
+    VolumeDown,
+    VolumeUp,
+    Wake,
+    WebBack,
+    WebFavorites,
+    WebForward,
+    WebHome,
+    WebRefresh,
+    WebSearch,
+    WebStop,
+    Yen,
+    Copy,
+    Paste,
+    Cut,
 }
