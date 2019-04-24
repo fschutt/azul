@@ -1192,11 +1192,12 @@ impl VectorizedFontCache {
 
     pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Rc<VectorizedFont>> {
         use std::collections::hash_map::Entry::*;
+        use app_resources::font_source_get_bytes;
 
         match self.vectorized_fonts.borrow_mut().entry(id.clone()) {
             Occupied(_) => { },
             Vacant(v) => {
-                let font_bytes = app_resources.get_font_bytes(&id)?;
+                let font_bytes = app_resources.get_font_source(&id).map(font_source_get_bytes)?;
                 let (font_bytes, _) = font_bytes.ok()?;
                 v.insert(Rc::new(VectorizedFont::from_bytes(font_bytes)));
             }

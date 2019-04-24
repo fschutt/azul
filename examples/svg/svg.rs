@@ -149,9 +149,11 @@ fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: &mut Callback
 
 fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
 
+    use azul::resources::font_source_get_bytes;
+
     let font_size = 10.0;
     let font_id = app_state.resources.get_css_font_id("sans-serif")?;
-    let font_bytes = app_state.resources.get_font_bytes(&font_id)?.ok()?;
+    let font_bytes = app_state.resources.get_font_source(&font_id).map(font_source_get_bytes)?.ok()?;
 
     let text_style = SvgStyle {
         fill: Some(ColorU { r: 0, g: 0, b: 0, a: 255 }),

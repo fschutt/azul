@@ -164,7 +164,7 @@ pub(crate) fn garbage_collect_fonts_and_images<U: FontImageApi>(
 /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
 /// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
 #[allow(unused_variables)]
-fn image_source_get_bytes(image_source: &ImageSource)
+pub fn image_source_get_bytes(image_source: &ImageSource)
 -> Result<(WrImageData, WrImageDescriptor), ImageReloadError>
 {
     use wr_translate::wr_translate_image_format;
@@ -206,7 +206,7 @@ fn image_source_get_bytes(image_source: &ImageSource)
 
 /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
 /// Also returns the index into the font (in case the font is a font collection).
-fn font_source_get_bytes(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
+pub fn font_source_get_bytes(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
     use std::fs;
     match font_source {
         FontSource::Embedded(bytes) => Ok((bytes.to_vec(), 0)),
@@ -702,6 +702,8 @@ fn prepare_image(image_decoded: DynamicImage)
     -> Result<(WrImageData, WrImageDescriptor), ImageError>
 {
     use image;
+    use wr_translate::wr_translate_image_format;
+
     let image_dims = image_decoded.dimensions();
 
     // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
@@ -774,10 +776,16 @@ fn prepare_image(image_decoded: DynamicImage)
         },
     };
 
-    let opaque = is_image_opaque(format, &bytes[..]);
+    let is_opaque = is_image_opaque(format, &bytes[..]);
     let allow_mipmaps = true;
-    let descriptor = ImageDescriptor::new(image_dims.0 as i32, image_dims.1 as i32, format, opaque, allow_mipmaps);
-    let data = ImageData::new(bytes);
+    let descriptor = WrImageDescriptor::new(
+        image_dims.0 as i32,
+        image_dims.1 as i32,
+        wr_translate_image_format(format),
+        is_opaque,
+        allow_mipmaps
+    );
+    let data = WrImageData::new(bytes);
 
     Ok((data, descriptor))
 }

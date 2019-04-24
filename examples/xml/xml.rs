@@ -10,7 +10,7 @@ struct DataModel { }
 
 impl Layout for DataModel {
     fn layout(&self, _: LayoutInfo<DataModel>) -> Dom<DataModel> {
-        Dom::from_file(XML_PATH!(), &mut XmlComponentMap::default())
+        DomXml::from_file(XML_PATH!(), &mut XmlComponentMap::default()).into()
     }
 }
 

@@ -106,14 +106,13 @@ impl Board {
     /// Render the board in a table-like grid structure
     pub fn dom<T: Layout>(&self) -> Dom<T> {
         self.cells.iter().map(|row| {
-            row.iter().map(|c| NodeData {
-                node_type: NodeType::Div,
-                classes: vec![match c {
+            row.iter().map(|c|
+                NodeData::div()
+                .with_classes(vec![match c {
                     Cell::Alive => "alive_cell".into(),
                     Cell::Dead => "dead_cell".into(),
-                }],
-                .. Default::default()
-            }).collect::<Dom<T>>()
+                }])
+            ).collect::<Dom<T>>()
             .with_class("row")
         }).collect()
     }

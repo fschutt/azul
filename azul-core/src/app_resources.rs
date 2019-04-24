@@ -315,15 +315,16 @@ impl AppResources {
 
     // -- ImageId cache
 
-    /// Add an image from a PNG, JPEG or other - note that for specialized image formats,
-    /// you have to enable them as features in the Cargo.toml file.
-    #[cfg(feature = "image_loading")]
-    pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) {
+    /// Add an image from a PNG, JPEG or other source.
+    ///
+    /// Note: For specialized image formats, you'll have to enable them as
+    /// features in the Cargo.toml file.
+    pub fn add_image_source(&mut self, image_id: ImageId, image_source: ImageSource) {
         self.image_sources.insert(image_id, image_source);
     }
 
     /// Returns whether the AppResources has currently a certain image ID registered
-    pub fn has_image(&self, image_id: &ImageId) -> bool {
+    pub fn has_image_source(&self, image_id: &ImageId) -> bool {
         self.image_sources.get(image_id).is_some()
     }
 

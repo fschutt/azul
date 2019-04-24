@@ -212,7 +212,7 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mu
 }
 
 fn handle_text_input(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
-    let current_key = app_state.windows[event.window_id].state.get_keyboard_state().current_char?;
+    let current_key = app_state.windows[event.window_id].state.keyboard_state.current_char?;
     let event = match current_key {
         '0' => Event::Number(0),
         '1' => Event::Number(1),
@@ -238,7 +238,7 @@ fn handle_text_input(app_state: &mut AppState<Calculator>, event: &mut CallbackI
 }
 
 fn handle_virtual_key_input(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
-    let current_key = app_state.windows[event.window_id].state.get_keyboard_state().latest_virtual_keycode?;
+    let current_key = app_state.windows[event.window_id].state.keyboard_state.latest_virtual_keycode?;
     let event = match current_key {
         VirtualKeyCode::Return => Event::EqualSign,
         VirtualKeyCode::Back => Event::Clear,
@@ -397,8 +397,8 @@ fn main() {
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
 
     let mut app = App::new(Calculator::default(), AppConfig::default()).unwrap();
-    let font_id = app.add_css_font_id("KoHo-Light");
-    app.add_font(font_id, FontSource::Embedded(FONT));
+    let font_id = app.app_state.resources.add_css_font_id("KoHo-Light");
+    app.app_state.resources.add_font(font_id, FontSource::Embedded(FONT));
 
     let window = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
     let window2 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();

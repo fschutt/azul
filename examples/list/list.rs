@@ -14,12 +14,9 @@ const CUSTOM_CSS: &str = ".selected { background-color: black; color: white; }";
 impl Layout for List {
     fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
         self.items.iter().enumerate().map(|(idx, item)| {
-            NodeData {
-                node_type: NodeType::Label(DomString::Static(item)),
-                classes: if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] },
-                callbacks: vec![(On::MouseDown.into(), Callback(print_which_item_was_selected))],
-                .. Default::default()
-            }
+            NodeData::label(*item)
+                .with_classes(if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] })
+                .with_callbacks(vec![(On::MouseDown.into(), Callback(print_which_item_was_selected))])
         }).collect::<Dom<Self>>()
     }
 }
