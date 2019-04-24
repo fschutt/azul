@@ -422,15 +422,6 @@ impl<T> App<T> {
                 single_window_results.push(single_window_result);
             }
 
-            #[cfg(debug_assertions)] {
-                hot_reload_css(
-                    &mut self.windows,
-                    &mut last_style_reload,
-                    &mut should_print_css_error,
-                    &mut awakened_tasks,
-                )?;
-            }
-
             // Close windows if necessary
             closed_windows.into_iter().for_each(|closed_window_id| {
                 ui_state_cache.remove(&closed_window_id);
@@ -440,15 +431,25 @@ impl<T> App<T> {
                 self.window_states.remove(&closed_window_id);
             });
 
-            let should_relayout_all_windows = single_window_results.iter().any(|res| res.should_relayout());
-            let should_rerender_all_windows = single_window_results.iter().any(|res| res.should_rerender());
+            #[cfg(debug_assertions)]
+            let css_has_reloaded = hot_reload_css(
+                    &mut self.windows,
+                    &mut last_style_reload,
+                    &mut should_print_css_error,
+                )?;
+
+            #[cfg(not(debug_assertions))]
+            let css_has_reloaded = false;
+
+            let should_relayout_all_windows = css_has_reloaded || single_window_results.iter().any(|res| res.should_relayout());
+            let should_rerender_all_windows = should_relayout_all_windows || single_window_results.iter().any(|res| res.should_rerender());
 
             let should_redraw_timers = app_state_run_all_timers(&mut self.app_state);
             let should_redraw_tasks = app_state_clean_up_finished_tasks(&mut self.app_state);
             let should_redraw_timers_or_tasks = [should_redraw_timers, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
 
             // If there is a relayout necessary, re-layout *all* windows!
-            if should_relayout_all_windows || should_redraw_timers_or_tasks{
+            if should_relayout_all_windows || should_redraw_timers_or_tasks {
                 for (current_window_id, mut window) in self.windows.iter_mut() {
                     let full_window_state = self.window_states.get_mut(current_window_id).unwrap();
                     relayout_single_window(
@@ -468,9 +469,6 @@ impl<T> App<T> {
 
             // If there is a re-render necessary, re-render *all* windows
             if should_rerender_all_windows || should_redraw_timers_or_tasks {
-
-                use app_resources::garbage_collect_fonts_and_images;
-
                 for window in self.windows.values_mut() {
                     // TODO: For some reason this function has to be called twice in order
                     // to actually update the screen. For some reason the first swap_buffers() has
@@ -486,6 +484,10 @@ impl<T> App<T> {
                         &mut self.fake_display,
                     );
                 }
+            }
+
+            if should_relayout_all_windows || should_redraw_timers_or_tasks {
+                use app_resources::garbage_collect_fonts_and_images;
 
                 // Automatically remove unused fonts and images from webrender
                 // Tell the font + image GC to start a new frame
@@ -825,18 +827,20 @@ fn rerender_single_window<T>(
     render_inner(window, fake_display, Transaction::new(), config.background_color);
 }
 
-/// Returns if there was an error with the CSS reloading, necessary so that the error message is only printed once
+/// Returns if the CSS has been successfully reloaded
 #[cfg(debug_assertions)]
 fn hot_reload_css<T>(
     windows: &mut BTreeMap<WindowId, Window<T>>,
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
-    awakened_tasks: &mut BTreeMap<WindowId, bool>,
-) -> Result<(), RuntimeError<T>> {
+) -> Result<bool, RuntimeError<T>> {
 
     use self::RuntimeError::*;
 
-    for (window_id, window) in windows.iter_mut() {
+    let mut has_reloaded = false;
+
+    for window in windows.values_mut() {
+
         // Hot-reload a style if necessary
         let hot_reloader = match window.css_loader.as_mut() {
             None => continue,
@@ -857,9 +861,7 @@ fn hot_reload_css<T>(
                     println!("--- OK: CSS parsed without errors, continuing hot-reload.");
                 }
                 *last_style_reload = Instant::now();
-                // window.events_loop.create_proxy().wakeup().unwrap_or(());
-                *awakened_tasks.get_mut(window_id).ok_or(WindowIndexError)? = true;
-
+                has_reloaded = true;
                 *should_print_error = true;
             },
             Err(why) => {
@@ -871,7 +873,7 @@ fn hot_reload_css<T>(
         };
     }
 
-    Ok(())
+    Ok(has_reloaded)
 }
 
 /// Returns the currently hit-tested results, in back-to-front order

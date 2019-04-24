@@ -622,6 +622,7 @@ impl ::std::fmt::Display for GlShaderLinkError {
 pub enum GlShaderCreateError {
     Compile(GlShaderCompileError),
     Link(GlShaderLinkError),
+    NoShaderCompiler,
 }
 
 impl ::std::fmt::Display for GlShaderCreateError {
@@ -630,6 +631,7 @@ impl ::std::fmt::Display for GlShaderCreateError {
         match self {
             Compile(compile_err) => write!(f, "Shader compile error: {}", compile_err),
             Link(link_err) => write!(f, "Shader linking error: {}", link_err),
+            NoShaderCompiler => write!(f, "OpenGL implementation doesn't include a shader compiler"),
         }
     }
 }
@@ -648,6 +650,13 @@ impl GlShader {
     pub fn new(gl_context: Rc<Gl>, vertex_shader_source: &str, fragment_shader_source: &str)
     -> Result<Self, GlShaderCreateError>
     {
+        // Check whether the OpenGL implementation supports a shader compiler...
+        let mut shader_compiler_supported = [gl::FALSE];
+        unsafe { gl_context.get_boolean_v(gl::SHADER_COMPILER, &mut shader_compiler_supported) };
+        if shader_compiler_supported[0] == gl::FALSE {
+            // Implementation only supports binary shaders
+            return Err(GlShaderCreateError::NoShaderCompiler);
+        }
 
         fn str_to_bytes(input: &str) -> Vec<u8> {
             let mut v: Vec<u8> = input.into();
@@ -741,7 +750,7 @@ fn get_gl_shader_error(context: &Gl, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     unsafe { context.get_shader_iv(shader_object, gl::COMPILE_STATUS, &mut err) };
     let err_code = err[0];
-    if err_code == 0 { None } else { Some(err_code) }
+    if err_code == gl::TRUE as i32 { None } else { Some(err_code) }
 }
 
 #[cfg(debug_assertions)]
@@ -749,5 +758,5 @@ fn get_gl_program_error(context: &Gl, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     unsafe { context.get_program_iv(shader_object, gl::LINK_STATUS, &mut err) };
     let err_code = err[0];
-    if err_code == 0 { None } else { Some(err_code) }
+    if err_code == gl::TRUE as i32 { None } else { Some(err_code) }
 }
