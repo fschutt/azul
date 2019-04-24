@@ -275,7 +275,12 @@ pub mod prelude {
         UpdateScreen, Redraw, DontRedraw,
         CallbackInfo, FocusTarget, LayoutInfo, HidpiAdjustedBounds,
     };
-    pub use gl::{Texture, GLuint};
+    pub use gl::{
+        GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
+        VertexLayoutDescription, VertexBuffer, GlApiVersion, IndexBufferFormat,
+        IndexBuffer, Uniform, UniformType, FrameBuffer, GlShader, VertexShaderCompileError,
+        FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
+    };
     pub use dom::{
         Dom, DomHash, NodeType, NodeData, On, DomString, TabIndex,
         EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
@@ -290,7 +295,7 @@ pub mod prelude {
     };
     pub use azul_core::callbacks::StackCheckedPointer;
     pub use text_layout::{TextLayoutOptions, GlyphInstance};
-    pub use xml::{XmlComponent, XmlComponentMap};
+    pub use xml::{XmlComponent, XmlComponentMap, DomXml};
 
     #[cfg(any(feature = "css_parser", feature = "native_style"))]
     pub use css;

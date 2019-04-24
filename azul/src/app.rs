@@ -48,6 +48,8 @@ pub use azul_core::{
     app::{AppState, AppStateNoData},
     window::WindowId,
 };
+#[cfg(test)]
+use app_resources::FakeRenderApi;
 
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 

@@ -1,6 +1,6 @@
 #![allow(unused_variables)]
 
-use std::{fmt, collections::BTreeMap};
+use std::{fmt, collections::BTreeMap, path::Path};
 use {
     callbacks::Callback,
     dom::Dom,
@@ -119,6 +119,91 @@ pub trait XmlComponent<T> {
     fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError>;
     /// Used to compile the XML component to Rust code - input
     fn compile_to_rust_code(&self, components: &XmlComponentMap<T>, attributes: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
+}
+
+pub struct DomXml<T> {
+    pub original_string: String,
+    pub parsed_dom: Dom<T>,
+}
+
+impl<T> DomXml<T> {
+
+    /// Parses and loads a DOM from an XML string
+    ///
+    /// Note: Needs at least one `<app></app>` node in order to not fail
+    #[inline]
+    pub fn new(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Self, XmlParseError> {
+        let dom = str_to_dom(xml, component_map)?;
+        Ok(Self {
+            original_string: xml.to_string(),
+            parsed_dom: dom,
+        })
+    }
+
+    /// Creates a mock `<app></app>` wrapper, so that the `Self::new()` function doesn't fail
+    #[cfg(test)]
+    pub fn mock(xml: &str) -> Self {
+        let actual_xml = format!("<app>{}</app>", xml);
+        Self::new(&actual_xml, &mut XmlComponentMap::default()).unwrap()
+    }
+
+    /// Loads, parses and builds a DOM from an XML file
+    ///
+    /// **Warning**: The file is reloaded from disk on every function call - do not
+    /// use this in release builds! This function deliberately never fails: In an error case,
+    /// the error gets rendered as a `NodeType::Label`.
+    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap<T>) -> Self {
+
+        use std::fs;
+
+        let xml = match fs::read_to_string(file_path) {
+            Ok(xml) => xml,
+            Err(e) => return Self {
+                original_string: format!("{}", e),
+                parsed_dom: Dom::label(format!("{}", e)),
+            },
+        };
+
+        match Self::new(&xml, component_map) {
+            Ok(o) => o,
+            Err(e) =>  Self {
+                original_string: format!("{}", e),
+                parsed_dom: Dom::label(format!("{}", e)),
+            },
+        }
+    }
+
+    /// Convenience function, only available in tests, useful for quickly writing UI tests.
+    /// Wraps the XML string in the required `<app></app>` braces, panics if the XML couldn't be parsed.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// # use azul::dom::Dom;
+    /// # use azul::xml::DomXml;
+    /// let dom = DomXml::mock("<div id='test' />");
+    /// dom.assert_eq(Dom::div().with_id("test"));
+    /// ```
+    #[cfg(test)]
+    pub fn assert_eq(self, other: Dom<T>) {
+        let fixed = Dom::div().with_child(other);
+        let expected = self.into_dom();
+        if expected != fixed {
+            panic!("\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: ----------\r\n{}\r\n",
+                expected.debug_dump(), fixed.debug_dump()
+            );
+        }
+    }
+
+    pub fn into_dom(self) -> Dom<T> {
+        self.into()
+    }
+}
+
+impl<T> Into<Dom<T>> for DomXml<T> {
+    fn into(self) -> Dom<T> {
+        self.parsed_dom
+    }
 }
 
 /// Component that was created from a XML node (instead of being registered from Rust code).
@@ -245,6 +330,7 @@ impl<T> XmlComponentMap<T> {
     }
 }
 
+#[derive(Debug)]
 pub enum XmlParseError {
     /// No `<app></app>` root component present
     NoRootComponent,
@@ -263,7 +349,7 @@ pub enum XmlParseError {
     Component(ComponentParseError),
 }
 
-#[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RenderDomError {
     /// While instantiating a component, a function argument was encountered that the component won't use or react to.
     UselessFunctionArgument(String, String, Vec<String>),
@@ -271,7 +357,7 @@ pub enum RenderDomError {
     UnknownComponent(String),
 }
 
-#[derive(Clone, PartialOrd, PartialEq, Ord, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ComponentParseError {
     /// Given XmlNode is not a `<component />` node.
     NotAComponent,
@@ -290,12 +376,6 @@ pub enum ComponentParseError {
 impl_from!{ ComponentParseError, XmlParseError::Component }
 impl_from!{ RenderDomError, XmlParseError::RenderDom }
 
-impl fmt::Debug for XmlParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
-    }
-}
-
 impl fmt::Display for XmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::XmlParseError::*;
@@ -307,12 +387,6 @@ impl fmt::Display for XmlParseError {
             RenderDom(e) => write!(f, "Error while rendering DOM: \"{}\"", e),
             Component(c) => write!(f, "Error while parsing XML component: \"{}\"", c),
         }
-    }
-}
-
-impl fmt::Debug for ComponentParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
     }
 }
 
@@ -334,12 +408,6 @@ impl fmt::Display for ComponentParseError {
                 )
             },
         }
-    }
-}
-
-impl fmt::Debug for RenderDomError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
     }
 }
 

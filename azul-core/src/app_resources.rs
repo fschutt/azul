@@ -114,7 +114,7 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
 
     impl $struct_name {
 
-        fn new() -> Self {
+        pub fn new() -> Self {
             Self { id: $counter_name.fetch_add(1, ::std::sync::atomic::Ordering::SeqCst) }
         }
     }

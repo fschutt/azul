@@ -1658,7 +1658,7 @@ mod layout_tests {
         ]);
 
         let preferred_widths = node_data.transform(|_, _| None);
-        let mut width_filled_out_data = NodeDataContainer::<WidthCalculatedRect>::from_rect_layout_arena(&node_data, &preferred_widths);
+        let mut width_filled_out_data = solve_width::from_rect_layout_arena(&node_data, &preferred_widths);
 
         // Test some basic stuff - test that `get_flex_basis` works
 
@@ -1682,9 +1682,9 @@ mod layout_tests {
         assert_eq!(width_filled_out_data[NodeId::new(5)].preferred_width, WhConstraint::Unconstrained);
 
         // Test the flex-basis sum
-        assert_eq!(width_filled_out_data.sum_children_flex_basis(NodeId::new(2), &node_hierarchy, &node_data), 0.0);
-        assert_eq!(width_filled_out_data.sum_children_flex_basis(NodeId::new(1), &node_hierarchy, &node_data), 0.0);
-        assert_eq!(width_filled_out_data.sum_children_flex_basis(NodeId::new(0), &node_hierarchy, &node_data), 40.0);
+        assert_eq!(solve_width::sum_children_flex_basis(&width_filled_out_data, NodeId::new(2), &node_hierarchy, &node_data), 0.0);
+        assert_eq!(solve_width::sum_children_flex_basis(&width_filled_out_data, NodeId::new(1), &node_hierarchy, &node_data), 0.0);
+        assert_eq!(solve_width::sum_children_flex_basis(&width_filled_out_data, NodeId::new(0), &node_hierarchy, &node_data), 40.0);
 
         // -- Section 2: Test that size-bubbling works:
         //
@@ -1698,7 +1698,12 @@ mod layout_tests {
             (2, NodeId::new(2)),
         ]);
 
-        width_filled_out_data.bubble_preferred_widths_to_parents(&node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth);
+        solve_width::bubble_preferred_widths_to_parents(
+            &mut width_filled_out_data,
+            &node_hierarchy,
+            &node_data,
+            &non_leaf_nodes_sorted_by_depth
+        );
 
         // This step shouldn't have touched the flex_grow_px
         for node in &width_filled_out_data.internal {
@@ -1738,7 +1743,7 @@ mod layout_tests {
         //    '   '-- 4     -- [] - expecting width to stretch to 80px (half of 160)
         //    '-- 5         -- [] - expecting width to stretch to 554px (754 - 200px max-width of earlier sibling)
 
-        width_filled_out_data.apply_flex_grow(&node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth, window_width);
+        solve_width::apply_flex_grow(&mut width_filled_out_data, &node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth, window_width);
 
         assert_eq!(width_filled_out_data[NodeId::new(0)].solved_result(), WidthSolvedResult {
             min_width: 40.0,

@@ -85,10 +85,10 @@ impl_display!(FontReloadError, {
 /// collection tests can run without a real RenderApi
 #[cfg(test)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-struct FakeRenderApi { }
+pub(crate) struct FakeRenderApi { }
 
 #[cfg(test)]
-impl FakeRenderApi { fn new() -> Self { Self { } } }
+impl FakeRenderApi { pub(crate) fn new() -> Self { Self { } } }
 
 pub(crate) trait FontImageApi {
     fn new_image_key(&self) -> ImageKey;
@@ -118,9 +118,9 @@ impl FontImageApi for RenderApi {
 // Fake RenderApi for unit testing
 #[cfg(test)]
 impl FontImageApi for FakeRenderApi {
-    fn new_image_key(&self) -> ImageKey { ImageKey::DUMMY }
-    fn new_font_key(&self) -> FontKey { FontKey::new(IdNamespace(0), 0) }
-    fn new_font_instance_key(&self) -> FontInstanceKey { FontInstanceKey::new(IdNamespace(0), 0) }
+    fn new_image_key(&self) -> ImageKey { ImageKey { key: 0, namespace: IdNamespace(0) } }
+    fn new_font_key(&self) -> FontKey { FontKey { key: 0, namespace: IdNamespace(0) } }
+    fn new_font_instance_key(&self) -> FontInstanceKey { FontInstanceKey { key: 0, namespace: IdNamespace(0) } }
     fn update_resources(&self, _: Vec<ResourceUpdate>) { }
     fn flush_scene_builder(&self) { }
 }
@@ -823,14 +823,14 @@ fn test_font_gc() {
     use std::collections::BTreeMap;
     use prelude::*;
     use ui_description::UiDescription;
-    use ui_state::UiState;
+    use ui_state::{UiState, ui_state_from_dom};
     use ui_solver::px_to_au;
     use {FastHashMap, FastHashSet};
     use std::hash::Hash;
 
-    struct Mock { }
+    struct Mock;
 
-    let mut app_resources = AppResources::new(&AppConfig::default()).unwrap();
+    let mut app_resources = AppResources::new();
     let mut focused_node = None;
     let mut pending_focus_target = None;
     let is_mouse_down = false;
@@ -841,27 +841,27 @@ fn test_font_gc() {
         #three { font-family: Times New Roman; }
     "#).unwrap();
 
-    let mut ui_state_frame_1: UiState<Mock> = Dom::mock_from_xml(r#"
+    let mut ui_state_frame_1: UiState<Mock> = ui_state_from_dom(DomXml::mock(r#"
         <p id="one">Hello</p>
         <p id="two">Hello</p>
         <p id="three">Hello</p>
-    "#).into_ui_state();
+    "#).into_dom());
     let ui_description_frame_1 = UiDescription::match_css_to_dom(&mut ui_state_frame_1, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
     let display_list_frame_1 = DisplayList::new_from_ui_description(&ui_description_frame_1, &ui_state_frame_1);
 
 
-    let mut ui_state_frame_2: UiState<Mock> = Dom::mock_from_xml(r#"
+    let mut ui_state_frame_2: UiState<Mock> = ui_state_from_dom(DomXml::mock(r#"
         <p>Hello</p>
-    "#).into_ui_state();
+    "#).into_dom());
     let ui_description_frame_2 = UiDescription::match_css_to_dom(&mut ui_state_frame_2, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
     let display_list_frame_2 = DisplayList::new_from_ui_description(&ui_description_frame_2, &ui_state_frame_2);
 
 
-    let mut ui_state_frame_3: UiState<Mock> = Dom::mock_from_xml(r#"
+    let mut ui_state_frame_3: UiState<Mock> = ui_state_from_dom(DomXml::mock(r#"
         <p id="one">Hello</p>
         <p id="two">Hello</p>
         <p id="three">Hello</p>
-    "#).into_ui_state();
+    "#).into_dom());
     let ui_description_frame_3 = UiDescription::match_css_to_dom(&mut ui_state_frame_3, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
     let display_list_frame_3 = DisplayList::new_from_ui_description(&ui_description_frame_3, &ui_state_frame_3);
 
@@ -902,36 +902,36 @@ fn test_font_gc() {
         (ImmediateFontId::Unresolved("Times New Roman".to_string()), build_set(vec![px_to_au(10.0)])),
     ]));
 
+    let mut fake_render_api = FakeRenderApi::new();
 
-
-    app_resources.add_fonts_and_images(&display_list_frame_1);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_1);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
     assert_eq!(app_resources.last_frame_font_keys.len(), 3);
 
     // Assert that the first frame doesn't delete the fonts again
-    app_resources.garbage_collect_fonts_and_images();
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3); // fails
 
     // Assert that fonts don't get double-inserted, still the same font sources as previously
-    app_resources.add_fonts_and_images(&display_list_frame_3);
-    app_resources.garbage_collect_fonts_and_images();
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
 
     // Assert that no new fonts get added on subsequent frames
-    app_resources.add_fonts_and_images(&display_list_frame_3);
-    app_resources.add_fonts_and_images(&display_list_frame_3);
-    app_resources.add_fonts_and_images(&display_list_frame_3);
-    app_resources.add_fonts_and_images(&display_list_frame_3);
-    app_resources.add_fonts_and_images(&display_list_frame_3);
-    app_resources.garbage_collect_fonts_and_images();
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
 
     // If the DOM changes, the fonts should get deleted, the only font still present is "sans-serif"
-    app_resources.add_fonts_and_images(&display_list_frame_2);
-    app_resources.garbage_collect_fonts_and_images();
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_2);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
     assert_eq!(app_resources.currently_registered_fonts.len(), 1);
 
-    app_resources.add_fonts_and_images(&display_list_frame_1);
-    app_resources.garbage_collect_fonts_and_images();
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_1);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
 }
