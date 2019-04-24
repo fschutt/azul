@@ -15,7 +15,7 @@ pub(crate) fn ui_state_from_app_state<T>(
     app_state: &mut AppState<T>,
     window_id: &WindowId,
     layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>
-) -> Result<UiState<T>, RuntimeError<T>> {
+) -> Result<UiState<T>, RuntimeError> {
 
     use app::RuntimeError::*;
 
@@ -30,8 +30,7 @@ pub(crate) fn ui_state_from_app_state<T>(
                 window: app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
                 resources: &app_state.resources,
             };
-            let dom_lock = app_state.data.lock().unwrap();
-            (layout_callback)(&*dom_lock, window_info)
+            (layout_callback)(&app_state.data, window_info)
         }
     };
 

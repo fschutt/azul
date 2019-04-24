@@ -1,4 +1,3 @@
-use std::sync::{Arc, Mutex};
 use std::collections::BTreeMap;
 use {
     window::{FakeWindow, WindowId},
@@ -14,7 +13,7 @@ use {
 /// which maps the state of your application to a DOM (how the application data should be laid out)
 pub struct AppState<T> {
     /// Your data (the global struct which all callbacks will have access to)
-    pub data: Arc<Mutex<T>>,
+    pub data: T,
     /// This field represents the state of the windows, public to the user. You can
     /// mess around with the state as you like, however, the actual window won't update
     /// until the next frame. This is done to "decouple" the frameworks internal
@@ -101,7 +100,7 @@ macro_rules! impl_task_api {() => {
 impl<T> AppState<T> {
     pub fn new(initial_data: T) -> Self {
         Self {
-            data: Arc::new(Mutex::new(initial_data)),
+            data: initial_data,
             windows: BTreeMap::new(),
             resources: AppResources::default(),
             timers: FastHashMap::default(),

@@ -108,8 +108,7 @@ fn build_layers(
 fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
     let (cursor_x, cursor_y) = event.cursor_relative_to_item?;
 
-    let mut data = app_state.data.lock().ok()?;
-    let map = data.map.as_mut()?;
+    let map = app_state.data.map.as_mut()?;
 
     let mut should_redraw = DontRedraw;
 
@@ -126,8 +125,7 @@ fn check_hovered_font(app_state: &mut AppState<MyAppData>, event: &mut CallbackI
 
 fn scroll_map_contents(app_state: &mut AppState<MyAppData>, event: &mut CallbackInfo<MyAppData>) -> UpdateScreen {
 
-    let mut data = app_state.data.lock().ok()?;
-    let map = data.map.as_mut()?;
+    let map = app_state.data.map.as_mut()?;
 
     let mouse_state = app_state.windows.get(event.window_id)?.get_mouse_state();
     let keyboard_state = app_state.windows.get(event.window_id)?.get_keyboard_state();
@@ -152,8 +150,8 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut Cal
     use azul::resources::font_source_get_bytes;
 
     let font_size = 10.0;
-    let font_id = app_state.resources.get_css_font_id("sans-serif")?;
-    let font_bytes = app_state.resources.get_font_source(&font_id).map(font_source_get_bytes)?.ok()?;
+    let font_id = app_state.resources.get_css_font_id("sans-serif").cloned()?;
+    let font_bytes = app_state.resources.get_font_source(&font_id).cloned().map(|r| font_source_get_bytes(&r))?.ok()?;
 
     let text_style = SvgStyle {
         fill: Some(ColorU { r: 0, g: 0, b: 0, a: 255 }),
@@ -225,7 +223,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut Cal
             let mut svg_cache = SvgCache::empty();
             let svg_layers = svg_cache.add_svg(&contents).ok()?;
 
-            app_state.data.modify(|data| data.map = Some(Map {
+            app_state.data.map = Some(Map {
                 cache: svg_cache,
                 font_cache: VectorizedFontCache::new(),
                 hovered_text: None,
@@ -234,7 +232,7 @@ fn my_button_click_handler(app_state: &mut AppState<MyAppData>, _event: &mut Cal
                 zoom: 1.0,
                 pan_horz: 0.0,
                 pan_vert: 0.0,
-            }));
+            });
 
             Some(Redraw)
         })

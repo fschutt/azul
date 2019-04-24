@@ -2,7 +2,6 @@
 
 use std::{
     fmt,
-    sync::{Arc, Mutex},
     collections::BTreeMap,
 };
 use euclid::{TypedRect, TypedSize2D};
@@ -106,7 +105,7 @@ impl<'a, T: 'a> DisplayList<'a, T> {
     /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
     pub(crate) fn into_display_list_builder(
         &self,
-        app_data_access: &mut Arc<Mutex<T>>,
+        app_data_access: &mut T,
         window: &mut Window<T>,
         fake_window: &mut FakeWindow<T>,
         app_resources: &mut AppResources,
@@ -755,7 +754,7 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
 
     {
         // Make sure that the app data is locked before invoking the callback
-        let _lock = referenced_mutable_content.app_data.lock().unwrap();
+        let _lock = &mut referenced_mutable_content.app_data;
         texture = (texture_callback.0)(&texture_stack_ptr, LayoutInfo {
             window: &mut *referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
@@ -826,8 +825,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
 
     let new_dom = {
         // Make sure that the app data is locked before invoking the callback
-        let _lock = referenced_mutable_content.app_data.lock().unwrap();
-
+        let _lock = &mut referenced_mutable_content.app_data;
         let window_info = LayoutInfo {
             window: referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
@@ -939,7 +937,7 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a> {
 struct DisplayListParametersMut<'a, T: 'a> {
     /// Needs to be present, because the dom_to_displaylist_builder
     /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
-    pub app_data: &'a mut Arc<Mutex<T>>,
+    pub app_data: &'a mut T,
     /// The original, top-level display list builder that we need to push stuff into
     pub builder: &'a mut DisplayListBuilder,
     /// The app resources, so that a sub-DOM / iframe can register fonts and images

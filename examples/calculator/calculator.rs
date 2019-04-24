@@ -252,124 +252,124 @@ fn process_event(app_state: &mut AppState<Calculator>, event: Event) -> UpdateSc
     // Act on the event accordingly
     match event {
         Event::Clear => {
-            app_state.data.modify(|state| {
-                *state = Calculator::default();
-            })?;
+            app_state.data = Calculator::default();
             Redraw
         }
         Event::InvertSign => {
-            app_state.data.modify(|state| {
-                if !state.division_by_zero {
-                    state.current_operand_stack.negative_number = !state.current_operand_stack.negative_number;
-                }
-            })?;
-
+            if !app_state.data.division_by_zero {
+                app_state.data.current_operand_stack.negative_number = !app_state.data.current_operand_stack.negative_number;
+            }
             Redraw
         }
         Event::Percent => {
-            app_state.data.modify(|state| {
-                if state.division_by_zero {
-                    return;
+
+            if app_state.data.division_by_zero {
+                return DontRedraw;
+            }
+
+            if let Some(operation) = &app_state.data.last_event.clone() {
+                if let Some(operand) = app_state.data.current_operator.clone() {
+                    let num = app_state.data.current_operand_stack.get_number();
+                    let op = operand.get_number();
+                    let result = match operation {
+                        Event::Plus | Event::Subtract => op / 100.0 * num,
+                        Event::Multiply | Event::Divide => num / 100.0,
+                        _ => unreachable!(),
+                    };
+                    app_state.data.current_operand_stack = OperandStack::from(result);
                 }
+            }
+
+            Redraw
+        }
+        Event::EqualSign => {
+            let state = &mut app_state.data;
+
+            if state.division_by_zero {
+                return DontRedraw;
+            }
+
+            if let Some(Event::EqualSign) = state.last_event {
+                state.expression = format!("{} =", state.current_operand_stack.get_display());
+            } else {
+                state.expression.push_str(&format!("{} =", state.current_operand_stack.get_display()));
                 if let Some(operation) = &state.last_event.clone() {
                     if let Some(operand) = state.current_operator.clone() {
                         let num = state.current_operand_stack.get_number();
                         let op = operand.get_number();
-                        let result = match operation {
-                            Event::Plus | Event::Subtract => op / 100.0 * num,
-                            Event::Multiply | Event::Divide => num / 100.0,
-                            _ => unreachable!(),
-                        };
-                        state.current_operand_stack = OperandStack::from(result);
-                    }
-                }
-            })?;
-            Redraw
-        }
-        Event::EqualSign => {
-            app_state.data.modify(|state| {
-                if state.division_by_zero {
-                    return;
-                }
-                if let Some(Event::EqualSign) = state.last_event {
-                    state.expression = format!("{} =", state.current_operand_stack.get_display());
-                }
-                else {
-                    state.expression.push_str(&format!("{} =", state.current_operand_stack.get_display()));
-                    if let Some(operation) = &state.last_event.clone() {
-                        if let Some(operand) = state.current_operator.clone() {
-                            let num = state.current_operand_stack.get_number();
-                            let op = operand.get_number();
-                            match perform_operation(op, &operation, num) {
-                                Some(r) => state.current_operand_stack = OperandStack::from(r),
-                                None => state.division_by_zero = true,
-                            }
-                        }
-                    }
-                }
-                state.current_operator = None;
-                state.last_event = Some(Event::EqualSign);
-            })?;
-            Redraw
-        }
-        Event::Dot => {
-            app_state.data.modify(|state| {
-                if state.division_by_zero {
-                    return;
-                }
-                if state.current_operand_stack.stack.iter().position(|x| *x == Number::Dot).is_none() {
-                    if state.current_operand_stack.stack.len() == 0 {
-                        state.current_operand_stack.stack.push(Number::Value(0));
-                    }
-                    state.current_operand_stack.stack.push(Number::Dot);
-                }
-            })?;
-            Redraw
-        }
-        Event::Number(v) => {
-            app_state.data.modify(|state| {
-                if let Some(Event::EqualSign) = state.last_event {
-                    *state = Calculator::default();
-                }
-                state.current_operand_stack.stack.push(Number::Value(v));
-            });
-            Redraw
-        }
-        operation => {
-            app_state.data.modify(|state| {
-                if state.division_by_zero {
-                    return;
-                }
-                if let Some(Event::EqualSign) = state.last_event {
-                    state.expression = String::new();
-                }
-                state.expression.push_str(&state.current_operand_stack.get_display());
-                if let Some(Event::EqualSign) = state.last_event {
-                    state.current_operator = Some(state.current_operand_stack.clone());
-                }
-                else if let Some(last_operation) = &state.last_event.clone() {
-                    if let Some(operand) = state.current_operator.clone() {
-                        let num = state.current_operand_stack.get_number();
-                        let op = operand.get_number();
-                        match perform_operation(op, last_operation, num) {
-                            Some(r) => state.current_operator = Some(OperandStack::from(r)),
+                        match perform_operation(op, &operation, num) {
+                            Some(r) => state.current_operand_stack = OperandStack::from(r),
                             None => state.division_by_zero = true,
                         }
                     }
                 }
-                else {
-                    state.current_operator = Some(state.current_operand_stack.clone());
+            }
+
+            state.current_operator = None;
+            state.last_event = Some(Event::EqualSign);
+
+            Redraw
+        }
+        Event::Dot => {
+            let state = &mut app_state.data;
+
+            if state.division_by_zero {
+                return DontRedraw;
+            }
+
+            if state.current_operand_stack.stack.iter().position(|x| *x == Number::Dot).is_none() {
+                if state.current_operand_stack.stack.len() == 0 {
+                    state.current_operand_stack.stack.push(Number::Value(0));
                 }
-                state.current_operand_stack = OperandStack::default();
-                state.expression.push_str(match operation {
-                    Event::Plus => " + ",
-                    Event::Subtract => " - ",
-                    Event::Multiply => " x ",
-                    Event::Divide => " / ",
-                    _ => unreachable!(),
-                });
-                state.last_event = Some(operation);
-            })?;
+                state.current_operand_stack.stack.push(Number::Dot);
+            }
+
+            Redraw
+        }
+        Event::Number(v) => {
+            if let Some(Event::EqualSign) = app_state.data.last_event {
+                app_state.data = Calculator::default();
+            }
+            app_state.data.current_operand_stack.stack.push(Number::Value(v));
+            Redraw
+        }
+        operation => {
+            let state = &mut app_state.data;
+
+            if state.division_by_zero {
+                return DontRedraw;
+            }
+
+            if let Some(Event::EqualSign) = state.last_event {
+                state.expression = String::new();
+            }
+
+            state.expression.push_str(&state.current_operand_stack.get_display());
+
+            if let Some(Event::EqualSign) = state.last_event {
+                state.current_operator = Some(state.current_operand_stack.clone());
+            } else if let Some(last_operation) = &state.last_event.clone() {
+                if let Some(operand) = state.current_operator.clone() {
+                    let num = state.current_operand_stack.get_number();
+                    let op = operand.get_number();
+                    match perform_operation(op, last_operation, num) {
+                        Some(r) => state.current_operator = Some(OperandStack::from(r)),
+                        None => state.division_by_zero = true,
+                    }
+                }
+            } else {
+                state.current_operator = Some(state.current_operand_stack.clone());
+            }
+
+            state.current_operand_stack = OperandStack::default();
+            state.expression.push_str(match operation {
+                Event::Plus => " + ",
+                Event::Subtract => " - ",
+                Event::Multiply => " x ",
+                Event::Divide => " / ",
+                _ => unreachable!(),
+            });
+            state.last_event = Some(operation);
 
             Redraw
         }

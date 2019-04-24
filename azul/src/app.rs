@@ -4,7 +4,6 @@ use std::{
     rc::Rc,
     time::Instant,
     collections::BTreeMap,
-    sync::{Arc, Mutex, PoisonError},
 };
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
@@ -137,12 +136,11 @@ impl Default for AppConfig {
 ///
 /// If the `.run()` function would panic, that would need `T` to
 /// implement `Debug`, which is not necessary if we just return an error.
-pub enum RuntimeError<T> {
-    // Could not swap the display (drawing error)
+#[derive(Debug)]
+pub enum RuntimeError {
+    /// Could not swap the display (drawing error)
     GlSwapError(SwapBuffersError),
-    ArcUnlockError,
-    MutexPoisonError(PoisonError<T>),
-    MutexLockError,
+    /// Error indexing into internal BTreeMap - wrong window ID
     WindowIndexError,
 }
 
@@ -168,34 +166,19 @@ impl Default for FrameEventInfo {
     }
 }
 
-impl<T> From<PoisonError<T>> for RuntimeError<T> {
-    fn from(e: PoisonError<T>) -> Self {
-        RuntimeError::MutexPoisonError(e)
-    }
-}
-
-impl<T> From<SwapBuffersError> for RuntimeError<T> {
+impl From<SwapBuffersError> for RuntimeError {
     fn from(e: SwapBuffersError) -> Self {
         RuntimeError::GlSwapError(e)
     }
 }
 
-impl<T> fmt::Debug for RuntimeError<T> {
+impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RuntimeError::*;
         match self {
             GlSwapError(e) => write!(f, "Failed to swap GL display: {}", e),
-            ArcUnlockError => write!(f, "Failed to unlock arc on application shutdown"),
-            MutexPoisonError(e) => write!(f, "Mutex poisoned (thread panicked unexpectedly): {}", e),
-            MutexLockError => write!(f, "Failed to lock application state mutex"),
             WindowIndexError => write!(f, "Invalid window index"),
         }
-    }
-}
-
-impl<T> fmt::Display for RuntimeError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self))
     }
 }
 
@@ -320,7 +303,7 @@ impl<T> App<T> {
     /// println!("username: {:?}, password: {:?}", username, password);
     /// ```
     #[cfg(not(test))]
-    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError<T>> {
+    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError> {
 
         // Apps need to have at least one window open
         self.add_window(window);
@@ -332,12 +315,11 @@ impl<T> App<T> {
         // See https://github.com/maps4print/azul/issues/24#issuecomment-429737273
         mem::drop(self.app_state.tasks);
 
-        let unique_arc = Arc::try_unwrap(self.app_state.data).map_err(|_| RuntimeError::ArcUnlockError)?;
-        unique_arc.into_inner().map_err(|e| e.into())
+        Ok(self.app_state.data)
     }
 
     #[cfg(not(test))]
-    fn run_inner(&mut self) -> Result<(), RuntimeError<T>> {
+    fn run_inner(&mut self) -> Result<(), RuntimeError> {
 
         use std::{thread, time::Duration};
         use glium::glutin::Event;
@@ -536,12 +518,14 @@ impl<T> App<T> {
 /// Run all currently registered timers
 #[must_use]
 fn app_state_run_all_timers<T>(app_state: &mut AppState<T>) -> UpdateScreen {
+
     let mut should_update_screen = DontRedraw;
-    let mut lock = app_state.data.lock().unwrap();
     let mut timers_to_terminate = Vec::new();
 
     for (key, timer) in app_state.timers.iter_mut() {
-        let (should_update, should_terminate) = timer.invoke_callback_with_data(&mut lock, &mut app_state.resources);
+        let (should_update, should_terminate) = timer.invoke_callback_with_data(
+            &mut app_state.data, &mut app_state.resources
+        );
 
         if should_update == Redraw {
             should_update_screen = Redraw;
@@ -630,7 +614,7 @@ fn hit_test_single_window<T>(
     ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
     force_redraw_cache: &mut BTreeMap<WindowId, usize>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
-) -> Result<SingleWindowContentResult, RuntimeError<T>> {
+) -> Result<SingleWindowContentResult, RuntimeError> {
 
     use self::RuntimeError::*;
     use window;
@@ -770,7 +754,7 @@ fn relayout_single_window<T>(
     ui_description_cache: &mut BTreeMap<WindowId, UiDescription<T>>,
     force_redraw_cache: &mut BTreeMap<WindowId, usize>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
-) -> Result<(), RuntimeError<T>> {
+) -> Result<(), RuntimeError> {
 
     use self::RuntimeError::*;
     use ui_state::ui_state_from_app_state;
@@ -833,9 +817,7 @@ fn hot_reload_css<T>(
     windows: &mut BTreeMap<WindowId, Window<T>>,
     last_style_reload: &mut Instant,
     should_print_error: &mut bool,
-) -> Result<bool, RuntimeError<T>> {
-
-    use self::RuntimeError::*;
+) -> Result<bool, RuntimeError> {
 
     let mut has_reloaded = false;
 
@@ -929,7 +911,7 @@ fn call_callbacks<T>(
     window_id: &WindowId,
     ui_state: &UiState<T>,
     app_state: &mut AppState<T>
-) -> Result<CallCallbackReturn, RuntimeError<T>> {
+) -> Result<CallCallbackReturn, RuntimeError> {
 
     use {
         callbacks::CallbackInfo,
@@ -949,47 +931,43 @@ fn call_callbacks<T>(
     let mut default_tasks = Vec::new();
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
-    {
-        let mut lock = app_state.data.lock().map_err(|_| RuntimeError::MutexLockError)?;
+    for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
+        let hit_item = &callback_results.hit_test_item;
+        for default_callback_id in callback_results.default_callbacks.values() {
 
-        for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
-            let hit_item = &callback_results.hit_test_item;
-            for default_callback_id in callback_results.default_callbacks.values() {
+            let mut callback_info = CallbackInfo {
+                focus: None,
+                window_id,
+                hit_dom_node: *node_id,
+                ui_state,
+                hit_test_items: &hit_test_items,
+                cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+            };
 
-                let mut callback_info = CallbackInfo {
-                    focus: None,
-                    window_id,
-                    hit_dom_node: *node_id,
-                    ui_state,
-                    hit_test_items: &hit_test_items,
-                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                };
+            let mut app_state_no_data = AppStateNoData {
+                windows: &app_state.windows,
+                resources: &mut app_state.resources,
+                timers: FastHashMap::default(),
+                tasks: Vec::new(),
+            };
 
-                let mut app_state_no_data = AppStateNoData {
-                    windows: &app_state.windows,
-                    resources: &mut app_state.resources,
-                    timers: FastHashMap::default(),
-                    tasks: Vec::new(),
-                };
+            if fake_window_run_default_callback(
+                &app_state.windows[window_id],
+                &mut app_state.data,
+                default_callback_id,
+                &mut app_state_no_data,
+                &mut callback_info
+            ) == Redraw {
+                should_update_screen = Redraw;
+            }
 
-                if fake_window_run_default_callback(
-                    &app_state.windows[window_id],
-                    &mut *lock,
-                    default_callback_id,
-                    &mut app_state_no_data,
-                    &mut callback_info
-                ) == Redraw {
-                    should_update_screen = Redraw;
-                }
+            default_timers.extend(app_state_no_data.timers.into_iter());
+            default_tasks.extend(app_state_no_data.tasks.into_iter());
 
-                default_timers.extend(app_state_no_data.timers.into_iter());
-                default_tasks.extend(app_state_no_data.tasks.into_iter());
-
-                // Overwrite the focus from the callback info
-                if let Some(new_focus) = callback_info.focus {
-                    callbacks_overwrites_focus = Some(new_focus);
-                }
+            // Overwrite the focus from the callback info
+            if let Some(new_focus) = callback_info.focus {
+                callbacks_overwrites_focus = Some(new_focus);
             }
         }
     }
@@ -1038,7 +1016,7 @@ fn call_callbacks<T>(
 /// Build the display list and send it to webrender
 #[cfg(not(test))]
 fn update_display_list<T>(
-    app_data: &mut Arc<Mutex<T>>,
+    app_data: &mut T,
     ui_description: &UiDescription<T>,
     ui_state: &UiState<T>,
     window: &mut Window<T>,

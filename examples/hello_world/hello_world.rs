@@ -19,7 +19,7 @@ impl Layout for DataModel {
 }
 
 fn update_counter(app_state: &mut AppState<DataModel>, _: &mut CallbackInfo<DataModel>) -> UpdateScreen {
-    app_state.data.modify(|state| state.counter += 1)?;
+    app_state.data.counter += 1;
     Redraw
 }
 

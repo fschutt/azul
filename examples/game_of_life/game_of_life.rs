@@ -169,7 +169,7 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Univ
     use std::time::Duration;
 
     if let Some(timer) = {
-        let state = &mut app_state.data.lock().ok()?;
+        let state = &mut app_state.data;
         state.board = Board::new_random(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT);
 
         if state.game_is_running {

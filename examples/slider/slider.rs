@@ -59,19 +59,19 @@ fn click_outside_drag(_state: &mut State, _event: &mut Event) -> UpdateScreen {
 }
 
 fn start_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
-    state.data.modify(|data| data.is_dragging = true)?;
+    state.data.is_dragging = true;
     DontRedraw
 }
 
 fn stop_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
-    state.data.modify(|data| data.is_dragging = false)?;
+    state.data.is_dragging = false;
     Redraw
 }
 
 fn update_drag(state: &mut State, event: &mut Event) -> UpdateScreen {
     let cursor_pos = state.windows.get(event.window_id)?.state.mouse_state.cursor_pos.unwrap_or(LogicalPosition::new(0.0, 0.0));
-    if state.data.lock().unwrap().is_dragging {
-        state.data.modify(|data| data.width = Some(cursor_pos.x as f32));
+    if state.data.is_dragging {
+        state.data.width = Some(cursor_pos.x as f32);
         Redraw
     } else {
         DontRedraw

@@ -24,16 +24,14 @@ impl Layout for List {
 fn print_which_item_was_selected(app_state: &mut AppState<List>, event: &mut CallbackInfo<List>) -> UpdateScreen {
 
     let selected = event.target_index_in_parent();
+    let mut should_redraw = DontRedraw;
 
-    let mut state = app_state.data.lock().ok()?;
-    let should_redraw = if selected != state.selected {
-        state.selected = selected;
-        Redraw
-    } else {
-        DontRedraw
-    };
+    if selected != app_state.data.selected {
+        app_state.data.selected = selected;
+        should_redraw = Redraw;
+    }
 
-    println!("selected item: {:?}", state.selected);
+    println!("selected item: {:?}", app_state.data.selected);
 
     should_redraw
 }
