@@ -19,6 +19,7 @@ use {
 pub use azul_core::window::{
     WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
+    WaylandTheme,
 };
 use azul_core::callbacks::FocusTarget;
 
@@ -109,6 +110,8 @@ pub(crate) struct FullWindowState {
     pub is_visible: bool,
     /// Is the window always on top?
     pub is_always_on_top: bool,
+    /// Whether the window is resizable
+    pub is_resizable: bool,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
     /// Used for performance monitoring and displaying frame times (rendering-only).
     pub debug_state: DebugState,
@@ -118,6 +121,13 @@ pub(crate) struct FullWindowState {
     /// Current mouse state - NOTE: mutating this field (currently) does nothing
     /// (doesn't get synchronized with OS-level window)!
     pub mouse_state: MouseState,
+    /// Sets location of IME candidate box in client area coordinates relative to the top left
+    /// Supported on all platforms.
+    pub ime_position: Option<LogicalPosition>,
+    /// On X11, sets window urgency hint (`XUrgencyHint`). On macOs, requests user attention via
+    pub request_user_attention: bool,
+    /// Set the windows Wayland theme. Irrelevant on other platforms, set to `None`
+    pub wayland_theme: Option<WaylandTheme>,
 
     // --
 
@@ -141,16 +151,20 @@ impl Default for FullWindowState {
         use azul_core::window::DEFAULT_TITLE;
         Self {
             title: DEFAULT_TITLE.into(),
-            position: None,
             size: WindowSize::default(),
+            position: None,
             is_maximized: false,
             is_fullscreen: false,
             has_decorations: true,
             is_visible: true,
             is_always_on_top: false,
-            mouse_state: MouseState::default(),
-            keyboard_state: KeyboardState::default(),
+            is_resizable: true,
             debug_state: DebugState::default(),
+            keyboard_state: KeyboardState::default(),
+            mouse_state: MouseState::default(),
+            ime_position: None,
+            request_user_attention: false,
+            wayland_theme: None,
 
             // --
 
@@ -642,17 +656,18 @@ fn update_keyboard_modifiers(window_state: &mut FullWindowState, event: &WindowE
 /// cursor position, if the event is a `CursorMoved` and set it to `None`
 /// if the cursor has left the window
 fn update_mouse_cursor_position(window_state: &mut FullWindowState, event: &WindowEvent) {
+    use azul_core::window::CursorPosition;
     match event {
         WindowEvent::CursorMoved { position, .. } => {
             let world_pos_x = position.x as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
             let world_pos_y = position.y as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
-            window_state.mouse_state.cursor_pos = Some(LogicalPosition::new(world_pos_x, world_pos_y));
+            window_state.mouse_state.cursor_pos = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
         },
         WindowEvent::CursorLeft { .. } => {
-            window_state.mouse_state.cursor_pos = None;
+            window_state.mouse_state.cursor_pos = CursorPosition::OutOfWindow;
         },
         WindowEvent::CursorEntered { .. } => {
-            window_state.mouse_state.cursor_pos = Some(LogicalPosition::new(0.0, 0.0))
+            window_state.mouse_state.cursor_pos = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
         },
         _ => { }
     }

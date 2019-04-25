@@ -728,7 +728,7 @@ fn prepare_image(image_decoded: DynamicImage)
             premultiply(pixels.as_mut_slice());
             (RawImageFormat::BGRA8, pixels)
         },
-        image::ImageRgba8(mut bytes) => {
+        image::ImageRgba8(bytes) => {
             let mut pixels = bytes.into_raw();
             // no extra allocation necessary, but swizzling
             for rgba in pixels.chunks_mut(4) {

@@ -695,15 +695,15 @@ fn hit_test_single_window<T>(
 
     ret.should_scroll_render = should_scroll_render;
 
-    if frame_event_info.is_resize_event {
-        // This is a hack because during a resize event, winit eats the "awakened"
-        // event. So what we do is that we call the layout-and-render again, to
-        // trigger a second "awakened" event. So when the window is resized, the
-        // layout function is called twice (the first event will be eaten by winit)
-        //
-        // This is a reported bug and should be fixed somewhere in July
-        *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
-    }
+    // if frame_event_info.is_resize_event {
+    //     // This is a hack because during a resize event, winit eats the "awakened"
+    //     // event. So what we do is that we call the layout-and-render again, to
+    //     // trigger a second "awakened" event. So when the window is resized, the
+    //     // layout function is called twice (the first event will be eaten by winit)
+    //     //
+    //     // This is a reported bug and should be fixed somewhere in July
+    //     *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
+    // }
 
     // See: https://docs.rs/glutin/0.19.0/glutin/struct.CombinedContext.html#method.resize
     //
@@ -720,6 +720,14 @@ fn hit_test_single_window<T>(
 
     // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
     full_window_state.pending_focus_target = ret.new_focus_target.clone();
+
+    // Update the window state every frame that was set by the user
+    window::synchronize_window_state_with_os_window(
+        full_window_state,
+        &mut app_state.windows.get_mut(window_id).unwrap().state,
+        &*window.display.gl_window(),
+    );
+
     window::update_from_external_window_state(
         full_window_state,
         &mut frame_event_info,
@@ -727,17 +735,13 @@ fn hit_test_single_window<T>(
         &window.display.gl_window()
     );
 
-    // Update the window state every frame that was set by the user
-    window::update_from_user_window_state(
-        full_window_state,
-        &mut app_state.windows.get_mut(window_id).unwrap().state,
-        &*window.display.gl_window(),
-    );
-
     // Reset the scroll amount to 0 (for the next frame)
     window::clear_scroll_state(full_window_state);
 
     app_state.windows.get_mut(window_id).unwrap().state = window::full_window_state_to_window_state(full_window_state);
+
+    println!("app_state.windows[{:?}] = {:#?}", window_id, app_state.windows[window_id].state);
+    println!("-----------");
 
     Ok(ret)
 }
@@ -868,8 +872,7 @@ fn do_hit_test<T>(
 
     use wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
 
-    let cursor_location = full_window_state.mouse_state.cursor_pos
-        .map(|pos| WorldPoint::new(pos.x as f32, pos.y as f32))?;
+    let cursor_location = full_window_state.mouse_state.cursor_pos.get_position().map(|pos| WorldPoint::new(pos.x, pos.y))?;
 
     let mut hit_test_results: Vec<HitTestItem> = fake_display.render_api.hit_test(
         window.internal.document_id,

@@ -165,13 +165,15 @@ pub struct KeyboardState {
 }
 
 /// Mouse position on the screen
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct MouseState {
-    /// Current mouse cursor type
-    pub mouse_cursor_type: MouseCursorType,
-    /// Where is the mouse cursor currently? Set to `None` if the window is not focused
-    pub cursor_pos: Option<LogicalPosition>,
-    /// Is the left mouse button down?
+    /// Current mouse cursor type, set to `None` if the cursor is hidden - READWRITE
+    pub mouse_cursor_type: Option<MouseCursorType>,
+    /// Where is the mouse cursor currently? Set to `None` if the window is not focused - READWRITE
+    pub cursor_pos: CursorPosition,
+    /// Is the mouse cursor locked to the current window (important for applications like games) - READWRITE
+    pub is_cursor_locked: bool,
+    /// Is the left mouse button down (READONLY)?
     pub left_down: bool,
     /// Is the right mouse button down?
     pub right_down: bool,
@@ -183,10 +185,47 @@ pub struct MouseState {
     pub scroll_y: f32,
 }
 
+impl Default for MouseState {
+    fn default() -> Self {
+        Self {
+            mouse_cursor_type: Some(MouseCursorType::Default),
+            cursor_pos: CursorPosition::default(),
+            is_cursor_locked: false,
+            left_down: false,
+            right_down: false,
+            middle_down: false,
+            scroll_x: 0.0,
+            scroll_y: 0.0,
+        }
+    }
+}
+
 impl MouseState {
     /// Returns whether any mouse button (left, right or center) is currently held down
     pub fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum CursorPosition {
+    OutOfWindow,
+    Uninitialized,
+    InWindow(LogicalPosition),
+}
+
+impl Default for CursorPosition {
+    fn default() -> CursorPosition {
+        CursorPosition::Uninitialized
+    }
+}
+
+impl CursorPosition {
+    pub fn get_position(&self) -> Option<LogicalPosition> {
+        match self {
+            CursorPosition::InWindow(logical_pos) => Some(*logical_pos),
+            CursorPosition::OutOfWindow | CursorPosition::Uninitialized => None,
+        }
     }
 }
 
@@ -241,6 +280,8 @@ pub struct WindowState {
     pub is_visible: bool,
     /// Is the window always on top?
     pub is_always_on_top: bool,
+    /// Whether the window is resizable
+    pub is_resizable: bool,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
     /// Used for performance monitoring and displaying frame times (rendering-only).
     pub debug_state: DebugState,
@@ -250,6 +291,51 @@ pub struct WindowState {
     /// Current mouse state - NOTE: mutating this field (currently) does nothing
     /// (doesn't get synchronized with OS-level window)!
     pub mouse_state: MouseState,
+    /// Sets location of IME candidate box in client area coordinates relative to the top left
+    /// Supported on all platforms.
+    pub ime_position: Option<LogicalPosition>,
+    /// On X11, sets window urgency hint (`XUrgencyHint`). On macOs, requests user attention via
+    pub request_user_attention: bool,
+    /// Set the windows Wayland theme. Irrelevant on other platforms, set to `None`
+    pub wayland_theme: Option<WaylandTheme>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FullScreenMode {
+    /// - macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode
+    /// - other: Does the same as `FastFullScreen`.
+    SlowFullScreen,
+    /// Window should immediately go into fullscreen mode (on macOS this is not the default behaviour).
+    FastFullScreen,
+    /// - macOS: If the window is in fullscreen mode, transitions slowly back to windowed state.
+    /// - other: Does the same as `FastWindowed`.
+    SlowWindowed,
+    /// If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS this is not the default behaviour).
+    FastWindowed,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WaylandTheme {
+    /// Primary color when the window is focused
+    pub primary_active: [u8; 4],
+    /// Primary color when the window is unfocused
+    pub primary_inactive: [u8; 4],
+    /// Secondary color when the window is focused
+    pub secondary_active: [u8; 4],
+    /// Secondary color when the window is unfocused
+    pub secondary_inactive: [u8; 4],
+    /// Close button color when hovered over
+    pub close_button_hovered: [u8; 4],
+    /// Close button color
+    pub close_button: [u8; 4],
+    /// Close button color when hovered over
+    pub maximize_button_hovered: [u8; 4],
+    /// Maximize button color
+    pub maximize_button: [u8; 4],
+    /// Minimize button color when hovered over
+    pub minimize_button_hovered: [u8; 4],
+    /// Minimize button color
+    pub minimize_button: [u8; 4],
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -299,16 +385,20 @@ impl Default for WindowState {
     fn default() -> Self {
         Self {
             title: DEFAULT_TITLE.into(),
-            position: None,
             size: WindowSize::default(),
+            position: None,
             is_maximized: false,
             is_fullscreen: false,
             has_decorations: true,
             is_visible: true,
             is_always_on_top: false,
-            mouse_state: MouseState::default(),
-            keyboard_state: KeyboardState::default(),
+            is_resizable: true,
             debug_state: DebugState::default(),
+            keyboard_state: KeyboardState::default(),
+            mouse_state: MouseState::default(),
+            ime_position: None,
+            request_user_attention: false,
+            wayland_theme: None,
         }
     }
 }

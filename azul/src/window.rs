@@ -172,7 +172,8 @@ impl RenderNotifier for Notifier {
 
     // NOTE: Rendering is single threaded (because that's the nature of OpenGL),
     // so when the Renderer::render() function is finished, then the rendering
-    // is finished and done, the rendering is currently blocking (but only takes about 0.. There is no point in implementing RenderNotifier, it only leads to
+    // is finished and done, the rendering is currently blocking (but only takes about 0..
+    // There is no point in implementing RenderNotifier, it only leads to
     // synchronization problems (when handling Event::Awakened).
 
     fn wake_up(&self) { }
@@ -551,28 +552,21 @@ impl<T> Window<T> {
 
 /// Synchronize the FullWindowState with the WindowState,
 /// updating the OS-level window to reflect the new state
-pub(crate) fn update_from_user_window_state(
+pub(crate) fn synchronize_window_state_with_os_window(
     old_state: &mut FullWindowState,
     new_state: &WindowState,
     window: &GliumWindow,
 ) {
-    use wr_translate::winit_translate_cursor;
-
     let current_window_state = old_state.clone();
+
+    synchronize_mouse_state(&mut old_state.mouse_state, &new_state.mouse_state, window);
 
     if old_state.title != new_state.title {
         window.set_title(&new_state.title);
-        old_state.title = new_state.title.clone();
-    }
-
-    if old_state.mouse_state.mouse_cursor_type != new_state.mouse_state.mouse_cursor_type {
-        window.set_cursor(winit_translate_cursor(new_state.mouse_state.mouse_cursor_type));
-        old_state.mouse_state.mouse_cursor_type = new_state.mouse_state.mouse_cursor_type;
     }
 
     if old_state.is_maximized != new_state.is_maximized {
         window.set_maximized(new_state.is_maximized);
-        old_state.is_maximized = new_state.is_maximized;
     }
 
     if old_state.is_fullscreen != new_state.is_fullscreen {
@@ -581,12 +575,10 @@ pub(crate) fn update_from_user_window_state(
         } else {
             window.set_fullscreen(None);
         }
-        old_state.is_fullscreen = new_state.is_fullscreen;
     }
 
     if old_state.has_decorations != new_state.has_decorations {
         window.set_decorations(new_state.has_decorations);
-        old_state.has_decorations = new_state.has_decorations;
     }
 
     if old_state.is_visible != new_state.is_visible {
@@ -595,20 +587,73 @@ pub(crate) fn update_from_user_window_state(
         } else {
             window.hide();
         }
-        old_state.is_visible = new_state.is_visible;
     }
 
     if old_state.size.min_dimensions != new_state.size.min_dimensions {
         window.set_min_dimensions(new_state.size.min_dimensions.map(|min| winit_translate::translate_logical_size(min).into()));
-        old_state.size.min_dimensions = new_state.size.min_dimensions;
     }
 
     if old_state.size.max_dimensions != new_state.size.max_dimensions {
         window.set_max_dimensions(new_state.size.max_dimensions.map(|max| winit_translate::translate_logical_size(max).into()));
-        old_state.size.max_dimensions = new_state.size.max_dimensions;
     }
 
+    // Overwrite all fields of the old state with the new window state
+    update_full_window_state(old_state, new_state);
     old_state.previous_window_state = Some(Box::new(current_window_state));
+}
+
+/// Reverse function of `full_window_state_to_window_state` - overwrites all
+/// fields of the `FullWindowState` with the fields of the `WindowState`
+fn update_full_window_state(
+    full_window_state: &mut FullWindowState,
+    window_state: &WindowState
+) {
+    full_window_state.title = window_state.title.clone();
+    full_window_state.size = window_state.size;
+    full_window_state.position = window_state.position;
+    full_window_state.is_maximized = window_state.is_maximized;
+    full_window_state.is_fullscreen = window_state.is_fullscreen;
+    full_window_state.has_decorations = window_state.has_decorations;
+    full_window_state.is_visible = window_state.is_visible;
+    full_window_state.is_always_on_top = window_state.is_always_on_top;
+    full_window_state.is_resizable = window_state.is_resizable;
+    full_window_state.debug_state = window_state.debug_state;
+    full_window_state.keyboard_state = window_state.keyboard_state.clone();
+    full_window_state.mouse_state = window_state.mouse_state;
+    full_window_state.ime_position = window_state.ime_position;
+    full_window_state.request_user_attention = window_state.request_user_attention;
+    full_window_state.wayland_theme = window_state.wayland_theme;
+}
+
+fn synchronize_mouse_state(
+    old_mouse_state: &mut MouseState,
+    new_mouse_state: &MouseState,
+    window: &GliumWindow,
+) {
+    use wr_translate::winit_translate_cursor;
+    match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
+        (Some(_old_mouse_cursor), None) => {
+            window.hide_cursor(true);
+        },
+        (None, Some(new_mouse_cursor)) => {
+            window.hide_cursor(false);
+            window.set_cursor(winit_translate_cursor(new_mouse_cursor));
+        },
+        (Some(old_mouse_cursor), Some(new_mouse_cursor)) => {
+            if old_mouse_cursor != new_mouse_cursor {
+                window.set_cursor(winit_translate_cursor(new_mouse_cursor));
+            }
+        },
+        (None, None) => { },
+    }
+
+    if old_mouse_state.is_cursor_locked != new_mouse_state.is_cursor_locked {
+        window.grab_cursor(new_mouse_state.is_cursor_locked)
+        .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
+        .unwrap_or(());
+    }
+
+    // TODO: Synchronize mouse cursor position!
 }
 
 pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowState) -> WindowState {
@@ -621,9 +666,13 @@ pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowSt
         has_decorations: full_window_state.has_decorations,
         is_visible: full_window_state.is_visible,
         is_always_on_top: full_window_state.is_always_on_top,
+        is_resizable: full_window_state.is_resizable,
         debug_state: full_window_state.debug_state,
         keyboard_state: full_window_state.keyboard_state.clone(),
         mouse_state: full_window_state.mouse_state,
+        ime_position: full_window_state.ime_position,
+        request_user_attention: full_window_state.request_user_attention,
+        wayland_theme: full_window_state.wayland_theme,
     }
 }
 
