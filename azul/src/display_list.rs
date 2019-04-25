@@ -39,7 +39,10 @@ use {
     window::{Window, WindowSize, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
 };
-use azul_core::callbacks::PipelineId;
+use azul_core::{
+    callbacks::PipelineId,
+    display_list::{CachedDisplayList, DisplayListMsg},
+};
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
 
@@ -79,125 +82,47 @@ impl<'a> DisplayRectangle<'a> {
     }
 }
 
-impl<'a, T: 'a> DisplayList<'a, T> {
+/// Since the display list can take a lot of parameters, we don't want to
+/// continually pass them as parameters of the function and rather use a
+/// struct to pass them around. This is purely for ergonomic reasons.
+///
+/// `DisplayListParametersRef` has only members that are
+///  **immutable references** to other things that need to be passed down the display list
+#[derive(Copy, Clone)]
+struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a> {
+    pub node_data: &'a NodeDataContainer<NodeData<T>>,
+    /// The CSS that should be applied to the DOM
+    pub css: &'b Css,
+    /// Laid out words and rectangles (contains info about content bounds and text layout)
+    pub layout_result: &'c LayoutResult,
+    /// Reference to the arena that contains all the styled rectangles
+    pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
+    /// Reference to the arena that contains the node hierarchy data, so
+    /// that the node hierarchy can be re-used
+    pub node_hierarchy: &'e NodeHierarchy,
+    /// The current pipeline of the display list
+    pub pipeline_id: PipelineId,
+}
 
-    /// NOTE: This function assumes that the UiDescription has an initialized arena
-    ///
-    /// This only looks at the user-facing styles of the `UiDescription`, not the actual
-    /// layout. The layout is done only in the `into_display_list_builder` step.
-    pub(crate) fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
-        let arena = &ui_description.ui_descr_arena;
-
-        let display_rect_arena = arena.node_data.transform(|node, node_id| {
-            let style = &ui_description.styled_nodes[node_id];
-            let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
-            let mut rect = DisplayRectangle::new(tag, style);
-            populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
-            rect
-        });
-
-        Self {
-            ui_descr: ui_description,
-            rectangles: display_rect_arena,
-        }
-    }
-
-    /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
-    pub(crate) fn into_display_list_builder(
-        &self,
-        app_data_access: &mut T,
-        window: &mut Window<T>,
-        fake_window: &mut FakeWindow<T>,
-        app_resources: &mut AppResources,
-        render_api: &mut RenderApi,
-    ) -> (DisplayListBuilder, ScrolledNodes, LayoutResult) {
-
-        use window::LogicalSize;
-        use app_resources::add_fonts_and_images;
-        use wr_translate::wr_translate_pipeline_id;
-
-        let mut resource_updates = Vec::<ResourceUpdate>::new();
-
-        let arena = &self.ui_descr.ui_descr_arena;
-        let node_hierarchy = &arena.node_layout;
-        let node_data = &arena.node_data;
-
-        // Scan the styled DOM for image and font keys.
-        //
-        // The problem is that we need to scan all DOMs for image and font keys and insert them
-        // before the layout() step - however, can't call IFrameCallbacks upfront, because each
-        // IFrameCallback needs to know its size (so it has to be invoked after the layout() step).
-        // So, this process needs to follow an order like:
-        //
-        // - For each DOM to render:
-        //      - Create a DOM ID
-        //      - Style the DOM according to the stylesheet
-        //      - Scan all the font keys and image keys
-        //      - Insert the new font keys and image keys into the render API
-        //      - Scan all IFrameCallbacks, generate the DomID for each callback
-        //      - Repeat while number_of_iframe_callbacks != 0
-        add_fonts_and_images(app_resources, render_api, &self);
-
-        let window_size = window.state.size.get_reverse_logical_size();
-        let layout_result = do_the_layout(
-            node_hierarchy,
-            node_data,
-            &self.rectangles,
-            &*app_resources,
-            LayoutSize::new(window_size.width as f32, window_size.height as f32),
-            LayoutPoint::new(0.0, 0.0),
-        );
-
-        // TODO: After the layout has been done, call all IFrameCallbacks and get and insert
-        // their font keys / image keys
-
-        let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
-            node_hierarchy, &self.rectangles, node_data, &layout_result.rects,
-            &layout_result.node_depths, window.internal.pipeline_id
-        );
-
-        // Make sure unused scroll states are garbage collected.
-        window.scroll_states.remove_unused_scroll_states();
-
-        let LogicalSize { width, height } = window.state.size.dimensions;
-        let mut builder = DisplayListBuilder::with_capacity(
-            wr_translate_pipeline_id(window.internal.pipeline_id),
-            TypedSize2D::new(width as f32, height as f32),
-            self.rectangles.len()
-        );
-
-        let rects_in_rendering_order = determine_rendering_order(
-            node_hierarchy,
-            &self.rectangles,
-            &layout_result.rects
-        );
-
-        push_rectangles_into_displaylist(
-            window.internal.epoch,
-            window.state.size,
-            rects_in_rendering_order,
-            &mut scrollable_nodes,
-            &mut window.scroll_states,
-            &DisplayListParametersRef {
-                pipeline_id: window.internal.pipeline_id,
-                node_hierarchy,
-                node_data,
-                display_rectangle_arena: &self.rectangles,
-                css: &window.css,
-                layout_result: &layout_result,
-            },
-            &mut DisplayListParametersMut {
-                app_data: app_data_access,
-                app_resources,
-                fake_window,
-                builder: &mut builder,
-                resource_updates: &mut resource_updates,
-                render_api,
-            },
-        );
-
-        (builder, scrollable_nodes, layout_result)
-    }
+/// Same as `DisplayListParametersRef`, but for `&mut Something`
+///
+/// Note: The `'a` in the `'a + Layout` is technically not required.
+/// Only rustc 1.28 requires this, more modern compiler versions insert it automatically.
+struct DisplayListParametersMut<'a, T: 'a> {
+    /// Needs to be present, because the dom_to_displaylist_builder
+    /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
+    pub app_data: &'a mut T,
+    /// The original, top-level display list builder that we need to push stuff into
+    pub builder: &'a mut DisplayListMsg,
+    /// The app resources, so that a sub-DOM / iframe can register fonts and images
+    /// TODO: How to handle cleanup ???
+    pub app_resources: &'a mut AppResources,
+    /// If new fonts or other stuff are created, we need to tell WebRender about this
+    pub resource_updates: &'a mut Vec<ResourceUpdate>,
+    /// Window access, so that sub-items can register OpenGL textures
+    pub fake_window: &'a mut FakeWindow<T>,
+    /// The render API that fonts and images should be added onto.
+    pub render_api: &'a mut RenderApi,
 }
 
 /// In order to render rectangles in the correct order, we have to group them together:
@@ -477,34 +402,136 @@ fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
     !overflow.is_vertical_overflow_visible()
 }
 
-#[test]
-fn test_overflow_parsing() {
+impl<'a, T: 'a> DisplayList<'a, T> {
 
-    use azul_css::Overflow;
+    /// NOTE: This function assumes that the UiDescription has an initialized arena
+    ///
+    /// This only looks at the user-facing styles of the `UiDescription`, not the actual
+    /// layout. The layout is done only in the `into_display_list_builder` step.
+    pub(crate) fn new_from_ui_description(ui_description: &'a UiDescription<T>, ui_state: &UiState<T>) -> Self {
+        let arena = &ui_description.ui_descr_arena;
 
-    let layout1 = RectLayout::default();
+        let display_rect_arena = arena.node_data.transform(|node, node_id| {
+            let style = &ui_description.styled_nodes[node_id];
+            let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
+            let mut rect = DisplayRectangle::new(tag, style);
+            populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
+            rect
+        });
 
-    // The default for overflowing is overflow: auto, which clips
-    // children, so this should evaluate to true by default
-    assert_eq!(node_needs_to_clip_children(&layout1), true);
+        Self {
+            ui_descr: ui_description,
+            rectangles: display_rect_arena,
+        }
+    }
 
-    let layout2 = RectLayout {
-        overflow: Some(LayoutOverflow {
-            horizontal: Some(Overflow::Visible),
-            vertical: Some(Overflow::Visible),
-        }),
-        .. Default::default()
-    };
-    assert_eq!(node_needs_to_clip_children(&layout2), false);
+    /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
+    pub(crate) fn into_display_list_builder(
+        &self,
+        app_data_access: &mut T,
+        window: &mut Window<T>,
+        fake_window: &mut FakeWindow<T>,
+        app_resources: &mut AppResources,
+        render_api: &mut RenderApi,
+    ) -> (CachedDisplayList, ScrolledNodes, LayoutResult) {
 
-    let layout3 = RectLayout {
-        overflow: Some(LayoutOverflow {
-            horizontal: Some(Overflow::Hidden),
-            vertical: Some(Overflow::Visible),
-        }),
-        .. Default::default()
-    };
-    assert_eq!(node_needs_to_clip_children(&layout3), true);
+        use window::LogicalSize;
+        use app_resources::add_fonts_and_images;
+        use wr_translate::wr_translate_pipeline_id;
+
+        let mut resource_updates = Vec::<ResourceUpdate>::new();
+
+        let arena = &self.ui_descr.ui_descr_arena;
+        let node_hierarchy = &arena.node_layout;
+        let node_data = &arena.node_data;
+
+        // Scan the styled DOM for image and font keys.
+        //
+        // The problem is that we need to scan all DOMs for image and font keys and insert them
+        // before the layout() step - however, can't call IFrameCallbacks upfront, because each
+        // IFrameCallback needs to know its size (so it has to be invoked after the layout() step).
+        // So, this process needs to follow an order like:
+        //
+        // - For each DOM to render:
+        //      - Create a DOM ID
+        //      - Style the DOM according to the stylesheet
+        //      - Scan all the font keys and image keys
+        //      - Insert the new font keys and image keys into the render API
+        //      - Scan all IFrameCallbacks, generate the DomID for each callback
+        //      - Repeat while number_of_iframe_callbacks != 0
+        add_fonts_and_images(app_resources, render_api, &self);
+
+        let window_size = window.state.size.get_reverse_logical_size();
+        let layout_result = do_the_layout(
+            node_hierarchy,
+            node_data,
+            &self.rectangles,
+            &*app_resources,
+            LayoutSize::new(window_size.width as f32, window_size.height as f32),
+            LayoutPoint::new(0.0, 0.0),
+        );
+
+        let rects_in_rendering_order = determine_rendering_order(
+            node_hierarchy,
+            &self.rectangles,
+            &layout_result.rects
+        );
+
+        let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
+            node_hierarchy, &self.rectangles, node_data, &layout_result.rects,
+            &layout_result.node_depths, window.internal.pipeline_id
+        );
+
+        // Make sure unused scroll states are garbage collected.
+        window.scroll_states.remove_unused_scroll_states();
+
+        let cached_display_list = CachedDisplayList {
+            root: DisplayListMsg::Frame(DisplayListFrame {
+                clip: bool,
+                rect: DisplayListRect {
+                    position: LogicalPosition { x: 0.0, y: 0.0 },
+                    size: window.state.size.dimensions,
+                },
+                content: vec![DisplayListRectContent::Background {
+                    background_type: StyleBackground::Color(ColurU { r: 255, g: 255, b: 255, a: 255 }),
+                }],
+                children: Vec<DisplayListMsg>,
+            })
+        };
+/*
+        let LogicalSize { width, height } = window.state.size.dimensions;
+        let mut builder = DisplayListBuilder::with_capacity(
+            wr_translate_pipeline_id(window.internal.pipeline_id),
+            TypedSize2D::new(width as f32, height as f32),
+            self.rectangles.len()
+        );
+*/
+        push_rectangles_into_displaylist(
+            window.internal.epoch,
+            window.state.size,
+            rects_in_rendering_order,
+            &mut scrollable_nodes,
+            &mut window.scroll_states,
+            &DisplayListParametersRef {
+                pipeline_id: window.internal.pipeline_id,
+                node_hierarchy,
+                node_data,
+                display_rectangle_arena: &self.rectangles,
+                css: &window.css,
+                layout_result: &layout_result,
+            },
+            &mut DisplayListParametersMut {
+                app_data: app_data_access,
+                app_resources,
+                fake_window,
+                builder: &mut builder,
+                resource_updates: &mut resource_updates,
+                render_api,
+            },
+        );
+
+        (builder, scrollable_nodes, layout_result)
+    }
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
@@ -514,8 +541,8 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
     scrollable_nodes: &mut ScrolledNodes,
     scroll_states: &mut ScrollStates,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>)
-{
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>
+) {
     let mut clip_stack = Vec::new();
 
     for content_group in content_grouped_rectangles.groups {
@@ -526,14 +553,11 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             window_size,
         };
 
-        // Push the root of the node
-        push_rectangles_into_displaylist_inner(
-            content_group.root,
+        displaylist_handle_rect(
             scrollable_nodes,
-            &rectangle,
+            rectangle,
             referenced_content,
-            referenced_mutable_content,
-            &mut clip_stack
+            referenced_mutable_content
         );
 
         for item in content_group.node_ids {
@@ -545,53 +569,14 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
                 window_size,
             };
 
-            push_rectangles_into_displaylist_inner(
-                item,
+            displaylist_handle_rect(
                 scrollable_nodes,
-                &rectangle,
+                rectangle,
                 referenced_content,
-                referenced_mutable_content,
-                &mut clip_stack
+                referenced_mutable_content
             );
         }
     }
-}
-
-fn push_rectangles_into_displaylist_inner<'a,'b,'c,'d,'e,'f, T>(
-    item: RenderableNodeId,
-    scrollable_nodes: &mut ScrolledNodes,
-    rectangle: &DisplayListRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
-    clip_stack: &mut Vec<NodeId>,
-) {
-    displaylist_handle_rect(
-        scrollable_nodes,
-        rectangle,
-        referenced_content,
-        referenced_mutable_content
-    );
-/*
-
-    // NOTE: table demo has problems with clipping
-
-    if item.clip_children {
-        if let Some(last_child) = referenced_content.node_hierarchy[rectangle.rect_idx].last_child {
-            let styled_node = &referenced_content.display_rectangle_arena[rectangle.rect_idx];
-            let solved_rect = &referenced_content.layout_result.rects[rectangle.rect_idx];
-            let clip = get_clip_region(solved_rect.bounds, &styled_node)
-                .unwrap_or(ComplexClipRegion::new(solved_rect.bounds, BorderRadius::zero(), ClipMode::Clip));
-            let clip_id = referenced_mutable_content.builder.define_clip(solved_rect.bounds, vec![clip], /* image_mask: */ None);
-            referenced_mutable_content.builder.push_clip_id(clip_id);
-            clip_stack.push(last_child);
-        }
-    }
-
-    if clip_stack.last().cloned() == Some(rectangle.rect_idx) {
-        referenced_mutable_content.builder.pop_clip_id();
-        clip_stack.pop();
-    }
-*/
 }
 
 /// Parameters that apply to a single rectangle / div node
@@ -615,13 +600,13 @@ fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Optio
 }
 
 /// Push a single rectangle into the display list builder
-#[inline]
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'g, T>)
-{
+    referenced_mutable_content: &mut DisplayListParametersMut<'g, T>
+) -> DisplayListFrame {
+
     let DisplayListParametersRef {
         css, display_rectangle_arena,
         pipeline_id, node_hierarchy, node_data,
@@ -908,49 +893,6 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     parent_scrollable_nodes.tags_to_node_ids.extend(scrollable_nodes.tags_to_node_ids.into_iter());
 }
 
-/// Since the display list can take a lot of parameters, we don't want to
-/// continually pass them as parameters of the function and rather use a
-/// struct to pass them around. This is purely for ergonomic reasons.
-///
-/// `DisplayListParametersRef` has only members that are
-///  **immutable references** to other things that need to be passed down the display list
-#[derive(Copy, Clone)]
-struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a> {
-    pub node_data: &'a NodeDataContainer<NodeData<T>>,
-    /// The CSS that should be applied to the DOM
-    pub css: &'b Css,
-    /// Laid out words and rectangles (contains info about content bounds and text layout)
-    pub layout_result: &'c LayoutResult,
-    /// Reference to the arena that contains all the styled rectangles
-    pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
-    /// Reference to the arena that contains the node hierarchy data, so
-    /// that the node hierarchy can be re-used
-    pub node_hierarchy: &'e NodeHierarchy,
-    /// The current pipeline of the display list
-    pub pipeline_id: PipelineId,
-}
-
-/// Same as `DisplayListParametersRef`, but for `&mut Something`
-///
-/// Note: The `'a` in the `'a + Layout` is technically not required.
-/// Only rustc 1.28 requires this, more modern compiler versions insert it automatically.
-struct DisplayListParametersMut<'a, T: 'a> {
-    /// Needs to be present, because the dom_to_displaylist_builder
-    /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
-    pub app_data: &'a mut T,
-    /// The original, top-level display list builder that we need to push stuff into
-    pub builder: &'a mut DisplayListBuilder,
-    /// The app resources, so that a sub-DOM / iframe can register fonts and images
-    /// TODO: How to handle cleanup ???
-    pub app_resources: &'a mut AppResources,
-    /// If new fonts or other stuff are created, we need to tell WebRender about this
-    pub resource_updates: &'a mut Vec<ResourceUpdate>,
-    /// Window access, so that sub-items can register OpenGL textures
-    pub fake_window: &'a mut FakeWindow<T>,
-    /// The render API that fonts and images should be added onto.
-    pub render_api: &'a mut RenderApi,
-}
-
 fn push_rect(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
@@ -1075,8 +1017,8 @@ fn push_box_shadow(
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     bounds: &LayoutRect,
-    shadow_type: BoxShadowClipMode)
-{
+    shadow_type: BoxShadowClipMode
+) {
     use self::ShouldPushShadow::*;
 
     // Box-shadow can be applied to each corner separately. This means, in practice
@@ -1170,8 +1112,8 @@ fn push_box_shadow_inner(
     border_radius: StyleBorderRadius,
     bounds: &LayoutRect,
     clip_rect: LayoutRect,
-    shadow_type: BoxShadowClipMode)
-{
+    shadow_type: BoxShadowClipMode,
+) {
     use webrender::api::LayoutVector2D;
     use wr_translate::{
         wr_translate_color_u, wr_translate_border_radius,
@@ -1482,8 +1424,8 @@ fn push_border(
     info: &PrimitiveInfo<LayoutPixel>,
     builder: &mut DisplayListBuilder,
     border: &StyleBorder,
-    border_radius: &Option<StyleBorderRadius>)
-{
+    border_radius: &Option<StyleBorderRadius>
+) {
     use wr_translate::{
         wr_translate_layout_side_offsets, wr_translate_border_details
     };
@@ -1492,7 +1434,8 @@ fn push_border(
         builder.push_border(
             info,
             wr_translate_layout_side_offsets(border_widths),
-            wr_translate_border_details(border_details));
+            wr_translate_border_details(border_details)
+        );
     }
 }
 
@@ -1610,4 +1553,34 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
         AlignContent(a)     => { rect.layout.align_content = Some(*a);                  },
         Cursor(_)           => { /* cursor neither affects layout nor styling */        },
     }
+}
+
+#[test]
+fn test_overflow_parsing() {
+
+    use azul_css::Overflow;
+
+    let layout1 = RectLayout::default();
+
+    // The default for overflowing is overflow: auto, which clips
+    // children, so this should evaluate to true by default
+    assert_eq!(node_needs_to_clip_children(&layout1), true);
+
+    let layout2 = RectLayout {
+        overflow: Some(LayoutOverflow {
+            horizontal: Some(Overflow::Visible),
+            vertical: Some(Overflow::Visible),
+        }),
+        .. Default::default()
+    };
+    assert_eq!(node_needs_to_clip_children(&layout2), false);
+
+    let layout3 = RectLayout {
+        overflow: Some(LayoutOverflow {
+            horizontal: Some(Overflow::Hidden),
+            vertical: Some(Overflow::Visible),
+        }),
+        .. Default::default()
+    };
+    assert_eq!(node_needs_to_clip_children(&layout3), true);
 }

@@ -12,6 +12,7 @@ pub mod id_tree;
 pub mod window;
 pub mod ui_state;
 pub mod gl;
+pub mod display_list;
 
 mod stack_checked_pointer;
 

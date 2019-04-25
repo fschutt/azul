@@ -740,9 +740,6 @@ fn hit_test_single_window<T>(
 
     app_state.windows.get_mut(window_id).unwrap().state = window::full_window_state_to_window_state(full_window_state);
 
-    println!("app_state.windows[{:?}] = {:#?}", window_id, app_state.windows[window_id].state);
-    println!("-----------");
-
     Ok(ret)
 }
 
