@@ -1201,6 +1201,7 @@ pub struct LayoutResult {
     pub word_cache: BTreeMap<NodeId, Words>,
     pub scaled_words: BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
     pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    pub layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
     pub node_depths: Vec<(usize, NodeId)>,
 }
 
@@ -1323,11 +1324,20 @@ pub(crate) fn do_the_layout<'a,'b, T>(
         }
     });
 
+    // Create and layout the actual glyphs (important for actually )
+    let layouted_glyph_cache = get_glyphs(
+        &scaled_words,
+        &positioned_word_cache,
+        &display_rects,
+        &layouted_rects,
+    );
+
     LayoutResult {
         rects: layouted_rects,
         word_cache,
         scaled_words,
         positioned_word_cache: word_positions_with_max_width,
+        layouted_glyph_cache,
         node_depths: solved_widths.non_leaf_nodes_sorted_by_depth,
     }
 }
@@ -1335,8 +1345,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
 fn create_word_cache<T>(
     app_resources: &AppResources,
     node_data: &NodeDataContainer<NodeData<T>>,
-) -> BTreeMap<NodeId, Words>
-{
+) -> BTreeMap<NodeId, Words> {
     use text_layout::split_text_into_words;
     node_data
     .linear_iter()
@@ -1437,10 +1446,45 @@ fn get_text_layout_options(
     }
 }
 
+fn get_glyphs<'a>(
+    scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
+    positioned_word_cache: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+    positioned_rectangles: &NodeDataContainer<PositionedRectangle>,
+) -> BTreeMap<NodeId, LayoutedGlyphs> {
+
+    scaled_words
+    .iter()
+    .filter_map(|(node_id,  (scaled_words, _font_instance_key))| {
+        let display_rect = display_rects.get(node_id)?;
+        let layouted_rect = positioned_rectangles.get(node_id)?;
+        let = scaled_words.get(node_id)?;
+        let (word_positions, font_instance_key) = positioned_word_cache.get(node_id)?;
+
+        let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
+
+        let rect_padding_top = rect_layout.padding.unwrap_or_default().top.map(|top| top.to_pixels()).unwrap_or(0.0);
+        let rect_padding_left = rect_layout.padding.unwrap_or_default().left.map(|left| left.to_pixels()).unwrap_or(0.0);
+        let rect_offset = LayoutPoint::new(info.rect.origin.x + rect_padding_left, info.rect.origin.y + rect_padding_top);
+        let bounding_size_height_px = info.rect.size.height - rect_layout.get_vertical_padding();
+
+        Some(get_layouted_glyphs(
+            word_positions,
+            scaled_words,
+            horz_alignment,
+            vert_alignment,
+            rect_offset.clone(),
+            bounding_size_height_px
+        ))
+    }).collect()
+}
+
 /// For a given rectangle, determines what text alignment should be used
-pub(crate) fn determine_text_alignment(rect_style: &RectStyle, rect_layout: &RectLayout)
-    -> (StyleTextAlignmentHorz, StyleTextAlignmentVert)
-{
+fn determine_text_alignment(
+    rect_style: &RectStyle,
+    rect_layout: &RectLayout,
+) -> (StyleTextAlignmentHorz, StyleTextAlignmentVert) {
+
     let mut horz_alignment = StyleTextAlignmentHorz::default();
     let mut vert_alignment = StyleTextAlignmentVert::default();
 
