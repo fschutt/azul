@@ -64,9 +64,21 @@ pub struct LayoutSideOffsets {
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 
+impl ColorU {
+    pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
+    pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+    pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+}
+
 /// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ColorF { pub r: f32, pub g: f32, pub b: f32, pub a: f32 }
+
+impl ColorF {
+    pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: 0.0 };
+    pub const BLACK: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+    pub const TRANSPARENT: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+}
 
 impl From<ColorU> for ColorF {
     fn from(input: ColorU) -> ColorF {

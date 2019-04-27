@@ -13,6 +13,7 @@ use webrender::api::{
     IdNamespace as WrIdNamespace,
     PipelineId as WrPipelineId,
     ColorU as WrColorU,
+    ColorF as WrColorF,
     BorderRadius as WrBorderRadius,
     BorderSide as WrBorderSide,
     NormalBorder as WrNormalBorder,
@@ -32,6 +33,7 @@ use azul_core::{
 };
 use azul_css::{
     ColorU as CssColorU,
+    ColorF as CssColorF,
     BorderRadius as CssBorderRadius,
     BorderSide as CssBorderSide,
     NormalBorder as CssNormalBorder,
@@ -222,6 +224,11 @@ pub fn wr_translate_layout_side_offsets(input: CssLayoutSideOffsets) -> WrLayout
 #[inline(always)]
 pub const fn wr_translate_color_u(input: CssColorU) -> WrColorU {
     WrColorU { r: input.r, g: input.g, b: input.b, a: input.a }
+}
+
+#[inline(always)]
+pub const fn wr_translate_color_f(input: CssColorF) -> WrColorF {
+    WrColorF { r: input.r, g: input.g, b: input.b, a: input.a }
 }
 
 #[inline]

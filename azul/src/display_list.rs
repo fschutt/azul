@@ -1,22 +1,18 @@
 #![allow(unused_variables)]
 
 use std::{
-    fmt,
     collections::BTreeMap,
 };
 use euclid::{TypedRect, TypedSize2D};
 use webrender::api::{
     LayoutPixel, DisplayListBuilder, PrimitiveInfo, GradientStop,
-    ColorF, Epoch, ImageData, ImageDescriptor,
-    ResourceUpdate, AddImage, BorderRadius, ClipMode,
-    LayoutPoint, LayoutSize, GlyphOptions, LayoutRect, ExternalScrollId,
+    Epoch, ImageData, ImageDescriptor, ResourceUpdate, AddImage, ClipMode,
+    LayoutPoint, LayoutSize, LayoutRect, ExternalScrollId,
     ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
-    ExternalImageData, ImageFormat, ExternalImageType, TextureTarget,
-    ImageRendering, AlphaType, FontInstanceFlags, FontRenderMode,
-    RenderApi,
+    ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
 };
 use azul_css::{
-    Css, LayoutPosition,CssProperty, LayoutOverflow,
+    Css, LayoutPosition,CssProperty, LayoutOverflow, ColorU, ColorF,
     StyleBorderRadius, LayoutMargin, LayoutPadding, BoxShadowClipMode,
     StyleTextColor, StyleBackground, StyleBoxShadow,
     StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder, BoxShadowPreDisplayItem,
@@ -38,10 +34,16 @@ use {
     compositor::new_opengl_texture_id,
     window::{Window, WindowSize, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
+    text_layout::LayoutedGlyphs,
 };
 use azul_core::{
     callbacks::PipelineId,
-    display_list::{CachedDisplayList, DisplayListMsg},
+    window::{LogicalSize, LogicalPosition},
+    app_resources::FontInstanceKey,
+    display_list::{
+        CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
+        ImageRendering, AlphaType, DisplayListFrame,
+    },
 };
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
@@ -403,7 +405,7 @@ fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
 ///
 /// This only looks at the user-facing styles of the `UiDescription`, not the actual
 /// layout. The layout is done only in the `into_display_list_builder` step.
-pub(crate) fn display_list_from_ui_description<'a>(
+pub(crate) fn display_list_from_ui_description<'a, T>(
     ui_description: &'a UiDescription<T>,
     ui_state: &UiState<T>
 ) -> DisplayList<'a, T> {
@@ -418,14 +420,14 @@ pub(crate) fn display_list_from_ui_description<'a>(
         rect
     });
 
-    Self {
+    DisplayList {
         ui_descr: ui_description,
         rectangles: display_rect_arena,
     }
 }
 
 /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
-pub(crate) fn display_list_to_cached_display_list(
+pub(crate) fn display_list_to_cached_display_list<'a, T>(
     display_list: DisplayList<'a, T> ,
     app_data_access: &mut T,
     window: &mut Window<T>,
@@ -434,9 +436,7 @@ pub(crate) fn display_list_to_cached_display_list(
     render_api: &mut RenderApi,
 ) -> (CachedDisplayList, ScrolledNodes, LayoutResult) {
 
-    use window::LogicalSize;
     use app_resources::add_fonts_and_images;
-    use wr_translate::wr_translate_pipeline_id;
 
     let mut resource_updates = Vec::<ResourceUpdate>::new();
 
@@ -458,7 +458,7 @@ pub(crate) fn display_list_to_cached_display_list(
     //      - Insert the new font keys and image keys into the render API
     //      - Scan all IFrameCallbacks, generate the DomID for each callback
     //      - Repeat while number_of_iframe_callbacks != 0
-    add_fonts_and_images(app_resources, render_api, &self);
+    add_fonts_and_images(app_resources, render_api, &display_list);
 
     let window_size = window.state.size.get_reverse_logical_size();
     let layout_result = do_the_layout(
@@ -502,17 +502,14 @@ pub(crate) fn display_list_to_cached_display_list(
             app_data: app_data_access,
             app_resources,
             fake_window,
-            builder: &mut builder,
             resource_updates: &mut resource_updates,
             render_api,
         },
     );
 
-    let cached_display_list = CachedDisplayList {
-        root: DisplayListMsg::Frame(root_node)
-    };
+    let cached_display_list = CachedDisplayList { root: root_node };
 
-    (builder, scrollable_nodes, layout_result)
+    (cached_display_list, scrollable_nodes, layout_result)
 }
 
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
@@ -522,10 +519,10 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
     scrollable_nodes: &mut ScrolledNodes,
     scroll_states: &mut ScrollStates,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> DisplayListMsg {
 
-    let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| { {
+    let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| {
 
         let rectangle = DisplayListRectParams {
             epoch,
@@ -534,12 +531,13 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             window_size,
         };
 
-        let mut content: DisplayListMsg = displaylist_handle_rect(
+        // TODO: overflow / scroll frames!
+        let mut content: DisplayListMsg = DisplayListMsg::Frame(displaylist_handle_rect(
             scrollable_nodes,
-            rectangle,
+            &rectangle,
             referenced_content,
             referenced_mutable_content,
-        );
+        ));
 
         let children = content_group.node_ids.iter().map(|item| {
 
@@ -550,24 +548,26 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
                 window_size,
             };
 
-            displaylist_handle_rect(
+            // TODO: overflow / scroll frames!
+            DisplayListMsg::Frame(displaylist_handle_rect(
                 scrollable_nodes,
-                rectangle,
+                &rectangle,
                 referenced_content,
                 referenced_mutable_content,
-            )
+            ))
         }).collect::<Vec<DisplayListMsg>>();
 
-        content.children = children;
-        content
+        content.append_children(children);
 
+        content
     }).collect();
 
     DisplayListMsg::Frame(DisplayListFrame {
-        clip: true,
+        tag: None,
+        clip: false,
         rect: DisplayListRect {
-            position: LogicalPosition { x: 0.0, y: 0.0 },
-            size: window_state.size.dimensions,
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: window_size.dimensions,
         },
         content: vec![DisplayListRectContent::Background {
             background_type: StyleBackground::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }),
@@ -608,22 +608,24 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     let rect = &display_rectangle_arena[*rect_idx];
     let bounds = layout_result.rects[*rect_idx].bounds;
 
-    let display_list_rect_bounds = DisplayListRect {
-        position: LogicalPosition { x: bounds.offset.x, y: bounds.offset.y },
-        size: LogicalSize { width: bounds.size.width, height: bounds.size.height },
-    };
-
-    let mut frame = DisplayListFrame {
-        clip: true,
-        rect: display_list_rect_bounds,
-        content: Vec::new(),
-    };
+    let display_list_rect_bounds = DisplayListRect::new(
+         LogicalPosition::new(bounds.origin.x, bounds.origin.y),
+         LogicalSize::new(bounds.size.width, bounds.size.height),
+    );
 
     let tag_id = rect.tag.map(|tag| (tag, 0)).or({
         scrollable_nodes.overflowing_nodes
         .get(&rect_idx)
         .map(|scrolled| (scrolled.scroll_tag_id.0, 0))
     });
+
+    let mut frame = DisplayListFrame {
+        tag: tag_id,
+        clip: true,
+        rect: display_list_rect_bounds,
+        content: Vec::new(),
+        children: Vec::new(),
+    };
 
     let info = LayoutPrimitiveInfo {
         rect: bounds,
@@ -632,12 +634,12 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         tag: tag_id,
     };
 
-    let border_radius = style.border_radius.unwrap_or(StyleBorderRadius::zero());
+    let border_radius = rect.style.border_radius.unwrap_or(StyleBorderRadius::zero());
 
-    if let Some(box_shadow) = &style.box_shadow {
+    if let Some(box_shadow) = &rect.style.box_shadow {
         frame.content.push(DisplayListRectContent::BoxShadow {
             pre_shadow: *box_shadow,
-            border_radius: *border_radius,
+            border_radius: border_radius,
             bounds: display_list_rect_bounds,
             clip_rect: display_list_rect_bounds,
             shadow_type: BoxShadowClipMode::Outset,
@@ -662,30 +664,42 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     match html_node {
         Div => { },
         Text(_) | Label(_) => {
-            push_text(
-                &info,
-                referenced_mutable_content.builder,
-                layout_result,
-                rect_idx,
-                &rect.style,
-                &rect.layout,
-            )
+            if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
+                let font_color = rect.style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0;
+                let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
+                let font_instance_key = positioned_words.1;
+
+                frame.content.push(get_text(
+                    display_list_rect_bounds,
+                    window_size.dimensions,
+                    layouted_glyphs,
+                    font_instance_key,
+                    font_color,
+                    &rect.layout,
+                ));
+            }
         },
-        Image(image_id) => push_image(
-            &info,
-            referenced_mutable_content.builder,
-            referenced_mutable_content.app_resources,
-            image_id,
-            LayoutSize::new(info.rect.size.width, info.rect.size.height)
-        ),
-        GlTexture(callback) => frame.content.push(DisplayRectContent::Image {
-                push_opengl_texture(callback, &info, rectangle, referenced_content, referenced_mutable_content)
-            });
+        Image(image_id) => {
+            if let Some(image_info) = referenced_mutable_content.app_resources.get_image_info(image_id) {
+                frame.content.push(DisplayListRectContent::Image {
+                    size: LogicalSize::new(info.rect.size.width, info.rect.size.height),
+                    offset: LogicalPosition::new(0.0, 0.0),
+                    image_rendering: ImageRendering::Auto,
+                    alpha_type: AlphaType::PremultipliedAlpha,
+                    image_key: image_info.key,
+                    background: ColorU::WHITE,
+                });
+            }
         },
-        IFrame(callback) => frame.content.push(call_iframe_callback(callback, &info, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content)),
+        GlTexture(callback) => {
+            frame.content.push(call_opengl_callback(callback, &info, rectangle, referenced_content, referenced_mutable_content));
+        },
+        IFrame(callback) => {
+            frame.children.push(call_iframe_callback(callback, &info, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content));
+        },
     };
 
-    if let Some(box_shadow) = &style.box_shadow {
+    if let Some(box_shadow) = &rect.style.box_shadow {
         frame.content.push(DisplayListRectContent::BoxShadow {
             pre_shadow: *box_shadow,
             border_radius: *border_radius,
@@ -694,15 +708,18 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
             shadow_type: BoxShadowClipMode::Inset,
         });
     }
+
+    frame
 }
 
-fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
+fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
-) {
+) -> DisplayListRectContent {
+
     use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
     use wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key};
@@ -714,12 +731,10 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
         rectangle.window_size.winit_hidpi_factor
     );
 
-    let texture;
-
-    {
+    let texture = {
         // Make sure that the app data is locked before invoking the callback
         let _lock = &mut referenced_mutable_content.app_data;
-        texture = (texture_callback.0)(&texture_stack_ptr, LayoutInfo {
+        let tex = (texture_callback.0)(&texture_stack_ptr, LayoutInfo {
             window: &mut *referenced_mutable_content.fake_window,
             resources: &referenced_mutable_content.app_resources,
         }, bounds);
@@ -730,7 +745,9 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
-    }
+
+        tex
+    };
 
     let opaque = false;
     // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
@@ -758,25 +775,25 @@ fn push_opengl_texture<'a,'b,'c,'d,'e,'f, T>(
         AddImage { key: wr_translate_image_key(key), descriptor, data, tiling: None }
     ));
 
-    referenced_mutable_content.builder.push_image(
-        &info,
-        LayoutSize::new(texture_width as f32, texture_height as f32),
-        LayoutSize::zero(),
-        ImageRendering::Auto,
-        AlphaType::Alpha,
-        wr_translate_image_key(key),
-        ColorF::WHITE
-    );
+    DisplayListRectContent::Image {
+        size: LogicalSize::new(texture_width as f32, texture_height as f32),
+        offset: LogicalPosition::new(0.0, 0.0),
+        image_rendering: ImageRendering::Auto,
+        alpha_type: AlphaType::Alpha,
+        image_key: key,
+        background: ColorU::WHITE,
+    }
 }
 
-fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
+fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
     parent_scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
-) {
+) -> DisplayListMsg {
+
     use app_resources;
     use ui_state::ui_state_from_dom;
     use wr_translate::hidpi_rect_from_bounds;
@@ -851,7 +868,8 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
     );
 
     let referenced_content = DisplayListParametersRef {
-        // Important: Need to update the ui description, otherwise this function would be endlessly recursive
+        // Important: Need to update the ui description,
+        // otherwise this function would be endlessly recurse
         node_hierarchy,
         node_data,
         display_rectangle_arena: &display_list.rectangles,
@@ -859,7 +877,7 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
         .. *referenced_content
     };
 
-    push_rectangles_into_displaylist(
+    let display_list_msg = push_rectangles_into_displaylist(
         rectangle.epoch,
         rectangle.window_size,
         rects_in_rendering_order,
@@ -871,92 +889,53 @@ fn push_iframe<'a,'b,'c,'d,'e,'f, T>(
 
     parent_scrollable_nodes.overflowing_nodes.extend(scrollable_nodes.overflowing_nodes.into_iter());
     parent_scrollable_nodes.tags_to_node_ids.extend(scrollable_nodes.tags_to_node_ids.into_iter());
+
+    display_list_msg
 }
 
-fn push_rect(
-    info: &PrimitiveInfo<LayoutPixel>,
-    builder: &mut DisplayListBuilder,
-    color: &StyleColorU,
-) {
-    use wr_translate::wr_translate_color_u;
-    builder.push_rect(&info, wr_translate_color_u(*color).into());
-}
-
-fn push_text(
-    info: &PrimitiveInfo<LayoutPixel>,
-    builder: &mut DisplayListBuilder,
-    layout_result: &LayoutResult,
-    node_id: &NodeId,
-    rect_style: &RectStyle,
+fn get_text(
+    current_bounds: DisplayListRect,
+    root_window_size: LogicalSize,
+    layouted_glyphs: LayoutedGlyphs,
+    font_instance_key: FontInstanceKey,
+    font_color: ColorU,
     rect_layout: &RectLayout,
-) {
-
-    use text_layout::get_layouted_glyphs;
-    use wr_translate::{wr_translate_color_u, wr_translate_font_instance_key};
-
-    let layouted_glyphs = match layout_result.layouted_glyph_cache.get(node_id) {
-        Some(s) => s,
-        None => return,
-    };
-
-    let font_color = rect_style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0;
-    let font_color = wr_translate_color_u(font_color);
-
-    // WARNING: Do not enable FontInstanceFlags::FONT_SMOOTHING or FontInstanceFlags::FORCE_AUTOHINT -
-    // they seem to interfere with the text layout thereby messing with the actual text layout.
-    let mut flags = FontInstanceFlags::empty();
-    flags.set(FontInstanceFlags::SUBPIXEL_BGR, true);
-    flags.set(FontInstanceFlags::NO_AUTOHINT, true);
-    flags.set(FontInstanceFlags::LCD_VERTICAL, true);
+) -> DisplayListRectContent {
 
     let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
 
-    let max_bounds = builder.content_size();
-    let current_bounds = info.rect;
     let original_text_bounds = rect_layout.padding
         .as_ref()
         .map(|padding| subtract_padding(&current_bounds, padding))
         .unwrap_or(current_bounds);
 
     // Adjust the bounds by the padding, depending on the overflow:visible parameter
-    let mut text_bounds = match (overflow_horizontal_visible, overflow_vertical_visible) {
+    let text_clip_rect = match (overflow_horizontal_visible, overflow_vertical_visible) {
         (true, true) => None,
         (false, false) => Some(original_text_bounds),
         (true, false) => {
             // Horizontally visible, vertically cut
-            Some(LayoutRect::new(rect_offset, LayoutSize::new(max_bounds.width, original_text_bounds.size.height)))
+            Some(DisplayListRect {
+                origin: current_bounds.origin,
+                size: LogicalSize::new(root_window_size.width, original_text_bounds.size.height),
+            })
         },
         (false, true) => {
             // Vertically visible, horizontally cut
-            Some(LayoutRect::new(rect_offset, LayoutSize::new(original_text_bounds.size.width, max_bounds.height)))
+            Some(DisplayListRect {
+                origin: current_bounds.origin,
+                size: LogicalSize::new(original_text_bounds.size.width, root_window_size.height),
+            })
         },
     };
 
-    if let Some(text_bounds) = &mut text_bounds {
-        text_bounds.size.width = text_bounds.size.width.max(0.0);
-        text_bounds.size.height = text_bounds.size.height.max(0.0);
-        let clip_id = builder.define_clip(*text_bounds, vec![ComplexClipRegion {
-            rect: *text_bounds,
-            radii: BorderRadius::zero(),
-            mode: ClipMode::Clip,
-        }], None);
-        builder.push_clip_id(clip_id);
-    }
-
-    builder.push_text(
-        &info,
-        &layouted_glyphs.glyphs,
-        wr_translate_font_instance_key(*font_instance_key),
-        font_color.into(),
-        Some(GlyphOptions {
-            render_mode: FontRenderMode::Subpixel,
-            flags: flags,
-        })
-    );
-
-    if text_bounds.is_some() {
-        builder.pop_clip_id();
+    DisplayListRectContent::Text {
+        glyphs: layouted_glyphs.glyphs,
+        font_instance_key,
+        color: font_color,
+        options: None,
+        clip: text_clip_rect,
     }
 }
 
@@ -976,9 +955,13 @@ fn push_box_shadow(
     builder: &mut DisplayListBuilder,
     style: &RectStyle,
     bounds: &LayoutRect,
-    shadow_type: BoxShadowClipMode
+    shadow_type: BoxShadowClipMode,
+    box_shadow: &StyleBoxShadow,
+    border_radius: StyleBorderRadius,
 ) {
     use self::ShouldPushShadow::*;
+
+    let StyleBoxShadow { top, left, bottom, right } = box_shadow;
 
     let what_shadow_to_push = match [top, left, bottom, right].iter().filter(|x| x.is_some()).count() {
         1 => OneShadow,
@@ -1063,10 +1046,10 @@ fn push_box_shadow_inner(
     bounds: &LayoutRect,
     clip_rect: LayoutRect,
     shadow_type: BoxShadowClipMode,
-) -> {
+) {
     use webrender::api::LayoutVector2D;
     use wr_translate::{
-        wr_translate_color_u, wr_translate_border_radius,
+        wr_translate_color_f, wr_translate_border_radius,
         wr_translate_box_shadow_clip_mode
     };
 
@@ -1090,7 +1073,7 @@ fn push_box_shadow_inner(
         &info,
         *bounds,
         LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
-        apply_gamma(wr_translate_color_u(pre_shadow.color).into()),
+        wr_translate_color_f(apply_gamma(pre_shadow.color.into())),
         pre_shadow.blur_radius.to_pixels(),
         pre_shadow.spread_radius.to_pixels(),
         wr_translate_border_radius(border_radius.0).into(),
@@ -1285,7 +1268,7 @@ fn push_background(
             }
         },
         Color(c) => {
-            push_rect(&info, builder, c);
+            builder.push_rect(&info, wr_translate_color_u(*c).into());
         },
         NoBackground => { },
     }
@@ -1355,18 +1338,7 @@ fn push_image(
     image_id: &ImageId,
     size: TypedSize2D<f32, LayoutPixel>
 ) {
-    use wr_translate::wr_translate_image_key;
-    if let Some(image_info) = app_resources.get_image_info(image_id) {
-        builder.push_image(
-            info,
-            size,
-            LayoutSize::zero(),
-            ImageRendering::Auto,
-            AlphaType::PremultipliedAlpha,
-            wr_translate_image_key(image_info.key),
-            ColorF::WHITE,
-        );
-    }
+
 }
 
 #[inline]
@@ -1392,9 +1364,8 @@ fn push_border(
 /// Subtracts the padding from the bounds, returning the new bounds
 ///
 /// Warning: The resulting rectangle may have negative width or height
-fn subtract_padding(bounds: &TypedRect<f32, LayoutPixel>, padding: &LayoutPadding)
--> TypedRect<f32, LayoutPixel>
-{
+fn subtract_padding(bounds: &DisplayListRect, padding: &LayoutPadding) -> DisplayListRect {
+
     let top     = padding.top.map(|top| top.to_pixels()).unwrap_or(0.0);
     let bottom  = padding.bottom.map(|bottom| bottom.to_pixels()).unwrap_or(0.0);
     let left    = padding.left.map(|left| left.to_pixels()).unwrap_or(0.0);

@@ -1024,14 +1024,15 @@ fn update_display_list<T>(
     fake_display: &mut FakeDisplay,
     app_resources: &mut AppResources,
 ) {
-    use display_list::DisplayList;
+    use display_list::{display_list_from_ui_description, display_list_to_cached_display_list};
     use wr_translate::wr_translate_pipeline_id;
 
-    let display_list = DisplayList::new_from_ui_description(ui_description, ui_state);
+    let display_list = display_list_from_ui_description(ui_description, ui_state);
 
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
-    let (builder, scrolled_nodes, _layout_result) = display_list.into_display_list_builder(
+    let (builder, scrolled_nodes, _layout_result) = display_list_to_cached_display_list(
+        display_list,
         app_data,
         window,
         fake_window,

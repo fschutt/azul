@@ -9,7 +9,7 @@ use {
     display_list::DisplayRectangle,
     dom::{NodeData, NodeType},
     app_resources::AppResources,
-    text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions},
+    text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions, LayoutedGlyphs},
 };
 use azul_core::{
     app_resources::{Au, FontInstanceKey},
@@ -1324,6 +1324,8 @@ pub(crate) fn do_the_layout<'a,'b, T>(
         }
     });
 
+    let positioned_word_cache = word_positions_with_max_width;
+
     // Create and layout the actual glyphs (important for actually )
     let layouted_glyph_cache = get_glyphs(
         &scaled_words,
@@ -1336,7 +1338,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
         rects: layouted_rects,
         word_cache,
         scaled_words,
-        positioned_word_cache: word_positions_with_max_width,
+        positioned_word_cache,
         layouted_glyph_cache,
         node_depths: solved_widths.non_leaf_nodes_sorted_by_depth,
     }
@@ -1453,29 +1455,30 @@ fn get_glyphs<'a>(
     positioned_rectangles: &NodeDataContainer<PositionedRectangle>,
 ) -> BTreeMap<NodeId, LayoutedGlyphs> {
 
+    use text_layout::get_layouted_glyphs;
+
     scaled_words
     .iter()
-    .filter_map(|(node_id,  (scaled_words, _font_instance_key))| {
-        let display_rect = display_rects.get(node_id)?;
-        let layouted_rect = positioned_rectangles.get(node_id)?;
-        let = scaled_words.get(node_id)?;
-        let (word_positions, font_instance_key) = positioned_word_cache.get(node_id)?;
+    .filter_map(|(node_id, (scaled_words, _font_instance_key))| {
 
+        let display_rect = display_rects.get(*node_id)?;
+        let layouted_rect = positioned_rectangles.get(*node_id)?;
+        let (word_positions, font_instance_key) = positioned_word_cache.get(node_id)?;
         let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
 
-        let rect_padding_top = rect_layout.padding.unwrap_or_default().top.map(|top| top.to_pixels()).unwrap_or(0.0);
-        let rect_padding_left = rect_layout.padding.unwrap_or_default().left.map(|left| left.to_pixels()).unwrap_or(0.0);
-        let rect_offset = LayoutPoint::new(info.rect.origin.x + rect_padding_left, info.rect.origin.y + rect_padding_top);
-        let bounding_size_height_px = info.rect.size.height - rect_layout.get_vertical_padding();
+        let rect_padding_top = display_rect.layout.padding.unwrap_or_default().top.map(|top| top.to_pixels()).unwrap_or(0.0);
+        let rect_padding_left = display_rect.layout.padding.unwrap_or_default().left.map(|left| left.to_pixels()).unwrap_or(0.0);
+        let rect_offset = LayoutPoint::new(layouted_rect.bounds.origin.x + rect_padding_left, layouted_rect.bounds.origin.y + rect_padding_top);
+        let bounding_size_height_px = layouted_rect.bounds.size.height - display_rect.layout.get_vertical_padding();
 
-        Some(get_layouted_glyphs(
+        Some((*node_id, get_layouted_glyphs(
             word_positions,
             scaled_words,
             horz_alignment,
             vert_alignment,
             rect_offset.clone(),
             bounding_size_height_px
-        ))
+        )))
     }).collect()
 }
 

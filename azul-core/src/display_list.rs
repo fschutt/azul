@@ -1,7 +1,7 @@
 use azul_css::{
     StyleBorder, StyleBorderRadius,
     StyleBackground as StyleBackground, BoxShadowPreDisplayItem as StyleBoxShadowPreDisplayItem,
-    ColorU,
+    ColorU, BoxShadowClipMode,
 };
 use app_resources::{ImageKey, FontInstanceKey};
 use window::{LogicalPosition, LogicalSize};
@@ -59,8 +59,12 @@ pub struct GlyphInstance {
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListRect {
-    pub offset: LogicalPosition,
+    pub origin: LogicalPosition,
     pub size: LogicalSize,
+}
+
+impl DisplayListRect {
+    pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self { Self { origin, size } }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -72,6 +76,24 @@ pub struct CachedDisplayList {
 pub enum DisplayListMsg {
     Frame(DisplayListFrame),
     ScrollFrame(DisplayListScrollFrame),
+}
+
+impl DisplayListMsg {
+    pub fn append_child(&mut self, child: Self) {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => { f.children.push(child); },
+            ScrollFrame(sf) => { sf.children.push(child); },
+        }
+    }
+
+    pub fn append_children(&mut self, mut children: Vec<Self>) {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => { f.children.append(&mut children); },
+            ScrollFrame(sf) => { sf.children.append(&mut children); },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -104,12 +126,6 @@ pub enum ImageRendering {
 pub enum AlphaType {
     Alpha,
     PremultipliedAlpha,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BoxShadowClipMode {
-    Outset,
-    Inset,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
