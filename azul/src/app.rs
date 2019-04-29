@@ -1024,14 +1024,20 @@ fn update_display_list<T>(
     fake_display: &mut FakeDisplay,
     app_resources: &mut AppResources,
 ) {
-    use display_list::{display_list_from_ui_description, display_list_to_cached_display_list};
-    use wr_translate::wr_translate_pipeline_id;
+    use display_list::{
+        display_list_from_ui_description,
+        display_list_to_cached_display_list,
+    };
+    use wr_translate::{
+        wr_translate_pipeline_id,
+        wr_translate_display_list,
+    };
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
-    let (builder, scrolled_nodes, _layout_result) = display_list_to_cached_display_list(
+    let (display_list, scrolled_nodes, _layout_result) = display_list_to_cached_display_list(
         display_list,
         app_data,
         window,
@@ -1041,7 +1047,7 @@ fn update_display_list<T>(
     );
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-    let display_list_builder = builder.finalize().2;
+    let display_list = wr_translate_display_list(display_list);
     window.internal.last_scrolled_nodes = scrolled_nodes;
 
     let (logical_size, _) = convert_window_size(&window.state.size);
@@ -1051,7 +1057,7 @@ fn update_display_list<T>(
         window.internal.epoch,
         None,
         logical_size.clone(),
-        (wr_translate_pipeline_id(window.internal.pipeline_id), logical_size, display_list_builder),
+        (wr_translate_pipeline_id(window.internal.pipeline_id), logical_size, display_list),
         true,
     );
 

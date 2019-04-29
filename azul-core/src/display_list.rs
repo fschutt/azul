@@ -1,10 +1,10 @@
 use azul_css::{
-    StyleBorder, StyleBorderRadius,
-    StyleBackground as StyleBackground, BoxShadowPreDisplayItem as StyleBoxShadowPreDisplayItem,
-    ColorU, BoxShadowClipMode,
+    StyleBorder, StyleBoxShadow, StyleBorderRadius,
+    StyleBackground, ColorU, BoxShadowClipMode,
 };
 use app_resources::{ImageKey, FontInstanceKey};
 use window::{LogicalPosition, LogicalSize};
+use callbacks::PipelineId;
 
 /// A tag that can be used to identify items during hit testing. If the tag
 /// is missing then the item doesn't take part in hit testing at all. This
@@ -70,6 +70,7 @@ impl DisplayListRect {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct CachedDisplayList {
     pub root: DisplayListMsg,
+    pub pipeline_id: PipelineId,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -94,13 +95,22 @@ impl DisplayListMsg {
             ScrollFrame(sf) => { sf.children.append(&mut children); },
         }
     }
+
+    pub fn get_size(&self) -> LogicalSize {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => f.rect.size,
+            ScrollFrame(sf) => sf.rect.size,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListScrollFrame {
-    pub scroll_amount: f32,
-    pub overlay_scrollbars: bool,
     pub rect: DisplayListRect,
+    pub scroll_position: LogicalPosition,
+    pub content_size: LogicalSize,
+    pub overlay_scrollbars: bool,
     pub tag: Option<ItemTag>,
     pub content: Vec<DisplayListRectContent>,
     pub children: Vec<DisplayListMsg>,
@@ -108,8 +118,8 @@ pub struct DisplayListScrollFrame {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListFrame {
-    pub clip: bool,
     pub rect: DisplayListRect,
+    pub clip_rect: Option<DisplayListRect>,
     pub tag: Option<ItemTag>,
     pub content: Vec<DisplayListRectContent>,
     pub children: Vec<DisplayListMsg>,
@@ -153,7 +163,7 @@ pub enum DisplayListRectContent {
         radius: StyleBorderRadius,
     },
     BoxShadow {
-        pre_shadow: StyleBoxShadowPreDisplayItem,
+        pre_shadow: StyleBoxShadow,
         border_radius: StyleBorderRadius,
         bounds: DisplayListRect,
         clip_rect: DisplayListRect,

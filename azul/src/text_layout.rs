@@ -4,10 +4,13 @@ use azul_css::{
     StyleTextAlignmentHorz, StyleTextAlignmentVert, ScrollbarInfo,
 };
 pub use webrender::api::{
-    GlyphInstance, LayoutSize, LayoutRect, LayoutPoint,
+    LayoutSize, LayoutRect, LayoutPoint,
 };
 pub use harfbuzz_sys::{hb_glyph_info_t as GlyphInfo, hb_glyph_position_t as GlyphPosition};
-pub use azul_core::app_resources::{Words, Word, WordType};
+pub use azul_core::{
+    app_resources::{Words, Word, WordType},
+    display_list::GlyphInstance,
+};
 
 pub type WordIndex = usize;
 pub type GlyphIndex = usize;

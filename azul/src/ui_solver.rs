@@ -1459,11 +1459,11 @@ fn get_glyphs<'a>(
 
     scaled_words
     .iter()
-    .filter_map(|(node_id, (scaled_words, _font_instance_key))| {
+    .filter_map(|(node_id, (scaled_words, _))| {
 
         let display_rect = display_rects.get(*node_id)?;
         let layouted_rect = positioned_rectangles.get(*node_id)?;
-        let (word_positions, font_instance_key) = positioned_word_cache.get(node_id)?;
+        let (word_positions, _) = positioned_word_cache.get(node_id)?;
         let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
 
         let rect_padding_top = display_rect.layout.padding.unwrap_or_default().top.map(|top| top.to_pixels()).unwrap_or(0.0);

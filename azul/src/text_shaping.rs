@@ -2,7 +2,6 @@
 //! Right now, words are laid out on a word-per-word basis, no inter-word font shaping is done.
 
 use std::{slice, ptr, u32, ops::Deref, os::raw::{c_char, c_uint}};
-use webrender::api::{LayoutPoint, GlyphInstance as WrGlyphInstance};
 use harfbuzz_sys::{
     hb_blob_create, hb_blob_destroy,
     hb_font_create, hb_font_destroy,
@@ -16,6 +15,7 @@ use harfbuzz_sys::{
     hb_feature_t, hb_tag_t,
     HB_MEMORY_MODE_READONLY,
 };
+use azul_core::{window::LogicalPosition, display_list::GlyphInstance};
 
 pub type GlyphInfo = hb_glyph_info_t;
 pub type GlyphPosition = hb_glyph_position_t;
@@ -246,7 +246,7 @@ pub(crate) fn get_glyph_positions_hb(glyph_positions: &[GlyphPosition]) -> Vec<G
 pub(crate) fn get_glyph_instances_hb(
     glyph_infos: &[GlyphInfo],
     glyph_positions: &[GlyphPosition],
-) -> Vec<WrGlyphInstance> {
+) -> Vec<GlyphInstance> {
 
     let mut current_cursor_x = 0.0;
     let mut current_cursor_y = 0.0;
@@ -259,12 +259,12 @@ pub(crate) fn get_glyph_instances_hb(
         let x_advance = glyph_pos.x_advance as f32 / HB_SCALE_FACTOR;
         let y_advance = glyph_pos.y_advance as f32 / HB_SCALE_FACTOR;
 
-        let point = LayoutPoint::new(current_cursor_x + x_offset, current_cursor_y + y_offset);
+        let point = LogicalPosition::new(current_cursor_x + x_offset, current_cursor_y + y_offset);
 
         current_cursor_x += x_advance;
         current_cursor_y += y_advance;
 
-        WrGlyphInstance {
+        GlyphInstance {
             index: glyph_index,
             point,
         }

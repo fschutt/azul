@@ -507,7 +507,11 @@ pub(crate) fn display_list_to_cached_display_list<'a, T>(
         },
     );
 
-    let cached_display_list = CachedDisplayList { root: root_node };
+    let cached_display_list = CachedDisplayList {
+        root: root_node,
+        pipeline_id: window.internal.pipeline_id,
+
+    };
 
     (cached_display_list, scrollable_nodes, layout_result)
 }
@@ -564,7 +568,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
 
     DisplayListMsg::Frame(DisplayListFrame {
         tag: None,
-        clip: false,
+        clip_rect: None,
         rect: DisplayListRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: window_size.dimensions,
@@ -621,7 +625,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
 
     let mut frame = DisplayListFrame {
         tag: tag_id,
-        clip: true,
+        clip_rect: None,
         rect: display_list_rect_bounds,
         content: Vec::new(),
         children: Vec::new(),
@@ -650,7 +654,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     // Otherwise the hit-testing gets confused
     if let Some(bg) = &rect.style.background {
         frame.content.push(DisplayListRectContent::Background {
-            background_type: *bg,
+            background_type: bg.clone(),
         });
     }
 
@@ -702,7 +706,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     if let Some(box_shadow) = &rect.style.box_shadow {
         frame.content.push(DisplayListRectContent::BoxShadow {
             pre_shadow: *box_shadow,
-            border_radius: *border_radius,
+            border_radius,
             bounds: display_list_rect_bounds,
             clip_rect: display_list_rect_bounds,
             shadow_type: BoxShadowClipMode::Inset,
@@ -1204,7 +1208,7 @@ fn push_background(
     use azul_css::{Shape, StyleBackground::*};
     use wr_translate::{
         wr_translate_color_u, wr_translate_extend_mode, wr_translate_layout_point,
-        wr_translate_layout_rect,
+        wr_translate_css_layout_rect,
     };
 
     match background {
@@ -1237,7 +1241,7 @@ fn push_background(
                     color: wr_translate_color_u(gradient_pre.color).into(),
                 }).collect();
 
-            let (begin_pt, end_pt) = gradient.direction.to_points(&wr_translate_layout_rect(*bounds));
+            let (begin_pt, end_pt) = gradient.direction.to_points(&wr_translate_css_layout_rect(*bounds));
             let gradient = builder.create_gradient(
                 wr_translate_layout_point(begin_pt),
                 wr_translate_layout_point(end_pt),
