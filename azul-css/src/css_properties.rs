@@ -198,36 +198,6 @@ impl From<ColorF> for ColorU {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
-pub struct StyleBorderRadius {
-    pub top_left: PixelSize,
-    pub top_right: PixelSize,
-    pub bottom_left: PixelSize,
-    pub bottom_right: PixelSize,
-}
-
-impl Default for StyleBorderRadius {
-    fn default() -> Self {
-        Self::zero()
-    }
-}
-
-impl StyleBorderRadius {
-
-    pub const fn zero() -> Self {
-        Self::uniform(PixelSize::zero())
-    }
-
-    pub const fn uniform(value: PixelSize) -> Self {
-        Self {
-            top_left: value,
-            top_right: value,
-            bottom_left: value,
-            bottom_right: value,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub enum BorderDetails {
     Normal(NormalBorder),
     NinePatch(NinePatchBorder),
@@ -240,7 +210,12 @@ pub struct NormalBorder {
     pub right: BorderSide,
     pub top: BorderSide,
     pub bottom: BorderSide,
-    pub radius: Option<StyleBorderRadius>,
+    pub radius: Option<(
+        StyleBorderTopLeftRadius,
+        StyleBorderTopRightRadius,
+        StyleBorderBottomLeftRadius,
+        StyleBorderBottomRightRadius,
+    )>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]

@@ -2,21 +2,27 @@
 
 use std::num::{ParseIntError, ParseFloatError};
 use azul_css::{
-    CssPropertyType,
-    StyleTextAlignmentHorz, Overflow,
-    LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent, Shape,
-    LayoutWrap, LayoutDirection, LayoutPosition, CssProperty, LayoutOverflow,
-    StyleFontFamily, StyleFontSize, StyleLineHeight, LayoutFlexShrink, LayoutFlexGrow,
-    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, StyleCursor, StyleWordSpacing, StyleTabWidth,
-    LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
-    StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
-    ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackgroundContent, StyleBoxShadow,
-    GradientStopPre, RadialGradient, StyleBackgroundSize, StyleBackgroundRepeat,
-    DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradient,
-    BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
-    BackgroundType,
+    CssPropertyType, CssProperty, CombinedCssPropertyType, CssPropertyValue,
+    Overflow, Shape, PixelValue, PercentageValue, FloatValue, ColorU,
+    GradientStopPre, RadialGradient, DirectionCorner, Direction, CssImageId,
+    LinearGradient, BoxShadowPreDisplayItem, StyleBorderSide, BorderStyle,
+    PixelSize, SizeMetric, BoxShadowClipMode, ExtendMode, FontId, GradientType,
 
-    SizeMetric, BoxShadowClipMode, ExtendMode, FontId,
+    StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
+    StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
+    StyleCursor, LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight,
+    LayoutMaxWidth, LayoutMaxHeight, LayoutPosition, LayoutTop, LayoutRight,
+    LayoutLeft, LayoutBottom, LayoutWrap, LayoutDirection, LayoutFlexGrow,
+    LayoutFlexShrink, LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
+    StyleBackgroundContent, StyleBackgroundPosition, StyleBackgroundSize,
+    StyleBackgroundRepeat, LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight,
+    LayoutPaddingBottom, LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight,
+    LayoutMarginBottom, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+    StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderTopColor,
+    StyleBorderRightColor, StyleBorderLeftColor, StyleBorderBottomColor,
+    StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderLeftStyle,
+    StyleBorderBottomStyle, StyleBorderTopWidth, StyleBorderRightWidth,
+    StyleBorderLeftWidth, StyleBorderBottomWidth,
 };
 
 /// A parser that can accept a list of items and mappings
@@ -104,15 +110,15 @@ macro_rules! typed_pixel_value_parser {
 ///     Ok(CssPropertyValue::Exact(CssProperty::Width(LayoutWidth(PixelValue::px(500.0)))))
 /// )
 /// ```
-pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<CssPropertyValue<CssProperty>, CssParsingError<'a>> {
+pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
     use self::CssPropertyType::*;
     let value = value.trim();
     Ok(match value {
-        "auto" => CssPropertyValue::auto(key),
-        "none" => CssPropertyValue::none(key),
-        "initial" => CssPropertyValue::initial(key),
-        "inherit" => CssPropertyValue::inherit(key),
-        value => CssPropertyValue::Exact(match key {
+        "auto" => CssProperty::auto(key),
+        "none" => CssProperty::none(key),
+        "initial" => CssProperty::initial(key).into(),
+        "inherit" => CssProperty::inherit(key).into(),
+        value => match key {
             TextColor                   => parse_style_text_color(value)?.into(),
             FontSize                    => parse_style_font_size(value)?.into(),
             FontFamily                  => parse_style_font_family(value)?.into(),
@@ -148,8 +154,8 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             BackgroundSize              => parse_style_background_size(value)?.into(),
             BackgroundRepeat            => parse_style_background_repeat(value)?.into(),
 
-            OverflowX                   => CssProperty::OverflowX(parse_layout_overflow(value)?).into(),
-            OverflowY                   => CssProperty::OverflowY(parse_layout_overflow(value)?).into(),
+            OverflowX                   => CssProperty::OverflowX(CssPropertyValue::Exact(parse_layout_overflow(value)?)).into(),
+            OverflowY                   => CssProperty::OverflowY(CssPropertyValue::Exact(parse_layout_overflow(value)?)).into(),
 
             PaddingTop                  => parse_layout_padding_top(value)?.into(),
             PaddingLeft                 => parse_layout_padding_left(value)?.into(),
@@ -181,31 +187,35 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             BorderLeftWidth             => parse_style_border_left_width(value)?.into(),
             BorderBottomWidth           => parse_style_border_bottom_width(value)?.into(),
 
-            BoxShadowLeft               => CssProperty::BoxShadowLeft(parse_css_box_shadow(value)?).into(),
-            BoxShadowRight              => CssProperty::BoxShadowRight(parse_css_box_shadow(value)?).into(),
-            BoxShadowTop                => CssProperty::BoxShadowTop(parse_css_box_shadow(value)?).into(),
-            BoxShadowBottom             => CssProperty::BoxShadowBottom(parse_css_box_shadow(value)?).into(),
-        })
+            BoxShadowLeft               => CssProperty::BoxShadowLeft(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
+            BoxShadowRight              => CssProperty::BoxShadowRight(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
+            BoxShadowTop                => CssProperty::BoxShadowTop(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
+            BoxShadowBottom             => CssProperty::BoxShadowBottom(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
+        }
     })
 }
 
 /// Parses a combined CSS property or a CSS property shorthand, for example "margin"
-/// (as a shorthand for setting "margin-top", "margin-bottom", "margin-left" and "margin-right")
+/// (as a shorthand for setting all four properties of "margin-top", "margin-bottom",
+/// "margin-left" and "margin-right")
 ///
 /// ```rust
 /// # extern crate azul_css_parser;
 /// # extern crate azul_css;
 /// # use azul_css_parser;
-/// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssProperty};
+/// # use azul_css::{LayoutWidth, PixelValue, CombinedCssPropertyType, CssProperty};
 /// assert_eq!(
-///     azul_css_parser::parse_combined_css_property(CssPropertyType::Width, "500px"),
+///     azul_css_parser::parse_combined_css_property(CombinedCssPropertyType::BorderRadius, "10px"),
 ///     Ok(vec![
-///         CssPropertyValue::Exact(CssProperty::Width(LayoutWidth(PixelValue::px(500.0)))),
+///         CssPropertyValue::Exact(CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadius(PixelValue::px(10.0)))),
+///         CssPropertyValue::Exact(CssProperty::BorderTopRightRadius(StyleBorderTopLeftRadius(PixelValue::px(10.0)))),
+///         CssPropertyValue::Exact(CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadius(PixelValue::px(10.0)))),
+///         CssPropertyValue::Exact(CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadius(PixelValue::px(10.0)))),
 ///     ])
 /// )
 /// ```
-pub fn parse_combined_css_property<'a>(key: CombinedCssProperty, value: &'a str)
--> Result<Vec<CssPropertyValue<CssProperty>>, CssParsingError<'a>>
+pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a str)
+-> Result<Vec<CssProperty>, CssParsingError<'a>>
 {
     use self::CombinedCssPropertyType::*;
 
@@ -306,95 +316,95 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssProperty, value: &'a str)
         BorderRadius => {
             let border_radius = parse_style_border_radius(value)?;
             Ok(vec![
-                CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadius(border_radius.top_left)).into(),
-                CssProperty::BorderTopRightRadius(StyleBorderTopRightRadius(border_radius.top_right)).into(),
-                CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadius(border_radius.bottom_left)).into(),
-                CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadius(border_radius.bottom_right)).into(),
+                CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadius(border_radius.top_left).into()),
+                CssProperty::BorderTopRightRadius(StyleBorderTopRightRadius(border_radius.top_right).into()),
+                CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadius(border_radius.bottom_left).into()),
+                CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadius(border_radius.bottom_right).into()),
             ])
         },
         Overflow => {
             let overflow = parse_layout_overflow(value)?;
             Ok(vec![
-                CssProperty::OverflowX(overflow).into(),
-                CssProperty::OverflowY(overflow).into(),
+                CssProperty::OverflowX(overflow.into()),
+                CssProperty::OverflowY(overflow.into()),
             ])
         },
         Padding => {
             let padding = parse_layout_padding(value)?;
             Ok(vec![
-                CssProperty::PaddingTop(LayoutPaddingTop(padding.top)).into(),
-                CssProperty::PaddingBottom(LayoutPaddingBottom(padding.bottom)).into(),
-                CssProperty::PaddingLeft(LayoutPaddingLeft(padding.left)).into(),
-                CssProperty::PaddingRight(LayoutPaddingRight(padding.right)).into(),
+                CssProperty::PaddingTop(LayoutPaddingTop(padding.top).into()),
+                CssProperty::PaddingBottom(LayoutPaddingBottom(padding.bottom).into()),
+                CssProperty::PaddingLeft(LayoutPaddingLeft(padding.left).into()),
+                CssProperty::PaddingRight(LayoutPaddingRight(padding.right).into()),
             ])
         },
         Margin => {
             let margin = parse_layout_margin(value)?;
             Ok(vec![
-                CssProperty::MarginTop(LayoutMarginTop(margin.top)).into(),
-                CssProperty::MarginBottom(LayoutMarginBottom(margin.bottom)).into(),
-                CssProperty::MarginLeft(LayoutMarginLeft(margin.left)).into(),
-                CssProperty::MarginRight(LayoutMarginRight(margin.right)).into(),
+                CssProperty::MarginTop(LayoutMarginTop(margin.top).into()),
+                CssProperty::MarginBottom(LayoutMarginBottom(margin.bottom).into()),
+                CssProperty::MarginLeft(LayoutMarginLeft(margin.left).into()),
+                CssProperty::MarginRight(LayoutMarginRight(margin.right).into()),
             ])
         },
         Border => {
             let border = parse_css_border(value)?;
             Ok(vec![
-               CssProperty::BorderTopColor(border.border_color),
-               CssProperty::BorderRightColor(border.border_color),
-               CssProperty::BorderLeftColor(border.border_color),
-               CssProperty::BorderBottomColor(border.border_color),
+               CssProperty::BorderTopColor(StyleBorderTopColor(border.border_color).into()),
+               CssProperty::BorderRightColor(StyleBorderRightColor(border.border_color).into()),
+               CssProperty::BorderLeftColor(StyleBorderLeftColor(border.border_color).into()),
+               CssProperty::BorderBottomColor(StyleBorderBottomColor(border.border_color).into()),
 
-               CssProperty::BorderTopStyle(border.border_style),
-               CssProperty::BorderRightStyle(border.border_style),
-               CssProperty::BorderLeftStyle(border.border_style),
-               CssProperty::BorderBottomStyle(border.border_style),
+               CssProperty::BorderTopStyle(StyleBorderTopStyle(border.border_style).into()),
+               CssProperty::BorderRightStyle(StyleBorderRightStyle(border.border_style).into()),
+               CssProperty::BorderLeftStyle(StyleBorderLeftStyle(border.border_style).into()),
+               CssProperty::BorderBottomStyle(StyleBorderBottomStyle(border.border_style).into()),
 
-               CssProperty::BorderTopWidth(border.border_width),
-               CssProperty::BorderRightWidth(border.border_width),
-               CssProperty::BorderLeftWidth(border.border_width),
-               CssProperty::BorderBottomWidth(border.border_width),
+               CssProperty::BorderTopWidth(StyleBorderTopWidth(border.border_width).into()),
+               CssProperty::BorderRightWidth(StyleBorderRightWidth(border.border_width).into()),
+               CssProperty::BorderLeftWidth(StyleBorderLeftWidth(border.border_width).into()),
+               CssProperty::BorderBottomWidth(StyleBorderBottomWidth(border.border_width).into()),
             ])
         },
         BorderLeft => {
             let border = parse_css_border(value)?;
             Ok(vec![
-               CssProperty::BorderLeftColor(border.border_color),
-               CssProperty::BorderLeftStyle(border.border_style),
-               CssProperty::BorderLeftWidth(border.border_width),
+               CssProperty::BorderLeftColor(StyleBorderLeftColor(border.border_color).into()),
+               CssProperty::BorderLeftStyle(StyleBorderLeftStyle(border.border_style).into()),
+               CssProperty::BorderLeftWidth(StyleBorderLeftWidth(border.border_width).into()),
             ])
         },
         BorderRight => {
             let border = parse_css_border(value)?;
             Ok(vec![
-               CssProperty::BorderRightColor(border.border_color),
-               CssProperty::BorderRightStyle(border.border_style),
-               CssProperty::BorderRightWidth(border.border_width),
+               CssProperty::BorderRightColor(StyleBorderRightColor(border.border_color).into()),
+               CssProperty::BorderRightStyle(StyleBorderRightStyle(border.border_style).into()),
+               CssProperty::BorderRightWidth(StyleBorderRightWidth(border.border_width).into()),
             ])
         },
         BorderTop => {
             let border = parse_css_border(value)?;
             Ok(vec![
-               CssProperty::BorderTopColor(border.border_color),
-               CssProperty::BorderTopStyle(border.border_style),
-               CssProperty::BorderTopWidth(border.border_width),
+               CssProperty::BorderTopColor(StyleBorderTopColor(border.border_color).into()),
+               CssProperty::BorderTopStyle(StyleBorderTopStyle(border.border_style).into()),
+               CssProperty::BorderTopWidth(StyleBorderTopWidth(border.border_width).into()),
             ])
         },
         BorderBottom => {
             let border = parse_css_border(value)?;
             Ok(vec![
-               CssProperty::BorderBottomColor(border.border_color),
-               CssProperty::BorderBottomStyle(border.border_style),
-               CssProperty::BorderBottomWidth(border.border_width),
+               CssProperty::BorderBottomColor(StyleBorderBottomColor(border.border_color).into()),
+               CssProperty::BorderBottomStyle(StyleBorderBottomStyle(border.border_style).into()),
+               CssProperty::BorderBottomWidth(StyleBorderBottomWidth(border.border_width).into()),
             ])
         },
         BoxShadow => {
             let box_shadow = parse_css_box_shadow(value)?;
             Ok(vec![
-               CssPropertyType::BoxShadowLeft(box_shadow),
-               CssPropertyType::BoxShadowRight(box_shadow),
-               CssPropertyType::BoxShadowTop(box_shadow),
-               CssPropertyType::BoxShadowBottom(box_shadow),
+               CssProperty::BoxShadowLeft(box_shadow),
+               CssProperty::BoxShadowRight(box_shadow),
+               CssProperty::BoxShadowTop(box_shadow),
+               CssProperty::BoxShadowBottom(box_shadow),
             ])
         },
     }
@@ -591,6 +601,36 @@ impl_display!{ CssShadowParseError<'a>, {
 impl_from!(PixelParseError<'a>, CssShadowParseError::ValueParseErr);
 impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
+#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+pub struct StyleBorderRadius {
+    pub top_left: PixelSize,
+    pub top_right: PixelSize,
+    pub bottom_left: PixelSize,
+    pub bottom_right: PixelSize,
+}
+
+impl Default for StyleBorderRadius {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+impl StyleBorderRadius {
+
+    pub const fn zero() -> Self {
+        Self::uniform(PixelSize::zero())
+    }
+
+    pub const fn uniform(value: PixelSize) -> Self {
+        Self {
+            top_left: value,
+            top_right: value,
+            bottom_left: value,
+            bottom_right: value,
+        }
+    }
+}
+
 /// parse the border-radius like "5px 10px" or "5px 10px 6px 10px"
 pub fn parse_style_border_radius<'a>(input: &'a str)
 -> Result<StyleBorderRadius, CssStyleBorderRadiusParseError<'a>>
@@ -604,7 +644,7 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
             // (the value applies to all four corners, which are rounded equally:
 
             let uniform_radius = parse_pixel_value(components.next().unwrap())?;
-            Ok(StyleBorderRadius(BorderRadius::uniform(PixelSize::new(uniform_radius, uniform_radius))))
+            Ok(StyleBorderRadius::uniform(PixelSize::new(uniform_radius, uniform_radius)))
         },
         2 => {
             // Two values - border-radius: 15px 50px;
@@ -614,12 +654,12 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
             let top_left_bottom_right = parse_pixel_value(components.next().unwrap())?;
             let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
 
-            Ok(StyleBorderRadius(BorderRadius {
+            Ok(StyleBorderRadius {
                 top_left: PixelSize::new(top_left_bottom_right, top_left_bottom_right),
                 bottom_right:  PixelSize::new(top_left_bottom_right, top_left_bottom_right),
                 top_right:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
                 bottom_left:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
-            }))
+            })
         },
         3 => {
             // Three values - border-radius: 15px 50px 30px;
@@ -630,12 +670,12 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
             let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
             let bottom_right = parse_pixel_value(components.next().unwrap())?;
 
-            Ok(StyleBorderRadius(BorderRadius {
+            Ok(StyleBorderRadius {
                 top_left: PixelSize::new(top_left, top_left),
                 bottom_right:  PixelSize::new(bottom_right, bottom_right),
                 top_right:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
                 bottom_left: PixelSize::new(top_right_bottom_left, top_right_bottom_left),
-            }))
+            })
         }
         4 => {
             // Four values - border-radius: 15px 50px 30px 5px;
@@ -648,12 +688,12 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
             let bottom_right = parse_pixel_value(components.next().unwrap())?;
             let bottom_left = parse_pixel_value(components.next().unwrap())?;
 
-            Ok(StyleBorderRadius(BorderRadius {
+            Ok(StyleBorderRadius {
                 top_left: PixelSize::new(top_left, top_left),
                 bottom_right: PixelSize::new(bottom_right, bottom_right),
                 top_right: PixelSize::new(top_right, top_right),
                 bottom_left: PixelSize::new(bottom_left, bottom_left),
-            }))
+            })
         },
         _ => {
             Err(CssStyleBorderRadiusParseError::TooManyValues(input))
@@ -1547,6 +1587,12 @@ pub fn parse_style_background_content<'a>(input: &'a str)
             Ok(StyleBackgroundContent::Color(parse_css_color(input)?))
         }
     }
+}
+
+pub fn parse_style_background_position<'a>(input: &'a str)
+-> Result<StyleBackgroundPosition, CssBackgroundPositionParseError<'a>>
+{
+
 }
 
 /// Given a string, returns how many characters need to be skipped

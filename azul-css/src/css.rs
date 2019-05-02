@@ -103,7 +103,7 @@ pub struct DynamicCssProperty {
     /// that, meaning that if you don't override the property, then you'd set it to 0px - which is
     /// different from `auto`, since `auto` has its width determined by how much space there is
     /// available in the parent.
-    pub default: CssPropertyValue<CssProperty>,
+    pub default: CssProperty,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

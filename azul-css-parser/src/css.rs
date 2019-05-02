@@ -9,8 +9,7 @@ use simplecss::Tokenizer;
 use crate::css_parser;
 pub use crate::css_parser::CssParsingError;
 use azul_css::{
-    Css, CssDeclaration, Stylesheet,
-    DynamicCssProperty, DynamicCssPropertyDefault,
+    Css, CssDeclaration, Stylesheet, DynamicCssProperty,
     CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
     CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
     NodeTypePath, NodeTypePathParseError,
@@ -518,15 +517,9 @@ pub fn determine_static_or_dynamic_css_property<'a>(key: CssPropertyType, value:
     let is_ending_with_braces = value.ends_with(END_BRACE);
 
     match (is_starting_with_braces, is_ending_with_braces) {
-        (true, false) | (false, true) => {
-            Err(DynamicCssParseError::UnclosedBraces)
-        },
-        (true, true) => {
-            parse_dynamic_css_property(key, value).and_then(|val| Ok(CssDeclaration::Dynamic(val)))
-        },
-        (false, false) => {
-            Ok(CssDeclaration::Static(css_parser::parse_key_value_pair(key, value)?))
-        }
+        (true, true) => parse_dynamic_css_property(key, value).map(|val| CssDeclaration::Dynamic(val)),
+        (false, false) => Ok(CssDeclaration::Static(css_parser::parse_css_property(key, value)?)),
+        (true, false) | (false, true) => Err(DynamicCssParseError::UnclosedBraces),
     }
 }
 
@@ -548,7 +541,7 @@ pub fn parse_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str) -> R
         (None, Some(id)) => {
             if id.trim().is_empty() {
                 return Err(DynamicCssParseError::EmptyBraces);
-            } else if css_parser::parse_key_value_pair(key, id).is_ok() {
+            } else if css_parser::parse_css_property(key, id).is_ok() {
                 // if there is an ID, but the ID is a CSS value
                 return Err(DynamicCssParseError::NoId);
             } else {
@@ -568,15 +561,14 @@ pub fn parse_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str) -> R
         (false, false) => { /* everything OK */ }
     }
 
-    if dynamic_id.starts_with(char::is_numeric) ||
-       css_parser::parse_key_value_pair(key, dynamic_id).is_ok() {
+    if dynamic_id.starts_with(char::is_numeric) || css_parser::parse_css_property(key, dynamic_id).is_ok() {
         return Err(DynamicCssParseError::InvalidId);
     }
 
     Ok(DynamicCssProperty {
         property_type: key,
         dynamic_id: dynamic_id.to_string(),
-        default: css_parser::parse_key_value_pair(key, default_case)?,
+        default: css_parser::parse_css_property(key, default_case)?,
     })
 }
 
@@ -607,7 +599,7 @@ fn test_detect_static_or_dynamic_property() {
         determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  hello | center ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
             property_type: CssPropertyType::TextAlign,
-            default: DynamicCssPropertyDefault::Exact(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
+            default: CssPropertyValue::Exact(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
             dynamic_id: String::from("hello"),
         }))
     );
@@ -616,7 +608,7 @@ fn test_detect_static_or_dynamic_property() {
         determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  hello | auto ]]"),
         Ok(CssDeclaration::Dynamic(DynamicCssProperty {
             property_type: CssPropertyType::TextAlign,
-            default: DynamicCssPropertyDefault::Auto,
+            default: CssPropertyValue::Auto,
             dynamic_id: String::from("hello"),
         }))
     );
