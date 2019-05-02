@@ -12,10 +12,10 @@ use webrender::api::{
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
 };
 use azul_css::{
-    Css, LayoutPosition,CssProperty, LayoutOverflow, ColorU, ColorF,
+    Css, LayoutPosition,CssProperty, LayoutOverflow, ColorU,
     StyleBorderRadius, LayoutMargin, LayoutPadding, BoxShadowClipMode,
     StyleTextColor, StyleBackground, StyleBoxShadow,
-    StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder, BoxShadowPreDisplayItem,
+    StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder,
     RectStyle, RectLayout, ColorU as StyleColorU, DynamicCssPropertyDefault,
 };
 use {
@@ -642,19 +642,35 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
 
     if let Some(box_shadow) = &rect.style.box_shadow {
         frame.content.push(DisplayListRectContent::BoxShadow {
-            pre_shadow: *box_shadow,
+            shadow: *box_shadow,
             border_radius: border_radius,
-            bounds: display_list_rect_bounds,
-            clip_rect: display_list_rect_bounds,
-            shadow_type: BoxShadowClipMode::Outset,
+            clip_mode: BoxShadowClipMode::Outset,
         });
     }
 
     // If the rect is hit-testing relevant, we need to push a rect anyway.
     // Otherwise the hit-testing gets confused
-    if let Some(bg) = &rect.style.background {
+    if let Some(bg) = &rect.style.background_attachement {
+
+        use azul_css::StyleBackground::*;
+        use azul_core::display_list::RectBackground;
+
+        let style_bg = match bg {
+            LinearGradient(lg) => RectBackground::LinearGradient(lg),
+            RadialGradient(rg) => RectBackground::RadialGradient(rg),
+            Image(style_image_id) => {
+                let image_id = app_resources.get_css_image_id(&style_image_id.0)?;
+                let image_info = app_resources.get_image_info(image_id)?;
+                RectBackground::Image(image_info)
+            },
+            Color(c) => RectBackground::Color(c),
+        };
+
         frame.content.push(DisplayListRectContent::Background {
-            background_type: bg.clone(),
+            background: background_type,
+            size: rect.style.background_size,
+            offset: rect.style.background_position,
+            repeat: rect.style.background_repeat.unwrap_or_default(),
         });
     }
 
@@ -705,17 +721,16 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
 
     if let Some(box_shadow) = &rect.style.box_shadow {
         frame.content.push(DisplayListRectContent::BoxShadow {
-            pre_shadow: *box_shadow,
+            shadow: *box_shadow,
             border_radius,
-            bounds: display_list_rect_bounds,
-            clip_rect: display_list_rect_bounds,
-            shadow_type: BoxShadowClipMode::Inset,
+            clip_mode: BoxShadowClipMode::Inset,
         });
     }
 
     frame
 }
 
+#[inline]
 fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
@@ -789,6 +804,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     }
 }
 
+#[inline]
 fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     info: &LayoutPrimitiveInfo,
@@ -940,428 +956,6 @@ fn get_text(
         color: font_color,
         options: None,
         clip: text_clip_rect,
-    }
-}
-
-enum ShouldPushShadow {
-    OneShadow,
-    TwoShadows,
-    AllShadows,
-}
-
-/// WARNING: For "inset" shadows, you must push a clip ID first, otherwise the
-/// shadow will not show up.
-///
-/// To prevent a shadow from being pushed twice, you have to annotate the clip
-/// mode for this - outset or inset.
-#[inline]
-fn push_box_shadow(
-    builder: &mut DisplayListBuilder,
-    style: &RectStyle,
-    bounds: &LayoutRect,
-    shadow_type: BoxShadowClipMode,
-    box_shadow: &StyleBoxShadow,
-    border_radius: StyleBorderRadius,
-) {
-    use self::ShouldPushShadow::*;
-
-    let StyleBoxShadow { top, left, bottom, right } = box_shadow;
-
-    let what_shadow_to_push = match [top, left, bottom, right].iter().filter(|x| x.is_some()).count() {
-        1 => OneShadow,
-        2 => TwoShadows,
-        4 => AllShadows,
-        _ => return,
-    };
-
-    match what_shadow_to_push {
-        OneShadow => {
-            let current_shadow = match (top, left, bottom, right) {
-                 | (Some(Some(shadow)), None, None, None)
-                 | (None, Some(Some(shadow)), None, None)
-                 | (None, None, Some(Some(shadow)), None)
-                 | (None, None, None, Some(Some(shadow)))
-                 => shadow,
-                 _ => return, // reachable, but invalid box-shadow
-            };
-
-            push_single_box_shadow_edge(
-                builder, current_shadow, bounds, border_radius, shadow_type,
-                top, bottom, left, right
-            );
-        },
-        // Two shadows in opposite directions:
-        //
-        // box-shadow-top: 0px 0px 5px red;
-        // box-shadow-bottom: 0px 0px 5px blue;
-        TwoShadows => {
-            match (top, left, bottom, right) {
-
-                // top + bottom box-shadow pair
-                (Some(Some(t)), None, Some(Some(b)), right) => {
-                    push_single_box_shadow_edge(
-                        builder, t, bounds, border_radius, shadow_type,
-                        top, &None, &None, &None
-                    );
-                    push_single_box_shadow_edge(
-                        builder, b, bounds, border_radius, shadow_type,
-                        &None, bottom, &None, &None
-                    );
-                },
-                // left + right box-shadow pair
-                (None, Some(Some(l)), None, Some(Some(r))) => {
-                    push_single_box_shadow_edge(
-                        builder, l, bounds, border_radius, shadow_type,
-                        &None, &None, left, &None
-                    );
-                    push_single_box_shadow_edge(
-                        builder, r, bounds, border_radius, shadow_type,
-                        &None, &None, &None, right
-                    );
-                }
-                _ => return, // reachable, but invalid
-            }
-        },
-        AllShadows => {
-
-            // Assumes that all box shadows are the same, so just use the top shadow
-            let top_shadow = top.unwrap();
-            let clip_rect = top_shadow
-                .as_ref()
-                .map(|top_shadow| get_clip_rect(top_shadow, bounds))
-                .unwrap_or(*bounds);
-
-            push_box_shadow_inner(
-                builder,
-                &top_shadow,
-                border_radius,
-                bounds,
-                clip_rect,
-                shadow_type
-            );
-        }
-    }
-}
-
-fn push_box_shadow_inner(
-    builder: &mut DisplayListBuilder,
-    pre_shadow: &Option<BoxShadowPreDisplayItem>,
-    border_radius: StyleBorderRadius,
-    bounds: &LayoutRect,
-    clip_rect: LayoutRect,
-    shadow_type: BoxShadowClipMode,
-) {
-    use webrender::api::LayoutVector2D;
-    use wr_translate::{
-        wr_translate_color_f, wr_translate_border_radius,
-        wr_translate_box_shadow_clip_mode
-    };
-
-    let pre_shadow = match pre_shadow {
-        None => return,
-        Some(ref s) => s,
-    };
-
-    // The pre_shadow is missing the StyleBorderRadius & LayoutRect
-    if pre_shadow.clip_mode != shadow_type {
-        return;
-    }
-
-    let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
-
-    // prevent shadows that are larger than the full screen
-    let clip_rect = clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect);
-
-    let info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
-    builder.push_box_shadow(
-        &info,
-        *bounds,
-        LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
-        wr_translate_color_f(apply_gamma(pre_shadow.color.into())),
-        pre_shadow.blur_radius.to_pixels(),
-        pre_shadow.spread_radius.to_pixels(),
-        wr_translate_border_radius(border_radius.0).into(),
-        wr_translate_box_shadow_clip_mode(pre_shadow.clip_mode)
-    );
-}
-
-// Apply a gamma of 2.2 to the original value
-//
-// NOTE: strangely box-shadow is the only thing that needs to be gamma-corrected...
-fn apply_gamma(color: ColorF) -> ColorF {
-
-    const GAMMA: f32 = 2.2;
-    const GAMMA_F: f32 = 1.0 / GAMMA;
-
-    ColorF {
-        r: color.r.powf(GAMMA_F),
-        g: color.g.powf(GAMMA_F),
-        b: color.b.powf(GAMMA_F),
-        a: color.a,
-    }
-}
-
-fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: &LayoutRect) -> LayoutRect {
-    if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
-        // inset shadows do not work like outset shadows
-        // for inset shadows, you have to push a clip ID first, so that they are
-        // clipped to the bounds -we trust that the calling function knows to do this
-        *bounds
-    } else {
-        // calculate the maximum extent of the outset shadow
-        let mut clip_rect = *bounds;
-
-        let origin_displace = (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
-        clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
-        clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
-
-        clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
-        clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
-        clip_rect
-    }
-}
-
-#[allow(clippy::collapsible_if)]
-fn push_single_box_shadow_edge(
-        builder: &mut DisplayListBuilder,
-        current_shadow: &BoxShadowPreDisplayItem,
-        bounds: &LayoutRect,
-        border_radius: StyleBorderRadius,
-        shadow_type: BoxShadowClipMode,
-        top: &Option<Option<BoxShadowPreDisplayItem>>,
-        bottom: &Option<Option<BoxShadowPreDisplayItem>>,
-        left: &Option<Option<BoxShadowPreDisplayItem>>,
-        right: &Option<Option<BoxShadowPreDisplayItem>>,
-) {
-    let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
-    let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
-
-    let mut shadow_bounds = *bounds;
-    let mut clip_rect = *bounds;
-
-    if is_inset_shadow {
-        // If the shadow is inset, we adjust the clip rect to be
-        // exactly the amount of the shadow
-        if let Some(Some(top)) = top {
-            clip_rect.size.height = origin_displace;
-            shadow_bounds.size.width += origin_displace;
-            shadow_bounds.origin.x -= origin_displace / 2.0;
-        } else if let Some(Some(bottom)) = bottom {
-            clip_rect.size.height = origin_displace;
-            clip_rect.origin.y += bounds.size.height - origin_displace;
-            shadow_bounds.size.width += origin_displace;
-            shadow_bounds.origin.x -= origin_displace / 2.0;
-        } else if let Some(Some(left)) = left {
-            clip_rect.size.width = origin_displace;
-            shadow_bounds.size.height += origin_displace;
-            shadow_bounds.origin.y -= origin_displace / 2.0;
-        } else if let Some(Some(right)) = right {
-            clip_rect.size.width = origin_displace;
-            clip_rect.origin.x += bounds.size.width - origin_displace;
-            shadow_bounds.size.height += origin_displace;
-            shadow_bounds.origin.y -= origin_displace / 2.0;
-        }
-    } else {
-        if let Some(Some(top)) = top {
-            clip_rect.size.height = origin_displace;
-            clip_rect.origin.y -= origin_displace;
-            shadow_bounds.size.width += origin_displace;
-            shadow_bounds.origin.x -= origin_displace / 2.0;
-        } else if let Some(Some(bottom)) = bottom {
-            clip_rect.size.height = origin_displace;
-            clip_rect.origin.y += bounds.size.height;
-            shadow_bounds.size.width += origin_displace;
-            shadow_bounds.origin.x -= origin_displace / 2.0;
-        } else if let Some(Some(left)) = left {
-            clip_rect.size.width = origin_displace;
-            clip_rect.origin.x -= origin_displace;
-            shadow_bounds.size.height += origin_displace;
-            shadow_bounds.origin.y -= origin_displace / 2.0;
-        } else if let Some(Some(right)) = right {
-            clip_rect.size.width = origin_displace;
-            clip_rect.origin.x += bounds.size.width;
-            shadow_bounds.size.height += origin_displace;
-            shadow_bounds.origin.y -= origin_displace / 2.0;
-        }
-    }
-
-    push_box_shadow_inner(
-        builder,
-        &Some(*current_shadow),
-        border_radius,
-        &shadow_bounds,
-        clip_rect,
-        shadow_type
-    );
-}
-
-#[inline]
-fn push_background(
-    info: &PrimitiveInfo<LayoutPixel>,
-    bounds: &TypedRect<f32, LayoutPixel>,
-    builder: &mut DisplayListBuilder,
-    background: &StyleBackground,
-    background_size: &Option<StyleBackgroundSize>,
-    background_repeat: &Option<StyleBackgroundRepeat>,
-    app_resources: &AppResources)
-{
-    use azul_css::{Shape, StyleBackground::*};
-    use wr_translate::{
-        wr_translate_color_u, wr_translate_extend_mode, wr_translate_layout_point,
-        wr_translate_css_layout_rect,
-    };
-
-    match background {
-        RadialGradient(gradient) => {
-            let stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
-                GradientStop {
-                    offset: gradient_pre.offset.unwrap().get(),
-                    color: wr_translate_color_u(gradient_pre.color).into(),
-                }).collect();
-
-            let center = bounds.center();
-
-            // Note: division by 2.0 because it's the radius, not the diameter
-            let radius = match gradient.shape {
-                Shape::Ellipse => TypedSize2D::new(bounds.size.width / 2.0, bounds.size.height / 2.0),
-                Shape::Circle => {
-                    let largest_bound_size = bounds.size.width.max(bounds.size.height);
-                    TypedSize2D::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
-                },
-            };
-
-            let gradient = builder.create_radial_gradient(center, radius, stops, wr_translate_extend_mode(gradient.extend_mode));
-            builder.push_radial_gradient(&info, gradient, bounds.size, LayoutSize::zero());
-        },
-        LinearGradient(gradient) => {
-
-            let stops: Vec<GradientStop> = gradient.stops.iter().map(|gradient_pre|
-                GradientStop {
-                    offset: gradient_pre.offset.unwrap().get() / 100.0,
-                    color: wr_translate_color_u(gradient_pre.color).into(),
-                }).collect();
-
-            let (begin_pt, end_pt) = gradient.direction.to_points(&wr_translate_css_layout_rect(*bounds));
-            let gradient = builder.create_gradient(
-                wr_translate_layout_point(begin_pt),
-                wr_translate_layout_point(end_pt),
-                stops,
-                wr_translate_extend_mode(gradient.extend_mode),
-            );
-
-            builder.push_gradient(&info, gradient, bounds.size, LayoutSize::zero());
-        },
-        Image(style_image_id) => {
-            // TODO: background-origin, background-position, background-repeat
-            if let Some(image_id) = app_resources.get_css_image_id(&style_image_id.0) {
-
-                let bounds = info.rect;
-                let image_dimensions = app_resources.get_image_info(image_id)
-                    .map(|info| (info.descriptor.dimensions.0 as i32, info.descriptor.dimensions.1 as i32))
-                    .unwrap_or((bounds.size.width as i32, bounds.size.height as i32)); // better than crashing...
-
-                let size = match background_size {
-                    Some(bg_size) => calculate_background_size(bg_size, &info, &image_dimensions),
-                    None => TypedSize2D::new(image_dimensions.0 as f32, image_dimensions.1 as f32),
-                };
-
-                let background_repeat = background_repeat.unwrap_or_default();
-                let background_repeat_info = get_background_repeat_info(&info, background_repeat, size);
-
-                push_image(&background_repeat_info, builder, app_resources, image_id, size);
-            }
-        },
-        Color(c) => {
-            builder.push_rect(&info, wr_translate_color_u(*c).into());
-        },
-        NoBackground => { },
-    }
-}
-
-fn get_background_repeat_info(
-    info: &LayoutPrimitiveInfo,
-    background_repeat: StyleBackgroundRepeat,
-    background_size: TypedSize2D<f32, LayoutPixel>,
-) -> LayoutPrimitiveInfo {
-    use azul_css::StyleBackgroundRepeat::*;
-    match background_repeat {
-        NoRepeat => LayoutPrimitiveInfo::with_clip_rect(
-            info.rect,
-            TypedRect::new(
-                info.rect.origin,
-                TypedSize2D::new(background_size.width, background_size.height),
-            ),
-        ),
-        Repeat => *info,
-        RepeatX => LayoutPrimitiveInfo::with_clip_rect(
-            info.rect,
-            TypedRect::new(
-                info.rect.origin,
-                TypedSize2D::new(info.rect.size.width, background_size.height),
-            ),
-        ),
-        RepeatY => LayoutPrimitiveInfo::with_clip_rect(
-            info.rect,
-            TypedRect::new(
-                info.rect.origin,
-                TypedSize2D::new(background_size.width, info.rect.size.height),
-            ),
-        ),
-    }
-}
-
-struct Ratio {
-    width: f32,
-    height: f32
-}
-
-fn calculate_background_size(
-    bg_size: &StyleBackgroundSize,
-    info: &PrimitiveInfo<LayoutPixel>,
-    image_dimensions: &(i32, i32)
-) -> TypedSize2D<f32, LayoutPixel> {
-
-    let original_ratios = Ratio {
-        width: info.rect.size.width / image_dimensions.0 as f32,
-        height: info.rect.size.height / image_dimensions.1 as f32,
-    };
-
-    let ratio = match bg_size {
-        StyleBackgroundSize::Contain => original_ratios.width.min(original_ratios.height),
-        StyleBackgroundSize::Cover => original_ratios.width.max(original_ratios.height)
-    };
-
-    TypedSize2D::new(image_dimensions.0 as f32 * ratio, image_dimensions.1 as f32 * ratio)
-}
-
-#[inline]
-fn push_image(
-    info: &PrimitiveInfo<LayoutPixel>,
-    builder: &mut DisplayListBuilder,
-    app_resources: &AppResources,
-    image_id: &ImageId,
-    size: TypedSize2D<f32, LayoutPixel>
-) {
-
-}
-
-#[inline]
-fn push_border(
-    info: &PrimitiveInfo<LayoutPixel>,
-    builder: &mut DisplayListBuilder,
-    border: &StyleBorder,
-    border_radius: &Option<StyleBorderRadius>
-) {
-    use wr_translate::{
-        wr_translate_layout_side_offsets, wr_translate_border_details
-    };
-
-    if let Some((border_widths, border_details)) = border.get_webrender_border(*border_radius) {
-        builder.push_border(
-            info,
-            wr_translate_layout_side_offsets(border_widths),
-            wr_translate_border_details(border_details)
-        );
     }
 }
 
