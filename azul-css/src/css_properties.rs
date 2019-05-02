@@ -8,6 +8,100 @@ const EM_HEIGHT: f32 = 16.0;
 /// WebRender measures in points, not in pixels!
 const PT_TO_PX: f32 = 96.0 / 72.0;
 
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssProperty, &'static str);11] = [
+    (CombinedCssProperty::Background, "background"),
+    (CombinedCssProperty::BorderRadius, "border-radius"),
+    (CombinedCssProperty::Overflow, "overflow"),
+    (CombinedCssProperty::Padding, "padding"),
+    (CombinedCssProperty::Margin, "margin"),
+    (CombinedCssProperty::Border, "border"),
+    (CombinedCssProperty::BorderLeft, "border-left"),
+    (CombinedCssProperty::BorderRight, "border-right"),
+    (CombinedCssProperty::BorderTop, "border-top"),
+    (CombinedCssProperty::BorderBottom, "border-bottom"),
+    (CombinedCssProperty::BoxShadow, "box-shadow"),
+];
+
+/// Map between CSS keys and a statically typed enum
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);62] = [
+
+    (CssPropertyType::TextColor,            "color"),
+    (CssPropertyType::FontSize,             "font-size"),
+    (CssPropertyType::FontFamily,           "font-family"),
+    (CssPropertyType::TextAlign,            "text-align"),
+
+    (CssPropertyType::LetterSpacing,        "letter-spacing"),
+    (CssPropertyType::LineHeight,           "line-height"),
+    (CssPropertyType::WordSpacing,          "word-spacing"),
+    (CssPropertyType::TabWidth,             "tab-width"),
+    (CssPropertyType::Cursor,               "cursor"),
+
+    (CssPropertyType::Width,                "width"),
+    (CssPropertyType::Height,               "height"),
+    (CssPropertyType::MinWidth,             "min-width"),
+    (CssPropertyType::MinHeight,            "min-height"),
+    (CssPropertyType::MaxWidth,             "max-width"),
+    (CssPropertyType::MaxHeight,            "max-height"),
+
+    (CssPropertyType::Position,             "position"),
+    (CssPropertyType::Top,                  "top"),
+    (CssPropertyType::Right,                "right"),
+    (CssPropertyType::Left,                 "left"),
+    (CssPropertyType::Bottom,               "bottom"),
+
+    (CssPropertyType::FlexWrap,             "flex-wrap"),
+    (CssPropertyType::FlexDirection,        "flex-direction"),
+    (CssPropertyType::FlexGrow,             "flex-grow"),
+    (CssPropertyType::FlexShrink,           "flex-shrink"),
+    (CssPropertyType::JustifyContent,       "justify-content"),
+    (CssPropertyType::AlignItems,           "align-items"),
+    (CssPropertyType::AlignContent,         "align-content"),
+
+    (CssPropertyType::OverflowX,            "overflow-x"),
+    (CssPropertyType::OverflowY,            "overflow-y"),
+
+    (CssPropertyType::PaddingTop,           "padding-top"),
+    (CssPropertyType::PaddingLeft,          "padding-left"),
+    (CssPropertyType::PaddingRight,         "padding-right"),
+    (CssPropertyType::PaddingBottom,        "padding-bottom"),
+
+    (CssPropertyType::MarginTop,            "margin-top"),
+    (CssPropertyType::MarginLeft,           "margin-left"),
+    (CssPropertyType::MarginRight,          "margin-right"),
+    (CssPropertyType::MarginBottom,         "margin-bottom"),
+
+    (CssPropertyType::BackgroundAttachment, "background-attachment"),
+    (CssPropertyType::BackgroundPosition,   "background-position"),
+    (CssPropertyType::BackgroundSize,       "background-size"),
+    (CssPropertyType::BackgroundRepeat,     "background-repeat"),
+    (CssPropertyType::BackgroundImage,      "background-image"),
+
+    (CssPropertyType::BorderTopLeftRadius,      "border-top-left-radius"),
+    (CssPropertyType::BorderTopRightRadius,     "border-top-right-radius"),
+    (CssPropertyType::BorderBottomLeftRadius,   "border-bottom-left-radius"),
+    (CssPropertyType::BorderBottomRightRadius,  "border-bottom-right-radius"),
+
+    (CssPropertyType::BorderTopColor,           "border-top-color"),
+    (CssPropertyType::BorderRightColor,         "border-right-color"),
+    (CssPropertyType::BorderLeftColor,          "border-left-color"),
+    (CssPropertyType::BorderBottomColor,        "border-bottom-color"),
+
+    (CssPropertyType::BorderTopStyle,           "border-top-style"),
+    (CssPropertyType::BorderRightStyle,         "border-right-style"),
+    (CssPropertyType::BorderLeftStyle,          "border-left-style"),
+    (CssPropertyType::BorderBottomStyle,        "border-bottom-style"),
+
+    (CssPropertyType::BorderTopWidth,           "border-top-width"),
+    (CssPropertyType::BorderRightWidth,         "border-right-width"),
+    (CssPropertyType::BorderLeftWidth,          "border-left-width"),
+    (CssPropertyType::BorderBottomWidth,        "border-bottom-width"),
+
+    (CssPropertyType::BoxShadowTop, "box-shadow-top"),
+    (CssPropertyType::BoxShadowRight, "box-shadow-right"),
+    (CssPropertyType::BoxShadowLeft, "box-shadow-left"),
+    (CssPropertyType::BoxShadowBottom, "box-shadow-bottom"),
+];
+
 // The following types are present in webrender, however, azul-css should not
 // depend on webrender, just to have the same types, azul-css should be a standalone crate.
 
@@ -103,20 +197,20 @@ impl From<ColorF> for ColorU {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
-pub struct BorderRadius {
+pub struct StyleBorderRadius {
     pub top_left: PixelSize,
     pub top_right: PixelSize,
     pub bottom_left: PixelSize,
     pub bottom_right: PixelSize,
 }
 
-impl Default for BorderRadius {
+impl Default for StyleBorderRadius {
     fn default() -> Self {
         Self::zero()
     }
 }
 
-impl BorderRadius {
+impl StyleBorderRadius {
 
     pub const fn zero() -> Self {
         Self::uniform(PixelSize::zero())
@@ -145,7 +239,7 @@ pub struct NormalBorder {
     pub right: BorderSide,
     pub top: BorderSide,
     pub bottom: BorderSide,
-    pub radius: Option<BorderRadius>,
+    pub radius: Option<StyleBorderRadius>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
@@ -181,6 +275,12 @@ pub enum BorderStyle {
     Ridge,
     Inset,
     Outset,
+}
+
+impl Default for BorderStyle {
+    fn default() -> Self {
+        BorderStyle::Soldid;
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
@@ -231,103 +331,88 @@ macro_rules! impl_float_value{($struct:ident) => (
     }
 )}
 
-/// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);56] = [
-    (CssPropertyType::Background,       "background"),
-    (CssPropertyType::BackgroundSize,   "background-size"),
-    (CssPropertyType::BackgroundRepeat, "background-repeat"),
-    (CssPropertyType::BackgroundColor,  "background-color"),
-    (CssPropertyType::BackgroundImage,  "background-image"),
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CombinedCssProperty {
+    Background,
+    BorderRadius,
+    Overflow,
+    Margin,
+    Border,
+    BorderLeft,
+    BorderRight,
+    BorderTop,
+    BorderBottom,
+    Padding,
+    BoxShadow,
+}
 
-    (CssPropertyType::BorderRadius,     "border-radius"),
-    (CssPropertyType::TextColor,        "color"),
-    (CssPropertyType::FontSize,         "font-size"),
-    (CssPropertyType::FontFamily,       "font-family"),
-    (CssPropertyType::TextAlign,        "text-align"),
-    (CssPropertyType::LetterSpacing,    "letter-spacing"),
-    (CssPropertyType::LineHeight,       "line-height"),
-    (CssPropertyType::WordSpacing,      "word-spacing"),
-    (CssPropertyType::TabWidth,         "tab-width"),
-    (CssPropertyType::Cursor,           "cursor"),
-    (CssPropertyType::Width,            "width"),
-    (CssPropertyType::Height,           "height"),
-    (CssPropertyType::MinWidth,         "min-width"),
-    (CssPropertyType::MinHeight,        "min-height"),
-    (CssPropertyType::MaxWidth,         "max-width"),
-    (CssPropertyType::MaxHeight,        "max-height"),
-    (CssPropertyType::Position,         "position"),
-    (CssPropertyType::Top,              "top"),
-    (CssPropertyType::Right,            "right"),
-    (CssPropertyType::Left,             "left"),
-    (CssPropertyType::Bottom,           "bottom"),
-    (CssPropertyType::FlexWrap,         "flex-wrap"),
-    (CssPropertyType::FlexDirection,    "flex-direction"),
-    (CssPropertyType::FlexGrow,         "flex-grow"),
-    (CssPropertyType::FlexShrink,       "flex-shrink"),
-    (CssPropertyType::JustifyContent,   "justify-content"),
-    (CssPropertyType::AlignItems,       "align-items"),
-    (CssPropertyType::AlignContent,     "align-content"),
-    (CssPropertyType::Overflow,         "overflow"),
-    (CssPropertyType::OverflowX,        "overflow-x"),
-    (CssPropertyType::OverflowY,        "overflow-y"),
-    (CssPropertyType::Padding,          "padding"),
-    (CssPropertyType::PaddingTop,       "padding-top"),
-    (CssPropertyType::PaddingLeft,      "padding-left"),
-    (CssPropertyType::PaddingRight,     "padding-right"),
-    (CssPropertyType::PaddingBottom,    "padding-bottom"),
-    (CssPropertyType::Margin,           "margin"),
-    (CssPropertyType::MarginTop,        "margin-top"),
-    (CssPropertyType::MarginLeft,       "margin-left"),
-    (CssPropertyType::MarginRight,      "margin-right"),
-    (CssPropertyType::MarginBottom,     "margin-bottom"),
-    (CssPropertyType::Border,           "border"),
-    (CssPropertyType::BorderTop,        "border-top"),
-    (CssPropertyType::BorderLeft,       "border-left"),
-    (CssPropertyType::BorderRight,      "border-right"),
-    (CssPropertyType::BorderBottom,     "border-bottom"),
-    (CssPropertyType::BoxShadow,        "box-shadow"),
-    (CssPropertyType::BoxShadowTop,     "box-shadow-top"),
-    (CssPropertyType::BoxShadowLeft,    "box-shadow-left"),
-    (CssPropertyType::BoxShadowRight,   "box-shadow-right"),
-    (CssPropertyType::BoxShadowBottom,  "box-shadow-bottom"),
-];
+impl CombinedCssProperty {
+
+    /// Parses a CSS key, such as `width` from a string:
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use azul_css::{CombinedCssProperty, get_css_key_map};
+    /// let map = get_css_key_map();
+    /// assert_eq!(Some(CssPropertyType::Border), CssPropertyType::from_str("border", &map));
+    /// ```
+    pub fn from_str(input: &str, map: &BTreeMap<&'static str, Self>) -> Option<Self> {
+        let input = input.trim();
+        map.get(input).map(|x| *x)
+    }
+
+    /// Returns the original string that was used to construct this `CssPropertyType`.
+    pub fn to_str(&self, map: &BTreeMap<&'static str, Self>) -> &'static str {
+        map.iter().find(|(_, v)| *v == self).map(|(k, _)| k).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CssKeyMap {
+    // Contains all keys that have no shorthand
+    pub non_shorthands: BTreeMap<&'static str, CssPropertyType>,
+    // Contains all keys that act as a shorthand for other types
+    pub shorthands: BTreeMap<&'static str, CombinedCssProperty>,
+}
 
 /// Returns a map useful for parsing the keys of CSS stylesheets
-pub fn get_css_key_map() -> BTreeMap<&'static str, CssPropertyType> {
-    CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect()
+pub fn get_css_key_map() -> CssKeyMap {
+    CssKeyMap {
+        non_shorthands: CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect(),
+        shorthands: COMBINED_CSS_PROPERTIES_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect(),
+    }
 }
 
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssPropertyType {
-    BackgroundColor,
-    Background,
-    BackgroundSize,
-    BackgroundRepeat,
-    BackgroundImage,
 
-    BorderRadius,
     TextColor,
     FontSize,
     FontFamily,
     TextAlign,
+
     LetterSpacing,
+    LineHeight,
     WordSpacing,
     TabWidth,
-    LineHeight,
     Cursor,
+
     Width,
     Height,
     MinWidth,
     MinHeight,
     MaxWidth,
     MaxHeight,
+
     Position,
     Top,
     Right,
     Left,
     Bottom,
+
     FlexWrap,
     FlexDirection,
     FlexGrow,
@@ -336,32 +421,48 @@ pub enum CssPropertyType {
     AlignItems,
     AlignContent,
 
-    Overflow,
     OverflowX,
     OverflowY,
 
-    Padding,
     PaddingTop,
     PaddingLeft,
     PaddingRight,
     PaddingBottom,
 
-    Margin,
     MarginTop,
     MarginLeft,
     MarginRight,
     MarginBottom,
 
-    Border,
-    BorderTop,
-    BorderLeft,
-    BorderRight,
-    BorderBottom,
+    BackgroundAttachment,
+    BackgroundPosition,
+    BackgroundSize,
+    BackgroundRepeat,
+    BackgroundImage,
 
-    BoxShadow,
-    BoxShadowTop,
+    BorderTopLeftRadius,
+    BorderTopRightRadius,
+    BorderBottomLeftRadius,
+    BorderBottomRightRadius,
+
+    BorderTopColor,
+    BorderRightColor,
+    BorderLeftColor,
+    BorderBottomColor,
+
+    BorderTopStyle,
+    BorderRightStyle,
+    BorderLeftStyle,
+    BorderBottomStyle,
+
+    BorderTopWidth,
+    BorderRightWidth,
+    BorderLeftWidth,
+    BorderBottomWidth,
+
     BoxShadowLeft,
     BoxShadowRight,
+    BoxShadowTop,
     BoxShadowBottom,
 }
 
@@ -413,19 +514,30 @@ impl CssPropertyType {
         // the text layout and therefore the screen layout
 
         match self {
-            | BorderRadius
-            | BackgroundColor
+            | TextColor
+            | Cursor
+            | BackgroundAttachment
+            | BackgroundPosition
             | BackgroundSize
             | BackgroundRepeat
-            | TextColor
-            | Background
-            | TextAlign
-            | BoxShadow
-            | BoxShadowTop
+            | BackgroundImage
+            | BorderTopLeftRadius
+            | BorderTopRightRadius
+            | BorderBottomLeftRadius
+            | BorderBottomRightRadius
+            | BorderTopColor
+            | BorderRightColor
+            | BorderLeftColor
+            | BorderBottomColor
+            | BorderTopStyle
+            | BorderRightStyle
+            | BorderLeftStyle
+            | BorderBottomStyle
             | BoxShadowLeft
-            | BoxShadowBottom
             | BoxShadowRight
-            | Cursor => false,
+            | BoxShadowTop
+            | BoxShadowBottom
+            => false,
             _ => true,
         }
     }
@@ -441,34 +553,31 @@ impl fmt::Display for CssPropertyType {
 /// Represents one parsed CSS key-value pair, such as `"width: 20px"` => `CssProperty::Width(LayoutWidth::px(20.0))`
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CssProperty {
-    BorderRadius(StyleBorderRadius),
-    BackgroundSize(StyleBackgroundSize),
-    BackgroundRepeat(StyleBackgroundRepeat),
+
     TextColor(StyleTextColor),
-    Border(StyleBorder),
-    Background(StyleBackground),
     FontSize(StyleFontSize),
     FontFamily(StyleFontFamily),
     TextAlign(StyleTextAlignmentHorz),
+
     LetterSpacing(StyleLetterSpacing),
-    BoxShadow(StyleBoxShadow),
     LineHeight(StyleLineHeight),
     WordSpacing(StyleWordSpacing),
     TabWidth(StyleTabWidth),
     Cursor(StyleCursor),
+
     Width(LayoutWidth),
     Height(LayoutHeight),
     MinWidth(LayoutMinWidth),
     MinHeight(LayoutMinHeight),
     MaxWidth(LayoutMaxWidth),
     MaxHeight(LayoutMaxHeight),
+
     Position(LayoutPosition),
     Top(LayoutTop),
     Right(LayoutRight),
     Left(LayoutLeft),
     Bottom(LayoutBottom),
-    Padding(LayoutPadding),
-    Margin(LayoutMargin),
+
     FlexWrap(LayoutWrap),
     FlexDirection(LayoutDirection),
     FlexGrow(LayoutFlexGrow),
@@ -476,7 +585,49 @@ pub enum CssProperty {
     JustifyContent(LayoutJustifyContent),
     AlignItems(LayoutAlignItems),
     AlignContent(LayoutAlignContent),
-    Overflow(LayoutOverflow),
+
+    BackgroundAttachment(StyleBackgroundAttachment),
+    BackgroundPosition(StyleBackgroundPosition),
+    BackgroundSize(StyleBackgroundSize),
+    BackgroundRepeat(StyleBackgroundRepeat),
+
+    OverflowX(Overflow),
+    OverflowY(Overflow),
+
+    PaddingTop(LayoutPaddingTop),
+    PaddingLeft(LayoutPaddingLeft),
+    PaddingRight(LayoutPaddingRight),
+    PaddingBottom(LayoutPaddingBottom),
+
+    MarginTop(LayoutMarginTop),
+    MarginLeft(LayoutMarginLeft),
+    MarginRight(LayoutMarginRight),
+    MarginBottom(LayoutMarginBottom),
+
+    BorderTopLeftRadius(StyleBorderTopLeftRadius),
+    BorderTopRightRadius(StyleBorderTopRightRadius),
+    BorderBottomLeftRadius(StyleBorderBottomLeftRadius),
+    BorderBottomRightRadius(StyleBorderBottomRightRadius),
+
+    BorderTopColor(StyleBorderTopColor),
+    BorderRightColor(StyleBorderRightColor),
+    BorderLeftColor(StyleBorderLeftColor),
+    BorderBottomColor(StyleBorderBottomColor),
+
+    BorderTopStyle(StyleBorderTopStyle),
+    BorderRightStyle(StyleBorderRightStyle),
+    BorderLeftStyle(StyleBorderLeftStyle),
+    BorderBottomStyle(StyleBorderBottomStyle),
+
+    BorderTopWidth(StyleBorderTopWidth),
+    BorderRightWidth(StyleBorderRightWidth),
+    BorderLeftWidth(StyleBorderLeftWidth),
+    BorderBottomWidth(StyleBorderBottomWidth),
+
+    BoxShadowLeft(BoxShadowPreDisplayItem),
+    BoxShadowRight(BoxShadowPreDisplayItem),
+    BoxShadowTop(BoxShadowPreDisplayItem),
+    BoxShadowBottom(BoxShadowPreDisplayItem),
 }
 
 impl CssProperty {
@@ -484,20 +635,14 @@ impl CssProperty {
     /// Return the type (key) of this property as a statically typed enum
     pub fn get_type(&self) -> CssPropertyType {
         match &self {
-            CssProperty::BorderRadius(_) => CssPropertyType::BorderRadius,
-            CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
-            CssProperty::BackgroundRepeat(_) => CssPropertyType::BackgroundRepeat,
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
-            CssProperty::Border(_) => CssPropertyType::Border,
-            CssProperty::Background(_) => CssPropertyType::Background,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
             CssProperty::FontFamily(_) => CssPropertyType::FontFamily,
             CssProperty::TextAlign(_) => CssPropertyType::TextAlign,
             CssProperty::LetterSpacing(_) => CssPropertyType::LetterSpacing,
+            CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
             CssProperty::WordSpacing(_) => CssPropertyType::WordSpacing,
             CssProperty::TabWidth(_) => CssPropertyType::TabWidth,
-            CssProperty::BoxShadow(_) => CssPropertyType::BoxShadow,
-            CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
             CssProperty::Cursor(_) => CssPropertyType::Cursor,
             CssProperty::Width(_) => CssPropertyType::Width,
             CssProperty::Height(_) => CssPropertyType::Height,
@@ -510,8 +655,6 @@ impl CssProperty {
             CssProperty::Right(_) => CssPropertyType::Right,
             CssProperty::Left(_) => CssPropertyType::Left,
             CssProperty::Bottom(_) => CssPropertyType::Bottom,
-            CssProperty::Padding(_) => CssPropertyType::Padding,
-            CssProperty::Margin(_) => CssPropertyType::Margin,
             CssProperty::FlexWrap(_) => CssPropertyType::FlexWrap,
             CssProperty::FlexDirection(_) => CssPropertyType::FlexDirection,
             CssProperty::FlexGrow(_) => CssPropertyType::FlexGrow,
@@ -519,44 +662,64 @@ impl CssProperty {
             CssProperty::JustifyContent(_) => CssPropertyType::JustifyContent,
             CssProperty::AlignItems(_) => CssPropertyType::AlignItems,
             CssProperty::AlignContent(_) => CssPropertyType::AlignContent,
-            CssProperty::Overflow(_) => CssPropertyType::Overflow,
+            CssProperty::BackgroundAttachment(_) => CssPropertyType::BackgroundAttachment,
+            CssProperty::BackgroundPosition(_) => CssPropertyType::BackgroundPosition,
+            CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
+            CssProperty::BackgroundRepeat(_) => CssPropertyType::BackgroundRepeat,
+            CssProperty::OverflowX(_) => CssPropertyType::OverflowX,
+            CssProperty::OverflowY(_) => CssPropertyType::OverflowY,
+            CssProperty::PaddingTop(_) => CssPropertyType::PaddingTop,
+            CssProperty::PaddingLeft(_) => CssPropertyType::PaddingLeft,
+            CssProperty::PaddingRight(_) => CssPropertyType::PaddingRight,
+            CssProperty::PaddingBottom(_) => CssPropertyType::PaddingBottom,
+            CssProperty::MarginTop(_) => CssPropertyType::MarginTop,
+            CssProperty::MarginLeft(_) => CssPropertyType::MarginLeft,
+            CssProperty::MarginRight(_) => CssPropertyType::MarginRight,
+            CssProperty::MarginBottom(_) => CssPropertyType::MarginBottom,
+            CssProperty::BorderTopLeftRadius(_) => CssPropertyType::BorderTopLeftRadius,
+            CssProperty::BorderTopRightRadius(_) => CssPropertyType::BorderTopRightRadius,
+            CssProperty::BorderBottomLeftRadius(_) => CssPropertyType::BorderBottomLeftRadius,
+            CssProperty::BorderBottomRightRadius(_) => CssPropertyType::BorderBottomRightRadius,
+            CssProperty::BorderTopColor(_) => CssPropertyType::BorderTopColor,
+            CssProperty::BorderRightColor(_) => CssPropertyType::BorderRightColor,
+            CssProperty::BorderLeftColor(_) => CssPropertyType::BorderLeftColor,
+            CssProperty::BorderBottomColor(_) => CssPropertyType::BorderBottomColor,
+            CssProperty::BorderTopStyle(_) => CssPropertyType::BorderTopStyle,
+            CssProperty::BorderRightStyle(_) => CssPropertyType::BorderRightStyle,
+            CssProperty::BorderLeftStyle(_) => CssPropertyType::BorderLeftStyle,
+            CssProperty::BorderBottomStyle(_) => CssPropertyType::BorderBottomStyle,
+            CssProperty::BorderTopWidth(_) => CssPropertyType::BorderTopWidth,
+            CssProperty::BorderRightWidth(_) => CssPropertyType::BorderRightWidth,
+            CssProperty::BorderLeftWidth(_) => CssPropertyType::BorderLeftWidth,
+            CssProperty::BorderBottomWidth(_) => CssPropertyType::BorderBottomWidth,
+            CssProperty::BoxShadowLeft(_) => CssPropertyType::BoxShadowLeft,
+            CssProperty::BoxShadowRight(_) => CssPropertyType::BoxShadowRight,
+            CssProperty::BoxShadowTop(_) => CssPropertyType::BoxShadowTop,
+            CssProperty::BoxShadowBottom(_) => CssPropertyType::BoxShadowBottom,
         }
     }
 }
 
-impl_from!(StyleBorderRadius, CssProperty::BorderRadius);
-impl_from!(StyleBackground, CssProperty::Background);
-impl_from!(StyleBoxShadow, CssProperty::BoxShadow);
-impl_from!(StyleBorder, CssProperty::Border);
+impl_from!(StyleTextColor, CssProperty::TextColor);
 impl_from!(StyleFontSize, CssProperty::FontSize);
 impl_from!(StyleFontFamily, CssProperty::FontFamily);
 impl_from!(StyleTextAlignmentHorz, CssProperty::TextAlign);
-impl_from!(StyleLineHeight, CssProperty::LineHeight);
-impl_from!(StyleTabWidth, CssProperty::TabWidth);
-impl_from!(StyleWordSpacing, CssProperty::WordSpacing);
 impl_from!(StyleLetterSpacing, CssProperty::LetterSpacing);
-impl_from!(StyleBackgroundSize, CssProperty::BackgroundSize);
-impl_from!(StyleBackgroundRepeat, CssProperty::BackgroundRepeat);
-impl_from!(StyleTextColor, CssProperty::TextColor);
+impl_from!(StyleLineHeight, CssProperty::LineHeight);
+impl_from!(StyleWordSpacing, CssProperty::WordSpacing);
+impl_from!(StyleTabWidth, CssProperty::TabWidth);
 impl_from!(StyleCursor, CssProperty::Cursor);
-
-impl_from!(LayoutOverflow, CssProperty::Overflow);
 impl_from!(LayoutWidth, CssProperty::Width);
 impl_from!(LayoutHeight, CssProperty::Height);
 impl_from!(LayoutMinWidth, CssProperty::MinWidth);
 impl_from!(LayoutMinHeight, CssProperty::MinHeight);
 impl_from!(LayoutMaxWidth, CssProperty::MaxWidth);
 impl_from!(LayoutMaxHeight, CssProperty::MaxHeight);
-
 impl_from!(LayoutPosition, CssProperty::Position);
 impl_from!(LayoutTop, CssProperty::Top);
-impl_from!(LayoutBottom, CssProperty::Bottom);
 impl_from!(LayoutRight, CssProperty::Right);
 impl_from!(LayoutLeft, CssProperty::Left);
-
-impl_from!(LayoutPadding, CssProperty::Padding);
-impl_from!(LayoutMargin, CssProperty::Margin);
-
+impl_from!(LayoutBottom, CssProperty::Bottom);
 impl_from!(LayoutWrap, CssProperty::FlexWrap);
 impl_from!(LayoutDirection, CssProperty::FlexDirection);
 impl_from!(LayoutFlexGrow, CssProperty::FlexGrow);
@@ -564,6 +727,34 @@ impl_from!(LayoutFlexShrink, CssProperty::FlexShrink);
 impl_from!(LayoutJustifyContent, CssProperty::JustifyContent);
 impl_from!(LayoutAlignItems, CssProperty::AlignItems);
 impl_from!(LayoutAlignContent, CssProperty::AlignContent);
+impl_from!(StyleBackgroundAttachment, CssProperty::BackgroundAttachment);
+impl_from!(StyleBackgroundPosition, CssProperty::BackgroundPosition);
+impl_from!(StyleBackgroundSize, CssProperty::BackgroundSize);
+impl_from!(StyleBackgroundRepeat, CssProperty::BackgroundRepeat);
+impl_from!(LayoutPaddingTop, CssProperty::PaddingTop);
+impl_from!(LayoutPaddingLeft, CssProperty::PaddingLeft);
+impl_from!(LayoutPaddingRight, CssProperty::PaddingRight);
+impl_from!(LayoutPaddingBottom, CssProperty::PaddingBottom);
+impl_from!(LayoutMarginTop, CssProperty::MarginTop);
+impl_from!(LayoutMarginLeft, CssProperty::MarginLeft);
+impl_from!(LayoutMarginRight, CssProperty::MarginRight);
+impl_from!(LayoutMarginBottom, CssProperty::MarginBottom);
+impl_from!(StyleBorderTopLeftRadius, CssProperty::BorderTopLeftRadius);
+impl_from!(StyleBorderTopRightRadius, CssProperty::BorderTopRightRadius);
+impl_from!(StyleBorderBottomLeftRadius, CssProperty::BorderBottomLeftRadius);
+impl_from!(StyleBorderBottomRightRadius, CssProperty::BorderBottomRightRadius);
+impl_from!(StyleBorderTopColor, CssProperty::BorderTopColor);
+impl_from!(StyleBorderRightColor, CssProperty::BorderRightColor);
+impl_from!(StyleBorderLeftColor, CssProperty::BorderLeftColor);
+impl_from!(StyleBorderBottomColor, CssProperty::BorderBottomColor);
+impl_from!(StyleBorderTopStyle, CssProperty::BorderTopStyle);
+impl_from!(StyleBorderRightStyle, CssProperty::BorderRightStyle);
+impl_from!(StyleBorderLeftStyle, CssProperty::BorderLeftStyle);
+impl_from!(StyleBorderBottomStyle, CssProperty::BorderBottomStyle);
+impl_from!(StyleBorderTopWidth, CssProperty::BorderTopWidth);
+impl_from!(StyleBorderRightWidth, CssProperty::BorderRightWidth);
+impl_from!(StyleBorderLeftWidth, CssProperty::BorderLeftWidth);
+impl_from!(StyleBorderBottomWidth, CssProperty::BorderBottomWidth);
 
 /// Multiplier for floating point accuracy. Elements such as px or %
 /// are only accurate until a certain number of decimal points, therefore
@@ -737,20 +928,32 @@ pub enum SizeMetric {
     Em,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderRadius(pub BorderRadius);
-
-impl StyleBorderRadius {
-    pub const fn zero() -> Self {
-        StyleBorderRadius(BorderRadius::zero())
-    }
-}
-
 /// Represents a `background-size` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleBackgroundSize {
+    ExactSize(PixelValue, PixelValue),
     Contain,
     Cover,
+}
+
+/// Represents a `background-position` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StyleBackgroundPosition {
+    Corner(BackgroundPositionCorner),
+    Exact(PixelValue),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BackgroundPositionCorner {
+    LeftTop,
+    LeftCenter,
+    LeftBottom,
+    RightTop,
+    RightCenter,
+    RightBottom,
+    CenterTop,
+    CenterCenter,
+    CenterBottom,
 }
 
 /// Represents a `background-repeat` attribute
@@ -771,15 +974,6 @@ impl Default for StyleBackgroundRepeat {
 /// Represents a `color` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleTextColor(pub ColorU);
-
-/// Represents a `padding` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutPadding {
-    pub top: Option<PixelValue>,
-    pub bottom: Option<PixelValue>,
-    pub left: Option<PixelValue>,
-    pub right: Option<PixelValue>,
-}
 
 // $struct_name has to have top, left, right, bottom properties
 macro_rules! merge_struct {($struct_name:ident) => (
@@ -809,10 +1003,17 @@ impl $struct_name {
     }
 })}
 
+/// Represents a `padding` attribute
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutPadding {
+    pub top: Option<PixelValue>,
+    pub bottom: Option<PixelValue>,
+    pub left: Option<PixelValue>,
+    pub right: Option<PixelValue>,
+}
+
 merge_struct!(LayoutPadding);
-merge_struct!(LayoutMargin);
 struct_all!(LayoutPadding, PixelValue);
-struct_all!(LayoutMargin, PixelValue);
 
 /// Represents a parsed `padding` attribute
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -822,6 +1023,9 @@ pub struct LayoutMargin {
     pub left: Option<PixelValue>,
     pub right: Option<PixelValue>,
 }
+
+merge_struct!(LayoutMargin);
+struct_all!(LayoutMargin, PixelValue);
 
 /// Wrapper for the `overflow-{x,y}` + `overflow` property
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -867,6 +1071,75 @@ impl LayoutOverflow {
     }
 }
 
+// -- TODO: Technically, border-radius can take two values for each corner!
+
+/// Represents a `border-top-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderTopLeftRadius(pub PixelValue);
+/// Represents a `border-left-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderBottomLeftRadius(pub PixelValue);
+/// Represents a `border-right-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderTopRightRadius(pub PixelValue);
+/// Represents a `border-bottom-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderBottomRightRadius(pub PixelValue);
+
+impl_pixel_value!(StyleBorderTopLeftRadius);
+impl_pixel_value!(StyleBorderBottomLeftRadius);
+impl_pixel_value!(StyleBorderTopRightRadius);
+impl_pixel_value!(StyleBorderBottomRightRadius);
+
+/// Represents a `border-top-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderTopWidth(pub PixelValue);
+/// Represents a `border-left-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderLeftWidth(pub PixelValue);
+/// Represents a `border-right-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderRightWidth(pub PixelValue);
+/// Represents a `border-bottom-width` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderBottomWidth(pub PixelValue);
+
+impl_pixel_value!(StyleBorderTopWidth);
+impl_pixel_value!(StyleBorderLeftWidth);
+impl_pixel_value!(StyleBorderRightWidth);
+impl_pixel_value!(StyleBorderBottomWidth);
+
+/// Represents a `border-top-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderTopStyle(pub BorderStyle);
+/// Represents a `border-left-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderLeftStyle(pub BorderStyle);
+/// Represents a `border-right-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderRightStyle(pub BorderStyle);
+/// Represents a `border-bottom-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderBottomStyle(pub BorderStyle);
+
+/// Represents a `border-top-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderTopColor(pub ColorU);
+/// Represents a `border-left-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderLeftColor(pub ColorU);
+/// Represents a `border-right-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderRightColor(pub ColorU);
+/// Represents a `border-bottom-width` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderBottomColor(pub ColorU);
+
+impl Default for StyleBorderTopColor { fn default() -> Self { StyleBorderTopColor(ColorU::BLACK) } }
+impl Default for StyleBorderLeftColor { fn default() -> Self { StyleBorderLeftColor(ColorU::BLACK) } }
+impl Default for StyleBorderRightColor { fn default() -> Self { StyleBorderRightColor(ColorU::BLACK) } }
+impl Default for StyleBorderBottomColor { fn default() -> Self { StyleBorderBottomColor(ColorU::BLACK) } }
+
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorder {
     pub top: Option<StyleBorderSide>,
@@ -878,57 +1151,6 @@ pub struct StyleBorder {
 merge_struct!(StyleBorder);
 struct_all!(StyleBorder, StyleBorderSide);
 
-impl StyleBorder {
-
-    /// Returns the merged offsets and details for the top, left,
-    /// right and bottom styles - necessary, so we can combine `border-top`,
-    /// `border-left`, etc. into one border
-    pub fn get_webrender_border(&self, border_radius: Option<StyleBorderRadius>) -> Option<(LayoutSideOffsets, BorderDetails)> {
-        match (self.top, self.left, self.bottom, self.right) {
-            (None, None, None, None) => None,
-            (top, left, bottom, right) => {
-
-                // Widths
-                let border_width_top = top.and_then(|top|  Some(top.border_width.to_pixels())).unwrap_or(0.0);
-                let border_width_bottom = bottom.and_then(|bottom|  Some(bottom.border_width.to_pixels())).unwrap_or(0.0);
-                let border_width_left = left.and_then(|left|  Some(left.border_width.to_pixels())).unwrap_or(0.0);
-                let border_width_right = right.and_then(|right|  Some(right.border_width.to_pixels())).unwrap_or(0.0);
-
-                // Color
-                let border_color_top = top.and_then(|top| Some(top.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
-                let border_color_bottom = bottom.and_then(|bottom| Some(bottom.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
-                let border_color_left = left.and_then(|left| Some(left.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
-                let border_color_right = right.and_then(|right| Some(right.border_color.into())).unwrap_or(DEFAULT_BORDER_COLOR);
-
-                // Styles
-                let border_style_top = top.and_then(|top| Some(top.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
-                let border_style_bottom = bottom.and_then(|bottom| Some(bottom.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
-                let border_style_left = left.and_then(|left| Some(left.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
-                let border_style_right = right.and_then(|right| Some(right.border_style)).unwrap_or(DEFAULT_BORDER_STYLE);
-
-                let border_widths = LayoutSideOffsets {
-                    top: FloatValue::new(border_width_top),
-                    right: FloatValue::new(border_width_right),
-                    bottom: FloatValue::new(border_width_bottom),
-                    left: FloatValue::new(border_width_left),
-                };
-                let border_details = BorderDetails::Normal(NormalBorder {
-                    top: BorderSide { color:  border_color_top.into(), style: border_style_top },
-                    left: BorderSide { color:  border_color_left.into(), style: border_style_left },
-                    right: BorderSide { color:  border_color_right.into(),  style: border_style_right },
-                    bottom: BorderSide { color:  border_color_bottom.into(), style: border_style_bottom },
-                    radius: border_radius.and_then(|r| Some(r.0)),
-                });
-
-                Some((border_widths, border_details))
-            }
-        }
-    }
-}
-
-const DEFAULT_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
-const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderSide {
     pub border_width: PixelValue,
@@ -939,14 +1161,14 @@ pub struct StyleBorderSide {
 /// Represents a `box-shadow` attribute.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBoxShadow {
-    pub top: Option<Option<BoxShadowPreDisplayItem>>,
-    pub left: Option<Option<BoxShadowPreDisplayItem>>,
-    pub bottom: Option<Option<BoxShadowPreDisplayItem>>,
-    pub right: Option<Option<BoxShadowPreDisplayItem>>,
+    pub top: Option<BoxShadowPreDisplayItem>,
+    pub left: Option<BoxShadowPreDisplayItem>,
+    pub bottom: Option<BoxShadowPreDisplayItem>,
+    pub right: Option<BoxShadowPreDisplayItem>,
 }
 
 merge_struct!(StyleBoxShadow);
-struct_all!(StyleBoxShadow, Option<BoxShadowPreDisplayItem>);
+struct_all!(StyleBoxShadow, BoxShadowPreDisplayItem);
 
 // missing StyleBorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -959,17 +1181,16 @@ pub struct BoxShadowPreDisplayItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum StyleBackground {
+pub enum StyleBackgroundAttachment {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
     Image(CssImageId),
     Color(ColorU),
-    NoBackground,
 }
 
-impl StyleBackground {
+impl StyleBackgroundAttachment {
     pub fn get_css_image_id(&self) -> Option<&CssImageId> {
-        use self::StyleBackground::*;
+        use self::StyleBackgroundAttachment::*;
         match self {
             Image(i) => Some(i),
             _ => None,
@@ -977,9 +1198,9 @@ impl StyleBackground {
     }
 }
 
-impl<'a> From<CssImageId> for StyleBackground {
+impl<'a> From<CssImageId> for StyleBackgroundAttachment {
     fn from(id: CssImageId) -> Self {
-        StyleBackground::Image(id)
+        StyleBackgroundAttachment::Image(id)
     }
 }
 
@@ -1249,6 +1470,13 @@ pub struct LayoutMinHeight(pub PixelValue);
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMaxHeight(pub PixelValue);
 
+impl_pixel_value!(LayoutWidth);
+impl_pixel_value!(LayoutHeight);
+impl_pixel_value!(LayoutMinHeight);
+impl_pixel_value!(LayoutMinWidth);
+impl_pixel_value!(LayoutMaxWidth);
+impl_pixel_value!(LayoutMaxHeight);
+
 /// Represents a `top` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutTop(pub PixelValue);
@@ -1261,6 +1489,47 @@ pub struct LayoutRight(pub PixelValue);
 /// Represents a `bottom` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutBottom(pub PixelValue);
+
+impl_pixel_value!(LayoutTop);
+impl_pixel_value!(LayoutBottom);
+impl_pixel_value!(LayoutRight);
+impl_pixel_value!(LayoutLeft);
+
+/// Represents a `padding-top` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutPaddingTop(pub PixelValue);
+/// Represents a `padding-left` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutPaddingLeft(pub PixelValue);
+/// Represents a `padding-right` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutPaddingRight(pub PixelValue);
+/// Represents a `padding-bottom` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutPaddingBottom(pub PixelValue);
+
+impl_pixel_value!(LayoutPaddingTop);
+impl_pixel_value!(LayoutPaddingBottom);
+impl_pixel_value!(LayoutPaddingRight);
+impl_pixel_value!(LayoutPaddingLeft);
+
+/// Represents a `padding-top` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutMarginTop(pub PixelValue);
+/// Represents a `padding-left` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutMarginLeft(pub PixelValue);
+/// Represents a `padding-right` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutMarginRight(pub PixelValue);
+/// Represents a `padding-bottom` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LayoutMarginBottom(pub PixelValue);
+
+impl_pixel_value!(LayoutMarginTop);
+impl_pixel_value!(LayoutMarginBottom);
+impl_pixel_value!(LayoutMarginRight);
+impl_pixel_value!(LayoutMarginLeft);
 
 /// Represents a `flex-grow` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1484,38 +1753,55 @@ impl Default for StyleTextAlignmentVert {
     }
 }
 
-/// Options of a cascaded (styled) DOM node that are only relevant
-/// for styling and don't affect the layout of the rectangle
+/// Stylistic options of the rectangle that don't influence the layout
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectStyle {
-    /// Background size of this rectangle
+    pub background_attachment: Option<StyleBackgroundAttachment>,
+    pub background_position: Option<StyleBackgroundSize>,
     pub background_size: Option<StyleBackgroundSize>,
-    /// Background repetition
     pub background_repeat: Option<StyleBackgroundRepeat>,
-    /// Shadow color
     pub box_shadow: Option<StyleBoxShadow>,
-    /// Gradient (location) + stops
-    pub background: Option<StyleBackground>,
-    /// Border
     pub border: Option<StyleBorder>,
-    /// Border radius
     pub border_radius: Option<StyleBorderRadius>,
-    /// Font size
     pub font_size: Option<StyleFontSize>,
-    /// Font name / family
     pub font_family: Option<StyleFontFamily>,
-    /// Text color
     pub font_color: Option<StyleTextColor>,
-    /// Text alignment
     pub text_align: Option<StyleTextAlignmentHorz,>,
-    /// `line-height` property
+    pub overflow: Option<LayoutOverflow>,
     pub line_height: Option<StyleLineHeight>,
-    /// `letter-spacing` property
     pub letter_spacing: Option<StyleLetterSpacing>,
-    /// `word-spacing` property
     pub word_spacing: Option<StyleWordSpacing>,
-    /// `tab-width` property
     pub tab_width: Option<StyleTabWidth>,
+}
+
+// Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RectLayout {
+
+    pub width: Option<LayoutWidth>,
+    pub height: Option<LayoutHeight>,
+    pub min_width: Option<LayoutMinWidth>,
+    pub min_height: Option<LayoutMinHeight>,
+    pub max_width: Option<LayoutMaxWidth>,
+    pub max_height: Option<LayoutMaxHeight>,
+
+    pub position: Option<LayoutPosition>,
+    pub top: Option<LayoutTop>,
+    pub bottom: Option<LayoutBottom>,
+    pub right: Option<LayoutRight>,
+    pub left: Option<LayoutLeft>,
+
+    pub padding: Option<LayoutPadding>,
+    pub margin: Option<LayoutMargin>,
+    pub overflow: Option<LayoutOverflow>,
+
+    pub direction: Option<LayoutDirection>,
+    pub wrap: Option<LayoutWrap>,
+    pub flex_grow: Option<LayoutFlexGrow>,
+    pub flex_shrink: Option<LayoutFlexShrink>,
+    pub justify_content: Option<LayoutJustifyContent>,
+    pub align_items: Option<LayoutAlignItems>,
+    pub align_content: Option<LayoutAlignContent>,
 }
 
 impl_pixel_value!(StyleLetterSpacing);
@@ -1564,19 +1850,19 @@ impl Default for ScrollbarInfo {
                 .. Default::default()
             },
             track: RectStyle {
-                background: Some(StyleBackground::Color(ColorU {
+                background_attachment: Some(StyleBackgroundAttachment::Color(ColorU {
                     r: 241, g: 241, b: 241, a: 255
                 })),
                 .. Default::default()
             },
             thumb: RectStyle {
-                background: Some(StyleBackground::Color(ColorU {
+                background_attachment: Some(StyleBackgroundAttachment::Color(ColorU {
                     r: 193, g: 193, b: 193, a: 255
                 })),
                 .. Default::default()
             },
             button: RectStyle {
-                background: Some(StyleBackground::Color(ColorU {
+                background_attachment: Some(StyleBackgroundAttachment::Color(ColorU {
                     r: 163, g: 163, b: 163, a: 255
                 })),
                 .. Default::default()
@@ -1585,36 +1871,6 @@ impl Default for ScrollbarInfo {
             resizer: RectStyle::default(),
         }
     }
-}
-
-/// Options of a cascaded (styled) DOM node that are relevant for constructing the layout of a div
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RectLayout {
-
-    pub width: Option<LayoutWidth>,
-    pub height: Option<LayoutHeight>,
-    pub min_width: Option<LayoutMinWidth>,
-    pub min_height: Option<LayoutMinHeight>,
-    pub max_width: Option<LayoutMaxWidth>,
-    pub max_height: Option<LayoutMaxHeight>,
-
-    pub position: Option<LayoutPosition>,
-    pub top: Option<LayoutTop>,
-    pub bottom: Option<LayoutBottom>,
-    pub right: Option<LayoutRight>,
-    pub left: Option<LayoutLeft>,
-
-    pub padding: Option<LayoutPadding>,
-    pub margin: Option<LayoutMargin>,
-    pub overflow: Option<LayoutOverflow>,
-
-    pub direction: Option<LayoutDirection>,
-    pub wrap: Option<LayoutWrap>,
-    pub flex_grow: Option<LayoutFlexGrow>,
-    pub flex_shrink: Option<LayoutFlexShrink>,
-    pub justify_content: Option<LayoutJustifyContent>,
-    pub align_items: Option<LayoutAlignItems>,
-    pub align_content: Option<LayoutAlignContent>,
 }
 
 impl RectLayout {
@@ -1651,17 +1907,6 @@ impl RectLayout {
         self.overflow.unwrap_or_default().is_vertical_overflow_visible()
     }
 }
-
-impl_pixel_value!(LayoutWidth);
-impl_pixel_value!(LayoutHeight);
-impl_pixel_value!(LayoutMinHeight);
-impl_pixel_value!(LayoutMinWidth);
-impl_pixel_value!(LayoutMaxWidth);
-impl_pixel_value!(LayoutMaxHeight);
-impl_pixel_value!(LayoutTop);
-impl_pixel_value!(LayoutBottom);
-impl_pixel_value!(LayoutRight);
-impl_pixel_value!(LayoutLeft);
 
 /// Represents a `font-size` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

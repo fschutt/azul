@@ -10,7 +10,7 @@ use azul_css::{
     LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, StyleCursor, StyleWordSpacing, StyleTabWidth,
     LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
     StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
-    ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackground, StyleBoxShadow,
+    ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackgroundAttachment, StyleBoxShadow,
     GradientStopPre, RadialGradient, StyleBackgroundSize, StyleBackgroundRepeat,
     DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradient,
     BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
@@ -109,8 +109,8 @@ pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<
     let value = value.trim();
     match key {
         Background       => Ok(parse_style_background(value)?.into()),
-        BackgroundColor  => Ok(StyleBackground::Color(parse_css_color(value)?).into()),
-        BackgroundImage  => Ok(StyleBackground::Image(parse_image(value)?).into()),
+        BackgroundColor  => Ok(StyleBackgroundAttachement::Color(parse_css_color(value)?).into()),
+        BackgroundImage  => Ok(StyleBackgroundAttachement::Image(parse_image(value)?).into()),
         BackgroundSize   => Ok(parse_style_background_size(value)?.into()),
         BackgroundRepeat => Ok(parse_style_background_repeat(value)?.into()),
 
@@ -1332,22 +1332,22 @@ impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 impl_from!(CssColorParseError<'a>, CssBackgroundParseError::ColorParseError);
 
 // parses a background, such as "linear-gradient(red, green)"
-pub fn parse_style_background<'a>(input: &'a str)
--> Result<StyleBackground, CssBackgroundParseError<'a>>
+pub fn parse_style_background_attachment<'a>(input: &'a str)
+-> Result<StyleBackgroundAttachement, CssBackgroundParseError<'a>>
 {
     match parse_parentheses(input, &[
-        "none", "linear-gradient", "repeating-linear-gradient",
-        "radial-gradient", "repeating-radial-gradient", "image",
+        "linear-gradient", "repeating-linear-gradient",
+        "radial-gradient", "repeating-radial-gradient",
+        "image",
     ]) {
         Ok((background_type, brace_contents)) => {
             let background_type = match background_type {
-                "none" => { return Ok(StyleBackground::NoBackground); },
                 "linear-gradient" => BackgroundType::LinearGradient,
                 "repeating-linear-gradient" => BackgroundType::RepeatingLinearGradient,
                 "radial-gradient" => BackgroundType::RadialGradient,
                 "repeating-radial-gradient" => BackgroundType::RepeatingRadialGradient,
                 "image" => BackgroundType::Image,
-                _ => { return Ok(StyleBackground::NoBackground); /* unreachable */ },
+                other => { return Err(CssBackgroundParseError::Error(other)); /* unreachable */ },
             };
 
             parse_gradient(brace_contents, background_type)
@@ -1393,13 +1393,13 @@ fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
 
 // parses a single gradient such as "to right, 50px"
 pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
--> Result<StyleBackground, CssBackgroundParseError<'a>>
+-> Result<StyleBackgroundAttachement, CssBackgroundParseError<'a>>
 {
     let input = input.trim();
 
     match background_type {
-        BackgroundType::Image => { return Ok(StyleBackground::Image(parse_image(input)?)); }
-        BackgroundType::Color => { return Ok(StyleBackground::Color(parse_css_color(input)?)); }
+        BackgroundType::Image => { return Ok(StyleBackgroundAttachement::Image(parse_image(input)?)); }
+        BackgroundType::Color => { return Ok(StyleBackgroundAttachement::Color(parse_css_color(input)?)); }
         _ => { },
     }
 
@@ -1486,28 +1486,28 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
 
     match background_type {
         BackgroundType::LinearGradient => {
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+            Ok(StyleBackgroundAttachement::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
         BackgroundType::RepeatingLinearGradient => {
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+            Ok(StyleBackgroundAttachement::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
         },
         BackgroundType::RadialGradient => {
-            Ok(StyleBackground::RadialGradient(RadialGradient {
+            Ok(StyleBackgroundAttachement::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
         BackgroundType::RepeatingRadialGradient => {
-            Ok(StyleBackground::RadialGradient(RadialGradient {
+            Ok(StyleBackgroundAttachement::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
@@ -1827,69 +1827,8 @@ impl_display!{CssShapeParseError<'a>, {
     ShapeErr(e) => format!("\"{}\"", e.0),
 }}
 
-/// Stylistic options of the rectangle that don't influence the layout
-/// (todo: border-box?)
-#[derive(Default, Debug, Clone, PartialEq, Hash)]
-pub struct RectStyle {
-    /// Background size of this rectangle
-    pub background_size: Option<StyleBackgroundSize>,
-    /// Background repeat of this rectangle
-    pub background_repeat: Option<StyleBackgroundRepeat>,
-    /// Shadow color
-    pub box_shadow: Option<StyleBoxShadow>,
-    /// Gradient (location) + stops
-    pub background: Option<StyleBackground>,
-    /// Border
-    pub border: Option<StyleBorder>,
-    /// Border radius
-    pub border_radius: Option<StyleBorderRadius>,
-    /// Font size
-    pub font_size: Option<StyleFontSize>,
-    /// Font name / family
-    pub font_family: Option<StyleFontFamily>,
-    /// Text color
-    pub font_color: Option<StyleTextColor>,
-    /// Text alignment
-    pub text_align: Option<StyleTextAlignmentHorz,>,
-    /// Text overflow behaviour
-    pub overflow: Option<LayoutOverflow>,
-    /// `line-height` property
-    pub line_height: Option<StyleLineHeight>,
-    /// `letter-spacing` property (modifies the width and height)
-    pub letter_spacing: Option<StyleLetterSpacing>,
-}
-
 typed_pixel_value_parser!(parse_style_letter_spacing, StyleLetterSpacing);
 typed_pixel_value_parser!(parse_style_word_spacing, StyleWordSpacing);
-
-// Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Hash)]
-pub struct RectLayout {
-
-    pub width: Option<LayoutWidth>,
-    pub height: Option<LayoutHeight>,
-    pub min_width: Option<LayoutMinWidth>,
-    pub min_height: Option<LayoutMinHeight>,
-    pub max_width: Option<LayoutMaxWidth>,
-    pub max_height: Option<LayoutMaxHeight>,
-
-    pub position: Option<LayoutPosition>,
-    pub top: Option<LayoutTop>,
-    pub bottom: Option<LayoutBottom>,
-    pub right: Option<LayoutRight>,
-    pub left: Option<LayoutLeft>,
-
-    pub padding: Option<LayoutPadding>,
-    pub margin: Option<LayoutMargin>,
-
-    pub direction: Option<LayoutDirection>,
-    pub wrap: Option<LayoutWrap>,
-    pub flex_grow: Option<LayoutFlexGrow>,
-    pub flex_shrink: Option<LayoutFlexShrink>,
-    pub justify_content: Option<LayoutJustifyContent>,
-    pub align_items: Option<LayoutAlignItems>,
-    pub align_content: Option<LayoutAlignContent>,
-}
 
 typed_pixel_value_parser!(parse_layout_width, LayoutWidth);
 typed_pixel_value_parser!(parse_layout_height, LayoutHeight);

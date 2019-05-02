@@ -1,6 +1,7 @@
 use azul_css::{
     StyleBorder, StyleBoxShadow, StyleBorderRadius,
-    StyleBackground, ColorU, BoxShadowClipMode,
+    StyleBackgroundRepeat, StyleBackgroundPosition,
+    ColorU, BoxShadowClipMode, LinearGradient, RadialGradient,
 };
 use app_resources::{ImageKey, FontInstanceKey};
 use window::{LogicalPosition, LogicalSize};
@@ -148,7 +149,10 @@ pub enum DisplayListRectContent {
         clip: Option<DisplayListRect>,
     },
     Background {
-        background_type: StyleBackground
+        background: RectBackground,
+        size: Option<StyleBackgroundSize>,
+        offset: Option<StyleBackgroundPosition>,
+        repeat: StyleBackgroundRepeat,
     },
     Image {
         size: LogicalSize,
@@ -163,10 +167,16 @@ pub enum DisplayListRectContent {
         radius: StyleBorderRadius,
     },
     BoxShadow {
-        pre_shadow: StyleBoxShadow,
+        shadow: StyleBoxShadow,
         border_radius: StyleBorderRadius,
-        bounds: DisplayListRect,
-        clip_rect: DisplayListRect,
-        shadow_type: BoxShadowClipMode,
+        clip_mode: BoxShadowClipMode,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum RectBackground {
+    LinearGradient(LinearGradient),
+    RadialGradient(RadialGradient),
+    Image(ImageInfo),
+    Color(ColorU),
 }
