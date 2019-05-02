@@ -573,15 +573,10 @@ pub fn parse_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str) -> R
         return Err(DynamicCssParseError::InvalidId);
     }
 
-    let default_case_parsed = match default_case {
-        "auto" => DynamicCssPropertyDefault::Auto,
-        other => DynamicCssPropertyDefault::Exact(css_parser::parse_key_value_pair(key, other)?),
-    };
-
     Ok(DynamicCssProperty {
         property_type: key,
         dynamic_id: dynamic_id.to_string(),
-        default: default_case_parsed,
+        default: css_parser::parse_key_value_pair(key, default_case)?,
     })
 }
 

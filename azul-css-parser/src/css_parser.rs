@@ -10,7 +10,7 @@ use azul_css::{
     LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, StyleCursor, StyleWordSpacing, StyleTabWidth,
     LayoutMaxHeight, LayoutMinHeight, LayoutHeight, LayoutMaxWidth, LayoutMinWidth, LayoutWidth,
     StyleBorderRadius, PixelValue, PercentageValue, FloatValue,
-    ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackgroundAttachment, StyleBoxShadow,
+    ColorU, LayoutMargin, StyleLetterSpacing, StyleTextColor, StyleBackgroundContent, StyleBoxShadow,
     GradientStopPre, RadialGradient, StyleBackgroundSize, StyleBackgroundRepeat,
     DirectionCorner, StyleBorder, Direction, CssImageId, LinearGradient,
     BoxShadowPreDisplayItem, BorderStyle, LayoutPadding, StyleBorderSide, BorderRadius, PixelSize,
@@ -100,97 +100,302 @@ macro_rules! typed_pixel_value_parser {
 /// # use azul_css_parser;
 /// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssProperty};
 /// assert_eq!(
-///     azul_css_parser::parse_key_value_pair(CssPropertyType::Width, "500px"),
-///     Ok(CssProperty::Width(LayoutWidth(PixelValue::px(500.0))))
+///     azul_css_parser::parse_css_property(CssPropertyType::Width, "500px"),
+///     Ok(CssPropertyValue::Exact(CssProperty::Width(LayoutWidth(PixelValue::px(500.0)))))
 /// )
 /// ```
-pub fn parse_key_value_pair<'a>(key: CssPropertyType, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
+pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<CssPropertyValue<CssProperty>, CssParsingError<'a>> {
     use self::CssPropertyType::*;
     let value = value.trim();
+    Ok(match value {
+        "auto" => CssPropertyValue::auto(key),
+        "none" => CssPropertyValue::none(key),
+        "initial" => CssPropertyValue::initial(key),
+        "inherit" => CssPropertyValue::inherit(key),
+        value => CssPropertyValue::Exact(match key {
+            TextColor                   => parse_style_text_color(value)?.into(),
+            FontSize                    => parse_style_font_size(value)?.into(),
+            FontFamily                  => parse_style_font_family(value)?.into(),
+            TextAlign                   => parse_layout_text_align(value)?.into(),
+            LetterSpacing               => parse_style_letter_spacing(value)?.into(),
+            LineHeight                  => parse_style_line_height(value)?.into(),
+            WordSpacing                 => parse_style_word_spacing(value)?.into(),
+            TabWidth                    => parse_style_tab_width(value)?.into(),
+            Cursor                      => parse_style_cursor(value)?.into(),
+            Width                       => parse_layout_width(value)?.into(),
+            Height                      => parse_layout_height(value)?.into(),
+            MinWidth                    => parse_layout_min_width(value)?.into(),
+            MinHeight                   => parse_layout_min_height(value)?.into(),
+            MaxWidth                    => parse_layout_max_width(value)?.into(),
+            MaxHeight                   => parse_layout_max_height(value)?.into(),
+            Position                    => parse_layout_position(value)?.into(),
+            Top                         => parse_layout_top(value)?.into(),
+            Right                       => parse_layout_right(value)?.into(),
+            Left                        => parse_layout_left(value)?.into(),
+            Bottom                      => parse_layout_bottom(value)?.into(),
+            FlexWrap                    => parse_layout_wrap(value)?.into(),
+            FlexDirection               => parse_layout_direction(value)?.into(),
+            FlexGrow                    => parse_layout_flex_grow(value)?.into(),
+            FlexShrink                  => parse_layout_flex_shrink(value)?.into(),
+            JustifyContent              => parse_layout_justify_content(value)?.into(),
+            AlignItems                  => parse_layout_align_items(value)?.into(),
+            AlignContent                => parse_layout_align_content(value)?.into(),
+
+            Background                  => parse_style_background_content(value)?.into(),
+            BackgroundImage             => StyleBackgroundContent::Image(parse_image(value)?).into(),
+            BackgroundColor             => StyleBackgroundContent::Color(parse_css_color(value)?).into(),
+            BackgroundPosition          => parse_style_background_position(value)?.into(),
+            BackgroundSize              => parse_style_background_size(value)?.into(),
+            BackgroundRepeat            => parse_style_background_repeat(value)?.into(),
+
+            OverflowX                   => CssProperty::OverflowX(parse_layout_overflow(value)?).into(),
+            OverflowY                   => CssProperty::OverflowY(parse_layout_overflow(value)?).into(),
+
+            PaddingTop                  => parse_layout_padding_top(value)?.into(),
+            PaddingLeft                 => parse_layout_padding_left(value)?.into(),
+            PaddingRight                => parse_layout_padding_right(value)?.into(),
+            PaddingBottom               => parse_layout_padding_bottom(value)?.into(),
+
+            MarginTop                   => parse_layout_margin_top(value)?.into(),
+            MarginLeft                  => parse_layout_margin_left(value)?.into(),
+            MarginRight                 => parse_layout_margin_right(value)?.into(),
+            MarginBottom                => parse_layout_margin_bottom(value)?.into(),
+
+            BorderTopLeftRadius         => parse_style_border_top_left_radius(value)?.into(),
+            BorderTopRightRadius        => parse_style_border_top_right_radius(value)?.into(),
+            BorderBottomLeftRadius      => parse_style_border_bottom_left_radius(value)?.into(),
+            BorderBottomRightRadius     => parse_style_border_bottom_right_radius(value)?.into(),
+
+            BorderTopColor              => StyleBorderTopColor(parse_css_color(value)?).into(),
+            BorderRightColor            => StyleBorderRightColor(parse_css_color(value)?).into(),
+            BorderLeftColor             => StyleBorderLeftColor(parse_css_color(value)?).into(),
+            BorderBottomColor           => StyleBorderBottomColor(parse_css_color(value)?).into(),
+
+            BorderTopStyle              => StyleBorderTopStyle(parse_css_border_style(value)?).into(),
+            BorderRightStyle            => StyleBorderRightStyle(parse_css_border_style(value)?).into(),
+            BorderLeftStyle             => StyleBorderLeftStyle(parse_css_border_style(value)?).into(),
+            BorderBottomStyle           => StyleBorderBottomStyle(parse_css_border_style(value)?).into(),
+
+            BorderTopWidth              => parse_style_border_top_width(value)?.into(),
+            BorderRightWidth            => parse_style_border_right_width(value)?.into(),
+            BorderLeftWidth             => parse_style_border_left_width(value)?.into(),
+            BorderBottomWidth           => parse_style_border_bottom_width(value)?.into(),
+
+            BoxShadowLeft               => CssProperty::BoxShadowLeft(parse_css_box_shadow(value)?).into(),
+            BoxShadowRight              => CssProperty::BoxShadowRight(parse_css_box_shadow(value)?).into(),
+            BoxShadowTop                => CssProperty::BoxShadowTop(parse_css_box_shadow(value)?).into(),
+            BoxShadowBottom             => CssProperty::BoxShadowBottom(parse_css_box_shadow(value)?).into(),
+        })
+    })
+}
+
+/// Parses a combined CSS property or a CSS property shorthand, for example "margin"
+/// (as a shorthand for setting "margin-top", "margin-bottom", "margin-left" and "margin-right")
+///
+/// ```rust
+/// # extern crate azul_css_parser;
+/// # extern crate azul_css;
+/// # use azul_css_parser;
+/// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssProperty};
+/// assert_eq!(
+///     azul_css_parser::parse_combined_css_property(CssPropertyType::Width, "500px"),
+///     Ok(vec![
+///         CssPropertyValue::Exact(CssProperty::Width(LayoutWidth(PixelValue::px(500.0)))),
+///     ])
+/// )
+/// ```
+pub fn parse_combined_css_property<'a>(key: CombinedCssProperty, value: &'a str)
+-> Result<Vec<CssPropertyValue<CssProperty>>, CssParsingError<'a>>
+{
+    use self::CombinedCssPropertyType::*;
+
+    let keys = match key {
+        BorderRadius => {
+            vec![
+                CssPropertyType::BorderTopLeftRadius,
+                CssPropertyType::BorderTopRightRadius,
+                CssPropertyType::BorderBottomLeftRadius,
+                CssPropertyType::BorderBottomRightRadius,
+            ]
+        },
+        Overflow => {
+            vec![
+                CssPropertyType::OverflowX,
+                CssPropertyType::OverflowY,
+            ]
+        },
+        Padding => {
+            vec![
+                CssPropertyType::PaddingTop,
+                CssPropertyType::PaddingBottom,
+                CssPropertyType::PaddingLeft,
+                CssPropertyType::PaddingRight,
+            ]
+        },
+        Margin => {
+            vec![
+                CssPropertyType::MarginTop,
+                CssPropertyType::MarginBottom,
+                CssPropertyType::MarginLeft,
+                CssPropertyType::MarginRight,
+            ]
+        },
+        Border => {
+            vec![
+                CssPropertyType::BorderTopColor,
+                CssPropertyType::BorderRightColor,
+                CssPropertyType::BorderLeftColor,
+                CssPropertyType::BorderBottomColor,
+                CssPropertyType::BorderTopStyle,
+                CssPropertyType::BorderRightStyle,
+                CssPropertyType::BorderLeftStyle,
+                CssPropertyType::BorderBottomStyle,
+                CssPropertyType::BorderTopWidth,
+                CssPropertyType::BorderRightWidth,
+                CssPropertyType::BorderLeftWidth,
+                CssPropertyType::BorderBottomWidth,
+            ]
+        },
+        BorderLeft => {
+            vec![
+                CssPropertyType::BorderLeftColor,
+                CssPropertyType::BorderLeftStyle,
+                CssPropertyType::BorderLeftWidth,
+            ]
+        },
+        BorderRight => {
+            vec![
+                CssPropertyType::BorderRightColor,
+                CssPropertyType::BorderRightStyle,
+                CssPropertyType::BorderRightWidth,
+            ]
+        },
+        BorderTop => {
+            vec![
+                CssPropertyType::BorderTopColor,
+                CssPropertyType::BorderTopStyle,
+                CssPropertyType::BorderTopWidth,
+            ]
+        },
+        BorderBottom => {
+            vec![
+                CssPropertyType::BorderBottomColor,
+                CssPropertyType::BorderBottomStyle,
+                CssPropertyType::BorderBottomWidth,
+            ]
+        },
+        BoxShadow => {
+            vec![
+                CssPropertyType::BoxShadowLeft,
+                CssPropertyType::BoxShadowRight,
+                CssPropertyType::BoxShadowTop,
+                CssPropertyType::BoxShadowBottom,
+            ]
+        },
+    };
+
+    match value {
+        "auto" => return Ok(keys.into_iter().map(|ty| CssProperty::auto(ty)).collect()),
+        "none" => return Ok(keys.into_iter().map(|ty| CssProperty::none(ty)).collect()),
+        "initial" => return Ok(keys.into_iter().map(|ty| CssProperty::initial(ty)).collect()),
+        "inherit" => return Ok(keys.into_iter().map(|ty| CssProperty::inherit(ty)).collect()),
+        _ => { },
+    };
+
     match key {
-        Background       => Ok(parse_style_background(value)?.into()),
-        BackgroundColor  => Ok(StyleBackgroundAttachement::Color(parse_css_color(value)?).into()),
-        BackgroundImage  => Ok(StyleBackgroundAttachement::Image(parse_image(value)?).into()),
-        BackgroundSize   => Ok(parse_style_background_size(value)?.into()),
-        BackgroundRepeat => Ok(parse_style_background_repeat(value)?.into()),
-
-        TextColor        => Ok(parse_style_text_color(value)?.into()),
-        BorderRadius     => Ok(parse_style_border_radius(value)?.into()),
-        FontSize         => Ok(parse_style_font_size(value)?.into()),
-        FontFamily       => Ok(parse_style_font_family(value)?.into()),
-        LetterSpacing    => Ok(parse_style_letter_spacing(value)?.into()),
-        WordSpacing      => Ok(parse_style_word_spacing(value)?.into()),
-        TabWidth         => Ok(parse_style_tab_width(value)?.into()),
-        LineHeight       => Ok(parse_style_line_height(value)?.into()),
-        Cursor           => Ok(parse_style_cursor(value)?.into()),
-
-        Border           => Ok(StyleBorder::all(parse_css_border(value)?).into()),
-        BorderTop        => Ok(border_parser::parse_top(value)?.into()),
-        BorderBottom     => Ok(border_parser::parse_bottom(value)?.into()),
-        BorderLeft       => Ok(border_parser::parse_left(value)?.into()),
-        BorderRight      => Ok(border_parser::parse_right(value)?.into()),
-
-        Width            => Ok(parse_layout_width(value)?.into()),
-        Height           => Ok(parse_layout_height(value)?.into()),
-        MinWidth         => Ok(parse_layout_min_width(value)?.into()),
-        MinHeight        => Ok(parse_layout_min_height(value)?.into()),
-        MaxWidth         => Ok(parse_layout_max_width(value)?.into()),
-        MaxHeight        => Ok(parse_layout_max_height(value)?.into()),
-
-        Position         => Ok(parse_layout_position(value)?.into()),
-        Top              => Ok(parse_layout_top(value)?.into()),
-        Right            => Ok(parse_layout_right(value)?.into()),
-        Left             => Ok(parse_layout_left(value)?.into()),
-        Bottom           => Ok(parse_layout_bottom(value)?.into()),
-        TextAlign        => Ok(parse_layout_text_align(value)?.into()),
-
-        BoxShadow        => Ok(StyleBoxShadow::all(parse_css_box_shadow(value)?).into()),
-        BoxShadowTop     => Ok(box_shadow_parser::parse_top(value)?.into()),
-        BoxShadowBottom  => Ok(box_shadow_parser::parse_bottom(value)?.into()),
-        BoxShadowLeft    => Ok(box_shadow_parser::parse_left(value)?.into()),
-        BoxShadowRight   => Ok(box_shadow_parser::parse_right(value)?.into()),
-
-        Padding          => Ok(parse_layout_padding(value)?.into()),
-        PaddingTop       => Ok(layout_padding_parser::parse_top(value)?.into()),
-        PaddingBottom    => Ok(layout_padding_parser::parse_bottom(value)?.into()),
-        PaddingLeft      => Ok(layout_padding_parser::parse_left(value)?.into()),
-        PaddingRight     => Ok(layout_padding_parser::parse_right(value)?.into()),
-
-        Margin           => Ok(parse_layout_margin(value)?.into()),
-        MarginTop        => Ok(layout_margin_parser::parse_top(value)?.into()),
-        MarginBottom     => Ok(layout_margin_parser::parse_bottom(value)?.into()),
-        MarginLeft       => Ok(layout_margin_parser::parse_left(value)?.into()),
-        MarginRight      => Ok(layout_margin_parser::parse_right(value)?.into()),
-
-        FlexWrap         => Ok(parse_layout_wrap(value)?.into()),
-        FlexDirection    => Ok(parse_layout_direction(value)?.into()),
-        FlexGrow         => Ok(parse_layout_flex_grow(value)?.into()),
-        FlexShrink       => Ok(parse_layout_flex_shrink(value)?.into()),
-
-        JustifyContent   => Ok(parse_layout_justify_content(value)?.into()),
-        AlignItems       => Ok(parse_layout_align_items(value)?.into()),
-        AlignContent     => Ok(parse_layout_align_content(value)?.into()),
-
-        Overflow         => {
-            let overflow_both_directions = parse_layout_text_overflow(value)?;
-            Ok(LayoutOverflow {
-                horizontal: Some(overflow_both_directions),
-                vertical: Some(overflow_both_directions),
-            }.into())
+        BorderRadius => {
+            let border_radius = parse_style_border_radius(value)?;
+            Ok(vec![
+                CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadius(border_radius.top_left)).into(),
+                CssProperty::BorderTopRightRadius(StyleBorderTopRightRadius(border_radius.top_right)).into(),
+                CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadius(border_radius.bottom_left)).into(),
+                CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadius(border_radius.bottom_right)).into(),
+            ])
         },
-        OverflowX        => {
-            let overflow_x = parse_layout_text_overflow(value)?;
-            Ok(LayoutOverflow {
-                horizontal: Some(overflow_x),
-                vertical: None,
-            }.into())
+        Overflow => {
+            let overflow = parse_layout_overflow(value)?;
+            Ok(vec![
+                CssProperty::OverflowX(overflow).into(),
+                CssProperty::OverflowY(overflow).into(),
+            ])
         },
-        OverflowY        => {
-            let overflow_y = parse_layout_text_overflow(value)?;
-            Ok(LayoutOverflow {
-                horizontal: None,
-                vertical: Some(overflow_y),
-            }.into())
+        Padding => {
+            let padding = parse_layout_padding(value)?;
+            Ok(vec![
+                CssProperty::PaddingTop(LayoutPaddingTop(padding.top)).into(),
+                CssProperty::PaddingBottom(LayoutPaddingBottom(padding.bottom)).into(),
+                CssProperty::PaddingLeft(LayoutPaddingLeft(padding.left)).into(),
+                CssProperty::PaddingRight(LayoutPaddingRight(padding.right)).into(),
+            ])
+        },
+        Margin => {
+            let margin = parse_layout_margin(value)?;
+            Ok(vec![
+                CssProperty::MarginTop(LayoutMarginTop(margin.top)).into(),
+                CssProperty::MarginBottom(LayoutMarginBottom(margin.bottom)).into(),
+                CssProperty::MarginLeft(LayoutMarginLeft(margin.left)).into(),
+                CssProperty::MarginRight(LayoutMarginRight(margin.right)).into(),
+            ])
+        },
+        Border => {
+            let border = parse_css_border(value)?;
+            Ok(vec![
+               CssProperty::BorderTopColor(border.border_color),
+               CssProperty::BorderRightColor(border.border_color),
+               CssProperty::BorderLeftColor(border.border_color),
+               CssProperty::BorderBottomColor(border.border_color),
+
+               CssProperty::BorderTopStyle(border.border_style),
+               CssProperty::BorderRightStyle(border.border_style),
+               CssProperty::BorderLeftStyle(border.border_style),
+               CssProperty::BorderBottomStyle(border.border_style),
+
+               CssProperty::BorderTopWidth(border.border_width),
+               CssProperty::BorderRightWidth(border.border_width),
+               CssProperty::BorderLeftWidth(border.border_width),
+               CssProperty::BorderBottomWidth(border.border_width),
+            ])
+        },
+        BorderLeft => {
+            let border = parse_css_border(value)?;
+            Ok(vec![
+               CssProperty::BorderLeftColor(border.border_color),
+               CssProperty::BorderLeftStyle(border.border_style),
+               CssProperty::BorderLeftWidth(border.border_width),
+            ])
+        },
+        BorderRight => {
+            let border = parse_css_border(value)?;
+            Ok(vec![
+               CssProperty::BorderRightColor(border.border_color),
+               CssProperty::BorderRightStyle(border.border_style),
+               CssProperty::BorderRightWidth(border.border_width),
+            ])
+        },
+        BorderTop => {
+            let border = parse_css_border(value)?;
+            Ok(vec![
+               CssProperty::BorderTopColor(border.border_color),
+               CssProperty::BorderTopStyle(border.border_style),
+               CssProperty::BorderTopWidth(border.border_width),
+            ])
+        },
+        BorderBottom => {
+            let border = parse_css_border(value)?;
+            Ok(vec![
+               CssProperty::BorderBottomColor(border.border_color),
+               CssProperty::BorderBottomStyle(border.border_style),
+               CssProperty::BorderBottomWidth(border.border_width),
+            ])
+        },
+        BoxShadow => {
+            let box_shadow = parse_css_box_shadow(value)?;
+            Ok(vec![
+               CssPropertyType::BoxShadowLeft(box_shadow),
+               CssPropertyType::BoxShadowRight(box_shadow),
+               CssPropertyType::BoxShadowTop(box_shadow),
+               CssPropertyType::BoxShadowBottom(box_shadow),
+            ])
         },
     }
 }
@@ -970,27 +1175,6 @@ pub fn parse_color_no_hash<'a>(input: &'a str)
     }
 }
 
-macro_rules! parse_x {($struct_name:ident, $error_name:ident, $fn_name:ident, $field:ident, $body:ident) => (
-pub fn $fn_name<'a>(input: &'a str) -> Result<$struct_name, $error_name> {
-    let value = $body(input)?;
-    Ok($struct_name {
-        $field: Some(value),
-        .. Default::default()
-    })
-})}
-
-macro_rules! parse_tblr {($mod_name:ident, $struct_name:ident, $error_name:ident, $parse_fn:ident) => (
-mod $mod_name {
-    use super::*;
-    parse_x!($struct_name, $error_name, parse_left, left, $parse_fn);
-    parse_x!($struct_name, $error_name, parse_right, right, $parse_fn);
-    parse_x!($struct_name, $error_name, parse_bottom, bottom, $parse_fn);
-    parse_x!($struct_name, $error_name, parse_top, top, $parse_fn);
-})}
-
-parse_tblr!(layout_padding_parser, LayoutPadding, LayoutPaddingParseError, parse_pixel_value);
-parse_tblr!(layout_margin_parser, LayoutMargin, LayoutMarginParseError, parse_pixel_value);
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutPaddingParseError<'a> {
     PixelParseError(PixelParseError<'a>),
@@ -1006,6 +1190,15 @@ impl_display!{ LayoutPaddingParseError<'a>, {
 
 impl_from!(PixelParseError<'a>, LayoutPaddingParseError::PixelParseError);
 
+/// Represents a parsed `padding` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct LayoutPadding {
+    pub top: PixelValue,
+    pub bottom: PixelValue,
+    pub left: PixelValue,
+    pub right: PixelValue,
+}
+
 /// Parse a padding value such as
 ///
 /// "10px 10px"
@@ -1017,28 +1210,28 @@ pub fn parse_layout_padding<'a>(input: &'a str)
     let second = parse_pixel_value(match input_iter.next() {
         Some(s) => s,
         None => return Ok(LayoutPadding {
-            top: Some(first),
-            bottom: Some(first),
-            left: Some(first),
-            right: Some(first),
+            top: first,
+            bottom: first,
+            left: first,
+            right: first,
         }),
     })?;
     let third = parse_pixel_value(match input_iter.next() {
         Some(s) => s,
         None => return Ok(LayoutPadding {
-            top: Some(first),
-            bottom: Some(first),
-            left: Some(second),
-            right: Some(second),
+            top: first,
+            bottom: first,
+            left: second,
+            right: second,
         }),
     })?;
     let fourth = parse_pixel_value(match input_iter.next() {
         Some(s) => s,
         None => return Ok(LayoutPadding {
-            top: Some(first),
-            left: Some(second),
-            right: Some(second),
-            bottom: Some(third),
+            top: first,
+            left: second,
+            right: second,
+            bottom: third,
         }),
     })?;
 
@@ -1047,10 +1240,10 @@ pub fn parse_layout_padding<'a>(input: &'a str)
     }
 
     Ok(LayoutPadding {
-        top: Some(first),
-        right: Some(second),
-        bottom: Some(third),
-        left: Some(fourth),
+        top: first,
+        right: second,
+        bottom: third,
+        left: fourth,
     })
 }
 
@@ -1069,6 +1262,15 @@ impl_display!{ LayoutMarginParseError<'a>, {
 
 impl_from!(PixelParseError<'a>, LayoutMarginParseError::PixelParseError);
 
+/// Represents a parsed `padding` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct LayoutMargin {
+    pub top: PixelValue,
+    pub bottom: PixelValue,
+    pub left: PixelValue,
+    pub right: PixelValue,
+}
+
 pub fn parse_layout_margin<'a>(input: &'a str)
 -> Result<LayoutMargin, LayoutMarginParseError>
 {
@@ -1086,8 +1288,6 @@ pub fn parse_layout_margin<'a>(input: &'a str)
         Err(LayoutPaddingParseError::TooFewValues) => Err(LayoutMarginParseError::TooFewValues),
     }
 }
-
-parse_tblr!(border_parser, StyleBorder, CssBorderParseError, parse_css_border);
 
 const DEFAULT_BORDER_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 // Default border thickness on the web seems to be 3px
@@ -1142,7 +1342,7 @@ pub fn parse_css_border<'a>(input: &'a str)
     match second_argument_end {
         None => {
             // First argument is the one and only argument, therefore has to be a style such as "double"
-            border_style = parse_border_style(first_arg_str).map_err(|e| InvalidBorderStyle(e))?;
+            border_style = parse_css_border_style(first_arg_str).map_err(|e| InvalidBorderStyle(e))?;
             return Ok(StyleBorderSide {
                 border_style,
                 border_width: DEFAULT_BORDER_THICKNESS,
@@ -1153,7 +1353,7 @@ pub fn parse_css_border<'a>(input: &'a str)
             // First argument is a pixel value, second argument is the border style
             border_width = parse_pixel_value(first_arg_str).map_err(|e| ThicknessParseError(e))?;
             let border_style_str = &input[first_arg_end..end];
-            border_style = parse_border_style(border_style_str).map_err(|e| InvalidBorderStyle(e))?;
+            border_style = parse_css_border_style(border_style_str).map_err(|e| InvalidBorderStyle(e))?;
             border_width_str_end = end;
         }
     }
@@ -1170,7 +1370,7 @@ pub fn parse_css_border<'a>(input: &'a str)
     })
 }
 
-multi_type_parser!(parse_border_style, BorderStyle,
+multi_type_parser!(parse_css_border_style, BorderStyle,
     ["none", None],
     ["solid", Solid],
     ["double", Double],
@@ -1182,11 +1382,9 @@ multi_type_parser!(parse_border_style, BorderStyle,
     ["inset", Inset],
     ["outset", Outset]);
 
-parse_tblr!(box_shadow_parser, StyleBoxShadow, CssShadowParseError, parse_css_box_shadow);
-
-/// Parses a CSS box-shadow
+/// Parses a CSS box-shadow, such as "5px 10px inset"
 pub fn parse_css_box_shadow<'a>(input: &'a str)
--> Result<Option<BoxShadowPreDisplayItem>, CssShadowParseError<'a>>
+-> Result<BoxShadowPreDisplayItem, CssShadowParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
     let count = input_iter.clone().count();
@@ -1212,13 +1410,6 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
     }
 
     match count {
-        1 => {
-            // box-shadow: none;
-            match input_iter.next().unwrap() {
-                "none" => return Ok(None),
-                _ => return Err(CssShadowParseError::InvalidSingleStatement(input)),
-            }
-        },
         2 => {
             // box-shadow: 5px 10px; (h_offset, v_offset)
             let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
@@ -1293,7 +1484,7 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
         }
     }
 
-    Ok(Some(box_shadow))
+    Ok(box_shadow)
 }
 
 #[derive(Clone, PartialEq)]
@@ -1332,8 +1523,8 @@ impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 impl_from!(CssColorParseError<'a>, CssBackgroundParseError::ColorParseError);
 
 // parses a background, such as "linear-gradient(red, green)"
-pub fn parse_style_background_attachment<'a>(input: &'a str)
--> Result<StyleBackgroundAttachement, CssBackgroundParseError<'a>>
+pub fn parse_style_background_content<'a>(input: &'a str)
+-> Result<StyleBackgroundContent, CssBackgroundParseError<'a>>
 {
     match parse_parentheses(input, &[
         "linear-gradient", "repeating-linear-gradient",
@@ -1341,19 +1532,19 @@ pub fn parse_style_background_attachment<'a>(input: &'a str)
         "image",
     ]) {
         Ok((background_type, brace_contents)) => {
-            let background_type = match background_type {
-                "linear-gradient" => BackgroundType::LinearGradient,
-                "repeating-linear-gradient" => BackgroundType::RepeatingLinearGradient,
-                "radial-gradient" => BackgroundType::RadialGradient,
-                "repeating-radial-gradient" => BackgroundType::RepeatingRadialGradient,
-                "image" => BackgroundType::Image,
+            let gradient_type = match background_type {
+                "linear-gradient" => GradientType::LinearGradient,
+                "repeating-linear-gradient" => GradientType::RepeatingLinearGradient,
+                "radial-gradient" => GradientType::RadialGradient,
+                "repeating-radial-gradient" => GradientType::RepeatingRadialGradient,
+                "image" => { return Ok(StyleBackgroundContent::Image(parse_image(brace_contents)?)); },
                 other => { return Err(CssBackgroundParseError::Error(other)); /* unreachable */ },
             };
 
-            parse_gradient(brace_contents, background_type)
+            parse_gradient(brace_contents, gradient_type)
         },
         Err(_) => {
-            Ok(StyleBackground::Color(parse_css_color(input)?))
+            Ok(StyleBackgroundContent::Color(parse_css_color(input)?))
         }
     }
 }
@@ -1392,16 +1583,10 @@ fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
 }
 
 // parses a single gradient such as "to right, 50px"
-pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
--> Result<StyleBackgroundAttachement, CssBackgroundParseError<'a>>
+pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
+-> Result<StyleBackgroundContent, CssBackgroundParseError<'a>>
 {
     let input = input.trim();
-
-    match background_type {
-        BackgroundType::Image => { return Ok(StyleBackgroundAttachement::Image(parse_image(input)?)); }
-        BackgroundType::Color => { return Ok(StyleBackgroundAttachement::Color(parse_css_color(input)?)); }
-        _ => { },
-    }
 
     // Splitting the input by "," doesn't work since rgba() might contain commas
     let mut comma_separated_items = Vec::<&str>::new();
@@ -1443,11 +1628,11 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
     let mut first_is_direction = false;
     let mut first_is_shape = false;
 
-    let is_linear_gradient = background_type == BackgroundType::LinearGradient ||
-                             background_type == BackgroundType::RepeatingLinearGradient;
+    let is_linear_gradient = background_type == GradientType::LinearGradient ||
+                             background_type == GradientType::RepeatingLinearGradient;
 
-    let is_radial_gradient = background_type == BackgroundType::RadialGradient ||
-                             background_type == BackgroundType::RepeatingRadialGradient;
+    let is_radial_gradient = background_type == GradientType::RadialGradient ||
+                             background_type == GradientType::RepeatingRadialGradient;
 
     if is_linear_gradient {
         if let Ok(dir) = parse_direction(first_brace_item) {
@@ -1485,35 +1670,34 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: BackgroundType)
     normalize_color_stops(&mut color_stops);
 
     match background_type {
-        BackgroundType::LinearGradient => {
-            Ok(StyleBackgroundAttachement::LinearGradient(LinearGradient {
+        GradientType::LinearGradient => {
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
-        BackgroundType::RepeatingLinearGradient => {
-            Ok(StyleBackgroundAttachement::LinearGradient(LinearGradient {
+        GradientType::RepeatingLinearGradient => {
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
         },
-        BackgroundType::RadialGradient => {
-            Ok(StyleBackgroundAttachement::RadialGradient(RadialGradient {
+        GradientType::RadialGradient => {
+            Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Clamp,
                 stops: color_stops,
             }))
         },
-        BackgroundType::RepeatingRadialGradient => {
-            Ok(StyleBackgroundAttachement::RadialGradient(RadialGradient {
+        GradientType::RepeatingRadialGradient => {
+            Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Repeat,
                 stops: color_stops,
             }))
         },
-        BackgroundType::Image | BackgroundType::Color => unreachable!(),
     }
 }
 
@@ -1843,6 +2027,26 @@ typed_pixel_value_parser!(parse_layout_bottom, LayoutBottom);
 typed_pixel_value_parser!(parse_layout_right, LayoutRight);
 typed_pixel_value_parser!(parse_layout_left, LayoutLeft);
 
+typed_pixel_value_parser!(parse_layout_margin_top, LayoutMarginTop);
+typed_pixel_value_parser!(parse_layout_margin_bottom, LayoutMarginBottom);
+typed_pixel_value_parser!(parse_layout_margin_right, LayoutMarginRight);
+typed_pixel_value_parser!(parse_layout_margin_left, LayoutMarginLeft);
+
+typed_pixel_value_parser!(parse_layout_padding_top, LayoutPaddingTop);
+typed_pixel_value_parser!(parse_layout_padding_bottom, LayoutPaddingBottom);
+typed_pixel_value_parser!(parse_layout_padding_right, LayoutPaddingRight);
+typed_pixel_value_parser!(parse_layout_padding_left, LayoutPaddingLeft);
+
+typed_pixel_value_parser!(parse_style_border_top_left_radius, StyleBorderTopLeftRadius);
+typed_pixel_value_parser!(parse_style_border_bottom_left_radius, StyleBorderBottomLeftRadius);
+typed_pixel_value_parser!(parse_style_border_top_right_radius, StyleBorderTopRightRadius);
+typed_pixel_value_parser!(parse_style_border_bottom_right_radius, StyleBorderBottomRightRadius);
+
+typed_pixel_value_parser!(parse_style_border_top_width, StyleBorderTopWidth);
+typed_pixel_value_parser!(parse_style_border_bottom_width, StyleBorderBottomWidth);
+typed_pixel_value_parser!(parse_style_border_right_width, StyleBorderRightWidth);
+typed_pixel_value_parser!(parse_style_border_left_width, StyleBorderLeftWidth);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlexGrowParseError<'a> {
     ParseFloat(ParseFloatError, &'a str),
@@ -2085,7 +2289,7 @@ multi_type_parser!(parse_layout_position, LayoutPosition,
                     ["absolute", Absolute],
                     ["relative", Relative]);
 
-multi_type_parser!(parse_layout_text_overflow, Overflow,
+multi_type_parser!(parse_layout_overflow, Overflow,
                     ["auto", Auto],
                     ["scroll", Scroll],
                     ["visible", Visible],

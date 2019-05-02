@@ -92,24 +92,40 @@ pub struct DynamicCssProperty {
     /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
     pub dynamic_id: String,
     /// Default value, used if the css property isn't overridden in this frame
-    /// i.e. the `500px` in `width: [[ my_id | 500px ]]`.
-    pub default: DynamicCssPropertyDefault,
+    /// i.e. the `500px` in `width: [[ my_id | 500px ]]`. If this value is set to `auto`,
+    /// the css property will not exist if it isn't overriden. An example where this is
+    /// useful is when you want to say something like this:
+    ///
+    /// `width: [[ 400px | auto ]];`
+    ///
+    /// "If I set this property to width: 400px, then use exactly 400px. Otherwise use whatever the default width is."
+    /// If this property wouldn't exist, you could only set the default to "0px" or something like
+    /// that, meaning that if you don't override the property, then you'd set it to 0px - which is
+    /// different from `auto`, since `auto` has its width determined by how much space there is
+    /// available in the parent.
+    pub default: CssPropertyValue<CssProperty>,
 }
 
-/// If this value is set to default, the css property will not exist if it isn't overriden.
-/// An example where this is useful is when you want to say something like this:
-///
-/// `width: [[ 400px | auto ]];`
-///
-/// "If I set this property to width: 400px, then use exactly 400px. Otherwise use whatever the default width is."
-/// If this property wouldn't exist, you could only set the default to "0px" or something like
-/// that, meaning that if you don't override the property, then you'd set it to 0px - which is
-/// different from `auto`, since `auto` has its width determined by how much space there is
-/// available in the parent.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum DynamicCssPropertyDefault  {
-    Exact(CssProperty),
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CssPropertyValue<T> {
     Auto,
+    None,
+    Initial,
+    Inherit,
+    Exact(T),
+}
+
+impl<T> From<T> for CssPropertyValue<T> {
+    fn from(c: T) -> Self { CssPropertyValue::Exact(c) }
+}
+
+impl<T> CssPropertyValue<T> {
+    pub fn get_property(&self) -> Option<&T> {
+        match self {
+            CssPropertyValue::Exact(c) => Some(c),
+            _ => None,
+        }
+    }
 }
 
 impl DynamicCssProperty {
