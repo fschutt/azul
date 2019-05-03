@@ -2,6 +2,7 @@
 use std::{
     num::ParseIntError,
     fmt,
+    collections::HashMap,
 };
 pub use simplecss::Error as CssSyntaxError;
 use simplecss::Tokenizer;
@@ -12,14 +13,15 @@ use azul_css::{
     Css, CssDeclaration, Stylesheet, DynamicCssProperty,
     CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
     CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
-    NodeTypePath, NodeTypePathParseError,
+    NodeTypePath, NodeTypePathParseError, CombinedCssPropertyType,
+    CssKeyMap, CssProperty,
 };
 
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseError<'a> {
     pub error: CssParseErrorInner<'a>,
-    pub location: ErrorLocation,
+    pub location: (ErrorLocation, ErrorLocation),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,6 +93,26 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     ),
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
 }}
+
+/// Error that can happen during `css_parser::parse_key_value_pair`
+#[derive(Debug, Clone, PartialEq)]
+pub enum DynamicCssParseError<'a> {
+    /// The brace contents aren't valid, i.e. `var(asdlfkjasf)`
+    InvalidBraceContents(&'a str),
+    /// Unexpected value when parsing the string
+    UnexpectedValue(CssParsingError<'a>),
+}
+
+impl_display!{ DynamicCssParseError<'a>, {
+    InvalidBraceContents(e) => format!("Invalid contents of var() function: var({})", e),
+    UnexpectedValue(e) => format!("Unexpected value: {}", e),
+}}
+
+impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
+    fn from(e: CssParsingError<'a>) -> Self {
+        DynamicCssParseError::UnexpectedValue(e)
+    }
+}
 
 /// "selector" contains the actual selector such as "nth-child" while "value" contains
 /// an optional value - for example "nth-child(3)" would be: selector: "nth-child", value: "3".
@@ -211,45 +233,45 @@ fn test_css_pseudo_selector_parse() {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ErrorLocation {
-    pub line: usize,
-    pub column: usize,
+    pub original_pos: usize,
+}
+
+impl ErrorLocation {
+    /// Given an error location, returns the (line, column)
+    pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
+
+        let error_location = self.original_pos.saturating_sub(1);
+        let (mut line_number, mut total_characters) = (0, 0);
+
+        for line in css_string[0..error_location].lines() {
+            line_number += 1;
+            total_characters += line.chars().count();
+        }
+
+        // Rust doesn't count "\n" as a character, so we have to add the line number count on top
+        let total_characters = total_characters + line_number;
+        let column_pos = error_location - total_characters.saturating_sub(2);
+
+        (line_number, column_pos)
+    }
 }
 
 impl<'a> fmt::Display for CssParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CSS error at line {}:{}: {}", self.location.line, self.location.column, self.error)
+        write!(f, "CSS error at location {}..{}: {}", self.location.0.original_pos, self.location.1.original_pos, self.error)
     }
 }
 
 pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     let mut tokenizer = Tokenizer::new(css_string);
-    match new_from_str_inner(css_string, &mut tokenizer) {
-        Ok(stylesheet) => Ok(Css {
-            stylesheets: vec![
-                stylesheet
-            ],
-        }),
-        Err(e) => {
-            let error_location = tokenizer.pos().saturating_sub(1);
-            let line_number: usize = css_string[0..error_location].lines().count();
+    let (stylesheet, _warnings) = new_from_str_inner(css_string, &mut tokenizer)?;
+    Ok(Css { stylesheets: vec![stylesheet] })
+}
 
-            // Rust doesn't count "\n" as a character, so we have to add the line number count on top
-            let total_characters: usize = css_string[0..error_location].lines().take(line_number.saturating_sub(1)).map(|line| line.chars().count()).sum();
-            let total_characters = total_characters + line_number;
-            /*println!("line_number: {} error location: {}, total characters: {}", line_number,
-                     error_location, total_characters);*/
-            let characters_in_line = (error_location + 2) - total_characters;
-
-            let error_location = ErrorLocation {
-                line: line_number,
-                column: characters_in_line,
-            };
-
-            Err(CssParseError {
-                error: e,
-                location: error_location,
-            })
-        }
+/// Returns the location of where the parser is currently in the document
+fn get_error_location(tokenizer: &Tokenizer) -> ErrorLocation {
+    ErrorLocation {
+        original_pos: tokenizer.pos(),
     }
 }
 
@@ -300,11 +322,14 @@ impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
 /// );
 /// ```
 pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'a>> {
+
     use simplecss::{Token, Combinator};
+
     let input = input.trim();
     if input.is_empty() {
         return Err(CssPathParseError::EmptyPath);
     }
+
     let mut tokenizer = Tokenizer::new(input);
     let mut selectors = Vec::new();
 
@@ -348,8 +373,28 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnparsedCssRuleBlock<'a> {
+    /// The css path (full selector) of the style ruleset
+    pub path: CssPath,
+    /// `"justify-content" => "center"`
+    pub declarations: HashMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
+}
+
+/// CSS stylesheet that has not yet been parsed completely
+pub enum CssParseWarnMsg<'a> {
+    /// Key "blah" isn't yet supported, so the parser didn't attempt to parse the value at all
+    UnsupportedKeyValuePair { key: &'a str, value: &'a str, location: (ErrorLocation, ErrorLocation) },
+}
+
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
-fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) -> Result<Stylesheet, CssParseErrorInner<'a>> {
+///
+/// May return "warning" messages, i.e. messages that just serve as a warning,
+/// instead of being actual errors. These warnings may be ignored by the caller,
+/// but can be useful for debugging.
+fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
+-> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
+
     use simplecss::{Token, Combinator};
 
     let mut css_blocks = Vec::new();
@@ -363,213 +408,248 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>) ->
     // one path corresponding to one set of rules each).
     let mut current_paths = Vec::new();
     // Current CSS declarations
-    let mut current_rules = Vec::new();
+    let mut current_rules = HashMap::<&str, (&str, (ErrorLocation, ErrorLocation))>::new();
     // Keep track of the current path during parsing
     let mut last_path = Vec::new();
 
-    let css_property_map = azul_css::get_css_key_map();
+    let mut last_error_location = ErrorLocation { original_pos: 0 };
+
     loop {
-        let token = tokenizer.parse_next()?;
+
+        let new_location = get_error_location(tokenizer);
+        let token = tokenizer.parse_next().map_err(|e| CssParseError { error: e.into(), location: (last_error_location, new_location) })?;
+
+        macro_rules! check_parser_is_outside_block {() => {
+            if parser_in_block {
+                return Err(CssParseError {
+                    error: CssParseErrorInner::MalformedCss,
+                    location: (last_error_location, new_location),
+                });
+            }
+        }}
+
+        macro_rules! check_parser_is_inside_block {() => {
+            if !parser_in_block {
+                return Err(CssParseError {
+                    error: CssParseErrorInner::MalformedCss,
+                    location: (last_error_location, new_location),
+                });
+            }
+        }}
+
         match token {
             Token::BlockStart => {
-                if parser_in_block {
-                    // multi-nested CSS blocks are currently not supported
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
+                check_parser_is_outside_block!();
                 parser_in_block = true;
                 block_nesting += 1;
                 current_paths.push(last_path.clone());
                 last_path.clear();
             },
             Token::Comma => {
+                check_parser_is_outside_block!();
                 current_paths.push(last_path.clone());
                 last_path.clear();
             },
             Token::BlockEnd => {
+
                 block_nesting -= 1;
-                if !parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
+                check_parser_is_inside_block!();
                 parser_in_block = false;
-                for path in current_paths.drain(..) {
-                    css_blocks.push(CssRuleBlock {
+
+                css_blocks.extend(current_paths.drain(..).map(|path| {
+                    UnparsedCssRuleBlock {
                         path: CssPath { selectors: path },
                         declarations: current_rules.clone(),
-                    })
-                }
+                    }
+                }));
+
                 current_rules.clear();
                 last_path.clear(); // technically unnecessary, but just to be sure
             },
 
             // tokens that adjust the last_path
             Token::UniversalSelector => {
-                if parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
+                check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Global);
             },
             Token::TypeSelector(div_type) => {
-                if parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
-                last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
+                check_parser_is_outside_block!();
+                last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type).map_err(|e| {
+                    CssParseError {
+                        error: e.into(),
+                        location: (last_error_location, new_location),
+                    }
+                })?));
             },
             Token::IdSelector(id) => {
-                if parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
+                check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Id(id.to_string()));
             },
             Token::ClassSelector(class) => {
-                if parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
+                check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Class(class.to_string()));
             },
             Token::Combinator(Combinator::GreaterThan) => {
-                if parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
+                check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::DirectChildren);
             },
             Token::Combinator(Combinator::Space) => {
-                if parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
+                check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Children);
             },
             Token::PseudoClass { selector, value } => {
-                if parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
-                last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value)?));
+                check_parser_is_outside_block!();
+                last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value).map_err(|e| {
+                    CssParseError {
+                        error: e.into(),
+                        location: (last_error_location, new_location),
+                    }
+                })?));
             },
             Token::Declaration(key, val) => {
-                if !parser_in_block {
-                    return Err(CssParseErrorInner::MalformedCss);
-                }
-
-                let parsed_key = CssPropertyType::from_str(key, &css_property_map)
-                    .ok_or(CssParseErrorInner::UnknownPropertyKey(key, val))?;
-
-                current_rules.push(determine_static_or_dynamic_css_property(parsed_key, val)?);
+                check_parser_is_inside_block!();
+                current_rules.insert(key, (val, (last_error_location, new_location)));
             },
             Token::EndOfStream => {
+
+                // uneven number of open / close braces
+                if block_nesting != 0 {
+                    return Err(CssParseError {
+                        error: CssParseErrorInner::UnclosedBlock,
+                        location: (last_error_location, new_location),
+                    });
+                }
+
                 break;
             },
             _ => {
                 // attributes, lang-attributes and @keyframes are not supported
             }
         }
+
+        last_error_location = new_location;
     }
 
-    // non-even number of blocks
-    if block_nesting != 0 {
-        return Err(CssParseErrorInner::UnclosedBlock);
-    }
-
-    Ok(css_blocks.into())
+    unparsed_css_blocks_to_stylesheet(css_blocks)
 }
 
-/// Error that can happen during `css_parser::parse_key_value_pair`
-#[derive(Debug, Clone, PartialEq)]
-pub enum DynamicCssParseError<'a> {
-    /// The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `
-    UnclosedBraces,
-    /// There is a valid dynamic css property, but no default case
-    NoDefaultCase,
-    /// The dynamic CSS property has no ID, i.e. `[[ 400px ]]`
-    NoId,
-    /// The ID may not start with a number or be a CSS property itself
-    InvalidId,
-    /// Dynamic css property braces are empty, i.e. `[[ ]]`
-    EmptyBraces,
-    /// Unexpected value when parsing the string
-    UnexpectedValue(CssParsingError<'a>),
-}
-
-impl_display!{ DynamicCssParseError<'a>, {
-    UnclosedBraces => "The braces of a dynamic CSS property aren't closed or unbalanced, i.e. ` [[ `",
-    NoDefaultCase => "There is a valid dynamic css property, but no default case",
-    NoId => "The dynamic CSS property has no ID, i.e. [[ 400px ]]",
-    InvalidId => "The ID may not start with a number or be a CSS property itself",
-    EmptyBraces => "Dynamic css property braces are empty, i.e. `[[ ]]`",
-    UnexpectedValue(e) => format!("Unexpected value: {}", e),
-}}
-
-impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
-    fn from(e: CssParsingError<'a>) -> Self {
-        DynamicCssParseError::UnexpectedValue(e)
-    }
-}
-
-pub const START_BRACE: &str = "[[";
-pub const END_BRACE: &str = "]]";
-
-/// Determine if a Css property is static (immutable) or if it can change
-/// during the runtime of the program
-pub fn determine_static_or_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str)
--> Result<CssDeclaration, DynamicCssParseError<'a>>
+fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a>>)
+-> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>>
 {
-    let value = value.trim();
+    use self::{DynamicCssParseError::*, CssParseWarnMsg::*};
 
-    let is_starting_with_braces = value.starts_with(START_BRACE);
-    let is_ending_with_braces = value.ends_with(END_BRACE);
+    // Actually parse the properties (TODO: this could be done in parallel and in a separate function)
+    let css_key_map = azul_css::get_css_key_map();
 
-    match (is_starting_with_braces, is_ending_with_braces) {
-        (true, true) => parse_dynamic_css_property(key, value).map(|val| CssDeclaration::Dynamic(val)),
-        (false, false) => Ok(CssDeclaration::Static(css_parser::parse_css_property(key, value)?)),
-        (true, false) | (false, true) => Err(DynamicCssParseError::UnclosedBraces),
+    let mut warnings = Vec::new();
+
+    let parsed_css_blocks = css_blocks.into_iter().map(|unparsed_css_block| {
+
+        let mut declarations = Vec::<CssDeclaration>::new();
+
+        for (unparsed_css_key, (unparsed_css_value, location)) in unparsed_css_block.declarations {
+            // check if the value is a dynamic variable
+            if let Ok((_, contents)) = css_parser::parse_parentheses(unparsed_css_value, &["var"]) {
+
+                // value is a CSS variable, i.e. var(--main-bg-color)
+                let (variable_id, default_value) = parse_css_variable_brace_contents(contents).ok_or({
+                    CssParseError {
+                        error: InvalidBraceContents(contents).into(),
+                        location,
+                    }
+                })?;
+                let default_value = default_value.unwrap_or("auto");
+                let parsed_default_values = parse_css_key_value_pair(unparsed_css_key, default_value, &css_key_map);
+
+                match parsed_default_values {
+                    Some(Ok(parsed_default_values)) => {
+                        declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
+                            dynamic_id: variable_id.to_string(),
+                            default_values: parsed_default_values,
+                        }));
+                    },
+                    Some(Err(e)) => {
+                        return Err(CssParseError {
+                            error: CssParseErrorInner::DynamicCssParseError(e.into()).into(),
+                            location,
+                        });
+                    },
+                    None => {
+                        warnings.push(UnsupportedKeyValuePair { key: unparsed_css_key, value: default_value, location });
+                    },
+                }
+            } else {
+                // value is not a CSS variable
+                match parse_css_key_value_pair(unparsed_css_key, unparsed_css_value, &css_key_map) {
+                    Some(Ok(parsed_values)) => {
+                        declarations.extend(parsed_values.into_iter().map(|val| CssDeclaration::Static(val)));
+                    },
+                    Some(Err(e)) => {
+                        return Err(CssParseError {
+                            error: CssParseErrorInner::DynamicCssParseError(e.into()).into(),
+                            location,
+                        });
+                    },
+                    None => {
+                        warnings.push(UnsupportedKeyValuePair { key: unparsed_css_key, value: unparsed_css_value, location });
+                    },
+                }
+            }
+        }
+
+        Ok(CssRuleBlock {
+            path: unparsed_css_block.path,
+            declarations,
+        })
+    }).collect::<Result<Vec<CssRuleBlock>, CssParseError>>()?;
+
+    Ok((parsed_css_blocks.into(), warnings))
+}
+
+/// NOTE: Does NOT parse a dynamic CSS variable!
+fn parse_css_key_value_pair<'a>(key: &'a str, value: &'a str, css_key_map: &CssKeyMap)
+-> Option<Result<Vec<CssProperty>, CssParsingError<'a>>>
+{
+    if let Some(combined_key) = CombinedCssPropertyType::from_str(key, css_key_map) {
+        // If the key is a "combined" key (a shorthand), for example "margin", it can emit more than one key
+        // ex. "margin: 10px" gets split into the four values -> "margin-left: 10px", "margin-right: 10px" and so on
+        let result = match css_parser::parse_combined_css_property(combined_key, value) {
+            Ok(o) => o,
+            Err(e) => return Some(Err(e)),
+        };
+        Some(Ok(result))
+    } else if let Some(normal_key) = CssPropertyType::from_str(key, css_key_map) {
+        // key is a normal key -> value pair (no shorthand)
+        let result = match css_parser::parse_css_property(normal_key, value) {
+            Ok(o) => o,
+            Err(e) => return Some(Err(e)),
+        };
+
+        Some(Ok(vec![result]))
+    } else {
+        None
     }
 }
 
-pub fn parse_dynamic_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<DynamicCssProperty, DynamicCssParseError<'a>> {
-    use std::char;
+/// Parses the brace contents of a css var, i.e.:
+///
+/// ```no_run,ignore
+/// "--main-bg-col, blue" => (Some("main-bg-col"), Some("blue"))
+/// "--main-bg-col"       => (Some("main-bg-col"), None)
+/// ```
+fn parse_css_variable_brace_contents<'a>(input: &'a str) -> Option<(&'a str, Option<&'a str>)> {
 
-    // "[[ id | 400px ]]" => "id | 400px"
-    let value = value.trim_start_matches(START_BRACE);
-    let value = value.trim_end_matches(END_BRACE);
-    let value = value.trim();
+    let input = input.trim();
 
-    let mut pipe_split = value.splitn(2, "|");
-    let dynamic_id = pipe_split.next();
-    let default_case = pipe_split.next();
+    let mut split_comma_iter = input.splitn(2, ",");
+    let var_name = split_comma_iter.next()?;
+    let var_name = var_name.trim();
 
-    // note: dynamic_id will always be Some(), which is why the
-    let (default_case, dynamic_id) = match (default_case, dynamic_id) {
-        (Some(default), Some(id)) => (default, id),
-        (None, Some(id)) => {
-            if id.trim().is_empty() {
-                return Err(DynamicCssParseError::EmptyBraces);
-            } else if css_parser::parse_css_property(key, id).is_ok() {
-                // if there is an ID, but the ID is a CSS value
-                return Err(DynamicCssParseError::NoId);
-            } else {
-                return Err(DynamicCssParseError::NoDefaultCase);
-            }
-        },
-        (None, None) | (Some(_), None) => unreachable!(), // iterator would be broken if this happened
-    };
-
-    let dynamic_id = dynamic_id.trim();
-    let default_case = default_case.trim();
-
-    match (dynamic_id.is_empty(), default_case.is_empty()) {
-        (true, true) => return Err(DynamicCssParseError::EmptyBraces),
-        (true, false) => return Err(DynamicCssParseError::NoId),
-        (false, true) => return Err(DynamicCssParseError::NoDefaultCase),
-        (false, false) => { /* everything OK */ }
+    if !var_name.starts_with("--") {
+        return None; // no proper CSS variable name
     }
 
-    if dynamic_id.starts_with(char::is_numeric) || css_parser::parse_css_property(key, dynamic_id).is_ok() {
-        return Err(DynamicCssParseError::InvalidId);
-    }
-
-    Ok(DynamicCssProperty {
-        property_type: key,
-        dynamic_id: dynamic_id.to_string(),
-        default: css_parser::parse_css_property(key, default_case)?,
-    })
+    Some((&var_name[2..], split_comma_iter.next()))
 }
 
 #[test]

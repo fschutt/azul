@@ -36,11 +36,11 @@ pub enum CssDeclaration {
 impl CssDeclaration {
 
     /// Returns the type of the property (i.e. the CSS key as a typed enum)
-    pub fn get_type(&self) -> CssPropertyType {
+    pub fn get_type(&self) -> Vec<CssPropertyType> {
         use css::CssDeclaration::*;
         match self {
-            Static(s) => s.get_type(),
-            Dynamic(d) => d.property_type,
+            Static(s) => vec![s.get_type()],
+            Dynamic(d) => d.default_values.iter().map(|val| val.get_type()).collect(),
         }
     }
 
@@ -72,7 +72,7 @@ impl CssDeclaration {
 ///
 /// ```no_run,ignore
 /// #my_div {
-///    padding: [[ my_dynamic_property_id | 400px ]];
+///    padding: var(--my_dynamic_property_id, 400px);
 /// }
 /// ```
 ///
@@ -87,23 +87,10 @@ impl CssDeclaration {
 /// special cases now use one single API.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DynamicCssProperty {
-    /// Key for this property
-    pub property_type: CssPropertyType,
-    /// The stringified ID of this property, i.e. the `"my_id"` in `width: [[ my_id | 500px ]]`.
+    /// The stringified ID of this property, i.e. the `"my_id"` in `width: var(--my_id, 500px)`.
     pub dynamic_id: String,
-    /// Default value, used if the css property isn't overridden in this frame
-    /// i.e. the `500px` in `width: [[ my_id | 500px ]]`. If this value is set to `auto`,
-    /// the css property will not exist if it isn't overriden. An example where this is
-    /// useful is when you want to say something like this:
-    ///
-    /// `width: [[ 400px | auto ]];`
-    ///
-    /// "If I set this property to width: 400px, then use exactly 400px. Otherwise use whatever the default width is."
-    /// If this property wouldn't exist, you could only set the default to "0px" or something like
-    /// that, meaning that if you don't override the property, then you'd set it to 0px - which is
-    /// different from `auto`, since `auto` has its width determined by how much space there is
-    /// available in the parent.
-    pub default: CssProperty,
+    /// Default values for this properties - one single value can control multiple properties!
+    pub default_values: Vec<CssProperty>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -137,7 +124,7 @@ impl DynamicCssProperty {
     }
 
     pub fn can_trigger_relayout(&self) -> bool {
-        self.property_type.can_trigger_relayout()
+        self.default_values.iter().any(|val| val.get_type().can_trigger_relayout())
     }
 }
 

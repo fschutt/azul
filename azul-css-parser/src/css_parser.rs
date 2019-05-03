@@ -6,7 +6,7 @@ use azul_css::{
     Overflow, Shape, PixelValue, PercentageValue, FloatValue, ColorU,
     GradientStopPre, RadialGradient, DirectionCorner, Direction, CssImageId,
     LinearGradient, BoxShadowPreDisplayItem, StyleBorderSide, BorderStyle,
-    PixelSize, SizeMetric, BoxShadowClipMode, ExtendMode, FontId, GradientType,
+    SizeMetric, BoxShadowClipMode, ExtendMode, FontId, GradientType, BackgroundPosition,
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
@@ -401,10 +401,10 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
         BoxShadow => {
             let box_shadow = parse_css_box_shadow(value)?;
             Ok(vec![
-               CssProperty::BoxShadowLeft(box_shadow),
-               CssProperty::BoxShadowRight(box_shadow),
-               CssProperty::BoxShadowTop(box_shadow),
-               CssProperty::BoxShadowBottom(box_shadow),
+               CssProperty::BoxShadowLeft(CssPropertyValue::Exact(box_shadow)),
+               CssProperty::BoxShadowRight(CssPropertyValue::Exact(box_shadow)),
+               CssProperty::BoxShadowTop(CssPropertyValue::Exact(box_shadow)),
+               CssProperty::BoxShadowBottom(CssPropertyValue::Exact(box_shadow)),
             ])
         },
     }
@@ -429,6 +429,7 @@ pub enum CssParsingError<'a> {
     MarginParseError(LayoutMarginParseError<'a>),
     FlexShrinkParseError(FlexShrinkParseError<'a>),
     FlexGrowParseError(FlexGrowParseError<'a>),
+    BackgroundPositionParseError(CssBackgroundPositionParseError<'a>),
 }
 
 impl_debug_as_display!(CssParsingError<'a>);
@@ -447,6 +448,7 @@ impl_display!{ CssParsingError<'a>, {
     MarginParseError(e) => format!("{}", e),
     FlexShrinkParseError(e) => format!("{}", e),
     FlexGrowParseError(e) => format!("{}", e),
+    BackgroundPositionParseError(e) => format!("{}", e),
 }}
 
 impl_from!(CssBorderParseError<'a>, CssParsingError::CssBorderParseError);
@@ -462,6 +464,7 @@ impl_from!(LayoutPaddingParseError<'a>, CssParsingError::PaddingParseError);
 impl_from!(LayoutMarginParseError<'a>, CssParsingError::MarginParseError);
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrinkParseError);
 impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrowParseError);
+impl_from!(CssBackgroundPositionParseError<'a>, CssParsingError::BackgroundPositionParseError);
 
 impl<'a> From<PercentageParseError> for CssParsingError<'a> {
     fn from(e: PercentageParseError) -> Self {
@@ -603,10 +606,14 @@ impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct StyleBorderRadius {
-    pub top_left: PixelSize,
-    pub top_right: PixelSize,
-    pub bottom_left: PixelSize,
-    pub bottom_right: PixelSize,
+
+    // TODO: Should technically be PixelSize because the border radius doesn't have to be uniform
+    // but the parsing for that is complicated...
+
+    pub top_left: PixelValue,
+    pub top_right: PixelValue,
+    pub bottom_left: PixelValue,
+    pub bottom_right: PixelValue,
 }
 
 impl Default for StyleBorderRadius {
@@ -618,10 +625,10 @@ impl Default for StyleBorderRadius {
 impl StyleBorderRadius {
 
     pub const fn zero() -> Self {
-        Self::uniform(PixelSize::zero())
+        Self::uniform(PixelValue::zero())
     }
 
-    pub const fn uniform(value: PixelSize) -> Self {
+    pub const fn uniform(value: PixelValue) -> Self {
         Self {
             top_left: value,
             top_right: value,
@@ -644,7 +651,7 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
             // (the value applies to all four corners, which are rounded equally:
 
             let uniform_radius = parse_pixel_value(components.next().unwrap())?;
-            Ok(StyleBorderRadius::uniform(PixelSize::new(uniform_radius, uniform_radius)))
+            Ok(StyleBorderRadius::uniform(uniform_radius))
         },
         2 => {
             // Two values - border-radius: 15px 50px;
@@ -655,10 +662,10 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
             let top_right_bottom_left = parse_pixel_value(components.next().unwrap())?;
 
             Ok(StyleBorderRadius {
-                top_left: PixelSize::new(top_left_bottom_right, top_left_bottom_right),
-                bottom_right:  PixelSize::new(top_left_bottom_right, top_left_bottom_right),
-                top_right:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
-                bottom_left:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
+                top_left:       top_left_bottom_right,
+                bottom_right:   top_left_bottom_right,
+                top_right:      top_right_bottom_left,
+                bottom_left:    top_right_bottom_left,
             })
         },
         3 => {
@@ -671,28 +678,31 @@ pub fn parse_style_border_radius<'a>(input: &'a str)
             let bottom_right = parse_pixel_value(components.next().unwrap())?;
 
             Ok(StyleBorderRadius {
-                top_left: PixelSize::new(top_left, top_left),
-                bottom_right:  PixelSize::new(bottom_right, bottom_right),
-                top_right:  PixelSize::new(top_right_bottom_left, top_right_bottom_left),
-                bottom_left: PixelSize::new(top_right_bottom_left, top_right_bottom_left),
+                top_left,
+                bottom_right,
+                top_right:  top_right_bottom_left,
+                bottom_left: top_right_bottom_left,
             })
         }
         4 => {
+
             // Four values - border-radius: 15px 50px 30px 5px;
-            // (first value applies to top-left corner,
-            //  second value applies to top-right corner,
-            //  third value applies to bottom-right corner,
-            //  fourth value applies to bottom-left corner)
+            //
+            // first value applies to top-left corner,
+            // second value applies to top-right corner,
+            // third value applies to bottom-right corner,
+            // fourth value applies to bottom-left corner
+
             let top_left = parse_pixel_value(components.next().unwrap())?;
             let top_right = parse_pixel_value(components.next().unwrap())?;
             let bottom_right = parse_pixel_value(components.next().unwrap())?;
             let bottom_left = parse_pixel_value(components.next().unwrap())?;
 
             Ok(StyleBorderRadius {
-                top_left: PixelSize::new(top_left, top_left),
-                bottom_right: PixelSize::new(bottom_right, bottom_right),
-                top_right: PixelSize::new(top_right, top_right),
-                bottom_left: PixelSize::new(bottom_left, bottom_left),
+                top_left,
+                bottom_right,
+                top_right,
+                bottom_left,
             })
         },
         _ => {
@@ -1232,7 +1242,7 @@ impl_from!(PixelParseError<'a>, LayoutPaddingParseError::PixelParseError);
 
 /// Represents a parsed `padding` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct LayoutPadding {
+pub struct LayoutPadding {
     pub top: PixelValue,
     pub bottom: PixelValue,
     pub left: PixelValue,
@@ -1304,7 +1314,7 @@ impl_from!(PixelParseError<'a>, LayoutMarginParseError::PixelParseError);
 
 /// Represents a parsed `padding` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct LayoutMargin {
+pub struct LayoutMargin {
     pub top: PixelValue,
     pub bottom: PixelValue,
     pub left: PixelValue,
@@ -1589,10 +1599,53 @@ pub fn parse_style_background_content<'a>(input: &'a str)
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssBackgroundPositionParseError<'a> {
+    NoPosition(&'a str),
+    TooManyComponents(&'a str),
+    FirstComponentWrong(PixelParseError<'a>),
+    SecondComponentWrong(PixelParseError<'a>),
+}
+
+impl_display!{CssBackgroundPositionParseError<'a>, {
+    NoPosition(e) => format!("First background position missing: \"{}\"", e),
+    TooManyComponents(e) => format!("background-position can only have one or two components, not more: \"{}\"", e),
+    FirstComponentWrong(e) => format!("Failed to parse first component: \"{}\"", e),
+    SecondComponentWrong(e) => format!("Failed to parse second component: \"{}\"", e),
+}}
+
+pub fn parse_background_position<'a>(input: &'a str) -> Result<BackgroundPosition, PixelParseError<'a>> {
+    Ok(match input {
+        "left" => BackgroundPosition::Left,
+        "center" => BackgroundPosition::Center,
+        "right" => BackgroundPosition::Right,
+        other => BackgroundPosition::Exact(parse_pixel_value(other)?),
+    })
+}
+
 pub fn parse_style_background_position<'a>(input: &'a str)
 -> Result<StyleBackgroundPosition, CssBackgroundPositionParseError<'a>>
 {
+    use self::CssBackgroundPositionParseError::*;
 
+    let input = input.trim();
+    let mut whitespace_iter = input.split_whitespace();
+
+    let first = whitespace_iter.next().ok_or(NoPosition(input))?;
+    let second = whitespace_iter.next();
+
+    if whitespace_iter.next().is_some() {
+        return Err(TooManyComponents(input));
+    }
+
+    let horizontal = parse_background_position(first).map_err(|e| FirstComponentWrong(e))?;
+
+    let vertical = match second {
+        Some(second) => parse_background_position(second).map_err(|e| SecondComponentWrong(e))?,
+        None => BackgroundPosition::Center,
+    };
+
+    Ok(StyleBackgroundPosition { horizontal, vertical })
 }
 
 /// Given a string, returns how many characters need to be skipped

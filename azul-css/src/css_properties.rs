@@ -876,6 +876,12 @@ impl fmt::Debug for FloatValue {
 
 impl PixelValue {
 
+    #[inline]
+    pub const fn zero() -> Self {
+        const ZERO_PX: PixelValue = PixelValue::const_px(0);
+        ZERO_PX
+    }
+
     /// Same as `PixelValue::px()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
@@ -1029,21 +1035,15 @@ pub enum StyleBackgroundSize {
 /// Represents a `background-position` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBackgroundPosition {
-    pub horizontal: Option<BackgroundPosition>,
-    pub vertical: Option<BackgroundPosition>,
+    pub horizontal: BackgroundPosition,
+    pub vertical: BackgroundPosition,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackgroundPosition {
-    LeftTop,
-    LeftCenter,
-    LeftBottom,
-    RightTop,
-    RightCenter,
-    RightBottom,
-    CenterTop,
-    CenterCenter,
-    CenterBottom,
+    Left,
+    Center,
+    Right,
     Exact(PixelValue),
 }
 
@@ -1198,6 +1198,7 @@ pub enum Direction {
 }
 
 impl Direction {
+
     /// Calculates the points of the gradient stops for angled linear gradients
     pub fn to_points(&self, rect: &LayoutRect)
     -> (LayoutPoint, LayoutPoint)
