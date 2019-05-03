@@ -3,6 +3,7 @@ members = [
     "azul",
     "azul-css",
     "azul-core",
+    "azul-widgets",
     "azul-css-parser",
     "azul-native-style",
 ]
