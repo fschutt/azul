@@ -253,7 +253,7 @@ impl FontSource {
     }
 }
 
-/// Raw image made up of raw pixels (either BRGA8 or A8)
+/// Raw image made up of raw pixels (either BGRA8 or A8)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawImage {
     pub pixels: Vec<u8>,
