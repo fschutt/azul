@@ -799,10 +799,11 @@ fn relayout_single_window<T>(
         );
 
     let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
+    let mut ui_state = ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?;
     update_display_list(
         &mut app_state.data,
         &ui_description_cache[window_id],
-        &ui_state_cache[window_id],
+        &mut ui_state,
         &mut *window,
         &mut fake_window,
         &mut app_state.resources,
@@ -1045,7 +1046,7 @@ fn call_callbacks<T>(
 fn update_display_list<T>(
     app_data: &mut Arc<Mutex<T>>,
     ui_description: &UiDescription<T>,
-    ui_state: &UiState<T>,
+    ui_state: &mut UiState<T>,
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
     app_resources: &mut AppResources,
@@ -1056,7 +1057,7 @@ fn update_display_list<T>(
 
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
-    let (builder, scrolled_nodes, _layout_result) = display_list.into_display_list_builder(
+    let (builder, scrolled_nodes, layout_result) = display_list.into_display_list_builder(
         app_data,
         window,
         fake_window,
@@ -1079,6 +1080,7 @@ fn update_display_list<T>(
     );
 
     app_resources.fake_display.render_api.send_transaction(window.internal.document_id, txn);
+    ui_state.text_layout = Some(layout_result);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert

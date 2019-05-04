@@ -1462,6 +1462,8 @@ impl<T> Dom<T> {
             dynamic_css_overrides,
             tag_ids_to_hover_active_states: BTreeMap::new(),
 
+            text_layout:None,
+
             tab_index_tags,
             draggable_tags,
             node_ids_to_tag_ids,
