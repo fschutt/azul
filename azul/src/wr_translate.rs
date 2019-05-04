@@ -41,21 +41,21 @@ use azul_core::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
         DisplayListFrame, DisplayListRect, DisplayListRectContent, DisplayListMsg,
     },
-};
-use azul_css::{
-    ColorU as CssColorU,
-    ColorF as CssColorF,
-    BorderRadius as CssBorderRadius,
-    BorderSide as CssBorderSide,
-    NormalBorder as CssNormalBorder,
-    LayoutPoint as CssLayoutPoint,
-    LayoutRect as CssLayoutRect,
-    LayoutSize as CssLayoutSize,
-    BorderDetails as CssBorderDetails,
-    BoxShadowClipMode as CssBoxShadowClipMode,
-    ExtendMode as CssExtendMode,
-    BorderStyle as CssBorderStyle,
-    LayoutSideOffsets as CssLayoutSideOffsets,
+    css::{
+        ColorU as CssColorU,
+        ColorF as CssColorF,
+        BorderRadius as CssBorderRadius,
+        BorderSide as CssBorderSide,
+        NormalBorder as CssNormalBorder,
+        LayoutPoint as CssLayoutPoint,
+        LayoutRect as CssLayoutRect,
+        LayoutSize as CssLayoutSize,
+        BorderDetails as CssBorderDetails,
+        BoxShadowClipMode as CssBoxShadowClipMode,
+        ExtendMode as CssExtendMode,
+        BorderStyle as CssBorderStyle,
+        LayoutSideOffsets as CssLayoutSideOffsets,
+    },
 };
 use app_units::Au as WrAu;
 use glium::glutin::{VirtualKeyCode as WinitVirtualKeyCode, MouseCursor as WinitCursorType};
@@ -683,7 +683,7 @@ mod background {
 
     struct Ratio {
         width: f32,
-        height: f32
+        height: f32,
     }
 
     #[inline]
@@ -703,27 +703,16 @@ mod background {
         use super::image;
 
         match background {
-            RadialGradient(rg) => {
-                push_radial_gradient_background(builder, info, rg);
-            },
-            LinearGradient(g) => {
-                push_linear_gradient_background(builder, info, g);
-            },
-            Image(style_image_id) => {
-
-
-                    push_image_background(builder, info, g);
-                }
-            },
-            Color(c) => {
-                push_color_background(builder, info, c);
-            },
+            RadialGradient(rg) => push_radial_gradient_background(builder, info, rg),
+            LinearGradient(g) => push_linear_gradient_background(builder, info, g),
+            Image(image_id) => push_image_background(builder, info, image_id),
+            Color(c) => push_color_background(builder, info, c),
         }
     }
 
-    fn push_radial_gradient_background(builder: &mut WrDisplayListBuilder, info: &LayoutPrimitiveInfo, gradient: ) {
+    fn push_radial_gradient_background(builder: &mut WrDisplayListBuilder, info: &LayoutPrimitiveInfo) {
 
-        use azul_css::Shape;
+        use azul_core::css::Shape;
 
         let stops: Vec<WrGradientStop> = gradient.stops.iter().map(|gradient_pre|
             GradientStop {
@@ -798,7 +787,7 @@ mod background {
         background_repeat: StyleBackgroundRepeat,
         background_size: LogicalSize,
     ) -> WrLayoutPrimitiveInfo {
-        use azul_css::StyleBackgroundRepeat::*;
+        use azul_core::css::StyleBackgroundRepeat::*;
         match background_repeat {
             NoRepeat => LayoutPrimitiveInfo::with_clip_rect(
                 info.rect,
@@ -838,9 +827,9 @@ mod background {
         };
 
         let ratio = match bg_size {
-            StyleBackgroundSize::Exact(w, h) => {let w = w.to_pixels(); let h = h.to_pixels(); w.min(h) },
+            StyleBackgroundSize::Exact(w, h) => { let w = w.to_pixels(); let h = h.to_pixels(); w.min(h) },
             StyleBackgroundSize::Contain => image_aspect_ratio.width.min(image_aspect_ratio.height),
-            StyleBackgroundSize::Cover => image_aspect_ratio.width.max(image_aspect_ratio.height)
+            StyleBackgroundSize::Cover => image_aspect_ratio.width.max(image_aspect_ratio.height),
         };
 
         LogicalSize::new(content_dimensions.0 as f32 * ratio, content_dimensions.1 as f32 * ratio)
@@ -848,6 +837,7 @@ mod background {
 }
 
 mod image {
+
     #[inline]
     pub(in super) fn push_image(
         builder: &mut DisplayListBuilder,
@@ -861,7 +851,7 @@ mod image {
 
 mod box_shadow {
 
-    use azul_css::{BoxShadowClipMode, ColorF, StyleBorderRadius, StyleBoxShadow, BoxShadowPreDisplayItem};
+    use azul_core::css::{BoxShadowClipMode, ColorF, StyleBorderRadius, StyleBoxShadow, BoxShadowPreDisplayItem};
     use azul_core::display_list::DisplayListRect;
     use webrender::api::{
         LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,

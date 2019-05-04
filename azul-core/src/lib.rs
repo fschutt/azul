@@ -1,7 +1,9 @@
 //! Shared datatypes for azul-* crates
 
-extern crate azul_css;
-extern crate gleam;
+pub extern crate azul_css as css;
+pub extern crate gleam;
+#[cfg(feature = "css_parser")]
+pub extern crate azul_css_parser as css_parser;
 
 pub mod app;
 pub mod app_resources;

@@ -39,14 +39,6 @@ default = [
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details
 logging = ["azul-dependencies/logging"]
-# The SVG rendering module is pretty huge since it needs lyon - if you don't use
-# SVG rendering in your app, you can turn this off to increase compilation
-# speed and decrease your binary size
-svg = ["azul-dependencies/svg"]
-# This is for activating **parsing** of SVG files. If you, for example, just
-# want to draw shapes on the screen, you do not need to activate this feature,
-# this is just for parsing the SVG from a file.
-svg_parsing = ["azul-dependencies/svg_parsing", "svg"]
 # If you want an application icon, you can either load it via the raw
 # RGBA bytes or use the icon_loading feature to decode it from a PNG / JPG /
 # whatever image format on startup. Note that this will import the image

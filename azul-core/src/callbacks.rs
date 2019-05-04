@@ -2,7 +2,7 @@ use std::{
     fmt,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use azul_css::CssPath;
+use css::CssPath;
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use {

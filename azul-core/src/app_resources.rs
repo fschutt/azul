@@ -273,7 +273,7 @@ pub enum WordType {
     Space,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageInfo {
     pub key: ImageKey,
     pub descriptor: ImageDescriptor,

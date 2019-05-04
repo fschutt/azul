@@ -16,4 +16,15 @@ exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 
 [dependencies]
-azul-core               = { version = "0.1.0",                path = "../azul-core"                             }
+azul-core               = { version = "0.1.0",                  path = "../azul-core"                             }
+azul-dependencies       = { version = "0.1.0", optional = true, git = "https://github.com/maps4print/azul-dependencies", rev = "bf2933b9aac43a7003278862772250398e4fa457" }
+
+[features]
+# The SVG rendering module is pretty huge since it needs lyon - if you don't use
+# SVG rendering in your app, you can turn this off to increase compilation
+# speed and decrease your binary size
+svg = ["azul-dependencies/svg"]
+# This is for activating **parsing** of SVG files. If you, for example, just
+# want to draw shapes on the screen, you do not need to activate this feature,
+# this is just for parsing the SVG from a file.
+svg_parsing = ["azul-dependencies/svg_parsing", "svg"]

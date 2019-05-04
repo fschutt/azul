@@ -6,7 +6,7 @@ use std::{
     collections::BTreeMap,
 };
 #[cfg(debug_assertions)]
-use azul_css::HotReloadHandler;
+use azul_core::css::HotReloadHandler;
 use glium::{
     SwapBuffersError,
     glutin::WindowEvent,
@@ -23,7 +23,7 @@ use webrender::{
 use app_resources::ImageSource;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
-use azul_css::{Css, ColorU};
+use azul_core::css::{Css, ColorU};
 use {
     FastHashMap,
     window::{
@@ -1191,7 +1191,7 @@ fn render_inner<T>(
     use window::get_gl_context;
     use glium::glutin::ContextTrait;
     use webrender::api::{DeviceIntRect, DeviceIntPoint};
-    use azul_css::ColorF;
+    use azul_core::css::ColorF;
     use wr_translate;
 
     let (_, framebuffer_size) = convert_window_size(&window.state.size);

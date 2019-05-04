@@ -5,8 +5,6 @@ use std::{
     cell::{RefCell, RefMut},
     collections::hash_map::Entry::*,
 };
-#[cfg(feature = "svg_parsing")]
-use std::io::{Error as IoError};
 use lyon::{
     tessellation::{
         FillOptions, BuffersBuilder, FillVertex, FillTessellator,
@@ -23,24 +21,26 @@ use lyon::{
     geom::euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedVector2D, UnknownUnit},
 };
 #[cfg(feature = "svg_parsing")]
+use std::io::{Error as IoError};
+#[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
-use azul_css::{ColorU, ColorF, StyleTextAlignmentHorz};
+use azul_core::css::{ColorU, ColorF, StyleTextAlignmentHorz};
 use gleam::gl::{self, Gl};
-use {
+use azul_core::{
     FastHashMap,
-    prelude::GlyphInstance,
     gl::{
         VertexBuffer, VertexLayout, VertexLayoutDescription, VertexAttributeType, FrameBuffer,
         VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
     window::FakeWindow,
-    app_resources::{AppResources, FontId},
+    app_resources::{AppResources, FontId, GlyphInstance},
     text_layout::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs, TextLayoutOptions},
 };
-
-pub use lyon::tessellation::VertexBuffers;
-pub use lyon::path::PathEvent;
-pub use lyon::geom::math::Point;
+pub use lyon::{
+    tessellation::VertexBuffers,
+    path::PathEvent,
+    geom::math::Point
+};
 
 static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);

@@ -2,7 +2,6 @@ use std::{
     fmt,
     collections::BTreeMap,
 };
-use azul_css::CssProperty;
 use {
     FastHashMap,
     dom::{
@@ -12,6 +11,7 @@ use {
     },
     id_tree::NodeId,
     callbacks::{Callback, DefaultCallbackId},
+    css::CssProperty,
 };
 
 pub struct UiState<T> {

@@ -1,4 +1,4 @@
-use {
+use azul_core::{
     dom::{Dom, DomString},
 };
 

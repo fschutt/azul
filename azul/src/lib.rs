@@ -137,7 +137,6 @@
 #[macro_use(warn, error, lazy_static)]
 pub extern crate azul_dependencies;
 extern crate azul_native_style;
-extern crate azul_css_parser;
 extern crate azul_core;
 extern crate gleam;
 #[cfg(feature = "serde_serialization")]
@@ -146,8 +145,6 @@ extern crate serde;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde_derive;
-#[cfg(feature = "css_parser")]
-extern crate azul_css;
 
 pub(crate) use azul_dependencies::glium as glium;
 pub(crate) use azul_dependencies::euclid;
@@ -202,8 +199,6 @@ pub mod error;
 pub mod text_layout;
 /// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
 pub mod traits;
-/// Container for default widgets (`TextInput` / `Button` / `Label`, `TableView`, ...)
-pub mod widgets;
 /// Window state handling and window-related information
 pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
@@ -263,7 +258,7 @@ type FastHashSet<T> = ::std::collections::HashSet<T>;
 /// Quick exports of common types
 pub mod prelude {
     #[cfg(feature = "css_parser")]
-    pub use azul_css::*;
+    pub use azul_core::css::*;
     pub use app::{App, AppConfig, AppState, AppResources};
     pub use async::{Task, TerminateTimer, TimerId, Timer, DropCheck};
     pub use resources::{

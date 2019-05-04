@@ -1,11 +1,10 @@
 //! Text input (demonstrates two-way data binding)
 
 use std::ops::Range;
-use {
+use azul_core::{
     callbacks::{UpdateScreen, Redraw, DontRedraw},
     dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
-    window::FakeWindow,
-    prelude::VirtualKeyCode,
+    window::{FakeWindow, VirtualKeyCode},
     callbacks::{CallbackInfo, StackCheckedPointer, DefaultCallback, DefaultCallbackId},
     app::AppStateNoData,
 };

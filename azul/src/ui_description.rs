@@ -2,7 +2,7 @@ use std::{
     fmt,
     collections::BTreeMap,
 };
-use azul_css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
+use azul_core::css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
 use {
     FastHashMap,
     id_tree::{Arena, NodeId, NodeDataContainer},

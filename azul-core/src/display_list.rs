@@ -1,9 +1,11 @@
-use azul_css::{
-    StyleBorder, StyleBoxShadow, StyleBorderRadius,
+use css::{
     StyleBackgroundRepeat, StyleBackgroundPosition,
     ColorU, BoxShadowClipMode, LinearGradient, RadialGradient,
+    BoxShadowPreDisplayItem, StyleBorderTopLeftRadius,
+    StyleBorderTopRightRadius, StyleBorderBottomLeftRadius,
+    StyleBorderBottomRightRadius, PixelValue, StyleBackgroundSize,
 };
-use app_resources::{ImageKey, FontInstanceKey};
+use app_resources::{ImageKey, FontInstanceKey, ImageInfo};
 use window::{LogicalPosition, LogicalSize};
 use callbacks::PipelineId;
 
@@ -15,7 +17,6 @@ use callbacks::PipelineId;
 /// is used to store various flags that APZ needs to properly process input
 /// events.
 pub type ItemTag = (u64, u16);
-
 pub type GlyphIndex = u32;
 
 // Common flags
@@ -137,6 +138,45 @@ pub enum ImageRendering {
 pub enum AlphaType {
     Alpha,
     PremultipliedAlpha,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorder {
+    pub radius: StyleBorderRadius,
+    pub widths: StyleBorderWidths,
+    pub colors: StyleBorderColors,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderRadius {
+    pub top_left: StyleBorderTopLeftRadius,
+    pub top_right: StyleBorderTopRightRadius,
+    pub bottom_left: StyleBorderBottomLeftRadius,
+    pub bottom_right: StyleBorderBottomRightRadius,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderWidths {
+    pub top: PixelValue,
+    pub right: PixelValue,
+    pub bottom: PixelValue,
+    pub left: PixelValue,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderColors {
+    pub top: ColorU,
+    pub right: ColorU,
+    pub bottom: ColorU,
+    pub left: ColorU,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBoxShadow {
+    pub top: BoxShadowPreDisplayItem,
+    pub right: BoxShadowPreDisplayItem,
+    pub bottom: BoxShadowPreDisplayItem,
+    pub left: BoxShadowPreDisplayItem,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

@@ -11,7 +11,7 @@ use webrender::api::{
     ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
 };
-use azul_css::{
+use azul_core::css::{
     Css, LayoutPosition,CssProperty, LayoutOverflow, ColorU,
     StyleBorderRadius, LayoutMargin, LayoutPadding, BoxShadowClipMode,
     StyleTextColor, StyleBackground, StyleBoxShadow,
@@ -652,7 +652,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     // Otherwise the hit-testing gets confused
     if let Some(bg) = &rect.style.background_attachement {
 
-        use azul_css::StyleBackground::*;
+        use azul_core::css::StyleBackground::*;
         use azul_core::display_list::RectBackground;
 
         let style_bg = match bg {
@@ -985,7 +985,7 @@ fn populate_css_properties(
     node_id: NodeId,
     css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>
 ) {
-    use azul_css::CssDeclaration::*;
+    use azul_core::css::CssDeclaration::*;
 
     for constraint in rect.styled_node.css_constraints.values() {
         match &constraint {
@@ -1019,7 +1019,7 @@ fn populate_css_properties(
 // Assert that the types of two properties matches
 fn property_type_matches(a: &CssProperty, b: &DynamicCssPropertyDefault) -> bool {
     use std::mem::discriminant;
-    use azul_css::DynamicCssPropertyDefault::*;
+    use azul_core::css::DynamicCssPropertyDefault::*;
     match b {
         Exact(e) => discriminant(a) == discriminant(e),
         Auto => true, // "auto" always matches
@@ -1028,7 +1028,7 @@ fn property_type_matches(a: &CssProperty, b: &DynamicCssPropertyDefault) -> bool
 
 fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
 
-    use azul_css::CssProperty::*;
+    use azul_core::css::CssProperty::*;
 
     match property {
         BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
@@ -1077,7 +1077,7 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
 #[test]
 fn test_overflow_parsing() {
 
-    use azul_css::Overflow;
+    use azul_core::css::Overflow;
 
     let layout1 = RectLayout::default();
 

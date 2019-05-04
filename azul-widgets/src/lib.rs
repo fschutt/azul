@@ -1,3 +1,7 @@
+extern crate azul_core;
+#[cfg(feature = "svg")]
+extern crate azul_dependencies;
+
 #[cfg(feature = "svg")]
 pub mod svg;
 pub mod button;

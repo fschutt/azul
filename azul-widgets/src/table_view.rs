@@ -1,7 +1,7 @@
 //! Table view
 
 use std::collections::BTreeMap;
-use {
+use azul_core::{
     app::AppStateNoData,
     callbacks::{IFrameCallback, HidpiAdjustedBounds, UpdateScreen, DontRedraw},
     dom::{Dom, On, NodeData, DomString, NodeType},
