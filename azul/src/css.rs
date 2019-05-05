@@ -7,6 +7,8 @@
 //! | `background`                                       |              |             |            |                  |
 //! | `background-color`                                 |              |             |            |                  |
 //! | `background-size`                                  |              |             |            |                  |
+//! | `background-image`                                 |              |             |            |                  |
+//! | `background-position`                              |              |             |            |                  |
 //! | `background-repeat`                                |              |             |            |                  |
 //! | `color`                                            |              |             |            |                  |
 //! | `font-size`                                        |              |             |            |                  |
@@ -38,11 +40,13 @@
 use std::time::Duration;
 #[cfg(debug_assertions)]
 use std::path::PathBuf;
+#[cfg(feature = "css_parser")]
+use azul_css_parser::{self, CssParseError};
 
 pub use azul_core::css::*;
 #[cfg(feature = "css_parser")]
 pub mod css_parser {
-    pub use azul_core::css_parser::*;
+    pub use azul_css_parser::*;
 }
 
 #[cfg(feature = "css_parser")]
@@ -52,9 +56,6 @@ pub use azul_core::css_parser::CssColor;
 pub mod native_style {
     pub use azul_native_style::*;
 }
-
-#[cfg(feature = "css_parser")]
-use azul_core::css_parser::{self, CssParseError};
 
 /// Returns a style with the native appearance for the operating system. Convenience wrapper
 /// for functionality from the the `azul-native-style` crate.

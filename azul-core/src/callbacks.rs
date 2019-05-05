@@ -4,7 +4,7 @@ use std::{
 };
 use css::CssPath;
 #[cfg(feature = "css_parser")]
-use azul_css_parser::CssPathParseError;
+use css_parser::CssPathParseError;
 use {
     app::{AppState, AppStateNoData},
     async::TerminateTimer,
@@ -410,7 +410,7 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
     /// Note that the parsing of the string can fail, therefore the Result
     #[cfg(feature = "css_parser")]
     pub fn set_focus<'b>(&mut self, input: &'b str) -> Result<(), CssPathParseError<'b>> {
-        use azul_css_parser::parse_css_path;
+        use css_parser::parse_css_path;
         let path = parse_css_path(input)?;
         self.focus = Some(FocusTarget::Path(path));
         Ok(())

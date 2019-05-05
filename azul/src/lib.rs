@@ -138,6 +138,10 @@
 pub extern crate azul_dependencies;
 extern crate azul_native_style;
 extern crate azul_core;
+#[cfg(feature = "css_parser")]
+extern crate azul_css_parser;
+#[cfg(feature = "widgets")]
+extern crate azul_widgets as widgets;
 extern crate gleam;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
@@ -171,8 +175,6 @@ pub(crate) use azul_dependencies::image;
 pub(crate) use azul_dependencies::lyon;
 #[cfg(feature = "svg_parsing")]
 pub(crate) use azul_dependencies::usvg;
-#[cfg(feature = "faster-hashing")]
-pub(crate) use azul_dependencies::twox_hash;
 
 // Crate-internal macros
 #[macro_use]
@@ -193,8 +195,6 @@ pub mod dialogs;
 pub use azul_core::dom;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
 pub use azul_core::gl;
-/// Re-exports of errors
-pub mod error;
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout;
 /// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
@@ -234,6 +234,8 @@ mod app_resources;
 /// Translation between data types (so that Azuls API can be independent of the actual "backend" type)
 mod wr_translate;
 
+pub use azul_core::{FastHashMap, FastHashSet};
+
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     // re-export everything *except* the AppResources (which are exported under the "app" module)
@@ -243,17 +245,6 @@ pub mod resources {
         TextCache, TextId, FontId, ImageId, font_source_get_bytes, image_source_get_bytes,
     };
 }
-
-// Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
-
-#[cfg(feature = "faster-hashing")]
-type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
-#[cfg(feature = "faster-hashing")]
-type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<::twox_hash::XxHash>>;
-#[cfg(not(feature = "faster-hashing"))]
-type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
-#[cfg(not(feature = "faster-hashing"))]
-type FastHashSet<T> = ::std::collections::HashSet<T>;
 
 /// Quick exports of common types
 pub mod prelude {
@@ -296,4 +287,48 @@ pub mod prelude {
     pub use css;
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
+}
+
+/// Re-exports of errors
+pub mod errors {
+    pub use {
+        app::RuntimeError,
+        app_resources::{ImageReloadError, FontReloadError},
+        window::WindowCreateError,
+    };
+    #[cfg(feature = "widgets")]
+    pub use widgets::errors::*;
+    // TODO: re-export the sub-types of ClipboardError!
+    pub use clipboard2::ClipboardError;
+
+    #[derive(Debug)]
+    pub enum Error {
+        Resource(ResourceReloadError),
+        Clipboard(ClipboardError),
+        WindowCreate(WindowCreateError),
+    }
+
+    impl_from!(ResourceReloadError, Error::Resource);
+    impl_from!(ClipboardError, Error::Clipboard);
+    impl_from!(WindowCreateError, Error::WindowCreate);
+
+    #[derive(Debug)]
+    pub enum ResourceReloadError {
+        Image(ImageReloadError),
+        Font(FontReloadError),
+    }
+
+    impl_from!(ImageReloadError, ResourceReloadError::Image);
+    impl_from!(FontReloadError, ResourceReloadError::Font);
+
+    impl_display!(ResourceReloadError, {
+        Image(e) => format!("Failed to load image: {}", e),
+        Font(e) => format!("Failed to load font: {}", e),
+    });
+
+    impl_display!(Error, {
+        Resource(e) => format!("{}", e),
+        Clipboard(e) => format!("Clipboard error: {}", e),
+        WindowCreate(e) => format!("Window creation error: {}", e),
+    });
 }

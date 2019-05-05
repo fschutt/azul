@@ -20,8 +20,9 @@ autoexamples = false
 [dependencies]
 azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
 azul-core               = { version = "0.1.0",                path = "../azul-core"                             }
-azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
+azul-widgets            = { version = "0.1.0",                path = "../azul-widgets",         optional = true }
+azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
 azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "bf2933b9aac43a7003278862772250398e4fa457" }
 serde_derive            = { version = "1",                    optional = true }
 serde                   = { version = "1",                    optional = true }
@@ -32,6 +33,7 @@ gleam                   = { version = "0.6"                                     
 # (which needs the `svg_parsing` feature).
 default = [
     "logging",
+    "widgets",
     "native_style",
     "css_parser",
 ]
@@ -57,8 +59,10 @@ hdr = ["azul-dependencies/hdr"]
 jpeg_rayon = ["azul-dependencies/jpeg_rayon"]
 dxt = ["azul-dependencies/dxt"]
 webp = ["azul-dependencies/webp"]
-css_parser = ["azul-css-parser"]
+css_parser = ["azul-core/css_parser", "azul-css-parser"]
+widgets = ["azul-widgets"]
 native_style = ["azul-native-style"]
+faster_hashing = ["azul-core/faster_hashing"]
 
 [[example]]
 name = "async"

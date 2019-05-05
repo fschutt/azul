@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-
 use std::{
     collections::BTreeMap,
 };
@@ -12,11 +10,9 @@ use webrender::api::{
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
 };
 use azul_core::css::{
-    Css, LayoutPosition,CssProperty, LayoutOverflow, ColorU,
-    StyleBorderRadius, LayoutMargin, LayoutPadding, BoxShadowClipMode,
-    StyleTextColor, StyleBackground, StyleBoxShadow,
-    StyleBackgroundSize, StyleBackgroundRepeat, StyleBorder,
-    RectStyle, RectLayout, ColorU as StyleColorU, DynamicCssPropertyDefault,
+    Css, LayoutPosition,CssProperty, ColorU, BoxShadowClipMode,
+    StyleTextColor, StyleBoxShadow, StyleBackgroundSize, StyleBackgroundRepeat,
+    RectStyle, RectLayout, ColorU as StyleColorU,
 };
 use {
     FastHashMap,

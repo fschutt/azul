@@ -16,9 +16,13 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
 [dependencies]
-azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
-gleam                   = { version = "0.6"                                                                     }
-azul-css-parser         = { version = "0.1.0", optional = true, path = "../azul-css-parser"                     }
+azul-css                = { version = "0.1.0",                      path = "../azul-css"                            }
+gleam                   = { version = "0.6"                                                                         }
+azul-css-parser         = { version = "0.1.0",  optional = true,    path = "../azul-css-parser"                     }
+# twox-hash             = { version = "*", optional = true                                                          }
+azul-dependencies       = { version = "0.1.0", optional = true,     git = "https://github.com/maps4print/azul-dependencies", rev = "bf2933b9aac43a7003278862772250398e4fa457" }
 
 [features]
 css_parser = ["azul-css-parser"]
+# faster_hashing = ["twox-hash"]
+faster_hashing = ["azul-dependencies"]
