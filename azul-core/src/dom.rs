@@ -12,9 +12,8 @@ use {
     },
     app_resources::{ImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
-    css::{NodeTypePath, CssProperty},
 };
-
+use azul_css::{NodeTypePath, CssProperty};
 pub use id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);

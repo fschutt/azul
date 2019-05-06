@@ -42,16 +42,13 @@ use std::time::Duration;
 use std::path::PathBuf;
 #[cfg(feature = "css_parser")]
 use azul_css_parser::{self, CssParseError};
-
-pub use azul_core::css::*;
+pub use azul_css::*;
 #[cfg(feature = "css_parser")]
 pub mod css_parser {
     pub use azul_css_parser::*;
 }
-
 #[cfg(feature = "css_parser")]
-pub use azul_core::css_parser::CssColor;
-
+pub use azul_css_parser::CssColor;
 #[cfg(feature = "native_style")]
 pub mod native_style {
     pub use azul_native_style::*;
@@ -67,7 +64,7 @@ pub fn native() -> Css {
 /// Parses CSS stylesheet from a string. Convenience wrapper for `azul-css-parser::new_from_str`.
 #[cfg(feature = "css_parser")]
 pub fn from_str(input: &str) -> Result<Css, CssParseError> {
-    azul_core::css_parser::new_from_str(input)
+    azul_css_parser::new_from_str(input)
 }
 
 /// Appends a custom stylesheet to `css::native()`.
@@ -82,7 +79,7 @@ pub fn override_native(input: &str) -> Result<Css, CssParseError> {
 /// changing the look & feel while the application is running.
 #[cfg(all(debug_assertions, feature = "css_parser"))]
 pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn HotReloadHandler> {
-    Box::new(azul_core::css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
+    Box::new(azul_css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
 }
 
 /// Same as `Self::hot_reload`, but appends the given file to the

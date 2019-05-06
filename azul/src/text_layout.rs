@@ -1,6 +1,6 @@
 #![allow(unused_variables, dead_code)]
 
-use azul_core::css::{
+use azul_css::{
     StyleTextAlignmentHorz, StyleTextAlignmentVert, ScrollbarInfo,
 };
 pub use webrender::api::{
@@ -821,7 +821,7 @@ pub fn align_text_horz(
     alignment: StyleTextAlignmentHorz,
     line_breaks: &[(usize, f32)]
 ) {
-    use azul_core::css::StyleTextAlignmentHorz::*;
+    use azul_css::StyleTextAlignmentHorz::*;
 
     // Text alignment is theoretically very simple:
     //

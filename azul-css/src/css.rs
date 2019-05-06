@@ -113,6 +113,50 @@ impl<T> CssPropertyValue<T> {
             _ => None,
         }
     }
+
+    pub fn is_auto(&self) -> bool {
+        match self {
+            CssPropertyValue::Auto => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        match self {
+            CssPropertyValue::None => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_initial(&self) -> bool {
+        match self {
+            CssPropertyValue::Initial => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_inherit(&self) -> bool {
+        match self {
+            CssPropertyValue::Inherit => true,
+            _ => false,
+        }
+    }
+}
+
+impl<T: Default> CssPropertyValue<T> {
+    pub fn get_property_or_default(self) -> Option<T> {
+        match self {
+            CssPropertyValue::Auto | CssPropertyValue::Initial => Some(T::default()),
+            CssPropertyValue::Exact(c) => Some(c),
+            CssPropertyValue::None | CssPropertyValue::Inherit => None,
+        }
+    }
+}
+
+impl<T: Default> Default for CssPropertyValue<T> {
+    fn default() -> Self {
+        CssPropertyValue::Exact(T::default())
+    }
 }
 
 impl DynamicCssProperty {

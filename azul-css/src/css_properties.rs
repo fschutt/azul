@@ -129,7 +129,7 @@ impl LayoutSize {
 }
 
 /// Represents a parsed pair of `5px, 10px` values - useful for border radius calculation
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct PixelSize { pub width: PixelValue, pub height: PixelValue }
 
 impl PixelSize {
@@ -159,6 +159,8 @@ pub struct LayoutSideOffsets {
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 
+impl Default for ColorU { fn default() -> Self { ColorU::BLACK } }
+
 impl ColorU {
     pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
     pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
@@ -168,6 +170,8 @@ impl ColorU {
 /// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ColorF { pub r: f32, pub g: f32, pub b: f32, pub a: f32 }
+
+impl Default for ColorF { fn default() -> Self { ColorF::BLACK } }
 
 impl ColorF {
     pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: 0.0 };
@@ -252,6 +256,37 @@ pub enum BorderStyle {
     Inset,
     Outset,
 }
+
+impl BorderStyle {
+    pub fn normalize_border(self) -> Option<BorderStyleNoNone> {
+        match self {
+            BorderStyle::None => None,
+            BorderStyle::Solid => Some(BorderStyleNoNone::Solid),
+            BorderStyle::Double => Some(BorderStyleNoNone::Double),
+            BorderStyle::Dotted => Some(BorderStyleNoNone::Dotted),
+            BorderStyle::Dashed => Some(BorderStyleNoNone::Dashed),
+            BorderStyle::Hidden => Some(BorderStyleNoNone::Hidden),
+            BorderStyle::Groove => Some(BorderStyleNoNone::Groove),
+            BorderStyle::Ridge => Some(BorderStyleNoNone::Ridge),
+            BorderStyle::Inset => Some(BorderStyleNoNone::Inset),
+            BorderStyle::Outset => Some(BorderStyleNoNone::Outset),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+pub enum BorderStyleNoNone {
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Hidden,
+    Groove,
+    Ridge,
+    Inset,
+    Outset,
+}
+
 
 impl Default for BorderStyle {
     fn default() -> Self {
@@ -1069,16 +1104,16 @@ pub struct StyleTextColor(pub ColorU);
 // -- TODO: Technically, border-radius can take two values for each corner!
 
 /// Represents a `border-top-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderTopLeftRadius(pub PixelValue);
 /// Represents a `border-left-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderBottomLeftRadius(pub PixelValue);
 /// Represents a `border-right-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderTopRightRadius(pub PixelValue);
 /// Represents a `border-bottom-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderBottomRightRadius(pub PixelValue);
 
 impl_pixel_value!(StyleBorderTopLeftRadius);
@@ -1087,16 +1122,16 @@ impl_pixel_value!(StyleBorderTopRightRadius);
 impl_pixel_value!(StyleBorderBottomRightRadius);
 
 /// Represents a `border-top-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderTopWidth(pub PixelValue);
 /// Represents a `border-left-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderLeftWidth(pub PixelValue);
 /// Represents a `border-right-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRightWidth(pub PixelValue);
 /// Represents a `border-bottom-width` attribute
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderBottomWidth(pub PixelValue);
 
 impl_pixel_value!(StyleBorderTopWidth);
@@ -1105,35 +1140,30 @@ impl_pixel_value!(StyleBorderRightWidth);
 impl_pixel_value!(StyleBorderBottomWidth);
 
 /// Represents a `border-top-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderTopStyle(pub BorderStyle);
 /// Represents a `border-left-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderLeftStyle(pub BorderStyle);
 /// Represents a `border-right-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRightStyle(pub BorderStyle);
 /// Represents a `border-bottom-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderBottomStyle(pub BorderStyle);
 
 /// Represents a `border-top-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderTopColor(pub ColorU);
 /// Represents a `border-left-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderLeftColor(pub ColorU);
 /// Represents a `border-right-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRightColor(pub ColorU);
 /// Represents a `border-bottom-width` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderBottomColor(pub ColorU);
-
-impl Default for StyleBorderTopColor { fn default() -> Self { StyleBorderTopColor(ColorU::BLACK) } }
-impl Default for StyleBorderLeftColor { fn default() -> Self { StyleBorderLeftColor(ColorU::BLACK) } }
-impl Default for StyleBorderRightColor { fn default() -> Self { StyleBorderRightColor(ColorU::BLACK) } }
-impl Default for StyleBorderBottomColor { fn default() -> Self { StyleBorderBottomColor(ColorU::BLACK) } }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderSide {

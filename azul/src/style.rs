@@ -1,7 +1,7 @@
 //! DOM-tree to CSS style tree stying
 
 use std::{fmt, collections::BTreeMap};
-use azul_core::css::{
+use azul_css::{
     Css, CssContentGroup, CssPath,
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
 };
@@ -225,7 +225,7 @@ fn construct_html_cascade_tree<'a, T>(
 /// Returns all CSS paths that have a `:hover` or `:active` in their path
 /// (since they need to have tags for hit-testing)
 fn collect_hover_groups(css: &Css) -> BTreeMap<CssPath, HoverGroup> {
-    use azul_core::css::{CssPathSelector::*, CssPathPseudoSelector::*};
+    use azul_css::{CssPathSelector::*, CssPathPseudoSelector::*};
 
     let hover_rule = PseudoSelector(Hover);
     let active_rule = PseudoSelector(Active);
@@ -344,7 +344,7 @@ pub(crate) fn match_dom_selectors<T>(
     is_mouse_down: bool,
 ) -> UiDescription<T> {
 
-    use azul_core::css::CssDeclaration;
+    use azul_css::CssDeclaration;
 
     let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();
 
@@ -476,8 +476,8 @@ fn update_focus_from_callbacks<'a, T: 'a>(
 #[test]
 fn test_case_issue_93() {
 
-    use azul_core::css::CssPathSelector::*;
-    use azul_core::css::*;
+    use azul_cssCssPathSelector::*;
+    use azul_css::*;
     use prelude::*;
 
     struct DataModel;
@@ -553,7 +553,7 @@ fn test_case_issue_93() {
 fn test_css_group_iterator() {
 
     use self::CssPathSelector::*;
-    use azul_core::css::NodeTypePath;
+    use azul_cssNodeTypePath;
 
     // ".hello > #id_text.new_class div.content"
     // -> ["div.content", "#id_text.new_class", ".hello"]

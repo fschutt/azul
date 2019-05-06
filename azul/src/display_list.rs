@@ -9,10 +9,10 @@ use webrender::api::{
     ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
 };
-use azul_core::css::{
+use azul_css::{
     Css, LayoutPosition,CssProperty, ColorU, BoxShadowClipMode,
     StyleTextColor, StyleBackgroundSize, StyleBackgroundRepeat,
-    RectStyle, RectLayout, ColorU as StyleColorU,
+    RectStyle, RectLayout, ColorU as StyleColorU, StyleBackgroundContent,
 };
 use {
     FastHashMap,
@@ -38,7 +38,7 @@ use azul_core::{
     app_resources::FontInstanceKey,
     display_list::{
         CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
-        ImageRendering, AlphaType, DisplayListFrame,
+        ImageRendering, AlphaType, DisplayListFrame, StyleBorderRadius,
     },
 };
 
@@ -412,7 +412,17 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
         let style = &ui_description.styled_nodes[node_id];
         let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
         let mut rect = DisplayRectangle::new(tag, style);
-        populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
+        let override_warnings = populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
+
+        #[cfg(feature = "logging")] {
+            for warning in override_warnings {
+                error!(
+                    "Cannot override {} with {:?}",
+                    warning.default.get_type(), overridden_property,
+                )
+            }
+        }
+
         rect
     });
 
@@ -570,7 +580,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             size: window_size.dimensions,
         },
         content: vec![DisplayListRectContent::Background {
-            background_type: StyleBackground::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }),
+            background_type: StyleBackgroundContent::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }),
         }],
         children: root_children, // Vec<DisplayListMsg>
     })
@@ -648,7 +658,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     // Otherwise the hit-testing gets confused
     if let Some(bg) = &rect.style.background_attachement {
 
-        use azul_core::css::StyleBackgroundContent::*;
+        use azul_css::StyleBackgroundContent::*;
         use azul_core::display_list::RectBackground;
 
         let style_bg = match bg {
@@ -975,105 +985,138 @@ fn subtract_padding(bounds: &DisplayListRect, padding: &LayoutPadding) -> Displa
     new_bounds
 }
 
+pub struct OverrideWarning {
+    pub default: CssProperty,
+    pub overridden_property: CssProperty,
+}
+
 /// Populate the style properties of the `DisplayRectangle`, apply static / dynamic properties
 fn populate_css_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
-    css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>
-) {
-    use azul_core::css::CssDeclaration::*;
+    css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
+) -> Vec<OverrideWarning> {
 
-    for constraint in rect.styled_node.css_constraints.values() {
-        match &constraint {
-            Static(static_property) => apply_style_property(rect, static_property),
-            Dynamic(dynamic_property) => {
-                let is_dynamic_prop = css_overrides.get(&node_id).and_then(|overrides| {
-                    overrides.get(&DomString::Heap(dynamic_property.dynamic_id.clone()))
-                });
+    use azul_css::{CssProperty, CssDeclaration::*};
 
-                if let Some(overridden_property) = is_dynamic_prop {
-                    // Only apply the dynamic style property default, if it isn't set to auto
-                    if property_type_matches(overridden_property, &dynamic_property.default) {
-                        apply_style_property(rect, overridden_property);
-                    } else {
-                        #[cfg(feature = "logging")] {
-                            error!(
-                                "Dynamic style property on rect {:?} don't have the same discriminant type,\r\n
-                                cannot override {:?} with {:?} - enum discriminant mismatch",
-                                rect, dynamic_property.default, overridden_property
-                            )
-                        }
-                    }
-                } else if let DynamicCssPropertyDefault::Exact(default) = &dynamic_property.default {
-                    apply_style_property(rect, default);
-                }
-            }
+    rect.styled_node.css_constraints.values()
+    .filter_map(|constraint| match constraint {
+        Static(static_property) => { apply_style_property(rect, static_property); None },
+        Dynamic(dynamic_property) => Some(dynamic_property),
+    })
+    .filter_map(|dynamic_property| {
+        let dynamic_prop = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id.clone().into()))?;
+
+        // Apply the property default if the type matches
+        if property_type_matches(overridden_property, &dynamic_property.default) {
+            apply_style_property(rect, overridden_property);
+            None
+        } else {
+            Some(OverrideWarning {
+                default: dynamic_property.default.clone(),
+                overridden_property: overridden_property.clone(),
+            })
         }
-    }
+    })
+    .collect()
 }
 
 // Assert that the types of two properties matches
-fn property_type_matches(a: &CssProperty, b: &DynamicCssPropertyDefault) -> bool {
+fn property_type_matches(a: &CssProperty, b: &CssProperty) -> bool {
     use std::mem::discriminant;
-    use azul_core::css::DynamicCssPropertyDefault::*;
-    match b {
-        Exact(e) => discriminant(a) == discriminant(e),
-        Auto => true, // "auto" always matches
-    }
+    discriminant(a) == discriminant(b)
 }
 
 fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
 
-    use azul_core::css::CssProperty::*;
+    use azul_css::CssProperty::*;
+
+    let style = &mut rect.style;
+    let layout = &mut rect.layout;
 
     match property {
-        BorderRadius(b)     => { rect.style.border_radius = Some(*b);                   },
-        BackgroundSize(s)   => { rect.style.background_size = Some(*s);                 },
-        BackgroundRepeat(r) => { rect.style.background_repeat = Some(*r);               },
-        TextColor(t)        => { rect.style.font_color = Some(*t);                      },
-        Border(b)           => { StyleBorder::merge(&mut rect.style.border, &b);        },
-        Background(b)       => { rect.style.background = Some(b.clone());               },
-        FontSize(f)         => { rect.style.font_size = Some(*f);                       },
-        FontFamily(f)       => { rect.style.font_family = Some(f.clone());              },
-        LetterSpacing(l)    => { rect.style.letter_spacing = Some(*l);                  },
-        TextAlign(ta)       => { rect.style.text_align = Some(*ta);                     },
-        BoxShadow(b)        => { StyleBoxShadow::merge(&mut rect.style.box_shadow, b);  },
-        LineHeight(lh)      => { rect.style.line_height = Some(*lh);                    },
 
-        Width(w)            => { rect.layout.width = Some(*w);                          },
-        Height(h)           => { rect.layout.height = Some(*h);                         },
-        MinWidth(mw)        => { rect.layout.min_width = Some(*mw);                     },
-        MinHeight(mh)       => { rect.layout.min_height = Some(*mh);                    },
-        MaxWidth(mw)        => { rect.layout.max_width = Some(*mw);                     },
-        MaxHeight(mh)       => { rect.layout.max_height = Some(*mh);                    },
+        TextColor(c)                    => style.text_color = Some(*c),
+        FontSize(fs)                    => style.font_size = Some(*fs),
+        FontFamily(ff)                  => style.font_family = Some(*ff),
+        TextAlign(ta)                   => style.text_align = Some(*ta),
 
-        Position(p)         => { rect.layout.position = Some(*p);                       },
-        Top(t)              => { rect.layout.top = Some(*t);                            },
-        Bottom(b)           => { rect.layout.bottom = Some(*b);                         },
-        Right(r)            => { rect.layout.right = Some(*r);                          },
-        Left(l)             => { rect.layout.left = Some(*l);                           },
+        LetterSpacing(ls)               => style.letter_spacing = Some(*ls),
+        LineHeight(lh)                  => style.line_height = Some(*lh),
+        WordSpacing(ws)                 => style.word_spacing = Some(*ws),
+        TabWidth(tw)                    => style.tab_width = Some(*tw),
+        Cursor(c)                       => style.cursor = Some(*c),
 
-        Padding(p)          => { LayoutPadding::merge(&mut rect.layout.padding, &p);    },
-        Margin(m)           => { LayoutMargin::merge(&mut rect.layout.margin, &m);      },
-        Overflow(o)         => { LayoutOverflow::merge(&mut rect.layout.overflow, &o);  },
-        WordSpacing(ws)     => { rect.style.word_spacing = Some(*ws);                   },
-        TabWidth(tw)        => { rect.style.tab_width = Some(*tw);                      },
+        Width(w)                        => layout.width = Some(*w),
+        Height(h)                       => layout.height = Some(*h),
+        MinWidth(mw)                    => layout.min_width = Some(*mw),
+        MinHeight(mh)                   => layout.min_height = Some(*mh),
+        MaxWidth(mw)                    => layout.max_width = Some(*mw),
+        MaxHeight(mh)                   => layout.max_height = Some(*mh),
 
-        FlexGrow(g)         => { rect.layout.flex_grow = Some(*g)                       },
-        FlexShrink(s)       => { rect.layout.flex_shrink = Some(*s)                     },
-        FlexWrap(w)         => { rect.layout.wrap = Some(*w);                           },
-        FlexDirection(d)    => { rect.layout.direction = Some(*d);                      },
-        JustifyContent(j)   => { rect.layout.justify_content = Some(*j);                },
-        AlignItems(a)       => { rect.layout.align_items = Some(*a);                    },
-        AlignContent(a)     => { rect.layout.align_content = Some(*a);                  },
-        Cursor(_)           => { /* cursor neither affects layout nor styling */        },
+        Position(p)                     => layout.position = Some(*p),
+        Top(t)                          => layout.top = Some(*t),
+        Bottom(b)                       => layout.bottom = Some(*b),
+        Right(r)                        => layout.right = Some(*r),
+        Left(l)                         => layout.left = Some(*l),
+
+        FlexWrap(fw)                    => layout.wrap = Some(*fw),
+        FlexDirection(fd)               => layout.direction = Some(*fd),
+        FlexGrow(fg)                    => layout.flex_grow = Some(*fg),
+        FlexShrink(fs)                  => layout.flex_shrink = Some(*fs),
+        JustifyContent(jc)              => layout.justify_content = Some(*jc),
+        AlignItems(ai)                  => layout.align_items = Some(*ai),
+        AlignContent(ac)                => layout.align_content = Some(*ac),
+
+        BackgroundContent(bc)           => style.background_content = Some(*bc),
+        BackgroundPosition(bp)          => style.background_position = Some(*bp),
+        BackgroundSize(bs)              => style.background_size = Some(*bs),
+        BackgroundRepeat(br)            => style.background_repeat = Some(*br),
+
+        OverflowX(ox)                   => layout.overflow_x = Some(*ox),
+        OverflowY(oy)                   => layout.overflow_y = Some(*oy),
+
+        PaddingTop(pt)                  => layout.padding_top = Some(*pt),
+        PaddingLeft(pl)                 => layout.padding_left = Some(*pl),
+        PaddingRight(pr)                => layout.padding_right = Some(*pr),
+        PaddingBottom(pb)               => layout.padding_bottom = Some(*pb),
+
+        MarginTop(mt)                   => layout.margin_top = Some(*mt),
+        MarginLeft(ml)                  => layout.margin_left = Some(*ml),
+        MarginRight(mr)                 => layout.margin_right = Some(*mr),
+        MarginBottom(mb)                => layout.margin_bottom = Some(*mb),
+
+        BorderTopLeftRadius(btl)        => style.border_top_left_radius = Some(*btl),
+        BorderTopRightRadius(btr)       => style.border_top_right_radius = Some(*btr),
+        BorderBottomLeftRadius(bbl)     => style.border_bottom_left_radius = Some(*bbl),
+        BorderBottomRightRadius(bbr)    => style.border_bottom_right_radius = Some(*bbr),
+
+        BorderTopColor(btc)             => style.border_top_color = Some(*btc),
+        BorderRightColor(brc)           => style.border_right_color = Some(*brc),
+        BorderLeftColor(blc)            => style.border_left_color = Some(*blc),
+        BorderBottomColor(bbc)          => style.border_bottom_color = Some(*bbc),
+
+        BorderTopStyle(bts)             => style.border_top_style = Some(*bts),
+        BorderRightStyle(brs)           => style.border_right_style = Some(*brs),
+        BorderLeftStyle(bls)            => style.border_left_style = Some(*bls),
+        BorderBottomStyle(bbs)          => style.border_bottom_style = Some(*bbs),
+
+        BorderTopWidth(btw)             => style.border_top_width = Some(*btw),
+        BorderRightWidth(brw)           => style.border_right_width = Some(*brw),
+        BorderLeftWidth(blw)            => style.border_left_width = Some(*blw),
+        BorderBottomWidth(bbw)          => style.border_bottom_width = Some(*bbw),
+
+        BoxShadowLeft(bsl)              => style.box_shadow_left = Some(*bsl),
+        BoxShadowRight(bsr)             => style.box_shadow_right = Some(*bsr),
+        BoxShadowTop(bst)               => style.box_shadow_top = Some(*bst),
+        BoxShadowBottom(bsb)            => style.box_shadow_bottom = Some(*bsb),
     }
 }
 
 #[test]
 fn test_overflow_parsing() {
 
-    use azul_core::css::Overflow;
+    use azul_cssOverflow;
 
     let layout1 = RectLayout::default();
 

@@ -1,9 +1,10 @@
-use css::{
+use azul_css::{
     StyleBackgroundRepeat, StyleBackgroundPosition,
     ColorU, BoxShadowClipMode, LinearGradient, RadialGradient,
     BoxShadowPreDisplayItem, StyleBorderTopLeftRadius,
     StyleBorderTopRightRadius, StyleBorderBottomLeftRadius,
     StyleBorderBottomRightRadius, PixelValue, StyleBackgroundSize,
+    BorderStyle, CssPropertyValue,
 };
 use app_resources::{ImageKey, FontInstanceKey, ImageInfo};
 use window::{LogicalPosition, LogicalSize};
@@ -18,6 +19,8 @@ use callbacks::PipelineId;
 /// events.
 pub type ItemTag = (u64, u16);
 pub type GlyphIndex = u32;
+
+pub type FontInstanceFlags = u32;
 
 // Common flags
 pub const FONT_INSTANCE_FLAG_SYNTHETIC_BOLD: u32    = 1 << 1;
@@ -43,7 +46,7 @@ pub const FONT_INSTANCE_FLAG_LCD_VERTICAL: u32      = 1 << 19;
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphOptions {
     pub render_mode: FontRenderMode,
-    pub flags: u32,
+    pub flags: FontInstanceFlags,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -141,42 +144,43 @@ pub enum AlphaType {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorder {
-    pub radius: StyleBorderRadius,
-    pub widths: StyleBorderWidths,
-    pub colors: StyleBorderColors,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRadius {
-    pub top_left: StyleBorderTopLeftRadius,
-    pub top_right: StyleBorderTopRightRadius,
-    pub bottom_left: StyleBorderBottomLeftRadius,
-    pub bottom_right: StyleBorderBottomRightRadius,
+    pub top_left: Option<CssPropertyValue<StyleBorderTopLeftRadius>>,
+    pub top_right: Option<CssPropertyValue<StyleBorderTopRightRadius>>,
+    pub bottom_left: Option<CssPropertyValue<StyleBorderBottomLeftRadius>>,
+    pub bottom_right: Option<CssPropertyValue<StyleBorderBottomRightRadius>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderWidths {
-    pub top: PixelValue,
-    pub right: PixelValue,
-    pub bottom: PixelValue,
-    pub left: PixelValue,
+    pub top: Option<CssPropertyValue<PixelValue>>,
+    pub right: Option<CssPropertyValue<PixelValue>>,
+    pub bottom: Option<CssPropertyValue<PixelValue>>,
+    pub left: Option<CssPropertyValue<PixelValue>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderColors {
-    pub top: ColorU,
-    pub right: ColorU,
-    pub bottom: ColorU,
-    pub left: ColorU,
+    pub top: Option<CssPropertyValue<ColorU>>,
+    pub right: Option<CssPropertyValue<ColorU>>,
+    pub bottom: Option<CssPropertyValue<ColorU>>,
+    pub left: Option<CssPropertyValue<ColorU>>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderStyles {
+    pub top: Option<CssPropertyValue<BorderStyle>>,
+    pub right: Option<CssPropertyValue<BorderStyle>>,
+    pub bottom: Option<CssPropertyValue<BorderStyle>>,
+    pub left: Option<CssPropertyValue<BorderStyle>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBoxShadow {
-    pub top: BoxShadowPreDisplayItem,
-    pub right: BoxShadowPreDisplayItem,
-    pub bottom: BoxShadowPreDisplayItem,
-    pub left: BoxShadowPreDisplayItem,
+    pub top: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
+    pub right: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
+    pub bottom: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
+    pub left: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -203,12 +207,14 @@ pub enum DisplayListRectContent {
         background: ColorU,
     },
     Border {
-        border: StyleBorder,
-        radius: StyleBorderRadius,
+        radii: StyleBorderRadius,
+        widths: StyleBorderWidths,
+        colors: StyleBorderColors,
+        styles: StyleBorderStyles,
     },
     BoxShadow {
         shadow: StyleBoxShadow,
-        border_radius: StyleBorderRadius,
+        radii: StyleBorderRadius,
         clip_mode: BoxShadowClipMode,
     },
 }

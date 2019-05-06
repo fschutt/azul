@@ -1,7 +1,6 @@
 use std::{f32, collections::BTreeMap};
-use azul_core::css::{
-    LayoutPosition, LayoutMargin, LayoutPadding,
-    RectLayout, StyleFontSize, RectStyle,
+use azul_css::{
+    LayoutPosition, RectLayout, StyleFontSize, RectStyle,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, PixelValue,
 };
 use {
@@ -348,7 +347,7 @@ mod $module_name  {
         parent_ids_sorted_by_depth: &[(usize, NodeId)],
         root_width: f32
     ) {
-        use azul_core::css::LayoutAlignItems;
+        use azul_css::LayoutAlignItems;
 
         debug_assert!(node_width_container[NodeId::new(0)].flex_grow_px == 0.0);
 
@@ -373,7 +372,7 @@ mod $module_name  {
 
         for (_node_depth, parent_id) in parent_ids_sorted_by_depth {
 
-            use azul_core::css::{LayoutAxis, LayoutPosition};
+            use azul_css::{LayoutAxis, LayoutPosition};
 
             let parent_node = &arena_data[*parent_id];
             let parent_is_positioned = parent_node.position.unwrap_or_default() != LayoutPosition::Static;
@@ -874,7 +873,7 @@ fn $fn_name(
         sum_x_of_children_so_far: &mut f32,
         positioned_node_stack: &[NodeId],
     ) {
-        use azul_core::css::LayoutJustifyContent::*;
+        use azul_css::LayoutJustifyContent::*;
 
         let child_width_with_padding = {
             let child_node = &solved_widths.$solved_widths_field[child_id];
@@ -944,7 +943,7 @@ fn $fn_name(
         }
     }
 
-    use azul_core::css::{LayoutAxis, LayoutJustifyContent};
+    use azul_css::{LayoutAxis, LayoutJustifyContent};
 
     let mut arena_solved_data = NodeDataContainer::new(vec![$height_solved_position(0.0); node_data.len()]);
 
@@ -1493,7 +1492,7 @@ fn determine_text_alignment(
 
     if let Some(align_items) = rect_layout.align_items {
         // Vertical text alignment
-        use azul_core::css::LayoutAlignItems;
+        use azul_css::LayoutAlignItems;
         match align_items {
             LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
             LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
@@ -1503,7 +1502,7 @@ fn determine_text_alignment(
     }
 
     if let Some(justify_content) = rect_layout.justify_content {
-        use azul_core::css::LayoutJustifyContent;
+        use azul_css::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
             LayoutJustifyContent::Start => horz_alignment = StyleTextAlignmentHorz::Left,
@@ -1523,7 +1522,7 @@ fn determine_text_alignment(
 #[cfg(test)]
 mod layout_tests {
 
-    use azul_core::css::RectLayout;
+    use azul_cssRectLayout;
     use id_tree::{Node, NodeId};
     use super::*;
 
@@ -1606,7 +1605,7 @@ mod layout_tests {
 
     #[test]
     fn test_determine_preferred_width() {
-        use azul_core::css::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
+        use azul_css::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
 
         let layout = RectLayout {
             width: None,
@@ -1685,7 +1684,7 @@ mod layout_tests {
     #[test]
     fn test_fill_out_preferred_width() {
 
-        use azul_core::css::*;
+        use azul_css::*;
 
         let (node_hierarchy, node_data) = get_display_rectangle_arena(&[
             (0, RectLayout {

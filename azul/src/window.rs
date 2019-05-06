@@ -21,9 +21,9 @@ use glium::{
     backend::glutin::DisplayCreationError,
 };
 use gleam::gl::{self, Gl};
-use azul_core::css::{Css, ColorU};
+use azul_css::{Css, ColorU};
 #[cfg(debug_assertions)]
-use azul_core::css::HotReloadHandler;
+use azul_css::HotReloadHandler;
 use {
     FastHashMap,
     compositor::Compositor,

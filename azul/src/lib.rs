@@ -137,6 +137,7 @@
 #[macro_use(warn, error, lazy_static)]
 pub extern crate azul_dependencies;
 extern crate azul_native_style;
+extern crate azul_css;
 extern crate azul_core;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
@@ -249,7 +250,7 @@ pub mod resources {
 /// Quick exports of common types
 pub mod prelude {
     #[cfg(feature = "css_parser")]
-    pub use azul_core::css::*;
+    pub use azul_css::*;
     pub use app::{App, AppConfig, AppState, AppResources};
     pub use async::{Task, TerminateTimer, TimerId, Timer, DropCheck};
     pub use resources::{

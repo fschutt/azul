@@ -1,9 +1,9 @@
 //! Shared datatypes for azul-* crates
 
-pub extern crate azul_css as css;
-pub extern crate gleam;
+extern crate azul_css;
+extern crate gleam;
 #[cfg(feature = "css_parser")]
-pub extern crate azul_css_parser as css_parser;
+extern crate azul_css_parser;
 
 pub mod app;
 pub mod app_resources;
@@ -25,10 +25,10 @@ use azul_dependencies::twox_hash;
 
 // Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
 #[cfg(feature = "faster_hashing")]
-type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<twox_hash::XxHash>>;
+pub type FastHashMap<T, U> = ::std::collections::HashMap<T, U, ::std::hash::BuildHasherDefault<twox_hash::XxHash>>;
 #[cfg(feature = "faster_hashing")]
-type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<twox_hash::XxHash>>;
+pub type FastHashSet<T> = ::std::collections::HashSet<T, ::std::hash::BuildHasherDefault<twox_hash::XxHash>>;
 #[cfg(not(feature = "faster_hashing"))]
-type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
+pub type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
 #[cfg(not(feature = "faster_hashing"))]
-type FastHashSet<T> = ::std::collections::HashSet<T>;
+pub type FastHashSet<T> = ::std::collections::HashSet<T>;
