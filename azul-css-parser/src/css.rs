@@ -639,7 +639,7 @@ fn parse_css_declaration<'a>(
 
 fn check_if_value_is_css_var<'a>(unparsed_css_value: &'a str) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
 
-    const DEFAULT_VARIABLE_DEFAULT: &str = "auto";
+    const DEFAULT_VARIABLE_DEFAULT: &str = "none";
 
     let (_, brace_contents) = css_parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
 
