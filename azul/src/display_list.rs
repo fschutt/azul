@@ -11,7 +11,7 @@ use webrender::api::{
 };
 use azul_core::css::{
     Css, LayoutPosition,CssProperty, ColorU, BoxShadowClipMode,
-    StyleTextColor, StyleBoxShadow, StyleBackgroundSize, StyleBackgroundRepeat,
+    StyleTextColor, StyleBackgroundSize, StyleBackgroundRepeat,
     RectStyle, RectLayout, ColorU as StyleColorU,
 };
 use {
@@ -648,7 +648,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     // Otherwise the hit-testing gets confused
     if let Some(bg) = &rect.style.background_attachement {
 
-        use azul_core::css::StyleBackground::*;
+        use azul_core::css::StyleBackgroundContent::*;
         use azul_core::display_list::RectBackground;
 
         let style_bg = match bg {

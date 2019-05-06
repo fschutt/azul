@@ -36,11 +36,11 @@ pub enum CssDeclaration {
 impl CssDeclaration {
 
     /// Returns the type of the property (i.e. the CSS key as a typed enum)
-    pub fn get_type(&self) -> Vec<CssPropertyType> {
+    pub fn get_type(&self) -> CssPropertyType {
         use css::CssDeclaration::*;
         match self {
-            Static(s) => vec![s.get_type()],
-            Dynamic(d) => d.default_values.iter().map(|val| val.get_type()).collect(),
+            Static(s) => s.get_type(),
+            Dynamic(d) => d.default_value.get_type(),
         }
     }
 
@@ -90,7 +90,7 @@ pub struct DynamicCssProperty {
     /// The stringified ID of this property, i.e. the `"my_id"` in `width: var(--my_id, 500px)`.
     pub dynamic_id: String,
     /// Default values for this properties - one single value can control multiple properties!
-    pub default_values: Vec<CssProperty>,
+    pub default_value: CssProperty,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -124,7 +124,7 @@ impl DynamicCssProperty {
     }
 
     pub fn can_trigger_relayout(&self) -> bool {
-        self.default_values.iter().any(|val| val.get_type().can_trigger_relayout())
+        self.default_value.get_type().can_trigger_relayout()
     }
 }
 

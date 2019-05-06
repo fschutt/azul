@@ -13,8 +13,7 @@ use azul_css::{
     Css, CssDeclaration, Stylesheet, DynamicCssProperty,
     CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
     CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
-    NodeTypePath, NodeTypePathParseError, CombinedCssPropertyType,
-    CssKeyMap, CssProperty,
+    NodeTypePath, NodeTypePathParseError, CombinedCssPropertyType, CssKeyMap,
 };
 
 /// Error that can happen during the parsing of a CSS value
@@ -41,6 +40,11 @@ pub enum CssParseErrorInner<'a> {
     NodeTypePath(NodeTypePathParseError<'a>),
     /// A certain property has an unknown key, for example: `alsdfkj: 500px` = `unknown CSS key "alsdfkj: 500px"`
     UnknownPropertyKey(&'a str, &'a str),
+    /// `var()` can't be used on properties that expand to multiple values, since they would be ambigouus
+    /// and degrade performance - for example `margin: var(--blah)` would be ambigouus because it's not clear
+    /// when setting the variable, whether all sides should be set, instead, you have to use `margin-top: var(--blah)`,
+    /// `margin-bottom: var(--baz)` in order to work around this limitation.
+    VarOnShorthandProperty { key: CombinedCssPropertyType, value: &'a str },
 }
 
 impl_display!{ CssParseErrorInner<'a>, {
@@ -51,6 +55,10 @@ impl_display!{ CssParseErrorInner<'a>, {
     PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
     NodeTypePath(e) => format!("Failed to parse CSS selector path: {}", e),
     UnknownPropertyKey(k, v) => format!("Unknown CSS key: \"{}: {}\"", k, v),
+    VarOnShorthandProperty { key, value } => format!(
+        "Error while parsing: \"{}: {};\": var() cannot be used on shorthand properties - use `{}-top` or `{}-x` as the key instead: ",
+        key, value, key, key
+    ),
 }}
 
 impl<'a> From<CssSyntaxError> for CssParseErrorInner<'a> {
@@ -381,10 +389,16 @@ pub struct UnparsedCssRuleBlock<'a> {
     pub declarations: HashMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
 }
 
-/// CSS stylesheet that has not yet been parsed completely
-pub enum CssParseWarnMsg<'a> {
-    /// Key "blah" isn't yet supported, so the parser didn't attempt to parse the value at all
-    UnsupportedKeyValuePair { key: &'a str, value: &'a str, location: (ErrorLocation, ErrorLocation) },
+#[derive(Debug, Clone, PartialEq)]
+pub struct CssParseWarnMsg<'a> {
+    warning: CssParseWarnMsgInner<'a>,
+    location: (ErrorLocation, ErrorLocation),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssParseWarnMsgInner<'a> {
+    /// Key "blah" isn't (yet) supported, so the parser didn't attempt to parse the value at all
+    UnsupportedKeyValuePair { key: &'a str, value: &'a str },
 }
 
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
@@ -534,9 +548,7 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
 }
 
 fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a>>)
--> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>>
-{
-    use self::{DynamicCssParseError::*, CssParseWarnMsg::*};
+-> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
 
     // Actually parse the properties (TODO: this could be done in parallel and in a separate function)
     let css_key_map = azul_css::get_css_key_map();
@@ -548,53 +560,17 @@ fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a
         let mut declarations = Vec::<CssDeclaration>::new();
 
         for (unparsed_css_key, (unparsed_css_value, location)) in unparsed_css_block.declarations {
-            // check if the value is a dynamic variable
-            if let Ok((_, contents)) = css_parser::parse_parentheses(unparsed_css_value, &["var"]) {
-
-                // value is a CSS variable, i.e. var(--main-bg-color)
-                let (variable_id, default_value) = parse_css_variable_brace_contents(contents).ok_or({
-                    CssParseError {
-                        error: InvalidBraceContents(contents).into(),
-                        location,
-                    }
-                })?;
-                let default_value = default_value.unwrap_or("auto");
-                let parsed_default_values = parse_css_key_value_pair(unparsed_css_key, default_value, &css_key_map);
-
-                match parsed_default_values {
-                    Some(Ok(parsed_default_values)) => {
-                        declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
-                            dynamic_id: variable_id.to_string(),
-                            default_values: parsed_default_values,
-                        }));
-                    },
-                    Some(Err(e)) => {
-                        return Err(CssParseError {
-                            error: CssParseErrorInner::DynamicCssParseError(e.into()).into(),
-                            location,
-                        });
-                    },
-                    None => {
-                        warnings.push(UnsupportedKeyValuePair { key: unparsed_css_key, value: default_value, location });
-                    },
-                }
-            } else {
-                // value is not a CSS variable
-                match parse_css_key_value_pair(unparsed_css_key, unparsed_css_value, &css_key_map) {
-                    Some(Ok(parsed_values)) => {
-                        declarations.extend(parsed_values.into_iter().map(|val| CssDeclaration::Static(val)));
-                    },
-                    Some(Err(e)) => {
-                        return Err(CssParseError {
-                            error: CssParseErrorInner::DynamicCssParseError(e.into()).into(),
-                            location,
-                        });
-                    },
-                    None => {
-                        warnings.push(UnsupportedKeyValuePair { key: unparsed_css_key, value: unparsed_css_value, location });
-                    },
-                }
-            }
+            parse_css_declaration(
+                unparsed_css_key,
+                unparsed_css_value,
+                location,
+                &css_key_map,
+                &mut warnings,
+                &mut declarations,
+            ).map_err(|e| CssParseError {
+                error: e.into(),
+                location,
+            })?;
         }
 
         Ok(CssRuleBlock {
@@ -606,29 +582,72 @@ fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a
     Ok((parsed_css_blocks.into(), warnings))
 }
 
-/// NOTE: Does NOT parse a dynamic CSS variable!
-fn parse_css_key_value_pair<'a>(key: &'a str, value: &'a str, css_key_map: &CssKeyMap)
--> Option<Result<Vec<CssProperty>, CssParsingError<'a>>>
-{
-    if let Some(combined_key) = CombinedCssPropertyType::from_str(key, css_key_map) {
-        // If the key is a "combined" key (a shorthand), for example "margin", it can emit more than one key
-        // ex. "margin: 10px" gets split into the four values -> "margin-left: 10px", "margin-right: 10px" and so on
-        let result = match css_parser::parse_combined_css_property(combined_key, value) {
-            Ok(o) => o,
-            Err(e) => return Some(Err(e)),
-        };
-        Some(Ok(result))
-    } else if let Some(normal_key) = CssPropertyType::from_str(key, css_key_map) {
-        // key is a normal key -> value pair (no shorthand)
-        let result = match css_parser::parse_css_property(normal_key, value) {
-            Ok(o) => o,
-            Err(e) => return Some(Err(e)),
-        };
+fn parse_css_declaration<'a>(
+    unparsed_css_key: &'a str,
+    unparsed_css_value: &'a str,
+    location: (ErrorLocation, ErrorLocation),
+    css_key_map: &CssKeyMap,
+    warnings: &mut Vec<CssParseWarnMsg<'a>>,
+    declarations: &mut Vec<CssDeclaration>,
+) -> Result<(), CssParseErrorInner<'a>> {
 
-        Some(Ok(vec![result]))
+    use self::CssParseErrorInner::*;
+    use self::CssParseWarnMsgInner::*;
+
+    if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, &css_key_map) {
+        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
+            // margin: var(--my-variable);
+            return Err(VarOnShorthandProperty { key: combined_key, value: unparsed_css_value });
+        } else {
+            // margin: 10px;
+            let parsed_css_properties =
+                css_parser::parse_combined_css_property(combined_key, unparsed_css_value)
+                .map_err(|e| DynamicCssParseError(e.into()))?;
+
+            declarations.extend(parsed_css_properties.into_iter().map(|val| CssDeclaration::Static(val)));
+        }
+    } else if let Some(normal_key) = CssPropertyType::from_str(unparsed_css_key, css_key_map) {
+        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
+            // margin-left: var(--my-variable);
+            let (css_var_id, css_var_default) = css_var?;
+            let parsed_default_value =
+                css_parser::parse_css_property(normal_key, css_var_default)
+                .map_err(|e| DynamicCssParseError(e.into()))?;
+
+            declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
+                dynamic_id: css_var_id.to_string(),
+                default_value: parsed_default_value,
+            }));
+        } else {
+            // margin-left: 10px;
+            let parsed_css_value =
+                css_parser::parse_css_property(normal_key, unparsed_css_value)
+                .map_err(|e| DynamicCssParseError(e.into()))?;
+
+            declarations.push(CssDeclaration::Static(parsed_css_value));
+        }
     } else {
-        None
+        // asldfkjasdf: 10px;
+        warnings.push(CssParseWarnMsg {
+            warning: UnsupportedKeyValuePair { key: unparsed_css_key, value: unparsed_css_value },
+            location,
+        });
     }
+
+    Ok(())
+}
+
+fn check_if_value_is_css_var<'a>(unparsed_css_value: &'a str) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
+
+    const DEFAULT_VARIABLE_DEFAULT: &str = "auto";
+
+    let (_, brace_contents) = css_parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
+
+    // value is a CSS variable, i.e. var(--main-bg-color)
+    Some(match parse_css_variable_brace_contents(brace_contents) {
+        Some((variable_id, default_value)) => Ok((variable_id, default_value.unwrap_or(DEFAULT_VARIABLE_DEFAULT))),
+        None => Err(DynamicCssParseError::InvalidBraceContents(brace_contents).into()),
+    })
 }
 
 /// Parses the brace contents of a css var, i.e.:
