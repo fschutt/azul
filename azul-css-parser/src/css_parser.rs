@@ -6,7 +6,8 @@ use azul_css::{
     Overflow, Shape, PixelValue, PercentageValue, FloatValue, ColorU,
     GradientStopPre, RadialGradient, DirectionCorner, Direction, CssImageId,
     LinearGradient, BoxShadowPreDisplayItem, StyleBorderSide, BorderStyle,
-    SizeMetric, BoxShadowClipMode, ExtendMode, FontId, GradientType, BackgroundPosition,
+    SizeMetric, BoxShadowClipMode, ExtendMode, FontId, GradientType,
+    BackgroundPositionHorizontal, BackgroundPositionVertical,
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
@@ -1614,12 +1615,21 @@ impl_display!{CssBackgroundPositionParseError<'a>, {
     SecondComponentWrong(e) => format!("Failed to parse second component: \"{}\"", e),
 }}
 
-pub fn parse_background_position<'a>(input: &'a str) -> Result<BackgroundPosition, PixelParseError<'a>> {
+pub fn parse_background_position_horizontal<'a>(input: &'a str) -> Result<BackgroundPositionHorizontal, PixelParseError<'a>> {
     Ok(match input {
-        "left" => BackgroundPosition::Left,
-        "center" => BackgroundPosition::Center,
-        "right" => BackgroundPosition::Right,
-        other => BackgroundPosition::Exact(parse_pixel_value(other)?),
+        "left" => BackgroundPositionHorizontal::Left,
+        "center" => BackgroundPositionHorizontal::Center,
+        "right" => BackgroundPositionHorizontal::Right,
+        other => BackgroundPositionHorizontal::Exact(parse_pixel_value(other)?),
+    })
+}
+
+pub fn parse_background_position_vertical<'a>(input: &'a str) -> Result<BackgroundPositionVertical, PixelParseError<'a>> {
+    Ok(match input {
+        "top" => BackgroundPositionVertical::Top,
+        "center" => BackgroundPositionVertical::Center,
+        "bottom" => BackgroundPositionVertical::Bottom,
+        other => BackgroundPositionVertical::Exact(parse_pixel_value(other)?),
     })
 }
 
@@ -1638,11 +1648,11 @@ pub fn parse_style_background_position<'a>(input: &'a str)
         return Err(TooManyComponents(input));
     }
 
-    let horizontal = parse_background_position(first).map_err(|e| FirstComponentWrong(e))?;
+    let horizontal = parse_background_position_horizontal(first).map_err(|e| FirstComponentWrong(e))?;
 
     let vertical = match second {
-        Some(second) => parse_background_position(second).map_err(|e| SecondComponentWrong(e))?,
-        None => BackgroundPosition::Center,
+        Some(second) => parse_background_position_vertical(second).map_err(|e| SecondComponentWrong(e))?,
+        None => BackgroundPositionVertical::Center,
     };
 
     Ok(StyleBackgroundPosition { horizontal, vertical })

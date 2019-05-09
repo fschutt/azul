@@ -1,18 +1,16 @@
 use std::{
     collections::BTreeMap,
 };
-use euclid::{TypedRect, TypedSize2D};
 use webrender::api::{
-    LayoutPixel, DisplayListBuilder, PrimitiveInfo, GradientStop,
     Epoch, ImageData, ImageDescriptor, ResourceUpdate, AddImage, ClipMode,
     LayoutPoint, LayoutSize, LayoutRect, ExternalScrollId,
     ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
     ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
 };
 use azul_css::{
-    Css, LayoutPosition,CssProperty, ColorU, BoxShadowClipMode,
-    StyleTextColor, StyleBackgroundSize, StyleBackgroundRepeat,
-    RectStyle, RectLayout, ColorU as StyleColorU, StyleBackgroundContent,
+    Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
+    StyleTextColor, RectStyle, RectLayout, ColorU as StyleColorU, StyleBackgroundContent,
+    PixelValue,
 };
 use {
     FastHashMap,
@@ -26,7 +24,6 @@ use {
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
     },
     ui_solver::{do_the_layout, LayoutResult, PositionedRectangle},
-    app_resources::ImageId,
     compositor::new_opengl_texture_id,
     window::{Window, WindowSize, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
@@ -417,8 +414,8 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
         #[cfg(feature = "logging")] {
             for warning in override_warnings {
                 error!(
-                    "Cannot override {} with {:?}",
-                    warning.default.get_type(), overridden_property,
+                    "Cannot override {} with {}",
+                    warning.default.get_type(), warning.overridden_property,
                 )
             }
         }
@@ -580,7 +577,10 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             size: window_size.dimensions,
         },
         content: vec![DisplayListRectContent::Background {
-            background_type: StyleBackgroundContent::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }),
+            content: StyleBackgroundContent::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }),
+            size: None,
+            offset: None,
+            repeat: None,
         }],
         children: root_children, // Vec<DisplayListMsg>
     })
@@ -644,12 +644,12 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         tag: tag_id,
     };
 
-    let border_radius = rect.style.border_radius.unwrap_or(StyleBorderRadius::zero());
+    let border_radii = rect.style.border_radius.unwrap_or(StyleBorderRadius::zero());
 
     if let Some(box_shadow) = &rect.style.box_shadow {
         frame.content.push(DisplayListRectContent::BoxShadow {
             shadow: *box_shadow,
-            border_radius: border_radius,
+            border_radii: border_radii,
             clip_mode: BoxShadowClipMode::Outset,
         });
     }
@@ -661,29 +661,29 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         use azul_css::StyleBackgroundContent::*;
         use azul_core::display_list::RectBackground;
 
-        let style_bg = match bg {
+        let background_content = match bg {
             LinearGradient(lg) => RectBackground::LinearGradient(lg),
             RadialGradient(rg) => RectBackground::RadialGradient(rg),
             Image(style_image_id) => {
-                let image_id = app_resources.get_css_image_id(&style_image_id.0)?;
-                let image_info = app_resources.get_image_info(image_id)?;
+                let image_id = referenced_mutable_content.app_resources.get_css_image_id(&style_image_id.0)?;
+                let image_info = referenced_mutable_content.app_resources.get_image_info(image_id)?;
                 RectBackground::Image(image_info)
             },
             Color(c) => RectBackground::Color(c),
         };
 
         frame.content.push(DisplayListRectContent::Background {
-            background: background_type,
+            content: background_content,
             size: rect.style.background_size,
             offset: rect.style.background_position,
-            repeat: rect.style.background_repeat.unwrap_or_default(),
+            repeat: rect.style.background_repeat,
         });
     }
 
     if let Some(border) = &rect.style.border {
         frame.content.push(DisplayListRectContent::Border {
             border: *border,
-            radius: border_radius,
+            radii: border_radii,
         });
     }
 
@@ -728,7 +728,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     if let Some(box_shadow) = &rect.style.box_shadow {
         frame.content.push(DisplayListRectContent::BoxShadow {
             shadow: *box_shadow,
-            border_radius,
+            border_radii,
             clip_mode: BoxShadowClipMode::Inset,
         });
     }
@@ -919,8 +919,10 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     display_list_msg
 }
 
+struct LayoutPadding { right: PixelValue, left: PixelValue, top: PixelValue, bottom: PixelValue, }
+
 fn get_text(
-    current_bounds: DisplayListRect,
+    bounds: DisplayListRect,
     root_window_size: LogicalSize,
     layouted_glyphs: LayoutedGlyphs,
     font_instance_key: FontInstanceKey,
@@ -931,27 +933,31 @@ fn get_text(
     let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
 
-    let original_text_bounds = rect_layout.padding
-        .as_ref()
-        .map(|padding| subtract_padding(&current_bounds, padding))
-        .unwrap_or(current_bounds);
+    let padding = LayoutPadding {
+        top: rect_layout.padding_top.unwrap_or_default(),
+        bottom: rect_layout.padding_bottom.unwrap_or_default(),
+        left: rect_layout.padding_left.unwrap_or_default(),
+        right: rect_layout.padding_right.unwrap_or_default(),
+    };
+
+    let padding_clip_bounds = subtract_padding(&bounds, padding);
 
     // Adjust the bounds by the padding, depending on the overflow:visible parameter
     let text_clip_rect = match (overflow_horizontal_visible, overflow_vertical_visible) {
         (true, true) => None,
-        (false, false) => Some(original_text_bounds),
+        (false, false) => Some(padding_clip_bounds),
         (true, false) => {
             // Horizontally visible, vertically cut
             Some(DisplayListRect {
-                origin: current_bounds.origin,
-                size: LogicalSize::new(root_window_size.width, original_text_bounds.size.height),
+                origin: bounds.origin,
+                size: LogicalSize::new(root_window_size.width, padding_clip_bounds.size.height),
             })
         },
         (false, true) => {
             // Vertically visible, horizontally cut
             Some(DisplayListRect {
-                origin: current_bounds.origin,
-                size: LogicalSize::new(original_text_bounds.size.width, root_window_size.height),
+                origin: bounds.origin,
+                size: LogicalSize::new(padding_clip_bounds.size.width, root_window_size.height),
             })
         },
     };
@@ -960,7 +966,7 @@ fn get_text(
         glyphs: layouted_glyphs.glyphs,
         font_instance_key,
         color: font_color,
-        options: None,
+        glyph_options: None,
         clip: text_clip_rect,
     }
 }
@@ -985,6 +991,7 @@ fn subtract_padding(bounds: &DisplayListRect, padding: &LayoutPadding) -> Displa
     new_bounds
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct OverrideWarning {
     pub default: CssProperty,
     pub overridden_property: CssProperty,
@@ -997,7 +1004,7 @@ fn populate_css_properties(
     css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
 ) -> Vec<OverrideWarning> {
 
-    use azul_css::{CssProperty, CssDeclaration::*};
+    use azul_css::CssDeclaration::*;
 
     rect.styled_node.css_constraints.values()
     .filter_map(|constraint| match constraint {
@@ -1008,13 +1015,13 @@ fn populate_css_properties(
         let dynamic_prop = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id.clone().into()))?;
 
         // Apply the property default if the type matches
-        if property_type_matches(overridden_property, &dynamic_property.default) {
-            apply_style_property(rect, overridden_property);
+        if property_type_matches(&dynamic_property.overridden_property, &dynamic_property.default) {
+            apply_style_property(rect, &dynamic_property.overridden_property);
             None
         } else {
             Some(OverrideWarning {
                 default: dynamic_property.default.clone(),
-                overridden_property: overridden_property.clone(),
+                overridden_property: dynamic_property.overridden_property.clone(),
             })
         }
     })

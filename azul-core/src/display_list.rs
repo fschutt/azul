@@ -189,14 +189,14 @@ pub enum DisplayListRectContent {
         glyphs: Vec<GlyphInstance>,
         font_instance_key: FontInstanceKey,
         color: ColorU,
-        options: Option<GlyphOptions>,
+        glyph_options: Option<GlyphOptions>,
         clip: Option<DisplayListRect>,
     },
     Background {
-        background: RectBackground,
+        content: RectBackground,
         size: Option<StyleBackgroundSize>,
         offset: Option<StyleBackgroundPosition>,
-        repeat: StyleBackgroundRepeat,
+        repeat: Option<StyleBackgroundRepeat>,
     },
     Image {
         size: LogicalSize,
@@ -204,7 +204,7 @@ pub enum DisplayListRectContent {
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
         image_key: ImageKey,
-        background: ColorU,
+        background_color: ColorU,
     },
     Border {
         radii: StyleBorderRadius,
@@ -225,4 +225,13 @@ pub enum RectBackground {
     RadialGradient(RadialGradient),
     Image(ImageInfo),
     Color(ColorU),
+}
+
+impl RectBackground {
+    pub fn get_content_size(&self) -> Option<(f32, f32)> {
+        match self {
+            RectBackground::Image(info) => { let dim = info.get_dimensions(); Some((dim.0 as f32, dim.1 as f32)) }
+            _ => None,
+        }
+    }
 }

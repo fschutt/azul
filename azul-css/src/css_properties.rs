@@ -1070,15 +1070,32 @@ pub enum StyleBackgroundSize {
 /// Represents a `background-position` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBackgroundPosition {
-    pub horizontal: BackgroundPosition,
-    pub vertical: BackgroundPosition,
+    pub horizontal: BackgroundPositionHorizontal,
+    pub vertical: BackgroundPositionVertical,
+}
+
+impl Default for StyleBackgroundPosition {
+    fn default() -> Self {
+        StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Left,
+            vertical: BackgroundPositionVertical::Top,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BackgroundPosition {
+pub enum BackgroundPositionHorizontal {
     Left,
     Center,
     Right,
+    Exact(PixelValue),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BackgroundPositionVertical {
+    Top,
+    Center,
+    Bottom,
     Exact(PixelValue),
 }
 
@@ -1600,6 +1617,20 @@ pub enum LayoutAxis {
     Vertical,
 }
 
+/// Represents a `display` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LayoutDisplay {
+    Flex,
+    None,
+    Inline,
+}
+
+impl Default for LayoutDisplay {
+    fn default() -> Self {
+        LayoutDisplay::Flex
+    }
+}
+
 /// Represents a `position` attribute - default: `Static`
 ///
 /// NOTE: No inline positioning is supported.
@@ -1665,7 +1696,7 @@ pub enum LayoutAlignItems {
 
 impl Default for LayoutAlignItems {
     fn default() -> Self {
-        LayoutAlignItems::Stretch
+        LayoutAlignItems::Start
     }
 }
 
@@ -1684,6 +1715,12 @@ pub enum LayoutAlignContent {
     SpaceBetween,
     /// Lines are evenly distributed in the flex container, with half-size spaces on either end
     SpaceAround,
+}
+
+impl Default for LayoutAlignContent {
+    fn default() -> Self {
+        LayoutAlignContent::Start
+    }
 }
 
 /// Represents a `overflow-x` or `overflow-y` property, see

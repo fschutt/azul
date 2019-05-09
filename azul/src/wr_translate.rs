@@ -5,6 +5,7 @@
 //! azul, you have to depend on webrender.
 
 use webrender::api::{
+    LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
     HitTestItem as WrHitTestItem,
     FontKey as WrFontKey,
     FontInstanceKey as WrFontInstanceKey,
@@ -61,6 +62,10 @@ use azul_css::{
     ExtendMode as CssExtendMode,
     BorderStyle as CssBorderStyle,
     LayoutSideOffsets as CssLayoutSideOffsets,
+    StyleBorderTopLeftRadius as CssStyleBorderTopLeftRadius,
+    StyleBorderTopRightRadius as CssStyleBorderTopRightRadius,
+    StyleBorderBottomLeftRadius as CssStyleBorderBottomLeftRadius,
+    StyleBorderBottomRightRadius as CssStyleBorderBottomRightRadius,
 };
 use app_units::Au as WrAu;
 use glium::glutin::{VirtualKeyCode as WinitVirtualKeyCode, MouseCursor as WinitCursorType};
@@ -248,14 +253,17 @@ pub const fn wr_translate_color_f(input: CssColorF) -> WrColorF {
 }
 
 #[inline]
-pub fn wr_translate_border_radius(input: CssBorderRadius) -> WrBorderRadius {
-    use webrender::api::LayoutSize;
-    let CssBorderRadius { top_left, top_right, bottom_left, bottom_right } = input;
+pub fn wr_translate_border_radius((top_left, top_right, bottom_left, bottom_right): (
+        CssStyleBorderTopLeftRadius,
+        CssStyleBorderTopRightRadius,
+        CssStyleBorderBottomLeftRadius,
+        CssStyleBorderBottomRightRadius,
+    )) -> WrBorderRadius {
     WrBorderRadius {
-        top_left: WrLayoutSize::new(top_left.width.to_pixels(), top_left.height.to_pixels()),
-        top_right: WrLayoutSize::new(top_right.width.to_pixels(), top_right.height.to_pixels()),
-        bottom_left: WrLayoutSize::new(bottom_left.width.to_pixels(), bottom_left.height.to_pixels()),
-        bottom_right: WrLayoutSize::new(bottom_right.width.to_pixels(), bottom_right.height.to_pixels()),
+        top_left: WrLayoutSize::new(top_left.0.to_pixels(), top_left.0.to_pixels()),
+        top_right: WrLayoutSize::new(top_right.0.to_pixels(), top_right.0.to_pixels()),
+        bottom_left: WrLayoutSize::new(bottom_left.0.to_pixels(), bottom_left.0.to_pixels()),
+        bottom_right: WrLayoutSize::new(bottom_right.0.to_pixels(), bottom_right.0.to_pixels()),
     }
 }
 
@@ -678,13 +686,15 @@ fn push_scroll_frame(builder: &mut WrDisplayListBuilder, scroll_frame: DisplayLi
 
 #[inline]
 fn push_display_list_content(builder: &mut WrDisplayListBuilder, content: DisplayListRectContent, info: &WrLayoutPrimitiveInfo) {
+
     use azul_core::display_list::DisplayListRectContent::*;
+
     match content {
-        Text { glyphs, font_instance_key, color, options, clip } => {
+        Text { glyphs, font_instance_key, color, glyph_options, clip } => {
             text::push_text(builder, info, glyphs, font_instance_key, color, glyph_options);
         },
-        Background { background, size, offset, repeat  } => {
-            background::push_background(builder, info, background, size, offset, repeat);
+        Background { content, size, offset, repeat  } => {
+            background::push_background(builder, info, content, size, offset, repeat);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
             image::push_image(builder, info, size, offset, image_key, alpha_type, image_rendering, background_color);
@@ -692,8 +702,8 @@ fn push_display_list_content(builder: &mut WrDisplayListBuilder, content: Displa
         Border { radii, widths, colors, styles } => {
             border::push_border(builder, info, radii, widths, colors, styles);
         },
-        BoxShadow { shadow, border_radius, clip_mode } => {
-            box_shadow::push_box_shadow(builder, translate_layout_rect_wr(info.rect), clip_mode, shadow, border_radius);
+        BoxShadow { shadow, border_radii, clip_mode } => {
+            box_shadow::push_box_shadow(builder, translate_layout_rect_wr(info.rect), clip_mode, shadow, border_radii);
         },
     }
 }
@@ -705,6 +715,7 @@ mod text {
         LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
     };
     use azul_core::{app_resources::FontInstanceKey, display_list::{GlyphOptions, GlyphInstance}};
+    use azul_css::ColorU;
 
     pub(in super) fn push_text(
          builder: &mut WrDisplayListBuilder,
@@ -735,12 +746,18 @@ mod background {
         DisplayListBuilder as WrDisplayListBuilder,
         LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
         LayoutSize as WrLayoutSize,
-        LayoutPoint as WrLayoutPoint,
         LayoutRect as WrLayoutRect,
         GradientStop as WrGradientStop,
     };
-    use azul_css::{StyleBackgroundSize, RadialGradient, LinearGradient, ColorU};
-    use azul_core::window::LogicalSize;
+    use azul_css::{
+        StyleBackgroundSize, StyleBackgroundPosition, StyleBackgroundRepeat,
+        RadialGradient, LinearGradient, ColorU
+    };
+    use azul_core::{
+        app_resources::ImageInfo,
+        window::{LogicalSize, LogicalPosition},
+        display_list::RectBackground
+    };
     use super::image;
 
     struct Ratio {
@@ -752,23 +769,20 @@ mod background {
     pub(in super) fn push_background(
         builder: &mut WrDisplayListBuilder,
         info: &WrLayoutPrimitiveInfo,
-        background: &RectBackground,
-        background_size: &Option<StyleBackgroundSize>,
-        background_offset: Option<StyleBackgroundOffset>,
-        background_repeat: &Option<StyleBackgroundRepeat>,
+        background: RectBackground,
+        background_size: Option<StyleBackgroundSize>,
+        background_position: Option<StyleBackgroundPosition>,
+        background_repeat: Option<StyleBackgroundRepeat>,
     ) {
-        use wr_translate::{
-            wr_translate_color_u, wr_translate_extend_mode, wr_translate_layout_point,
-            wr_translate_css_layout_rect,
-        };
-        use super::image;
         use azul_core::display_list::RectBackground::*;
 
+        let content_size = background.get_content_size();
+
         match background {
-            RadialGradient(rg) => push_radial_gradient_background(builder, info, rg, background_offset, background_size, background_repeat),
-            LinearGradient(g) => push_linear_gradient_background(builder, info, g, background_offset, background_size, background_repeat),
-            Image(image_id) => push_image_background(builder, info, image_id, background_offset, background_size, background_repeat),
-            Color(c) => push_color_background(builder, info, c, background_offset, background_size, background_repeat),
+            RadialGradient(rg)  => push_radial_gradient_background(builder, info, rg, background_position, background_size, background_repeat, content_size),
+            LinearGradient(g)   => push_linear_gradient_background(builder, info, g, background_position, background_size, background_repeat, content_size),
+            Image(image_info)    => push_image_background(builder, info, image_info, background_position, background_size, background_repeat, content_size),
+            Color(col)          => push_color_background(builder, info, col, background_position, background_size, background_repeat, content_size),
         }
     }
 
@@ -776,18 +790,25 @@ mod background {
         builder: &mut WrDisplayListBuilder,
         info: &WrLayoutPrimitiveInfo,
         radial_gradient: RadialGradient,
-        background_offset: StyleBackgroundOffset,
-        background_size: StyleBackgroundSize,
-        background_repeat: StyleBackgroundRepeat,
+        background_position: Option<StyleBackgroundPosition>,
+        background_size: Option<StyleBackgroundSize>,
+        background_repeat: Option<StyleBackgroundRepeat>,
+        content_size: Option<(f32, f32)>,
     ) {
         use azul_css::Shape;
+        use super::{wr_translate_color_u, wr_translate_layout_size, wr_translate_extend_mode};
+
+        let background_position = background_position.unwrap_or_default();
+        let background_repeat = background_repeat.unwrap_or_default();
+        let background_size = calculate_background_size(info, background_size, content_size);
+        let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
         offset_info.rect.origin.x += offset.x;
         offset_info.rect.origin.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = gradient.stops.iter().map(|gradient_pre|
-            GradientStop {
+        let stops: Vec<WrGradientStop> = radial_gradient.stops.iter().map(|gradient_pre|
+            WrGradientStop {
                 offset: gradient_pre.offset.unwrap().get(),
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }).collect();
@@ -795,88 +816,108 @@ mod background {
         let center = info.rect.center();
 
         // Note: division by 2.0 because it's the radius, not the diameter
-        let radius = match gradient.shape {
-            Shape::Ellipse => WrLayoutSize::new(bounds.size.width / 2.0, bounds.size.height / 2.0),
+        let radius = match radial_gradient.shape {
+            Shape::Ellipse => WrLayoutSize::new(background_size.width / 2.0, background_size.height / 2.0),
             Shape::Circle => {
-                let largest_bound_size = bounds.size.width.max(bounds.size.height);
+                let largest_bound_size = background_size.width.max(background_size.height);
                 WrLayoutSize::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
             },
         };
 
-        let gradient = builder.create_radial_gradient(center, radius, stops, wr_translate_extend_mode(gradient.extend_mode));
+        let gradient = builder.create_radial_gradient(center, radius, stops, wr_translate_extend_mode(radial_gradient.extend_mode));
 
-        let tile_spacing = WrLayoutSize::zero();
-
-        builder.push_radial_gradient(&offset_info, gradient, background_size, tile_spacing);
+        builder.push_radial_gradient(&offset_info, gradient, wr_translate_layout_size(background_size), WrLayoutSize::zero());
     }
 
     fn push_linear_gradient_background(
         builder: &mut WrDisplayListBuilder,
         info: &WrLayoutPrimitiveInfo,
-        radial_gradient: LinearGradient,
-        background_offset: StyleBackgroundOffset,
-        background_size: StyleBackgroundSize,
-        background_repeat: StyleBackgroundRepeat,
+        linear_gradient: LinearGradient,
+        background_position: Option<StyleBackgroundPosition>,
+        background_size: Option<StyleBackgroundSize>,
+        background_repeat: Option<StyleBackgroundRepeat>,
+        content_size: Option<(f32, f32)>,
     ) {
+        use super::{
+            wr_translate_color_u, wr_translate_extend_mode,
+            wr_translate_layout_size, wr_translate_css_layout_rect,
+            wr_translate_layout_point,
+        };
+
+        let background_position = background_position.unwrap_or_default();
+        let background_repeat = background_repeat.unwrap_or_default();
+        let background_size = calculate_background_size(info, background_size, content_size);
+        let offset = calculate_background_position(info, background_position, background_size);
+
         let mut offset_info = *info;
         offset_info.rect.origin.x += offset.x;
         offset_info.rect.origin.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = gradient.stops.iter().map(|gradient_pre|
-            GradientStop {
+        let stops: Vec<WrGradientStop> = linear_gradient.stops.iter().map(|gradient_pre|
+            WrGradientStop {
                 offset: gradient_pre.offset.unwrap().get() / 100.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }).collect();
 
-        let (begin_pt, end_pt) = gradient.direction.to_points(&wr_translate_css_layout_rect(*bounds));
+        let (begin_pt, end_pt) = linear_gradient.direction.to_points(&wr_translate_css_layout_rect(offset_info.rect));
         let gradient = builder.create_gradient(
             wr_translate_layout_point(begin_pt),
             wr_translate_layout_point(end_pt),
             stops,
-            wr_translate_extend_mode(gradient.extend_mode),
+            wr_translate_extend_mode(linear_gradient.extend_mode),
         );
 
-        let background_size = bounds.size;
-        let background_offset = WrLayoutSize::zero();
-
-        builder.push_gradient(&offset_info, gradient, background_size, background_offset);
+        builder.push_gradient(&offset_info, gradient, wr_translate_layout_size(background_size), WrLayoutSize::zero());
     }
 
     fn push_image_background(
         builder: &mut WrDisplayListBuilder,
         info: &WrLayoutPrimitiveInfo,
-        image_id: ImageId,
-        background_offset: StyleBackgroundOffset,
-        background_size: StyleBackgroundSize,
-        background_repeat: StyleBackgroundRepeat,
+        image_info: ImageInfo,
+        background_position: Option<StyleBackgroundPosition>,
+        background_size: Option<StyleBackgroundSize>,
+        background_repeat: Option<StyleBackgroundRepeat>,
+        content_size: Option<(f32, f32)>,
     ) {
-        // TODO: background-origin, background-position, background-repeat
-        let bounds = info.rect;
+        use azul_core::display_list::{AlphaType, ImageRendering};
 
-        let size = match background_size {
-            Some(bg_size) => calculate_background_size(bg_size, &info, &image_dimensions),
-            None => image_dimensions,
-        };
-
+        let background_position = background_position.unwrap_or_default();
         let background_repeat = background_repeat.unwrap_or_default();
+        let background_size = calculate_background_size(info, background_size, content_size);
+        let offset = calculate_background_position(info, background_position, background_size);
+        let background_repeat_info = get_background_repeat_info(info, background_repeat, background_size);
 
-        let mut background_repeat_info = get_background_repeat_info(info, background_repeat, wr_translate_layout_size(size));
-        background_repeat_info.rect.origin.x += offset.x;
-        background_repeat_info.rect.origin.y += offset.y;
+        // TODO: customize this for image backgrounds?
+        let alpha_type = AlphaType::PremultipliedAlpha;
+        let image_rendering = ImageRendering::Auto;
+        let background_color: ColorU::TRANSPARENT;
 
-        image::push_image(&background_repeat_info, builder, image_id, size);
+        image::push_image(builder, &background_repeat_info, background_size, background_position, image_info.key, alpha_type, image_rendering, background_color);
     }
 
     fn push_color_background(
         builder: &mut WrDisplayListBuilder,
         info: &WrLayoutPrimitiveInfo,
         color: ColorU,
-        background_offset: StyleBackgroundOffset,
-        background_size: StyleBackgroundSize,
-        background_repeat: StyleBackgroundRepeat,
+        background_position: Option<StyleBackgroundPosition>,
+        background_size: Option<StyleBackgroundSize>,
+        background_repeat: Option<StyleBackgroundRepeat>,
+        content_size: Option<(f32, f32)>,
     ) {
         use super::wr_translate_color_u;
-        builder.push_rect(info, wr_translate_color_u(*c).into());
+
+        let background_position = background_position.unwrap_or_default();
+        let background_repeat = background_repeat.unwrap_or_default();
+        let background_size = calculate_background_size(info, background_size, content_size);
+        let offset = calculate_background_position(info, background_position, background_size);
+
+        let mut offset_info = *info;
+        offset_info.rect.origin.x += offset.x;
+        offset_info.rect.origin.y += offset.y;
+        offset_info.rect.size.width = background_size.width;
+        offset_info.rect.size.height = background_size.height;
+
+        builder.push_rect(&offset_info, wr_translate_color_u(color).into());
     }
 
     fn get_background_repeat_info(
@@ -913,25 +954,62 @@ mod background {
         }
     }
 
-    /// Transfor a background size such as "cover" or "contain" into actual pixels
+    /// Transform a background size such as "cover" or "contain" into actual pixels
     fn calculate_background_size(
         info: &WrLayoutPrimitiveInfo,
-        bg_size: &StyleBackgroundSize,
-        content_dimensions: &(i32, i32),
+        bg_size: Option<StyleBackgroundSize>,
+        content_size: Option<(f32, f32)>,
     ) -> LogicalSize {
 
-        let image_aspect_ratio = Ratio {
-            width: info.rect.size.width / content_dimensions.0 as f32,
-            height: info.rect.size.height / content_dimensions.1 as f32,
+        let content_size = content_size.unwrap_or((info.rect.size.width, info.rect.size.height));
+
+        let bg_size = match bg_size {
+            None => return LogicalSize::new(content_size.0 as f32, content_size.1 as f32),
+            Some(s) => s,
+        };
+
+        let content_aspect_ratio = Ratio {
+            width: info.rect.size.width / content_size.0 as f32,
+            height: info.rect.size.height / content_size.1 as f32,
         };
 
         let ratio = match bg_size {
-            StyleBackgroundSize::Exact(w, h) => { let w = w.to_pixels(); let h = h.to_pixels(); w.min(h) },
-            StyleBackgroundSize::Contain => image_aspect_ratio.width.min(image_aspect_ratio.height),
-            StyleBackgroundSize::Cover => image_aspect_ratio.width.max(image_aspect_ratio.height),
+            StyleBackgroundSize::ExactSize(w, h) => { let w = w.to_pixels(); let h = h.to_pixels(); w.min(h) },
+            StyleBackgroundSize::Contain => content_aspect_ratio.width.min(content_aspect_ratio.height),
+            StyleBackgroundSize::Cover => content_aspect_ratio.width.max(content_aspect_ratio.height),
         };
 
-        LogicalSize::new(content_dimensions.0 as f32 * ratio, content_dimensions.1 as f32 * ratio)
+        LogicalSize::new(content_size.0 as f32 * ratio, content_size.1 as f32 * ratio)
+    }
+
+    /// Transforma background-position attribute into pixel coordinates
+    fn calculate_background_position(
+        info: &WrLayoutPrimitiveInfo,
+        background_position: StyleBackgroundPosition,
+        background_size: LogicalSize
+    ) -> LogicalPosition {
+
+        use azul_css::BackgroundPositionVertical;
+        use azul_css::BackgroundPositionHorizontal;
+
+        let width = info.rect.size.width;
+        let height = info.rect.size.height;
+
+        let horizontal_offset = match background_position.horizontal {
+            BackgroundPositionHorizontal::Right => 0.0,
+            BackgroundPositionHorizontal::Center => (width - background_size.width) / 2.0,
+            BackgroundPositionHorizontal::Left => (width - background_size.width),
+            BackgroundPositionHorizontal::Exact(e) => e.to_pixels(),
+        };
+
+        let vertical_offset = match background_position.vertical {
+            BackgroundPositionVertical::Top => 0.0,
+            BackgroundPositionVertical::Center => (height - background_size.height) / 2.0,
+            BackgroundPositionVertical::Bottom => (height - background_size.height),
+            BackgroundPositionVertical::Exact(e) => e.to_pixels(),
+        };
+
+        LogicalPosition { x: horizontal_offset, y: vertical_offset }
     }
 }
 
@@ -942,7 +1020,11 @@ mod image {
         LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
     };
     use azul_css::ColorU;
-    use azul_core::{app_resources::ImageKey, window::LogicalSize, display_list::{AlphaType, ImageRendering}};
+    use azul_core::{
+        app_resources::ImageKey,
+        window::{LogicalSize, LogicalPosition},
+        display_list::{AlphaType, ImageRendering}
+    };
 
     #[inline]
     pub(in super) fn push_image(
@@ -959,16 +1041,17 @@ mod image {
             wr_translate_image_rendering, wr_translate_alpha_type,
             wr_translate_color_u, wr_translate_image_key, wr_translate_layout_size,
         };
+        use webrender::api::LayoutSize as WrLayoutSize;
 
         let mut offset_info = *info;
         offset_info.rect.origin.x += offset.x;
         offset_info.rect.origin.y += offset.y;
 
-        let tile_spacing = LayoutSize::zero();
+        let tile_spacing = WrLayoutSize::zero();
 
         builder.push_image(
             &offset_info,
-            wr_translate_layout_size(background_size),
+            wr_translate_layout_size(size),
             tile_spacing,
             wr_translate_image_rendering(image_rendering),
             wr_translate_alpha_type(alpha_type),
@@ -1286,7 +1369,11 @@ mod border {
     ) -> Option<(WrLayoutSideOffsets, WrBorderDetails)> {
 
         use super::wr_translate_color_u;
-        use webrender::api::{NormalBorder as WrNormalBorder, BorderRadius as WrBorderRadius};
+        use webrender::api::{
+            NormalBorder as WrNormalBorder,
+            BorderRadius as WrBorderRadius,
+            LayoutSize as WrLayoutSize,
+        };
 
         let (width_top, width_right, width_bottom, width_left) = (
             widths.top.and_then(CssPropertyValue::get_property_or_default),
@@ -1352,11 +1439,17 @@ mod border {
             right:  WrBorderSide { color: wr_translate_color_u(color_right).into(), style: translate_wr_border(style_right, width_right) },
             bottom: WrBorderSide { color: wr_translate_color_u(color_bottom).into(), style: translate_wr_border(style_bottom, width_bottom) },
             radius: if has_no_border_radius { WrBorderRadius::zero() } else {
+
+                let radius_top_left = radius_top_left.map(|v| v.to_pixels()).unwrap_or(0.0);
+                let radius_top_right = radius_top_right.map(|v| v.to_pixels()).unwrap_or(0.0);
+                let radius_bottom_left = radius_bottom_left.map(|v| v.to_pixels()).unwrap_or(0.0);
+                let radius_bottom_right = radius_bottom_right.map(|v| v.to_pixels()).unwrap_or(0.0);
+
                 WrBorderRadius {
-                    top_left: LayoutSize::new(radius_top_left.map(|v| v.to_pixels()).unwrap_or(0.0)),
-                    top_right: LayoutSize::new(radius_top_right.map(|v| v.to_pixels()).unwrap_or(0.0)),
-                    bottom_left: LayoutSize::new(radius_bottom_left.map(|v| v.to_pixels()).unwrap_or(0.0)),
-                    bottom_right: LayoutSize::new(radius_bottom_right.map(|v| v.to_pixels()).unwrap_or(0.0)),
+                    top_left: WrLayoutSize::new(radius_top_left, radius_top_left),
+                    top_right: WrLayoutSize::new(radius_top_right, radius_top_right),
+                    bottom_left: WrLayoutSize::new(radius_bottom_left, radius_bottom_left),
+                    bottom_right: WrLayoutSize::new(radius_bottom_right, radius_bottom_right),
                 }
             },
             do_aa: !has_no_border_radius,
