@@ -1804,12 +1804,13 @@ pub struct RectStyle {
     pub background_repeat: Option<CssPropertyValue<StyleBackgroundRepeat>>,
     pub font_size: Option<CssPropertyValue<StyleFontSize>>,
     pub font_family: Option<CssPropertyValue<StyleFontFamily>>,
-    pub font_color: Option<CssPropertyValue<StyleTextColor>>,
+    pub text_color: Option<CssPropertyValue<StyleTextColor>>,
     pub text_align: Option<CssPropertyValue<StyleTextAlignmentHorz>>,
     pub line_height: Option<CssPropertyValue<StyleLineHeight>>,
     pub letter_spacing: Option<CssPropertyValue<StyleLetterSpacing>>,
     pub word_spacing: Option<CssPropertyValue<StyleWordSpacing>>,
     pub tab_width: Option<CssPropertyValue<StyleTabWidth>>,
+    pub cursor: Option<CssPropertyValue<StyleCursor>>,
 
     pub box_shadow_left: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
     pub box_shadow_right: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
@@ -1876,17 +1877,6 @@ pub struct RectLayout {
     pub align_content: Option<CssPropertyValue<LayoutAlignContent>>,
 }
 
-impl RectStyle {
-
-    pub fn get_horizontal_scrollbar_style(&self) -> ScrollbarInfo {
-        ScrollbarInfo::default()
-    }
-
-    pub fn get_vertical_scrollbar_style(&self) -> ScrollbarInfo {
-        ScrollbarInfo::default()
-    }
-}
-
 /// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScrollbarInfo {
@@ -1937,6 +1927,31 @@ impl Default for ScrollbarInfo {
             corner: RectStyle::default(),
             resizer: RectStyle::default(),
         }
+    }
+}
+
+impl RectStyle {
+
+    pub fn get_horizontal_scrollbar_style(&self) -> ScrollbarInfo {
+        ScrollbarInfo::default()
+    }
+
+    pub fn get_vertical_scrollbar_style(&self) -> ScrollbarInfo {
+        ScrollbarInfo::default()
+    }
+
+    pub fn has_box_shadow(&self) -> bool {
+        self.box_shadow_left.and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
+        self.box_shadow_right.and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
+        self.box_shadow_top.and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
+        self.box_shadow_bottom.and_then(|bs| bs.get_property().map(|_| ())).is_some()
+    }
+
+    pub fn has_border(&self) -> bool {
+        self.border_left_style.and_then(|bs| bs.get_property_or_default()).is_some() ||
+        self.border_right_style.and_then(|bs| bs.get_property_or_default()).is_some() ||
+        self.border_top_style.and_then(|bs| bs.get_property_or_default()).is_some() ||
+        self.border_bottom_style.and_then(|bs| bs.get_property_or_default()).is_some()
     }
 }
 

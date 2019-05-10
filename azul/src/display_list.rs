@@ -2,15 +2,16 @@ use std::{
     collections::BTreeMap,
 };
 use webrender::api::{
-    Epoch, ImageData, ImageDescriptor, ResourceUpdate, AddImage, ClipMode,
+    Epoch, ImageData, ImageDescriptor, ResourceUpdate, AddImage,
     LayoutPoint, LayoutSize, LayoutRect, ExternalScrollId,
-    ComplexClipRegion, LayoutPrimitiveInfo, ExternalImageId,
-    ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
+    LayoutPrimitiveInfo, ExternalImageId, ExternalImageData, ImageFormat,
+    ExternalImageType, TextureTarget, RenderApi,
 };
 use azul_css::{
     Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
     StyleTextColor, RectStyle, RectLayout, ColorU as StyleColorU, StyleBackgroundContent,
-    PixelValue,
+    PixelValue, CssPropertyValue, LayoutPaddingRight, LayoutPaddingLeft, LayoutPaddingTop,
+    LayoutPaddingBottom,
 };
 use {
     FastHashMap,
@@ -35,7 +36,8 @@ use azul_core::{
     app_resources::FontInstanceKey,
     display_list::{
         CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
-        ImageRendering, AlphaType, DisplayListFrame, StyleBorderRadius,
+        ImageRendering, AlphaType, DisplayListFrame, StyleBoxShadow,
+        StyleBorderStyles, StyleBorderColors, StyleBorderRadius, StyleBorderWidths,
     },
 };
 
@@ -275,7 +277,7 @@ fn determine_rendering_order_inner<'a>(
             match next_node_id {
                 NodeEdge::Start(node_id) => {
                     let rect_node = &rectangles[node_id];
-                    let position = rect_node.layout.position.unwrap_or_default();
+                    let position = rect_node.layout.position.and_then(|pos| pos.get_property_or_default()).unwrap_or_default();
                     if position == LayoutPosition::Absolute {
                         // For now, ignore the node and put it aside for later
                         absolute_node_ids.push((depth, node_id));
@@ -389,9 +391,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 }
 
 fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
-    let overflow = layout.overflow.unwrap_or_default();
-    !overflow.is_horizontal_overflow_visible() ||
-    !overflow.is_vertical_overflow_visible()
+    !(layout.is_horizontal_overflow_visible() || layout.is_vertical_overflow_visible())
 }
 
 /// NOTE: This function assumes that the UiDescription has an initialized arena
@@ -406,6 +406,7 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
     let arena = &ui_description.ui_descr_arena;
 
     let display_rect_arena = arena.node_data.transform(|node, node_id| {
+
         let style = &ui_description.styled_nodes[node_id];
         let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
         let mut rect = DisplayRectangle::new(tag, style);
@@ -414,7 +415,7 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
         #[cfg(feature = "logging")] {
             for warning in override_warnings {
                 error!(
-                    "Cannot override {} with {}",
+                    "Cannot override {} with {:?}",
                     warning.default.get_type(), warning.overridden_property,
                 )
             }
@@ -529,6 +530,8 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> DisplayListMsg {
 
+    use azul_core::display_list::RectBackground;
+
     let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| {
 
         let rectangle = DisplayListRectParams {
@@ -577,23 +580,12 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             size: window_size.dimensions,
         },
         content: vec![DisplayListRectContent::Background {
-            content: StyleBackgroundContent::Color(ColorU { r: 255, g: 255, b: 255, a: 255 }),
+            content: RectBackground::Color(ColorU::TRANSPARENT),
             size: None,
             offset: None,
             repeat: None,
         }],
         children: root_children, // Vec<DisplayListMsg>
-    })
-}
-
-fn get_clip_region<'a>(bounds: LayoutRect, rect: &DisplayRectangle<'a>) -> Option<ComplexClipRegion> {
-    use wr_translate::wr_translate_border_radius;
-    rect.style.border_radius.and_then(|border_radius| {
-        Some(ComplexClipRegion {
-            rect: bounds,
-            radii: wr_translate_border_radius(border_radius.0).into(),
-            mode: ClipMode::Clip,
-        })
     })
 }
 
@@ -644,46 +636,77 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         tag: tag_id,
     };
 
-    let border_radii = rect.style.border_radius.unwrap_or(StyleBorderRadius::zero());
+    let border_radii = StyleBorderRadius {
+        top_left: rect.style.border_top_left_radius,
+        top_right: rect.style.border_top_right_radius,
+        bottom_left: rect.style.border_bottom_left_radius,
+        bottom_right: rect.style.border_bottom_right_radius,
+    };
 
-    if let Some(box_shadow) = &rect.style.box_shadow {
+    if rect.style.has_box_shadow() {
         frame.content.push(DisplayListRectContent::BoxShadow {
-            shadow: *box_shadow,
-            border_radii: border_radii,
+            shadow: StyleBoxShadow {
+                left: rect.style.box_shadow_left,
+                right: rect.style.box_shadow_right,
+                top: rect.style.box_shadow_top,
+                bottom: rect.style.box_shadow_bottom,
+            },
+            radii: border_radii,
             clip_mode: BoxShadowClipMode::Outset,
         });
     }
 
     // If the rect is hit-testing relevant, we need to push a rect anyway.
     // Otherwise the hit-testing gets confused
-    if let Some(bg) = &rect.style.background_attachement {
+    if let Some(bg) = rect.style.background.and_then(|br| br.get_property()) {
 
-        use azul_css::StyleBackgroundContent::*;
+        use azul_css::{CssImageId, StyleBackgroundContent::*};
         use azul_core::display_list::RectBackground;
 
+        fn get_image_info(app_resources: &AppResources, style_image_id: &CssImageId) -> Option<RectBackground> {
+            let image_id = app_resources.get_css_image_id(&style_image_id.0)?;
+            let image_info = app_resources.get_image_info(image_id)?;
+            Some(RectBackground::Image(*image_info))
+        }
+
         let background_content = match bg {
-            LinearGradient(lg) => RectBackground::LinearGradient(lg),
-            RadialGradient(rg) => RectBackground::RadialGradient(rg),
-            Image(style_image_id) => {
-                let image_id = referenced_mutable_content.app_resources.get_css_image_id(&style_image_id.0)?;
-                let image_info = referenced_mutable_content.app_resources.get_image_info(image_id)?;
-                RectBackground::Image(image_info)
-            },
-            Color(c) => RectBackground::Color(c),
+            LinearGradient(lg) => Some(RectBackground::LinearGradient(*lg)),
+            RadialGradient(rg) => Some(RectBackground::RadialGradient(*rg)),
+            Image(style_image_id) => get_image_info(referenced_mutable_content.app_resources, style_image_id),
+            Color(c) => Some(RectBackground::Color(*c)),
         };
 
-        frame.content.push(DisplayListRectContent::Background {
-            content: background_content,
-            size: rect.style.background_size,
-            offset: rect.style.background_position,
-            repeat: rect.style.background_repeat,
-        });
+        if let Some(background_content) = background_content {
+            frame.content.push(DisplayListRectContent::Background {
+                content: background_content,
+                size: rect.style.background_size.and_then(|bs| bs.get_property().cloned()),
+                offset: rect.style.background_position.and_then(|bs| bs.get_property().cloned()),
+                repeat: rect.style.background_repeat.and_then(|bs| bs.get_property().cloned()),
+            });
+        }
     }
 
-    if let Some(border) = &rect.style.border {
+    if rect.style.has_border() {
         frame.content.push(DisplayListRectContent::Border {
-            border: *border,
             radii: border_radii,
+            widths: StyleBorderWidths {
+                top: rect.style.border_top_width,
+                left: rect.style.border_left_width,
+                bottom: rect.style.border_bottom_width,
+                right: rect.style.border_right_width,
+            },
+            colors: StyleBorderColors {
+                top: rect.style.border_top_color,
+                left: rect.style.border_left_color,
+                bottom: rect.style.border_bottom_color,
+                right: rect.style.border_right_color,
+            },
+            styles: StyleBorderStyles {
+                top: rect.style.border_top_style,
+                left: rect.style.border_left_style,
+                bottom: rect.style.border_bottom_style,
+                right: rect.style.border_right_style,
+            },
         });
     }
 
@@ -691,7 +714,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         Div => { },
         Text(_) | Label(_) => {
             if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
-                let font_color = rect.style.font_color.unwrap_or(DEFAULT_FONT_COLOR).0;
+
+                let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
                 let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 
@@ -700,7 +724,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
                     window_size.dimensions,
                     layouted_glyphs,
                     font_instance_key,
-                    font_color,
+                    text_color,
                     &rect.layout,
                 ));
             }
@@ -713,7 +737,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,
                     image_key: image_info.key,
-                    background: ColorU::WHITE,
+                    background_color: ColorU::WHITE,
                 });
             }
         },
@@ -725,10 +749,15 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         },
     };
 
-    if let Some(box_shadow) = &rect.style.box_shadow {
+    if rect.style.has_box_shadow() {
         frame.content.push(DisplayListRectContent::BoxShadow {
-            shadow: *box_shadow,
-            border_radii,
+            shadow: StyleBoxShadow {
+                left: rect.style.box_shadow_left,
+                right: rect.style.box_shadow_right,
+                top: rect.style.box_shadow_top,
+                bottom: rect.style.box_shadow_bottom,
+            },
+            radii: border_radii,
             clip_mode: BoxShadowClipMode::Inset,
         });
     }
@@ -806,7 +835,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
         image_rendering: ImageRendering::Auto,
         alpha_type: AlphaType::Alpha,
         image_key: key,
-        background: ColorU::WHITE,
+        background_color: ColorU::WHITE,
     }
 }
 
@@ -919,7 +948,12 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     display_list_msg
 }
 
-struct LayoutPadding { right: PixelValue, left: PixelValue, top: PixelValue, bottom: PixelValue, }
+struct LayoutPadding {
+    right: Option<CssPropertyValue<LayoutPaddingRight>>,
+    left: Option<CssPropertyValue<LayoutPaddingLeft>>,
+    top: Option<CssPropertyValue<LayoutPaddingTop>>,
+    bottom: Option<CssPropertyValue<LayoutPaddingBottom>>,
+}
 
 fn get_text(
     bounds: DisplayListRect,
@@ -934,13 +968,13 @@ fn get_text(
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
 
     let padding = LayoutPadding {
-        top: rect_layout.padding_top.unwrap_or_default(),
-        bottom: rect_layout.padding_bottom.unwrap_or_default(),
-        left: rect_layout.padding_left.unwrap_or_default(),
-        right: rect_layout.padding_right.unwrap_or_default(),
+        top: rect_layout.padding_top,
+        bottom: rect_layout.padding_bottom,
+        left: rect_layout.padding_left,
+        right: rect_layout.padding_right,
     };
 
-    let padding_clip_bounds = subtract_padding(&bounds, padding);
+    let padding_clip_bounds = subtract_padding(&bounds, &padding);
 
     // Adjust the bounds by the padding, depending on the overflow:visible parameter
     let text_clip_rect = match (overflow_horizontal_visible, overflow_vertical_visible) {
@@ -976,10 +1010,10 @@ fn get_text(
 /// Warning: The resulting rectangle may have negative width or height
 fn subtract_padding(bounds: &DisplayListRect, padding: &LayoutPadding) -> DisplayListRect {
 
-    let top     = padding.top.map(|top| top.to_pixels()).unwrap_or(0.0);
-    let bottom  = padding.bottom.map(|bottom| bottom.to_pixels()).unwrap_or(0.0);
-    let left    = padding.left.map(|left| left.to_pixels()).unwrap_or(0.0);
-    let right   = padding.right.map(|right| right.to_pixels()).unwrap_or(0.0);
+    let top     = padding.top.and_then(|top| top.get_property_or_default()).unwrap_or_default().0.to_pixels();
+    let bottom  = padding.bottom.and_then(|bottom| bottom.get_property_or_default()).unwrap_or_default().0.to_pixels();
+    let left    = padding.left.and_then(|left| left.get_property_or_default()).unwrap_or_default().0.to_pixels();
+    let right   = padding.right.and_then(|right| right.get_property_or_default()).unwrap_or_default().0.to_pixels();
 
     let mut new_bounds = *bounds;
 
@@ -1005,6 +1039,7 @@ fn populate_css_properties(
 ) -> Vec<OverrideWarning> {
 
     use azul_css::CssDeclaration::*;
+    use std::mem;
 
     rect.styled_node.css_constraints.values()
     .filter_map(|constraint| match constraint {
@@ -1012,26 +1047,20 @@ fn populate_css_properties(
         Dynamic(dynamic_property) => Some(dynamic_property),
     })
     .filter_map(|dynamic_property| {
-        let dynamic_prop = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id.clone().into()))?;
+        let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id.clone().into()))?;
 
-        // Apply the property default if the type matches
-        if property_type_matches(&dynamic_property.overridden_property, &dynamic_property.default) {
-            apply_style_property(rect, &dynamic_property.overridden_property);
+        // Apply the property default if the discriminant of the two types matches
+        if mem::discriminant(overridden_property) == mem::discriminant(&dynamic_property.default_value) {
+            apply_style_property(rect, overridden_property);
             None
         } else {
             Some(OverrideWarning {
-                default: dynamic_property.default.clone(),
-                overridden_property: dynamic_property.overridden_property.clone(),
+                default: dynamic_property.default_value.clone(),
+                overridden_property: overridden_property.clone(),
             })
         }
     })
     .collect()
-}
-
-// Assert that the types of two properties matches
-fn property_type_matches(a: &CssProperty, b: &CssProperty) -> bool {
-    use std::mem::discriminant;
-    discriminant(a) == discriminant(b)
 }
 
 fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
@@ -1075,7 +1104,7 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
         AlignItems(ai)                  => layout.align_items = Some(*ai),
         AlignContent(ac)                => layout.align_content = Some(*ac),
 
-        BackgroundContent(bc)           => style.background_content = Some(*bc),
+        BackgroundContent(bc)           => style.background = Some(*bc),
         BackgroundPosition(bp)          => style.background_position = Some(*bp),
         BackgroundSize(bs)              => style.background_size = Some(*bs),
         BackgroundRepeat(br)            => style.background_repeat = Some(*br),

@@ -107,6 +107,20 @@ impl<T> From<T> for CssPropertyValue<T> {
 }
 
 impl<T> CssPropertyValue<T> {
+
+    /// Transforms a `CssPropertyValue<T>` into a `CssPropertyValue<U>` by applying a mapping function
+    #[inline]
+    pub fn map_property<F: Fn(T) -> U, U>(self, map_fn: F) -> CssPropertyValue<U> {
+        match self {
+            CssPropertyValue::Exact(c) => CssPropertyValue::Exact(map_fn(c)),
+            CssPropertyValue::Auto => CssPropertyValue::Auto,
+            CssPropertyValue::None => CssPropertyValue::None,
+            CssPropertyValue::Initial => CssPropertyValue::Initial,
+            CssPropertyValue::Inherit => CssPropertyValue::Inherit,
+        }
+    }
+
+    #[inline]
     pub fn get_property(&self) -> Option<&T> {
         match self {
             CssPropertyValue::Exact(c) => Some(c),
@@ -114,6 +128,7 @@ impl<T> CssPropertyValue<T> {
         }
     }
 
+    #[inline]
     pub fn is_auto(&self) -> bool {
         match self {
             CssPropertyValue::Auto => true,
@@ -121,6 +136,7 @@ impl<T> CssPropertyValue<T> {
         }
     }
 
+    #[inline]
     pub fn is_none(&self) -> bool {
         match self {
             CssPropertyValue::None => true,
@@ -128,6 +144,7 @@ impl<T> CssPropertyValue<T> {
         }
     }
 
+    #[inline]
     pub fn is_initial(&self) -> bool {
         match self {
             CssPropertyValue::Initial => true,
@@ -135,6 +152,7 @@ impl<T> CssPropertyValue<T> {
         }
     }
 
+    #[inline]
     pub fn is_inherit(&self) -> bool {
         match self {
             CssPropertyValue::Inherit => true,
@@ -144,6 +162,7 @@ impl<T> CssPropertyValue<T> {
 }
 
 impl<T: Default> CssPropertyValue<T> {
+    #[inline]
     pub fn get_property_or_default(self) -> Option<T> {
         match self {
             CssPropertyValue::Auto | CssPropertyValue::Initial => Some(T::default()),
@@ -154,6 +173,7 @@ impl<T: Default> CssPropertyValue<T> {
 }
 
 impl<T: Default> Default for CssPropertyValue<T> {
+    #[inline]
     fn default() -> Self {
         CssPropertyValue::Exact(T::default())
     }

@@ -52,12 +52,12 @@ pub(crate) fn px_to_au(px: f32) -> Au {
 }
 
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
-    let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0));
+    let font_id = rect_style.font_family.and_then(|family| family.get_property()?.fonts.get(0));
     font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
 }
 
 pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
-    rect_style.font_size.and_then(|fs| fs.get_property_or_default()).unwrap_or(DEFAULT_FONT_SIZE)
+    rect_style.font_size.and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -356,10 +356,10 @@ fn get_text_layout_options(
     holes: Vec<LayoutRect>,
 ) -> TextLayoutOptions {
     TextLayoutOptions {
-        line_height: rect.style.line_height.and_then(|lh| lh.get_property_or_default()).map(|lh| lh.get()),
-        letter_spacing: rect.style.letter_spacing.and_then(|ls| ls.unwrap_or_default()).map(|ls| ls.to_pixels()),
-        word_spacing: rect.style.word_spacing.and_then(|ws| ws.unwrap_or_default()).map(|ws| ws.to_pixels()),
-        tab_width: rect.style.tab_width.map(|tw| tw.unwrap_or_default()).map(|tw| lh.get()),
+        line_height: rect.style.line_height.and_then(|lh| lh.get_property()).map(|lh| lh.0.get()),
+        letter_spacing: rect.style.letter_spacing.and_then(|ls| ls.get_property()).map(|ls| ls.0.to_pixels()),
+        word_spacing: rect.style.word_spacing.and_then(|ws| ws.get_property()).map(|ws| ws.0.to_pixels()),
+        tab_width: rect.style.tab_width.and_then(|tw| tw.get_property()).map(|tw| tw.0.get()),
         max_horizontal_width,
         leading,
         holes,
@@ -384,8 +384,8 @@ fn get_glyphs<'a>(
         let (word_positions, _) = positioned_word_cache.get(node_id)?;
         let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
 
-        let rect_padding_top = display_rect.layout.padding_top.unwrap_or_default().to_pixels();
-        let rect_padding_left = display_rect.layout.padding_left.unwrap_or_default().to_pixels();
+        let rect_padding_top = display_rect.layout.padding_top.and_then(|pt| pt.get_property_or_default()).unwrap_or_default().0.to_pixels();
+        let rect_padding_left = display_rect.layout.padding_left.and_then(|pt| pt.get_property_or_default()).unwrap_or_default().0.to_pixels();
         let rect_offset = LayoutPoint::new(layouted_rect.bounds.origin.x + rect_padding_left, layouted_rect.bounds.origin.y + rect_padding_top);
         let bounding_size_height_px = layouted_rect.bounds.size.height - display_rect.layout.get_vertical_padding();
 
@@ -409,7 +409,7 @@ fn determine_text_alignment(
     let mut horz_alignment = StyleTextAlignmentHorz::default();
     let mut vert_alignment = StyleTextAlignmentVert::default();
 
-    if let Some(align_items) = rect_layout.align_items.unwrap_or_default() {
+    if let Some(align_items) = rect_layout.align_items.and_then(|ai| ai.get_property_or_default()) {
         // Vertical text alignment
         use azul_css::LayoutAlignItems;
         match align_items {
@@ -420,7 +420,7 @@ fn determine_text_alignment(
         }
     }
 
-    if let Some(justify_content) = rect_layout.justify_content.unwrap_or_default() {
+    if let Some(justify_content) = rect_layout.justify_content.and_then(|jc| jc.get_property_or_default()) {
         use azul_css::LayoutJustifyContent;
         // Horizontal text alignment
         match justify_content {
@@ -430,7 +430,7 @@ fn determine_text_alignment(
         }
     }
 
-    if let Some(text_align) = rect_style.text_align {
+    if let Some(text_align) = rect_style.text_align.and_then(|ta| ta.get_property_or_default()) {
         // Horizontal text alignment with higher priority
         horz_alignment = text_align;
     }

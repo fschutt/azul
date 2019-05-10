@@ -270,7 +270,7 @@ fn scan_ui_description_for_image_keys<'a, T>(
         match node_data.get_node_type() {
             Image(id) => Some(*id),
             _ => {
-                let background = display_rect.style.background.as_ref()?;
+                let background = display_rect.style.background.and_then(|bg| bg.get_property())?;
                 let css_image_id = background.get_css_image_id()?;
                 let image_id = app_resources.get_css_image_id(&css_image_id.0)?;
                 Some(*image_id)

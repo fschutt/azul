@@ -1,10 +1,12 @@
 use azul_css::{
-    StyleBackgroundRepeat, StyleBackgroundPosition,
-    ColorU, BoxShadowClipMode, LinearGradient, RadialGradient,
-    BoxShadowPreDisplayItem, StyleBorderTopLeftRadius,
-    StyleBorderTopRightRadius, StyleBorderBottomLeftRadius,
-    StyleBorderBottomRightRadius, PixelValue, StyleBackgroundSize,
-    BorderStyle, CssPropertyValue,
+    StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
+    LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
+    CssPropertyValue,
+
+    StyleBorderTopWidth, StyleBorderRightWidth, StyleBorderBottomWidth, StyleBorderLeftWidth,
+    StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
+    StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderBottomStyle, StyleBorderLeftStyle,
+    StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
 };
 use app_resources::{ImageKey, FontInstanceKey, ImageInfo};
 use window::{LogicalPosition, LogicalSize};
@@ -153,26 +155,26 @@ pub struct StyleBorderRadius {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderWidths {
-    pub top: Option<CssPropertyValue<PixelValue>>,
-    pub right: Option<CssPropertyValue<PixelValue>>,
-    pub bottom: Option<CssPropertyValue<PixelValue>>,
-    pub left: Option<CssPropertyValue<PixelValue>>,
+    pub top: Option<CssPropertyValue<StyleBorderTopWidth>>,
+    pub right: Option<CssPropertyValue<StyleBorderRightWidth>>,
+    pub bottom: Option<CssPropertyValue<StyleBorderBottomWidth>>,
+    pub left: Option<CssPropertyValue<StyleBorderLeftWidth>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderColors {
-    pub top: Option<CssPropertyValue<ColorU>>,
-    pub right: Option<CssPropertyValue<ColorU>>,
-    pub bottom: Option<CssPropertyValue<ColorU>>,
-    pub left: Option<CssPropertyValue<ColorU>>,
+    pub top: Option<CssPropertyValue<StyleBorderTopColor>>,
+    pub right: Option<CssPropertyValue<StyleBorderRightColor>>,
+    pub bottom: Option<CssPropertyValue<StyleBorderBottomColor>>,
+    pub left: Option<CssPropertyValue<StyleBorderLeftColor>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderStyles {
-    pub top: Option<CssPropertyValue<BorderStyle>>,
-    pub right: Option<CssPropertyValue<BorderStyle>>,
-    pub bottom: Option<CssPropertyValue<BorderStyle>>,
-    pub left: Option<CssPropertyValue<BorderStyle>>,
+    pub top: Option<CssPropertyValue<StyleBorderTopStyle>>,
+    pub right: Option<CssPropertyValue<StyleBorderRightStyle>>,
+    pub bottom: Option<CssPropertyValue<StyleBorderBottomStyle>>,
+    pub left: Option<CssPropertyValue<StyleBorderLeftStyle>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -47,25 +47,20 @@ use azul_core::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
         DisplayListFrame, DisplayListRect, DisplayListRectContent, DisplayListMsg,
         FontInstanceFlags, GlyphOptions, AlphaType, FontRenderMode, ImageRendering,
+        StyleBorderRadius,
     },
 };
 use azul_css::{
     ColorU as CssColorU,
     ColorF as CssColorF,
     BorderSide as CssBorderSide,
-    NormalBorder as CssNormalBorder,
     LayoutPoint as CssLayoutPoint,
     LayoutRect as CssLayoutRect,
     LayoutSize as CssLayoutSize,
-    BorderDetails as CssBorderDetails,
     BoxShadowClipMode as CssBoxShadowClipMode,
     ExtendMode as CssExtendMode,
     BorderStyle as CssBorderStyle,
     LayoutSideOffsets as CssLayoutSideOffsets,
-    StyleBorderTopLeftRadius as CssStyleBorderTopLeftRadius,
-    StyleBorderTopRightRadius as CssStyleBorderTopRightRadius,
-    StyleBorderBottomLeftRadius as CssStyleBorderBottomLeftRadius,
-    StyleBorderBottomRightRadius as CssStyleBorderBottomRightRadius,
 };
 use app_units::Au as WrAu;
 use glium::glutin::{VirtualKeyCode as WinitVirtualKeyCode, MouseCursor as WinitCursorType};
@@ -253,17 +248,19 @@ pub const fn wr_translate_color_f(input: CssColorF) -> WrColorF {
 }
 
 #[inline]
-pub fn wr_translate_border_radius((top_left, top_right, bottom_left, bottom_right): (
-        CssStyleBorderTopLeftRadius,
-        CssStyleBorderTopRightRadius,
-        CssStyleBorderBottomLeftRadius,
-        CssStyleBorderBottomRightRadius,
-    )) -> WrBorderRadius {
+pub fn wr_translate_border_radius(border_radius: StyleBorderRadius) -> WrBorderRadius {
+    let StyleBorderRadius { top_left, top_right, bottom_left, bottom_right } = border_radius;
+
+    let top_left_px = top_left.and_then(|tl| tl.get_property_or_default()).unwrap_or_default().0.to_pixels();
+    let top_right_px = top_right.and_then(|tr| tr.get_property_or_default()).unwrap_or_default().0.to_pixels();
+    let bottom_left_px = bottom_left.and_then(|bl| bl.get_property_or_default()).unwrap_or_default().0.to_pixels();
+    let bottom_right_px = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().0.to_pixels();
+
     WrBorderRadius {
-        top_left: WrLayoutSize::new(top_left.0.to_pixels(), top_left.0.to_pixels()),
-        top_right: WrLayoutSize::new(top_right.0.to_pixels(), top_right.0.to_pixels()),
-        bottom_left: WrLayoutSize::new(bottom_left.0.to_pixels(), bottom_left.0.to_pixels()),
-        bottom_right: WrLayoutSize::new(bottom_right.0.to_pixels(), bottom_right.0.to_pixels()),
+        top_left: WrLayoutSize::new(top_left_px, top_left_px),
+        top_right: WrLayoutSize::new(top_right_px, top_right_px),
+        bottom_left: WrLayoutSize::new(bottom_left_px, bottom_left_px),
+        bottom_right: WrLayoutSize::new(bottom_right_px, bottom_right_px),
     }
 }
 
@@ -272,25 +269,6 @@ pub fn wr_translate_border_side(input: CssBorderSide) -> WrBorderSide {
     WrBorderSide {
         color: wr_translate_color_u(input.color).into(),
         style: wr_translate_border_style(input.style),
-    }
-}
-
-#[inline]
-pub fn wr_translate_normal_border(input: CssNormalBorder) -> WrNormalBorder {
-
-    // Webrender crashes if anti-aliasing is disabled and the border isn't pure-solid
-    let is_not_solid = [input.top.style, input.bottom.style, input.left.style, input.right.style].iter().any(|style| {
-        *style != CssBorderStyle::Solid
-    });
-    let do_aa = input.radius.is_some() || is_not_solid;
-
-    WrNormalBorder {
-        left: wr_translate_border_side(input.left),
-        right: wr_translate_border_side(input.right),
-        top: wr_translate_border_side(input.top),
-        bottom: wr_translate_border_side(input.bottom),
-        radius: wr_translate_border_radius(input.radius.unwrap_or_default()),
-        do_aa,
     }
 }
 
@@ -305,29 +283,6 @@ pub const fn wr_translate_css_layout_rect(input: WrLayoutRect) -> CssLayoutRect 
     CssLayoutRect {
         origin: CssLayoutPoint { x: input.origin.x, y: input.origin.y },
         size: CssLayoutSize { width: input.size.width, height: input.size.height },
-    }
-}
-
-// NOTE: Reverse direction: Translate from webrender::LayoutRect to css::LayoutRect
-#[inline]
-pub fn wr_translate_border_details(input: CssBorderDetails) -> WrBorderDetails {
-    let zero_border_side = WrBorderSide {
-        color: WrColorU { r: 0, g: 0, b: 0, a: 0 }.into(),
-        style: WrBorderStyle::None
-    };
-
-    match input {
-        CssBorderDetails::Normal(normal) => WrBorderDetails::Normal(wr_translate_normal_border(normal)),
-        // TODO: Do 9patch border properly - currently this can't be reached since there
-        // is no parsing for 9patch border yet!
-        CssBorderDetails::NinePatch(_) => WrBorderDetails::Normal(WrNormalBorder {
-            left: zero_border_side,
-            right: zero_border_side,
-            bottom: zero_border_side,
-            top: zero_border_side,
-            radius: WrBorderRadius::zero(),
-            do_aa: false,
-        })
     }
 }
 
@@ -702,8 +657,8 @@ fn push_display_list_content(builder: &mut WrDisplayListBuilder, content: Displa
         Border { radii, widths, colors, styles } => {
             border::push_border(builder, info, radii, widths, colors, styles);
         },
-        BoxShadow { shadow, border_radii, clip_mode } => {
-            box_shadow::push_box_shadow(builder, translate_layout_rect_wr(info.rect), clip_mode, shadow, border_radii);
+        BoxShadow { shadow, radii, clip_mode } => {
+            box_shadow::push_box_shadow(builder, translate_layout_rect_wr(info.rect), clip_mode, shadow, radii);
         },
     }
 }
@@ -884,13 +839,13 @@ mod background {
         let background_position = background_position.unwrap_or_default();
         let background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(info, background_position, background_size);
+        let background_position = calculate_background_position(info, background_position, background_size);
         let background_repeat_info = get_background_repeat_info(info, background_repeat, background_size);
 
         // TODO: customize this for image backgrounds?
         let alpha_type = AlphaType::PremultipliedAlpha;
         let image_rendering = ImageRendering::Auto;
-        let background_color: ColorU::TRANSPARENT;
+        let background_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
         image::push_image(builder, &background_repeat_info, background_size, background_position, image_info.key, alpha_type, image_rendering, background_color);
     }
@@ -1288,7 +1243,7 @@ mod box_shadow {
             wr_translate_color_f(apply_gamma(pre_shadow.color.into())),
             pre_shadow.blur_radius.to_pixels(),
             pre_shadow.spread_radius.to_pixels(),
-            wr_translate_border_radius(border_radius.0).into(),
+            wr_translate_border_radius(border_radius),
             wr_translate_box_shadow_clip_mode(pre_shadow.clip_mode)
         );
     }
@@ -1376,17 +1331,17 @@ mod border {
         };
 
         let (width_top, width_right, width_bottom, width_left) = (
-            widths.top.and_then(CssPropertyValue::get_property_or_default),
-            widths.right.and_then(CssPropertyValue::get_property_or_default),
-            widths.bottom.and_then(CssPropertyValue::get_property_or_default),
-            widths.left.and_then(CssPropertyValue::get_property_or_default),
+            widths.top.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
+            widths.right.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
+            widths.bottom.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
+            widths.left.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
         );
 
         let (style_top, style_right, style_bottom, style_left) = (
-            get_border_style_normalized(styles.top),
-            get_border_style_normalized(styles.right),
-            get_border_style_normalized(styles.bottom),
-            get_border_style_normalized(styles.left),
+            get_border_style_normalized(styles.top.map(|s| s.map_property(|s| s.0))),
+            get_border_style_normalized(styles.right.map(|s| s.map_property(|s| s.0))),
+            get_border_style_normalized(styles.bottom.map(|s| s.map_property(|s| s.0))),
+            get_border_style_normalized(styles.left.map(|s| s.map_property(|s| s.0))),
         );
 
         let no_border_style =
@@ -1420,10 +1375,10 @@ mod border {
                                    radius_bottom_right.is_none();
 
         let (color_top, color_right, color_bottom, color_left) = (
-           colors.top.and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
-           colors.right.and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
-           colors.bottom.and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
-           colors.left.and_then(CssPropertyValue::get_property_or_default).unwrap_or_default(),
+           colors.top.and_then(|ct| ct.get_property_or_default()).unwrap_or_default(),
+           colors.right.and_then(|cr| cr.get_property_or_default()).unwrap_or_default(),
+           colors.bottom.and_then(|cb| cb.get_property_or_default()).unwrap_or_default(),
+           colors.left.and_then(|cl| cl.get_property_or_default()).unwrap_or_default(),
         );
 
         let border_widths = WrLayoutSideOffsets::new(
@@ -1434,10 +1389,10 @@ mod border {
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {
-            top:    WrBorderSide { color: wr_translate_color_u(color_top).into(), style: translate_wr_border(style_top, width_top) },
-            left:   WrBorderSide { color: wr_translate_color_u(color_left).into(), style: translate_wr_border(style_left, width_left) },
-            right:  WrBorderSide { color: wr_translate_color_u(color_right).into(), style: translate_wr_border(style_right, width_right) },
-            bottom: WrBorderSide { color: wr_translate_color_u(color_bottom).into(), style: translate_wr_border(style_bottom, width_bottom) },
+            top:    WrBorderSide { color: wr_translate_color_u(color_top.0).into(), style: translate_wr_border(style_top, width_top) },
+            left:   WrBorderSide { color: wr_translate_color_u(color_left.0).into(), style: translate_wr_border(style_left, width_left) },
+            right:  WrBorderSide { color: wr_translate_color_u(color_right.0).into(), style: translate_wr_border(style_right, width_right) },
+            bottom: WrBorderSide { color: wr_translate_color_u(color_bottom.0).into(), style: translate_wr_border(style_bottom, width_bottom) },
             radius: if has_no_border_radius { WrBorderRadius::zero() } else {
 
                 let radius_top_left = radius_top_left.map(|v| v.to_pixels()).unwrap_or(0.0);
