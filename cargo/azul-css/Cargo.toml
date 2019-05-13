@@ -16,4 +16,7 @@ readme = "README.md"
 exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
+[lib]
+path = "../../azul-css/lib.rs"
+
 [dependencies]

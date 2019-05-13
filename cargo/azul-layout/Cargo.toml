@@ -3,6 +3,9 @@ name = "azul-stretch-mini"
 version = "0.1.0"
 authors = ["Emil Sjölander <emil@visly.app>", "fschutt <felix.schuett@maps4print.com>"]
 
+[lib]
+path = "../../azul-layout/lib.rs"
+
 [dependencies]
 azul-core   = { version = "0.1.0", path = "../azul-core" }
 azul-css    = { version = "0.1.0", path = "../azul-css"  }

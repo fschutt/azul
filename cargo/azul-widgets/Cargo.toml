@@ -15,6 +15,9 @@ readme = "README.md"
 exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 
+[lib]
+path = "../../azul-widgets/lib.rs"
+
 [dependencies]
 azul-core               = { version = "0.1.0",                  path = "../azul-core"                             }
 azul-dependencies       = { version = "0.1.0", optional = true, git = "https://github.com/maps4print/azul-dependencies", rev = "bf2933b9aac43a7003278862772250398e4fa457" }

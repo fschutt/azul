@@ -15,6 +15,9 @@ readme = "README.md"
 exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
+[lib]
+path = "../../azul-core/lib.rs"
+
 [dependencies]
 azul-css                = { version = "0.1.0",                      path = "../azul-css"                            }
 gleam                   = { version = "0.6"                                                                         }

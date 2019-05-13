@@ -15,6 +15,9 @@ readme = "README.md"
 exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 
+[lib]
+path = "../../azul-native-style/lib.rs"
+
 [dependencies]
 azul-css                = { path = "../azul-css",          default-features = false }
 azul-css-parser         = { path = "../azul-css-parser",   default-features = false }
