@@ -50,51 +50,145 @@ impl LayoutedInlineText {
 }
 
 impl SolvedUi {
-    pub fn new<T: GetRectStyle + GetRectLayout, U: GetTextLayout>(
+    pub fn new<T: GetRectLayout, U: GetTextLayout>(
         bounds: LayoutRect,
         node_hierarchy: &NodeHierarchy,
         display_rects: &NodeDataContainer<T>,
         rect_contents: BTreeMap<NodeId, RectContent<U>>,
     ) -> Self {
 
-        use style::Style;
-
         let styles = display_rects.transform(|node, node_id| {
-            Style {
-                display: Display,
-                position_type: PositionType,
-                direction: Direction,
-                flex_direction: FlexDirection,
-                flex_wrap: FlexWrap,
-                overflow: Overflow,
-                align_items: AlignItems,
-                align_self: AlignSelf,
-                align_content: AlignContent,
-                justify_content: JustifyContent,
-                position: Rect<Dimension>,
-                margin: Rect<Dimension>,
-                padding: Rect<Dimension>,
-                border: Rect<Dimension>,
-                flex_grow: f32,
-                flex_shrink: f32,
-                flex_basis: Dimension,
-                size: Size { width: Dimension, height: Dimension },
-                min_size: Size<Dimension>,
-                max_size: Size<Dimension>,
-                aspect_ratio: Number,
-            }
-            /*
-                match rect_contents.get(node_id) {
-                    Some(RectContent::Image(w, h)) => { },
-                    Some(RectContent(text_impl)) => { text_impl.get_text_layout().get_bounds(); },
-                    None => { },
+
+            use style::*;
+            use geometry::{Size, Number, Rect};
+            use azul_css::{
+                CssPropertyValue, PixelValue, LayoutDisplay, LayoutPosition,
+                LayoutDirection, LayoutWrap, LayoutAlignItems, LayoutAlignContent,
+                LayoutJustifyContent,
+            };
+
+            let rect_layout = node.get_rect_layout();
+
+            #[inline]
+            fn translate_dimension(input: Option<CssPropertyValue<PixelValue>>) -> Dimension {
+                match input {
+                    None => Dimension::Undefined,
+                    Some(CssPropertyValue::Auto) => Dimension::Auto,
+                    Some(CssPropertyValue::None) => Dimension::Points(0.0),
+                    Some(CssPropertyValue::Initial) => Dimension::Points(0.0),
+                    Some(CssPropertyValue::Inherit) => Dimension::Undefined,
+                    Some(CssPropertyValue::Exact(pixel_value)) => Dimension::Points(pixel_value.to_points()), // todo: percent!
                 }
-            */
+            }
+
+            let image_aspect_ratio = match rect_contents.get(node_id) {
+                Some(RectContent::Image(w, h)) => Number::Defined(w as f32 / h as f32),
+                _ => Number::Undefined,
+            };
+
+            Style {
+                display: match rect_layout.display.unwrap_or_default().get_property_or_default() {
+                    Some(LayoutDisplay::Flex) => Display::Flex,
+                    Some(LayoutDisplay::None) => Display::None,
+                    Some(LayoutDisplay::Inline) => Display::None,
+                    None => Display::Flex,
+                },
+                position_type: match rect_layout.position.unwrap_or_default().get_property_or_default() {
+                    Some(LayoutPosition::Static) => Position::Relative, // todo - static?
+                    Some(LayoutPosition::Relative) => Position::Relative,
+                    Some(LayoutPosition::Absolute) => Position::Absolute,
+                    None => Position::Relative,
+                },
+                direction: Direction::Ltr,
+                flex_direction: match rect_layout.direction.unwrap_or_default().get_property_or_default() {
+                    Some(LayoutDirection::Row) => FlexDirection::Row,
+                    Some(LayoutDirection::RowReverse) => FlexDirection::RowReverse,
+                    Some(LayoutDirection::Column) => FlexDirection::Column,
+                    Some(LayoutDirection::ColumnReverse) => FlexDirection::ColumnReverse,
+                    None => FlexDirection::Row,
+                },
+                flex_wrap: match rect_layout.wrap.unwrap_or_default().get_property_or_default() {
+                    Some(LayoutWrap::Wrap) => FlexWrap::Wrap,
+                    Some(LayoutWrap::NoWrap) => FlexWrap::NoWrap,
+                    None => FlexWrap::Wrap,
+                },
+                overflow: Overflow::Visible, // todo!
+                align_items: match rect_layout.align_items.unwrap_or_default().get_property_or_default() {
+                    Some(LayoutAlignItems::Stretch) => AlignItems::Stretch,
+                    Some(LayoutAlignItems::Center) => AlignItems::Center,
+                    Some(LayoutAlignItems::Start) => AlignItems::FlexStart,
+                    Some(LayoutAlignItems::End) => AlignItems::FlexEnd,
+                    None => AlignItems::Start,
+                },
+                align_self: AlignSelf::Auto, // todo!
+                align_content: match rect_layout.align_content.unwrap_or_default().get_property_or_default() {
+                    Some(LayoutAlignContent::Stretch) => AlignContent::Stretch,
+                    Some(LayoutAlignContent::Center) => AlignContent::Center,
+                    Some(LayoutAlignContent::Start) => AlignContent::FlexStart,
+                    Some(LayoutAlignContent::End) => AlignContent::FlexEnd,
+                    Some(LayoutAlignContent::SpaceBetween) => AlignContent::SpaceBetween,
+                    Some(LayoutAlignContent::SpaceAround) => AlignContent::SpaceAround,
+                    None => AlignContent::Stretch,
+                },
+                justify_content: match rect_layout.justify_content.unwrap_or_default().get_property_or_default() {
+                    Some(LayoutJustifyContent::Stretch) => JustifyContent::Stretch,
+                    Some(LayoutJustifyContent::Center) => JustifyContent::Center,
+                    Some(LayoutJustifyContent::Start) => JustifyContent::FlexStart,
+                    Some(LayoutJustifyContent::End) => JustifyContent::FlexEnd,
+                    Some(LayoutJustifyContent::SpaceBetween) => JustifyContent::SpaceBetween,
+                    Some(LayoutJustifyContent::SpaceAround) => JustifyContent::SpaceAround,
+                    Some(LayoutJustifyContent::SpaceEvenly) => JustifyContent::SpaceEvenly,
+                    None => JustifyContent::Start,
+                },
+                position: Rect {
+                    start: translate_dimension(rect_layout.left.map(|prop| prop.map_property(|l| l.0))),
+                    end: translate_dimension(rect_layout.right.map(|prop| prop.map_property(|r| r.0))),
+                    top: translate_dimension(rect_layout.top.map(|prop| prop.map_property(|t| t.0))),
+                    bottom: translate_dimension(rect_layout.bottom.map(|prop| prop.map_property(|b| b.0))),
+                },
+                margin: Rect {
+                    start: translate_dimension(rect_layout.margin_left.map(|prop| prop.map_property(|l| l.0))),
+                    end: translate_dimension(rect_layout.margin_right.map(|prop| prop.map_property(|r| r.0))),
+                    top: translate_dimension(rect_layout.margin_top.map(|prop| prop.map_property(|t| t.0))),
+                    bottom: translate_dimension(rect_layout.margin_bottom.map(|prop| prop.map_property(|b| b.0))),
+                },
+                padding: Rect {
+                    start: translate_dimension(rect_layout.padding_left.map(|prop| prop.map_property(|l| l.0))),
+                    end: translate_dimension(rect_layout.padding_right.map(|prop| prop.map_property(|r| r.0))),
+                    top: translate_dimension(rect_layout.padding_top.map(|prop| prop.map_property(|t| t.0))),
+                    bottom: translate_dimension(rect_layout.padding_bottom.map(|prop| prop.map_property(|b| b.0))),
+                },
+                border: Rect {
+                    start: translate_dimension(rect_layout.border_left_width.map(|prop| prop.map_property(|l| l.0))),
+                    end: translate_dimension(rect_layout.border_right_width.map(|prop| prop.map_property(|r| r.0))),
+                    top: translate_dimension(rect_layout.border_top_width.map(|prop| prop.map_property(|t| t.0))),
+                    bottom: translate_dimension(rect_layout.border_bottom_width.map(|prop| prop.map_property(|b| b.0))),
+                },
+                flex_grow: rect_layout.flex_grow.unwrap_or_default().get_property_or_default().unwrap_or_default().0.get(),
+                flex_shrink: rect_layout.flex_shrink.unwrap_or_default().get_property_or_default().unwrap_or_default().0.get(),
+                flex_basis: Dimension::Auto, // todo!
+                size: Size {
+                    width: translate_dimension(rect_layout.width.map(|prop| prop.map_property(|l| l.0))),
+                    height: translate_dimension(rect_layout.height.map(|prop| prop.map_property(|l| l.0))),
+                },
+                min_size: Size {
+                    width: translate_dimension(rect_layout.min_width.map(|prop| prop.map_property(|l| l.0))),
+                    height: translate_dimension(rect_layout.min_height.map(|prop| prop.map_property(|l| l.0))),
+                },
+                max_size: Size {
+                    width: translate_dimension(rect_layout.max_width.map(|prop| prop.map_property(|l| l.0))),
+                    height: translate_dimension(rect_layout.max_height.map(|prop| prop.map_property(|l| l.0))),
+                },
+                aspect_ratio: image_aspect_ratio,
+            }
         });
 
         // TODO: Actually solve the rects
-        let solved_rects = display_rects.transform(|node, node_id| PositionedRectangle {
-
+        let solved_rects = display_rects.transform(|node, node_id| {
+            PositionedRectangle {
+                bounds: LayoutRect::zero(),
+                content_size: None,
+            }
         });
 
         SolvedUi { solved_rects }
@@ -110,19 +204,5 @@ impl SolvedUi {
 
         // 1. do layout pass without any text, only images
         // 2. for each display: inline
-        /*
-            pub struct PositionedRectangle {
-                /// Outer bounds of the rectangle
-                pub bounds: LayoutRect,
-                /// Size of the content, for example if a div contains an image or text,
-                /// that image or the text block can be bigger than the actual rect
-                pub content_size: Option<LayoutSize>,
-            }
-        // SolvedUi {
-        //     solved_rects: NodeDataContainer<PositionedRectangle>,
-        //     node_depths: NodeDepths,
-        // }
-
-        */
     }
 }

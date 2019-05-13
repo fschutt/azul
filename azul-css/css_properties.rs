@@ -148,7 +148,7 @@ impl LayoutRect {
 
     // Returns if b overlaps a
     #[inline(always)]
-    fn contains_rect(&self, b: &LayoutRect) -> bool {
+    pub fn contains_rect(&self, b: &LayoutRect) -> bool {
 
         let a = self;
 
@@ -1041,6 +1041,12 @@ impl PixelValue {
             SizeMetric::Em => { (self.number.get()) * EM_HEIGHT },
         }
     }
+
+    #[inline]
+    pub fn to_points(&self) -> f32 {
+        const PX_TO_PT: f32 = 72.0 / 96.0;
+        self.to_pixels() * PX_TO_PT
+    }
 }
 
 /// Wrapper around FloatValue, represents a percentage instead
@@ -1614,9 +1620,22 @@ impl_pixel_value!(LayoutMarginLeft);
 /// Represents a `flex-grow` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutFlexGrow(pub FloatValue);
+
+impl Default for LayoutFlexGrow {
+    fn default() -> Self {
+        LayoutFlexGrow(FloatValue::const_new(1))
+    }
+}
+
 /// Represents a `flex-shrink` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutFlexShrink(pub FloatValue);
+
+impl Default for LayoutFlexShrink {
+    fn default() -> Self {
+        LayoutFlexShrink(FloatValue::const_new(1))
+    }
+}
 
 impl_float_value!(LayoutFlexGrow);
 impl_float_value!(LayoutFlexShrink);
@@ -1736,6 +1755,9 @@ pub enum LayoutJustifyContent {
     SpaceBetween,
     /// Items are positioned with space before, between, and after the lines
     SpaceAround,
+    /// Items are distributed so that the spacing between any two adjacent alignment subjects,
+    /// before the first alignment subject, and after the last alignment subject is the same
+    SpaceEvenly,
 }
 
 impl Default for LayoutJustifyContent {
@@ -1782,7 +1804,7 @@ pub enum LayoutAlignContent {
 
 impl Default for LayoutAlignContent {
     fn default() -> Self {
-        LayoutAlignContent::Start
+        LayoutAlignContent::Stretch
     }
 }
 
@@ -1904,6 +1926,7 @@ pub struct RectStyle {
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectLayout {
+    pub display: Option<CssPropertyValue<LayoutDisplay>>,
 
     pub width: Option<CssPropertyValue<LayoutWidth>>,
     pub height: Option<CssPropertyValue<LayoutHeight>>,

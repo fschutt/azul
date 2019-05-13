@@ -69,7 +69,8 @@ pub struct App<T> {
     /// The `Layout::layout()` callback, stored as a function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
-    /// - It seperates the `Dom<T>` from the `Layout` trait, making it possible to split the UI solving and styling into reusable crates
+    /// - It seperates the `Dom<T>` from the `Layout` trait, making it possible to split the
+    ///   UI solving and styling into reusable crates
     /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
     /// - It's potentially more efficient to compile (less type-checking required)
     /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
@@ -443,16 +444,8 @@ impl<T> App<T> {
                     // TODO: For some reason this function has to be called twice in order
                     // to actually update the screen. For some reason the first swap_buffers() has
                     // no effect (winit bug?)
-                    rerender_single_window(
-                        &self.config,
-                        window,
-                        &mut self.fake_display,
-                    );
-                    rerender_single_window(
-                        &self.config,
-                        window,
-                        &mut self.fake_display,
-                    );
+                    render_inner(window, self.fake_display, Transaction::new(), self.config.background_color);
+                    render_inner(window, self.fake_display, Transaction::new(), self.config.background_color);
                 }
             }
 
@@ -683,16 +676,6 @@ fn hit_test_single_window<T>(
 
     ret.should_scroll_render = should_scroll_render;
 
-    // if frame_event_info.is_resize_event {
-    //     // This is a hack because during a resize event, winit eats the "awakened"
-    //     // event. So what we do is that we call the layout-and-render again, to
-    //     // trigger a second "awakened" event. So when the window is resized, the
-    //     // layout function is called twice (the first event will be eaten by winit)
-    //     //
-    //     // This is a reported bug and should be fixed somewhere in July
-    //     *force_redraw_cache.get_mut(window_id).ok_or(WindowIndexError)? = 2;
-    // }
-
     // See: https://docs.rs/glutin/0.19.0/glutin/struct.CombinedContext.html#method.resize
     //
     // Some platforms (macOS, Wayland) require being manually updated when their window
@@ -789,15 +772,6 @@ fn relayout_single_window<T>(
     }
 
     Ok(())
-}
-
-#[cfg(not(test))]
-fn rerender_single_window<T>(
-    config: &AppConfig,
-    window: &mut Window<T>,
-    fake_display: &mut FakeDisplay,
-) {
-    render_inner(window, fake_display, Transaction::new(), config.background_color);
 }
 
 /// Returns if the CSS has been successfully reloaded

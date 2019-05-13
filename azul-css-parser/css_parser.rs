@@ -2373,7 +2373,8 @@ multi_type_parser!(parse_layout_justify_content, LayoutJustifyContent,
                     ["flex-end", End],
                     ["center", Center],
                     ["space-between", SpaceBetween],
-                    ["space-around", SpaceAround]);
+                    ["space-around", SpaceAround],
+                    ["space-evenly", SpaceEvenly]);
 
 multi_type_parser!(parse_layout_align_items, LayoutAlignItems,
                     ["flex-start", Start],

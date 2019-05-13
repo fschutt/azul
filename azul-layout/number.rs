@@ -55,7 +55,7 @@ impl Number {
 
     pub fn unwrap_or_zero(&self) -> f32 {
         match self {
-            Number::Defined(d) => d,
+            Number::Defined(d) => *d,
             Number::Undefined => 0.0,
         }
     }
