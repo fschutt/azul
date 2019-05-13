@@ -2,6 +2,7 @@ use std::{f32, collections::BTreeMap};
 use azul_css::{
     LayoutPosition, RectLayout, StyleFontSize, RectStyle,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, PixelValue,
+    LayoutRect, LayoutPoint, LayoutSize,
 };
 use {
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
@@ -13,7 +14,6 @@ use {
 use azul_core::{
     app_resources::{Au, FontInstanceKey},
 };
-use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(10));
@@ -58,15 +58,6 @@ pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
 
 pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
     rect_style.font_size.and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct PositionedRectangle {
-    pub bounds: LayoutRect,
-    /// Size of the content, for example if a div contains an image,
-    /// that image can be bigger than the actual rect
-    pub content_width: Option<f32>,
-    pub content_height: Option<f32>,
 }
 
 #[derive(Debug, Clone)]

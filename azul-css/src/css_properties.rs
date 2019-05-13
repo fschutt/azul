@@ -109,23 +109,39 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);63] = [
 /// Only used for calculations: Rectangle (x, y, width, height) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
+
+impl LayoutRect {
+    #[inline(always)]
+    pub fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }
+    #[inline(always)]
+    pub fn zero() -> Self { Self::new(LayoutPoint::zero(), LayoutSize::zero()) }
+    #[inline]
+    pub fn contains(&self, other: &LayoutPoint) -> bool {
+        self.origin.x <= other.x && other.x < self.origin.x + self.size.width &&
+        self.origin.y <= other.y && other.y < self.origin.y + self.size.height
+    }
+}
+
 /// Only used for calculations: Size (width, height) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutSize { pub width: f32, pub height: f32 }
+
+impl LayoutSize {
+    #[inline(always)]
+    pub fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    #[inline(always)]
+    pub fn zero() -> Self { Self::new(0.0, 0.0) }
+}
+
 /// Only used for calculations: Point coordinate (x, y) in layout space.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutPoint { pub x: f32, pub y: f32 }
 
-impl LayoutSize {
-    pub fn new(width: f32, height: f32) -> Self {
-        Self {
-            width,
-            height,
-        }
-    }
-    pub fn zero() -> Self {
-        Self::new(0.0, 0.0)
-    }
+impl LayoutPoint {
+    #[inline(always)]
+    pub fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    #[inline(always)]
+    pub fn zero() -> Self { Self::new(0.0, 0.0) }
 }
 
 /// Represents a parsed pair of `5px, 10px` values - useful for border radius calculation

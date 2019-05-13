@@ -122,6 +122,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-stretch-mini"
+version = "0.1.0"
+dependencies = [
+ "azul-core 0.1.0",
+ "azul-css 0.1.0",
+]
+
+[[package]]
 name = "azul-widgets"
 version = "0.1.0"
 dependencies = [

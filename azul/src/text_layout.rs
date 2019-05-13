@@ -2,14 +2,13 @@
 
 use azul_css::{
     StyleTextAlignmentHorz, StyleTextAlignmentVert, ScrollbarInfo,
-};
-pub use webrender::api::{
     LayoutSize, LayoutRect, LayoutPoint,
 };
 pub use harfbuzz_sys::{hb_glyph_info_t as GlyphInfo, hb_glyph_position_t as GlyphPosition};
 pub use azul_core::{
     app_resources::{Words, Word, WordType},
     display_list::GlyphInstance,
+    ui_solver::TextLayoutOptions,
 };
 
 pub type WordIndex = usize;
@@ -95,30 +94,6 @@ pub struct ScrollbarStyle {
     pub horizontal: Option<ScrollbarInfo>,
     /// Horizontal scrollbar style, if any
     pub vertical: Option<ScrollbarInfo>,
-}
-
-/// Layout options that can impact the flow of word positions
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct TextLayoutOptions {
-    /// Multiplier for the line height, default to 1.0
-    pub line_height: Option<f32>,
-    /// Additional spacing between glyphs (in pixels)
-    pub letter_spacing: Option<f32>,
-    /// Additional spacing between words (in pixels)
-    pub word_spacing: Option<f32>,
-    /// How many spaces should a tab character emulate
-    /// (multiplying value, i.e. `4.0` = one tab = 4 spaces)?
-    pub tab_width: Option<f32>,
-    /// Maximum width of the text (in pixels) - if the text is set to `overflow:visible`, set this to None.
-    pub max_horizontal_width: Option<f32>,
-    /// How many pixels of leading does the first line have? Note that this added onto to the holes,
-    /// so for effects like `:first-letter`, use a hole instead of a leading.
-    pub leading: Option<f32>,
-    /// This is more important for inline text layout where items can punch "holes"
-    /// into the text flow, for example an image that floats to the right.
-    ///
-    /// TODO: Currently unused!
-    pub holes: Vec<LayoutRect>,
 }
 
 /// Given the scale of words + the word positions, lays out the words in a
@@ -445,7 +420,7 @@ pub fn position_words(
             line_number,
             font_size_px,
             line_height_px,
-            &text_layout_options.holes,
+            &text_layout_options.holes[..],
             text_layout_options.max_horizontal_width,
         );
 
