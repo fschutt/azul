@@ -120,6 +120,53 @@ impl LayoutRect {
         self.origin.x <= other.x && other.x < self.origin.x + self.size.width &&
         self.origin.y <= other.y && other.y < self.origin.y + self.size.height
     }
+
+    /// Faster union for a Vec<LayoutRect>
+    #[inline]
+    pub fn union<I: Iterator<Item=Self>>(mut rects: I) -> Option<Self> {
+        let first = rects.next()?;
+
+        let mut max_width = first.size.width;
+        let mut max_height = first.size.height;
+        let mut min_x = first.origin.x;
+        let mut min_y = first.origin.y;
+
+        while let Some(Self { origin: LayoutPoint { x, y }, size: LayoutSize { width, height } }) = rects.next() {
+            let cur_lower_right_x = x + width;
+            let cur_lower_right_y = y + height;
+            max_width = max_width.max(cur_lower_right_x - min_x);
+            max_height = max_height.max(cur_lower_right_y - min_y);
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+        }
+
+        Some(Self {
+            origin: LayoutPoint { x: min_x, y: min_y },
+            size: LayoutSize { width: max_width, height: max_height },
+        })
+    }
+
+    // Returns if b overlaps a
+    #[inline(always)]
+    fn contains_rect(&self, b: &LayoutRect) -> bool {
+
+        let a = self;
+
+        let a_x         = a.origin.x;
+        let a_y         = a.origin.y;
+        let a_width     = a.size.width;
+        let a_height    = a.size.height;
+
+        let b_x         = b.origin.x;
+        let b_y         = b.origin.y;
+        let b_width     = b.size.width;
+        let b_height    = b.size.height;
+
+        b_x >= a_x &&
+        b_y >= a_y &&
+        b_x + b_width <= a_x + a_width &&
+        b_y + b_height <= a_y + a_height
+    }
 }
 
 /// Only used for calculations: Size (width, height) in layout space.

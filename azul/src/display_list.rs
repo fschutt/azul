@@ -317,51 +317,6 @@ fn determine_rendering_order_inner<'a>(
     }
 }
 
-/// Faster union for rectangles
-#[inline]
-fn union_rects<I: Iterator<Item=LayoutRect>>(mut rects: I) -> Option<LayoutRect> {
-    let mut first = rects.next()?;
-
-    let mut max_width = first.size.width;
-    let mut max_height = first.size.height;
-    let mut min_x = first.origin.x;
-    let mut min_y = first.origin.y;
-
-    while let Some(LayoutRect { origin: LayoutPoint { x, y }, size: LayoutSize { width, height } }) = rects.next() {
-        let cur_lower_right_x = x + width;
-        let cur_lower_right_y = y + height;
-        max_width = max_width.max(cur_lower_right_x - min_x);
-        max_height = max_height.max(cur_lower_right_y - min_y);
-        min_x.min(x);
-        min_y.min(y);
-    }
-
-    Some(LayoutRect {
-        origin: LayoutPoint { x: min_x, y: min_y },
-        size: LayoutSize { width: max_width, height: max_height },
-    })
-}
-
-// Return if b overlaps a
-#[inline]
-fn rects_contains(a: &LayoutRect, b: &LayoutRect) -> bool {
-
-    let a_x         = a.origin.x;
-    let a_y         = a.origin.y;
-    let a_width     = a.size.width;
-    let a_height    = a.size.height;
-
-    let b_x         = b.origin.x;
-    let b_y         = b.origin.y;
-    let b_width     = b.size.width;
-    let b_height    = b.size.height;
-
-    b_x >= a_x &&
-    b_y >= a_y &&
-    b_x + b_width <= a_x + a_width &&
-    b_y + b_height <= a_y + a_height
-}
-
 /// Returns all node IDs where the children overflow the parent, together with the
 /// `(parent_rect, child_rect)` - the child rect is the sum of the children.
 ///
@@ -389,14 +344,14 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
     for (_, parent) in parents {
 
-        let children_sum_rect = match union_rects(parent.children(&node_hierarchy).map(|child_id| layouted_rects[child].bounds)) {
+        let children_sum_rect = match LayoutRect::union(parent.children(&node_hierarchy).map(|child_id| layouted_rects[child].bounds)) {
             None => continue,
             Some(sum) => sum,
         };
 
         let parent_rect = layouted_rects.get(*parent).unwrap();
 
-        if rects_contains(&children_sum_rect, &parent_rect.bounds) {
+        if children_sum_rect.contains_rect(&parent_rect.bounds) {
             continue;
         }
 

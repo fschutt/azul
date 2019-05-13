@@ -1,7 +1,7 @@
-use azul_css::LayoutRect;
+use azul_css::{LayoutRect, LayoutSize};
 
 /// Layout options that can impact the flow of word positions
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct TextLayoutOptions {
     /// Multiplier for the line height, default to 1.0
     pub line_height: Option<f32>,
@@ -24,11 +24,11 @@ pub struct TextLayoutOptions {
     pub holes: Vec<LayoutRect>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct PositionedRectangle {
+    /// Outer bounds of the rectangle
     pub bounds: LayoutRect,
-    /// Size of the content, for example if a div contains an image,
-    /// that image can be bigger than the actual rect
-    pub content_width: Option<f32>,
-    pub content_height: Option<f32>,
+    /// Size of the content, for example if a div contains an image or text,
+    /// that image or the text block can be bigger than the actual rect
+    pub content_size: Option<LayoutSize>,
 }

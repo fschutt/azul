@@ -1,80 +1,33 @@
-#[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
-#[cfg(not(feature = "std"))]
-use libm::F32Ext;
+use azul_css::LayoutRect;
+use azul_core::{
+    ui_solver::PositionedRectangle,
+    id_tree::{NodeHierarchy, NodeDataContainer},
+    dom::NodeId,
+};
 
-use core::f32;
+use style::*;
+use number::Number::*;
+use number::*;
+use geometry::{Point, Rect, Size};
 
-use std::cell::RefCell;
-use std::rc::Rc;
+struct FlexItem {
 
-use crate::style::*;
-
-use crate::number::Number::*;
-use crate::number::*;
-
-use crate::geometry::{Point, Rect, Size};
-
-pub type Number = Option<f32>;
-
-#[derive(Debug, Clone)]
-pub struct Layout {
-    pub size: LogicalSize,
-    pub layouted_rects: NodeDataContainer<LayoutRect>,
-}
-/*
-
-pub enum Dimension {
-    Undefined,
-    Auto,
-    Points(f32),
-    Percent(f32),
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct Style {
-    pub display: Display,
-    pub position_type: PositionType,
-    pub direction: Direction,
-    pub flex_direction: FlexDirection,
-    pub flex_wrap: FlexWrap,
-    pub overflow: Overflow,
-    pub align_items: AlignItems,
-    pub align_self: AlignSelf,
-    pub align_content: AlignContent,
-    pub justify_content: JustifyContent,
+    pub node_id: NodeId,
+    pub size: Size<Dimension>,
+    pub min_size: Size<Dimension>,
+    pub max_size: Size<Dimension>,
     pub position: Rect<Dimension>,
     pub margin: Rect<Dimension>,
     pub padding: Rect<Dimension>,
     pub border: Rect<Dimension>,
-    pub flex_grow: f32,
-    pub flex_shrink: f32,
-    pub flex_basis: Dimension,
-    pub size: Size<Dimension>,
-    pub min_size: Size<Dimension>,
-    pub max_size: Size<Dimension>,
-    pub aspect_ratio: Number,
-}
-*/
-
-pub struct FlexItem {
-
-    pub node_id: NodeId,
-    pub size: LayoutSize,
-    pub min_size: LayoutSize,
-    pub max_size: LayoutSize,
-    pub position: LayoutRect,
-    pub margin: LayoutRect,
-    pub padding: LayoutRect,
-    pub border: LayoutRect,
     pub flex_basis: f32,
     pub inner_flex_basis: f32,
     pub violation: f32,
     pub frozen: bool,
-    pub hypothetical_inner_size: LayoutSize,
-    pub hypothetical_outer_size: LayoutSize,
-    pub target_size: LayoutSize,
-    pub outer_target_size: LayoutSize,
+    pub hypothetical_inner_size: Size<Dimension>,
+    pub hypothetical_outer_size: Size<Dimension>,
+    pub target_size: Size<Dimension>,
+    pub outer_target_size: Size<Dimension>,
     pub baseline: f32,
 
     // temporary values for holding offset in the main / cross direction.
@@ -85,13 +38,18 @@ pub struct FlexItem {
     pub offset_cross: f32,
 }
 
-pub struct FlexLine {
+struct FlexLine {
     pub items: Vec<FlexItem>,
     pub cross_size: f32,
     pub offset_cross: f32,
 }
 
-pub fn compute(root: NodeId, nodes: &mut NodeDataContainer<InternalNode>, root_size: LogicalSize) -> Layout {
+pub(crate) fn compute(
+    root: NodeId,
+    node_hierarchy: &NodeHierarchy,
+    nodes: &mut NodeDataContainer<Style>,
+    root_size: LogicalSize
+) -> NodeDataContainer<PositionedRectangle> {
 
     let has_root_min_max = root.style.min_size.width.is_defined()
         || root.style.min_size.height.is_defined()
@@ -102,6 +60,8 @@ pub fn compute(root: NodeId, nodes: &mut NodeDataContainer<InternalNode>, root_s
 
         let first_pass = compute_internal(
             root,
+            node_hierarchy,
+            nodes,
             Size {
                 width: root.style.size.width.resolve(size.width),
                 height: root.style.size.height.resolve(size.height),
@@ -112,6 +72,8 @@ pub fn compute(root: NodeId, nodes: &mut NodeDataContainer<InternalNode>, root_s
 
         compute_internal(
             root,
+            node_hierarchy,
+            nodes,
             Size {
                 width: first_pass
                     .size
@@ -132,6 +94,8 @@ pub fn compute(root: NodeId, nodes: &mut NodeDataContainer<InternalNode>, root_s
     } else {
         compute_internal(
             root,
+            node_hierarchy,
+            nodes,
             Size {
                 width: root.style.size.width.resolve(size.width),
                 height: root.style.size.height.resolve(size.height),
@@ -150,11 +114,13 @@ pub fn compute(root: NodeId, nodes: &mut NodeDataContainer<InternalNode>, root_s
 }
 
 fn compute_internal(
-    node: &mut InternalNode,
+    node_id: NodeId,
+    node_hierarchy: &NodeHierarchy,
+    nodes: &mut NodeDataContainer<Style>,
     node_size: Size<Number>,
     parent_size: Size<Number>,
     perform_layout: bool,
-) -> ComputeResult {
+) -> NodeDataContainer<PositionedRectangle> {
 
     // Define some general constants we will need for the remainder
     // of the algorithm.
@@ -186,12 +152,11 @@ fn compute_internal(
     // If this is a leaf node we can skip a lot of this function in some cases
     if node.children.is_empty() {
         if node_size.width.is_defined() && node_size.height.is_defined() {
-            return Ok(ComputeResult { size: node_size.map(|s| s.or_else(0.0)), children: vec![] });
+            return ComputeResult { size: node_size.map(|s| s.or_else(0.0)) };
         }
 
         if let Some(ref measure) = node.measure {
-            let result = ComputeResult { size: measure(node_size)?, children: vec![] };
-            return Ok(result);
+            return ComputeResult { size: measure(node_size)? };
         }
 
         return Ok(ComputeResult {
@@ -1289,8 +1254,9 @@ fn calc_baseline(layout: &result::Layout) -> f32 {
     } else {
         calc_baseline(&layout.children[0])
     }
-};
+}
 
+/*
 fn hidden_layout(node: &InternalNode, order: u32) -> result::Layout {
     result::Layout {
         order,
@@ -1304,3 +1270,4 @@ fn hidden_layout(node: &InternalNode, order: u32) -> result::Layout {
             .collect(),
     }
 }
+*/
