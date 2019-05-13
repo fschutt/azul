@@ -114,3 +114,13 @@ impl<T> AppState<T> {
 impl<'a, T: 'a> AppStateNoData<'a, T> {
     impl_task_api!();
 }
+
+/// Error returned by the `.run()` function
+///
+/// If the `.run()` function would panic, that would need `T` to
+/// implement `Debug`, which is not necessary if we just return an error.
+#[derive(Debug)]
+pub enum RuntimeError {
+    /// Error indexing into internal BTreeMap - wrong window ID
+    WindowIndexError,
+}

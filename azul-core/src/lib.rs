@@ -16,6 +16,8 @@ pub mod ui_state;
 pub mod gl;
 pub mod display_list;
 pub mod ui_solver;
+pub mod style;
+pub mod ui_description;
 
 mod stack_checked_pointer;
 

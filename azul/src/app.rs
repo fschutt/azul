@@ -132,18 +132,6 @@ impl Default for AppConfig {
     }
 }
 
-/// Error returned by the `.run()` function
-///
-/// If the `.run()` function would panic, that would need `T` to
-/// implement `Debug`, which is not necessary if we just return an error.
-#[derive(Debug)]
-pub enum RuntimeError {
-    /// Could not swap the display (drawing error)
-    GlSwapError(SwapBuffersError),
-    /// Error indexing into internal BTreeMap - wrong window ID
-    WindowIndexError,
-}
-
 pub(crate) struct FrameEventInfo {
     pub(crate) should_redraw_window: bool,
     pub(crate) should_hittest: bool,

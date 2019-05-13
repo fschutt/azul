@@ -10,11 +10,9 @@ use std::collections::BTreeMap;
 use azul_css::{LayoutRect, RectLayout, RectStyle};
 use azul_core::{
     ui_solver::PositionedRectangle,
-    id_tree::{NodeHierarchy, NodeDataContainer}
+    id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
 };
-
-pub type NodeDepths = Vec<(usize, NodeId)>;
 
 pub trait GetRectStyle { fn get_rect_style(&self) -> &RectStyle; }
 pub trait GetRectLayout { fn get_rect_layout(&self) -> &RectLayout; }
@@ -34,7 +32,6 @@ pub enum InlineTextDirection {
 
 pub struct SolvedUi {
     pub solved_rects: NodeDataContainer<PositionedRectangle>,
-    pub node_depths: NodeDepths,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,7 +45,7 @@ pub(crate) enum RectContent<T: GetTextLayout> {
 
 impl LayoutedInlineText {
     pub fn get_bounds(&self) -> LayoutRect {
-        LayoutRect::union(&self.lines).unwrap_or(LayoutRect::zero())
+        LayoutRect::union(self.lines.iter().map(|c| *c)).unwrap_or(LayoutRect::zero())
     }
 }
 
@@ -57,8 +54,50 @@ impl SolvedUi {
         bounds: LayoutRect,
         node_hierarchy: &NodeHierarchy,
         display_rects: &NodeDataContainer<T>,
-        inline_texts: BTreeMap<NodeId, RectContent<U>>,
+        rect_contents: BTreeMap<NodeId, RectContent<U>>,
     ) -> Self {
+
+        use style::Style;
+
+        let styles = display_rects.transform(|node, node_id| {
+            Style {
+                display: Display,
+                position_type: PositionType,
+                direction: Direction,
+                flex_direction: FlexDirection,
+                flex_wrap: FlexWrap,
+                overflow: Overflow,
+                align_items: AlignItems,
+                align_self: AlignSelf,
+                align_content: AlignContent,
+                justify_content: JustifyContent,
+                position: Rect<Dimension>,
+                margin: Rect<Dimension>,
+                padding: Rect<Dimension>,
+                border: Rect<Dimension>,
+                flex_grow: f32,
+                flex_shrink: f32,
+                flex_basis: Dimension,
+                size: Size { width: Dimension, height: Dimension },
+                min_size: Size<Dimension>,
+                max_size: Size<Dimension>,
+                aspect_ratio: Number,
+            }
+            /*
+                match rect_contents.get(node_id) {
+                    Some(RectContent::Image(w, h)) => { },
+                    Some(RectContent(text_impl)) => { text_impl.get_text_layout().get_bounds(); },
+                    None => { },
+                }
+            */
+        });
+
+        // TODO: Actually solve the rects
+        let solved_rects = display_rects.transform(|node, node_id| PositionedRectangle {
+
+        });
+
+        SolvedUi { solved_rects }
 
         /*
             pub enum Dimension {
@@ -67,34 +106,10 @@ impl SolvedUi {
                 Points(f32),
                 Percent(f32),
             }
-
-            #[derive(Copy, Clone, Debug)]
-            pub struct Style {
-                pub display: Display,
-                pub position_type: PositionType,
-                pub direction: Direction,
-                pub flex_direction: FlexDirection,
-                pub flex_wrap: FlexWrap,
-                pub overflow: Overflow,
-                pub align_items: AlignItems,
-                pub align_self: AlignSelf,
-                pub align_content: AlignContent,
-                pub justify_content: JustifyContent,
-                pub position: Rect<Dimension>,
-                pub margin: Rect<Dimension>,
-                pub padding: Rect<Dimension>,
-                pub border: Rect<Dimension>,
-                pub flex_grow: f32,
-                pub flex_shrink: f32,
-                pub flex_basis: Dimension,
-                pub size: Size<Dimension>,
-                pub min_size: Size<Dimension>,
-                pub max_size: Size<Dimension>,
-                pub aspect_ratio: Number,
-            }
         */
 
-        // 1.
+        // 1. do layout pass without any text, only images
+        // 2. for each display: inline
         /*
             pub struct PositionedRectangle {
                 /// Outer bounds of the rectangle
@@ -103,30 +118,11 @@ impl SolvedUi {
                 /// that image or the text block can be bigger than the actual rect
                 pub content_size: Option<LayoutSize>,
             }
-        */
         // SolvedUi {
         //     solved_rects: NodeDataContainer<PositionedRectangle>,
         //     node_depths: NodeDepths,
         // }
 
-        /*
-            fn solve(
-                rect: LayoutRect,
-                node_hierarchy: &NodeHierarchy,
-                display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-                node_data: &NodeDataContainer<NodeData<T>>, // <- only needed for words
-                app_resources: &'b AppResources,            // <- only needed for words
-            ) -> LayoutResult {
-                rects: NodeDataContainer<PositionedRectangle>,
-                node_depths: Vec<(usize, NodeId)>,
-
-                // --- word cache
-
-                word_cache: BTreeMap<NodeId, Words>,
-                scaled_words: BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
-                positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-                layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
-            }
         */
     }
 }
