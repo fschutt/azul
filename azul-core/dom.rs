@@ -1092,13 +1092,12 @@ impl<T> Dom<T> {
     /// TODO: promote to const fn once `const_vec_new` is stable
     #[inline]
     pub fn new(node_type: NodeType<T>) -> Self {
-        use id_tree::ROOT_NODE_ID;
         let node_data = NodeData::new(node_type); // not const fn yet
         let arena = init_arena_with_node_data(node_data); // not const fn yet
         Self {
             arena,
-            root: ROOT_NODE_ID,
-            head: ROOT_NODE_ID,
+            root: NodeId::ZERO,
+            head: NodeId::ZERO,
         }
     }
 

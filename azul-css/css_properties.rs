@@ -1912,11 +1912,6 @@ pub struct RectStyle {
     pub border_right_style: Option<CssPropertyValue<StyleBorderRightStyle>>,
     pub border_bottom_style: Option<CssPropertyValue<StyleBorderBottomStyle>>,
 
-    pub border_top_width: Option<CssPropertyValue<StyleBorderTopWidth>>,
-    pub border_left_width: Option<CssPropertyValue<StyleBorderLeftWidth>>,
-    pub border_right_width: Option<CssPropertyValue<StyleBorderRightWidth>>,
-    pub border_bottom_width: Option<CssPropertyValue<StyleBorderBottomWidth>>,
-
     pub border_top_left_radius: Option<CssPropertyValue<StyleBorderTopLeftRadius>>,
     pub border_top_right_radius: Option<CssPropertyValue<StyleBorderTopRightRadius>>,
     pub border_bottom_left_radius: Option<CssPropertyValue<StyleBorderBottomLeftRadius>>,
@@ -1950,6 +1945,11 @@ pub struct RectLayout {
     pub margin_bottom: Option<CssPropertyValue<LayoutMarginBottom>>,
     pub margin_left: Option<CssPropertyValue<LayoutMarginLeft>>,
     pub margin_right: Option<CssPropertyValue<LayoutMarginRight>>,
+
+    pub border_top_width: Option<CssPropertyValue<StyleBorderTopWidth>>,
+    pub border_left_width: Option<CssPropertyValue<StyleBorderLeftWidth>>,
+    pub border_right_width: Option<CssPropertyValue<StyleBorderRightWidth>>,
+    pub border_bottom_width: Option<CssPropertyValue<StyleBorderBottomWidth>>,
 
     pub overflow_x: Option<CssPropertyValue<Overflow>>,
     pub overflow_y: Option<CssPropertyValue<Overflow>>,

@@ -24,6 +24,15 @@ impl<T> Rect<T>
 where
     T: Add<Output = T> + Copy + Clone,
 {
+    pub(crate) fn uniform(initial: T) -> Self {
+        Self {
+            start: initial,
+            end: initial,
+            top: initial,
+            bottom: initial,
+        }
+    }
+
     pub(crate) fn horizontal(&self) -> T {
         self.start + self.end
     }

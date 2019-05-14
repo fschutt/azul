@@ -14,15 +14,16 @@ use azul_core::{
     dom::NodeId,
 };
 
-pub trait GetRectStyle { fn get_rect_style(&self) -> &RectStyle; }
 pub trait GetRectLayout { fn get_rect_layout(&self) -> &RectLayout; }
 pub trait GetTextLayout { fn get_text_layout(&mut self, bounds: LayoutRect) -> LayoutedInlineText; }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct LayoutedInlineText {
     pub lines: Vec<LayoutRect>,
     pub layout_direction: InlineTextDirection,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InlineTextDirection {
     LeftToRight,
     RightToLeft,
@@ -30,6 +31,7 @@ pub enum InlineTextDirection {
     BottomToTop,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct SolvedUi {
     pub solved_rects: NodeDataContainer<PositionedRectangle>,
 }
@@ -81,7 +83,7 @@ impl SolvedUi {
                 }
             }
 
-            let image_aspect_ratio = match rect_contents.get(node_id) {
+            let image_aspect_ratio = match rect_contents.get(&node_id) {
                 Some(RectContent::Image(w, h)) => Number::Defined(w as f32 / h as f32),
                 _ => Number::Undefined,
             };
@@ -94,12 +96,12 @@ impl SolvedUi {
                     None => Display::Flex,
                 },
                 position_type: match rect_layout.position.unwrap_or_default().get_property_or_default() {
-                    Some(LayoutPosition::Static) => Position::Relative, // todo - static?
-                    Some(LayoutPosition::Relative) => Position::Relative,
-                    Some(LayoutPosition::Absolute) => Position::Absolute,
-                    None => Position::Relative,
+                    Some(LayoutPosition::Static) => PositionType::Relative, // todo - static?
+                    Some(LayoutPosition::Relative) => PositionType::Relative,
+                    Some(LayoutPosition::Absolute) => PositionType::Absolute,
+                    None => PositionType::Relative,
                 },
-                direction: Direction::Ltr,
+                direction: Direction::LTR,
                 flex_direction: match rect_layout.direction.unwrap_or_default().get_property_or_default() {
                     Some(LayoutDirection::Row) => FlexDirection::Row,
                     Some(LayoutDirection::RowReverse) => FlexDirection::RowReverse,
@@ -118,7 +120,7 @@ impl SolvedUi {
                     Some(LayoutAlignItems::Center) => AlignItems::Center,
                     Some(LayoutAlignItems::Start) => AlignItems::FlexStart,
                     Some(LayoutAlignItems::End) => AlignItems::FlexEnd,
-                    None => AlignItems::Start,
+                    None => AlignItems::FlexStart,
                 },
                 align_self: AlignSelf::Auto, // todo!
                 align_content: match rect_layout.align_content.unwrap_or_default().get_property_or_default() {
@@ -131,14 +133,13 @@ impl SolvedUi {
                     None => AlignContent::Stretch,
                 },
                 justify_content: match rect_layout.justify_content.unwrap_or_default().get_property_or_default() {
-                    Some(LayoutJustifyContent::Stretch) => JustifyContent::Stretch,
                     Some(LayoutJustifyContent::Center) => JustifyContent::Center,
                     Some(LayoutJustifyContent::Start) => JustifyContent::FlexStart,
                     Some(LayoutJustifyContent::End) => JustifyContent::FlexEnd,
                     Some(LayoutJustifyContent::SpaceBetween) => JustifyContent::SpaceBetween,
                     Some(LayoutJustifyContent::SpaceAround) => JustifyContent::SpaceAround,
                     Some(LayoutJustifyContent::SpaceEvenly) => JustifyContent::SpaceEvenly,
-                    None => JustifyContent::Start,
+                    None => JustifyContent::FlexStart,
                 },
                 position: Rect {
                     start: translate_dimension(rect_layout.left.map(|prop| prop.map_property(|l| l.0))),
@@ -183,26 +184,22 @@ impl SolvedUi {
             }
         });
 
-        // TODO: Actually solve the rects
-        let solved_rects = display_rects.transform(|node, node_id| {
-            PositionedRectangle {
-                bounds: LayoutRect::zero(),
-                content_size: None,
-            }
-        });
+        // 1. do layout pass without any text, only images, set display:inline children to (0px 0px)
+        // 2. for each display:inline rect, layout children, calculate size of parent item
+        // 3. for each rect, check if children overflow, if yes, reserve space for scrollbar
+        // 4. copy UI and re-layout again, then copy result to all children of the overflowing rects
+        // 5. return to caller, caller will do final text layout (not the job of the layout engine)
+
+        let mut solved_rects = algo::compute(NodeId::ZERO, node_hierarchy, &styles, bounds.size);
+
+        // Offset all layouted rectangles by the origin of the bounds
+        let origin_x = bounds.origin.x;
+        let origin_y = bounds.origin.y;
+        for rect in solved_rects.internal.iter_mut() {
+            rect.bounds.origin.x += origin_x;
+            rect.bounds.origin.y += origin_y;
+        }
 
         SolvedUi { solved_rects }
-
-        /*
-            pub enum Dimension {
-                Undefined,
-                Auto,
-                Points(f32),
-                Percent(f32),
-            }
-        */
-
-        // 1. do layout pass without any text, only images
-        // 2. for each display: inline
     }
 }

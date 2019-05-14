@@ -682,10 +682,10 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         frame.content.push(DisplayListRectContent::Border {
             radii: border_radii,
             widths: StyleBorderWidths {
-                top: rect.style.border_top_width,
-                left: rect.style.border_left_width,
-                bottom: rect.style.border_bottom_width,
-                right: rect.style.border_right_width,
+                top: rect.layout.border_top_width,
+                left: rect.layout.border_left_width,
+                bottom: rect.layout.border_bottom_width,
+                right: rect.layout.border_right_width,
             },
             colors: StyleBorderColors {
                 top: rect.style.border_top_color,
@@ -1129,10 +1129,10 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
         BorderLeftStyle(bls)            => style.border_left_style = Some(*bls),
         BorderBottomStyle(bbs)          => style.border_bottom_style = Some(*bbs),
 
-        BorderTopWidth(btw)             => style.border_top_width = Some(*btw),
-        BorderRightWidth(brw)           => style.border_right_width = Some(*brw),
-        BorderLeftWidth(blw)            => style.border_left_width = Some(*blw),
-        BorderBottomWidth(bbw)          => style.border_bottom_width = Some(*bbw),
+        BorderTopWidth(btw)             => layout.border_top_width = Some(*btw),
+        BorderRightWidth(brw)           => layout.border_right_width = Some(*brw),
+        BorderLeftWidth(blw)            => layout.border_left_width = Some(*blw),
+        BorderBottomWidth(bbw)          => layout.border_bottom_width = Some(*bbw),
 
         BoxShadowLeft(bsl)              => style.box_shadow_left = Some(*bsl),
         BoxShadowRight(bsr)             => style.box_shadow_right = Some(*bsr),

@@ -16,8 +16,6 @@ mod node_id {
         ops::{Add, AddAssign},
     };
 
-    pub const ROOT_NODE_ID: NodeId = NodeId { index: unsafe { NonZeroUsize::new_unchecked(1) } };
-
     /// A node identifier within a particular `Arena`.
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
     pub struct NodeId {
@@ -25,6 +23,9 @@ mod node_id {
     }
 
     impl NodeId {
+
+        pub const ZERO: NodeId = NodeId { index: unsafe { NonZeroUsize::new_unchecked(1) } };
+
         /// **NOTE**: In debug mode, it panics on overflow, since having a
         /// pointer that is zero is undefined behaviour (it would basically be
         /// cast to a `None`), which is incorrect, so we rather panic on overflow
@@ -82,8 +83,6 @@ pub struct Node {
     pub first_child: Option<NodeId>,
     pub last_child: Option<NodeId>,
 }
-
-pub use self::node_id::ROOT_NODE_ID;
 
 // Node that initializes a Dom
 pub const ROOT_NODE: Node = Node {
@@ -188,7 +187,7 @@ impl NodeHierarchy {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub struct NodeDataContainer<T> {
     pub internal: Vec<T>,
 }
