@@ -1,6 +1,6 @@
 use std::{f32, collections::BTreeMap};
 use azul_css::{
-    LayoutPosition, RectLayout, StyleFontSize, RectStyle,
+    RectLayout, StyleFontSize, RectStyle,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, PixelValue,
     LayoutRect, LayoutPoint, LayoutSize,
 };
@@ -13,6 +13,7 @@ use {
 };
 use azul_core::{
     app_resources::{Au, FontInstanceKey},
+    ui_solver::PositionedRectangle,
 };
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
@@ -85,119 +86,25 @@ pub(crate) fn do_the_layout<'a,'b, T>(
     node_data: &NodeDataContainer<NodeData<T>>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
     app_resources: &'b AppResources,
-    rect_size: LayoutSize,
-    rect_offset: LayoutPoint,
+    bounding_rect: LayoutRect,
 ) -> LayoutResult {
 
-    // Determine what the width for each div would be if the content size didn't matter
-    let widths_content_ignored = solve_flex_layout_width(
-        node_hierarchy,
-        &display_rects,
-        &node_data.transform(|_, _| None),
-        rect_size.width as f32,
-    );
+    use azul_layout::SolvedUi;
 
-    // Determine what the "maximum width" for each div is, except for divs where overflow:visible is set
-    // I.e. for a div width 800px, with 4 text child nodes, each text node gets a width of 200px
-    let max_widths = node_hierarchy
-        .linear_iter()
-        .filter(|node_id| !display_rects[*node_id].layout.is_horizontal_overflow_visible())
-        .map(|node_id| (node_id, widths_content_ignored.solved_widths[node_id].total()))
-        .collect::<BTreeMap<NodeId, f32>>();
+    // 1. do layout pass without any text, only images, set display:inline children to (0px 0px)
+    // 2. for each display:inline rect, layout children, calculate size of parent item
+    // 3. for each rect, check if children overflow, if yes, reserve space for scrollbar
+    // 4. copy UI and re-layout again, then copy result to all children of the overflowing rects
+    // 5. return to caller, caller will do final text layout (not the job of the layout engine)
 
-    // TODO: Filter all inline text blocks (prepare inline text layout run)
-    let inline_text_blocks = BTreeMap::<NodeId, InlineText>::new();
-
-    // Resolve cached text IDs or break new, uncached strings into words / text runs
     let word_cache = create_word_cache(app_resources, node_data);
-    // Scale the words to the correct size - TODO: Caching / GC!
     let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
-    // Layout all words as if there was no max-width constraint
-    let word_positions_no_max_width = create_word_positions(
-        &word_cache,
-        &scaled_words,
-        display_rects,
-        &max_widths,
-        &inline_text_blocks
-    );
+    let rect_contents = create_rect_contents_cache();
+    let ui = SolvedUi::new(bounding_rect, node_hierarchy, display_rects, rect_contents);
+    let positioned_word_cache = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
+    let layouted_glyph_cache = get_glyphs(&scaled_words, &positioned_word_cache, &display_rects, &layouted_rects);
 
-    // Determine the preferred **content** width, without any max-width restrictions -
-    // For images that would be the image width / height, for text it would be the text
-    // laid out without any width constraints.
-    let content_widths = node_data.transform(|node, node_id|
-        get_content_width(&node_id, &node.get_node_type(), app_resources, &word_positions_no_max_width)
-    );
-
-    // Solve the widths again, this time incorporating the maximum widths
-    let solved_widths = solve_flex_layout_width(
-        node_hierarchy,
-        &display_rects,
-        &content_widths,
-        rect_size.width as f32,
-    );
-
-    // Layout all texts again with the resolved width constraints
-    let proper_max_widths = solved_widths.solved_widths.linear_iter().map(|node_id| {
-        (node_id, solved_widths.solved_widths[node_id].total() - display_rects[node_id].layout.get_horizontal_padding())
-    }).collect();
-
-    // Resolve the word positions relative to each divs upper left corner
-    let word_positions_with_max_width = create_word_positions(
-        &word_cache,
-        &scaled_words,
-        display_rects,
-        &proper_max_widths,
-        &inline_text_blocks
-    );
-
-    // Given the final width of a node and the height of the content, resolve the div
-    // height and return whether the node content overflows its parent (width-in-height-out)
-    let content_heights = node_data.transform(|node, node_id| {
-        let div_width = solved_widths.solved_widths[node_id].total();
-        get_content_height(
-            &node_id,
-            node.get_node_type(),
-            app_resources,
-            &word_positions_with_max_width,
-            div_width
-        ).map(|ch| ch.get_content_size())
-    });
-
-    // Given the final heights, resolve the heights for flexible-size divs
-    // TODO: Fix justify-content:flex-start: The content height is not the final height!
-    let solved_heights = solve_flex_layout_height(
-        node_hierarchy,
-        &solved_widths,
-        &content_heights,
-        rect_size.height as f32,
-    );
-
-    let x_positions = get_x_positions(&solved_widths, node_hierarchy, rect_offset.clone());
-    let y_positions = get_y_positions(&solved_heights, &solved_widths, node_hierarchy, rect_offset);
-
-    let layouted_rects = node_data.transform(|_node, node_id| {
-        PositionedRectangle {
-            bounds: LayoutRect::new(
-                LayoutPoint::new(x_positions[node_id].0, y_positions[node_id].0),
-                LayoutSize::new(
-                    solved_widths.solved_widths[node_id].total(),
-                    solved_heights.solved_heights[node_id].total(),
-                )
-            ),
-            content_width: Some(proper_max_widths[&node_id]),
-            content_height: content_heights[node_id],
-        }
-    });
-
-    let positioned_word_cache = word_positions_with_max_width;
-
-    // Create and layout the actual glyphs (important for actually )
-    let layouted_glyph_cache = get_glyphs(
-        &scaled_words,
-        &positioned_word_cache,
-        &display_rects,
-        &layouted_rects,
-    );
+    // TODO: Set the final content sizes on layouted_rects!
 
     LayoutResult {
         rects: layouted_rects,

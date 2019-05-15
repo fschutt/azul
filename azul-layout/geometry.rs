@@ -1,90 +1,137 @@
 use std::ops::Add;
 
 use number::Number;
-use style;
+use style::FlexDirection;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Rect<T> {
-    pub start: T,
-    pub end: T,
-    pub top: T,
-    pub bottom: T,
+pub struct Rect {
+    pub origin: RectOrigin,
+    pub size: RectSize,
 }
 
-impl<T> Rect<T> {
-    pub(crate) fn map<R, F>(self, f: F) -> Rect<R>
-    where
-        F: Fn(T) -> R,
-    {
-        Rect { start: f(self.start), end: f(self.end), top: f(self.top), bottom: f(self.bottom) }
+impl Rect {
+    pub const fn undefined() -> Self {
+        Self {
+            origin: RectOrigin::undefined(),
+            size: RectSize::undefined(),
+        }
     }
 }
 
-impl<T> Rect<T>
-where
-    T: Add<Output = T> + Copy + Clone,
-{
-    pub(crate) fn uniform(initial: T) -> Self {
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct RectOrigin {
+    pub x: Number,
+    pub y: Number,
+}
+
+impl RectOrigin {
+    pub const fn undefined() -> Self {
         Self {
-            start: initial,
-            end: initial,
-            top: initial,
-            bottom: initial,
+            x: Number::Undefined,
+            y: Number::Undefined,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct RectSize {
+    pub width: Number,
+    pub height: Number,
+}
+
+impl RectSize {
+    pub const fn undefined() -> Self {
+        Self {
+            width: Number::Undefined,
+            height: Number::Undefined,
         }
     }
 
+    pub(crate) fn main(self, direction: FlexDirection) -> Number {
+        match direction {
+            FlexDirection::Row | FlexDirection::RowReverse => self.width,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.height,
+        }
+    }
+
+    pub(crate) fn cross(self, direction: FlexDirection) -> Number {
+        match direction {
+            FlexDirection::Row | FlexDirection::RowReverse => self.height,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.width,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Offsets<T> {
+    pub top: T,
+    pub left: T,
+    pub bottom: T,
+    pub right: T,
+}
+
+impl<T> Offsets<T> {
+    pub(crate) fn map<R, F: Fn(T) -> R>(self, f: F) -> Offsets<R> {
+        Offsets { left: f(self.left), right: f(self.right), top: f(self.top), bottom: f(self.bottom) }
+    }
+}
+
+impl<T> Offsets<T>
+where
+    T: Add<Output = T> + Copy + Clone,
+{
     pub(crate) fn horizontal(&self) -> T {
-        self.start + self.end
+        self.left + self.right
     }
 
     pub(crate) fn vertical(&self) -> T {
         self.top + self.bottom
     }
 
-    pub(crate) fn main(&self, direction: style::FlexDirection) -> T {
+    pub(crate) fn main(&self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.start + self.end,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.top + self.bottom,
+            FlexDirection::Row | FlexDirection::RowReverse => self.left + self.right,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.top + self.bottom,
         }
     }
 
-    pub(crate) fn cross(&self, direction: style::FlexDirection) -> T {
+    pub(crate) fn cross(&self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.top + self.bottom,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.start + self.end,
+            FlexDirection::Row | FlexDirection::RowReverse => self.top + self.bottom,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.left + self.right,
         }
     }
 }
 
-impl<T> Rect<T>
+impl<T> Offsets<T>
 where
     T: Copy + Clone,
 {
-    pub(crate) fn main_start(&self, direction: style::FlexDirection) -> T {
+    pub(crate) fn main_start(&self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.start,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.top,
+            FlexDirection::Row | FlexDirection::RowReverse => self.left,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.top,
         }
     }
 
-    pub(crate) fn main_end(&self, direction: style::FlexDirection) -> T {
+    pub(crate) fn main_end(&self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.end,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.bottom,
+            FlexDirection::Row | FlexDirection::RowReverse => self.right,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.bottom,
         }
     }
 
-    pub(crate) fn cross_start(&self, direction: style::FlexDirection) -> T {
+    pub(crate) fn cross_start(&self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.top,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.start,
+            FlexDirection::Row | FlexDirection::RowReverse => self.top,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.left,
         }
     }
 
-    pub(crate) fn cross_end(&self, direction: style::FlexDirection) -> T {
+    pub(crate) fn cross_end(&self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.bottom,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.end,
+            FlexDirection::Row | FlexDirection::RowReverse => self.bottom,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.right,
         }
     }
 }
@@ -96,7 +143,7 @@ pub struct Size<T> {
 }
 
 impl Size<()> {
-    pub fn undefined() -> Size<Number> {
+    pub const fn undefined() -> Size<Number> {
         Size { width: Number::Undefined, height: Number::Undefined }
     }
 }
@@ -109,31 +156,31 @@ impl<T> Size<T> {
         Size { width: f(self.width), height: f(self.height) }
     }
 
-    pub(crate) fn set_main(&mut self, direction: style::FlexDirection, value: T) {
+    pub(crate) fn set_main(&mut self, direction: FlexDirection, value: T) {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.width = value,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.height = value,
+            FlexDirection::Row | FlexDirection::RowReverse => self.width = value,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.height = value,
         }
     }
 
-    pub(crate) fn set_cross(&mut self, direction: style::FlexDirection, value: T) {
+    pub(crate) fn set_cross(&mut self, direction: FlexDirection, value: T) {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.height = value,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.width = value,
+            FlexDirection::Row | FlexDirection::RowReverse => self.height = value,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.width = value,
         }
     }
 
-    pub(crate) fn main(self, direction: style::FlexDirection) -> T {
+    pub(crate) fn main(self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.width,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.height,
+            FlexDirection::Row | FlexDirection::RowReverse => self.width,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.height,
         }
     }
 
-    pub(crate) fn cross(self, direction: style::FlexDirection) -> T {
+    pub(crate) fn cross(self, direction: FlexDirection) -> T {
         match direction {
-            style::FlexDirection::Row | style::FlexDirection::RowReverse => self.height,
-            style::FlexDirection::Column | style::FlexDirection::ColumnReverse => self.width,
+            FlexDirection::Row | FlexDirection::RowReverse => self.height,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.width,
         }
     }
 }

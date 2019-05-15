@@ -7,7 +7,7 @@ mod geometry;
 mod style;
 
 use std::collections::BTreeMap;
-use azul_css::{LayoutRect, RectLayout, RectStyle};
+use azul_css::{LayoutRect, RectLayout};
 use azul_core::{
     ui_solver::PositionedRectangle,
     id_tree::{NodeHierarchy, NodeDataContainer},
@@ -62,7 +62,8 @@ impl SolvedUi {
         let styles = display_rects.transform(|node, node_id| {
 
             use style::*;
-            use geometry::{Size, Number, Rect};
+            use geometry::{Size, Offsets};
+            use number::Number;
             use azul_css::{
                 CssPropertyValue, PixelValue, LayoutDisplay, LayoutPosition,
                 LayoutDirection, LayoutWrap, LayoutAlignItems, LayoutAlignContent,
@@ -84,7 +85,7 @@ impl SolvedUi {
             }
 
             let image_aspect_ratio = match rect_contents.get(&node_id) {
-                Some(RectContent::Image(w, h)) => Number::Defined(w as f32 / h as f32),
+                Some(RectContent::Image(w, h)) => Number::Defined(*w as f32 / *h as f32),
                 _ => Number::Undefined,
             };
 
@@ -141,27 +142,27 @@ impl SolvedUi {
                     Some(LayoutJustifyContent::SpaceEvenly) => JustifyContent::SpaceEvenly,
                     None => JustifyContent::FlexStart,
                 },
-                position: Rect {
-                    start: translate_dimension(rect_layout.left.map(|prop| prop.map_property(|l| l.0))),
-                    end: translate_dimension(rect_layout.right.map(|prop| prop.map_property(|r| r.0))),
+                position: Offsets {
+                    left: translate_dimension(rect_layout.left.map(|prop| prop.map_property(|l| l.0))),
+                    right: translate_dimension(rect_layout.right.map(|prop| prop.map_property(|r| r.0))),
                     top: translate_dimension(rect_layout.top.map(|prop| prop.map_property(|t| t.0))),
                     bottom: translate_dimension(rect_layout.bottom.map(|prop| prop.map_property(|b| b.0))),
                 },
-                margin: Rect {
-                    start: translate_dimension(rect_layout.margin_left.map(|prop| prop.map_property(|l| l.0))),
-                    end: translate_dimension(rect_layout.margin_right.map(|prop| prop.map_property(|r| r.0))),
+                margin: Offsets {
+                    left: translate_dimension(rect_layout.margin_left.map(|prop| prop.map_property(|l| l.0))),
+                    right: translate_dimension(rect_layout.margin_right.map(|prop| prop.map_property(|r| r.0))),
                     top: translate_dimension(rect_layout.margin_top.map(|prop| prop.map_property(|t| t.0))),
                     bottom: translate_dimension(rect_layout.margin_bottom.map(|prop| prop.map_property(|b| b.0))),
                 },
-                padding: Rect {
-                    start: translate_dimension(rect_layout.padding_left.map(|prop| prop.map_property(|l| l.0))),
-                    end: translate_dimension(rect_layout.padding_right.map(|prop| prop.map_property(|r| r.0))),
+                padding: Offsets {
+                    left: translate_dimension(rect_layout.padding_left.map(|prop| prop.map_property(|l| l.0))),
+                    right: translate_dimension(rect_layout.padding_right.map(|prop| prop.map_property(|r| r.0))),
                     top: translate_dimension(rect_layout.padding_top.map(|prop| prop.map_property(|t| t.0))),
                     bottom: translate_dimension(rect_layout.padding_bottom.map(|prop| prop.map_property(|b| b.0))),
                 },
-                border: Rect {
-                    start: translate_dimension(rect_layout.border_left_width.map(|prop| prop.map_property(|l| l.0))),
-                    end: translate_dimension(rect_layout.border_right_width.map(|prop| prop.map_property(|r| r.0))),
+                border: Offsets {
+                    left: translate_dimension(rect_layout.border_left_width.map(|prop| prop.map_property(|l| l.0))),
+                    right: translate_dimension(rect_layout.border_right_width.map(|prop| prop.map_property(|r| r.0))),
                     top: translate_dimension(rect_layout.border_top_width.map(|prop| prop.map_property(|t| t.0))),
                     bottom: translate_dimension(rect_layout.border_bottom_width.map(|prop| prop.map_property(|b| b.0))),
                 },
@@ -183,12 +184,6 @@ impl SolvedUi {
                 aspect_ratio: image_aspect_ratio,
             }
         });
-
-        // 1. do layout pass without any text, only images, set display:inline children to (0px 0px)
-        // 2. for each display:inline rect, layout children, calculate size of parent item
-        // 3. for each rect, check if children overflow, if yes, reserve space for scrollbar
-        // 4. copy UI and re-layout again, then copy result to all children of the overflowing rects
-        // 5. return to caller, caller will do final text layout (not the job of the layout engine)
 
         let mut solved_rects = algo::compute(NodeId::ZERO, node_hierarchy, &styles, bounds.size);
 

@@ -3,13 +3,12 @@ use std::{
 };
 use webrender::api::{
     Epoch, ImageData, ImageDescriptor, ResourceUpdate, AddImage, ExternalScrollId,
-    LayoutPrimitiveInfo, ExternalImageId, ExternalImageData, ImageFormat,
-    ExternalImageType, TextureTarget, RenderApi,
+    ExternalImageId, ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
 };
 use azul_css::{
     Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
-    StyleTextColor, RectStyle, RectLayout, ColorU as StyleColorU, StyleBackgroundContent,
-    PixelValue, CssPropertyValue, LayoutPaddingRight, LayoutPaddingLeft, LayoutPaddingTop,
+    StyleTextColor, RectStyle, RectLayout, ColorU as StyleColorU,
+    CssPropertyValue, LayoutPaddingRight, LayoutPaddingLeft, LayoutPaddingTop,
     LayoutPaddingBottom, LayoutPoint, LayoutSize, LayoutRect,
 };
 use {
@@ -23,7 +22,7 @@ use {
         NodeData, ScrollTagId, DomHash, DomString,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
     },
-    ui_solver::{do_the_layout, LayoutResult, PositionedRectangle},
+    ui_solver::{do_the_layout, LayoutResult},
     compositor::new_opengl_texture_id,
     window::{Window, WindowSize, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
@@ -33,6 +32,7 @@ use azul_core::{
     callbacks::PipelineId,
     window::{LogicalSize, LogicalPosition},
     app_resources::FontInstanceKey,
+    ui_solver::PositionedRectangle,
     display_list::{
         CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
         ImageRendering, AlphaType, DisplayListFrame, StyleBoxShadow,
@@ -108,6 +108,10 @@ impl<'a> DisplayRectangle<'a> {
     pub fn new(tag: Option<u64>, styled_node: &'a StyledNode) -> Self {
         Self { tag, styled_node, style: RectStyle::default(), layout: RectLayout::default() }
     }
+}
+
+impl<'a> GetRectLayout for DisplayRectangle<'a> {
+    fn get_rect_layout(&self) -> &RectLayout { &self.layout }
 }
 
 /// In order to render rectangles in the correct order, we have to group them together:
@@ -344,7 +348,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
     for (_, parent) in parents {
 
-        let children_sum_rect = match LayoutRect::union(parent.children(&node_hierarchy).map(|child_id| layouted_rects[child].bounds)) {
+        let children_sum_rect = match LayoutRect::union(parent.children(&node_hierarchy).map(|child_id| layouted_rects[child_id].bounds)) {
             None => continue,
             Some(sum) => sum,
         };
@@ -621,13 +625,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         children: Vec::new(),
     };
 
-    let info = LayoutPrimitiveInfo {
-        rect: bounds,
-        clip_rect: bounds,
-        is_backface_visible: false,
-        tag: tag_id,
-    };
-
     let border_radii = StyleBorderRadius {
         top_left: rect.style.border_top_left_radius,
         top_right: rect.style.border_top_right_radius,
@@ -724,7 +721,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         Image(image_id) => {
             if let Some(image_info) = referenced_mutable_content.app_resources.get_image_info(image_id) {
                 frame.content.push(DisplayListRectContent::Image {
-                    size: LogicalSize::new(info.rect.size.width, info.rect.size.height),
+                    size: LogicalSize::new(bounds.size.width, bounds.size.height),
                     offset: LogicalPosition::new(0.0, 0.0),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,
@@ -734,10 +731,10 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
             }
         },
         GlTexture(callback) => {
-            frame.content.push(call_opengl_callback(callback, &info, rectangle, referenced_content, referenced_mutable_content));
+            frame.content.push(call_opengl_callback(callback, bounds, rectangle, referenced_content, referenced_mutable_content));
         },
         IFrame(callback) => {
-            frame.children.push(call_iframe_callback(callback, &info, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content));
+            frame.children.push(call_iframe_callback(callback, bounds, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content));
         },
     };
 
@@ -760,7 +757,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
 #[inline]
 fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
-    info: &LayoutPrimitiveInfo,
+    bounds: LayoutRect,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
@@ -772,7 +769,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     use app_resources::FontImageApi;
 
     let bounds = hidpi_rect_from_bounds(
-        info.rect,
+        bounds,
         rectangle.window_size.hidpi_factor,
         rectangle.window_size.winit_hidpi_factor
     );
@@ -834,7 +831,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
 #[inline]
 fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
-    info: &LayoutPrimitiveInfo,
+    rect: LayoutRect,
     parent_scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
@@ -846,7 +843,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     use wr_translate::hidpi_rect_from_bounds;
 
     let bounds = hidpi_rect_from_bounds(
-        info.rect,
+        rect,
         rectangle.window_size.hidpi_factor,
         rectangle.window_size.hidpi_factor
     );
@@ -892,10 +889,10 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
     let rect_size = LayoutSize::new(
-        info.rect.size.width / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
-        info.rect.size.height / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
+        rect.size.width / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
+        rect.size.height / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
     );
-    let rect_origin = LayoutPoint::new(info.rect.origin.x, info.rect.origin.y);
+    let rect_origin = LayoutPoint::new(rect.origin.x, rect.origin.y);
     let layout_result = do_the_layout(
         &node_hierarchy,
         &node_data,

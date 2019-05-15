@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{fmt, collections::BTreeMap};
 use {
     window::{FakeWindow, WindowId},
     app_resources::AppResources,
@@ -123,4 +123,13 @@ impl<'a, T: 'a> AppStateNoData<'a, T> {
 pub enum RuntimeError {
     /// Error indexing into internal BTreeMap - wrong window ID
     WindowIndexError,
+}
+
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::RuntimeError::*;
+        match self {
+            WindowIndexError => write!(f, "Invalid window index"),
+        }
+    }
 }

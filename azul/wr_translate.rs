@@ -16,8 +16,6 @@ use webrender::api::{
     ColorF as WrColorF,
     BorderRadius as WrBorderRadius,
     BorderSide as WrBorderSide,
-    NormalBorder as WrNormalBorder,
-    BorderDetails as WrBorderDetails,
     BoxShadowClipMode as WrBoxShadowClipMode,
     ExtendMode as WrExtendMode,
     BorderStyle as WrBorderStyle,
@@ -76,7 +74,7 @@ pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {
 }
 
 #[inline(always)]
-pub(crate) fn hidpi_rect_from_bounds(bounds: WrLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> HidpiAdjustedBounds {
+pub(crate) fn hidpi_rect_from_bounds(bounds: CssLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> HidpiAdjustedBounds {
     let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
     HidpiAdjustedBounds {
         logical_size,

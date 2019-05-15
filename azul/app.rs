@@ -1,16 +1,12 @@
 use std::{
     mem,
-    fmt,
     rc::Rc,
     time::Instant,
     collections::BTreeMap,
 };
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
-use glium::{
-    SwapBuffersError,
-    glutin::WindowEvent,
-};
+use glium::glutin::WindowEvent;
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
@@ -44,7 +40,7 @@ use {
 };
 pub use app_resources::AppResources;
 pub use azul_core::{
-    app::{AppState, AppStateNoData},
+    app::{AppState, AppStateNoData, RuntimeError},
     window::WindowId,
 };
 #[cfg(test)]
@@ -151,22 +147,6 @@ impl Default for FrameEventInfo {
             new_window_size: None,
             new_dpi_factor: None,
             is_resize_event: false,
-        }
-    }
-}
-
-impl From<SwapBuffersError> for RuntimeError {
-    fn from(e: SwapBuffersError) -> Self {
-        RuntimeError::GlSwapError(e)
-    }
-}
-
-impl fmt::Display for RuntimeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::RuntimeError::*;
-        match self {
-            GlSwapError(e) => write!(f, "Failed to swap GL display: {}", e),
-            WindowIndexError => write!(f, "Invalid window index"),
         }
     }
 }
@@ -313,7 +293,7 @@ impl<T> App<T> {
         use std::{thread, time::Duration};
         use glium::glutin::Event;
         use ui_state::ui_state_from_app_state;
-        use self::RuntimeError::*;
+        use azul_core::app::RuntimeError::*;
 
         let mut ui_state_cache = {
             let app_state = &mut self.app_state;
@@ -444,8 +424,8 @@ impl<T> App<T> {
                     // TODO: For some reason this function has to be called twice in order
                     // to actually update the screen. For some reason the first swap_buffers() has
                     // no effect (winit bug?)
-                    render_inner(window, self.fake_display, Transaction::new(), self.config.background_color);
-                    render_inner(window, self.fake_display, Transaction::new(), self.config.background_color);
+                    render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
+                    render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
                 }
             }
 
@@ -597,7 +577,7 @@ fn hit_test_single_window<T>(
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<SingleWindowContentResult, RuntimeError> {
 
-    use self::RuntimeError::*;
+    use azul_core::app::RuntimeError::*;
     use window;
 
     let (mut frame_event_info, window_should_close) = window::update_window_state(full_window_state, &events);
@@ -728,7 +708,7 @@ fn relayout_single_window<T>(
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<(), RuntimeError> {
 
-    use self::RuntimeError::*;
+    use azul_core::app::RuntimeError::*;
     use ui_state::ui_state_from_app_state;
 
     // Call the Layout::layout() fn, get the DOM

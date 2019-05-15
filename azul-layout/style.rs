@@ -1,4 +1,4 @@
-use geometry::{Rect, Size};
+use geometry::{Offsets, Size};
 use number::Number;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -187,9 +187,9 @@ impl Dimension {
     }
 }
 
-impl Default for Rect<Dimension> {
-    fn default() -> Rect<Dimension> {
-        Rect { start: Default::default(), end: Default::default(), top: Default::default(), bottom: Default::default() }
+impl Default for Offsets<Dimension> {
+    fn default() -> Offsets<Dimension> {
+        Offsets { right: Default::default(), left: Default::default(), top: Default::default(), bottom: Default::default() }
     }
 }
 
@@ -211,10 +211,10 @@ pub struct Style {
     pub align_self: AlignSelf,
     pub align_content: AlignContent,
     pub justify_content: JustifyContent,
-    pub position: Rect<Dimension>,
-    pub margin: Rect<Dimension>,
-    pub padding: Rect<Dimension>,
-    pub border: Rect<Dimension>,
+    pub position: Offsets<Dimension>,
+    pub margin: Offsets<Dimension>,
+    pub padding: Offsets<Dimension>,
+    pub border: Offsets<Dimension>,
     pub flex_grow: f32,
     pub flex_shrink: f32,
     pub flex_basis: Dimension,
@@ -269,14 +269,14 @@ impl Style {
 
     pub(crate) fn main_margin_start(&self, direction: FlexDirection) -> Dimension {
         match direction {
-            FlexDirection::Row | FlexDirection::RowReverse => self.margin.start,
+            FlexDirection::Row | FlexDirection::RowReverse => self.margin.left,
             FlexDirection::Column | FlexDirection::ColumnReverse => self.margin.top,
         }
     }
 
     pub(crate) fn main_margin_end(&self, direction: FlexDirection) -> Dimension {
         match direction {
-            FlexDirection::Row | FlexDirection::RowReverse => self.margin.end,
+            FlexDirection::Row | FlexDirection::RowReverse => self.margin.right,
             FlexDirection::Column | FlexDirection::ColumnReverse => self.margin.bottom,
         }
     }
@@ -305,14 +305,14 @@ impl Style {
     pub(crate) fn cross_margin_start(&self, direction: FlexDirection) -> Dimension {
         match direction {
             FlexDirection::Row | FlexDirection::RowReverse => self.margin.top,
-            FlexDirection::Column | FlexDirection::ColumnReverse => self.margin.start,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.margin.left,
         }
     }
 
     pub(crate) fn cross_margin_end(&self, direction: FlexDirection) -> Dimension {
         match direction {
             FlexDirection::Row | FlexDirection::RowReverse => self.margin.bottom,
-            FlexDirection::Column | FlexDirection::ColumnReverse => self.margin.end,
+            FlexDirection::Column | FlexDirection::ColumnReverse => self.margin.right,
         }
     }
 

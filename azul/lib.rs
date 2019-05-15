@@ -208,9 +208,9 @@ pub mod xml;
 /// Slab-allocated DOM nodes
 use azul_core::id_tree;
 /// UI Description & display list handling (webrender)
-mod ui_description;
+use azul_core::ui_description;
 /// Manages the hover / focus tags for the DOM items
-mod ui_state;
+use azul_core::ui_state;
 /// HarfBuzz text shaping utilities
 mod text_shaping;
 /// Converts the UI description (the styled HTML nodes)
@@ -224,8 +224,6 @@ mod compositor;
 mod logging;
 /// Flexbox-based UI solver
 mod ui_solver;
-/// DOM styling module
-mod style;
 /// DOM diffing
 mod diff;
 /// Window state handling and diffing
