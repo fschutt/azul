@@ -39,6 +39,7 @@ use azul_core::{
         StyleBorderStyles, StyleBorderColors, StyleBorderRadius, StyleBorderWidths,
     },
 };
+use azul_layout::GetRectLayout;
 
 const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
 
@@ -466,8 +467,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T>(
         node_data,
         &display_list.rectangles,
         &*app_resources,
-        LayoutSize::new(window_size.width as f32, window_size.height as f32),
-        LayoutPoint::new(0.0, 0.0),
+        LayoutRect { origin: LayoutPoint::new(0.0, 0.0), size: LayoutSize::new(window_size.width as f32, window_size.height as f32) },
     );
 
     let rects_in_rendering_order = determine_rendering_order(
@@ -888,18 +888,12 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     let node_data = &arena.node_data;
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
-    let rect_size = LayoutSize::new(
-        rect.size.width / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
-        rect.size.height / rectangle.window_size.hidpi_factor as f32 * rectangle.window_size.winit_hidpi_factor as f32,
-    );
-    let rect_origin = LayoutPoint::new(rect.origin.x, rect.origin.y);
     let layout_result = do_the_layout(
         &node_hierarchy,
         &node_data,
         &display_list.rectangles,
         &*referenced_mutable_content.app_resources,
-        rect_size,
-        rect_origin,
+        rect,
     );
 
     let mut scrollable_nodes = get_nodes_that_need_scroll_clip(

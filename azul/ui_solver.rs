@@ -101,8 +101,10 @@ pub(crate) fn do_the_layout<'a,'b, T>(
     let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
     let rect_contents = create_rect_contents_cache();
     let ui = SolvedUi::new(bounding_rect, node_hierarchy, display_rects, rect_contents);
+
     let positioned_word_cache = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
     let layouted_glyph_cache = get_glyphs(&scaled_words, &positioned_word_cache, &display_rects, &layouted_rects);
+    let node_depths = node_hierarchy.get_parents_sorted_by_depth();
 
     // TODO: Set the final content sizes on layouted_rects!
 
@@ -112,7 +114,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
         scaled_words,
         positioned_word_cache,
         layouted_glyph_cache,
-        node_depths: solved_widths.non_leaf_nodes_sorted_by_depth,
+        node_depths,
     }
 }
 

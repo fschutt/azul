@@ -56,6 +56,7 @@ dependencies = [
  "azul-css 0.1.0",
  "azul-css-parser 0.1.0",
  "azul-dependencies 0.1.0 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)",
+ "azul-layout 0.1.0",
  "azul-native-style 0.1.0",
  "azul-widgets 0.1.0",
  "gleam 0.6.16 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -114,19 +115,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-layout"
+version = "0.1.0"
+dependencies = [
+ "azul-core 0.1.0",
+ "azul-css 0.1.0",
+]
+
+[[package]]
 name = "azul-native-style"
 version = "0.1.0"
 dependencies = [
  "azul-css 0.1.0",
  "azul-css-parser 0.1.0",
-]
-
-[[package]]
-name = "azul-stretch-mini"
-version = "0.1.0"
-dependencies = [
- "azul-core 0.1.0",
- "azul-css 0.1.0",
 ]
 
 [[package]]

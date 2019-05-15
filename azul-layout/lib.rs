@@ -37,7 +37,7 @@ pub struct SolvedUi {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum RectContent<T: GetTextLayout> {
+pub enum RectContent<T: GetTextLayout> {
     // Returns the original (width, height) of the image
     Image(usize, usize),
     /// Gives access an anonymous struct which, given the text bounds,

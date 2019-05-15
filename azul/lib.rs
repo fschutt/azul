@@ -139,6 +139,7 @@ pub extern crate azul_dependencies;
 extern crate azul_native_style;
 extern crate azul_css;
 extern crate azul_core;
+extern crate azul_layout;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
 #[cfg(feature = "widgets")]

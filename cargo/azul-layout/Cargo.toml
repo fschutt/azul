@@ -1,5 +1,5 @@
 [package]
-name = "azul-stretch-mini"
+name = "azul-layout"
 version = "0.1.0"
 authors = ["Emil Sjölander <emil@visly.app>", "fschutt <felix.schuett@maps4print.com>"]
 

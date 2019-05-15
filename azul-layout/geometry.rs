@@ -142,12 +142,6 @@ pub struct Size<T> {
     pub height: T,
 }
 
-impl Size<()> {
-    pub const fn undefined() -> Size<Number> {
-        Size { width: Number::Undefined, height: Number::Undefined }
-    }
-}
-
 impl<T> Size<T> {
     pub(crate) fn map<R, F>(self, f: F) -> Size<R>
     where
@@ -183,10 +177,4 @@ impl<T> Size<T> {
             FlexDirection::Column | FlexDirection::ColumnReverse => self.width,
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Point<T> {
-    pub x: T,
-    pub y: T,
 }

@@ -9,7 +9,7 @@ use azul_core::{
 
 use style::*;
 use number::{OrElse, MinMax, ToNumber, Number::{self, *}};
-use geometry::{Rect, RectSize, Offsets, Size};
+use geometry::{Rect, RectSize, RectOrigin, Offsets, Size};
 
 struct FlexItem {
 
@@ -76,7 +76,7 @@ pub(crate) fn compute(
 
     if has_root_min_max {
 
-        let first_pass = node_rects.clone();
+        let mut first_pass = node_rects.clone();
 
         compute_internal(
             root_id,
@@ -122,7 +122,7 @@ pub(crate) fn compute(
         );
     };
 
-    node_rects.transform(|rect, node_id| {
+    node_rects.transform(|rect, _| {
 
         let bounds = LayoutRect {
             origin: LayoutPoint { x: rect.origin.x.unwrap_or_zero(), y: rect.origin.y.unwrap_or_zero() },
@@ -343,10 +343,13 @@ fn compute_internal(
             false,
         );
 
-        child.flex_basis = node_rects[child.node_id].size
-        .main(dir)
-        .maybe_max(child.min_size.main(dir))
-        .maybe_min(child.max_size.main(dir));
+        // WARN: different from original code, original uses Dimension instead of RectSize
+        child.flex_basis =
+            node_rects[child.node_id].size
+            .main(dir)
+            .maybe_max(child.min_size.main(dir))
+            .maybe_min(child.max_size.main(dir))
+            .unwrap_or_zero();
     });
 
     // The hypothetical main size is the item’s flex base size clamped according to its
@@ -467,12 +470,12 @@ fn compute_internal(
                     false,
                 );
 
+                // WARN - original code uses no .unwrap_or_zero() here!
                 child.target_size.set_main(dir,
-                    node_rects[child.node_id]
-                    .size
-                    .main(dir)
+                    node_rects[child.node_id].size.main(dir)
                     .maybe_max(child.min_size.main(dir))
-                    .maybe_min(child.max_size.main(dir)),
+                    .maybe_min(child.max_size.main(dir))
+                    .unwrap_or_zero(),
                 );
             } else {
                 child.target_size.set_main(dir, child.hypothetical_inner_size.main(dir));
@@ -700,13 +703,15 @@ fn compute_internal(
                 false,
             );
 
+            // WARN: Original code doesn't use .unwrap_or_zero() here!
             child.hypothetical_inner_size.set_cross(
                 dir,
                 node_rects[child.node_id]
                 .size
                 .cross(dir)
                 .maybe_max(child.min_size.cross(dir))
-                .maybe_min(child.max_size.cross(dir)),
+                .maybe_min(child.max_size.cross(dir))
+                .unwrap_or_zero(),
             );
 
             child
@@ -742,7 +747,7 @@ fn compute_internal(
                     true,
                 );
 
-                // TODO: calc_baseline is very expensive!
+                // WARN: calc_baseline is very expensive!
                 // child.baseline = calc_baseline(&result::Layout {
                 //     order: node.children.iter().position(|n| Rc::ptr_eq(n, child.node)).unwrap() as u32,
                 //     size: result.size,
@@ -918,41 +923,11 @@ fn compute_internal(
                 let is_first = i == 0;
 
                 child.offset_main = match parent_node_style.justify_content {
-                    JustifyContent::FlexStart => {
-                        if layout_reverse && is_first {
-                            free_space
-                        } else {
-                            0.0
-                        }
-                    }
-                    JustifyContent::Center => {
-                        if is_first {
-                            free_space / 2.0
-                        } else {
-                            0.0
-                        }
-                    }
-                    JustifyContent::FlexEnd => {
-                        if is_first && !layout_reverse {
-                            free_space
-                        } else {
-                            0.0
-                        }
-                    }
-                    JustifyContent::SpaceBetween => {
-                        if is_first {
-                            0.0
-                        } else {
-                            free_space / (num_items - 1) as f32
-                        }
-                    }
-                    JustifyContent::SpaceAround => {
-                        if is_first {
-                            (free_space / num_items as f32) / 2.0
-                        } else {
-                            free_space / num_items as f32
-                        }
-                    }
+                    JustifyContent::FlexStart => if layout_reverse && is_first { free_space } else { 0.0 },
+                    JustifyContent::Center => if is_first { free_space / 2.0 } else { 0.0 },
+                    JustifyContent::FlexEnd => if is_first && !layout_reverse { free_space } else { 0.0 },
+                    JustifyContent::SpaceBetween => if is_first { 0.0 } else { free_space / (num_items - 1) as f32 },
+                    JustifyContent::SpaceAround => if is_first { (free_space / num_items as f32) / 2.0 } else { free_space / num_items as f32 },
                     JustifyContent::SpaceEvenly => free_space / (num_items + 1) as f32,
                 };
             };
@@ -1077,155 +1052,139 @@ fn compute_internal(
         flex_lines.iter_mut().enumerate().for_each(align_line);
     }
 
-/*
+
     // Do a final layout pass and gather the resulting layouts
-    let mut children: Vec<result::Layout> = {
 
-        let mut lines: Vec<Vec<result::Layout>> = vec![];
-        let mut total_offset_cross = padding_border.cross_start(dir);
+    let mut total_offset_cross = padding_border.cross_start(dir);
 
-        fn layout_line(line: &mut FlexLine) -> Result<()> {
-            let mut children: Vec<result::Layout> = vec![];
-            let mut total_offset_main = padding_border.main_start(dir);
-            let line_offset_cross = line.offset_cross;
+    let layout_line = |line: &mut FlexLine| {
 
-            let layout_item = |child: &mut FlexItem| {
-                let result = compute_internal(
-                    child.node_id,
-                    node_hierarchy,
-                    node_styles,
-                    node_rects,
-                    child.target_size.map(|s| s.to_number()),
-                    container_size.map(|s| s.to_number()),
-                    true,
-                );
+        // let mut children: Vec<result::Layout> = vec![];
+        let mut total_offset_main = padding_border.main_start(dir);
+        let line_offset_cross = line.offset_cross;
 
-                let offset_main = total_offset_main
-                    + child.offset_main
-                    + child.margin.main_start(dir)
-                    + (child.position.main_start(dir).or_else(0.0) - child.position.main_end(dir).or_else(0.0));
+        let layout_item = |child: &mut FlexItem| {
 
-                let offset_cross = total_offset_cross
-                    + child.offset_cross
-                    + line_offset_cross
-                    + child.margin.cross_start(dir)
-                    + (child.position.cross_start(dir).or_else(0.0) - child.position.cross_end(dir).or_else(0.0));
+            compute_internal(
+                child.node_id,
+                node_hierarchy,
+                node_styles,
+                node_rects,
+                child.target_size.map(|s| s.to_number()),
+                container_size.map(|s| s.to_number()),
+                true,
+            );
 
-                children.push(result::Layout {
-                    order: node.children.iter().position(|n| Rc::ptr_eq(n, child.node)).unwrap() as u32,
-                    size: result.size,
-                    location: Point {
-                        x: if is_row { offset_main } else { offset_cross },
-                        y: if is_column { offset_main } else { offset_cross },
-                    },
-                    children: result.children,
-                });
+            let offset_main = total_offset_main
+                + child.offset_main
+                + child.margin.main_start(dir)
+                + (child.position.main_start(dir).or_else(0.0) - child.position.main_end(dir).or_else(0.0));
 
-                total_offset_main += child.offset_main + child.margin.main(dir) + result.size.main(dir);
+            let offset_cross = total_offset_cross
+                + child.offset_cross
+                + line_offset_cross
+                + child.margin.cross_start(dir)
+                + (child.position.cross_start(dir).or_else(0.0) - child.position.cross_end(dir).or_else(0.0));
 
-                Ok(())
+            node_rects[child.node_id].origin = RectOrigin {
+                x: Number::Defined(if is_row { offset_main } else { offset_cross }),
+                y: Number::Defined(if is_column { offset_main } else { offset_cross }),
             };
 
-            if dir.is_reverse() {
-                line.items.iter_mut().rev().for_each(layout_item);
-            } else {
-                line.items.iter_mut().for_each(layout_item);
-            }
+            total_offset_main += child.offset_main + child.margin.main(dir) + node_rects[child.node_id].size.main(dir).unwrap_or_zero();
+        };
 
-            total_offset_cross += line_offset_cross + line.cross_size;
-
-            if dir.is_reverse() {
-                children.reverse();
-            }
-
-            lines.push(children);
-
-            Ok(())
-        }
-
-        if is_wrap_reverse {
-            flex_lines.iter_mut().rev().try_for_each(layout_line)?;
+        if dir.is_reverse() {
+            line.items.iter_mut().rev().for_each(layout_item);
         } else {
-            flex_lines.iter_mut().try_for_each(layout_line)?;
+            line.items.iter_mut().for_each(layout_item);
         }
 
-        if is_wrap_reverse {
-            lines.into_iter().rev().flat_map(|x| x).collect()
-        } else {
-            lines.into_iter().flat_map(|x| x).collect()
-        }
+        total_offset_cross += line_offset_cross + line.cross_size;
+
+        // TODO!
+        // if dir.is_reverse() {
+        //     children.reverse();
+        // }
     };
 
+    if is_wrap_reverse {
+        flex_lines.iter_mut().rev().for_each(layout_line);
+    } else {
+        flex_lines.iter_mut().for_each(layout_line);
+    }
+
+    // if is_wrap_reverse {
+    //     lines.into_iter().rev().flat_map(|x| x).collect()
+    // } else {
+    //     lines.into_iter().flat_map(|x| x).collect()
+    // }
+
     // Before returning we perform absolute layout on all absolutely positioned children
-    let absolute_children: Vec<Result<result::Layout>> = node
-        .children
-        .iter()
-        .enumerate()
-        .filter(|(_, child)| child.borrow().style.position_type == PositionType::Absolute)
-        .map(|(order, child)| {
+    node_id
+        .children(node_hierarchy)
+        .filter(|child_id| node_styles[*child_id].position_type == PositionType::Absolute)
+        .for_each(|child_id| {
+
+            let child_style = &node_styles[child_id];
             let container_width = container_size.width.to_number();
             let container_height = container_size.height.to_number();
 
-            let start = child.borrow().style.position.left.resolve(container_width)
-                + child.borrow().style.margin.left.resolve(container_width);
-            let end = child.borrow().style.position.right.resolve(container_width)
-                + child.borrow().style.margin.right.resolve(container_width);
-            let top = child.borrow().style.position.top.resolve(container_height)
-                + child.borrow().style.margin.top.resolve(container_height);
-            let bottom = child.borrow().style.position.bottom.resolve(container_height)
-                + child.borrow().style.margin.bottom.resolve(container_height);
+            let start = child_style.position.left.resolve(container_width)
+                + child_style.margin.left.resolve(container_width);
+            let end = child_style.position.right.resolve(container_width)
+                + child_style.margin.right.resolve(container_width);
+            let top = child_style.position.top.resolve(container_height)
+                + child_style.margin.top.resolve(container_height);
+            let bottom = child_style.position.bottom.resolve(container_height)
+                + child_style.margin.bottom.resolve(container_height);
 
             let (start_main, end_main) = if is_row { (start, end) } else { (top, bottom) };
             let (start_cross, end_cross) = if is_row { (top, bottom) } else { (start, end) };
 
-            let width = child
-                .borrow()
-                .style
-                .size
-                .width
+            let width = child_style.size.width
                 .resolve(container_width)
-                .maybe_max(child.borrow().style.min_size.width.resolve(container_width))
-                .maybe_min(child.borrow().style.max_size.width.resolve(container_width))
+                .maybe_max(child_style.min_size.width.resolve(container_width))
+                .maybe_min(child_style.max_size.width.resolve(container_width))
                 .or_else(if start.is_defined() && end.is_defined() {
                     container_width - start - end
                 } else {
                     Undefined
                 });
 
-            let height = child
-                .borrow()
-                .style
-                .size
-                .height
+            let height = child_style.size.height
                 .resolve(container_height)
-                .maybe_max(child.borrow().style.min_size.height.resolve(container_height))
-                .maybe_min(child.borrow().style.max_size.height.resolve(container_height))
+                .maybe_max(child_style.min_size.height.resolve(container_height))
+                .maybe_min(child_style.max_size.height.resolve(container_height))
                 .or_else(if top.is_defined() && bottom.is_defined() {
                     container_height - top - bottom
                 } else {
                     Undefined
                 });
 
-            let result = compute_internal(
-                &mut child.borrow_mut(),
+            compute_internal(
+                child_id,
+                node_hierarchy,
+                node_styles,
+                node_rects,
                 Size { width, height },
                 Size { width: container_width, height: container_height },
                 true,
-            )?;
+            );
 
-            let free_main_space = container_size.main(dir)
-                - result
-                    .size
+            let free_main_space =
+                container_size.main(dir) - node_rects[child_id].size
                     .main(dir)
-                    .maybe_max(child.borrow().style.min_main_size(dir).resolve(node_inner_size.main(dir)))
-                    .maybe_min(child.borrow().style.max_main_size(dir).resolve(node_inner_size.main(dir)));
+                    .maybe_max(child_style.min_main_size(dir).resolve(node_inner_size.main(dir)))
+                    .maybe_min(child_style.max_main_size(dir).resolve(node_inner_size.main(dir)))
+                    .unwrap_or_zero();
 
-            let free_cross_space = container_size.cross(dir)
-                - result
-                    .size
+            let free_cross_space =
+                container_size.cross(dir) - node_rects[child_id].size
                     .cross(dir)
-                    .maybe_max(child.borrow().style.min_cross_size(dir).resolve(node_inner_size.cross(dir)))
-                    .maybe_min(child.borrow().style.max_cross_size(dir).resolve(node_inner_size.cross(dir)));
+                    .maybe_max(child_style.min_cross_size(dir).resolve(node_inner_size.cross(dir)))
+                    .maybe_min(child_style.max_cross_size(dir).resolve(node_inner_size.cross(dir)))
+                    .unwrap_or_zero();
 
             let offset_main = if start_main.is_defined() {
                 start_main.or_else(0.0) + border.main_start(dir)
@@ -1246,7 +1205,7 @@ fn compute_internal(
             } else if end_cross.is_defined() {
                 free_cross_space - end_cross.or_else(0.0) - border.cross_end(dir)
             } else {
-                match child.borrow().style.align_self(&parent_node_style) {
+                match child_style.align_self(&parent_node_style) {
                     AlignSelf::Auto => 0.0, // Should never happen
                     AlignSelf::FlexStart => {
                         if is_wrap_reverse {
@@ -1274,33 +1233,19 @@ fn compute_internal(
                 }
             };
 
-            Ok(result::Layout {
-                order: order as u32,
-                size: result.size,
-                location: Point {
-                    x: if is_row { offset_main } else { offset_cross },
-                    y: if is_column { offset_main } else { offset_cross },
-                },
-                children: result.children,
-            })
-        })
-        .collect();
+            node_rects[child_id].origin = RectOrigin {
+                x: Number::Defined(if is_row { offset_main } else { offset_cross }),
+                y: Number::Defined(if is_column { offset_main } else { offset_cross }),
+            };
+            // node_rects[child_id].order = Some(order as u32)
+        });
 
-    for abs_child in absolute_children {
-        children.push(abs_child?);
-    }
+    // NOTE: The original code spent time here laying out Display::None elements
+    // but that is unnecessary because all Display::None elements have a size of Undefined,
+    // so they will have a size of (0.0, 0.0) in the end
 
-    let mut hidden_children: Vec<result::Layout> = node
-        .children
-        .iter()
-        .enumerate()
-        .filter(|(_, child)| child.borrow().style.display == Display::None)
-        .map(|(order, child)| layout_display_none_element(&child.borrow(), order as _))
-        .collect();
-
-    children.append(&mut hidden_children);
-    children.sort_by(|c1, c2| c1.order.cmp(&c2.order));
-*/
+    // TODO: Ordering!
+    // children.sort_by(|c1, c2| c1.order.cmp(&c2.order));
 
     node_rects[node_id].size = RectSize {
         width: Number::Defined(container_size.width),
