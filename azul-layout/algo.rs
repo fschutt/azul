@@ -1057,13 +1057,13 @@ fn compute_internal(
 
     let mut total_offset_cross = padding_border.cross_start(dir);
 
-    let layout_line = |line: &mut FlexLine| {
+    let layout_line = |line: &mut FlexLine, node_rects: &mut NodeDataContainer<Rect>, total_offset_cross: &mut f32| {
 
         // let mut children: Vec<result::Layout> = vec![];
         let mut total_offset_main = padding_border.main_start(dir);
         let line_offset_cross = line.offset_cross;
 
-        let layout_item = |child: &mut FlexItem| {
+        let mut layout_item = |child: &mut FlexItem, node_rects: &mut NodeDataContainer<Rect>, total_offset_cross: &mut f32| {
 
             compute_internal(
                 child.node_id,
@@ -1080,7 +1080,7 @@ fn compute_internal(
                 + child.margin.main_start(dir)
                 + (child.position.main_start(dir).or_else(0.0) - child.position.main_end(dir).or_else(0.0));
 
-            let offset_cross = total_offset_cross
+            let offset_cross = *total_offset_cross
                 + child.offset_cross
                 + line_offset_cross
                 + child.margin.cross_start(dir)
@@ -1095,12 +1095,12 @@ fn compute_internal(
         };
 
         if dir.is_reverse() {
-            line.items.iter_mut().rev().for_each(layout_item);
+            line.items.iter_mut().rev().for_each(|c| layout_item(c, node_rects, total_offset_cross));
         } else {
-            line.items.iter_mut().for_each(layout_item);
+            line.items.iter_mut().for_each(|c| layout_item(c, node_rects, total_offset_cross));
         }
 
-        total_offset_cross += line_offset_cross + line.cross_size;
+        *total_offset_cross += line_offset_cross + line.cross_size;
 
         // TODO!
         // if dir.is_reverse() {
@@ -1109,9 +1109,9 @@ fn compute_internal(
     };
 
     if is_wrap_reverse {
-        flex_lines.iter_mut().rev().for_each(layout_line);
+        flex_lines.iter_mut().rev().for_each(|l| layout_line(l, node_rects, &mut total_offset_cross));
     } else {
-        flex_lines.iter_mut().for_each(layout_line);
+        flex_lines.iter_mut().for_each(|l| layout_line(l, node_rects, &mut total_offset_cross));
     }
 
     // if is_wrap_reverse {
