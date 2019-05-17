@@ -3,6 +3,8 @@ use azul_css::{LayoutRect, LayoutSize};
 /// Layout options that can impact the flow of word positions
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct TextLayoutOptions {
+    /// Font size (in pixels) that this text has been laid out with
+    pub font_size_px: f32,
     /// Multiplier for the line height, default to 1.0
     pub line_height: Option<f32>,
     /// Additional spacing between glyphs (in pixels)

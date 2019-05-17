@@ -64,6 +64,7 @@ impl Default for Direction {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Display {
     Flex,
+    Inline,
     None,
 }
 
@@ -222,6 +223,11 @@ pub struct Style {
     pub min_size: Size<Dimension>,
     pub max_size: Size<Dimension>,
     pub aspect_ratio: Number,
+    pub font_size_px: f32,
+    pub line_height: Option<f32>,
+    pub letter_spacing: Option<f32>,
+    pub word_spacing: Option<f32>,
+    pub tab_width: Option<f32>,
 }
 
 impl Default for Style {
@@ -248,6 +254,11 @@ impl Default for Style {
             min_size: Default::default(),
             max_size: Default::default(),
             aspect_ratio: Default::default(),
+            font_size_px: 10.0,
+            letter_spacing: None,
+            line_height: None,
+            word_spacing: None,
+            tab_width: None,
         }
     }
 }

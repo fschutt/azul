@@ -15,6 +15,7 @@ use azul_core::{
     app_resources::{Au, FontInstanceKey},
     ui_solver::PositionedRectangle,
 };
+use azul_layout::{GetTextLayout, InlineTextLayout};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(10));
@@ -72,11 +73,22 @@ pub struct LayoutResult {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-struct InlineText {
-    /// Horizontal padding of the text in pixels
-    horizontal_padding: f32,
-    /// Horizontal margin of the text in pixels
-    horizontal_margin: f32,
+pub struct InlineText<'a> {
+    word_cache: &'a Words,
+    scaled_word_cache: &'a ScaledWords,
+}
+
+impl<'a> GetTextLayout for InlineText<'a> {
+    fn get_text_layout(&mut self, text_layout_options: TextLayoutOptions) -> InlineTextLayout {
+        use text_layout;
+        let layouted_text_block = text_layout::position_words(
+            self.words,
+            self.scaled_words,
+            &text_layout_options,
+        );
+        // TODO: Cache the layouted text block on the &mut self
+        text_layout::word_positions_to_inline_text_layout(&layouted_text_block)
+    }
 }
 
 /// At this point in time, all font keys, image keys, etc. have
@@ -102,7 +114,11 @@ pub(crate) fn do_the_layout<'a,'b, T>(
     let rect_contents = create_rect_contents_cache();
     let ui = SolvedUi::new(bounding_rect, node_hierarchy, display_rects, rect_contents);
 
-    let positioned_word_cache = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
+    // TODO: overflowing rects!
+
+    // solved_rects: NodeDataContainer<PositionedRectangle>
+
+    let positioned_word_cache = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths);
     let layouted_glyph_cache = get_glyphs(&scaled_words, &positioned_word_cache, &display_rects, &layouted_rects);
     let node_depths = node_hierarchy.get_parents_sorted_by_depth();
 
@@ -115,50 +131,6 @@ pub(crate) fn do_the_layout<'a,'b, T>(
         positioned_word_cache,
         layouted_glyph_cache,
         node_depths,
-    }
-}
-
-/// Returns the preferred width, for example for an image, that would be the
-/// original width (an image always wants to take up the original space)
-fn get_content_width<T>(
-        node_id: &NodeId,
-        node_type: &NodeType<T>,
-        app_resources: &AppResources,
-        positioned_words: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-) -> Option<f32> {
-    use dom::NodeType::*;
-    match node_type {
-        Image(image_id) => app_resources.get_image_info(image_id).map(|info| info.descriptor.dimensions.0 as f32),
-        Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.0.content_size.width),
-        _ => None,
-    }
-}
-
-fn get_content_height<T>(
-    node_id: &NodeId,
-    node_type: &NodeType<T>,
-    app_resources: &AppResources,
-    positioned_words: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    div_width: f32,
-) -> Option<PreferredHeight> {
-    use dom::NodeType::*;
-    match &node_type {
-        Image(i) => {
-            let (image_size_width, image_size_height) = app_resources.get_image_info(i)?.descriptor.dimensions;
-            let aspect_ratio = image_size_width as f32 / image_size_height as f32;
-            let preferred_height = div_width * aspect_ratio;
-            Some(PreferredHeight::Image {
-                original_dimensions: (image_size_width, image_size_height),
-                aspect_ratio,
-                preferred_height,
-            })
-        },
-        Label(_) | Text(_) => {
-            positioned_words
-            .get(node_id)
-            .map(|pos| PreferredHeight::Text { content_size: pos.0.content_size })
-        },
-        _ => None,
     }
 }
 
@@ -215,51 +187,60 @@ fn create_scaled_words<'a>(
     }).collect()
 }
 
-fn create_word_positions<'a>(
-    words: &BTreeMap<NodeId, Words>,
-    scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
+fn create_rect_contents_cache<'a>(
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    max_widths: &BTreeMap<NodeId, PixelSize>,
-    inline_texts: &BTreeMap<NodeId, InlineText>,
-) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
+) -> BTreeMap<NodeId, InlineText<'a>> {
+    //     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
 
-    use text_layout;
-
-    words.iter().filter_map(|(node_id, words)| {
-
-        let rect = &display_rects[*node_id];
-        let (scaled_words, font_instance_key) = scaled_words.get(&node_id)?;
-
-        let font_size = get_font_size(&rect.style).0;
-        let max_horizontal_width = max_widths.get(&node_id).cloned();
-        let leading = inline_texts.get(&node_id).map(|inline_text| inline_text.horizontal_margin + inline_text.horizontal_padding);
-
-        // TODO: Make this configurable
-        let text_holes = Vec::new();
-        let text_layout_options = get_text_layout_options(&rect, max_horizontal_width, leading, text_holes);
-
-        // TODO: handle overflow / scrollbar_style !
-        let positioned_words = text_layout::position_words(
-            words, scaled_words,
-            &text_layout_options,
-            font_size.to_pixels()
-        );
-
-        Some((*node_id, (positioned_words, *font_instance_key)))
-    }).collect()
 }
 
+// fn create_word_positions<'a>(
+//     words: &BTreeMap<NodeId, Words>,
+//     scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
+//     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+//     max_widths: &BTreeMap<NodeId, PixelSize>,
+//     inline_texts: &BTreeMap<NodeId, InlineText>,
+// ) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
+//
+//     use text_layout;
+//
+//     words.iter().filter_map(|(node_id, words)| {
+//
+//         let rect = &display_rects[*node_id];
+//         let (scaled_words, font_instance_key) = scaled_words.get(&node_id)?;
+//
+//         let font_size = get_font_size(&rect.style).0;
+//         // font_size.to_pixels()
+//
+//         let max_horizontal_width = max_widths.get(&node_id).cloned();
+//         let leading = inline_texts.get(&node_id).map(|inline_text| inline_text.horizontal_margin + inline_text.horizontal_padding);
+//
+//         // TODO: Make this configurable
+//         let text_holes = Vec::new();
+//         let text_layout_options = get_text_layout_options(&rect, max_horizontal_width, leading, text_holes);
+//
+//         // TODO: handle overflow / scrollbar_style !
+//         let positioned_words = text_layout::position_words(
+//             words,
+//             scaled_words,
+//             &text_layout_options,
+//         );
+//
+//         Some((*node_id, (positioned_words, *font_instance_key)))
+//     }).collect()
+// }
+
 fn get_text_layout_options(
-    rect: &DisplayRectangle,
+    rect_style: &RectStyle,
     max_horizontal_width: Option<f32>,
     leading: Option<f32>,
     holes: Vec<LayoutRect>,
 ) -> TextLayoutOptions {
     TextLayoutOptions {
-        line_height: rect.style.line_height.and_then(|lh| lh.get_property()).map(|lh| lh.0.get()),
-        letter_spacing: rect.style.letter_spacing.and_then(|ls| ls.get_property()).map(|ls| ls.0.to_pixels()),
-        word_spacing: rect.style.word_spacing.and_then(|ws| ws.get_property()).map(|ws| ws.0.to_pixels()),
-        tab_width: rect.style.tab_width.and_then(|tw| tw.get_property()).map(|tw| tw.0.get()),
+        line_height: rect_style.line_height.and_then(|lh| lh.get_property()).map(|lh| lh.0.get()),
+        letter_spacing: rect_style.letter_spacing.and_then(|ls| ls.get_property()).map(|ls| ls.0.to_pixels()),
+        word_spacing: rect_style.word_spacing.and_then(|ws| ws.get_property()).map(|ws| ws.0.to_pixels()),
+        tab_width: rect_style.tab_width.and_then(|tw| tw.get_property()).map(|tw| tw.0.get()),
         max_horizontal_width,
         leading,
         holes,

@@ -1,8 +1,8 @@
-use std::f32;
+use std::{collections::BTreeMap, f32};
 
 use azul_css::{LayoutRect, LayoutPoint, LayoutSize};
 use azul_core::{
-    ui_solver::PositionedRectangle,
+    ui_solver::{PositionedRectangle, TextLayoutOptions},
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
 };
@@ -10,6 +10,7 @@ use azul_core::{
 use style::*;
 use number::{OrElse, MinMax, ToNumber, Number::{self, *}};
 use geometry::{Rect, RectSize, RectOrigin, Offsets, Size};
+use {RectContent, GetTextLayout, InlineTextLayout};
 
 struct FlexItem {
 
@@ -49,10 +50,11 @@ struct FlexLine {
     pub offset_cross: f32,
 }
 
-pub(crate) fn compute(
+pub(crate) fn compute<T: GetTextLayout>(
     root_id: NodeId,
     node_hierarchy: &NodeHierarchy,
     node_styles: &NodeDataContainer<Style>,
+    rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
     root_size: LayoutSize,
 ) -> NodeDataContainer<PositionedRectangle> {
 
@@ -83,6 +85,7 @@ pub(crate) fn compute(
             node_hierarchy,
             node_styles,
             &mut first_pass,
+            rect_contents,
             Size {
                 width: node_styles[root_id].size.width.resolve(root_size.width),
                 height: node_styles[root_id].size.height.resolve(root_size.height),
@@ -96,6 +99,7 @@ pub(crate) fn compute(
             node_hierarchy,
             node_styles,
             &mut node_rects,
+            rect_contents,
             Size {
                 width: first_pass[root_id].size.width
                     .maybe_max(root_min_size.width.resolve(root_size.width))
@@ -113,6 +117,7 @@ pub(crate) fn compute(
             node_hierarchy,
             node_styles,
             &mut node_rects,
+            rect_contents,
             Size {
                 width: node_styles[root_id].size.width.resolve(root_size.width),
                 height: node_styles[root_id].size.height.resolve(root_size.height),
@@ -136,11 +141,12 @@ pub(crate) fn compute(
     })
 }
 
-fn compute_internal(
+fn compute_internal<T: GetTextLayout>(
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
     node_styles: &NodeDataContainer<Style>,
     node_rects: &mut NodeDataContainer<Rect>,
+    rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
     node_size: Size<Number>,
     parent_size: Size<Number>,
     perform_layout: bool,
@@ -149,6 +155,10 @@ fn compute_internal(
     // of the algorithm.
 
     let parent_node_style = &node_styles[node_id];
+
+    if parent_node_style.display == Display::None {
+        return;
+    }
 
     let dir = parent_node_style.flex_direction;
     let is_row = dir.is_row();
@@ -191,6 +201,46 @@ fn compute_internal(
         return;
     }
 
+    // If this parent is an inline node, layout the children as inline elements
+    if parent_node_style.display == Display::Inline {
+
+        let children_size = layout_inline_rect_children(
+            node_id,
+            node_hierarchy,
+            node_styles,
+            node_rects,
+            rect_contents,
+        );
+
+        let inline_size = Size {
+            width: Number::Defined(children_size.width),
+            height: Number::Defined(children_size.height),
+        };
+
+        for child_id in node_id.children(node_hierarchy) {
+            compute_internal(
+                child_id,
+                node_hierarchy,
+                node_styles,
+                node_rects,
+                rect_contents,
+                Size {
+                    width: node_styles[child_id].size.width.resolve(inline_size.width),
+                    height: node_styles[child_id].size.height.resolve(inline_size.height),
+                },
+                inline_size,
+                true,
+            );
+        }
+
+        node_rects[node_id].size = RectSize {
+            width: Number::Defined(children_size.width),
+            height: Number::Defined(children_size.height),
+        };
+
+        return;
+    }
+
     // 9.2. Line Length Determination
 
     // 1. Generate anonymous flex items as described in §4 Flex Items.
@@ -211,7 +261,7 @@ fn compute_internal(
     let mut flex_items: Vec<FlexItem> = node_id
         .children(node_hierarchy)
         .filter(|child_id| node_styles[*child_id].position_type != PositionType::Absolute)
-        .filter(|child_id| node_styles[*child_id].display != Display::None)
+        .filter(|child_id| node_styles[*child_id].display == Display::Flex)
         .map(|child_id| {
             let child_style = &node_styles[child_id];
 
@@ -335,6 +385,7 @@ fn compute_internal(
             node_hierarchy,
             node_styles,
             node_rects,
+            rect_contents,
             Size {
                 width: width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
                 height: height.maybe_max(child.min_size.height).maybe_min(child.max_size.height),
@@ -368,6 +419,7 @@ fn compute_internal(
             node_hierarchy,
             node_styles,
             node_rects,
+            rect_contents,
             Size { width: Undefined, height: Undefined },
             available_space,
             false,
@@ -462,6 +514,7 @@ fn compute_internal(
                     node_hierarchy,
                     node_styles,
                     node_rects,
+                    rect_contents,
                     Size {
                         width: child.size.width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
                         height: child.size.height.maybe_max(child.min_size.height).maybe_min(child.max_size.height),
@@ -617,6 +670,7 @@ fn compute_internal(
                     node_hierarchy,
                     node_styles,
                     node_rects,
+                    rect_contents,
                     Size { width: Undefined, height: Undefined },
                     available_space,
                     false,
@@ -692,6 +746,7 @@ fn compute_internal(
                 node_hierarchy,
                 node_styles,
                 node_rects,
+                rect_contents,
                 Size {
                     width: if is_row { child.target_size.width.to_number() } else { child_cross },
                     height: if is_row { child_cross } else { child.target_size.height.to_number() },
@@ -728,6 +783,7 @@ fn compute_internal(
                     node_hierarchy,
                     node_styles,
                     node_rects,
+                    rect_contents,
                     Size {
                         width: if is_row {
                             child.target_size.width.to_number()
@@ -1070,6 +1126,7 @@ fn compute_internal(
                 node_hierarchy,
                 node_styles,
                 node_rects,
+                rect_contents,
                 child.target_size.map(|s| s.to_number()),
                 container_size.map(|s| s.to_number()),
                 true,
@@ -1167,6 +1224,7 @@ fn compute_internal(
                 node_hierarchy,
                 node_styles,
                 node_rects,
+                rect_contents,
                 Size { width, height },
                 Size { width: container_width, height: container_height },
                 true,
@@ -1263,18 +1321,126 @@ fn compute_internal(
 //     }
 // }
 
-/*
-fn layout_display_none_element(node: &InternalNode, order: u32) -> result::Layout {
-    result::Layout {
-        order,
-        size: Size { width: 0.0, height: 0.0 },
-        location: Point { x: 0.0, y: 0.0 },
-        children: node
-            .children
-            .iter()
-            .enumerate()
-            .map(|(order, child)| layout_display_none_element(&child.borrow(), order as _))
-            .collect(),
+fn layout_rect_content_inline<T: GetTextLayout>(
+    parent_size: LayoutSize,
+    rect_content: &mut RectContent<T>,
+    text_layout_options: TextLayoutOptions,
+    rect_style: &Style,
+    current_vertical_offset: f32,
+) -> InlineTextLayout {
+
+    use self::RectContent::*;
+    match rect_content {
+        Image(w, h) => {
+
+            let aspect_ratio = rect_style.aspect_ratio.or_else(1.0);
+
+            // Calculate how high the image should be, based on the font size.
+            // NOTE: should take into account things like align: baseline and such...
+            let width = rect_style.size.width
+                .resolve(Number::Defined(parent_size.width))
+                .maybe_min(rect_style.min_size.width.resolve(Number::Defined(parent_size.width)))
+                .maybe_max(rect_style.max_size.width.resolve(Number::Defined(parent_size.width)))
+                .or_else(*w as f32);
+
+            let height = rect_style.size.height
+                .resolve(Number::Defined(parent_size.height))
+                .maybe_min(rect_style.min_size.height.resolve(Number::Defined(parent_size.width)))
+                .maybe_max(rect_style.max_size.height.resolve(Number::Defined(parent_size.width)))
+                .or_else(width / (*h as f32) * aspect_ratio);
+
+            let font_size_px = text_layout_options.font_size_px;
+            let line_height = text_layout_options.line_height.unwrap_or(1.0);
+
+            // TODO: Padding / margin !!!
+
+            let original_leading = text_layout_options.leading.unwrap_or(0.0);
+            let (x, y) = if let Some(max_width) = text_layout_options.max_horizontal_width {
+                if original_leading + width < max_width {
+                    // image fits in inline row
+                    (original_leading + width, current_vertical_offset)
+                } else {
+                    (0.0, current_vertical_offset + font_size_px * line_height)
+                }
+            } else {
+                // no max-width: image fits in inline row
+                (original_leading + width, current_vertical_offset)
+            };
+
+            InlineTextLayout {
+                lines: vec![LayoutRect {
+                    origin: LayoutPoint { x, y },
+                    size: LayoutSize { width, height },
+                }],
+            }
+        },
+        Text(t) => {
+            t.get_text_layout(text_layout_options)
+        }
     }
 }
-*/
+
+impl InlineTextLayout {
+    pub fn get_bounds(&self) -> LayoutRect {
+        LayoutRect::union(self.lines.iter().map(|c| *c)).unwrap_or(LayoutRect::zero())
+    }
+}
+
+fn layout_inline_rect_children<T: GetTextLayout>(
+    node_id: NodeId,
+    node_hierarchy: &NodeHierarchy,
+    node_styles: &NodeDataContainer<Style>,
+    node_rects: &mut NodeDataContainer<Rect>,
+    rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
+) -> LayoutSize {
+
+    let mut current_offset = LayoutPoint { x: 0.0, y: 0.0 };
+
+    // TODO: collect all float: left / right children here!
+    let text_holes = Vec::new();
+
+    let parent_bounds = node_rects[node_id];
+    let parent_size = LayoutSize {
+        width: parent_bounds.size.width.unwrap_or_zero(),
+        height: parent_bounds.size.width.unwrap_or_zero(),
+    };
+    let mut last_font_size = 0.0;
+
+    for child_id in node_id.children(node_hierarchy) {
+        if let Some(rect_content) = rect_contents.get_mut(&child_id) {
+
+            let rect_style = &node_styles[child_id];
+            let allows_overflow = rect_style.overflow == Overflow::Visible;
+
+            let text_layout_options = TextLayoutOptions {
+                max_horizontal_width: if allows_overflow { None } else { Some(parent_size.width) },
+                leading: Some(current_offset.x),
+                holes: text_holes.clone(),
+                font_size_px: rect_style.font_size_px,
+                letter_spacing: rect_style.letter_spacing,
+                line_height: rect_style.line_height,
+                word_spacing: rect_style.word_spacing,
+                tab_width: rect_style.tab_width,
+            };
+
+            let layouted_inline_text = layout_rect_content_inline(
+                parent_size,
+                rect_content,
+                text_layout_options,
+                rect_style,
+                current_offset.y,
+            );
+
+            let inline_text_bounds = layouted_inline_text.get_bounds();
+
+            current_offset.x = inline_text_bounds.origin.x + inline_text_bounds.size.width;
+            current_offset.y = inline_text_bounds.origin.y + inline_text_bounds.size.height;
+            last_font_size = rect_style.font_size_px;
+        }
+    }
+
+    LayoutSize {
+        width: current_offset.x,
+        height: current_offset.y + last_font_size,
+    }
+}

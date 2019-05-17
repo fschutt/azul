@@ -10,6 +10,7 @@ pub use azul_core::{
     display_list::GlyphInstance,
     ui_solver::TextLayoutOptions,
 };
+use azul_layout::InlineTextLayout;
 
 pub type WordIndex = usize;
 pub type GlyphIndex = usize;
@@ -395,12 +396,12 @@ pub fn position_words(
     words: &Words,
     scaled_words: &ScaledWords,
     text_layout_options: &TextLayoutOptions,
-    font_size_px: f32,
 ) -> WordPositions {
 
     use self::WordType::*;
     use std::f32;
 
+    let font_size_px = text_layout_options.font_size_px;
     let space_advance = scaled_words.space_advance_px;
     let word_spacing_px = space_advance * text_layout_options.word_spacing.unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance * text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
@@ -629,9 +630,16 @@ pub fn get_layouted_glyphs(
     glyphs
 }
 
+pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions) -> InlineTextLayout {
+
+    /*
+lines: Vec<LayoutRect>,
+    */
+}
+
 /// Given a width, returns the vertical height and width of the text
-pub fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutSize {
-    word_positions.content_size
+pub fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutRect {
+    word_positions_get_inline_lines(word_positions).get_bounds()
 }
 
 pub fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {
