@@ -118,10 +118,10 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
         use azul_layout::style::*;
         use azul_layout::{Size, Offsets, Number};
         use azul_css::{
-            CssPropertyValue, PixelValue, LayoutDisplay, LayoutPosition,
-            LayoutDirection, LayoutWrap, LayoutAlignItems, LayoutAlignContent,
-            LayoutJustifyContent,
+            PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap,
+            LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,
         };
+        use ui_solver::DEFAULT_FONT_SIZE;
 
         let rect_layout = &self.layout;
         let rect_style = &self.style;
@@ -139,11 +139,14 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
         }
 
         Style {
-            display: match rect_layout.display.unwrap_or_default().get_property_or_default() {
-                Some(LayoutDisplay::Flex) => Display::Flex,
-                Some(LayoutDisplay::None) => Display::None,
-                Some(LayoutDisplay::Inline) => Display::None,
+            display: match rect_layout.display {
                 None => Display::Flex,
+                Some(CssPropertyValue::Auto) => Display::Flex,
+                Some(CssPropertyValue::None) => Display::None,
+                Some(CssPropertyValue::Initial) => Display::Flex,
+                Some(CssPropertyValue::Inherit) => Display::Flex,
+                Some(CssPropertyValue::Exact(LayoutDisplay::Flex)) => Display::Flex,
+                Some(CssPropertyValue::Exact(LayoutDisplay::Inline)) => Display::Inline,
             },
             position_type: match rect_layout.position.unwrap_or_default().get_property_or_default() {
                 Some(LayoutPosition::Static) => PositionType::Relative, // todo - static?
@@ -230,7 +233,12 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
                 width: translate_dimension(rect_layout.max_width.map(|prop| prop.map_property(|l| l.0))),
                 height: translate_dimension(rect_layout.max_height.map(|prop| prop.map_property(|l| l.0))),
             },
-            aspect_ratio: 1.0,
+            aspect_ratio: Number::Undefined,
+            font_size_px: rect_style.font_size.and_then(|fs| fs.get_property()).unwrap_or(&DEFAULT_FONT_SIZE).0,
+            line_height: rect_style.line_height.and_then(|lh| lh.map_property(|lh| lh.0).get_property()).map(|lh| lh.get()),
+            letter_spacing: rect_style.letter_spacing.and_then(|ls| ls.map_property(|ls| ls.0).get_property().cloned()),
+            word_spacing: rect_style.word_spacing.and_then(|ws| ws.map_property(|ws| ws.0).get_property().cloned()),
+            tab_width: rect_style.tab_width.and_then(|ls| ls.map_property(|ls| ls.0).get_property()).map(|tw| tw.get()),
         }
     }
 }

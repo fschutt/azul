@@ -4,7 +4,7 @@ extern crate azul_css;
 use std::collections::BTreeMap;
 use azul_css::LayoutRect;
 use azul_core::{
-    ui_solver::{PositionedRectangle, TextLayoutOptions},
+    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions},
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
 };
@@ -19,7 +19,7 @@ pub use geometry::{Size, Offsets};
 pub use number::Number;
 
 pub trait GetStyle { fn get_style(&self) -> Style; }
-pub trait GetTextLayout { fn get_text_layout(&mut self, text_layout_options: TextLayoutOptions) -> InlineTextLayout; }
+pub trait GetTextLayout { fn get_text_layout(&mut self, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout; }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct InlineTextLayout {
@@ -45,7 +45,7 @@ impl SolvedUi {
         bounds: LayoutRect,
         node_hierarchy: &NodeHierarchy,
         display_rects: &NodeDataContainer<T>,
-        rect_contents: &mut BTreeMap<NodeId, RectContent<U>>,
+        mut rect_contents: BTreeMap<NodeId, RectContent<U>>,
     ) -> Self {
 
         let styles = display_rects.transform(|node, node_id| {
@@ -60,7 +60,7 @@ impl SolvedUi {
             style
         });
 
-        let mut solved_rects = algo::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size);
+        let mut solved_rects = algo::compute(NodeId::ZERO, node_hierarchy, &styles, &mut rect_contents, bounds.size);
 
         // Offset all layouted rectangles by the origin of the bounds
         let origin_x = bounds.origin.x;

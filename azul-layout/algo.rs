@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, f32};
 
 use azul_css::{LayoutRect, LayoutPoint, LayoutSize};
 use azul_core::{
-    ui_solver::{PositionedRectangle, TextLayoutOptions},
+    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions, ResolvedOffsets},
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
 };
@@ -70,6 +70,7 @@ pub(crate) fn compute<T: GetTextLayout>(
     const UNDEFINED_RECT: Rect = Rect::undefined();
 
     let mut node_rects = NodeDataContainer::new(vec![UNDEFINED_RECT;node_hierarchy.len()]);
+    let mut resolved_text_layout_options = BTreeMap::new();
 
     let root_size = Size {
         width: Number::Defined(root_size.width),
@@ -85,6 +86,7 @@ pub(crate) fn compute<T: GetTextLayout>(
             node_hierarchy,
             node_styles,
             &mut first_pass,
+            &mut resolved_text_layout_options,
             rect_contents,
             Size {
                 width: node_styles[root_id].size.width.resolve(root_size.width),
@@ -99,6 +101,7 @@ pub(crate) fn compute<T: GetTextLayout>(
             node_hierarchy,
             node_styles,
             &mut node_rects,
+            &mut resolved_text_layout_options,
             rect_contents,
             Size {
                 width: first_pass[root_id].size.width
@@ -117,6 +120,7 @@ pub(crate) fn compute<T: GetTextLayout>(
             node_hierarchy,
             node_styles,
             &mut node_rects,
+            &mut resolved_text_layout_options,
             rect_contents,
             Size {
                 width: node_styles[root_id].size.width.resolve(root_size.width),
@@ -127,7 +131,7 @@ pub(crate) fn compute<T: GetTextLayout>(
         );
     };
 
-    node_rects.transform(|rect, _| {
+    node_rects.transform(|rect, node_id| {
 
         let bounds = LayoutRect {
             origin: LayoutPoint { x: rect.origin.x.unwrap_or_zero(), y: rect.origin.y.unwrap_or_zero() },
@@ -137,8 +141,22 @@ pub(crate) fn compute<T: GetTextLayout>(
         PositionedRectangle {
             bounds,
             content_size: None, // TODO
+            padding: rect.padding,
+            border_widths: rect.border_widths,
+            margin: rect.margin,
+            resolved_text_layout_options: resolved_text_layout_options.get(&node_id).cloned(),
         }
     })
+}
+
+
+fn resolve_offsets(input: Offsets<f32>) -> ResolvedOffsets {
+    ResolvedOffsets {
+        top: input.top,
+        left: input.left,
+        bottom: input.bottom,
+        right: input.right,
+    }
 }
 
 fn compute_internal<T: GetTextLayout>(
@@ -146,6 +164,7 @@ fn compute_internal<T: GetTextLayout>(
     node_hierarchy: &NodeHierarchy,
     node_styles: &NodeDataContainer<Style>,
     node_rects: &mut NodeDataContainer<Rect>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, ResolvedTextLayoutOptions>,
     rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
     node_size: Size<Number>,
     parent_size: Size<Number>,
@@ -191,13 +210,16 @@ fn compute_internal<T: GetTextLayout>(
                 width: Number::Defined(node_size.width.or_else(0.0)),
                 height: Number::Defined(node_size.height.or_else(0.0)),
             };
-            return;
+        } else {
+            node_rects[node_id].size = RectSize {
+                width: Number::Defined(node_size.width.or_else(0.0) + padding_border.horizontal()),
+                height: Number::Defined(node_size.height.or_else(0.0) + padding_border.vertical()),
+            };
         }
 
-        node_rects[node_id].size = RectSize {
-            width: Number::Defined(node_size.width.or_else(0.0) + padding_border.horizontal()),
-            height: Number::Defined(node_size.height.or_else(0.0) + padding_border.vertical()),
-        };
+        node_rects[node_id].margin = resolve_offsets(margin);
+        node_rects[node_id].padding = resolve_offsets(padding);
+        node_rects[node_id].border_widths = resolve_offsets(border);
         return;
     }
 
@@ -209,6 +231,7 @@ fn compute_internal<T: GetTextLayout>(
             node_hierarchy,
             node_styles,
             node_rects,
+            resolved_text_layout_options,
             rect_contents,
         );
 
@@ -223,6 +246,7 @@ fn compute_internal<T: GetTextLayout>(
                 node_hierarchy,
                 node_styles,
                 node_rects,
+                resolved_text_layout_options,
                 rect_contents,
                 Size {
                     width: node_styles[child_id].size.width.resolve(inline_size.width),
@@ -237,7 +261,9 @@ fn compute_internal<T: GetTextLayout>(
             width: Number::Defined(children_size.width),
             height: Number::Defined(children_size.height),
         };
-
+        node_rects[node_id].margin = resolve_offsets(margin);
+        node_rects[node_id].padding = resolve_offsets(padding);
+        node_rects[node_id].border_widths = resolve_offsets(border);
         return;
     }
 
@@ -385,6 +411,7 @@ fn compute_internal<T: GetTextLayout>(
             node_hierarchy,
             node_styles,
             node_rects,
+            resolved_text_layout_options,
             rect_contents,
             Size {
                 width: width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
@@ -419,6 +446,7 @@ fn compute_internal<T: GetTextLayout>(
             node_hierarchy,
             node_styles,
             node_rects,
+            resolved_text_layout_options,
             rect_contents,
             Size { width: Undefined, height: Undefined },
             available_space,
@@ -514,6 +542,7 @@ fn compute_internal<T: GetTextLayout>(
                     node_hierarchy,
                     node_styles,
                     node_rects,
+                    resolved_text_layout_options,
                     rect_contents,
                     Size {
                         width: child.size.width.maybe_max(child.min_size.width).maybe_min(child.max_size.width),
@@ -670,6 +699,7 @@ fn compute_internal<T: GetTextLayout>(
                     node_hierarchy,
                     node_styles,
                     node_rects,
+                    resolved_text_layout_options,
                     rect_contents,
                     Size { width: Undefined, height: Undefined },
                     available_space,
@@ -746,6 +776,7 @@ fn compute_internal<T: GetTextLayout>(
                 node_hierarchy,
                 node_styles,
                 node_rects,
+                resolved_text_layout_options,
                 rect_contents,
                 Size {
                     width: if is_row { child.target_size.width.to_number() } else { child_cross },
@@ -783,6 +814,7 @@ fn compute_internal<T: GetTextLayout>(
                     node_hierarchy,
                     node_styles,
                     node_rects,
+                    resolved_text_layout_options,
                     rect_contents,
                     Size {
                         width: if is_row {
@@ -1081,6 +1113,9 @@ fn compute_internal<T: GetTextLayout>(
             width: Number::Defined(container_size.width),
             height: Number::Defined(container_size.height),
         };
+        node_rects[node_id].margin = resolve_offsets(margin);
+        node_rects[node_id].padding = resolve_offsets(padding);
+        node_rects[node_id].border_widths = resolve_offsets(border);
         return;
     }
 
@@ -1113,7 +1148,7 @@ fn compute_internal<T: GetTextLayout>(
 
     let mut total_offset_cross = padding_border.cross_start(dir);
 
-    let layout_line = |line: &mut FlexLine, node_rects: &mut NodeDataContainer<Rect>, total_offset_cross: &mut f32| {
+    let mut layout_line = |line: &mut FlexLine, node_rects: &mut NodeDataContainer<Rect>, total_offset_cross: &mut f32| {
 
         // let mut children: Vec<result::Layout> = vec![];
         let mut total_offset_main = padding_border.main_start(dir);
@@ -1126,6 +1161,7 @@ fn compute_internal<T: GetTextLayout>(
                 node_hierarchy,
                 node_styles,
                 node_rects,
+                resolved_text_layout_options,
                 rect_contents,
                 child.target_size.map(|s| s.to_number()),
                 container_size.map(|s| s.to_number()),
@@ -1224,6 +1260,7 @@ fn compute_internal<T: GetTextLayout>(
                 node_hierarchy,
                 node_styles,
                 node_rects,
+                resolved_text_layout_options,
                 rect_contents,
                 Size { width, height },
                 Size { width: container_width, height: container_height },
@@ -1309,6 +1346,9 @@ fn compute_internal<T: GetTextLayout>(
         width: Number::Defined(container_size.width),
         height: Number::Defined(container_size.height),
     };
+    node_rects[node_id].margin = resolve_offsets(margin);
+    node_rects[node_id].padding = resolve_offsets(padding);
+    node_rects[node_id].border_widths = resolve_offsets(border);
 }
 
 // // TODO - probably should move this somewhere else as it doesn't make a ton of sense here but we need it below
@@ -1324,7 +1364,7 @@ fn compute_internal<T: GetTextLayout>(
 fn layout_rect_content_inline<T: GetTextLayout>(
     parent_size: LayoutSize,
     rect_content: &mut RectContent<T>,
-    text_layout_options: TextLayoutOptions,
+    resolved_text_layout_options: &ResolvedTextLayoutOptions,
     rect_style: &Style,
     current_vertical_offset: f32,
 ) -> InlineTextLayout {
@@ -1349,13 +1389,13 @@ fn layout_rect_content_inline<T: GetTextLayout>(
                 .maybe_max(rect_style.max_size.height.resolve(Number::Defined(parent_size.width)))
                 .or_else(width / (*h as f32) * aspect_ratio);
 
-            let font_size_px = text_layout_options.font_size_px;
-            let line_height = text_layout_options.line_height.unwrap_or(1.0);
+            let font_size_px = resolved_text_layout_options.font_size_px;
+            let line_height = resolved_text_layout_options.line_height.unwrap_or(1.0);
 
             // TODO: Padding / margin !!!
 
-            let original_leading = text_layout_options.leading.unwrap_or(0.0);
-            let (x, y) = if let Some(max_width) = text_layout_options.max_horizontal_width {
+            let original_leading = resolved_text_layout_options.leading.unwrap_or(0.0);
+            let (x, y) = if let Some(max_width) = resolved_text_layout_options.max_horizontal_width {
                 if original_leading + width < max_width {
                     // image fits in inline row
                     (original_leading + width, current_vertical_offset)
@@ -1375,7 +1415,7 @@ fn layout_rect_content_inline<T: GetTextLayout>(
             }
         },
         Text(t) => {
-            t.get_text_layout(text_layout_options)
+            t.get_text_layout(resolved_text_layout_options)
         }
     }
 }
@@ -1391,6 +1431,7 @@ fn layout_inline_rect_children<T: GetTextLayout>(
     node_hierarchy: &NodeHierarchy,
     node_styles: &NodeDataContainer<Style>,
     node_rects: &mut NodeDataContainer<Rect>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, ResolvedTextLayoutOptions>,
     rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
 ) -> LayoutSize {
 
@@ -1412,21 +1453,22 @@ fn layout_inline_rect_children<T: GetTextLayout>(
             let rect_style = &node_styles[child_id];
             let allows_overflow = rect_style.overflow == Overflow::Visible;
 
-            let text_layout_options = TextLayoutOptions {
+            let text_layout_options = ResolvedTextLayoutOptions {
                 max_horizontal_width: if allows_overflow { None } else { Some(parent_size.width) },
                 leading: Some(current_offset.x),
                 holes: text_holes.clone(),
-                font_size_px: rect_style.font_size_px,
-                letter_spacing: rect_style.letter_spacing,
+                // NOTE: This should be the only place where .to_pixels() is used
+                font_size_px: rect_style.font_size_px.to_pixels(),
+                letter_spacing: rect_style.letter_spacing.map(|ls| ls.to_pixels()),
+                word_spacing: rect_style.word_spacing.map(|ls| ls.to_pixels()),
                 line_height: rect_style.line_height,
-                word_spacing: rect_style.word_spacing,
                 tab_width: rect_style.tab_width,
             };
 
             let layouted_inline_text = layout_rect_content_inline(
                 parent_size,
                 rect_content,
-                text_layout_options,
+                &text_layout_options,
                 rect_style,
                 current_offset.y,
             );
@@ -1435,7 +1477,9 @@ fn layout_inline_rect_children<T: GetTextLayout>(
 
             current_offset.x = inline_text_bounds.origin.x + inline_text_bounds.size.width;
             current_offset.y = inline_text_bounds.origin.y + inline_text_bounds.size.height;
-            last_font_size = rect_style.font_size_px;
+            last_font_size = text_layout_options.font_size_px;
+
+            resolved_text_layout_options.insert(node_id, text_layout_options);
         }
     }
 

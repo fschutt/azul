@@ -1,5 +1,6 @@
 use geometry::{Offsets, Size};
 use number::Number;
+use azul_css::PixelValue;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum AlignItems {
@@ -223,10 +224,10 @@ pub struct Style {
     pub min_size: Size<Dimension>,
     pub max_size: Size<Dimension>,
     pub aspect_ratio: Number,
-    pub font_size_px: f32,
+    pub font_size_px: PixelValue,
+    pub letter_spacing: Option<PixelValue>,
+    pub word_spacing: Option<PixelValue>,
     pub line_height: Option<f32>,
-    pub letter_spacing: Option<f32>,
-    pub word_spacing: Option<f32>,
     pub tab_width: Option<f32>,
 }
 
@@ -254,7 +255,7 @@ impl Default for Style {
             min_size: Default::default(),
             max_size: Default::default(),
             aspect_ratio: Default::default(),
-            font_size_px: 10.0,
+            font_size_px: PixelValue::const_px(10),
             letter_spacing: None,
             line_height: None,
             word_spacing: None,

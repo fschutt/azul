@@ -1,5 +1,5 @@
 use std::ops::Add;
-
+use azul_core::ui_solver::ResolvedOffsets;
 use number::Number;
 use style::FlexDirection;
 
@@ -7,6 +7,9 @@ use style::FlexDirection;
 pub struct Rect {
     pub origin: RectOrigin,
     pub size: RectSize,
+    pub margin: ResolvedOffsets,
+    pub padding: ResolvedOffsets,
+    pub border_widths: ResolvedOffsets,
 }
 
 impl Rect {
@@ -14,6 +17,9 @@ impl Rect {
         Self {
             origin: RectOrigin::undefined(),
             size: RectSize::undefined(),
+            margin: ResolvedOffsets::zero(),
+            padding: ResolvedOffsets::zero(),
+            border_widths: ResolvedOffsets::zero(),
         }
     }
 }

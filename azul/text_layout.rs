@@ -8,7 +8,7 @@ pub use harfbuzz_sys::{hb_glyph_info_t as GlyphInfo, hb_glyph_position_t as Glyp
 pub use azul_core::{
     app_resources::{Words, Word, WordType},
     display_list::GlyphInstance,
-    ui_solver::TextLayoutOptions,
+    ui_solver::ResolvedTextLayoutOptions,
 };
 use azul_layout::InlineTextLayout;
 
@@ -19,10 +19,10 @@ pub type IndexOfLineBreak = usize;
 pub type RemainingSpaceToRight = f32;
 pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
 
-const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-const DEFAULT_WORD_SPACING: f32 = 1.0;
-const DEFAULT_LETTER_SPACING: f32 = 0.0;
-const DEFAULT_TAB_WIDTH: f32 = 4.0;
+pub(crate) const DEFAULT_LINE_HEIGHT: f32 = 1.0;
+pub(crate) const DEFAULT_WORD_SPACING: f32 = 1.0;
+pub(crate) const DEFAULT_LETTER_SPACING: f32 = 0.0;
+pub(crate) const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
 /// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
 /// according to their final size in pixels.
@@ -60,7 +60,7 @@ pub struct WordPositions {
     pub font_size_px: f32,
     /// Options like word spacing, character spacing, etc. that were
     /// used to layout these glyphs
-    pub text_layout_options: TextLayoutOptions,
+    pub text_layout_options: ResolvedTextLayoutOptions,
     /// Stores the positions of words.
     pub word_positions: Vec<LayoutPoint>,
     /// Index of the word at which the line breaks + length of line
@@ -395,7 +395,7 @@ pub fn words_to_scaled_words(
 pub fn position_words(
     words: &Words,
     scaled_words: &ScaledWords,
-    text_layout_options: &TextLayoutOptions,
+    text_layout_options: &ResolvedTextLayoutOptions,
 ) -> WordPositions {
 
     use self::WordType::*;
@@ -594,17 +594,15 @@ pub fn get_layouted_glyphs_unpositioned(
     LayoutedGlyphs { glyphs }
 }
 
+/// Align glyphs horizontally, return the line breaks
 pub fn get_layouted_glyphs_with_horizonal_alignment(
     word_positions: &WordPositions,
     scaled_words: &ScaledWords,
     alignment_horz: StyleTextAlignmentHorz,
 ) -> (LayoutedGlyphs, LineBreaks) {
     let mut glyphs = get_layouted_glyphs_unpositioned(word_positions, scaled_words);
-
-    // Align glyphs horizontal
     let line_breaks = get_char_indices(&word_positions, &scaled_words);
     align_text_horz(&mut glyphs.glyphs, alignment_horz, &line_breaks);
-
     (glyphs, line_breaks)
 }
 
@@ -618,28 +616,25 @@ pub fn get_layouted_glyphs(
     rect_offset: LayoutPoint,
     bounding_size_height_px: f32,
 ) -> LayoutedGlyphs {
-
     let (mut glyphs, line_breaks) = get_layouted_glyphs_with_horizonal_alignment(word_positions, scaled_words, alignment_horz);
-
-    // Align glyphs vertically
     let vertical_overflow = get_vertical_overflow(&word_positions, bounding_size_height_px);
     align_text_vert(&mut glyphs.glyphs, alignment_vert, &line_breaks, vertical_overflow);
-
     add_origin(&mut glyphs.glyphs, rect_offset.x, rect_offset.y);
-
     glyphs
 }
 
 pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions) -> InlineTextLayout {
 
-    /*
-lines: Vec<LayoutRect>,
-    */
+    // let mut lines = Vec::new();
+
+    // TODO: calculate text lines of the word positions!
+
+    InlineTextLayout { lines }
 }
 
 /// Given a width, returns the vertical height and width of the text
 pub fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutRect {
-    word_positions_get_inline_lines(word_positions).get_bounds()
+    word_positions_to_inline_text_layout(word_positions).get_bounds()
 }
 
 pub fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {

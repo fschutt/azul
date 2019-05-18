@@ -23,7 +23,10 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
 ];
 
 /// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);63] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);65] = [
+
+    (CssPropertyType::Display,              "display"),
+    (CssPropertyType::Float,                "float"),
 
     (CssPropertyType::TextColor,            "color"),
     (CssPropertyType::FontSize,             "font-size"),
@@ -480,6 +483,8 @@ pub enum CssPropertyType {
     TabWidth,
     Cursor,
 
+    Display,
+    Float,
     Width,
     Height,
     MinWidth,
@@ -646,6 +651,9 @@ pub enum CssProperty {
     TabWidth(CssPropertyValue<StyleTabWidth>),
     Cursor(CssPropertyValue<StyleCursor>),
 
+    Display(CssPropertyValue<LayoutDisplay>),
+    Float(CssPropertyValue<LayoutFloat>),
+
     Width(CssPropertyValue<LayoutWidth>),
     Height(CssPropertyValue<LayoutHeight>),
     MinWidth(CssPropertyValue<LayoutMinWidth>),
@@ -722,6 +730,8 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
         CssPropertyType::WordSpacing => CssProperty::WordSpacing(CssPropertyValue::$content_type),
         CssPropertyType::TabWidth => CssProperty::TabWidth(CssPropertyValue::$content_type),
         CssPropertyType::Cursor => CssProperty::Cursor(CssPropertyValue::$content_type),
+        CssPropertyType::Display => CssProperty::Display(CssPropertyValue::$content_type),
+        CssPropertyType::Float => CssProperty::Float(CssPropertyValue::$content_type),
         CssPropertyType::Width => CssProperty::Width(CssPropertyValue::$content_type),
         CssPropertyType::Height => CssProperty::Height(CssPropertyValue::$content_type),
         CssPropertyType::MinWidth => CssProperty::MinWidth(CssPropertyValue::$content_type),
@@ -793,6 +803,8 @@ impl CssProperty {
             CssProperty::WordSpacing(_) => CssPropertyType::WordSpacing,
             CssProperty::TabWidth(_) => CssPropertyType::TabWidth,
             CssProperty::Cursor(_) => CssPropertyType::Cursor,
+            CssProperty::Display(_) => CssPropertyType::Display,
+            CssProperty::Float(_) => CssPropertyType::Float,
             CssProperty::Width(_) => CssPropertyType::Width,
             CssProperty::Height(_) => CssPropertyType::Height,
             CssProperty::MinWidth(_) => CssPropertyType::MinWidth,
@@ -886,6 +898,8 @@ impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
 impl_from_css_prop!(StyleWordSpacing, CssProperty::WordSpacing);
 impl_from_css_prop!(StyleTabWidth, CssProperty::TabWidth);
 impl_from_css_prop!(StyleCursor, CssProperty::Cursor);
+impl_from_css_prop!(LayoutDisplay, CssProperty::Display);
+impl_from_css_prop!(LayoutFloat, CssProperty::Float);
 impl_from_css_prop!(LayoutWidth, CssProperty::Width);
 impl_from_css_prop!(LayoutHeight, CssProperty::Height);
 impl_from_css_prop!(LayoutMinWidth, CssProperty::MinWidth);
@@ -1035,6 +1049,8 @@ impl PixelValue {
     /// Returns the value of the SizeMetric in pixels
     #[inline]
     pub fn to_pixels(&self) -> f32 {
+        const PT_TO_PX: f32 = 96.0 / 72.0;
+
         match self.metric {
             SizeMetric::Px => { self.number.get() },
             SizeMetric::Pt => { (self.number.get()) * PT_TO_PX },
@@ -1045,7 +1061,11 @@ impl PixelValue {
     #[inline]
     pub fn to_points(&self) -> f32 {
         const PX_TO_PT: f32 = 72.0 / 96.0;
-        self.to_pixels() * PX_TO_PT
+        match self.metric {
+            SizeMetric::Px => { self.number.get() * PX_TO_PT },
+            SizeMetric::Pt => { (self.number.get()) },
+            SizeMetric::Em => { (self.number.get()) * EM_HEIGHT * PX_TO_PT },
+        }
     }
 }
 
@@ -1703,7 +1723,6 @@ pub enum LayoutAxis {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutDisplay {
     Flex,
-    None,
     Inline,
 }
 
@@ -1712,6 +1731,20 @@ impl Default for LayoutDisplay {
         LayoutDisplay::Flex
     }
 }
+
+/// Represents a `float` attribute
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LayoutFloat {
+    Left,
+    Right,
+}
+
+impl Default for LayoutFloat {
+    fn default() -> Self {
+        LayoutFloat::Left
+    }
+}
+
 
 /// Represents a `position` attribute - default: `Static`
 ///
@@ -2043,30 +2076,6 @@ impl RectStyle {
 
 impl RectLayout {
 
-    pub fn get_horizontal_padding(&self) -> f32 {
-        let padding_left = self.padding_left.map(|css_prop| css_prop.get_property().map(|pad| pad.0).unwrap_or_default()).unwrap_or_default();
-        let padding_right = self.padding_left.map(|css_prop| css_prop.get_property().map(|pad| pad.0).unwrap_or_default()).unwrap_or_default();
-        padding_left.to_pixels() + padding_right.to_pixels()
-    }
-
-    pub fn get_vertical_padding(&self) -> f32 {
-        let padding_top = self.padding_top.map(|css_prop| css_prop.get_property().map(|pad| pad.0).unwrap_or_default()).unwrap_or_default();
-        let padding_bottom = self.padding_bottom.map(|css_prop| css_prop.get_property().map(|pad| pad.0).unwrap_or_default()).unwrap_or_default();
-        padding_top.to_pixels() + padding_bottom.to_pixels()
-    }
-
-    pub fn get_horizontal_margin(&self) -> f32 {
-        let margin_left = self.margin_left.map(|css_prop| css_prop.get_property().map(|marg| marg.0).unwrap_or_default()).unwrap_or_default();
-        let margin_right = self.margin_left.map(|css_prop| css_prop.get_property().map(|marg| marg.0).unwrap_or_default()).unwrap_or_default();
-        margin_left.to_pixels() + margin_right.to_pixels()
-    }
-
-    pub fn get_vertical_margin(&self) -> f32 {
-        let margin_top = self.margin_top.map(|css_prop| css_prop.get_property().map(|marg| marg.0).unwrap_or_default()).unwrap_or_default();
-        let margin_bottom = self.margin_bottom.map(|css_prop| css_prop.get_property().map(|marg| marg.0).unwrap_or_default()).unwrap_or_default();
-        margin_top.to_pixels() + margin_bottom.to_pixels()
-    }
-
     pub fn is_horizontal_overflow_visible(&self) -> bool {
         self.overflow_x.map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
     }
@@ -2081,12 +2090,6 @@ impl RectLayout {
 pub struct StyleFontSize(pub PixelValue);
 
 impl_pixel_value!(StyleFontSize);
-
-impl StyleFontSize {
-    pub fn to_pixels(&self) -> f32 {
-        self.0.to_pixels()
-    }
-}
 
 /// Represents a `font-family` attribute
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

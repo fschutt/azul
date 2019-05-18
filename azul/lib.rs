@@ -248,7 +248,6 @@ pub mod resources {
 
 /// Quick exports of common types
 pub mod prelude {
-    #[cfg(feature = "css_parser")]
     pub use azul_css::*;
     pub use app::{App, AppConfig, AppState, AppResources};
     pub use async::{Task, TerminateTimer, TimerId, Timer, DropCheck};
@@ -279,11 +278,13 @@ pub mod prelude {
         WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
         VirtualKeyCode, ScanCode, keymap,
     };
-    pub use azul_core::callbacks::StackCheckedPointer;
-    pub use text_layout::{TextLayoutOptions, GlyphInstance};
+    pub use azul_core::{
+        ui_solver::{TextLayoutOptions, ResolvedTextLayoutOptions},
+        callbacks::StackCheckedPointer,
+    };
+    pub use text_layout::GlyphInstance;
     pub use xml::{XmlComponent, XmlComponentMap, DomXml};
 
-    #[cfg(any(feature = "css_parser", feature = "native_style"))]
     pub use css;
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;

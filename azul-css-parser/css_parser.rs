@@ -11,13 +11,13 @@ use azul_css::{
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
-    StyleCursor, LayoutWidth, LayoutHeight, LayoutMinWidth, LayoutMinHeight,
-    LayoutMaxWidth, LayoutMaxHeight, LayoutPosition, LayoutTop, LayoutRight,
-    LayoutLeft, LayoutBottom, LayoutWrap, LayoutDirection, LayoutFlexGrow,
-    LayoutFlexShrink, LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent,
-    StyleBackgroundContent, StyleBackgroundPosition, StyleBackgroundSize,
-    StyleBackgroundRepeat, LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight,
-    LayoutPaddingBottom, LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight,
+    StyleCursor, LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight,
+    LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
+    LayoutPosition, LayoutTop, LayoutRight, LayoutLeft, LayoutBottom, LayoutWrap,
+    LayoutDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
+    LayoutAlignItems, LayoutAlignContent, StyleBackgroundContent, StyleBackgroundPosition,
+    StyleBackgroundSize, StyleBackgroundRepeat, LayoutPaddingTop, LayoutPaddingLeft,
+    LayoutPaddingRight, LayoutPaddingBottom, LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight,
     LayoutMarginBottom, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
     StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderTopColor,
     StyleBorderRightColor, StyleBorderLeftColor, StyleBorderBottomColor,
@@ -129,6 +129,9 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             WordSpacing                 => parse_style_word_spacing(value)?.into(),
             TabWidth                    => parse_style_tab_width(value)?.into(),
             Cursor                      => parse_style_cursor(value)?.into(),
+
+            Display                     => parse_layout_display(value)?.into(),
+            Float                       => parse_layout_float(value)?.into(),
             Width                       => parse_layout_width(value)?.into(),
             Height                      => parse_layout_height(value)?.into(),
             MinWidth                    => parse_layout_min_width(value)?.into(),
@@ -2357,6 +2360,14 @@ multi_type_parser!(parse_style_background_repeat, StyleBackgroundRepeat,
                     ["repeat", Repeat],
                     ["repeat-x", RepeatX],
                     ["repeat-y", RepeatY]);
+
+multi_type_parser!(parse_layout_display, LayoutDisplay,
+                    ["flex", Flex],
+                    ["inline", Inline]);
+
+multi_type_parser!(parse_layout_float, LayoutFloat,
+                    ["left", Left],
+                    ["right", Right]);
 
 multi_type_parser!(parse_layout_direction, LayoutDirection,
                     ["row", Row],
