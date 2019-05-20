@@ -1148,63 +1148,36 @@ fn compute_internal<T: GetTextLayout>(
 
     let mut total_offset_cross = padding_border.cross_start(dir);
 
-    let mut layout_line = |line: &mut FlexLine, node_rects: &mut NodeDataContainer<Rect>, total_offset_cross: &mut f32| {
-
-        // let mut children: Vec<result::Layout> = vec![];
-        let mut total_offset_main = padding_border.main_start(dir);
-        let line_offset_cross = line.offset_cross;
-
-        let mut layout_item = |child: &mut FlexItem, node_rects: &mut NodeDataContainer<Rect>, total_offset_cross: &mut f32| {
-
-            compute_internal(
-                child.node_id,
-                node_hierarchy,
-                node_styles,
-                node_rects,
-                resolved_text_layout_options,
-                rect_contents,
-                child.target_size.map(|s| s.to_number()),
-                container_size.map(|s| s.to_number()),
-                true,
-            );
-
-            let offset_main = total_offset_main
-                + child.offset_main
-                + child.margin.main_start(dir)
-                + (child.position.main_start(dir).or_else(0.0) - child.position.main_end(dir).or_else(0.0));
-
-            let offset_cross = *total_offset_cross
-                + child.offset_cross
-                + line_offset_cross
-                + child.margin.cross_start(dir)
-                + (child.position.cross_start(dir).or_else(0.0) - child.position.cross_end(dir).or_else(0.0));
-
-            node_rects[child.node_id].origin = RectOrigin {
-                x: Number::Defined(if is_row { offset_main } else { offset_cross }),
-                y: Number::Defined(if is_column { offset_main } else { offset_cross }),
-            };
-
-            total_offset_main += child.offset_main + child.margin.main(dir) + node_rects[child.node_id].size.main(dir).unwrap_or_zero();
-        };
-
-        if dir.is_reverse() {
-            line.items.iter_mut().rev().for_each(|c| layout_item(c, node_rects, total_offset_cross));
-        } else {
-            line.items.iter_mut().for_each(|c| layout_item(c, node_rects, total_offset_cross));
-        }
-
-        *total_offset_cross += line_offset_cross + line.cross_size;
-
-        // TODO!
-        // if dir.is_reverse() {
-        //     children.reverse();
-        // }
-    };
-
     if is_wrap_reverse {
-        flex_lines.iter_mut().rev().for_each(|l| layout_line(l, node_rects, &mut total_offset_cross));
+        flex_lines.iter_mut().rev().for_each(|l| {
+            layout_line(
+                l,
+                node_hierarchy,
+                node_rects,
+                node_styles,
+                rect_contents,
+                resolved_text_layout_options,
+                &mut total_offset_cross,
+                &padding_border,
+                dir,
+                container_size
+            )
+        });
     } else {
-        flex_lines.iter_mut().for_each(|l| layout_line(l, node_rects, &mut total_offset_cross));
+        flex_lines.iter_mut().for_each(|l| {
+            layout_line(
+                l,
+                node_hierarchy,
+                node_rects,
+                node_styles,
+                rect_contents,
+                resolved_text_layout_options,
+                &mut total_offset_cross,
+                &padding_border,
+                dir,
+                container_size,
+            )
+        });
     }
 
     // if is_wrap_reverse {
@@ -1351,6 +1324,113 @@ fn compute_internal<T: GetTextLayout>(
     node_rects[node_id].border_widths = resolve_offsets(border);
 }
 
+#[inline]
+fn layout_line<T: GetTextLayout>(
+    line: &mut FlexLine,
+    node_hierarchy: &NodeHierarchy,
+    node_rects: &mut NodeDataContainer<Rect>,
+    node_styles: &NodeDataContainer<Style>,
+    rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, ResolvedTextLayoutOptions>,
+    total_offset_cross: &mut f32,
+    padding_border: &Offsets<f32>,
+    dir: FlexDirection,
+    container_size: Size<f32>,
+) {
+    let mut total_offset_main = padding_border.main_start(dir);
+    let line_offset_cross = line.offset_cross;
+
+    if dir.is_reverse() {
+        line.items.iter_mut().rev().for_each(|c| {
+            layout_item(
+                c,
+                node_hierarchy,
+                node_rects,
+                node_styles,
+                rect_contents,
+                resolved_text_layout_options,
+                total_offset_cross,
+                &mut total_offset_main,
+                line_offset_cross,
+                dir,
+                container_size,
+            )
+        });
+    } else {
+        line.items.iter_mut().for_each(|c| {
+            layout_item(
+                c,
+                node_hierarchy,
+                node_rects,
+                node_styles,
+                rect_contents,
+                resolved_text_layout_options,
+                total_offset_cross,
+                &mut total_offset_main,
+                line_offset_cross,
+                dir,
+                container_size,
+            )
+        });
+    }
+
+    *total_offset_cross += line_offset_cross + line.cross_size;
+
+    // TODO!
+    // if dir.is_reverse() {
+    //     children.reverse();
+    // }
+}
+
+#[inline]
+fn layout_item<T: GetTextLayout>(
+    child: &mut FlexItem,
+    node_hierarchy: &NodeHierarchy,
+    node_rects: &mut NodeDataContainer<Rect>,
+    node_styles: &NodeDataContainer<Style>,
+    rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, ResolvedTextLayoutOptions>,
+    total_offset_cross: &mut f32,
+    total_offset_main: &mut f32,
+    line_offset_cross: f32,
+    dir: FlexDirection,
+    container_size: Size<f32>,
+) {
+
+    let is_row = dir.is_row();
+    let is_column = dir.is_column();
+
+    compute_internal(
+        child.node_id,
+        node_hierarchy,
+        node_styles,
+        node_rects,
+        resolved_text_layout_options,
+        rect_contents,
+        child.target_size.map(|s| s.to_number()),
+        container_size.map(|s| s.to_number()),
+        true,
+    );
+
+    let offset_main = *total_offset_main
+        + child.offset_main
+        + child.margin.main_start(dir)
+        + (child.position.main_start(dir).or_else(0.0) - child.position.main_end(dir).or_else(0.0));
+
+    let offset_cross = *total_offset_cross
+        + child.offset_cross
+        + line_offset_cross
+        + child.margin.cross_start(dir)
+        + (child.position.cross_start(dir).or_else(0.0) - child.position.cross_end(dir).or_else(0.0));
+
+    node_rects[child.node_id].origin = RectOrigin {
+        x: Number::Defined(if is_row { offset_main } else { offset_cross }),
+        y: Number::Defined(if is_column { offset_main } else { offset_cross }),
+    };
+
+    *total_offset_main += child.offset_main + child.margin.main(dir) + node_rects[child.node_id].size.main(dir).unwrap_or_zero();
+}
+
 // // TODO - probably should move this somewhere else as it doesn't make a ton of sense here but we need it below
 // // TODO - This is expensive and should only be done if we really require a baseline. aka, make it lazy
 // fn calc_baseline(layout: &result::Layout) -> f32 {
@@ -1361,6 +1441,7 @@ fn compute_internal<T: GetTextLayout>(
 //     }
 // }
 
+#[inline]
 fn layout_rect_content_inline<T: GetTextLayout>(
     parent_size: LayoutSize,
     rect_content: &mut RectContent<T>,
@@ -1421,11 +1502,13 @@ fn layout_rect_content_inline<T: GetTextLayout>(
 }
 
 impl InlineTextLayout {
+    #[inline]
     pub fn get_bounds(&self) -> LayoutRect {
         LayoutRect::union(self.lines.iter().map(|c| *c)).unwrap_or(LayoutRect::zero())
     }
 }
 
+#[inline]
 fn layout_inline_rect_children<T: GetTextLayout>(
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
