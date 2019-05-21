@@ -218,7 +218,7 @@ impl<T> NodeDataContainer<T> {
 
     pub fn len(&self) -> usize { self.internal.len() }
 
-    pub fn transform<U, F>(&self, closure: F) -> NodeDataContainer<U> where F: Fn(&T, NodeId) -> U {
+    pub fn transform<U, F>(&self, mut closure: F) -> NodeDataContainer<U> where F: FnMut(&T, NodeId) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         NodeDataContainer {
             internal: self.internal.iter().enumerate().map(|(node_id, node)| closure(node, NodeId::new(node_id))).collect(),

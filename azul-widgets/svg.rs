@@ -24,7 +24,7 @@ use lyon::{
 use std::io::{Error as IoError};
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
-use azul_core::css::{ColorU, ColorF, StyleTextAlignmentHorz};
+use azul_css::{ColorU, ColorF, StyleTextAlignmentHorz};
 use gleam::gl::{self, Gl};
 use azul_core::{
     FastHashMap,
@@ -33,7 +33,8 @@ use azul_core::{
         VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
     window::FakeWindow,
-    app_resources::{AppResources, FontId, GlyphInstance},
+    app_resources::{AppResources, FontId},
+    display_list::GlyphInstance,
     text_layout::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs, TextLayoutOptions},
 };
 pub use lyon::{
@@ -1387,7 +1388,7 @@ mod svg_to_lyon {
         path::PathEvent,
     };
     use usvg::{Tree, PathSegment, Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
-    use widgets::svg::{
+    use svg::{
         SvgStrokeOptions, SvgLineCap, SvgLineJoin,
         SvgLayerType, SvgStyle, SvgParseError
     };
@@ -2147,7 +2148,7 @@ fn build_uniforms(
     layer_transform: &SvgTransform
 ) -> Vec<Uniform> {
 
-    use gl::UniformType::*;
+    use azul_core::gl::UniformType::*;
 
     let color: ColorF = color.into();
 

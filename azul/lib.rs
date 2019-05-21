@@ -165,18 +165,12 @@ pub(crate) use azul_dependencies::harfbuzz_sys;
 
 #[cfg(feature = "logging")]
 pub(crate) use azul_dependencies::log;
-#[cfg(feature = "svg")]
-pub(crate) use azul_dependencies::stb_truetype;
 #[cfg(feature = "logging")]
 pub(crate) use azul_dependencies::fern;
 #[cfg(feature = "logging")]
 pub(crate) use azul_dependencies::backtrace;
 #[cfg(feature = "image_loading")]
 pub(crate) use azul_dependencies::image;
-#[cfg(feature = "svg")]
-pub(crate) use azul_dependencies::lyon;
-#[cfg(feature = "svg_parsing")]
-pub(crate) use azul_dependencies::usvg;
 
 // Crate-internal macros
 #[macro_use]

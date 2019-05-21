@@ -1087,9 +1087,8 @@ mod box_shadow {
             // box-shadow-bottom: 0px 0px 5px blue;
             TwoShadows => {
                 match (top, left, bottom, right) {
-
                     // top + bottom box-shadow pair
-                    (Some(t), None, Some(b), right) => {
+                    (Some(t), None, Some(b), None) => {
                         push_single_box_shadow_edge(
                             builder, &t, bounds, border_radius, shadow_type,
                             &top, &None, &None, &None

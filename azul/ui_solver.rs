@@ -54,7 +54,7 @@ pub(crate) fn px_to_au(px: f32) -> Au {
 }
 
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
-    let font_id = rect_style.font_family.and_then(|family| family.get_property()?.fonts.get(0));
+    let font_id = rect_style.font_family.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
     font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
 }
 

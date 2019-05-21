@@ -234,11 +234,11 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
                 height: translate_dimension(rect_layout.max_height.map(|prop| prop.map_property(|l| l.0))),
             },
             aspect_ratio: Number::Undefined,
-            font_size_px: rect_style.font_size.and_then(|fs| fs.get_property()).unwrap_or(&DEFAULT_FONT_SIZE).0,
-            line_height: rect_style.line_height.and_then(|lh| lh.map_property(|lh| lh.0).get_property()).map(|lh| lh.get()),
-            letter_spacing: rect_style.letter_spacing.and_then(|ls| ls.map_property(|ls| ls.0).get_property().cloned()),
-            word_spacing: rect_style.word_spacing.and_then(|ws| ws.map_property(|ws| ws.0).get_property().cloned()),
-            tab_width: rect_style.tab_width.and_then(|ls| ls.map_property(|ls| ls.0).get_property()).map(|tw| tw.get()),
+            font_size_px: rect_style.font_size.and_then(|fs| fs.get_property_owned()).unwrap_or(DEFAULT_FONT_SIZE).0,
+            line_height: rect_style.line_height.and_then(|lh| lh.map_property(|lh| lh.0).get_property_owned()).map(|lh| lh.get()),
+            letter_spacing: rect_style.letter_spacing.and_then(|ls| ls.map_property(|ls| ls.0).get_property_owned()),
+            word_spacing: rect_style.word_spacing.and_then(|ws| ws.map_property(|ws| ws.0).get_property_owned()),
+            tab_width: rect_style.tab_width.and_then(|tw| tw.map_property(|tw| tw.0).get_property_owned()).map(|tw| tw.get()),
         }
     }
 }
@@ -430,7 +430,7 @@ fn determine_rendering_order_inner<'a>(
 
                     depth += 1;
                 },
-                NodeEdge::End(node_id) => {
+                NodeEdge::End(_) => {
                     depth -= 1;
                 },
             }
@@ -530,24 +530,24 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
 
     let arena = &ui_description.ui_descr_arena;
 
-    let display_rect_arena = arena.node_data.transform(|node, node_id| {
+    let mut override_warnings = Vec::new();
 
+    let display_rect_arena = arena.node_data.transform(|_, node_id| {
         let style = &ui_description.styled_nodes[node_id];
         let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
         let mut rect = DisplayRectangle::new(tag, style);
-        let override_warnings = populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides);
-
-        #[cfg(feature = "logging")] {
-            for warning in override_warnings {
-                error!(
-                    "Cannot override {} with {:?}",
-                    warning.default.get_type(), warning.overridden_property,
-                )
-            }
-        }
-
+        override_warnings.append(&mut populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides));
         rect
     });
+
+    #[cfg(feature = "logging")] {
+        for warning in override_warnings {
+            error!(
+                "Cannot override {} with {:?}",
+                warning.default.get_type(), warning.overridden_property,
+            )
+        }
+    }
 
     DisplayList {
         ui_descr: ui_description,
@@ -721,15 +721,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     referenced_mutable_content: &mut DisplayListParametersMut<'g, T>,
 ) -> DisplayListFrame {
 
-    let DisplayListParametersRef {
-        css, display_rectangle_arena,
-        pipeline_id, node_hierarchy, node_data,
-        layout_result,
-    } = referenced_content;
-
-    let DisplayListRectParams {
-        epoch, rect_idx, html_node, window_size,
-    } = rectangle;
+    let DisplayListParametersRef { display_rectangle_arena, layout_result, .. } = referenced_content;
+    let DisplayListRectParams { rect_idx, html_node, window_size, .. } = rectangle;
 
     let rect = &display_rectangle_arena[*rect_idx];
     let bounds = layout_result.rects[*rect_idx].bounds;
@@ -775,7 +768,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
 
     // If the rect is hit-testing relevant, we need to push a rect anyway.
     // Otherwise the hit-testing gets confused
-    if let Some(bg) = rect.style.background.and_then(|br| br.get_property()) {
+    if let Some(bg) = rect.style.background.as_ref().and_then(|br| br.get_property()) {
 
         use azul_css::{CssImageId, StyleBackgroundContent::*};
         use azul_core::display_list::RectBackground;
@@ -787,8 +780,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         }
 
         let background_content = match bg {
-            LinearGradient(lg) => Some(RectBackground::LinearGradient(*lg)),
-            RadialGradient(rg) => Some(RectBackground::RadialGradient(*rg)),
+            LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
+            RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
             Image(style_image_id) => get_image_info(referenced_mutable_content.app_resources, style_image_id),
             Color(c) => Some(RectBackground::Color(*c)),
         };
@@ -859,7 +852,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
             }
         },
         GlTexture(callback) => {
-            frame.content.push(call_opengl_callback(callback, bounds, rectangle, referenced_content, referenced_mutable_content));
+            frame.content.push(call_opengl_callback(callback, bounds, rectangle, referenced_mutable_content));
         },
         IFrame(callback) => {
             frame.children.push(call_iframe_callback(callback, bounds, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content));
@@ -887,7 +880,6 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     bounds: LayoutRect,
     rectangle: &DisplayListRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> DisplayListRectContent {
 
@@ -1152,40 +1144,47 @@ fn populate_css_properties(
     use azul_css::CssDeclaration::*;
     use std::mem;
 
-    rect.styled_node.css_constraints.values()
-    .filter_map(|constraint| match constraint {
-        Static(static_property) => { apply_style_property(rect, static_property); None },
-        Dynamic(dynamic_property) => Some(dynamic_property),
-    })
-    .filter_map(|dynamic_property| {
-        let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id.clone().into()))?;
+    let rect_style = &mut rect.style;
+    let rect_layout = &mut rect.layout;
+    let css_constraints = &rect.styled_node.css_constraints;
 
-        // Apply the property default if the discriminant of the two types matches
-        if mem::discriminant(overridden_property) == mem::discriminant(&dynamic_property.default_value) {
-            apply_style_property(rect, overridden_property);
+   css_constraints
+    .values()
+    .filter_map(|constraint| match constraint {
+        Static(static_property) => {
+            apply_style_property(rect_style, rect_layout, static_property);
             None
-        } else {
-            Some(OverrideWarning {
-                default: dynamic_property.default_value.clone(),
-                overridden_property: overridden_property.clone(),
-            })
-        }
+        },
+        Dynamic(dynamic_property) => {
+            let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id.clone().into()))?;
+
+            // Apply the property default if the discriminant of the two types matches
+            if mem::discriminant(overridden_property) == mem::discriminant(&dynamic_property.default_value) {
+                apply_style_property(rect_style, rect_layout, overridden_property);
+                None
+            } else {
+                Some(OverrideWarning {
+                    default: dynamic_property.default_value.clone(),
+                    overridden_property: overridden_property.clone(),
+                })
+            }
+        },
     })
     .collect()
 }
 
-fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
+fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property: &CssProperty) {
 
     use azul_css::CssProperty::*;
 
-    let style = &mut rect.style;
-    let layout = &mut rect.layout;
-
     match property {
+
+        Display(d)                      => layout.display = Some(*d),
+        Float(f)                        => layout.float = Some(*f),
 
         TextColor(c)                    => style.text_color = Some(*c),
         FontSize(fs)                    => style.font_size = Some(*fs),
-        FontFamily(ff)                  => style.font_family = Some(*ff),
+        FontFamily(ff)                  => style.font_family = Some(ff.clone()),
         TextAlign(ta)                   => style.text_align = Some(*ta),
 
         LetterSpacing(ls)               => style.letter_spacing = Some(*ls),
@@ -1215,7 +1214,7 @@ fn apply_style_property(rect: &mut DisplayRectangle, property: &CssProperty) {
         AlignItems(ai)                  => layout.align_items = Some(*ai),
         AlignContent(ac)                => layout.align_content = Some(*ac),
 
-        BackgroundContent(bc)           => style.background = Some(*bc),
+        BackgroundContent(bc)           => style.background = Some(bc.clone()),
         BackgroundPosition(bp)          => style.background_position = Some(*bp),
         BackgroundSize(bs)              => style.background_size = Some(*bs),
         BackgroundRepeat(br)            => style.background_repeat = Some(*br),

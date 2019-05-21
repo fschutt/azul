@@ -1,4 +1,5 @@
 [workspace]
+license = "MIT"
 members = [
     "cargo/azul",
     "cargo/azul-css",

@@ -6,8 +6,6 @@ use css::CssPropertyValue;
 
 /// Currently hard-coded: Height of one em in pixels
 const EM_HEIGHT: f32 = 16.0;
-/// WebRender measures in points, not in pixels!
-const PT_TO_PX: f32 = 96.0 / 72.0;
 
 const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);10] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
@@ -1955,6 +1953,7 @@ pub struct RectStyle {
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RectLayout {
     pub display: Option<CssPropertyValue<LayoutDisplay>>,
+    pub float: Option<CssPropertyValue<LayoutFloat>>,
 
     pub width: Option<CssPropertyValue<LayoutWidth>>,
     pub height: Option<CssPropertyValue<LayoutHeight>>,

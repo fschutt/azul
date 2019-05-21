@@ -129,6 +129,14 @@ impl<T> CssPropertyValue<T> {
     }
 
     #[inline]
+    pub fn get_property_owned(self) -> Option<T> {
+        match self {
+            CssPropertyValue::Exact(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    #[inline]
     pub fn is_auto(&self) -> bool {
         match self {
             CssPropertyValue::Auto => true,

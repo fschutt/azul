@@ -19,10 +19,10 @@ pub type IndexOfLineBreak = usize;
 pub type RemainingSpaceToRight = f32;
 pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
 
-pub(crate) const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-pub(crate) const DEFAULT_WORD_SPACING: f32 = 1.0;
-pub(crate) const DEFAULT_LETTER_SPACING: f32 = 0.0;
-pub(crate) const DEFAULT_TAB_WIDTH: f32 = 4.0;
+pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
+pub const DEFAULT_WORD_SPACING: f32 = 1.0;
+pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
+pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
 /// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
 /// according to their final size in pixels.
@@ -56,8 +56,6 @@ pub struct ScaledWord {
 /// Stores the positions of the vertically laid out texts
 #[derive(Debug, Clone, PartialEq)]
 pub struct WordPositions {
-    /// Font size that was used to layout this text (value in pixels)
-    pub font_size_px: f32,
     /// Options like word spacing, character spacing, etc. that were
     /// used to layout these glyphs
     pub text_layout_options: ResolvedTextLayoutOptions,
@@ -554,7 +552,6 @@ pub fn position_words(
     let content_size = LayoutSize::new(content_size_x, content_size_y);
 
     WordPositions {
-        font_size_px,
         text_layout_options: text_layout_options.clone(),
         trailing,
         number_of_words,
@@ -623,13 +620,23 @@ pub fn get_layouted_glyphs(
     glyphs
 }
 
+/// Returns the (left-aligned!) bounding boxes of the indidividual text lines
 pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions) -> InlineTextLayout {
 
-    // let mut lines = Vec::new();
+    let font_size_px = word_positions.text_layout_options.font_size_px;
+    let content_width = word_positions.content_size.width;
 
-    // TODO: calculate text lines of the word positions!
-
-    InlineTextLayout { lines }
+    let mut line_pos_y = 0.0;
+    InlineTextLayout {
+        lines: word_positions.line_breaks.iter().map(|(_, line_length)| {
+            let rect_y = line_pos_y;
+            line_pos_y += font_size_px;
+            LayoutRect {
+                origin: LayoutPoint { x: 0.0, y: rect_y },
+                size: LayoutSize { width: *line_length, height: font_size_px },
+            }
+        }).collect(),
+    }
 }
 
 /// Given a width, returns the vertical height and width of the text
