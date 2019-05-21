@@ -1642,7 +1642,7 @@ pub struct LayoutFlexGrow(pub FloatValue);
 
 impl Default for LayoutFlexGrow {
     fn default() -> Self {
-        LayoutFlexGrow(FloatValue::const_new(1))
+        LayoutFlexGrow(FloatValue::const_new(0))
     }
 }
 
@@ -1652,7 +1652,7 @@ pub struct LayoutFlexShrink(pub FloatValue);
 
 impl Default for LayoutFlexShrink {
     fn default() -> Self {
-        LayoutFlexShrink(FloatValue::const_new(1))
+        LayoutFlexShrink(FloatValue::const_new(0))
     }
 }
 

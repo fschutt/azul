@@ -12,9 +12,12 @@ impl Layout for DataModel {
         let button = Button::with_label("Update counter").dom()
             .with_callback(On::MouseUp, Callback(update_counter));
 
-        Dom::div()
+        let dom = Dom::div()
             .with_child(label)
-            .with_child(button)
+            .with_child(button);
+
+        println!("dom: {}", dom.debug_dump());
+        dom
     }
 }
 
