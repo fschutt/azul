@@ -15,11 +15,8 @@ pub use azul_core::{
     ui_solver::ResolvedTextLayoutOptions,
 };
 use azul_layout::InlineTextLayout;
-pub(crate) use azul_core::app_resources::{
-    DEFAULT_LINE_HEIGHT,
-    DEFAULT_WORD_SPACING,
-    DEFAULT_LETTER_SPACING,
-    DEFAULT_TAB_WIDTH,
+pub(crate) use azul_core::ui_solver::{
+    DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
 };
 
 /// Width and height of the scrollbars at the side of the text field.

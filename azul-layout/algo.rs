@@ -1533,6 +1533,8 @@ fn layout_inline_rect_children<T: GetTextLayout>(
     for child_id in node_id.children(node_hierarchy) {
         if let Some(rect_content) = rect_contents.get_mut(&child_id) {
 
+            use azul_core::ui_solver::{DEFAULT_FONT_SIZE_PX, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING};
+
             let rect_style = &node_styles[child_id];
             let allows_overflow = rect_style.overflow == Overflow::Visible;
 
@@ -1540,10 +1542,9 @@ fn layout_inline_rect_children<T: GetTextLayout>(
                 max_horizontal_width: if allows_overflow { None } else { Some(parent_size.width) },
                 leading: Some(current_offset.x),
                 holes: text_holes.clone(),
-                // NOTE: This should be the only place where .to_pixels() is used
-                font_size_px: rect_style.font_size_px.to_pixels(),
-                letter_spacing: rect_style.letter_spacing.map(|ls| ls.to_pixels()),
-                word_spacing: rect_style.word_spacing.map(|ls| ls.to_pixels()),
+                font_size_px: rect_style.font_size_px.to_pixels(DEFAULT_FONT_SIZE_PX as f32),
+                letter_spacing: rect_style.letter_spacing.map(|ls| ls.to_pixels(DEFAULT_LETTER_SPACING)),
+                word_spacing: rect_style.word_spacing.map(|ls| ls.to_pixels(DEFAULT_WORD_SPACING)),
                 line_height: rect_style.line_height,
                 tab_width: rect_style.tab_width,
             };

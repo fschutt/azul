@@ -64,12 +64,6 @@ pub type IndexOfLineBreak = usize;
 pub type RemainingSpaceToRight = f32;
 pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
 
-pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-pub const DEFAULT_WORD_SPACING: f32 = 1.0;
-pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
-pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
-
-
 /// Metadata (but not storage) describing an image In WebRender.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageDescriptor {

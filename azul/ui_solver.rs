@@ -1,7 +1,7 @@
 use std::{f32, collections::BTreeMap};
 use azul_css::{
     RectLayout, StyleFontSize, RectStyle,
-    StyleTextAlignmentHorz, StyleTextAlignmentVert, PixelValue,
+    StyleTextAlignmentHorz, StyleTextAlignmentVert,
     LayoutRect, LayoutPoint, LayoutSize,
 };
 use {
@@ -16,10 +16,6 @@ use azul_core::{
     ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions},
 };
 use azul_layout::{GetTextLayout, InlineTextLayout, RectContent};
-
-pub(crate) const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
-pub(crate) const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(10));
-pub(crate) const DEFAULT_FONT_ID: &str = "sans-serif";
 
 type PixelSize = f32;
 
@@ -54,11 +50,13 @@ pub(crate) fn px_to_au(px: f32) -> Au {
 }
 
 pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
+    use azul_core::ui_solver::DEFAULT_FONT_ID;
     let font_id = rect_style.font_family.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
     font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
 }
 
 pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
+    use azul_core::ui_solver::DEFAULT_FONT_SIZE;
     rect_style.font_size.and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
 }
 

@@ -726,7 +726,7 @@ pub enum PixelParseError<'a> {
 impl_debug_as_display!(PixelParseError<'a>);
 
 impl_display!{ PixelParseError<'a>, {
-    EmptyString => format!("Missing [px / pt / em] value"),
+    EmptyString => format!("Missing [px / pt / em / %] value"),
     NoValueGiven(input) => format!("Expected floating-point pixel value, got: \"{}\"", input),
     UnsupportedMetric(_, metric, input) => format!("Could not parse \"{}\": Metric \"{}\" is not (yet) implemented.", input, metric),
     ValueParseErr(err, number_str) => format!("Could not parse \"{}\" as floating-point value: \"{}\"", number_str, err),
@@ -758,6 +758,7 @@ pub fn parse_pixel_value<'a>(input: &'a str)
         "px" => SizeMetric::Px,
         "em" => SizeMetric::Em,
         "pt" => SizeMetric::Pt,
+        "%" => SizeMetric::Percent,
         _ => return Err(PixelParseError::UnsupportedMetric(number, unit_str, input)),
     };
 

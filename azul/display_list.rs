@@ -7,9 +7,8 @@ use webrender::api::{
 };
 use azul_css::{
     Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
-    StyleTextColor, RectStyle, RectLayout, ColorU as StyleColorU,
-    CssPropertyValue, LayoutPaddingRight, LayoutPaddingLeft, LayoutPaddingTop,
-    LayoutPaddingBottom, LayoutPoint, LayoutSize, LayoutRect,
+    RectStyle, RectLayout, CssPropertyValue, LayoutPaddingRight, LayoutPaddingLeft,
+    LayoutPaddingTop, LayoutPaddingBottom, LayoutPoint, LayoutSize, LayoutRect,
 };
 use {
     FastHashMap,
@@ -40,8 +39,6 @@ use azul_core::{
     },
 };
 use azul_layout::{GetStyle, style::Style};
-
-const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
 
 pub(crate) struct DisplayList<'a, T: 'a> {
     pub(crate) ui_descr: &'a UiDescription<T>,
@@ -115,26 +112,31 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
 
     fn get_style(&self) -> Style {
 
-        use azul_layout::style::*;
-        use azul_layout::{Size, Offsets, Number};
+        use azul_layout::{style::*, Size, Offsets, Number};
         use azul_css::{
             PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap,
             LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,
         };
-        use ui_solver::DEFAULT_FONT_SIZE;
+        use azul_core::ui_solver::DEFAULT_FONT_SIZE;
 
         let rect_layout = &self.layout;
         let rect_style = &self.style;
 
         #[inline]
         fn translate_dimension(input: Option<CssPropertyValue<PixelValue>>) -> Dimension {
+            use azul_css::{SizeMetric, EM_HEIGHT, PT_TO_PX};
             match input {
                 None => Dimension::Undefined,
                 Some(CssPropertyValue::Auto) => Dimension::Auto,
                 Some(CssPropertyValue::None) => Dimension::Pixels(0.0),
                 Some(CssPropertyValue::Initial) => Dimension::Undefined,
                 Some(CssPropertyValue::Inherit) => Dimension::Undefined,
-                Some(CssPropertyValue::Exact(pixel_value)) => Dimension::Pixels(pixel_value.to_pixels()), // todo: percent!
+                Some(CssPropertyValue::Exact(pixel_value)) => match pixel_value.metric {
+                    SizeMetric::Px => Dimension::Pixels(pixel_value.number.get()),
+                    SizeMetric::Percent => Dimension::Percent(pixel_value.number.get()),
+                    SizeMetric::Pt => Dimension::Pixels(pixel_value.number.get() * PT_TO_PX),
+                    SizeMetric::Em => Dimension::Pixels(pixel_value.number.get() * EM_HEIGHT),
+                }
             }
         }
 
@@ -828,6 +830,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
         Text(_) | Label(_) => {
             println!("got text with rect idx: {}", rect_idx);
             if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
+
+                use azul_core::ui_solver::DEFAULT_FONT_COLOR;
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
                 let positioned_words = &layout_result.positioned_word_cache[&rect_idx];

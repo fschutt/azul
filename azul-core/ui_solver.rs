@@ -1,4 +1,13 @@
-use azul_css::{LayoutRect, PixelValue, LayoutSize};
+use azul_css::{LayoutRect, PixelValue, LayoutSize, StyleFontSize, StyleTextColor, ColorU as StyleColorU};
+
+pub const DEFAULT_FONT_SIZE_PX: isize = 10;
+pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(DEFAULT_FONT_SIZE_PX));
+pub const DEFAULT_FONT_ID: &str = "serif";
+pub const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });
+pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
+pub const DEFAULT_WORD_SPACING: f32 = 1.0;
+pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
+pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
 /// Layout options that can impact the flow of word positions
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]

@@ -5,7 +5,8 @@ use std::fmt;
 use css::CssPropertyValue;
 
 /// Currently hard-coded: Height of one em in pixels
-const EM_HEIGHT: f32 = 16.0;
+pub const EM_HEIGHT: f32 = 16.0;
+pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
 const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);10] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
@@ -975,6 +976,7 @@ impl fmt::Debug for SizeMetric {
             Px => write!(f, "px"),
             Pt => write!(f, "pt"),
             Em => write!(f, "pt"),
+            Percent => write!(f, "%"),
         }
     }
 }
@@ -1014,6 +1016,13 @@ impl PixelValue {
         Self::const_from_metric(SizeMetric::Pt, value)
     }
 
+    /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+    /// since using `f32` in const fn is not yet stabilized.
+    #[inline]
+    pub const fn const_percent(value: isize) -> Self {
+        Self::const_from_metric(SizeMetric::Percent, value)
+    }
+
     #[inline]
     pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
         Self {
@@ -1038,6 +1047,11 @@ impl PixelValue {
     }
 
     #[inline]
+    pub fn percent(value: f32) -> Self {
+        Self::from_metric(SizeMetric::Percent, value)
+    }
+
+    #[inline]
     pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
         Self {
             metric: metric,
@@ -1047,23 +1061,12 @@ impl PixelValue {
 
     /// Returns the value of the SizeMetric in pixels
     #[inline]
-    pub fn to_pixels(&self) -> f32 {
-        const PT_TO_PX: f32 = 96.0 / 72.0;
-
+    pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
         match self.metric {
             SizeMetric::Px => { self.number.get() },
             SizeMetric::Pt => { (self.number.get()) * PT_TO_PX },
             SizeMetric::Em => { (self.number.get()) * EM_HEIGHT },
-        }
-    }
-
-    #[inline]
-    pub fn to_points(&self) -> f32 {
-        const PX_TO_PT: f32 = 72.0 / 96.0;
-        match self.metric {
-            SizeMetric::Px => { self.number.get() * PX_TO_PT },
-            SizeMetric::Pt => { (self.number.get()) },
-            SizeMetric::Em => { (self.number.get()) * EM_HEIGHT * PX_TO_PT },
+            SizeMetric::Percent => { (self.number.get()) * (percent_resolve) / 100.0 },
         }
     }
 }
@@ -1141,6 +1144,7 @@ pub enum SizeMetric {
     Px,
     Pt,
     Em,
+    Percent,
 }
 
 impl Default for SizeMetric {
