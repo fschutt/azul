@@ -236,7 +236,7 @@ pub mod resources {
     pub use app_resources::{
         LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
         ImageSource, RawImageFormat, CssFontId, CssImageId,
-        TextCache, TextId, FontId, ImageId, font_source_get_bytes, image_source_get_bytes,
+        TextCache, TextId, FontId, ImageId, image_source_get_bytes,
     };
 }
 

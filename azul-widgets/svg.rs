@@ -33,9 +33,9 @@ use azul_core::{
         VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
     window::FakeWindow,
-    app_resources::{AppResources, FontId},
+    app_resources::{AppResources, Words, FontId, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs},
+    ui_solver::ResolvedTextLayoutOptions,
     display_list::GlyphInstance,
-    text_layout::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs, TextLayoutOptions},
 };
 pub use lyon::{
     tessellation::VertexBuffers,
@@ -1186,25 +1186,13 @@ impl VectorizedFontCache {
         self.vectorized_fonts.borrow_mut().insert(id, Rc::new(font));
     }
 
+    pub fn get_font(&self, id: &FontId) -> Option<Rc<VectorizedFont>> {
+        self.vectorized_fonts.borrow().get(&id).map(|font| font.clone())
+    }
+
     /// Returns true if the font cache has the respective font
     pub fn has_font(&self, id: &FontId) -> bool {
         self.vectorized_fonts.borrow().get(id).is_some()
-    }
-
-    pub fn get_font(&self, id: &FontId, app_resources: &AppResources) -> Option<Rc<VectorizedFont>> {
-        use std::collections::hash_map::Entry::*;
-        use app_resources::font_source_get_bytes;
-
-        match self.vectorized_fonts.borrow_mut().entry(id.clone()) {
-            Occupied(_) => { },
-            Vacant(v) => {
-                let font_bytes = app_resources.get_font_source(&id).map(font_source_get_bytes)?;
-                let (font_bytes, _) = font_bytes.ok()?;
-                v.insert(Rc::new(VectorizedFont::from_bytes(font_bytes)));
-            }
-        }
-
-        self.vectorized_fonts.borrow().get(&id).map(|font| font.clone())
     }
 
     pub fn remove_font(&mut self, id: &FontId) {
@@ -1784,30 +1772,6 @@ const SVG_FAKE_FONT_SIZE: f32 = 64.0;
 
 impl SvgTextLayout {
 
-    /// Calculate the text layout from a font and a font size -
-    /// note: the idea is to let the user cache the returned result,
-    /// it is not recommended to run this function on every frame,
-    /// since it can be very expensive
-    pub fn from_str(
-        text: &str,
-        font_bytes: &[u8],
-        font_index: u32,
-        text_layout_options: &TextLayoutOptions,
-        horizontal_alignment: StyleTextAlignmentHorz,
-    ) -> Self {
-
-        use text_layout;
-
-        let words = text_layout::split_text_into_words(text);
-        let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, SVG_FAKE_FONT_SIZE);
-        let word_positions = text_layout::position_words(&words, &scaled_words, text_layout_options, SVG_FAKE_FONT_SIZE);
-        let (layouted_glyphs, line_breaks) = text_layout::get_layouted_glyphs_with_horizonal_alignment(&word_positions, &scaled_words, horizontal_alignment);
-
-        SvgTextLayout {
-           words, scaled_words, word_positions, layouted_glyphs, line_breaks
-        }
-    }
-
     /// Get the bounding box of a layouted text
     pub fn get_bbox(&self, placement: &SvgTextPlacement) -> SvgBbox {
         use self::SvgTextPlacement::*;
@@ -1875,9 +1839,9 @@ impl SvgTextLayout {
 
 impl SvgText {
 
-    pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache, resources: &AppResources) -> SvgLayerResourceDirect {
+    pub fn to_svg_layer(&self, vectorized_fonts_cache: &VectorizedFontCache) -> Option<SvgLayerResourceDirect> {
 
-        let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id, resources).unwrap();
+        let vectorized_font = vectorized_fonts_cache.get_font(&self.font_id)?;
 
         // The text contains the vertices and indices in unscaled units. This is so that the font
         // can be cached and later on be scaled and rotated on the GPU instead of the CPU.
@@ -1897,7 +1861,8 @@ impl SvgText {
 
         // The glyphs are laid out to be 1px high, they are then later scaled to the correct font size
         text.style.scale(self.font_size_px, self.font_size_px);
-        text
+
+        Some(text)
     }
 
     pub fn get_bbox(&self) -> SvgBbox {

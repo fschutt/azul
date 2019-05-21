@@ -15,10 +15,11 @@ use harfbuzz_sys::{
     hb_feature_t, hb_tag_t,
     HB_MEMORY_MODE_READONLY,
 };
-use azul_core::{window::LogicalPosition, display_list::GlyphInstance};
-
-pub type GlyphInfo = hb_glyph_info_t;
-pub type GlyphPosition = hb_glyph_position_t;
+use azul_core::{
+    window::LogicalPosition,
+    display_list::GlyphInstance,
+    app_resources::{GlyphInfo, GlyphPosition},
+};
 
 const MEMORY_MODE_READONLY: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
 const HB_SCALE_FACTOR: f32 = 128.0;
@@ -233,14 +234,6 @@ pub(crate) fn shape_word_hb<'a>(
 
 pub(crate) fn get_word_visual_width_hb(glyph_positions: &[GlyphPosition]) -> f32 {
     glyph_positions.iter().map(|pos| pos.x_advance as f32 / HB_SCALE_FACTOR).sum()
-}
-
-pub(crate) fn get_glyph_infos_hb(glyph_infos: &[GlyphInfo]) -> Vec<GlyphInfo> {
-    glyph_infos.iter().cloned().collect()
-}
-
-pub(crate) fn get_glyph_positions_hb(glyph_positions: &[GlyphPosition]) -> Vec<GlyphPosition> {
-    glyph_positions.iter().cloned().collect()
 }
 
 pub(crate) fn get_glyph_instances_hb(

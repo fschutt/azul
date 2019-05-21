@@ -4,82 +4,23 @@ use azul_css::{
     StyleTextAlignmentHorz, StyleTextAlignmentVert, ScrollbarInfo,
     LayoutSize, LayoutRect, LayoutPoint,
 };
-pub use harfbuzz_sys::{hb_glyph_info_t as GlyphInfo, hb_glyph_position_t as GlyphPosition};
 pub use azul_core::{
-    app_resources::{Words, Word, WordType},
+    app_resources::{
+        Words, Word, WordType, GlyphInfo, GlyphPosition,
+        ScaledWords, ScaledWord, WordIndex, GlyphIndex, LineLength, IndexOfLineBreak,
+        RemainingSpaceToRight, LineBreaks, WordPositions, LayoutedGlyphs,
+        ClusterIterator, ClusterInfo,
+    },
     display_list::GlyphInstance,
     ui_solver::ResolvedTextLayoutOptions,
 };
 use azul_layout::InlineTextLayout;
-
-pub type WordIndex = usize;
-pub type GlyphIndex = usize;
-pub type LineLength = f32;
-pub type IndexOfLineBreak = usize;
-pub type RemainingSpaceToRight = f32;
-pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
-
-pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
-pub const DEFAULT_WORD_SPACING: f32 = 1.0;
-pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
-pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
-
-/// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
-/// according to their final size in pixels.
-#[derive(Debug, Clone)]
-pub struct ScaledWords {
-    /// Font size (in pixels) that was used to scale these words
-    pub font_size_px: f32,
-    /// Words scaled to their appropriate font size, but not yet positioned on the screen
-    pub items: Vec<ScaledWord>,
-    /// Longest word in the `self.scaled_words`, necessary for
-    /// calculating overflow rectangles.
-    pub longest_word_width: f32,
-    /// Horizontal advance of the space glyph
-    pub space_advance_px: f32,
-    /// Glyph index of the space character
-    pub space_codepoint: u32,
-}
-
-/// Word that is scaled (to a font / font instance), but not yet positioned
-#[derive(Debug, Clone)]
-pub struct ScaledWord {
-    /// Glyphs, positions are relative to the first character of the word
-    pub glyph_infos: Vec<GlyphInfo>,
-    /// Horizontal advances of each glyph, necessary for
-    /// hit-testing characters later on (for text selection).
-    pub glyph_positions: Vec<GlyphPosition>,
-    /// The sum of the width of all the characters in this word
-    pub word_width: f32,
-}
-
-/// Stores the positions of the vertically laid out texts
-#[derive(Debug, Clone, PartialEq)]
-pub struct WordPositions {
-    /// Options like word spacing, character spacing, etc. that were
-    /// used to layout these glyphs
-    pub text_layout_options: ResolvedTextLayoutOptions,
-    /// Stores the positions of words.
-    pub word_positions: Vec<LayoutPoint>,
-    /// Index of the word at which the line breaks + length of line
-    /// (useful for text selection + horizontal centering)
-    pub line_breaks: Vec<(WordIndex, LineLength)>,
-    /// Horizontal width of the last line (in pixels), necessary for inline layout later on,
-    /// so that the next text run can contine where the last text run left off.
-    ///
-    /// Usually, the "trailing" of the current text block is the "leading" of the
-    /// next text block, to make it seem like two text runs push into each other.
-    pub trailing: f32,
-    /// How many words are in the text?
-    pub number_of_words: usize,
-    /// How many lines (NOTE: virtual lines, meaning line breaks in the layouted text) are there?
-    pub number_of_lines: usize,
-    /// Horizontal and vertical boundaries of the layouted words.
-    ///
-    /// Note that the vertical extent can be larger than the last words' position,
-    /// because of trailing negative glyph advances.
-    pub content_size: LayoutSize,
-}
+pub(crate) use azul_core::app_resources::{
+    DEFAULT_LINE_HEIGHT,
+    DEFAULT_WORD_SPACING,
+    DEFAULT_LETTER_SPACING,
+    DEFAULT_TAB_WIDTH,
+};
 
 /// Width and height of the scrollbars at the side of the text field.
 ///
@@ -109,12 +50,6 @@ pub struct LeftAlignedGlyphs<'a> {
     pub text_bbox: LayoutSize,
 }
 
-/// Returns the layouted glyph instances
-#[derive(Debug, Clone, PartialEq)]
-pub struct LayoutedGlyphs {
-    pub glyphs: Vec<GlyphInstance>,
-}
-
 /// Whether the text overflows the parent rectangle, and if yes, by how many pixels,
 /// necessary for determining if / how to show a scrollbar + aligning / centering text.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -123,81 +58,6 @@ pub enum TextOverflow {
     IsOverflowing(f32),
     /// Text is in bounds, how much space is available until the edge of the rectangle (in pixels)?
     InBounds(f32),
-}
-
-/// Iterator over glyphs that returns information about the cluster that this glyph belongs to.
-/// Returned by the `ScaledWord::cluster_iter()` function.
-///
-/// For each glyph, returns information about what cluster this glyph belongs to. Useful for
-/// doing operations per-cluster instead of per-glyph.
-/// *Note*: The iterator returns once-per-glyph, not once-per-cluster, however
-/// you can merge the clusters into groups by using the `ClusterInfo.cluster_idx`.
-#[derive(Debug, Clone)]
-pub struct ClusterIterator<'a> {
-    /// What codepoint does the current glyph have - set to `None` if the first character isn't yet processed.
-    cur_codepoint: Option<u32>,
-    /// What cluster *index* are we currently at - default: 0
-    cluster_count: usize,
-    word: &'a ScaledWord,
-    /// Store what glyph we are currently processing in this word
-    cur_glyph_idx: usize,
-}
-
-/// Info about what cluster a certain glyph belongs to.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClusterInfo {
-    /// Cluster index in this word
-    pub cluster_idx: usize,
-    /// Codepoint of this cluster
-    pub codepoint: u32,
-    /// What the glyph index of this cluster is
-    pub glyph_idx: usize,
-}
-
-impl<'a> Iterator for ClusterIterator<'a> {
-
-    type Item = ClusterInfo;
-
-    /// Returns an iterator over the clusters in this word.
-    ///
-    /// Note: This will return one `ClusterInfo` per glyph, so you can't just
-    /// use `.cluster_iter().count()` to count the glyphs: Instead, use `.cluster_iter().last().cluster_idx`.
-    fn next(&mut self) -> Option<ClusterInfo> {
-
-        let next_glyph = self.word.glyph_infos.get(self.cur_glyph_idx)?;
-
-        let glyph_idx = self.cur_glyph_idx;
-
-        if self.cur_codepoint != Some(next_glyph.cluster) {
-            self.cur_codepoint = Some(next_glyph.cluster);
-            self.cluster_count += 1;
-        }
-
-        self.cur_glyph_idx += 1;
-
-        Some(ClusterInfo {
-            cluster_idx: self.cluster_count,
-            codepoint: self.cur_codepoint.unwrap_or(0),
-            glyph_idx,
-        })
-    }
-}
-
-impl ScaledWord {
-
-    /// Creates an iterator over clusters instead of glyphs
-    pub fn cluster_iter<'a>(&'a self) -> ClusterIterator<'a> {
-        ClusterIterator {
-            cur_codepoint: None,
-            cluster_count: 0,
-            word: &self,
-            cur_glyph_idx: 0,
-        }
-    }
-
-    pub fn number_of_clusters(&self) -> usize {
-        self.cluster_iter().last().map(|l| l.cluster_idx).unwrap_or(0)
-    }
 }
 
 /// Splits the text by whitespace into logical units (word, tab, return, whitespace).
@@ -317,6 +177,7 @@ pub fn words_to_scaled_words(
 ) -> ScaledWords {
 
     use text_shaping::{self, HbBuffer, HbFont, HbScaledFont};
+    use std::mem;
 
     let hb_font = HbFont::from_bytes(font_bytes, font_index);
     let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size_px);
@@ -330,8 +191,8 @@ pub fn words_to_scaled_words(
     let hb_buffer_entire_paragraph = HbBuffer::from_str(&words.internal_str);
     let hb_shaped_entire_paragraph = text_shaping::shape_word_hb(&hb_buffer_entire_paragraph, &hb_scaled_font);
 
-    let mut shaped_word_positions = Vec::new();
-    let mut shaped_word_infos = Vec::new();
+    let mut shaped_word_positions = Vec::<Vec<GlyphPosition>>::new();
+    let mut shaped_word_infos = Vec::<Vec<GlyphInfo>>::new();
     let mut current_word_positions = Vec::new();
     let mut current_word_infos = Vec::new();
 
@@ -346,8 +207,10 @@ pub fn words_to_scaled_words(
             current_word_positions.clear();
             current_word_infos.clear();
         } else {
-            current_word_positions.push(glyph_position);
-            current_word_infos.push(glyph_info);
+            // azul-core::GlyphInfo and hb_position_t have the same size / layout
+            // (both are repr(C)), so it's safe to just transmute them here
+            current_word_positions.push(unsafe { mem::transmute(glyph_position) });
+            current_word_infos.push(unsafe { mem::transmute(glyph_info) });
         }
     }
 
@@ -363,12 +226,9 @@ pub fn words_to_scaled_words(
         .enumerate()
         .filter_map(|(word_idx, word)| {
 
-            let hb_glyph_positions = shaped_word_positions.get(word_idx)?;
-            let hb_glyph_infos = shaped_word_infos.get(word_idx)?;
-
+            let hb_glyph_positions = shaped_word_positions.get(word_idx)?.clone();
+            let hb_glyph_infos = shaped_word_infos.get(word_idx)?.clone();
             let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_glyph_positions);
-            let hb_glyph_positions = text_shaping::get_glyph_positions_hb(&hb_glyph_positions);
-            let hb_glyph_infos = text_shaping::get_glyph_infos_hb(&hb_glyph_infos);
 
             longest_word_width = longest_word_width.max(hb_word_width.abs());
 

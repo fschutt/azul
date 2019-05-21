@@ -1,8 +1,74 @@
-use std::path::PathBuf;
-use {FastHashMap, FastHashSet};
+use std::{fmt, path::PathBuf};
+use azul_css::{LayoutPoint, LayoutSize};
+use {
+    FastHashMap, FastHashSet,
+    ui_solver::{ResolvedTextLayoutOptions},
+    display_list::GlyphInstance
+};
 
 pub type CssImageId = String;
 pub type CssFontId = String;
+
+// since it's repr(C), can be casted directly from a `hb_glyph_info_t`
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct GlyphInfo {
+    pub codepoint: u32,
+    pub mask: u32,
+    pub cluster: u32,
+    pub var1: HbVarIntT,
+    pub var2: HbVarIntT,
+}
+
+impl fmt::Debug for GlyphInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "GlyphInfo {{ codepoint: {}, mask: {}, cluster: {} }}", self.codepoint, self.mask, self.cluster)
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct GlyphPosition {
+    pub x_advance: i32,
+    pub y_advance: i32,
+    pub x_offset: i32,
+    pub y_offset: i32,
+    pub var: HbVarIntT,
+}
+
+impl fmt::Debug for GlyphPosition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+            "GlyphPosition {{ x_advance: {}, y_advance: {}, x_offset: {}, y_offset: {},  }}",
+            self.x_advance, self.y_advance, self.x_offset, self.y_offset
+        )
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union HbVarIntT {
+    pub u32: u32,
+    pub i32: i32,
+    pub u16: [u16; 2usize],
+    pub i16: [i16; 2usize],
+    pub u8: [u8; 4usize],
+    pub i8: [i8; 4usize],
+    _bindgen_union_align: u32,
+}
+
+pub type WordIndex = usize;
+pub type GlyphIndex = usize;
+pub type LineLength = f32;
+pub type IndexOfLineBreak = usize;
+pub type RemainingSpaceToRight = f32;
+pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
+
+pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
+pub const DEFAULT_WORD_SPACING: f32 = 1.0;
+pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
+pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
+
 
 /// Metadata (but not storage) describing an image In WebRender.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -271,6 +337,144 @@ pub enum WordType {
     Return,
     /// Space character
     Space,
+}
+
+/// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
+/// according to their final size in pixels.
+#[derive(Debug, Clone)]
+pub struct ScaledWords {
+    /// Font size (in pixels) that was used to scale these words
+    pub font_size_px: f32,
+    /// Words scaled to their appropriate font size, but not yet positioned on the screen
+    pub items: Vec<ScaledWord>,
+    /// Longest word in the `self.scaled_words`, necessary for
+    /// calculating overflow rectangles.
+    pub longest_word_width: f32,
+    /// Horizontal advance of the space glyph
+    pub space_advance_px: f32,
+    /// Glyph index of the space character
+    pub space_codepoint: u32,
+}
+
+/// Word that is scaled (to a font / font instance), but not yet positioned
+#[derive(Debug, Clone)]
+pub struct ScaledWord {
+    /// Glyphs, positions are relative to the first character of the word
+    pub glyph_infos: Vec<GlyphInfo>,
+    /// Horizontal advances of each glyph, necessary for
+    /// hit-testing characters later on (for text selection).
+    pub glyph_positions: Vec<GlyphPosition>,
+    /// The sum of the width of all the characters in this word
+    pub word_width: f32,
+}
+
+/// Stores the positions of the vertically laid out texts
+#[derive(Debug, Clone, PartialEq)]
+pub struct WordPositions {
+    /// Options like word spacing, character spacing, etc. that were
+    /// used to layout these glyphs
+    pub text_layout_options: ResolvedTextLayoutOptions,
+    /// Stores the positions of words.
+    pub word_positions: Vec<LayoutPoint>,
+    /// Index of the word at which the line breaks + length of line
+    /// (useful for text selection + horizontal centering)
+    pub line_breaks: Vec<(WordIndex, LineLength)>,
+    /// Horizontal width of the last line (in pixels), necessary for inline layout later on,
+    /// so that the next text run can contine where the last text run left off.
+    ///
+    /// Usually, the "trailing" of the current text block is the "leading" of the
+    /// next text block, to make it seem like two text runs push into each other.
+    pub trailing: f32,
+    /// How many words are in the text?
+    pub number_of_words: usize,
+    /// How many lines (NOTE: virtual lines, meaning line breaks in the layouted text) are there?
+    pub number_of_lines: usize,
+    /// Horizontal and vertical boundaries of the layouted words.
+    ///
+    /// Note that the vertical extent can be larger than the last words' position,
+    /// because of trailing negative glyph advances.
+    pub content_size: LayoutSize,
+}
+
+/// Returns the layouted glyph instances
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutedGlyphs {
+    pub glyphs: Vec<GlyphInstance>,
+}
+
+/// Iterator over glyphs that returns information about the cluster that this glyph belongs to.
+/// Returned by the `ScaledWord::cluster_iter()` function.
+///
+/// For each glyph, returns information about what cluster this glyph belongs to. Useful for
+/// doing operations per-cluster instead of per-glyph.
+/// *Note*: The iterator returns once-per-glyph, not once-per-cluster, however
+/// you can merge the clusters into groups by using the `ClusterInfo.cluster_idx`.
+#[derive(Debug, Clone)]
+pub struct ClusterIterator<'a> {
+    /// What codepoint does the current glyph have - set to `None` if the first character isn't yet processed.
+    cur_codepoint: Option<u32>,
+    /// What cluster *index* are we currently at - default: 0
+    cluster_count: usize,
+    word: &'a ScaledWord,
+    /// Store what glyph we are currently processing in this word
+    cur_glyph_idx: usize,
+}
+
+/// Info about what cluster a certain glyph belongs to.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ClusterInfo {
+    /// Cluster index in this word
+    pub cluster_idx: usize,
+    /// Codepoint of this cluster
+    pub codepoint: u32,
+    /// What the glyph index of this cluster is
+    pub glyph_idx: usize,
+}
+
+impl<'a> Iterator for ClusterIterator<'a> {
+
+    type Item = ClusterInfo;
+
+    /// Returns an iterator over the clusters in this word.
+    ///
+    /// Note: This will return one `ClusterInfo` per glyph, so you can't just
+    /// use `.cluster_iter().count()` to count the glyphs: Instead, use `.cluster_iter().last().cluster_idx`.
+    fn next(&mut self) -> Option<ClusterInfo> {
+
+        let next_glyph = self.word.glyph_infos.get(self.cur_glyph_idx)?;
+
+        let glyph_idx = self.cur_glyph_idx;
+
+        if self.cur_codepoint != Some(next_glyph.cluster) {
+            self.cur_codepoint = Some(next_glyph.cluster);
+            self.cluster_count += 1;
+        }
+
+        self.cur_glyph_idx += 1;
+
+        Some(ClusterInfo {
+            cluster_idx: self.cluster_count,
+            codepoint: self.cur_codepoint.unwrap_or(0),
+            glyph_idx,
+        })
+    }
+}
+
+impl ScaledWord {
+
+    /// Creates an iterator over clusters instead of glyphs
+    pub fn cluster_iter<'a>(&'a self) -> ClusterIterator<'a> {
+        ClusterIterator {
+            cur_codepoint: None,
+            cluster_count: 0,
+            word: &self,
+            cur_glyph_idx: 0,
+        }
+    }
+
+    pub fn number_of_clusters(&self) -> usize {
+        self.cluster_iter().last().map(|l| l.cluster_idx).unwrap_or(0)
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
