@@ -161,7 +161,7 @@ impl Default for FlexWrap {
 pub enum Dimension {
     Undefined,
     Auto,
-    Points(f32),
+    Pixels(f32),
     Percent(f32),
 }
 
@@ -174,7 +174,7 @@ impl Default for Dimension {
 impl Dimension {
     pub(crate) fn resolve(self, parent_width: Number) -> Number {
         match self {
-            Dimension::Points(points) => Number::Defined(points),
+            Dimension::Pixels(points) => Number::Defined(points),
             Dimension::Percent(percent) => parent_width * percent,
             _ => Number::Undefined,
         }
@@ -182,7 +182,7 @@ impl Dimension {
 
     pub(crate) fn is_defined(self) -> bool {
         match self {
-            Dimension::Points(_) => true,
+            Dimension::Pixels(_) => true,
             Dimension::Percent(_) => true,
             _ => false,
         }

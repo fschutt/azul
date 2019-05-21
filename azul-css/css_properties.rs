@@ -226,6 +226,7 @@ pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 impl Default for ColorU { fn default() -> Self { ColorU::BLACK } }
 
 impl ColorU {
+    pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 0 };
     pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
     pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
     pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };

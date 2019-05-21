@@ -131,10 +131,10 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
             match input {
                 None => Dimension::Undefined,
                 Some(CssPropertyValue::Auto) => Dimension::Auto,
-                Some(CssPropertyValue::None) => Dimension::Points(0.0),
-                Some(CssPropertyValue::Initial) => Dimension::Points(0.0),
+                Some(CssPropertyValue::None) => Dimension::Pixels(0.0),
+                Some(CssPropertyValue::Initial) => Dimension::Undefined,
                 Some(CssPropertyValue::Inherit) => Dimension::Undefined,
-                Some(CssPropertyValue::Exact(pixel_value)) => Dimension::Points(pixel_value.to_points()), // todo: percent!
+                Some(CssPropertyValue::Exact(pixel_value)) => Dimension::Pixels(pixel_value.to_pixels()), // todo: percent!
             }
         }
 
@@ -595,7 +595,10 @@ pub(crate) fn display_list_to_cached_display_list<'a, T>(
         node_data,
         &display_list.rectangles,
         &*app_resources,
-        LayoutRect { origin: LayoutPoint::new(0.0, 0.0), size: LayoutSize::new(window_size.width as f32, window_size.height as f32) },
+        LayoutRect {
+            origin: LayoutPoint::new(0.0, 0.0),
+            size: LayoutSize::new(window_size.width as f32, window_size.height as f32)
+        },
     );
 
     let rects_in_rendering_order = determine_rendering_order(
@@ -704,7 +707,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             size: window_size.dimensions,
         },
         content: vec![DisplayListRectContent::Background {
-            content: RectBackground::Color(ColorU::TRANSPARENT),
+            content: RectBackground::Color(ColorU::RED),
             size: None,
             offset: None,
             repeat: None,
@@ -823,11 +826,14 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     match html_node {
         Div => { },
         Text(_) | Label(_) => {
+            println!("got text with rect idx: {}", rect_idx);
             if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
                 let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
+
+                println!("pushing text!");
 
                 frame.content.push(get_text(
                     display_list_rect_bounds,
