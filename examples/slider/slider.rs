@@ -5,7 +5,7 @@ extern crate azul;
 use azul::prelude::*;
 use std::time::Duration;
 
-macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/slider/slider.css")) }
+macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/slider/slider.css")) }
 
 #[derive(Default)]
 struct DragMeApp {

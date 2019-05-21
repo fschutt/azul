@@ -135,22 +135,22 @@
 #![deny(clippy::all)]
 
 #[macro_use(warn, error, lazy_static)]
-pub extern crate azul_dependencies;
+extern crate azul_dependencies;
 extern crate azul_native_style;
 extern crate azul_css;
 extern crate azul_core;
 extern crate azul_layout;
+extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
-#[cfg(feature = "widgets")]
-extern crate azul_widgets as widgets;
-extern crate gleam;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde;
 #[cfg(feature = "serde_serialization")]
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde_derive;
+#[cfg(feature = "widgets")]
+pub extern crate azul_widgets as widgets;
 
 pub(crate) use azul_dependencies::glium as glium;
 pub(crate) use azul_dependencies::euclid;

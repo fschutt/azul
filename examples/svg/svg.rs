@@ -14,7 +14,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/svg/svg.css")) }
+macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/svg/svg.css")) }
 
 static TEXT_ID: AtomicUsize = AtomicUsize::new(0);
 

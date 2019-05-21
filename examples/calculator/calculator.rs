@@ -4,8 +4,8 @@ extern crate azul;
 
 use azul::prelude::*;
 
-macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/calculator/calculator.css")};}
-macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/fonts/KoHo-Light.ttf")};}
+macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/calculator/calculator.css")};}
+macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/fonts/KoHo-Light.ttf")};}
 
 const FONT: &[u8] = include_bytes!(FONT_PATH!());
 

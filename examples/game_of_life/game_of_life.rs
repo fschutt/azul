@@ -5,7 +5,7 @@ extern crate azul;
 use azul::{prelude::*, widgets::button::Button};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/game_of_life/game_of_life.css")};}
+macro_rules! CSS_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/game_of_life/game_of_life.css")};}
 
 const CSS: &str = include_str!(CSS_PATH!());
 const INITIAL_UNIVERSE_WIDTH: usize = 75;

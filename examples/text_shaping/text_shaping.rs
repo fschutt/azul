@@ -3,8 +3,8 @@ extern crate azul;
 use azul::prelude::*;
 use std::time::Duration;
 
-macro_rules! XML_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/text_shaping/text_shaping.xml")) }
-macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/text_shaping/text_shaping.css")) }
+macro_rules! XML_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/text_shaping/text_shaping.xml")) }
+macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/text_shaping/text_shaping.css")) }
 
 struct DataModel { }
 
