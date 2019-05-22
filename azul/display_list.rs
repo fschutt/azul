@@ -712,6 +712,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: window_size.dimensions,
         },
+        border_radius: StyleBorderRadius::default(),
         content: vec![DisplayListRectContent::Background {
             content: RectBackground::Color(ColorU::RED),
             size: None,
@@ -750,16 +751,15 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     let mut frame = DisplayListFrame {
         tag: tag_id,
         clip_rect: None,
+        border_radius: StyleBorderRadius {
+            top_left: rect.style.border_top_left_radius,
+            top_right: rect.style.border_top_right_radius,
+            bottom_left: rect.style.border_bottom_left_radius,
+            bottom_right: rect.style.border_bottom_right_radius,
+        },
         rect: display_list_rect_bounds,
         content: Vec::new(),
         children: Vec::new(),
-    };
-
-    let border_radii = StyleBorderRadius {
-        top_left: rect.style.border_top_left_radius,
-        top_right: rect.style.border_top_right_radius,
-        bottom_left: rect.style.border_bottom_left_radius,
-        bottom_right: rect.style.border_bottom_right_radius,
     };
 
     if rect.style.has_box_shadow() {
@@ -770,7 +770,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
                 top: rect.style.box_shadow_top,
                 bottom: rect.style.box_shadow_bottom,
             },
-            radii: border_radii,
             clip_mode: BoxShadowClipMode::Outset,
         });
     }
@@ -807,7 +806,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
 
     if rect.style.has_border() {
         frame.content.push(DisplayListRectContent::Border {
-            radii: border_radii,
             widths: StyleBorderWidths {
                 top: rect.layout.border_top_width,
                 left: rect.layout.border_left_width,
@@ -879,7 +877,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
                 top: rect.style.box_shadow_top,
                 bottom: rect.style.box_shadow_bottom,
             },
-            radii: border_radii,
             clip_mode: BoxShadowClipMode::Inset,
         });
     }

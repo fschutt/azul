@@ -101,8 +101,6 @@ pub(crate) fn compute<T: GetTextLayout>(
 
     if has_root_min_max {
 
-        println!("no root min max!");
-
         let mut first_pass = node_rects.clone();
 
         compute_internal(
@@ -208,42 +206,29 @@ fn compute_internal<T: GetTextLayout>(
     let is_column = dir.is_column();
     let is_wrap_reverse = parent_node_style.flex_wrap == FlexWrap::WrapReverse;
 
-    let margin = parent_node_style.margin.map(|n| n.resolve(parent_size.width).or_else(0.0));
-    let padding = parent_node_style.padding.map(|n| n.resolve(parent_size.width).or_else(0.0));
-    let border = parent_node_style.border.map(|n| n.resolve(parent_size.width).or_else(0.0));
+    let margin = Offsets {
+        top: parent_node_style.margin.top.resolve(parent_size.height).or_else(0.0),
+        left: parent_node_style.margin.left.resolve(parent_size.width).or_else(0.0),
+        bottom: parent_node_style.margin.bottom.resolve(parent_size.height).or_else(0.0),
+        right: parent_node_style.margin.right.resolve(parent_size.width).or_else(0.0),
+    };
+    let padding = Offsets {
+        top: parent_node_style.padding.top.resolve(parent_size.height).or_else(0.0),
+        left: parent_node_style.padding.left.resolve(parent_size.width).or_else(0.0),
+        bottom: parent_node_style.padding.bottom.resolve(parent_size.height).or_else(0.0),
+        right: parent_node_style.padding.right.resolve(parent_size.width).or_else(0.0),
+    };
+    let border = Offsets {
+        top: parent_node_style.border.top.resolve(parent_size.height).or_else(0.0),
+        left: parent_node_style.border.left.resolve(parent_size.width).or_else(0.0),
+        bottom: parent_node_style.border.bottom.resolve(parent_size.height).or_else(0.0),
+        right: parent_node_style.border.right.resolve(parent_size.width).or_else(0.0),
+    };
 
     let padding_border = match parent_node_style.box_sizing {
         BoxSizing::BorderBox => padding,
         BoxSizing::ContentBox => padding + border,
     };
-
-    let node_inner_size = Size {
-        width: node_size.width - padding_border.horizontal(),
-        height: node_size.height - padding_border.vertical(),
-    };
-
-    let mut container_size = Size { width: 0.0, height: 0.0 };
-    let mut inner_container_size = Size { width: 0.0, height: 0.0 };
-
-    // If this is a leaf node we can skip a lot of this function in some cases
-    if node_hierarchy[node_id].first_child.is_none() {
-        if node_size.width.is_defined() && node_size.height.is_defined() {
-            node_rects[node_id].size = RectSize {
-                width: Number::Defined(node_size.width.or_else(0.0)),
-                height: Number::Defined(node_size.height.or_else(0.0)),
-            };
-        } else {
-            node_rects[node_id].size = RectSize {
-                width: Number::Defined(node_size.width.or_else(0.0) + padding_border.horizontal()),
-                height: Number::Defined(node_size.height.or_else(0.0) + padding_border.vertical()),
-            };
-        }
-
-        node_rects[node_id].margin = resolve_offsets(margin);
-        node_rects[node_id].padding = resolve_offsets(padding);
-        node_rects[node_id].border_widths = resolve_offsets(border);
-        return;
-    }
 
     // If this parent is an inline node, layout the children as inline elements
     if parent_node_style.display == Display::Inline {
@@ -280,14 +265,48 @@ fn compute_internal<T: GetTextLayout>(
         }
 
         node_rects[node_id].size = RectSize {
-            width: Number::Defined(children_size.width),
-            height: Number::Defined(children_size.height),
+            width: Number::Defined(children_size.width + padding_border.horizontal()),
+            height: Number::Defined(children_size.height + padding_border.horizontal()),
         };
         node_rects[node_id].margin = resolve_offsets(margin);
         node_rects[node_id].padding = resolve_offsets(padding);
         node_rects[node_id].border_widths = resolve_offsets(border);
         return;
     }
+
+    let parent_width = parent_node_style.size.width.resolve(parent_size.width)
+        .maybe_max(parent_node_style.min_size.width.resolve(parent_size.width))
+        .maybe_min(parent_node_style.max_size.width.resolve(parent_size.width));
+
+    let parent_height = parent_node_style.size.height.resolve(parent_size.height)
+        .maybe_max(parent_node_style.min_size.height.resolve(parent_size.height))
+        .maybe_min(parent_node_style.max_size.height.resolve(parent_size.height));
+
+    println!("parent width: {:?}, parent height: {:?}", parent_width, parent_height);
+
+    // If this is a leaf node we can skip a lot of this function
+    if node_hierarchy[node_id].first_child.is_none() {
+
+        let parent_node_width = Number::Defined(parent_width.or_else(0.0));
+        let parent_node_height = Number::Defined(parent_height.or_else(0.0));
+
+        node_rects[node_id].size = RectSize {
+            width: parent_node_width + padding_border.horizontal(),
+            height: parent_node_height + padding_border.vertical(),
+        };
+        node_rects[node_id].margin = resolve_offsets(margin);
+        node_rects[node_id].padding = resolve_offsets(padding);
+        node_rects[node_id].border_widths = resolve_offsets(border);
+        return;
+    }
+
+    let node_inner_size = Size {
+        width: parent_width.or_else(node_size.width) - padding_border.horizontal(),
+        height: parent_height.or_else(node_size.height) - padding_border.vertical(),
+    };
+
+    let mut container_size = Size { width: 0.0, height: 0.0 };
+    let mut inner_container_size = Size { width: 0.0, height: 0.0 };
 
     // 9.2. Line Length Determination
 
@@ -302,8 +321,8 @@ fn compute_internal<T: GetTextLayout>(
     //    in that dimension and use that value. This might result in an infinite value.
 
     let available_space = Size {
-        width: node_size.width.or_else(parent_size.width - margin.horizontal()) - padding_border.horizontal(),
-        height: node_size.height.or_else(parent_size.height - margin.vertical()) - padding_border.vertical(),
+        width: parent_width.or_else(parent_size.width - margin.horizontal()) - padding_border.horizontal(),
+        height: parent_height.or_else(parent_size.height - margin.vertical()) - padding_border.vertical(),
     };
 
     let mut flex_items: Vec<FlexItem> = node_id
@@ -355,9 +374,8 @@ fn compute_internal<T: GetTextLayout>(
         })
         .collect();
 
-    let has_baseline_child = flex_items.iter().fold(false, |result, child| {
-        let child_style = &node_styles[child.node_id];
-        result || child_style.align_self(&parent_node_style) == AlignSelf::Baseline
+    let has_baseline_child = flex_items.iter().any(|child| {
+        node_styles[child.node_id].align_self(&parent_node_style) == AlignSelf::Baseline
     });
 
     // TODO - this does not follow spec. See commented out code below
@@ -378,12 +396,10 @@ fn compute_internal<T: GetTextLayout>(
         //    then the flex base size is calculated from its inner
         //    cross size and the flex item’s intrinsic aspect ratio.
 
-        if let Defined(ratio) = child_style.aspect_ratio {
-            if let Defined(cross) = node_size.cross(dir) {
-                if child_style.flex_basis == Dimension::Auto {
-                    child.flex_basis = cross * ratio;
-                    return;
-                }
+        if let (Defined(ratio), Defined(cross)) = (child_style.aspect_ratio, node_size.cross(dir)) {
+            if child_style.flex_basis == Dimension::Auto {
+                child.flex_basis = cross * ratio;
+                return;
             }
         }
 
@@ -459,7 +475,7 @@ fn compute_internal<T: GetTextLayout>(
         child.inner_flex_basis = child.flex_basis - child.padding.main(dir) - child.border.main(dir);
 
         // TODO - not really spec abiding but needs to be done somewhere. probably somewhere else though.
-        // The following logic was developed not from the spec but by trail and error looking into how
+        // The following logic was developed not from the spec but by trial and error looking into how
         // webkit handled various scenarios. Can probably be solved better by passing in
         // min-content max-content constraints from the top
 
@@ -764,7 +780,7 @@ fn compute_internal<T: GetTextLayout>(
         }
     });
 
-    // Not part of the spec from what i can see but seems correct
+    // Not part of the spec, but seems correct
     container_size.set_main(
         dir,
         node_size.main(dir).or_else({
@@ -1132,8 +1148,8 @@ fn compute_internal<T: GetTextLayout>(
     // layout we are done now.
     if !perform_layout {
         node_rects[node_id].size = RectSize {
-            width: Number::Defined(container_size.width),
-            height: Number::Defined(container_size.height),
+            width: parent_width.or_else(Number::Defined(container_size.width)),
+            height: parent_height.or_else(Number::Defined(container_size.height)),
         };
         node_rects[node_id].margin = resolve_offsets(margin);
         node_rects[node_id].padding = resolve_offsets(padding);
@@ -1338,8 +1354,8 @@ fn compute_internal<T: GetTextLayout>(
     // children.sort_by(|c1, c2| c1.order.cmp(&c2.order));
 
     node_rects[node_id].size = RectSize {
-        width: Number::Defined(container_size.width),
-        height: Number::Defined(container_size.height),
+        width: parent_width.or_else(Number::Defined(container_size.width)),
+        height: parent_height.or_else(Number::Defined(container_size.height)),
     };
     node_rects[node_id].margin = resolve_offsets(margin);
     node_rects[node_id].padding = resolve_offsets(padding);

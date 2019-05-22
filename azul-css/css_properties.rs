@@ -234,10 +234,10 @@ impl fmt::Display for ColorU {
 }
 
 impl ColorU {
-    pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 0 };
-    pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
-    pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
-    pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+    pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
+    pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+    pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+    pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
 
     pub fn write_hash(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)
@@ -257,9 +257,9 @@ impl fmt::Display for ColorF {
 }
 
 impl ColorF {
-    pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: 0.0 };
-    pub const BLACK: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
-    pub const TRANSPARENT: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+    pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+    pub const BLACK: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+    pub const TRANSPARENT: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
 }
 
 impl From<ColorU> for ColorF {

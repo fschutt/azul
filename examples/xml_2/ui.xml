@@ -1,0 +1,70 @@
+<!--
+    Azuls rendering model is based on composing DOMs together (instead of doing that by
+    extending classes like in object-oriented GUI frameworks). As such, each "component"
+    simply corresponds to a Rust function, such as `fn render_component_start_screen() -> Dom<T>`.
+
+    Each "component" has two arguments: a mandatory "name" and an optional "args".
+    The "name" argument is both used for instantiating the component and, in the XML-to-Rust
+    transpiler to generate the function names.
+
+    Note: All component names and arguments are normalized to kebap_case, i.e. "<StartScreen />"
+    and "<start_screen />" are equivalent, but "<Startscreen />" will lead to an error.
+-->
+<component name="StartScreen">
+    <div id="start_screen">
+        <div id="last_projects_column">
+             <p id="last_projects_header">
+                You can hot-reload this UI, see /examples/ui.xml.
+
+                If you want to insert a return in this text, you"ll have to use two line breaks,
+                a single linebreak is ignored (and rendered as a space instead).
+             </p>
+             <div id="project_btn_container">
+                <p id="new_project_btn">+</p>
+                <p id="open_project_btn">Open project</p>
+             </div>
+        </div>
+        <div id="map_preview_container">
+            <div id="map_preview" />
+            <Calendar selectedDate="01.01.2019" minimumDate="test2"/>
+        </div>
+    </div>
+</component>
+
+<!--
+    The (optional) "args" argument takes a comma-separated list in the form of "variable_name: type".
+
+    During hot-reloading, this indicates which arguments are needed by the component. If a user tries
+    to instantiate a "<TestComponent asdf="true" />", he'll get an error that "asdf" is not a valid
+    component (function) argument. The type is not used at runtime, the XML reloader assumes passes
+    all arguments around as strings, it is only used for generating the Rust code. If the component
+    uses a variable that was not declared in the "args", the variable is simply displayed as a "{variableName}" -
+    and the generated Rust code will lead to a compile error.
+
+    In the generated Rust code, the "args" map directly to function arguments. You can also format
+    variables and pass them to sub-components (which in the Rust code will map to calls to "format!()").
+    In order to display a brace during formatting, use two braces, i.e.:
+
+    "{{ selectedDate }}" => "{ selectedDate }"
+    "{selectedDate}" => "01.01.2019" (variable name replaced by argument).
+
+    You can use formatting in ids, classes, etc. - as well as the node content, i.e
+    "<SubComponent id="{componentId}" /> will look for the "componentId" variable.
+-->
+<component name="SubComponent" args="selectedDate: String">
+    <p>{selectedDate} Test</p>
+</component>
+
+<component name="Calendar" args="selectedDate: String, minimumDate: String">
+    <div id="month_select">
+        <p>&lt;</p>
+        <p><SubComponent selectedDate="{selectedDate} + 5"/></p>
+        <p>&gt;</p>
+    </div>
+</component>
+
+<app>
+    <StartScreen />
+    <!-- Note that "minimumDate" is missing, so the string will just be rendering as "{minimumDate}" -->
+    <Calendar selectedDate="01.01.2019" />
+</app>

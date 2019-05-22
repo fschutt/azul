@@ -989,7 +989,7 @@ fn update_display_list<T>(
     );
 
     println!("display list: -----------");
-    println!("{:#?}", display_list);
+    println!("{:#?}", display_list.root);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     let display_list = wr_translate_display_list(display_list);
@@ -1024,13 +1024,12 @@ fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
 
 /// Returns the (logical_size, physical_size) as LayoutSizes, which can then be passed to webrender
 fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
-    let logical_size = LayoutSize::new(
-        (size.dimensions.width * size.winit_hidpi_factor) as f32,
-        (size.dimensions.height * size.winit_hidpi_factor)  as f32
-    );
-    let physical_size = size.dimensions.to_physical(size.winit_hidpi_factor);
-    let physical_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-    (logical_size, physical_size)
+    let logical_size = size.get_reverse_logical_size();
+    let physical_size = size.get_physical_size();
+    (
+        LayoutSize::new(size.dimensions.width, size.dimensions.height),
+        DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32)
+    )
 }
 
 /// Special rendering function that skips building a layout and only does

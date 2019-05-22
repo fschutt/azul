@@ -128,6 +128,7 @@ pub struct DisplayListScrollFrame {
     pub scroll_position: LogicalPosition,
     pub content_size: LogicalSize,
     pub overlay_scrollbars: bool,
+    pub border_radius: StyleBorderRadius,
     pub tag: Option<ItemTag>,
     pub content: Vec<DisplayListRectContent>,
     pub children: Vec<DisplayListMsg>,
@@ -136,6 +137,8 @@ pub struct DisplayListScrollFrame {
 #[derive(Clone, PartialEq, PartialOrd)]
 pub struct DisplayListFrame {
     pub rect: DisplayListRect,
+    /// Border radius, set to none only if overflow: visible is set!
+    pub border_radius: StyleBorderRadius,
     pub clip_rect: Option<DisplayListRect>,
     pub tag: Option<ItemTag>,
     pub content: Vec<DisplayListRectContent>,
@@ -145,6 +148,7 @@ pub struct DisplayListFrame {
 impl fmt::Debug for DisplayListFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "rect: {:#?},", self.rect)?;
+        write!(f, "\r\nborder_radius: {:#?},", self.border_radius)?;
         if let Some(clip_rect) = &self.clip_rect {
             write!(f, "\r\nclip_rect: {:#?},", clip_rect)?;
         }
@@ -174,7 +178,7 @@ pub enum AlphaType {
     PremultipliedAlpha,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRadius {
     pub top_left: Option<CssPropertyValue<StyleBorderTopLeftRadius>>,
     pub top_right: Option<CssPropertyValue<StyleBorderTopRightRadius>>,
@@ -286,14 +290,12 @@ pub enum DisplayListRectContent {
         background_color: ColorU,
     },
     Border {
-        radii: StyleBorderRadius,
         widths: StyleBorderWidths,
         colors: StyleBorderColors,
         styles: StyleBorderStyles,
     },
     BoxShadow {
         shadow: StyleBoxShadow,
-        radii: StyleBorderRadius,
         clip_mode: BoxShadowClipMode,
     },
 }

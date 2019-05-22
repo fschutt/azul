@@ -603,37 +603,46 @@ fn push_display_list_msg(builder: &mut WrDisplayListBuilder, msg: DisplayListMsg
 #[inline]
 fn push_frame(builder: &mut WrDisplayListBuilder, frame: DisplayListFrame) {
 
-    use webrender::api::LayoutPrimitiveInfo;
-
-    //  if let Some(clip_rect) = frame.clip_rect {
-    //
-    //      let clip = get_clip_region(solved_rect.bounds, &styled_node)
-    //          .unwrap_or(ComplexClipRegion::new(solved_rect.bounds, BorderRadius::zero(), ClipMode::Clip));
-    //      let clip_id = builder.define_clip(solved_rect.bounds, vec![clip], /* image_mask: */ None);
-    //      builder.push_clip_id(clip_id);
-    //
-    //  }
+    use webrender::api::{ClipMode as WrClipMode, ComplexClipRegion as WrComplexClipRegion};
 
     let wr_rect = wr_translate_layout_rect(frame.rect);
+    let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
 
-    let info = LayoutPrimitiveInfo {
+    let info = WrLayoutPrimitiveInfo {
         rect: wr_rect,
-        clip_rect: wr_rect,
+        clip_rect: wr_translate_layout_rect(frame.clip_rect.unwrap_or(frame.rect)),
         is_backface_visible: false,
         tag: frame.tag,
     };
 
+    let content_clip = WrComplexClipRegion::new(wr_rect, wr_border_radius, WrClipMode::Clip);
+    let content_clip_id = builder.define_clip(wr_rect, vec![content_clip], /* image_mask: */ None);
+    builder.push_clip_id(content_clip_id);
+
     for item in frame.content {
-        push_display_list_content(builder, item, &info);
+        push_display_list_content(builder, item, &info, frame.border_radius);
     }
+
+    // pop content clip
+    builder.pop_clip_id();
+
+    // If the rect has an overflow:* property set
+    let overflow_clip_id = frame.clip_rect.map(|clip_rect| {
+        let clip_rect = wr_translate_layout_rect(clip_rect);
+        let clip = WrComplexClipRegion::new(clip_rect, wr_border_radius, WrClipMode::Clip);
+        let clip_id = builder.define_clip(clip_rect, vec![clip], /* image_mask: */ None);
+        builder.push_clip_id(clip_id);
+        clip_id
+    });
 
     for child in frame.children {
         push_display_list_msg(builder, child);
     }
 
-    // if frame.clip_rect.is_some() {
-    //     builder.pop_clip_id();
-    // }
+    // pop overflow clip
+    if overflow_clip_id.is_some() {
+        builder.pop_clip_id();
+    }
 }
 
 #[inline]
@@ -651,7 +660,12 @@ fn push_scroll_frame(builder: &mut WrDisplayListBuilder, scroll_frame: DisplayLi
 }
 
 #[inline]
-fn push_display_list_content(builder: &mut WrDisplayListBuilder, content: DisplayListRectContent, info: &WrLayoutPrimitiveInfo) {
+fn push_display_list_content(
+    builder: &mut WrDisplayListBuilder,
+    content: DisplayListRectContent,
+    info: &WrLayoutPrimitiveInfo,
+    radii: StyleBorderRadius,
+) {
 
     use azul_core::display_list::DisplayListRectContent::*;
 
@@ -665,10 +679,10 @@ fn push_display_list_content(builder: &mut WrDisplayListBuilder, content: Displa
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
             image::push_image(builder, info, size, offset, image_key, alpha_type, image_rendering, background_color);
         },
-        Border { radii, widths, colors, styles } => {
+        Border { widths, colors, styles } => {
             border::push_border(builder, info, radii, widths, colors, styles);
         },
-        BoxShadow { shadow, radii, clip_mode } => {
+        BoxShadow { shadow, clip_mode } => {
             box_shadow::push_box_shadow(builder, translate_layout_rect_wr(info.rect), clip_mode, shadow, radii);
         },
     }
@@ -1318,6 +1332,13 @@ mod border {
         window::LogicalSize,
         display_list::{StyleBorderRadius, StyleBorderWidths, StyleBorderColors, StyleBorderStyles},
     };
+
+    pub(in super) fn is_zero_border_radius(border_radius: &StyleBorderRadius) -> bool {
+        border_radius.top_left.is_none() &&
+        border_radius.top_right.is_none() &&
+        border_radius.bottom_left.is_none() &&
+        border_radius.bottom_right.is_none()
+    }
 
     pub(in super) fn push_border(
         builder: &mut WrDisplayListBuilder,

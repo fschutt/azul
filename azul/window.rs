@@ -439,10 +439,12 @@ impl<T> Window<T> {
         // }
 
         if let Some(min_dim) = options.state.size.min_dimensions {
+            // TODO: reverse logical size!
             window = window.with_min_dimensions(winit_translate::translate_logical_size(min_dim));
         }
 
         if let Some(max_dim) = options.state.size.max_dimensions {
+            // TODO: reverse logical size!
             window = window.with_max_dimensions(winit_translate::translate_logical_size(max_dim));
         }
 
@@ -463,6 +465,7 @@ impl<T> Window<T> {
         }
 
         if let Some(pos) = options.state.position {
+            // TODO: reverse logical size!
             gl_window.window().set_position(winit_translate::translate_logical_position(pos));
         }
 
