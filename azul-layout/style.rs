@@ -174,8 +174,8 @@ impl Default for Dimension {
 impl Dimension {
     pub(crate) fn resolve(self, parent_width: Number) -> Number {
         match self {
-            Dimension::Pixels(points) => Number::Defined(points),
-            Dimension::Percent(percent) => parent_width * percent,
+            Dimension::Pixels(pixels) => Number::Defined(pixels),
+            Dimension::Percent(percent) => parent_width * (percent / 100.0),
             _ => Number::Undefined,
         }
     }
@@ -191,13 +191,21 @@ impl Dimension {
 
 impl Default for Offsets<Dimension> {
     fn default() -> Offsets<Dimension> {
-        Offsets { right: Default::default(), left: Default::default(), top: Default::default(), bottom: Default::default() }
+        Offsets {
+            right: Default::default(),
+            left: Default::default(),
+            top: Default::default(),
+            bottom: Default::default()
+        }
     }
 }
 
 impl Default for Size<Dimension> {
     fn default() -> Size<Dimension> {
-        Size { width: Dimension::Auto, height: Dimension::Auto }
+        Size {
+            width: Dimension::Auto,
+            height: Dimension::Auto,
+        }
     }
 }
 

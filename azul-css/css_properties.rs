@@ -1132,10 +1132,10 @@ impl PixelValue {
     #[inline]
     pub fn to_pixels(&self, percent_resolve: f32) -> f32 {
         match self.metric {
-            SizeMetric::Px => { self.number.get() },
-            SizeMetric::Pt => { (self.number.get()) * PT_TO_PX },
-            SizeMetric::Em => { (self.number.get()) * EM_HEIGHT },
-            SizeMetric::Percent => { (self.number.get()) * (percent_resolve) / 100.0 },
+            SizeMetric::Px => self.number.get(),
+            SizeMetric::Pt => self.number.get() * PT_TO_PX,
+            SizeMetric::Em => self.number.get() * EM_HEIGHT,
+            SizeMetric::Percent => self.number.get() / 100.0 * percent_resolve,
         }
     }
 }
