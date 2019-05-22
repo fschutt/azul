@@ -7,8 +7,7 @@ use webrender::api::{
 };
 use azul_css::{
     Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
-    RectStyle, RectLayout, CssPropertyValue, LayoutPaddingRight, LayoutPaddingLeft,
-    LayoutPaddingTop, LayoutPaddingBottom, LayoutPoint, LayoutSize, LayoutRect,
+    RectStyle, RectLayout, CssPropertyValue, LayoutPoint, LayoutSize, LayoutRect,
 };
 use {
     FastHashMap,
@@ -31,7 +30,7 @@ use azul_core::{
     callbacks::PipelineId,
     window::{LogicalSize, LogicalPosition},
     app_resources::FontInstanceKey,
-    ui_solver::PositionedRectangle,
+    ui_solver::{PositionedRectangle, ResolvedOffsets},
     display_list::{
         CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
         ImageRendering, AlphaType, DisplayListFrame, StyleBoxShadow,
@@ -714,7 +713,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             offset: None,
             repeat: None,
         }],
-        children: root_children, // Vec<DisplayListMsg>
+        children: root_children,
     })
 }
 
@@ -828,7 +827,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
     match html_node {
         Div => { },
         Text(_) | Label(_) => {
-            println!("got text with rect idx: {}", rect_idx);
             if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
 
                 use azul_core::ui_solver::DEFAULT_FONT_COLOR;
@@ -837,10 +835,9 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
                 let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 
-                println!("pushing text!");
-
                 frame.content.push(get_text(
                     display_list_rect_bounds,
+                    &referenced_content.layout_result.rects[*rect_idx].padding,
                     window_size.dimensions,
                     layouted_glyphs,
                     font_instance_key,
@@ -1061,15 +1058,9 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
     display_list_msg
 }
 
-struct LayoutPadding {
-    right: Option<CssPropertyValue<LayoutPaddingRight>>,
-    left: Option<CssPropertyValue<LayoutPaddingLeft>>,
-    top: Option<CssPropertyValue<LayoutPaddingTop>>,
-    bottom: Option<CssPropertyValue<LayoutPaddingBottom>>,
-}
-
 fn get_text(
     bounds: DisplayListRect,
+    padding: &ResolvedOffsets,
     root_window_size: LogicalSize,
     layouted_glyphs: LayoutedGlyphs,
     font_instance_key: FontInstanceKey,
@@ -1080,14 +1071,7 @@ fn get_text(
     let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
 
-    let padding = LayoutPadding {
-        top: rect_layout.padding_top,
-        bottom: rect_layout.padding_bottom,
-        left: rect_layout.padding_left,
-        right: rect_layout.padding_right,
-    };
-
-    let padding_clip_bounds = subtract_padding(&bounds, &padding);
+    let padding_clip_bounds = subtract_padding(&bounds, padding);
 
     // Adjust the bounds by the padding, depending on the overflow:visible parameter
     let text_clip_rect = match (overflow_horizontal_visible, overflow_vertical_visible) {
@@ -1121,19 +1105,14 @@ fn get_text(
 /// Subtracts the padding from the bounds, returning the new bounds
 ///
 /// Warning: The resulting rectangle may have negative width or height
-fn subtract_padding(bounds: &DisplayListRect, padding: &LayoutPadding) -> DisplayListRect {
-
-    let top     = padding.top.and_then(|top| top.get_property_or_default()).unwrap_or_default().0.to_pixels();
-    let bottom  = padding.bottom.and_then(|bottom| bottom.get_property_or_default()).unwrap_or_default().0.to_pixels();
-    let left    = padding.left.and_then(|left| left.get_property_or_default()).unwrap_or_default().0.to_pixels();
-    let right   = padding.right.and_then(|right| right.get_property_or_default()).unwrap_or_default().0.to_pixels();
+fn subtract_padding(bounds: &DisplayListRect, padding: &ResolvedOffsets) -> DisplayListRect {
 
     let mut new_bounds = *bounds;
 
-    new_bounds.origin.x += left;
-    new_bounds.size.width -= right + left;
-    new_bounds.origin.y += top;
-    new_bounds.size.height -= top + bottom;
+    new_bounds.origin.x += padding.left;
+    new_bounds.size.width -= padding.right + padding.left;
+    new_bounds.origin.y += padding.top;
+    new_bounds.size.height -= padding.top + padding.bottom;
 
     new_bounds
 }

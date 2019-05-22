@@ -39,7 +39,8 @@ impl PreferredHeight {
 }
 
 pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    px_to_au(font_size.0.to_pixels())
+    use azul_core::ui_solver::DEFAULT_FONT_SIZE_PX;
+    px_to_au(font_size.0.to_pixels(DEFAULT_FONT_SIZE_PX as f32))
 }
 
 pub(crate) fn px_to_au(px: f32) -> Au {
@@ -108,8 +109,10 @@ pub(crate) fn do_the_layout<'a,'b, T>(
 
     let word_cache = create_word_cache(app_resources, node_data);
     let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
-    let rect_contents = create_rect_contents_cache(&word_cache, &scaled_words, node_data, app_resources);
-    let solved_ui = SolvedUi::new(bounding_rect, node_hierarchy, display_rects, rect_contents);
+    let solved_ui = {
+        let rect_contents = create_rect_contents_cache(&word_cache, &scaled_words, node_data, app_resources);
+        SolvedUi::new(bounding_rect, node_hierarchy, display_rects, rect_contents)
+    };
 
     // TODO: overflowing rects!
 
@@ -156,8 +159,10 @@ fn create_scaled_words<'a>(
 
     use text_layout::words_to_scaled_words;
     use app_resources::ImmediateFontId;
+    use azul_core::ui_solver::DEFAULT_FONT_SIZE_PX;
 
     words.iter().filter_map(|(node_id, words)| {
+
         let style = &display_rects[*node_id].style;
         let font_size = get_font_size(&style);
         let font_size_au = font_size_to_au(font_size);
@@ -177,7 +182,7 @@ fn create_scaled_words<'a>(
             words,
             font_bytes,
             font_index,
-            font_size.0.to_pixels(),
+            font_size.0.to_pixels(DEFAULT_FONT_SIZE_PX as f32),
         );
         Some((*node_id, (scaled_words, *font_instance_key)))
     }).collect()
@@ -238,13 +243,13 @@ fn get_glyphs<'a>(
     .iter()
     .filter_map(|(node_id, (scaled_words, _))| {
 
-        let display_rect = display_rects.get(*node_id)?;
-        let layouted_rect = positioned_rectangles.get(*node_id)?;
         let (word_positions, _) = positioned_word_cache.get(node_id)?;
+        let display_rect = &display_rects[*node_id];
+        let layouted_rect = &positioned_rectangles[*node_id];
         let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
 
-        let rect_padding_top = display_rect.layout.padding_top.and_then(|pt| pt.get_property_or_default()).unwrap_or_default().0.to_pixels();
-        let rect_padding_left = display_rect.layout.padding_left.and_then(|pt| pt.get_property_or_default()).unwrap_or_default().0.to_pixels();
+        let rect_padding_top = layouted_rect.padding.top;
+        let rect_padding_left = layouted_rect.padding.left;
         let rect_offset = LayoutPoint::new(layouted_rect.bounds.origin.x + rect_padding_left, layouted_rect.bounds.origin.y + rect_padding_top);
         let bounding_size_height_px = layouted_rect.bounds.size.height - layouted_rect.padding.total_vertical();
 

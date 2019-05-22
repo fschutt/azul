@@ -3,7 +3,7 @@
 use std::num::{ParseIntError, ParseFloatError};
 use azul_css::{
     CssPropertyType, CssProperty, CombinedCssPropertyType, CssPropertyValue,
-    Overflow, Shape, PixelValue, PercentageValue, FloatValue, ColorU,
+    Overflow, Shape, PixelValue, PixelValueNoPercent, PercentageValue, FloatValue, ColorU,
     GradientStopPre, RadialGradient, DirectionCorner, Direction, CssImageId,
     LinearGradient, BoxShadowPreDisplayItem, StyleBorderSide, BorderStyle,
     SizeMetric, BoxShadowClipMode, ExtendMode, FontId, GradientType,
@@ -732,8 +732,29 @@ impl_display!{ PixelParseError<'a>, {
     ValueParseErr(err, number_str) => format!("Could not parse \"{}\" as floating-point value: \"{}\"", number_str, err),
 }}
 
-/// parse a single value such as "15px"
 pub fn parse_pixel_value<'a>(input: &'a str)
+-> Result<PixelValue, PixelParseError<'a>> {
+    parse_pixel_value_inner(input, &[
+        ("px", SizeMetric::Px),
+        ("em", SizeMetric::Em),
+        ("pt", SizeMetric::Pt),
+        ("%", SizeMetric::Percent),
+    ])
+}
+
+pub fn parse_pixel_value_no_percent<'a>(input: &'a str)
+-> Result<PixelValueNoPercent, PixelParseError<'a>> {
+    Ok(PixelValueNoPercent(
+        parse_pixel_value_inner(input, &[
+            ("px", SizeMetric::Px),
+            ("em", SizeMetric::Em),
+            ("pt", SizeMetric::Pt),
+        ])?
+    ))
+}
+
+/// parse a single value such as "15px"
+fn parse_pixel_value_inner<'a>(input: &'a str, match_values: &[(&'static str, SizeMetric)])
 -> Result<PixelValue, PixelParseError<'a>>
 {
     let input = input.trim();
@@ -754,13 +775,9 @@ pub fn parse_pixel_value<'a>(input: &'a str)
 
     let number = number_str.parse::<f32>().map_err(|e| PixelParseError::ValueParseErr(e, number_str))?;
 
-    let unit = match unit_str.as_str() {
-        "px" => SizeMetric::Px,
-        "em" => SizeMetric::Em,
-        "pt" => SizeMetric::Pt,
-        "%" => SizeMetric::Percent,
-        _ => return Err(PixelParseError::UnsupportedMetric(number, unit_str, input)),
-    };
+    let unit = match_values.iter().find_map(|(target_str, target_size_metric)|
+        if unit_str.as_str() == *target_str { Some(*target_size_metric) } else { None }
+    ).ok_or(PixelParseError::UnsupportedMetric(number, unit_str, input))?;
 
     Ok(PixelValue::from_metric(unit, number))
 }
@@ -1445,10 +1462,10 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
     let count = input_iter.clone().count();
 
     let mut box_shadow = BoxShadowPreDisplayItem {
-        offset: [PixelValue::px(0.0), PixelValue::px(0.0)],
+        offset: [PixelValueNoPercent(PixelValue::const_px(0)), PixelValueNoPercent(PixelValue::const_px(0))],
         color: ColorU { r: 0, g: 0, b: 0, a: 255 },
-        blur_radius: PixelValue::px(0.0),
-        spread_radius: PixelValue::px(0.0),
+        blur_radius: PixelValueNoPercent(PixelValue::const_px(0)),
+        spread_radius: PixelValueNoPercent(PixelValue::const_px(0)),
         clip_mode: BoxShadowClipMode::Outset,
     };
 
@@ -1467,15 +1484,15 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
     match count {
         2 => {
             // box-shadow: 5px 10px; (h_offset, v_offset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let h_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.offset[0] = h_offset;
             box_shadow.offset[1] = v_offset;
         },
         3 => {
             // box-shadow: 5px 10px inset; (h_offset, v_offset, inset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let h_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.offset[0] = h_offset;
             box_shadow.offset[1] = v_offset;
 
@@ -1486,13 +1503,13 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
             }
         },
         4 => {
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let h_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.offset[0] = h_offset;
             box_shadow.offset[1] = v_offset;
 
             if !is_inset {
-                let blur = parse_pixel_value(input_iter.next().unwrap())?;
+                let blur = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
                 box_shadow.blur_radius = blur.into();
             }
 
@@ -1502,16 +1519,16 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
         5 => {
             // box-shadow: 5px 10px 5px 10px #888888; (h_offset, v_offset, blur, spread, color)
             // box-shadow: 5px 10px 5px #888888 inset; (h_offset, v_offset, blur, color, inset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let h_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.offset[0] = h_offset;
             box_shadow.offset[1] = v_offset;
 
-            let blur = parse_pixel_value(input_iter.next().unwrap())?;
+            let blur = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.blur_radius = blur.into();
 
             if !is_inset {
-                let spread = parse_pixel_value(input_iter.next().unwrap())?;
+                let spread = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
                 box_shadow.spread_radius = spread.into();
             }
 
@@ -1520,15 +1537,15 @@ pub fn parse_css_box_shadow<'a>(input: &'a str)
         },
         6 => {
             // box-shadow: 5px 10px 5px 10px #888888 inset; (h_offset, v_offset, blur, spread, color, inset)
-            let h_offset = parse_pixel_value(input_iter.next().unwrap())?;
-            let v_offset = parse_pixel_value(input_iter.next().unwrap())?;
+            let h_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
+            let v_offset = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.offset[0] = h_offset;
             box_shadow.offset[1] = v_offset;
 
-            let blur = parse_pixel_value(input_iter.next().unwrap())?;
+            let blur = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.blur_radius = blur.into();
 
-            let spread = parse_pixel_value(input_iter.next().unwrap())?;
+            let spread = parse_pixel_value_no_percent(input_iter.next().unwrap())?;
             box_shadow.spread_radius = spread.into();
 
             let color = parse_css_color(input_iter.next().unwrap())?;

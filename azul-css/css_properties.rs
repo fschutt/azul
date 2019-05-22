@@ -955,6 +955,22 @@ impl_from_css_prop!(StyleBorderBottomWidth, CssProperty::BorderBottomWidth);
 const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
 const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
+/// Same as PixelValue, but doesn't allow a "%" sign
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PixelValueNoPercent(pub PixelValue);
+
+impl fmt::Debug for PixelValueNoPercent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+impl PixelValueNoPercent {
+    pub fn to_pixels(&self) -> f32 {
+        self.0.to_pixels(0.0)
+    }
+}
+
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PixelValue {
@@ -1284,10 +1300,10 @@ pub struct StyleBorderSide {
 // missing StyleBorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BoxShadowPreDisplayItem {
-    pub offset: [PixelValue;2],
+    pub offset: [PixelValueNoPercent;2],
     pub color: ColorU,
-    pub blur_radius: PixelValue,
-    pub spread_radius: PixelValue,
+    pub blur_radius: PixelValueNoPercent,
+    pub spread_radius: PixelValueNoPercent,
     pub clip_mode: BoxShadowClipMode,
 }
 
