@@ -9,6 +9,7 @@
     flex-direction: column;
     justify-content: center;
     cursor: pointer;
+    flex-grow: 1;
 }
 
 .__azul-native-button:hover {
@@ -29,11 +30,12 @@
     text-align: center;
     flex-direction: column;
     justify-content: center;
+    flex-grow: 1;
 }
 
 .__azul-native-input-text {
+    flex-grow: 1;
     background-color: white;
-    height: 24px;
     border: 1px solid #9b9b9b;
     padding: 1px;
     overflow: hidden;

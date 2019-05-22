@@ -1885,7 +1885,7 @@ pub enum LayoutDirection {
 
 impl Default for LayoutDirection {
     fn default() -> Self {
-        LayoutDirection::Column
+        LayoutDirection::Row
     }
 }
 

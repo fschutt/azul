@@ -34,6 +34,7 @@ use number::{OrElse, MinMax, ToNumber, Number::{self, *}};
 use geometry::{Rect, RectSize, RectOrigin, Offsets, Size};
 use {RectContent, GetTextLayout, InlineTextLayout};
 
+#[derive(Debug)]
 struct FlexItem {
 
     node_id: NodeId,
@@ -66,6 +67,7 @@ struct FlexItem {
     offset_cross: f32,
 }
 
+#[derive(Debug)]
 struct FlexLine {
     pub items: Vec<FlexItem>,
     pub cross_size: f32,
@@ -282,8 +284,6 @@ fn compute_internal<T: GetTextLayout>(
         .maybe_max(parent_node_style.min_size.height.resolve(parent_size.height))
         .maybe_min(parent_node_style.max_size.height.resolve(parent_size.height));
 
-    println!("parent width: {:?}, parent height: {:?}", parent_width, parent_height);
-
     // If this is a leaf node we can skip a lot of this function
     if node_hierarchy[node_id].first_child.is_none() {
 
@@ -301,8 +301,8 @@ fn compute_internal<T: GetTextLayout>(
     }
 
     let node_inner_size = Size {
-        width: parent_width.or_else(node_size.width) - padding_border.horizontal(),
-        height: parent_height.or_else(node_size.height) - padding_border.vertical(),
+        width: parent_width.or_else(parent_size.width) - padding_border.horizontal(),
+        height: parent_height.or_else(parent_size.height) - padding_border.vertical(),
     };
 
     let mut container_size = Size { width: 0.0, height: 0.0 };
@@ -809,6 +809,14 @@ fn compute_internal<T: GetTextLayout>(
             let child_cross =
                 child.size.cross(dir).maybe_max(child.min_size.cross(dir)).maybe_min(child.max_size.cross(dir));
 
+            let cross_before = node_rects[child.node_id]
+                .size
+                .cross(dir)
+                .maybe_max(child.min_size.cross(dir))
+                .maybe_min(child.max_size.cross(dir));
+
+            println!("setting cross_before: {:?}", cross_before);
+
             compute_internal(
                 child.node_id,
                 node_hierarchy,
@@ -827,15 +835,18 @@ fn compute_internal<T: GetTextLayout>(
                 false,
             );
 
-            // WARN: Original code doesn't use .unwrap_or_zero() here!
-            child.hypothetical_inner_size.set_cross(
-                dir,
-                node_rects[child.node_id]
+            let cross = node_rects[child.node_id]
                 .size
                 .cross(dir)
                 .maybe_max(child.min_size.cross(dir))
-                .maybe_min(child.max_size.cross(dir))
-                .unwrap_or_zero(),
+                .maybe_min(child.max_size.cross(dir));
+
+            println!("setting cross: {:?}", cross);
+
+            // WARN: Original code doesn't use .unwrap_or_zero() here!
+            child.hypothetical_inner_size.set_cross(
+                dir,
+                cross.unwrap_or_zero(),
             );
 
             child
@@ -843,6 +854,8 @@ fn compute_internal<T: GetTextLayout>(
                 .set_cross(dir, child.hypothetical_inner_size.cross(dir) + child.margin.cross(dir));
         })
     });
+
+    println!("flex lines: {:#?}", flex_lines);
 
     if has_baseline_child {
         flex_lines.iter_mut().for_each(|line| {

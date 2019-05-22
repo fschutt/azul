@@ -1,15 +1,19 @@
-#test {
-    position: relative;
-    width: 100%;
-    height: 50%;
-    background: blue;
-    border: 10px solid yellow;
-    box-sizing: border-box;
+* {
+    display: flex;
 }
 
-#child {
-    width: 400px;
-    height: 400px;
-    background: green;
-    border-radius: 50%;
+.test {
+  flex-grow: 1;
+}
+
+#blue {
+  background: blue;
+}
+
+#red {
+    background: red;
+}
+
+#yellow {
+    background: yellow;
 }

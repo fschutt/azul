@@ -2,6 +2,8 @@
     font-size: 16px;
     font-family: sans-serif;
     color: #4c4c4c;
+    display: flex;
+    flex-grow: 1;
 }
 
 .__azul-native-button {
@@ -12,17 +14,19 @@
     text-align: center;
     flex-direction: column;
     justify-content: center;
+    flex-grow: 1;
 }
 
 .__azul-native-label {
+    flex-grow: 1;
     text-align: center;
     flex-direction: column;
     justify-content: center;
 }
 
 .__azul-native-input-text {
+    flex-grow: 1;
     background-color: white;
-    height: 14px;
     border: 1px solid #9b9b9b;
     padding: 1px;
     overflow: hidden;
@@ -30,6 +34,7 @@
     flex-direction: row;
     align-content: flex-end;
     justify-content: flex-end;
+    box-sizing: border-box;
 }
 
 .__azul-native-input-text:hover {

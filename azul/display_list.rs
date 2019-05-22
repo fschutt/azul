@@ -713,12 +713,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
             size: window_size.dimensions,
         },
         border_radius: StyleBorderRadius::default(),
-        content: vec![DisplayListRectContent::Background {
-            content: RectBackground::Color(ColorU::RED),
-            size: None,
-            offset: None,
-            repeat: None,
-        }],
+        content: vec![],
         children: root_children,
     })
 }

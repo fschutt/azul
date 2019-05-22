@@ -1,5 +1,5 @@
 <app>
-    <div id="test">
-        <div id="child"></div>
-    </div>
+  <div class="test" id="blue"></div>
+  <div class="test" id="red"></div>
+  <div class="test" id="yellow"></div>
 </app>
