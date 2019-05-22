@@ -354,17 +354,24 @@ pub struct WindowSize {
 }
 
 impl WindowSize {
-    pub fn get_inner_logical_size(&self) -> LogicalSize {
-        LogicalSize::new(
-            self.dimensions.width / self.winit_hidpi_factor * self.hidpi_factor,
-            self.dimensions.height / self.winit_hidpi_factor * self.hidpi_factor
+
+    /// Get the actual logical size
+    pub fn get_logical_size(&self) -> LogicalSize {
+        LogicalSize::new(self.dimensions.width, self.dimensions.height)
+    }
+
+    pub fn get_physical_size(&self) -> PhysicalSize {
+        PhysicalSize::new(
+            self.dimensions.width * self.hidpi_factor,
+            self.dimensions.height * self.hidpi_factor,
         )
     }
 
+    /// Get a size that is usually smaller than the logical one, so that the winit DPI factor is compensated for.
     pub fn get_reverse_logical_size(&self) -> LogicalSize {
         LogicalSize::new(
-            self.dimensions.width / self.hidpi_factor * self.winit_hidpi_factor,
-            self.dimensions.height / self.hidpi_factor * self.winit_hidpi_factor,
+            self.dimensions.width * self.hidpi_factor / self.winit_hidpi_factor,
+            self.dimensions.height * self.hidpi_factor / self.winit_hidpi_factor,
         )
     }
 }

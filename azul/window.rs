@@ -453,6 +453,7 @@ impl<T> Window<T> {
         gl_window.hide();
 
         let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
+
         let mut state = options.state.clone();
         state.size.hidpi_factor = hidpi_factor;
         state.size.winit_hidpi_factor = winit_hidpi_factor;
@@ -468,7 +469,7 @@ impl<T> Window<T> {
         if options.state.is_maximized && !options.state.is_fullscreen {
             gl_window.window().set_maximized(true);
         } else if !options.state.is_fullscreen {
-            gl_window.window().set_inner_size(winit_translate::translate_logical_size(options.state.size.get_inner_logical_size()));
+            gl_window.window().set_inner_size(winit_translate::translate_logical_size(state.size.get_reverse_logical_size()));
         }
 
         // #[cfg(debug_assertions)]
