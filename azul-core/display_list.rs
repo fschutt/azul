@@ -1,3 +1,4 @@
+use std::fmt;
 use azul_css::{
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
     LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
@@ -64,10 +65,19 @@ pub struct GlyphInstance {
     pub point: LogicalPosition,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListRect {
     pub origin: LogicalPosition,
     pub size: LogicalSize,
+}
+
+impl fmt::Debug for DisplayListRect {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+            "{{ origin: {{ x: {}, y: {} }}, size: {{ width: {}, height: {} }} }}",
+            self.origin.x, self.origin.y, self.size.width, self.size.height,
+        )
+    }
 }
 
 impl DisplayListRect {
@@ -123,13 +133,32 @@ pub struct DisplayListScrollFrame {
     pub children: Vec<DisplayListMsg>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub struct DisplayListFrame {
     pub rect: DisplayListRect,
     pub clip_rect: Option<DisplayListRect>,
     pub tag: Option<ItemTag>,
     pub content: Vec<DisplayListRectContent>,
     pub children: Vec<DisplayListMsg>,
+}
+
+impl fmt::Debug for DisplayListFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "rect: {:#?},", self.rect)?;
+        if let Some(clip_rect) = &self.clip_rect {
+            write!(f, "\r\nclip_rect: {:#?},", clip_rect)?;
+        }
+        if let Some(tag) = &self.tag {
+            write!(f, "\r\ntag: ({}, {}),", tag.0, tag.1)?;
+        }
+        if !self.content.is_empty() {
+            write!(f, "\r\ncontent: {:#?}", self.content)?;
+        }
+        if !self.children.is_empty() {
+            write!(f, "\r\nchildren: {:#?}", self.children)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -145,7 +174,7 @@ pub enum AlphaType {
     PremultipliedAlpha,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRadius {
     pub top_left: Option<CssPropertyValue<StyleBorderTopLeftRadius>>,
     pub top_right: Option<CssPropertyValue<StyleBorderTopRightRadius>>,
@@ -153,7 +182,47 @@ pub struct StyleBorderRadius {
     pub bottom_right: Option<CssPropertyValue<StyleBorderBottomRightRadius>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl fmt::Debug for StyleBorderRadius {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "StyleBorderRadius {{")?;
+        if let Some(tl) = &self.top_left {
+            write!(f, "\r\n\ttop-left: {},", tl)?;
+        }
+        if let Some(tr) = &self.top_right {
+            write!(f, "\r\n\ttop-right: {},", tr)?;
+        }
+        if let Some(bl) = &self.bottom_left {
+            write!(f, "\r\n\tbottom-left: {},", bl)?;
+        }
+        if let Some(br) = &self.bottom_right {
+            write!(f, "\r\n\tbottom-right: {},", br)?;
+        }
+        write!(f, "\r\n}}")
+    }
+}
+
+macro_rules! tlbr_debug {($struct_name:ident) => (
+    impl fmt::Debug for $struct_name {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{} {{", stringify!($struct_name))?;
+            if let Some(t) = &self.top {
+                write!(f, "\r\n\ttop: {},", t)?;
+            }
+            if let Some(r) = &self.right {
+                write!(f, "\r\n\tright: {},", r)?;
+            }
+            if let Some(b) = &self.bottom {
+                write!(f, "\r\n\tbottom: {},", b)?;
+            }
+            if let Some(l) = &self.left {
+                write!(f, "\r\n\tleft: {},", l)?;
+            }
+            write!(f, "\r\n}}")
+        }
+    }
+)}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderWidths {
     pub top: Option<CssPropertyValue<StyleBorderTopWidth>>,
     pub right: Option<CssPropertyValue<StyleBorderRightWidth>>,
@@ -161,7 +230,9 @@ pub struct StyleBorderWidths {
     pub left: Option<CssPropertyValue<StyleBorderLeftWidth>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+tlbr_debug!(StyleBorderWidths);
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderColors {
     pub top: Option<CssPropertyValue<StyleBorderTopColor>>,
     pub right: Option<CssPropertyValue<StyleBorderRightColor>>,
@@ -169,7 +240,9 @@ pub struct StyleBorderColors {
     pub left: Option<CssPropertyValue<StyleBorderLeftColor>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+tlbr_debug!(StyleBorderColors);
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderStyles {
     pub top: Option<CssPropertyValue<StyleBorderTopStyle>>,
     pub right: Option<CssPropertyValue<StyleBorderRightStyle>>,
@@ -177,13 +250,17 @@ pub struct StyleBorderStyles {
     pub left: Option<CssPropertyValue<StyleBorderLeftStyle>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+tlbr_debug!(StyleBorderStyles);
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBoxShadow {
     pub top: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
     pub right: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
     pub bottom: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
     pub left: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
 }
+
+tlbr_debug!(StyleBoxShadow);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum DisplayListRectContent {
@@ -221,12 +298,24 @@ pub enum DisplayListRectContent {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub enum RectBackground {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
     Image(ImageInfo),
     Color(ColorU),
+}
+
+impl fmt::Debug for RectBackground {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::RectBackground::*;
+        match self {
+            LinearGradient(l) => write!(f, "{}", l),
+            RadialGradient(r) => write!(f, "{}", r),
+            Image(id) => write!(f, "image({:#?})", id),
+            Color(c) => write!(f, "{}", c),
+        }
+    }
 }
 
 impl RectBackground {

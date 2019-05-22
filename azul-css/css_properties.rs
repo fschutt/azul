@@ -226,11 +226,21 @@ pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 
 impl Default for ColorU { fn default() -> Self { ColorU::BLACK } }
 
+impl fmt::Display for ColorU {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "rgba({}, {}, {}, {})", self.r, self.g, self.b, self.a as f32 / 255.0)
+    }
+}
+
 impl ColorU {
     pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 0 };
     pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
     pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
     pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+
+    pub fn write_hash(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)
+    }
 }
 
 /// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)
@@ -238,6 +248,12 @@ impl ColorU {
 pub struct ColorF { pub r: f32, pub g: f32, pub b: f32, pub a: f32 }
 
 impl Default for ColorF { fn default() -> Self { ColorF::BLACK } }
+
+impl fmt::Display for ColorF {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "rgba({}, {}, {}, {})", self.r * 255.0, self.g * 255.0, self.b * 255.0, self.a)
+    }
+}
 
 impl ColorF {
     pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: 0.0 };
@@ -301,6 +317,16 @@ pub enum BoxShadowClipMode {
     Inset,
 }
 
+impl fmt::Display for BoxShadowClipMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::BoxShadowClipMode::*;
+        match self {
+            Outset => write!(f, "outset"),
+            Inset => write!(f, "inset"),
+        }
+    }
+}
+
 /// Whether a `gradient` should be repeated or clamped to the edges.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub enum ExtendMode {
@@ -321,6 +347,24 @@ pub enum BorderStyle {
     Ridge,
     Inset,
     Outset,
+}
+
+impl fmt::Display for BorderStyle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::BorderStyle::*;
+        match self {
+            None => write!(f, "none"),
+            Solid => write!(f, "solid"),
+            Double => write!(f, "double"),
+            Dotted => write!(f, "dotted"),
+            Dashed => write!(f, "dashed"),
+            Hidden => write!(f, "hidden"),
+            Groove => write!(f, "groove"),
+            Ridge => write!(f, "ridge"),
+            Inset => write!(f, "inset"),
+            Outset => write!(f, "outset"),
+        }
+    }
 }
 
 impl BorderStyle {
@@ -365,9 +409,30 @@ pub struct NinePatchBorder {
     // not implemented or parse-able yet, so no fields!
 }
 
+macro_rules! derive_debug_zero {($struct:ident) => (
+    impl fmt::Debug for $struct {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{:?}", self.0)
+        }
+    }
+)}
+
+macro_rules! derive_display_zero {($struct:ident) => (
+    impl fmt::Display for $struct {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+)}
+
+
 /// Creates `pt`, `px` and `em` constructors for any struct that has a
 /// `PixelValue` as it's self.0 field.
 macro_rules! impl_pixel_value {($struct:ident) => (
+
+    derive_debug_zero!($struct);
+    derive_display_zero!($struct);
+
     impl $struct {
         #[inline]
         pub fn px(value: f32) -> Self {
@@ -384,18 +449,12 @@ macro_rules! impl_pixel_value {($struct:ident) => (
             $struct(PixelValue::pt(value))
         }
     }
-
-    impl ::std::fmt::Debug for $struct {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}({:?})", stringify!($struct), self.0)
-        }
-    }
 )}
 
 macro_rules! impl_percentage_value{($struct:ident) => (
     impl ::std::fmt::Debug for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}({:?})", stringify!($struct), self.0)
+            write!(f, "{}%", self.0.get())
         }
     }
 )}
@@ -403,7 +462,7 @@ macro_rules! impl_percentage_value{($struct:ident) => (
 macro_rules! impl_float_value{($struct:ident) => (
     impl ::std::fmt::Debug for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}({:?})", stringify!($struct), self.0)
+            write!(f, "{}", self.0.get())
         }
     }
 )}
@@ -956,12 +1015,12 @@ const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
 const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
 /// Same as PixelValue, but doesn't allow a "%" sign
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PixelValueNoPercent(pub PixelValue);
 
-impl fmt::Debug for PixelValueNoPercent {
+impl fmt::Display for PixelValueNoPercent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -972,20 +1031,20 @@ impl PixelValueNoPercent {
 }
 
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
 }
 
 // Manual Debug implementation, because the auto-generated one is nearly unreadable
-impl fmt::Debug for PixelValue {
+impl fmt::Display for PixelValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}{:?}", self.number, self.metric)
+        write!(f, "{}{}", self.number, self.metric)
     }
 }
 
-impl fmt::Debug for SizeMetric {
+impl fmt::Display for SizeMetric {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::SizeMetric::*;
         match self {
@@ -994,12 +1053,6 @@ impl fmt::Debug for SizeMetric {
             Em => write!(f, "pt"),
             Percent => write!(f, "%"),
         }
-    }
-}
-
-impl fmt::Debug for FloatValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.get())
     }
 }
 
@@ -1089,12 +1142,12 @@ impl PixelValue {
 
 /// Wrapper around FloatValue, represents a percentage instead
 /// of just being a regular floating-point value, i.e `5` = `5%`
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PercentageValue {
     number: FloatValue,
 }
 
-impl fmt::Debug for PercentageValue {
+impl fmt::Display for PercentageValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}%", self.get())
     }
@@ -1119,9 +1172,15 @@ impl PercentageValue {
 
 /// Wrapper around an f32 value that is internally casted to an isize,
 /// in order to provide hash-ability (to avoid numerical instability).
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FloatValue {
     pub number: isize,
+}
+
+impl fmt::Display for FloatValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.get())
+    }
 }
 
 impl Default for FloatValue {
@@ -1155,7 +1214,7 @@ impl From<f32> for FloatValue {
 }
 
 /// Enum representing the metric associated with a number (px, pt, em, etc.)
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SizeMetric {
     Px,
     Pt,
@@ -1223,8 +1282,11 @@ impl Default for StyleBackgroundRepeat {
 }
 
 /// Represents a `color` attribute
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleTextColor(pub ColorU);
+
+derive_debug_zero!(StyleTextColor);
+derive_display_zero!(StyleTextColor);
 
 // -- TODO: Technically, border-radius can take two values for each corner!
 
@@ -1265,30 +1327,50 @@ impl_pixel_value!(StyleBorderRightWidth);
 impl_pixel_value!(StyleBorderBottomWidth);
 
 /// Represents a `border-top-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderTopStyle(pub BorderStyle);
 /// Represents a `border-left-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderLeftStyle(pub BorderStyle);
 /// Represents a `border-right-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRightStyle(pub BorderStyle);
 /// Represents a `border-bottom-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderBottomStyle(pub BorderStyle);
 
+derive_debug_zero!(StyleBorderTopStyle);
+derive_debug_zero!(StyleBorderLeftStyle);
+derive_debug_zero!(StyleBorderBottomStyle);
+derive_debug_zero!(StyleBorderRightStyle);
+
+derive_display_zero!(StyleBorderTopStyle);
+derive_display_zero!(StyleBorderLeftStyle);
+derive_display_zero!(StyleBorderBottomStyle);
+derive_display_zero!(StyleBorderRightStyle);
+
 /// Represents a `border-top-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderTopColor(pub ColorU);
 /// Represents a `border-left-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderLeftColor(pub ColorU);
 /// Represents a `border-right-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderRightColor(pub ColorU);
 /// Represents a `border-bottom-width` attribute
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderBottomColor(pub ColorU);
+
+derive_debug_zero!(StyleBorderTopColor);
+derive_debug_zero!(StyleBorderLeftColor);
+derive_debug_zero!(StyleBorderRightColor);
+derive_debug_zero!(StyleBorderBottomColor);
+
+derive_display_zero!(StyleBorderTopColor);
+derive_display_zero!(StyleBorderLeftColor);
+derive_display_zero!(StyleBorderRightColor);
+derive_display_zero!(StyleBorderBottomColor);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderSide {
@@ -1307,12 +1389,36 @@ pub struct BoxShadowPreDisplayItem {
     pub clip_mode: BoxShadowClipMode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+impl fmt::Display for BoxShadowPreDisplayItem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.clip_mode == BoxShadowClipMode::Inset {
+            write!(f, "{} ", self.clip_mode)?;
+        }
+        write!(f, "{} {} {} {} {}",
+            self.offset[0], self.offset[1],
+            self.blur_radius, self.spread_radius, self.color,
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleBackgroundContent {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
     Image(CssImageId),
     Color(ColorU),
+}
+
+impl fmt::Debug for StyleBackgroundContent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::StyleBackgroundContent::*;
+        match self {
+            LinearGradient(l) => write!(f, "{}", l),
+            RadialGradient(r) => write!(f, "{}", r),
+            Image(id) => write!(f, "image({})", id),
+            Color(c) => write!(f, "{}", c),
+        }
+    }
 }
 
 impl StyleBackgroundContent {
@@ -1337,11 +1443,41 @@ pub struct LinearGradient {
     pub stops: Vec<GradientStopPre>,
 }
 
+impl fmt::Display for LinearGradient {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let prefix = match self.extend_mode {
+            ExtendMode::Clamp => "linear-gradient",
+            ExtendMode::Repeat => "repeating-linear-gradient",
+        };
+
+        write!(f, "{}({}", prefix, self.direction)?;
+        for s in &self.stops {
+            write!(f, ", {}", s)?;
+        }
+        write!(f, ")")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RadialGradient {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
     pub stops: Vec<GradientStopPre>,
+}
+
+impl fmt::Display for RadialGradient {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let prefix = match self.extend_mode {
+            ExtendMode::Clamp => "radial-gradient",
+            ExtendMode::Repeat => "repeating-radial-gradient",
+        };
+
+        write!(f, "{}({}", prefix, self.shape)?;
+        for s in &self.stops {
+            write!(f, ", {}", s)?;
+        }
+        write!(f, ")")
+    }
 }
 
 /// CSS direction (necessary for gradients). Can either be a fixed angle or
@@ -1350,6 +1486,16 @@ pub struct RadialGradient {
 pub enum Direction {
     Angle(FloatValue),
     FromTo(DirectionCorner, DirectionCorner),
+}
+
+impl fmt::Display for Direction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Direction::*;
+        match self {
+            Angle(d) => write!(f, "{}deg", d.get()),
+            FromTo(_, t) => write!(f, "to {}", t),
+        }
+    }
 }
 
 impl Direction {
@@ -1425,6 +1571,16 @@ impl Direction {
 pub enum Shape {
     Ellipse,
     Circle,
+}
+
+impl fmt::Display for Shape {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Shape::*;
+        match self {
+            Ellipse => write!(f, "ellipse"),
+            Circle => write!(f, "circle"),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1509,6 +1665,22 @@ pub enum DirectionCorner {
     BottomLeft,
 }
 
+impl fmt::Display for DirectionCorner {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::DirectionCorner::*;
+        match self {
+            Right =>  write!(f, "right"),
+            Left =>  write!(f, "left"),
+            Top =>  write!(f, "top"),
+            Bottom =>  write!(f, "bottom"),
+            TopRight =>  write!(f, "top right"),
+            TopLeft =>  write!(f, "top left"),
+            BottomRight =>  write!(f, "bottom right"),
+            BottomLeft =>  write!(f, "bottom left"),
+        }
+    }
+}
+
 impl DirectionCorner {
 
     pub fn opposite(&self) -> Self {
@@ -1569,11 +1741,28 @@ pub enum GradientType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssImageId(pub String);
 
+impl fmt::Display for CssImageId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GradientStopPre {
     // this is set to None if there was no offset that could be parsed
     pub offset: Option<PercentageValue>,
     pub color: ColorU,
+}
+
+impl fmt::Display for GradientStopPre {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.color.write_hash(f)?;
+        if let Some(offset) = self.offset {
+            write!(f, " {}", offset)?;
+        }
+        Ok(())
+    }
 }
 
 /// Represents a `width` attribute
