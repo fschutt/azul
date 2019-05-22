@@ -62,7 +62,7 @@ impl TableView {
 
     pub fn dom<T>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
         if let Some(ptr) =  StackCheckedPointer::new(t, data) {
-            let mut dom = Dom::iframe(IFrameCallback(render_table_callback), ptr);
+            let mut dom = Dom::iframe(IFrameCallback(render_table_callback), ptr).with_class("__azul-native-table-iframe");
             let callback_id = window.add_callback(ptr, DefaultCallback(Self::table_view_on_click));
             dom.add_default_callback_id(On::MouseUp, callback_id);
             dom

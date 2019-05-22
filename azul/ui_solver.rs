@@ -101,6 +101,8 @@ pub(crate) fn do_the_layout<'a,'b, T>(
 
     use azul_layout::SolvedUi;
 
+    println!("bounding rect: {:?}", bounding_rect);
+
     // 1. do layout pass without any text, only images, set display:inline children to (0px 0px)
     // 2. for each display:inline rect, layout children, calculate size of parent item
     // 3. for each rect, check if children overflow, if yes, reserve space for scrollbar

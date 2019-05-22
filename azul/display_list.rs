@@ -182,7 +182,6 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
                 Some(LayoutAlignItems::End) => AlignItems::FlexEnd,
                 None => AlignItems::FlexStart,
             },
-            align_self: AlignSelf::Auto, // todo!
             align_content: match rect_layout.align_content.unwrap_or_default().get_property_or_default() {
                 Some(LayoutAlignContent::Stretch) => AlignContent::Stretch,
                 Some(LayoutAlignContent::Center) => AlignContent::Center,
@@ -227,7 +226,6 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
             },
             flex_grow: rect_layout.flex_grow.unwrap_or_default().get_property_or_default().unwrap_or_default().0.get(),
             flex_shrink: rect_layout.flex_shrink.unwrap_or_default().get_property_or_default().unwrap_or_default().0.get(),
-            flex_basis: Dimension::Auto, // todo!
             size: Size {
                 width: translate_dimension(rect_layout.width.map(|prop| prop.map_property(|l| l.0))),
                 height: translate_dimension(rect_layout.height.map(|prop| prop.map_property(|l| l.0))),
@@ -240,6 +238,8 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
                 width: translate_dimension(rect_layout.max_width.map(|prop| prop.map_property(|l| l.0))),
                 height: translate_dimension(rect_layout.max_height.map(|prop| prop.map_property(|l| l.0))),
             },
+            align_self: AlignSelf::Auto, // todo!
+            flex_basis: Dimension::Auto, // todo!
             aspect_ratio: Number::Undefined,
             font_size_px: rect_style.font_size.and_then(|fs| fs.get_property_owned()).unwrap_or(DEFAULT_FONT_SIZE).0,
             line_height: rect_style.line_height.and_then(|lh| lh.map_property(|lh| lh.0).get_property_owned()).map(|lh| lh.get()),
@@ -596,7 +596,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T>(
     //      - Repeat while number_of_iframe_callbacks != 0
     add_fonts_and_images(app_resources, render_api, &display_list);
 
-    let window_size = window.state.size.get_reverse_logical_size();
     let layout_result = do_the_layout(
         node_hierarchy,
         node_data,
@@ -604,7 +603,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T>(
         &*app_resources,
         LayoutRect {
             origin: LayoutPoint::new(0.0, 0.0),
-            size: LayoutSize::new(window_size.width as f32, window_size.height as f32)
+            size: LayoutSize::new(window.state.size.dimensions.width, window.state.size.dimensions.height),
         },
     );
 

@@ -23,7 +23,7 @@ impl Layout for DragMeApp {
 
         // Set the width of the dragger on the red element
         if let Some(w) = self.width {
-            left.add_css_override("drag_width", CssProperty::Width(LayoutWidth::px(w)));
+            left.add_css_override("drag_width", LayoutWidth::px(w));
         }
 
         let right = Dom::new(NodeType::Div).with_id("orange");

@@ -1305,8 +1305,8 @@ impl<T> Dom<T> {
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<DomString>>(&mut self, override_id: S, property: CssProperty) {
-        self.arena.node_data[self.head].dynamic_css_overrides.push((override_id.into(), property));
+    pub fn add_css_override<S: Into<DomString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
+        self.arena.node_data[self.head].dynamic_css_overrides.push((override_id.into(), property.into()));
     }
 
     #[inline]

@@ -1,3 +1,16 @@
+.__azul-native-table-iframe {
+    display: flex;
+    flex-grow: 1;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.__azul-native-table-container * {
+    display: flex;
+    box-sizing: border-box;
+}
+
 .__azul-native-table-container {
     flex-direction: row;
 }
@@ -55,7 +68,7 @@
     background-color: #e6e6e6;
     flex-direction: row;
     align-items: center;
-    border-right: 0.6px solid #b5b5b5;
+    border-right: 1px solid #b5b5b5;
     box-shadow-bottom: 0px 0px 3px black;
 }
 
