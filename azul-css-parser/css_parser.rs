@@ -11,19 +11,21 @@ use azul_css::{
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
-    StyleCursor, LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight,
-    LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
-    LayoutPosition, LayoutTop, LayoutRight, LayoutLeft, LayoutBottom, LayoutWrap,
-    LayoutDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
-    LayoutAlignItems, LayoutAlignContent, StyleBackgroundContent, StyleBackgroundPosition,
-    StyleBackgroundSize, StyleBackgroundRepeat, LayoutPaddingTop, LayoutPaddingLeft,
-    LayoutPaddingRight, LayoutPaddingBottom, LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight,
-    LayoutMarginBottom, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+    StyleCursor, StyleBackgroundContent, StyleBackgroundPosition, StyleBackgroundSize,
+    StyleBackgroundRepeat, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
     StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleBorderTopColor,
     StyleBorderRightColor, StyleBorderLeftColor, StyleBorderBottomColor,
     StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderLeftStyle,
     StyleBorderBottomStyle, StyleBorderTopWidth, StyleBorderRightWidth,
     StyleBorderLeftWidth, StyleBorderBottomWidth,
+
+    LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight, LayoutBoxSizing,
+    LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
+    LayoutPosition, LayoutTop, LayoutRight, LayoutLeft, LayoutBottom, LayoutWrap,
+    LayoutDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
+    LayoutAlignItems, LayoutAlignContent, LayoutPaddingRight, LayoutPaddingBottom,
+    LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight, LayoutMarginBottom,
+    LayoutPaddingTop, LayoutPaddingLeft,
 };
 
 /// A parser that can accept a list of items and mappings
@@ -132,6 +134,7 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
 
             Display                     => parse_layout_display(value)?.into(),
             Float                       => parse_layout_float(value)?.into(),
+            BoxSizing                   => parse_layout_box_sizing(value)?.into(),
             Width                       => parse_layout_width(value)?.into(),
             Height                      => parse_layout_height(value)?.into(),
             MinWidth                    => parse_layout_min_width(value)?.into(),
@@ -181,20 +184,20 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             BorderLeftColor             => StyleBorderLeftColor(parse_css_color(value)?).into(),
             BorderBottomColor           => StyleBorderBottomColor(parse_css_color(value)?).into(),
 
-            BorderTopStyle              => StyleBorderTopStyle(parse_css_border_style(value)?).into(),
-            BorderRightStyle            => StyleBorderRightStyle(parse_css_border_style(value)?).into(),
-            BorderLeftStyle             => StyleBorderLeftStyle(parse_css_border_style(value)?).into(),
-            BorderBottomStyle           => StyleBorderBottomStyle(parse_css_border_style(value)?).into(),
+            BorderTopStyle              => StyleBorderTopStyle(parse_style_border_style(value)?).into(),
+            BorderRightStyle            => StyleBorderRightStyle(parse_style_border_style(value)?).into(),
+            BorderLeftStyle             => StyleBorderLeftStyle(parse_style_border_style(value)?).into(),
+            BorderBottomStyle           => StyleBorderBottomStyle(parse_style_border_style(value)?).into(),
 
             BorderTopWidth              => parse_style_border_top_width(value)?.into(),
             BorderRightWidth            => parse_style_border_right_width(value)?.into(),
             BorderLeftWidth             => parse_style_border_left_width(value)?.into(),
             BorderBottomWidth           => parse_style_border_bottom_width(value)?.into(),
 
-            BoxShadowLeft               => CssProperty::BoxShadowLeft(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
-            BoxShadowRight              => CssProperty::BoxShadowRight(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
-            BoxShadowTop                => CssProperty::BoxShadowTop(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
-            BoxShadowBottom             => CssProperty::BoxShadowBottom(CssPropertyValue::Exact(parse_css_box_shadow(value)?)).into(),
+            BoxShadowLeft               => CssProperty::BoxShadowLeft(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
+            BoxShadowRight              => CssProperty::BoxShadowRight(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
+            BoxShadowTop                => CssProperty::BoxShadowTop(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
+            BoxShadowBottom             => CssProperty::BoxShadowBottom(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
         }
     })
 }
@@ -352,7 +355,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             ])
         },
         Border => {
-            let border = parse_css_border(value)?;
+            let border = parse_style_border(value)?;
             Ok(vec![
                CssProperty::BorderTopColor(StyleBorderTopColor(border.border_color).into()),
                CssProperty::BorderRightColor(StyleBorderRightColor(border.border_color).into()),
@@ -371,7 +374,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             ])
         },
         BorderLeft => {
-            let border = parse_css_border(value)?;
+            let border = parse_style_border(value)?;
             Ok(vec![
                CssProperty::BorderLeftColor(StyleBorderLeftColor(border.border_color).into()),
                CssProperty::BorderLeftStyle(StyleBorderLeftStyle(border.border_style).into()),
@@ -379,7 +382,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             ])
         },
         BorderRight => {
-            let border = parse_css_border(value)?;
+            let border = parse_style_border(value)?;
             Ok(vec![
                CssProperty::BorderRightColor(StyleBorderRightColor(border.border_color).into()),
                CssProperty::BorderRightStyle(StyleBorderRightStyle(border.border_style).into()),
@@ -387,7 +390,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             ])
         },
         BorderTop => {
-            let border = parse_css_border(value)?;
+            let border = parse_style_border(value)?;
             Ok(vec![
                CssProperty::BorderTopColor(StyleBorderTopColor(border.border_color).into()),
                CssProperty::BorderTopStyle(StyleBorderTopStyle(border.border_style).into()),
@@ -395,7 +398,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             ])
         },
         BorderBottom => {
-            let border = parse_css_border(value)?;
+            let border = parse_style_border(value)?;
             Ok(vec![
                CssProperty::BorderBottomColor(StyleBorderBottomColor(border.border_color).into()),
                CssProperty::BorderBottomStyle(StyleBorderBottomStyle(border.border_style).into()),
@@ -403,7 +406,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             ])
         },
         BoxShadow => {
-            let box_shadow = parse_css_box_shadow(value)?;
+            let box_shadow = parse_style_box_shadow(value)?;
             Ok(vec![
                CssProperty::BoxShadowLeft(CssPropertyValue::Exact(box_shadow)),
                CssProperty::BoxShadowRight(CssPropertyValue::Exact(box_shadow)),
@@ -1393,7 +1396,7 @@ fn take_until_next_whitespace(iter: &mut CharIndices) -> Option<usize> {
 /// Parse a CSS border such as
 ///
 /// "5px solid red"
-pub fn parse_css_border<'a>(input: &'a str)
+pub fn parse_style_border<'a>(input: &'a str)
 -> Result<StyleBorderSide, CssBorderParseError<'a>>
 {
     use self::CssBorderParseError::*;
@@ -1414,7 +1417,7 @@ pub fn parse_css_border<'a>(input: &'a str)
     match second_argument_end {
         None => {
             // First argument is the one and only argument, therefore has to be a style such as "double"
-            border_style = parse_css_border_style(first_arg_str).map_err(|e| InvalidBorderStyle(e))?;
+            border_style = parse_style_border_style(first_arg_str).map_err(|e| InvalidBorderStyle(e))?;
             return Ok(StyleBorderSide {
                 border_style,
                 border_width: DEFAULT_BORDER_THICKNESS,
@@ -1425,7 +1428,7 @@ pub fn parse_css_border<'a>(input: &'a str)
             // First argument is a pixel value, second argument is the border style
             border_width = parse_pixel_value(first_arg_str).map_err(|e| ThicknessParseError(e))?;
             let border_style_str = &input[first_arg_end..end];
-            border_style = parse_css_border_style(border_style_str).map_err(|e| InvalidBorderStyle(e))?;
+            border_style = parse_style_border_style(border_style_str).map_err(|e| InvalidBorderStyle(e))?;
             border_width_str_end = end;
         }
     }
@@ -1442,20 +1445,8 @@ pub fn parse_css_border<'a>(input: &'a str)
     })
 }
 
-multi_type_parser!(parse_css_border_style, BorderStyle,
-    ["none", None],
-    ["solid", Solid],
-    ["double", Double],
-    ["dotted", Dotted],
-    ["dashed", Dashed],
-    ["hidden", Hidden],
-    ["groove", Groove],
-    ["ridge", Ridge],
-    ["inset", Inset],
-    ["outset", Outset]);
-
 /// Parses a CSS box-shadow, such as "5px 10px inset"
-pub fn parse_css_box_shadow<'a>(input: &'a str)
+pub fn parse_style_box_shadow<'a>(input: &'a str)
 -> Result<BoxShadowPreDisplayItem, CssShadowParseError<'a>>
 {
     let mut input_iter = input.split_whitespace();
@@ -2337,6 +2328,18 @@ pub fn parse_parentheses<'a>(
     Ok((validated_stopword, &input[(first_open_brace + 1)..last_closing_brace]))
 }
 
+multi_type_parser!(parse_style_border_style, BorderStyle,
+    ["none", None],
+    ["solid", Solid],
+    ["double", Double],
+    ["dotted", Dotted],
+    ["dashed", Dashed],
+    ["hidden", Hidden],
+    ["groove", Groove],
+    ["ridge", Ridge],
+    ["inset", Inset],
+    ["outset", Outset]);
+
 multi_type_parser!(parse_style_cursor, StyleCursor,
                     ["alias", Alias],
                     ["all-scroll", AllScroll],
@@ -2386,6 +2389,10 @@ multi_type_parser!(parse_layout_display, LayoutDisplay,
 multi_type_parser!(parse_layout_float, LayoutFloat,
                     ["left", Left],
                     ["right", Right]);
+
+multi_type_parser!(parse_layout_box_sizing, LayoutBoxSizing,
+    ["content-box", ContentBox],
+    ["border-box", BorderBox]);
 
 multi_type_parser!(parse_layout_direction, LayoutDirection,
                     ["row", Row],
@@ -2445,12 +2452,12 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_1() {
-        assert_eq!(parse_css_box_shadow("none"), Ok(None));
+        assert_eq!(parse_style_box_shadow("none"), Ok(None));
     }
 
     #[test]
     fn test_parse_box_shadow_2() {
-        assert_eq!(parse_css_box_shadow("5px 10px"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 0, g: 0, b: 0, a: 255 },
             blur_radius: PixelValue::px(0.0),
@@ -2461,7 +2468,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_3() {
-        assert_eq!(parse_css_box_shadow("5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 136, g: 136, b: 136, a: 255 },
             blur_radius: PixelValue::px(0.0),
@@ -2472,7 +2479,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_4() {
-        assert_eq!(parse_css_box_shadow("5px 10px inset"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px inset"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 0, g: 0, b: 0, a: 255 },
             blur_radius: PixelValue::px(0.0),
@@ -2483,7 +2490,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_5() {
-        assert_eq!(parse_css_box_shadow("5px 10px outset"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px outset"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 0, g: 0, b: 0, a: 255 },
             blur_radius: PixelValue::px(0.0),
@@ -2494,7 +2501,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_6() {
-        assert_eq!(parse_css_box_shadow("5px 10px 5px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px 5px #888888"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 136, g: 136, b: 136, a: 255 },
             blur_radius: PixelValue::px(5.0),
@@ -2505,7 +2512,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_7() {
-        assert_eq!(parse_css_box_shadow("5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 136, g: 136, b: 136, a: 255 },
             blur_radius: PixelValue::px(0.0),
@@ -2516,7 +2523,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_8() {
-        assert_eq!(parse_css_box_shadow("5px 10px 5px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px 5px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 136, g: 136, b: 136, a: 255 },
             blur_radius: PixelValue::px(5.0),
@@ -2527,7 +2534,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_9() {
-        assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px 5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 136, g: 136, b: 136, a: 255 },
             blur_radius: PixelValue::px(5.0),
@@ -2538,7 +2545,7 @@ mod css_tests {
 
     #[test]
     fn test_parse_box_shadow_10() {
-        assert_eq!(parse_css_box_shadow("5px 10px 5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
+        assert_eq!(parse_style_box_shadow("5px 10px 5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
             offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
             color: ColorU { r: 136, g: 136, b: 136, a: 255 },
             blur_radius: PixelValue::px(5.0),
@@ -2550,7 +2557,7 @@ mod css_tests {
     #[test]
     fn test_parse_css_border_1() {
         assert_eq!(
-            parse_css_border("5px solid red"),
+            parse_style_border("5px solid red"),
             Ok(StyleBorderSide {
                 border_width: PixelValue::px(5.0),
                 border_style: BorderStyle::Solid,
@@ -2562,7 +2569,7 @@ mod css_tests {
     #[test]
     fn test_parse_css_border_2() {
         assert_eq!(
-            parse_css_border("double"),
+            parse_style_border("double"),
             Ok(StyleBorderSide {
                 border_width: PixelValue::px(3.0),
                 border_style: BorderStyle::Double,
@@ -2574,7 +2581,7 @@ mod css_tests {
     #[test]
     fn test_parse_css_border_3() {
         assert_eq!(
-            parse_css_border("1px solid rgb(51, 153, 255)"),
+            parse_style_border("1px solid rgb(51, 153, 255)"),
             Ok(StyleBorderSide {
                 border_width: PixelValue::px(1.0),
                 border_style: BorderStyle::Solid,

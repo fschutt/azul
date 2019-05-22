@@ -188,11 +188,9 @@ fn compute_internal<T: GetTextLayout>(
     let padding = parent_node_style.padding.map(|n| n.resolve(parent_size.width).or_else(0.0));
     let border = parent_node_style.border.map(|n| n.resolve(parent_size.width).or_else(0.0));
 
-    let padding_border = Offsets {
-        left: padding.left + border.left,
-        right: padding.right + border.right,
-        top: padding.top + border.top,
-        bottom: padding.bottom + border.bottom,
+    let padding_border = match parent_node_style.box_sizing {
+        BoxSizing::BorderBox => padding,
+        BoxSizing::ContentBox => padding + border,
     };
 
     let node_inner_size = Size {

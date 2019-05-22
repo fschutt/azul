@@ -209,9 +209,22 @@ impl Default for Size<Dimension> {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum BoxSizing {
+    ContentBox,
+    BorderBox,
+}
+
+impl Default for BoxSizing {
+    fn default() -> BoxSizing {
+        BoxSizing::ContentBox
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Style {
     pub display: Display,
+    pub box_sizing: BoxSizing,
     pub position_type: PositionType,
     pub direction: Direction,
     pub flex_direction: FlexDirection,
@@ -243,6 +256,7 @@ impl Default for Style {
     fn default() -> Style {
         Style {
             display: Default::default(),
+            box_sizing: Default::default(),
             position_type: Default::default(),
             direction: Default::default(),
             flex_direction: Default::default(),

@@ -6,6 +6,7 @@
     width: 100px;
     height: 100px;
     flex-grow: 1;
+    box-sizing: border-box;
 }
 
 #start_screen {

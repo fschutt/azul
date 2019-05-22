@@ -115,6 +115,7 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
         use azul_css::{
             PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap,
             LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,
+            LayoutBoxSizing,
         };
         use azul_core::ui_solver::DEFAULT_FONT_SIZE;
 
@@ -148,6 +149,11 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
                 Some(CssPropertyValue::Inherit) => Display::Flex,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Flex)) => Display::Flex,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Inline)) => Display::Inline,
+            },
+            box_sizing: match rect_layout.box_sizing.unwrap_or_default().get_property_or_default() {
+                None => BoxSizing::ContentBox,
+                Some(LayoutBoxSizing::ContentBox) => BoxSizing::ContentBox,
+                Some(LayoutBoxSizing::BorderBox) => BoxSizing::BorderBox,
             },
             position_type: match rect_layout.position.unwrap_or_default().get_property_or_default() {
                 Some(LayoutPosition::Static) => PositionType::Relative, // todo - static?
@@ -1170,6 +1176,7 @@ fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property
 
         Display(d)                      => layout.display = Some(*d),
         Float(f)                        => layout.float = Some(*f),
+        BoxSizing(bs)                   => layout.box_sizing = Some(*bs),
 
         TextColor(c)                    => style.text_color = Some(*c),
         FontSize(fs)                    => style.font_size = Some(*fs),

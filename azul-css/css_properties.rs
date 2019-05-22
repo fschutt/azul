@@ -22,10 +22,11 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
 ];
 
 /// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);65] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);66] = [
 
     (CssPropertyType::Display,              "display"),
     (CssPropertyType::Float,                "float"),
+    (CssPropertyType::BoxSizing,             "box-sizing"),
 
     (CssPropertyType::TextColor,            "color"),
     (CssPropertyType::FontSize,             "font-size"),
@@ -544,6 +545,7 @@ pub enum CssPropertyType {
 
     Display,
     Float,
+    BoxSizing,
     Width,
     Height,
     MinWidth,
@@ -712,6 +714,7 @@ pub enum CssProperty {
 
     Display(CssPropertyValue<LayoutDisplay>),
     Float(CssPropertyValue<LayoutFloat>),
+    BoxSizing(CssPropertyValue<LayoutBoxSizing>),
 
     Width(CssPropertyValue<LayoutWidth>),
     Height(CssPropertyValue<LayoutHeight>),
@@ -791,6 +794,7 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
         CssPropertyType::Cursor => CssProperty::Cursor(CssPropertyValue::$content_type),
         CssPropertyType::Display => CssProperty::Display(CssPropertyValue::$content_type),
         CssPropertyType::Float => CssProperty::Float(CssPropertyValue::$content_type),
+        CssPropertyType::BoxSizing => CssProperty::BoxSizing(CssPropertyValue::$content_type),
         CssPropertyType::Width => CssProperty::Width(CssPropertyValue::$content_type),
         CssPropertyType::Height => CssProperty::Height(CssPropertyValue::$content_type),
         CssPropertyType::MinWidth => CssProperty::MinWidth(CssPropertyValue::$content_type),
@@ -864,6 +868,7 @@ impl CssProperty {
             CssProperty::Cursor(_) => CssPropertyType::Cursor,
             CssProperty::Display(_) => CssPropertyType::Display,
             CssProperty::Float(_) => CssPropertyType::Float,
+            CssProperty::BoxSizing(_) => CssPropertyType::BoxSizing,
             CssProperty::Width(_) => CssPropertyType::Width,
             CssProperty::Height(_) => CssPropertyType::Height,
             CssProperty::MinWidth(_) => CssPropertyType::MinWidth,
@@ -959,6 +964,7 @@ impl_from_css_prop!(StyleTabWidth, CssProperty::TabWidth);
 impl_from_css_prop!(StyleCursor, CssProperty::Cursor);
 impl_from_css_prop!(LayoutDisplay, CssProperty::Display);
 impl_from_css_prop!(LayoutFloat, CssProperty::Float);
+impl_from_css_prop!(LayoutBoxSizing, CssProperty::BoxSizing);
 impl_from_css_prop!(LayoutWidth, CssProperty::Width);
 impl_from_css_prop!(LayoutHeight, CssProperty::Height);
 impl_from_css_prop!(LayoutMinWidth, CssProperty::MinWidth);
@@ -1898,6 +1904,19 @@ impl LayoutDirection {
     }
 }
 
+/// Represents a `flex-direction` attribute - default: `Column`
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LayoutBoxSizing {
+    ContentBox,
+    BorderBox,
+}
+
+impl Default for LayoutBoxSizing {
+    fn default() -> Self {
+        LayoutBoxSizing::ContentBox
+    }
+}
+
 /// Represents a `line-height` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleLineHeight(pub PercentageValue);
@@ -2164,6 +2183,7 @@ pub struct RectStyle {
 pub struct RectLayout {
     pub display: Option<CssPropertyValue<LayoutDisplay>>,
     pub float: Option<CssPropertyValue<LayoutFloat>>,
+    pub box_sizing: Option<CssPropertyValue<LayoutBoxSizing>>,
 
     pub width: Option<CssPropertyValue<LayoutWidth>>,
     pub height: Option<CssPropertyValue<LayoutHeight>>,

@@ -82,10 +82,7 @@ impl<T> Offsets<T> {
     }
 }
 
-impl<T> Offsets<T>
-where
-    T: Add<Output = T> + Copy + Clone,
-{
+impl<T: Add<Output = T> + Copy + Clone> Offsets<T> {
     pub(crate) fn horizontal(&self) -> T {
         self.left + self.right
     }
@@ -109,10 +106,20 @@ where
     }
 }
 
-impl<T> Offsets<T>
-where
-    T: Copy + Clone,
-{
+impl<T: Add<Output = T>> Add<Offsets<T>> for Offsets<T> {
+    type Output = Offsets<T>;
+
+    fn add(self, rhs: Offsets<T>) -> Offsets<T> {
+        Offsets {
+            left: self.left + rhs.left,
+            right: self.right + rhs.right,
+            top: self.top + rhs.top,
+            bottom: self.bottom + rhs.bottom,
+        }
+    }
+}
+
+impl<T: Copy + Clone> Offsets<T> {
     pub(crate) fn main_start(&self, direction: FlexDirection) -> T {
         match direction {
             FlexDirection::Row | FlexDirection::RowReverse => self.left,
