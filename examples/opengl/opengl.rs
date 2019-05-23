@@ -2,13 +2,19 @@ extern crate azul;
 
 use azul::prelude::*;
 
+const CSS: &str = "
+    texture {
+        width: 100%;
+        height: 100%;
+        border: 4px solid green;
+        box-sizing: border-box;
+    }
+";
+
 struct OpenGlAppState { }
 
 impl Layout for OpenGlAppState {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
-        // println!("Pause");
-        // let mut input = String::new();
-        // let _ = std::io::stdin().read_line(&mut input);
         Dom::gl_texture(GlTextureCallback(render_my_texture), StackCheckedPointer::new(self, self).unwrap())
     }
 }
@@ -18,6 +24,8 @@ fn render_my_texture(
     info: LayoutInfo<OpenGlAppState>,
     hi_dpi_bounds: HidpiAdjustedBounds
 ) -> Texture {
+
+    println!("rendering opengl state!");
 
     let physical_size = hi_dpi_bounds.get_physical_size();
 
@@ -41,6 +49,7 @@ fn render_my_texture(
 
 fn main() {
     let mut app = App::new(OpenGlAppState { }, AppConfig::default()).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css::native()).unwrap();
+    let css = css::override_native(CSS).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run(window).unwrap();
 }

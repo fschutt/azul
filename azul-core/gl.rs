@@ -501,6 +501,9 @@ impl<'a> FrameBuffer<'a> {
 
     pub fn new(texture: &'a mut Texture) -> Self {
         let framebuffers = texture.gl_context.gen_framebuffers(1);
+        texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
+        texture.gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
+        texture.gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, texture.width as i32, texture.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None);
 
         // Set "textures[0]" as the color attachement #0
         texture.gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture.texture_id, 0);
@@ -515,18 +518,15 @@ impl<'a> FrameBuffer<'a> {
     }
 
     pub fn bind(&mut self) {
-        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, self.texture.texture_id);
         self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
+        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, self.texture.texture_id);
         self.texture.gl_context.viewport(0, 0, self.texture.width as i32, self.texture.height as i32);
     }
 
     pub fn unbind(&mut self) {
-        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, 0);
         self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, 0);
     }
-
-    /// Calls the destructor for this framebuffer and deletes the framebuffer
-    pub fn finish(self) { }
 }
 
 impl<'a> Drop for FrameBuffer<'a> {

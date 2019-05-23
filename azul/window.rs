@@ -943,7 +943,7 @@ fn create_renderer(
     Ok((renderer, api))
 }
 
-pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<Gl>, WindowCreateError> {
+pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<dyn Gl>, WindowCreateError> {
     match display.gl_window().get_api() {
         glutin::Api::OpenGl => Ok(unsafe {
             gl::GlFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)

@@ -994,6 +994,8 @@ fn update_display_list<T>(
         &mut fake_display.render_api,
     );
 
+    println!("display_list: -------------------\r\n{:#?}", display_list.root);
+
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     let display_list = wr_translate_display_list(display_list);
     window.internal.last_scrolled_nodes = scrolled_nodes;
