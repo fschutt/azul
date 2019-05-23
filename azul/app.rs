@@ -130,7 +130,6 @@ impl Default for AppConfig {
 }
 
 pub(crate) struct FrameEventInfo {
-    pub(crate) should_redraw_window: bool,
     pub(crate) should_hittest: bool,
     pub(crate) cur_cursor_pos: LogicalPosition,
     pub(crate) new_window_size: Option<LogicalSize>,
@@ -141,7 +140,6 @@ pub(crate) struct FrameEventInfo {
 impl Default for FrameEventInfo {
     fn default() -> Self {
         Self {
-            should_redraw_window: false,
             should_hittest: false,
             cur_cursor_pos: LogicalPosition::new(0.0, 0.0),
             new_window_size: None,
@@ -316,27 +314,29 @@ impl<T> App<T> {
 
         while !self.windows.is_empty() {
 
-            let time_start = Instant::now();
-
             use glium::glutin::WindowId as GliumWindowId;
+
+            let time_start = Instant::now();
 
             let glium_window_id_to_window_id = self.windows.iter()
                 .map(|(window_id, window)| (window.display.gl_window().id(), *window_id))
                 .collect::<BTreeMap<GliumWindowId, WindowId>>();
 
-            let mut closed_windows = Vec::<WindowId>::new();
-            let mut frame_was_resize = false;
             let mut events = BTreeMap::new();
 
             self.fake_display.hidden_events_loop.poll_events(|e| match e {
                 // Filter out all events that are uninteresting or unnecessary
                 Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
                 Event::WindowEvent { window_id, event } => {
-                    events.entry(glium_window_id_to_window_id[&window_id]).or_insert_with(|| Vec::new()).push(event);
+                    if let Some(wid) = glium_window_id_to_window_id.get(&window_id) {
+                        events.entry(wid).or_insert_with(|| Vec::new()).push(event);
+                    }
                 },
                 _ => { },
             });
 
+            let mut closed_windows = Vec::<WindowId>::new();
+            let mut frame_was_resize = false;
             let mut single_window_results = Vec::with_capacity(self.windows.len());
 
             for (current_window_id, mut window) in self.windows.iter_mut() {
@@ -416,6 +416,12 @@ impl<T> App<T> {
                         &mut awakened_tasks,
                     )?;
                 }
+            }
+
+            // TODO: For some reason, the window state and the full window state get out of sync
+            for (window_id, full_window_state) in &self.window_states {
+                self.windows.get_mut(&window_id).ok_or(WindowIndexError)?.state =
+                    ::window::full_window_state_to_window_state(full_window_state);
             }
 
             // If there is a re-render necessary, re-render *all* windows
@@ -988,9 +994,6 @@ fn update_display_list<T>(
         &mut fake_display.render_api,
     );
 
-    println!("display list: -----------");
-    println!("{:#?}", display_list.root);
-
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     let display_list = wr_translate_display_list(display_list);
     window.internal.last_scrolled_nodes = scrolled_nodes;
@@ -1024,7 +1027,6 @@ fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
 
 /// Returns the (logical_size, physical_size) as LayoutSizes, which can then be passed to webrender
 fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
-    let logical_size = size.get_reverse_logical_size();
     let physical_size = size.get_physical_size();
     (
         LayoutSize::new(size.dimensions.width, size.dimensions.height),

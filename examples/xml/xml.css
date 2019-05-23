@@ -1,13 +1,12 @@
-* {
-    display: flex;
+#wrapper {
+    width: 100%;
+    height: 100%;
+    background: green;
 }
 
 .test {
-  flex-grow: 1;
-}
-
-#blue {
-  background: blue;
+    width: 33.3333%;
+    height: 50%;
 }
 
 #red {
@@ -16,4 +15,8 @@
 
 #yellow {
     background: yellow;
+}
+
+#blue {
+    background: blue;
 }

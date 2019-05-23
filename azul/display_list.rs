@@ -663,8 +663,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
 ) -> DisplayListMsg {
 
-    use azul_core::display_list::RectBackground;
-
     let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| {
 
         let rectangle = DisplayListRectParams {

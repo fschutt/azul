@@ -5,3 +5,4 @@ target/
 .vscode/*
 *.log
 .idea/*
+out.txt

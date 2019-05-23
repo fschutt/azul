@@ -633,6 +633,13 @@ pub(crate) fn update_window_state(window_state: &mut FullWindowState, events: &[
         update_misc_events(window_state, event);
     }
 
+    // Correct for the incorrect HiDPI factor
+    let winit_hidpi_factor = frame_event_info.new_dpi_factor.unwrap_or(window_state.size.winit_hidpi_factor);
+    if let Some(new_size) = &mut frame_event_info.new_window_size {
+        new_size.width *= winit_hidpi_factor;
+        new_size.height *= winit_hidpi_factor;
+    }
+
     (frame_event_info, should_window_close)
 }
 
@@ -840,7 +847,7 @@ fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilt
 ///
 /// `awakened_task` is a special field that should be set to true if the `Task`
 /// system fired a `WindowEvent::Awakened`.
-pub(crate) fn window_should_close(event: &WindowEvent, frame_event_info: &mut FrameEventInfo) -> bool {
+fn window_should_close(event: &WindowEvent, frame_event_info: &mut FrameEventInfo) -> bool {
 
     match event {
         WindowEvent::CursorMoved { position, .. } => {
@@ -850,11 +857,10 @@ pub(crate) fn window_should_close(event: &WindowEvent, frame_event_info: &mut Fr
         WindowEvent::Resized(wh) => {
             frame_event_info.new_window_size = Some(LogicalSize { width: wh.width as f32, height: wh.height as f32 });
             frame_event_info.is_resize_event = true;
-            frame_event_info.should_redraw_window = true;
         },
         WindowEvent::HiDpiFactorChanged(dpi) => {
             frame_event_info.new_dpi_factor = Some(*dpi as f32);
-            frame_event_info.should_redraw_window = true;
+            frame_event_info.is_resize_event = true;
         },
         WindowEvent::CloseRequested | WindowEvent::Destroyed => {
             // TODO: Callback the windows onclose method

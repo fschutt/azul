@@ -815,7 +815,7 @@ fn compute_internal<T: GetTextLayout>(
                 .maybe_max(child.min_size.cross(dir))
                 .maybe_min(child.max_size.cross(dir));
 
-            println!("setting cross_before: {:?}", cross_before);
+            // println!("setting cross_before: {:?}", cross_before);
 
             compute_internal(
                 child.node_id,
@@ -841,7 +841,7 @@ fn compute_internal<T: GetTextLayout>(
                 .maybe_max(child.min_size.cross(dir))
                 .maybe_min(child.max_size.cross(dir));
 
-            println!("setting cross: {:?}", cross);
+            // println!("setting cross: {:?}", cross);
 
             // WARN: Original code doesn't use .unwrap_or_zero() here!
             child.hypothetical_inner_size.set_cross(
@@ -855,7 +855,7 @@ fn compute_internal<T: GetTextLayout>(
         })
     });
 
-    println!("flex lines: {:#?}", flex_lines);
+    // println!("flex lines: {:#?}", flex_lines);
 
     if has_baseline_child {
         flex_lines.iter_mut().for_each(|line| {
