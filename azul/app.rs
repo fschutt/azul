@@ -289,7 +289,7 @@ impl<T> App<T> {
     fn run_inner(&mut self) -> Result<(), RuntimeError> {
 
         use std::{thread, time::Duration};
-        use glium::glutin::Event;
+        use glium::glutin::{Event, WindowId as GliumWindowId};
         use ui_state::ui_state_from_app_state;
         use azul_core::app::RuntimeError::*;
 
@@ -304,7 +304,6 @@ impl<T> App<T> {
             ui_state_map
         };
         let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect::<BTreeMap<_, _>>();
-        let mut force_redraw_cache = self.windows.keys().map(|window_id| (*window_id, 2)).collect();
         let mut awakened_tasks = self.windows.keys().map(|window_id| (*window_id, false)).collect();
 
         #[cfg(debug_assertions)]
@@ -313,8 +312,6 @@ impl<T> App<T> {
         let mut should_print_css_error = true;
 
         while !self.windows.is_empty() {
-
-            use glium::glutin::WindowId as GliumWindowId;
 
             let time_start = Instant::now();
 
@@ -353,7 +350,6 @@ impl<T> App<T> {
                         &mut self.app_state,
                         &mut self.fake_display,
                         &mut ui_state_cache,
-                        &mut force_redraw_cache,
                         &mut awakened_tasks,
                     )?;
 
@@ -377,7 +373,6 @@ impl<T> App<T> {
             closed_windows.into_iter().for_each(|closed_window_id| {
                 ui_state_cache.remove(&closed_window_id);
                 ui_description_cache.remove(&closed_window_id);
-                force_redraw_cache.remove(&closed_window_id);
                 self.windows.remove(&closed_window_id);
                 self.window_states.remove(&closed_window_id);
             });
@@ -412,7 +407,6 @@ impl<T> App<T> {
                         &mut self.fake_display,
                         &mut ui_state_cache,
                         &mut ui_description_cache,
-                        &mut force_redraw_cache,
                         &mut awakened_tasks,
                     )?;
                 }
@@ -426,13 +420,14 @@ impl<T> App<T> {
 
             // If there is a re-render necessary, re-render *all* windows
             if should_rerender_all_windows || should_redraw_timers_or_tasks {
-                for window in self.windows.values_mut() {
+                for (window_id, window) in self.windows.iter_mut() {
                     // TODO: For some reason this function has to be called twice in order
                     // to actually update the screen. For some reason the first swap_buffers() has
                     // no effect (winit bug?)
                     render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
                     render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
                 }
+                clean_up_unused_opengl_textures(self.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
             }
 
             if should_relayout_all_windows || should_redraw_timers_or_tasks {
@@ -579,7 +574,6 @@ fn hit_test_single_window<T>(
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
     ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
-    force_redraw_cache: &mut BTreeMap<WindowId, usize>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<SingleWindowContentResult, RuntimeError> {
 
@@ -594,7 +588,7 @@ fn hit_test_single_window<T>(
         window_should_close,
         should_scroll_render: false,
         needs_relayout_tasks: *(awakened_tasks.get(window_id).ok_or(WindowIndexError)?),
-        needs_relayout_refresh: *(force_redraw_cache.get(window_id).ok_or(WindowIndexError)?) > 0,
+        needs_relayout_refresh: false,
         callbacks_update_screen: DontRedraw,
         hit_test_results: None,
         new_focus_target: None,
@@ -710,7 +704,6 @@ fn relayout_single_window<T>(
     fake_display: &mut FakeDisplay,
     ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
     ui_description_cache: &mut BTreeMap<WindowId, UiDescription<T>>,
-    force_redraw_cache: &mut BTreeMap<WindowId, usize>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<(), RuntimeError> {
 
@@ -749,13 +742,6 @@ fn relayout_single_window<T>(
         &mut app_state.resources,
     );
     *awakened_tasks.get_mut(window_id).ok_or(WindowIndexError)? = false;
-
-    if let Some(i) = force_redraw_cache.get_mut(window_id) {
-        if *i > 0 { *i -= 1 };
-        if *i == 1 {
-            clean_up_unused_opengl_textures(fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
-        }
-    }
 
     Ok(())
 }
@@ -975,17 +961,25 @@ fn update_display_list<T>(
     use display_list::{
         display_list_from_ui_description,
         display_list_to_cached_display_list,
+        CachedDisplayListResult,
     };
+    use app_resources::add_resources;
     use wr_translate::{
         wr_translate_pipeline_id,
         wr_translate_display_list,
     };
+    use glium::glutin::ContextTrait;
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
-    let (display_list, scrolled_nodes, _layout_result) = display_list_to_cached_display_list(
+    let CachedDisplayListResult {
+        cached_display_list,
+        scrollable_nodes,
+        image_resource_updates,
+        ..
+    } = display_list_to_cached_display_list(
         display_list,
         app_data,
         window,
@@ -994,11 +988,11 @@ fn update_display_list<T>(
         &mut fake_display.render_api,
     );
 
-    println!("display_list: -------------------\r\n{:#?}", display_list.root);
+    add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-    let display_list = wr_translate_display_list(display_list);
-    window.internal.last_scrolled_nodes = scrolled_nodes;
+    let display_list = wr_translate_display_list(cached_display_list);
+    window.internal.last_scrolled_nodes = scrollable_nodes;
 
     let (logical_size, _) = convert_window_size(&window.state.size);
 
@@ -1225,9 +1219,6 @@ fn render_inner<T>(
         gl_context.clear_depth(0.0);
         fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
-        gl_context.delete_framebuffers(&framebuffers);
-        gl_context.delete_renderbuffers(&depthbuffers);
-
         // FBOs can't be shared between windows, but textures can.
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
@@ -1237,12 +1228,13 @@ fn render_inner<T>(
         fake_display.hidden_display.gl_window().make_current().unwrap();
 
         // Only delete the texture here...
+        gl_context.delete_framebuffers(&framebuffers);
+        gl_context.delete_renderbuffers(&depthbuffers);
         gl_context.delete_textures(&textures);
 
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.bind_texture(gl::TEXTURE_2D, 0);
         gl_context.use_program(current_program[0] as u32);
-
     };
 
     // The initial setup can lead to flickering during startup, by default

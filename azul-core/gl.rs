@@ -25,7 +25,6 @@ pub struct Texture {
 
 /// Note: Creates a new texture (calls `gen_textures()`)
 impl Texture {
-
     pub fn new(gl_context: Rc<Gl>, width: usize, height: usize) -> Texture {
 
         let textures = gl_context.gen_textures(1);

@@ -2,8 +2,8 @@ use std::{
     collections::BTreeMap,
 };
 use webrender::api::{
-    Epoch, ImageData, ImageDescriptor, ResourceUpdate, AddImage, ExternalScrollId,
-    ExternalImageId, ExternalImageData, ImageFormat, ExternalImageType, TextureTarget, RenderApi,
+    Epoch, ImageData, AddImage, ExternalScrollId,
+    ExternalImageId, ExternalImageData, ExternalImageType, TextureTarget,
 };
 use azul_css::{
     Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
@@ -11,7 +11,7 @@ use azul_css::{
 };
 use {
     FastHashMap,
-    app_resources::AppResources,
+    app_resources::{AppResources, AddImageMsg, FontImageApi},
     callbacks::{IFrameCallback, GlTextureCallback, StackCheckedPointer},
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
@@ -29,7 +29,7 @@ use {
 use azul_core::{
     callbacks::PipelineId,
     window::{LogicalSize, LogicalPosition},
-    app_resources::FontInstanceKey,
+    app_resources::{ImageId, FontInstanceKey},
     ui_solver::{PositionedRectangle, ResolvedOffsets},
     display_list::{
         CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
@@ -70,19 +70,20 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a> {
 ///
 /// Note: The `'a` in the `'a + Layout` is technically not required.
 /// Only rustc 1.28 requires this, more modern compiler versions insert it automatically.
-struct DisplayListParametersMut<'a, T: 'a> {
+struct DisplayListParametersMut<'a, T: 'a, U: FontImageApi> {
     /// Needs to be present, because the dom_to_displaylist_builder
     /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
     pub app_data: &'a mut T,
     /// The app resources, so that a sub-DOM / iframe can register fonts and images
     /// TODO: How to handle cleanup ???
     pub app_resources: &'a mut AppResources,
-    /// If new fonts or other stuff are created, we need to tell WebRender about this
-    pub resource_updates: &'a mut Vec<ResourceUpdate>,
+    /// The OpenGL callback can push textures / images into the display list, however,
+    /// those texture IDs have to be submitted to the actual Render API before drawing
+    pub image_resource_updates: &'a mut Vec<(ImageId, AddImageMsg)>,
     /// Window access, so that sub-items can register OpenGL textures
     pub fake_window: &'a mut FakeWindow<T>,
     /// The render API that fonts and images should be added onto.
-    pub render_api: &'a mut RenderApi,
+    pub render_api: &'a mut U,
 }
 
 /// DisplayRectangle is the main type which the layout parsing step gets operated on.
@@ -562,19 +563,26 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
     }
 }
 
+pub(crate) struct CachedDisplayListResult {
+    pub cached_display_list: CachedDisplayList,
+    pub scrollable_nodes: ScrolledNodes,
+    pub layout_result: LayoutResult,
+    pub image_resource_updates: Vec<(ImageId, AddImageMsg)>,
+}
+
 /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
-pub(crate) fn display_list_to_cached_display_list<'a, T>(
+pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     display_list: DisplayList<'a, T> ,
     app_data_access: &mut T,
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
     app_resources: &mut AppResources,
-    render_api: &mut RenderApi,
-) -> (CachedDisplayList, ScrolledNodes, LayoutResult) {
+    render_api: &mut U,
+) -> CachedDisplayListResult {
 
     use app_resources::add_fonts_and_images;
 
-    let mut resource_updates = Vec::<ResourceUpdate>::new();
+    let mut image_resource_updates = Vec::new();
 
     let arena = &display_list.ui_descr.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;
@@ -639,7 +647,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T>(
             app_data: app_data_access,
             app_resources,
             fake_window,
-            resource_updates: &mut resource_updates,
+            image_resource_updates: &mut image_resource_updates,
             render_api,
         },
     );
@@ -647,20 +655,24 @@ pub(crate) fn display_list_to_cached_display_list<'a, T>(
     let cached_display_list = CachedDisplayList {
         root: root_node,
         pipeline_id: window.internal.pipeline_id,
-
     };
 
-    (cached_display_list, scrollable_nodes, layout_result)
+    CachedDisplayListResult {
+        cached_display_list,
+        scrollable_nodes,
+        layout_result,
+        image_resource_updates,
+    }
 }
 
-fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
+fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
     epoch: Epoch,
     window_size: WindowSize,
     content_grouped_rectangles: ContentGroupOrder,
     scrollable_nodes: &mut ScrolledNodes,
     scroll_states: &mut ScrollStates,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
 
     let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| {
@@ -717,11 +729,11 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T>(
 }
 
 /// Push a single rectangle into the display list builder
-fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
+fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'g, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'g, T, U>,
 ) -> DisplayListFrame {
 
     let DisplayListParametersRef { display_rectangle_arena, layout_result, .. } = referenced_content;
@@ -878,17 +890,20 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T>(
 }
 
 #[inline]
-fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
+fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
     bounds: LayoutRect,
     rectangle: &DisplayListRectParams<'a, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListRectContent {
 
-    use compositor::{ActiveTexture, ACTIVE_GL_TEXTURES};
     use gleam::gl;
-    use wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key};
-    use app_resources::FontImageApi;
+    use {
+        compositor::{ActiveTexture, ACTIVE_GL_TEXTURES},
+        wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key, wr_translate_image_descriptor},
+        app_resources::ImageInfo,
+    };
+    use azul_core::app_resources::{ImageDescriptor, RawImageFormat};
 
     let bounds = hidpi_rect_from_bounds(
         bounds,
@@ -897,6 +912,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     );
 
     let texture = {
+
         // Make sure that the app data is locked before invoking the callback
         let _lock = &mut referenced_mutable_content.app_data;
         let tex = (texture_callback.0)(&texture_stack_ptr, LayoutInfo {
@@ -922,23 +938,34 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
     let texture_height = texture.height as f32;
 
     // Note: The ImageDescriptor has no effect on how large the image appears on-screen
-    let descriptor = ImageDescriptor::new(texture.width as i32, texture.height as i32, ImageFormat::BGRA8, opaque, allow_mipmaps);
+    let descriptor = ImageDescriptor {
+        format: RawImageFormat::BGRA8,
+        dimensions: (texture.width, texture.height),
+        stride: None,
+        offset: 0,
+        is_opaque: opaque,
+        allow_mipmaps,
+    };
     let key = referenced_mutable_content.render_api.new_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
-
-    let data = ImageData::External(ExternalImageData {
-        id: external_image_id,
-        channel_index: 0,
-        image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
-    });
 
     ACTIVE_GL_TEXTURES.lock().unwrap()
         .entry(rectangle.epoch).or_insert_with(|| FastHashMap::default())
         .insert(external_image_id, ActiveTexture { texture });
 
-    referenced_mutable_content.resource_updates.push(ResourceUpdate::AddImage(
-        AddImage { key: wr_translate_image_key(key), descriptor, data, tiling: None }
-    ));
+    referenced_mutable_content.image_resource_updates.push((ImageId::new(), AddImageMsg(
+        AddImage {
+            key: wr_translate_image_key(key),
+            descriptor: wr_translate_image_descriptor(descriptor),
+            data: ImageData::External(ExternalImageData {
+                id: external_image_id,
+                channel_index: 0,
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+            }),
+            tiling: None,
+        },
+        ImageInfo { key, descriptor }
+    )));
 
     DisplayListRectContent::Image {
         size: LogicalSize::new(texture_width as f32, texture_height as f32),
@@ -951,13 +978,13 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T>(
 }
 
 #[inline]
-fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T>(
+fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     rect: LayoutRect,
     parent_scrollable_nodes: &mut ScrolledNodes,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
 
     use app_resources;

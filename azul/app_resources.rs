@@ -281,7 +281,7 @@ fn scan_ui_description_for_image_keys<'a, T>(
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
 #[derive(Clone)]
-enum AddFontMsg {
+pub(crate) enum AddFontMsg {
     Font(LoadedFont),
     Instance(AddFontInstance, Au),
 }
@@ -295,7 +295,7 @@ enum DeleteFontMsg {
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
 #[derive(Clone)]
-struct AddImageMsg(AddImage, ImageInfo);
+pub(crate) struct AddImageMsg(pub AddImage, pub ImageInfo);
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
 #[derive(Clone)]
@@ -497,7 +497,7 @@ fn build_add_image_resource_updates<T: FontImageApi>(
 /// Extends `currently_registered_images` and `currently_registered_fonts` by the
 /// `last_frame_image_keys` and `last_frame_font_keys`, so that we don't lose track of
 /// what font and image keys are currently in the API.
-fn add_resources<T: FontImageApi>(
+pub(crate) fn add_resources<T: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut T,
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
