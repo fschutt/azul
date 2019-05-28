@@ -36,12 +36,12 @@ use {
     callbacks::{
         FocusTarget, UpdateScreen, HitTestItem, Redraw, DontRedraw, LayoutInfo,
     },
-    display_list::ScrolledNodes,
 };
 pub use app_resources::AppResources;
 pub use azul_core::{
     app::{AppState, AppStateNoData, RuntimeError},
     window::WindowId,
+    ui_solver::ScrolledNodes,
 };
 #[cfg(test)]
 use app_resources::FakeRenderApi;
@@ -240,6 +240,9 @@ impl<T> App<T> {
             state: window.state.clone(),
             default_callbacks: BTreeMap::new(),
             gl_context: window.get_gl_context(),
+            cached_display_list: window.internal.cached_display_list.clone(),
+            scrolled_nodes: window.internal.scrolled_nodes.clone(),
+            layout_result: window.internal.layout_result.clone(),
         };
         let full_window_state = full_window_state_from_normal_state(window.state.clone());
         self.app_state.windows.insert(window_id, fake_window);
@@ -420,7 +423,7 @@ impl<T> App<T> {
 
             // If there is a re-render necessary, re-render *all* windows
             if should_rerender_all_windows || should_redraw_timers_or_tasks {
-                for (window_id, window) in self.windows.iter_mut() {
+                for window in self.windows.values_mut() {
                     // TODO: For some reason this function has to be called twice in order
                     // to actually update the screen. For some reason the first swap_buffers() has
                     // no effect (winit bug?)
@@ -481,13 +484,16 @@ impl<T> App<T> {
 #[must_use]
 fn app_state_run_all_timers<T>(app_state: &mut AppState<T>) -> UpdateScreen {
 
+    use azul_core::callbacks::TimerCallbackInfo;
+
     let mut should_update_screen = DontRedraw;
     let mut timers_to_terminate = Vec::new();
 
     for (key, timer) in app_state.timers.iter_mut() {
-        let (should_update, should_terminate) = timer.invoke_callback_with_data(
-            &mut app_state.data, &mut app_state.resources
-        );
+        let (should_update, should_terminate) = timer.invoke(TimerCallbackInfo {
+            state: &mut app_state.data,
+            app_resources: &mut app_state.resources,
+        });
 
         if should_update == Redraw {
             should_update_screen = Redraw;
@@ -646,7 +652,7 @@ fn hit_test_single_window<T>(
         Some(hit_test_results) => {
             update_scroll_state(
                 full_window_state,
-                &window.internal.last_scrolled_nodes,
+                &window.internal.scrolled_nodes,
                 &mut window.scroll_states,
                 hit_test_results,
             )
@@ -848,19 +854,15 @@ fn call_callbacks<T>(
 ) -> Result<CallCallbackReturn, RuntimeError> {
 
     use {
-        callbacks::CallbackInfo,
+        callbacks::{CallbackInfo, DefaultCallbackInfoUnchecked},
         window_state::determine_callbacks,
-        window::fake_window_run_default_callback,
     };
 
-    let mut should_update_screen = DontRedraw;
-
     let hit_test_items = hit_test_results.map(|items| items.clone()).unwrap_or_default();
-
     let callbacks_filter_list = determine_callbacks(full_window_state, &hit_test_items, event, ui_state);
 
+    let mut should_update_screen = DontRedraw;
     let mut callbacks_overwrites_focus = None;
-
     let mut default_timers = FastHashMap::default();
     let mut default_tasks = Vec::new();
 
@@ -869,38 +871,38 @@ fn call_callbacks<T>(
         let hit_item = &callback_results.hit_test_item;
         for default_callback_id in callback_results.default_callbacks.values() {
 
-            let mut callback_info = CallbackInfo {
-                focus: None,
-                window_id,
-                hit_dom_node: *node_id,
-                ui_state,
-                hit_test_items: &hit_test_items,
-                cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-            };
+            let mut new_focus = None;
+            let mut timers = FastHashMap::default();
+            let mut tasks = Vec::new();
 
-            let mut app_state_no_data = AppStateNoData {
-                windows: &app_state.windows,
-                resources: &mut app_state.resources,
-                timers: FastHashMap::default(),
-                tasks: Vec::new(),
-            };
 
-            if fake_window_run_default_callback(
-                &app_state.windows[window_id],
-                &mut app_state.data,
-                default_callback_id,
-                &mut app_state_no_data,
-                &mut callback_info
-            ) == Redraw {
+            if app_state.windows[window_id].default_callbacks.get(default_callback_id).cloned().and_then(|(callback_ptr, callback_fn)| {
+                let info = DefaultCallbackInfoUnchecked {
+                    ptr: callback_ptr,
+                    app_state_no_data: AppStateNoData {
+                        windows: &app_state.windows,
+                        resources: &mut app_state.resources,
+                        timers: &mut timers,
+                        tasks: &mut tasks,
+                    },
+                    focus_target: &mut new_focus,
+                    window_id,
+                    hit_dom_node: *node_id,
+                    ui_state,
+                    hit_test_items: &hit_test_items,
+                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                };
+                (callback_fn.0)(info)
+            }) == Redraw {
                 should_update_screen = Redraw;
             }
 
-            default_timers.extend(app_state_no_data.timers.into_iter());
-            default_tasks.extend(app_state_no_data.tasks.into_iter());
+            default_timers.extend(timers.into_iter());
+            default_tasks.extend(tasks.into_iter());
 
             // Overwrite the focus from the callback info
-            if let Some(new_focus) = callback_info.focus {
+            if let Some(new_focus) = new_focus {
                 callbacks_overwrites_focus = Some(new_focus);
             }
         }
@@ -919,8 +921,10 @@ fn call_callbacks<T>(
         let hit_item = &callback_results.hit_test_item;
         for callback in callback_results.normal_callbacks.values() {
 
-            let mut callback_info = CallbackInfo {
-                focus: None,
+            let mut new_focus = None;
+            let callback_info = CallbackInfo {
+                state: app_state,
+                focus_target: &mut new_focus,
                 window_id,
                 hit_dom_node: *node_id,
                 ui_state: &ui_state,
@@ -929,11 +933,11 @@ fn call_callbacks<T>(
                 cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
             };
 
-            if (callback.0)(app_state, &mut callback_info) == Redraw {
+            if (callback.0)(callback_info) == Redraw {
                 should_update_screen = Redraw;
             }
 
-            if let Some(new_focus) = callback_info.focus {
+            if let Some(new_focus) = new_focus {
                 callbacks_overwrites_focus = Some(new_focus);
             }
         }
@@ -968,7 +972,6 @@ fn update_display_list<T>(
         wr_translate_pipeline_id,
         wr_translate_display_list,
     };
-    use glium::glutin::ContextTrait;
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
@@ -978,7 +981,7 @@ fn update_display_list<T>(
         cached_display_list,
         scrollable_nodes,
         image_resource_updates,
-        ..
+        layout_result
     } = display_list_to_cached_display_list(
         display_list,
         app_data,
@@ -989,10 +992,12 @@ fn update_display_list<T>(
     );
 
     add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
+    window.internal.layout_result = layout_result;
+    window.internal.scrolled_nodes = scrollable_nodes;
+    window.internal.cached_display_list = cached_display_list.clone();
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-    let display_list = wr_translate_display_list(cached_display_list);
-    window.internal.last_scrolled_nodes = scrollable_nodes;
+    let display_list = wr_translate_display_list(cached_display_list, window.internal.pipeline_id);
 
     let (logical_size, _) = convert_window_size(&window.state.size);
 
@@ -1015,9 +1020,10 @@ fn update_display_list<T>(
 /// indicate whether it was used during the current frame or not.
 fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
     use webrender::api::ScrollClamping;
+    use wr_translate::wr_translate_external_scroll_id;
     for (key, value) in scroll_states.0.iter_mut() {
         let (x, y) = value.get();
-        txn.scroll_node_with_id(LayoutPoint::new(x, y), *key, ScrollClamping::ToContentBounds);
+        txn.scroll_node_with_id(LayoutPoint::new(x, y), wr_translate_external_scroll_id(*key), ScrollClamping::ToContentBounds);
     }
 }
 
@@ -1117,7 +1123,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 //
 // WebRender doesn't reset the active shader back to what it was, but rather sets it
 // to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0.
-// This leads to problems when invoking GlTextureCallbacks, because those don't expect
+// This leads to problems when invoking GlCallbacks, because those don't expect
 // the OpenGL state to change between calls. Also see: https://github.com/servo/webrender/pull/2880
 //
 // NOTE: For some reason, webrender allows rendering to a framebuffer with a

@@ -10,20 +10,15 @@ impl Layout for DataModel {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
         let label = Label::new(format!("{}", self.counter)).dom();
         let button = Button::with_label("Update counter").dom()
-            .with_callback(On::MouseUp, Callback(update_counter));
+            .with_callback(On::MouseUp, |cb_info: CallbackInfo<Self>| { cb_info.state.data.counter += 1; Redraw });
 
         let dom = Dom::div()
             .with_child(label)
             .with_child(button);
 
-        println!("dom: {}", dom.debug_dump());
+        println!("dom:\r\n{}", dom.debug_dump());
         dom
     }
-}
-
-fn update_counter(app_state: &mut AppState<DataModel>, _: &mut CallbackInfo<DataModel>) -> UpdateScreen {
-    app_state.data.counter += 1;
-    Redraw
 }
 
 fn main() {

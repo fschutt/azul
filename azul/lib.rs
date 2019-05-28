@@ -48,7 +48,7 @@
 //!
 //! Azul is mostly concerned with rendering text, images and rectangular boxes (divs).
 //! Any other content can be drawn by drawing to an OpenGL texture (using a
-//! [`GlTextureCallback`]) and handing the texture as an "image" to Azul. This is also how
+//! [`GlCallback`]) and handing the texture as an "image" to Azul. This is also how
 //! components like a video player or other OpenGL-based visualizations can exist
 //! outside of the core library and be "injected" into the UI.
 //!
@@ -114,7 +114,7 @@
 //! [XML]: ../azul/xml/index.html
 //! [`Redraw`]: ../azul/callbacks/constant.Redraw.html
 //! [`DontRedraw`]: ../azul/callbacks/constant.DontRedraw.html
-//! [`GlTextureCallback`]: ../azul/callbacks/struct.GlTextureCallback.html
+//! [`GlCallback`]: ../azul/callbacks/struct.GlCallback.html
 //! [creating an `IFrameCallback`]: ../azul/dom/struct.Dom.html#method.iframe
 //! [from a file]: ../azul/dom/struct.Dom.html#method.from_file
 //! [CSS]: ../azul/css/index.html
@@ -249,11 +249,7 @@ pub mod prelude {
         RawImageFormat, ImageId, FontId, FontSource, ImageSource,
         TextCache, TextId,
     };
-    pub use callbacks::{
-        Callback, TimerCallback, IFrameCallback, GlTextureCallback,
-        UpdateScreen, Redraw, DontRedraw,
-        CallbackInfo, FocusTarget, LayoutInfo, HidpiAdjustedBounds,
-    };
+    pub use callbacks::*;
     pub use gl::{
         GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
         VertexLayoutDescription, VertexBuffer, GlApiVersion, IndexBufferFormat,

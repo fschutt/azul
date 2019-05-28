@@ -5,8 +5,10 @@ use std::{
 };
 use gleam::gl::Gl;
 use {
-    callbacks::{DefaultCallbackId, DefaultCallback},
+    callbacks::{DefaultCallbackId, DefaultCallback, DefaultCallbackTypeUnchecked},
     stack_checked_pointer::StackCheckedPointer,
+    ui_solver::{LayoutResult, ScrolledNodes},
+    display_list::CachedDisplayList,
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -32,6 +34,12 @@ impl WindowId {
 pub struct FakeWindow<T> {
     /// The window state for the next frame
     pub state: WindowState,
+    /// Currently active, layouted rectangles
+    pub layout_result: LayoutResult,
+    /// Nodes that overflow their parents and are able to scroll
+    pub scrolled_nodes: ScrolledNodes,
+    /// Current display list active in this window (useful for debugging)
+    pub cached_display_list: CachedDisplayList,
     /// The user can push default callbacks in this `DefaultCallbackSystem`,
     /// which get called later in the hit-testing logic
     pub default_callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
@@ -79,9 +87,9 @@ impl<T> FakeWindow<T> {
     ///
     /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
     #[must_use]
-    pub fn add_callback(&mut self, callback_ptr: StackCheckedPointer<T>, callback_fn: DefaultCallback<T>) -> DefaultCallbackId {
+    pub fn add_default_callback(&mut self, callback_fn: DefaultCallbackTypeUnchecked<T>, callback_ptr: StackCheckedPointer<T>) -> DefaultCallbackId {
         let default_callback_id = DefaultCallbackId::new();
-        self.default_callbacks.insert(default_callback_id, (callback_ptr, callback_fn));
+        self.default_callbacks.insert(default_callback_id, (callback_ptr, DefaultCallback(callback_fn)));
         default_callback_id
     }
 }

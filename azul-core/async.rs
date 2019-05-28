@@ -5,10 +5,7 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
 };
-use {
-    callbacks::{UpdateScreen, DontRedraw, TimerCallback, TimerCallbackType},
-    app_resources::AppResources,
-};
+use callbacks::{DontRedraw, TimerCallback, TimerCallbackInfo, TimerCallbackReturn, TimerCallbackType};
 
 /// Should a timer terminate or not - used to remove active timers
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -63,7 +60,7 @@ pub struct Timer<T> {
 impl<T> Timer<T> {
 
     /// Create a new timer
-    pub fn new(callback: TimerCallbackType<T>,) -> Self {
+    pub fn new(callback: TimerCallbackType<T>) -> Self {
         Timer {
             created: Instant::now(),
             last_run: None,
@@ -100,7 +97,7 @@ impl<T> Timer<T> {
 
     /// Crate-internal: Invokes the timer if the timer and
     /// the `self.timeout` allow it to
-    pub fn invoke_callback_with_data(&mut self, data: &mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateTimer) {
+    pub fn invoke<'a>(&mut self, info: TimerCallbackInfo<'a, T>) -> TimerCallbackReturn {
 
         let instant_now = Instant::now();
         let delay = self.delay.unwrap_or_else(|| Duration::from_millis(0));
@@ -122,7 +119,7 @@ impl<T> Timer<T> {
             }
         }
 
-        let res = (self.callback.0)(data, app_resources);
+        let res = (self.callback.0)(info);
 
         self.last_run = Some(instant_now);
 

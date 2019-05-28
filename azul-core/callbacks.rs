@@ -18,8 +18,23 @@ use {
 pub use stack_checked_pointer::StackCheckedPointer;
 pub use gleam::gl::Gl;
 
-pub type DefaultCallbackType<T, U> = fn(&mut U, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
-pub type DefaultCallbackTypeUnchecked<T> = fn(&StackCheckedPointer<T>, &mut AppStateNoData<T>, &mut CallbackInfo<T>) -> UpdateScreen;
+/// A callback function has to return if the screen should be updated after the
+/// function has run.
+///
+/// NOTE: This is currently a typedef for `Option<()>`, so that you can use
+/// the `?` operator in callbacks (to simply not redraw if there is an error).
+/// This was an enum previously, but since Rust doesn't have a "custom try" operator,
+/// this led to a lot of usability problems. In the future, this might change back
+/// to an enum therefore the constants "Redraw" and "DontRedraw" are not capitalized,
+/// to minimize breakage.
+pub type UpdateScreen = Option<()>;
+/// After the callback is called, the screen needs to redraw
+/// (layout() function being called again).
+#[allow(non_upper_case_globals)]
+pub const Redraw: Option<()> = Some(());
+/// The screen does not need to redraw after the callback has been called.
+#[allow(non_upper_case_globals)]
+pub const DontRedraw: Option<()> = None;
 
 static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -137,31 +152,82 @@ macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
     impl<$t> Copy for $callback_value<$t> { }
 )}
 
+// -- default callback
+
+pub struct DefaultCallbackInfoUnchecked<'a, T> {
+    pub ptr: StackCheckedPointer<T>,
+    pub app_state_no_data: AppStateNoData<'a, T>,
+    /// UiState containing the necessary data for testing what
+    pub ui_state: &'a UiState<T>,
+    /// The callback can change the focus_target - note that the focus_target is set before the
+    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
+    pub focus_target: &'a mut Option<FocusTarget>,
+    /// The ID of the window that the event was clicked on (for indexing into
+    /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
+    pub window_id: &'a WindowId,
+    /// The ID of the node that was hit. You can use this to query information about
+    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
+    pub hit_dom_node: NodeId,
+    /// What items are currently being hit
+    pub hit_test_items: &'a [HitTestItem],
+    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
+    pub cursor_relative_to_item: Option<(f32, f32)>,
+    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
+    pub cursor_in_viewport: Option<(f32, f32)>,
+}
+pub struct DefaultCallbackInfo<'a, T, U> {
+    pub state: &'a mut U,
+    pub app_state_no_data: AppStateNoData<'a, T>,
+    /// UiState containing the necessary data for testing what
+    pub ui_state: &'a UiState<T>,
+    /// The callback can change the focus_target - note that the focus_target is set before the
+    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
+    pub focus_target: &'a mut Option<FocusTarget>,
+    /// The ID of the window that the event was clicked on (for indexing into
+    /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
+    pub window_id: &'a WindowId,
+    /// The ID of the node that was hit. You can use this to query information about
+    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
+    pub hit_dom_node: NodeId,
+    /// What items are currently being hit
+    pub hit_test_items: &'a [HitTestItem],
+    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
+    pub cursor_relative_to_item: Option<(f32, f32)>,
+    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
+    pub cursor_in_viewport: Option<(f32, f32)>,
+}
+
 /// Callback that is invoked "by default", for example a text field that always
 /// has a default "ontextinput" handler
 pub struct DefaultCallback<T>(pub DefaultCallbackTypeUnchecked<T>);
-
 impl_callback!(DefaultCallback<T>);
+pub type DefaultCallbackTypeUnchecked<T> = fn(DefaultCallbackInfoUnchecked<T>) -> CallbackReturn;
+pub type DefaultCallbackType<T, U> = fn(DefaultCallbackInfo<T, U>) -> CallbackReturn;
 
-/// A callback function has to return if the screen should be updated after the
-/// function has run.
-///
-/// NOTE: This is currently a typedef for `Option<()>`, so that you can use
-/// the `?` operator in callbacks (to simply not redraw if there is an error).
-/// This was an enum previously, but since Rust doesn't have a "custom try" operator,
-/// this led to a lot of usability problems. In the future, this might change back
-/// to an enum therefore the constants "Redraw" and "DontRedraw" are not capitalized,
-/// to minimize breakage.
-pub type UpdateScreen = Option<()>;
-/// After the callback is called, the screen needs to redraw
-/// (layout() function being called again).
-#[allow(non_upper_case_globals)]
-pub const Redraw: Option<()> = Some(());
-/// The screen does not need to redraw after the callback has been called.
-#[allow(non_upper_case_globals)]
-pub const DontRedraw: Option<()> = None;
+impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
+    pub unsafe fn invoke_callback<U: Sized>(self, callback: DefaultCallbackType<T, U>) -> CallbackReturn {
+        let casted_value: &mut U = self.ptr.cast();
+        let casted_callback_info = DefaultCallbackInfo {
+            state: casted_value,
+            app_state_no_data: self.app_state_no_data,
+            ui_state: self.ui_state,
+            focus_target: self.focus_target,
+            window_id: self.window_id,
+            hit_dom_node: self.hit_dom_node,
+            hit_test_items: self.hit_test_items,
+            cursor_relative_to_item: self.cursor_relative_to_item,
+            cursor_in_viewport: self.cursor_in_viewport,
+        };
+        callback(casted_callback_info)
+    }
 
-pub type CallbackType<T> = fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen;
+    pub fn get_window(&self) -> &FakeWindow<T> {
+        &self.app_state_no_data.windows[self.window_id]
+    }
+}
+
+// -- normal callback
+
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
 /// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
@@ -170,21 +236,110 @@ pub type CallbackType<T> = fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateS
 /// an `UpdateScreen::Redraw` from the function
 pub struct Callback<T>(pub CallbackType<T>);
 impl_callback!(Callback<T>);
+/// Information about the callback that is passed to the callback whenever a callback is invoked
+pub struct CallbackInfo<'a, T: 'a> {
+    /// Mutable access to the application state. Use this field to modify data in the `T` data model.
+    pub state: &'a mut AppState<T>,
+    /// UiState containing the necessary data for testing what
+    pub ui_state: &'a UiState<T>,
+    /// The callback can change the focus_target - note that the focus_target is set before the
+    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
+    pub focus_target: &'a mut Option<FocusTarget>,
+    /// The ID of the window that the event was clicked on (for indexing into
+    /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
+    pub window_id: &'a WindowId,
+    /// The ID of the node that was hit. You can use this to query information about
+    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
+    pub hit_dom_node: NodeId,
+    /// What items are currently being hit
+    pub hit_test_items: &'a [HitTestItem],
+    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
+    pub cursor_relative_to_item: Option<(f32, f32)>,
+    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
+    pub cursor_in_viewport: Option<(f32, f32)>,
+}
+pub type CallbackReturn = UpdateScreen;
+pub type CallbackType<T> = fn(CallbackInfo<T>) -> CallbackReturn;
 
-pub type GlTextureCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Texture;
+impl<'a, T: 'a> CallbackInfo<'a, T> {
+    pub fn get_window(&self) -> &FakeWindow<T> {
+        &self.state.windows[self.window_id]
+    }
+}
+
+// -- opengl callback
+
 /// Callbacks that returns a rendered OpenGL texture
-pub struct GlTextureCallback<T>(pub GlTextureCallbackType<T>);
-impl_callback!(GlTextureCallback<T>);
+pub struct GlCallback<T>(pub GlCallbackTypeUnchecked<T>);
+impl_callback!(GlCallback<T>);
+pub struct GlCallbackInfoUnchecked<'a, 'b, T: 'b> {
+    pub ptr: StackCheckedPointer<T>,
+    pub layout_info: LayoutInfo<'a, 'b, T>,
+    pub bounds: HidpiAdjustedBounds,
+}
+pub struct GlCallbackInfo<'a, 'b, T: 'b, U: Sized> {
+    pub state: &'a mut U,
+    pub layout_info: LayoutInfo<'a, 'b, T>,
+    pub bounds: HidpiAdjustedBounds,
+}
+pub type GlCallbackReturn = Texture;
+pub type GlCallbackTypeUnchecked<T> = fn(GlCallbackInfoUnchecked<T>) -> GlCallbackReturn;
+pub type GlCallbackType<T, U> = fn(GlCallbackInfo<T, U>) -> GlCallbackReturn;
 
-pub type IFrameCallbackType<T> = fn(&StackCheckedPointer<T>, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>;
+impl<'a, 'b, T: 'b> GlCallbackInfoUnchecked<'a, 'b, T> {
+    pub unsafe fn invoke_callback<U: Sized>(self, callback: GlCallbackType<T, U>) -> GlCallbackReturn {
+        let casted_value: &mut U = self.ptr.cast();
+        let casted_callback_info = GlCallbackInfo {
+            state: casted_value,
+            layout_info: self.layout_info,
+            bounds: self.bounds,
+        };
+        callback(casted_callback_info)
+    }
+}
+
+// -- iframe callback
+
 /// Callback that, given a rectangle area on the screen, returns the DOM appropriate for that bounds (useful for infinite lists)
-pub struct IFrameCallback<T>(pub IFrameCallbackType<T>);
+pub struct IFrameCallback<T>(pub IFrameCallbackTypeUnchecked<T>);
 impl_callback!(IFrameCallback<T>);
+pub struct IFrameCallbackInfoUnchecked<'a, 'b, T: 'b> {
+    pub ptr: StackCheckedPointer<T>,
+    pub layout_info: LayoutInfo<'a, 'b, T>,
+    pub bounds: HidpiAdjustedBounds,
+}
+pub struct IFrameCallbackInfo<'a, 'b, T: 'b, U: Sized> {
+    pub state: &'a mut U,
+    pub layout_info: LayoutInfo<'a, 'b, T>,
+    pub bounds: HidpiAdjustedBounds,
+}
+pub type IFrameCallbackReturn<T> = Dom<T>; // todo: return virtual scrolling frames!
+pub type IFrameCallbackTypeUnchecked<T> = fn(IFrameCallbackInfoUnchecked<T>) -> IFrameCallbackReturn<T>;
+pub type IFrameCallbackType<T, U> = fn(IFrameCallbackInfo<T, U>) -> IFrameCallbackReturn<T>;
 
-pub type TimerCallbackType<T> = fn(&mut T, app_resources: &mut AppResources) -> (UpdateScreen, TerminateTimer);
+impl<'a, 'b, T: 'b> IFrameCallbackInfoUnchecked<'a, 'b, T> {
+    pub unsafe fn invoke_callback<U: Sized>(self, callback: IFrameCallbackType<T, U>) -> IFrameCallbackReturn<T> {
+        let casted_value: &mut U = self.ptr.cast();
+        let casted_callback_info = IFrameCallbackInfo {
+            state: casted_value,
+            layout_info: self.layout_info,
+            bounds: self.bounds,
+        };
+        callback(casted_callback_info)
+    }
+}
+
+// -- timer callback
+
 /// Callback that can runs on every frame on the main thread - can modify the app data model
 pub struct TimerCallback<T>(pub TimerCallbackType<T>);
 impl_callback!(TimerCallback<T>);
+pub struct TimerCallbackInfo<'a, T> {
+    pub state: &'a mut T,
+    pub app_resources: &'a mut AppResources,
+}
+pub type TimerCallbackReturn = (UpdateScreen, TerminateTimer);
+pub type TimerCallbackType<T> = fn(TimerCallbackInfo<T>) -> TimerCallbackReturn;
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
@@ -195,45 +350,10 @@ pub struct LayoutInfo<'a, 'b, T: 'b> {
     pub resources: &'a AppResources,
 }
 
-/// Information about the callback that is passed to the callback whenever a callback is invoked
-pub struct CallbackInfo<'a, T: 'a> {
-    /// The callback can change the focus - note that the focus is set before the
-    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
-    pub focus: Option<FocusTarget>,
-    /// The ID of the window that the event was clicked on (for indexing into
-    /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
-    pub window_id: &'a WindowId,
-    /// The ID of the node that was hit. You can use this to query information about
-    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
-    pub hit_dom_node: NodeId,
-    /// UiState containing the necessary data for testing what
-    pub ui_state: &'a UiState<T>,
-    /// What items are currently being hit
-    pub hit_test_items: &'a [HitTestItem],
-    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
-    pub cursor_relative_to_item: Option<(f32, f32)>,
-    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    pub cursor_in_viewport: Option<(f32, f32)>,
-}
-
-impl<'a, T: 'a> Clone for CallbackInfo<'a, T> {
-    fn clone(&self) -> Self {
-        Self {
-            focus: self.focus.clone(),
-            window_id: self.window_id,
-            hit_dom_node: self.hit_dom_node,
-            ui_state: self.ui_state,
-            hit_test_items: self.hit_test_items,
-            cursor_relative_to_item: self.cursor_relative_to_item,
-            cursor_in_viewport: self.cursor_in_viewport,
-        }
-    }
-}
-
 impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CallbackInfo {{ \
-            focus: {:?}, \
+            focus_target: {:?}, \
             window_id: {:?}, \
             hit_dom_node: {:?}, \
             ui_state: {:?}, \
@@ -241,7 +361,7 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
             cursor_relative_to_item: {:?}, \
             cursor_in_viewport: {:?}, \
         }}",
-            self.focus,
+            self.focus_target,
             self.window_id,
             self.hit_dom_node,
             self.ui_state,
@@ -254,14 +374,14 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
 
 /// Information about the bounds of a laid-out div rectangle.
 ///
-/// Necessary when invoking `IFrameCallbacks` and `GlTextureCallbacks`, so
+/// Necessary when invoking `IFrameCallbacks` and `GlCallbacks`, so
 /// that they can change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
 pub struct HidpiAdjustedBounds {
     pub logical_size: LogicalSize,
     pub hidpi_factor: f32,
     pub winit_hidpi_factor: f32,
-    // TODO: Scroll state / focus state of this div!
+    // TODO: Scroll state / focus_target state of this div!
 }
 
 impl HidpiAdjustedBounds {
@@ -283,7 +403,7 @@ impl HidpiAdjustedBounds {
     }
 }
 
-/// Defines the focused node ID for the next frame
+/// Defines the focus_targeted node ID for the next frame
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FocusTarget {
     Id(NodeId),
@@ -406,33 +526,33 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
         })
     }
 
-    /// Set the focus to a certain div by parsing a string.
+    /// Set the focus_target to a certain div by parsing a string.
     /// Note that the parsing of the string can fail, therefore the Result
     #[cfg(feature = "css_parser")]
-    pub fn set_focus<'b>(&mut self, input: &'b str) -> Result<(), CssPathParseError<'b>> {
+    pub fn set_focus_target<'b>(&mut self, input: &'b str) -> Result<(), CssPathParseError<'b>> {
         use azul_css_parser::parse_css_path;
         let path = parse_css_path(input)?;
-        self.focus = Some(FocusTarget::Path(path));
+        *self.focus_target = Some(FocusTarget::Path(path));
         Ok(())
     }
 
-    /// Sets the focus by using an already-parsed `CssPath`.
-    pub fn set_focus_by_path(&mut self, path: CssPath) {
-        self.focus = Some(FocusTarget::Path(path))
+    /// Sets the focus_target by using an already-parsed `CssPath`.
+    pub fn set_focus_target_by_path(&mut self, path: CssPath) {
+        *self.focus_target = Some(FocusTarget::Path(path))
     }
 
-    /// Set the focus of the window to a specific div using a `NodeId`.
+    /// Set the focus_target of the window to a specific div using a `NodeId`.
     ///
     /// Note that this ID will be dependent on the position in the DOM and therefore
     /// the next frames UI must be the exact same as the current one, otherwise
-    /// the focus will be cleared or shifted (depending on apps setting).
-    pub fn set_focus_by_node_id(&mut self, id: NodeId) {
-        self.focus = Some(FocusTarget::Id(id));
+    /// the focus_target will be cleared or shifted (depending on apps setting).
+    pub fn set_focus_target_by_node_id(&mut self, id: NodeId) {
+        *self.focus_target = Some(FocusTarget::Id(id));
     }
 
-    /// Clears the focus for the next frame.
-    pub fn clear_focus(&mut self) {
-        self.focus = Some(FocusTarget::NoFocus);
+    /// Clears the focus_target for the next frame.
+    pub fn clear_focus_target(&mut self) {
+        *self.focus_target = Some(FocusTarget::NoFocus);
     }
 }
 

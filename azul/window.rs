@@ -5,7 +5,7 @@ use std::{
 };
 use webrender::{
     api::{
-        Epoch, DocumentId, RenderApi, ExternalScrollId, RenderNotifier, DeviceIntSize,
+        Epoch, DocumentId, RenderApi, RenderNotifier, DeviceIntSize,
     },
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
     // renderer::RendererError; -- not currently public in WebRender
@@ -28,12 +28,12 @@ use {
     FastHashMap,
     compositor::Compositor,
     app::FrameEventInfo,
-    display_list::ScrolledNodes,
 };
 use azul_core::{
-    app::AppStateNoData,
-    callbacks::{DefaultCallbackId, UpdateScreen, CallbackInfo, PipelineId},
+    callbacks::PipelineId,
     window::WindowId,
+    ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult},
+    display_list::CachedDisplayList,
 };
 pub use webrender::api::HitTestItem;
 pub use glium::glutin::AvailableMonitorsIter;
@@ -43,21 +43,6 @@ pub use window_state::*;
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
-
-/// Invokes a certain default callback and returns its result
-///
-/// NOTE: `app_data` is required so we know that we don't
-/// accidentally alias the data in `fake_window.internal` (which could lead to UB).
-pub(crate) fn fake_window_run_default_callback<T>(
-    fake_window: &FakeWindow<T>,
-    _app_data: &mut T,
-    id: &DefaultCallbackId,
-    app_state_no_data: &mut AppStateNoData<T>,
-    window_event: &mut CallbackInfo<T>
-) -> UpdateScreen {
-    let (callback_ptr, callback_fn) = fake_window.default_callbacks.get(id)?;
-    (callback_fn.0)(callback_ptr, app_state_no_data, window_event)
-}
 
 /// Options on how to initially create the window
 #[derive(Debug, Clone, PartialEq)]
@@ -378,7 +363,12 @@ impl Default for ScrollState {
 }
 
 pub(crate) struct WindowInternal {
-    pub(crate) last_scrolled_nodes: ScrolledNodes,
+    /// Currently active, layouted rectangles
+    pub(crate) layout_result: LayoutResult,
+    /// Current display list active in this window (useful for debugging)
+    pub(crate) cached_display_list: CachedDisplayList,
+    /// Current scroll states of nodes (x and y position of where they are scrolled)
+    pub(crate) scrolled_nodes: ScrolledNodes,
     pub(crate) epoch: Epoch,
     pub(crate) pipeline_id: PipelineId,
     pub(crate) document_id: DocumentId,
@@ -503,7 +493,7 @@ impl<T> Window<T> {
 
         css.sort_by_specificity();
 
-        let last_scrolled_nodes = ScrolledNodes::default();
+        let display_list = CachedDisplayList::empty(state.size.dimensions);
 
         let window = Window {
             id: WindowId::new(),
@@ -514,7 +504,14 @@ impl<T> Window<T> {
             #[cfg(debug_assertions)]
             css_loader: None,
             scroll_states: ScrollStates::new(),
-            internal: WindowInternal { epoch, pipeline_id, document_id, last_scrolled_nodes },
+            internal: WindowInternal {
+                epoch,
+                pipeline_id,
+                document_id,
+                scrolled_nodes: ScrolledNodes::default(),
+                layout_result: LayoutResult::default(),
+                cached_display_list: display_list,
+            },
             marker: PhantomData,
         };
 

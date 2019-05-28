@@ -8,7 +8,9 @@ use std::{
 use {
     callbacks::{
         DefaultCallbackId, StackCheckedPointer,
-        Callback, GlTextureCallback, IFrameCallback,
+        Callback, CallbackType,
+        GlCallback, GlCallbackTypeUnchecked,
+        IFrameCallback, IFrameCallbackTypeUnchecked,
     },
     app_resources::{ImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
@@ -98,7 +100,7 @@ pub enum NodeType<T> {
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// Azul does not check that the contents of two textures are the same
-    GlTexture((GlTextureCallback<T>, StackCheckedPointer<T>)),
+    GlTexture((GlCallback<T>, StackCheckedPointer<T>)),
     /// DOM that gets passed its width / height during the layout
     IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
 }
@@ -799,14 +801,14 @@ impl<T> NodeData<T> {
 
     /// Shorthand for `NodeData::new(NodeType::GlTexture((callback, ptr)))`
     #[inline(always)]
-    pub fn gl_texture(callback: GlTextureCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
-        Self::new(NodeType::GlTexture((callback, ptr)))
+    pub fn gl_texture(callback: GlCallbackTypeUnchecked<T>, ptr: StackCheckedPointer<T>) -> Self {
+        Self::new(NodeType::GlTexture((GlCallback(callback), ptr)))
     }
 
     /// Shorthand for `NodeData::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
-    pub fn iframe(callback: IFrameCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
-        Self::new(NodeType::IFrame((callback, ptr)))
+    pub fn iframe(callback: IFrameCallbackTypeUnchecked<T>, ptr: StackCheckedPointer<T>) -> Self {
+        Self::new(NodeType::IFrame((IFrameCallback(callback), ptr)))
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
@@ -1139,14 +1141,14 @@ impl<T> Dom<T> {
 
     /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
     #[inline]
-    pub fn gl_texture(callback: GlTextureCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
-        Self::new(NodeType::GlTexture((callback, ptr)))
+    pub fn gl_texture<I: Into<StackCheckedPointer<T>>>(callback: GlCallbackTypeUnchecked<T>, ptr: I) -> Self {
+        Self::new(NodeType::GlTexture((GlCallback(callback), ptr.into())))
     }
 
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
     #[inline]
-    pub fn iframe(callback: IFrameCallback<T>, ptr: StackCheckedPointer<T>) -> Self {
-        Self::new(NodeType::IFrame((callback, ptr)))
+    pub fn iframe<I: Into<StackCheckedPointer<T>>>(callback: IFrameCallbackTypeUnchecked<T>, ptr: I) -> Self {
+        Self::new(NodeType::IFrame((IFrameCallback(callback), ptr.into())))
     }
 
     /// Returns the number of nodes in this DOM
@@ -1255,8 +1257,14 @@ impl<T> Dom<T> {
 
     /// Same as `event`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: Callback<T>) -> Self {
+    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: CallbackType<T>) -> Self {
         self.add_callback(on, callback);
+        self
+    }
+
+    #[inline]
+    pub fn with_default_callback_id<O: Into<EventFilter>>(mut self, on: O, id: DefaultCallbackId) -> Self {
+        self.add_default_callback_id(on, id);
         self
     }
 
@@ -1295,8 +1303,8 @@ impl<T> Dom<T> {
     }
 
     #[inline]
-    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: Callback<T>) {
-        self.arena.node_data[self.head].callbacks.push((on.into(), callback));
+    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType<T>) {
+        self.arena.node_data[self.head].callbacks.push((on.into(), Callback(callback)));
     }
 
     #[inline]

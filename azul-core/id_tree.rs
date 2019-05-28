@@ -187,9 +187,15 @@ impl NodeHierarchy {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub struct NodeDataContainer<T> {
     pub internal: Vec<T>,
+}
+
+impl<T> Default for NodeDataContainer<T> {
+    fn default() -> Self {
+        Self { internal: Vec::new() }
+    }
 }
 
 impl Index<NodeId> for NodeHierarchy {

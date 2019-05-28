@@ -4,12 +4,6 @@ use std::{
     hash::{Hash, Hasher},
     marker::PhantomData,
 };
-use {
-    dom::Dom,
-    callbacks::{DefaultCallbackType, CallbackInfo, LayoutInfo, HidpiAdjustedBounds, UpdateScreen},
-    app::AppStateNoData,
-    gl::Texture,
-};
 
 /// A `StackCheckedPointer<T>` is a type-erased, raw pointer to a
 /// value **inside** of `T`.
@@ -61,35 +55,8 @@ impl<T> StackCheckedPointer<T> {
     /// **NOTE**: To avoid undefined behaviour, you **must** check that
     /// the `StackCheckedPointer` isn't mutably aliased at the time of
     /// calling the callback.
-    pub unsafe fn invoke_mut<U: Sized>(
-        &self,
-        callback: DefaultCallbackType<T, U>,
-        app_state_no_data: &mut AppStateNoData<T>,
-        window_event: &mut CallbackInfo<T>)
-    -> UpdateScreen
-    {
-        // VERY UNSAFE, TRIPLE-CHECK FOR UNDEFINED BEHAVIOUR
-        callback(&mut *(self.internal as *mut U), app_state_no_data, window_event)
-    }
-
-    pub unsafe fn invoke_mut_iframe<U: Sized>(
-        &self,
-        callback: fn(&mut U, LayoutInfo<T>, HidpiAdjustedBounds) -> Dom<T>,
-        window_info: LayoutInfo<T>,
-        dimensions: HidpiAdjustedBounds)
-    -> Dom<T>
-    {
-        callback(&mut *(self.internal as *mut U), window_info, dimensions)
-    }
-
-    pub unsafe fn invoke_mut_texture<U: Sized>(
-        &self,
-        callback: fn(&mut U, LayoutInfo<T>, HidpiAdjustedBounds) -> Texture,
-        window_info: LayoutInfo<T>,
-        dimensions: HidpiAdjustedBounds)
-    -> Texture
-    {
-        callback(&mut *(self.internal as *mut U), window_info, dimensions)
+    pub(crate) unsafe fn cast<'a, U: Sized>(&'a self) -> &'a mut U {
+        &mut *(self.internal as *mut U)
     }
 }
 

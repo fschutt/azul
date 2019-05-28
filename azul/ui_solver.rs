@@ -13,7 +13,7 @@ use {
 };
 use azul_core::{
     app_resources::{Au, FontInstanceKey},
-    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions},
+    ui_solver::{PositionedRectangle, LayoutResult, ResolvedTextLayoutOptions},
 };
 use azul_layout::{GetTextLayout, InlineTextLayout, RectContent};
 
@@ -59,16 +59,6 @@ pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
 pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
     use azul_core::ui_solver::DEFAULT_FONT_SIZE;
     rect_style.font_size.and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
-}
-
-#[derive(Debug, Clone)]
-pub struct LayoutResult {
-    pub rects: NodeDataContainer<PositionedRectangle>,
-    pub word_cache: BTreeMap<NodeId, Words>,
-    pub scaled_words: BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
-    pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    pub layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
-    pub node_depths: Vec<(usize, NodeId)>,
 }
 
 pub struct InlineText<'a> {

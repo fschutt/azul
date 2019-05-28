@@ -33,6 +33,7 @@ use webrender::api::{
     FontInstanceFlags as WrFontInstanceFlags,
     FontRenderMode as WrFontRenderMode,
     ImageRendering as WrImageRendering,
+    ExternalScrollId as WrExternalScrollId,
 };
 use azul_core::{
     callbacks::{HidpiAdjustedBounds, HitTestItem, PipelineId},
@@ -47,6 +48,7 @@ use azul_core::{
         FontInstanceFlags, GlyphOptions, AlphaType, FontRenderMode, ImageRendering,
         StyleBorderRadius,
     },
+    ui_solver::ExternalScrollId,
 };
 use azul_css::{
     ColorU as CssColorU,
@@ -582,9 +584,14 @@ fn wr_translate_alpha_type(alpha_type: AlphaType) -> WrAlphaType {
     }
 }
 
-pub(crate) fn wr_translate_display_list(input: CachedDisplayList) -> WrBuiltDisplayList {
+#[inline(always)]
+pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> WrExternalScrollId {
+    WrExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
+}
+
+pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: PipelineId) -> WrBuiltDisplayList {
     let mut builder = WrDisplayListBuilder::new(
-        wr_translate_pipeline_id(input.pipeline_id),
+        wr_translate_pipeline_id(pipeline_id),
         wr_translate_layout_size(input.root.get_size())
     );
     push_display_list_msg(&mut builder, input.root);

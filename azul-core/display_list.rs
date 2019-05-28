@@ -11,7 +11,6 @@ use azul_css::{
 };
 use app_resources::{ImageKey, FontInstanceKey, ImageInfo};
 use window::{LogicalPosition, LogicalSize};
-use callbacks::PipelineId;
 
 /// A tag that can be used to identify items during hit testing. If the tag
 /// is missing then the item doesn't take part in hit testing at all. This
@@ -87,7 +86,12 @@ impl DisplayListRect {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct CachedDisplayList {
     pub root: DisplayListMsg,
-    pub pipeline_id: PipelineId,
+}
+
+impl CachedDisplayList {
+    pub fn empty(size: LogicalSize) -> Self {
+        Self { root: DisplayListMsg::Frame(DisplayListFrame::root(size)) }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -162,6 +166,22 @@ impl fmt::Debug for DisplayListFrame {
             write!(f, "\r\nchildren: {:#?}", self.children)?;
         }
         Ok(())
+    }
+}
+
+impl DisplayListFrame {
+    pub fn root(dimensions: LogicalSize) -> Self {
+        DisplayListFrame {
+            tag: None,
+            clip_rect: None,
+            rect: DisplayListRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: dimensions,
+            },
+            border_radius: StyleBorderRadius::default(),
+            content: vec![],
+            children: vec![],
+        }
     }
 }
 

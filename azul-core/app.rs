@@ -57,9 +57,9 @@ pub struct AppStateNoData<'a, T> {
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
-    pub timers: FastHashMap<TimerId, Timer<T>>,
+    pub timers: &'a mut FastHashMap<TimerId, Timer<T>>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub tasks: Vec<Task<T>>,
+    pub tasks: &'a mut Vec<Task<T>>,
 }
 
 macro_rules! impl_task_api {() => {

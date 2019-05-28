@@ -2,8 +2,8 @@ use std::{
     collections::BTreeMap,
 };
 use webrender::api::{
-    Epoch, ImageData, AddImage, ExternalScrollId,
-    ExternalImageId, ExternalImageData, ExternalImageType, TextureTarget,
+    Epoch, ImageData, AddImage, ExternalImageId, ExternalImageData,
+    ExternalImageType, TextureTarget,
 };
 use azul_css::{
     Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
@@ -12,15 +12,15 @@ use azul_css::{
 use {
     FastHashMap,
     app_resources::{AppResources, AddImageMsg, FontImageApi},
-    callbacks::{IFrameCallback, GlTextureCallback, StackCheckedPointer},
+    callbacks::{IFrameCallback, GlCallback, StackCheckedPointer},
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
-        NodeData, ScrollTagId, DomHash, DomString,
+        NodeData, ScrollTagId, DomString,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
     },
-    ui_solver::{do_the_layout, LayoutResult},
+    ui_solver::do_the_layout,
     compositor::new_opengl_texture_id,
     window::{Window, WindowSize, FakeWindow, ScrollStates},
     callbacks::LayoutInfo,
@@ -30,7 +30,10 @@ use azul_core::{
     callbacks::PipelineId,
     window::{LogicalSize, LogicalPosition},
     app_resources::{ImageId, FontInstanceKey},
-    ui_solver::{PositionedRectangle, ResolvedOffsets},
+    ui_solver::{
+        PositionedRectangle, ResolvedOffsets, ExternalScrollId,
+        LayoutResult, ScrolledNodes, OverflowingScrollNode
+    },
     display_list::{
         CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
         ImageRendering, AlphaType, DisplayListFrame, StyleBoxShadow,
@@ -318,21 +321,6 @@ struct ContentGroupOrder {
     groups: Vec<ContentGroup>,
 }
 
-#[derive(Default, Debug, Clone)]
-pub(crate) struct ScrolledNodes {
-    pub(crate) overflowing_nodes: BTreeMap<NodeId, OverflowingScrollNode>,
-    pub(crate) tags_to_node_ids: BTreeMap<ScrollTagId, NodeId>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct OverflowingScrollNode {
-    pub(crate) parent_rect: PositionedRectangle,
-    pub(crate) child_rect: LayoutRect,
-    pub(crate) parent_external_scroll_id: ExternalScrollId,
-    pub(crate) parent_dom_hash: DomHash,
-    pub(crate) scroll_tag_id: ScrollTagId,
-}
-
 /// Parameters that apply to a single rectangle / div node
 #[derive(Copy, Clone)]
 pub(crate) struct DisplayListRectParams<'a, T: 'a> {
@@ -478,8 +466,6 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
     pipeline_id: PipelineId,
 ) -> ScrolledNodes {
 
-    use wr_translate;
-
     let mut nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
 
@@ -500,9 +486,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
         // Create an external scroll id. This id is required to preserve its
         // scroll state accross multiple frames.
-        let parent_external_scroll_id  = ExternalScrollId(
-            parent_dom_hash.0, wr_translate::wr_translate_pipeline_id(pipeline_id)
-        );
+        let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, pipeline_id);
 
         // Create a unique scroll tag for hit-testing
         let scroll_tag_id = match display_list_rects.get(*parent).and_then(|node| node.tag) {
@@ -652,10 +636,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
         },
     );
 
-    let cached_display_list = CachedDisplayList {
-        root: root_node,
-        pipeline_id: window.internal.pipeline_id,
-    };
+    let cached_display_list = CachedDisplayList { root: root_node };
 
     CachedDisplayListResult {
         cached_display_list,
@@ -715,17 +696,9 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
         content
     }).collect();
 
-    DisplayListMsg::Frame(DisplayListFrame {
-        tag: None,
-        clip_rect: None,
-        rect: DisplayListRect {
-            origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: window_size.dimensions,
-        },
-        border_radius: StyleBorderRadius::default(),
-        content: vec![],
-        children: root_children,
-    })
+    let mut root = DisplayListFrame::root(window_size.dimensions);
+    root.children = root_children;
+    DisplayListMsg::Frame(root)
 }
 
 /// Push a single rectangle into the display list builder
@@ -891,7 +864,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
 
 #[inline]
 fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
-    (texture_callback, texture_stack_ptr): &(GlTextureCallback<T>, StackCheckedPointer<T>),
+    (texture_callback, texture_stack_ptr): &(GlCallback<T>, StackCheckedPointer<T>),
     bounds: LayoutRect,
     rectangle: &DisplayListRectParams<'a, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
@@ -903,7 +876,10 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key, wr_translate_image_descriptor},
         app_resources::ImageInfo,
     };
-    use azul_core::app_resources::{ImageDescriptor, RawImageFormat};
+    use azul_core::{
+        callbacks::GlCallbackInfoUnchecked,
+        app_resources::{ImageDescriptor, RawImageFormat}
+    };
 
     let bounds = hidpi_rect_from_bounds(
         bounds,
@@ -915,10 +891,16 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 
         // Make sure that the app data is locked before invoking the callback
         let _lock = &mut referenced_mutable_content.app_data;
-        let tex = (texture_callback.0)(&texture_stack_ptr, LayoutInfo {
-            window: &mut *referenced_mutable_content.fake_window,
-            resources: &referenced_mutable_content.app_resources,
-        }, bounds);
+        let gl_info = GlCallbackInfoUnchecked {
+            ptr: *texture_stack_ptr,
+            layout_info: LayoutInfo {
+                window: &mut *referenced_mutable_content.fake_window,
+                resources: &referenced_mutable_content.app_resources,
+            },
+            bounds,
+        };
+
+        let tex = (texture_callback.0)(gl_info);
 
         // Reset the framebuffer and SRGB color target to 0
         let gl_context = referenced_mutable_content.fake_window.get_gl_context();
@@ -990,6 +972,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     use app_resources;
     use ui_state::ui_state_from_dom;
     use wr_translate::hidpi_rect_from_bounds;
+    use azul_core::callbacks::IFrameCallbackInfoUnchecked;
 
     let bounds = hidpi_rect_from_bounds(
         rect,
@@ -1000,12 +983,16 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     let new_dom = {
         // Make sure that the app data is locked before invoking the callback
         let _lock = &mut referenced_mutable_content.app_data;
-        let window_info = LayoutInfo {
-            window: referenced_mutable_content.fake_window,
-            resources: &referenced_mutable_content.app_resources,
+        let iframe_info = IFrameCallbackInfoUnchecked {
+            ptr: *iframe_pointer,
+            layout_info: LayoutInfo {
+                window: referenced_mutable_content.fake_window,
+                resources: &referenced_mutable_content.app_resources,
+            },
+            bounds,
         };
 
-        (iframe_callback.0)(&iframe_pointer, window_info, bounds)
+        (iframe_callback.0)(iframe_info)
     };
 
     // TODO: Right now, no focusing, hovering or :active allowed in iframes!
