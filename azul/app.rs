@@ -922,7 +922,8 @@ fn call_callbacks<T>(
         for callback in callback_results.normal_callbacks.values() {
 
             let mut new_focus = None;
-            let callback_info = CallbackInfo {
+
+            if (callback.0)(CallbackInfo {
                 state: app_state,
                 focus_target: &mut new_focus,
                 window_id,
@@ -931,9 +932,7 @@ fn call_callbacks<T>(
                 hit_test_items: &hit_test_items,
                 cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
                 cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-            };
-
-            if (callback.0)(callback_info) == Redraw {
+            }) == Redraw {
                 should_update_screen = Redraw;
             }
 

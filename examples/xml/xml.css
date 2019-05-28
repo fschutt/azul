@@ -1,12 +1,12 @@
 #wrapper {
-    width: 100%;
-    height: 100%;
+    width: 500px;
+    height: 500px;
     background: green;
 }
 
 .test {
-    width: 33.3333%;
-    height: 50%;
+    width: 50px;
+    height: 50px;
 }
 
 #red {
@@ -15,6 +15,9 @@
 
 #yellow {
     background: yellow;
+    position: absolute;
+    top: 50px;
+    left: 150px;
 }
 
 #blue {

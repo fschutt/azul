@@ -237,22 +237,22 @@ impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
 pub struct Callback<T>(pub CallbackType<T>);
 impl_callback!(Callback<T>);
 /// Information about the callback that is passed to the callback whenever a callback is invoked
-pub struct CallbackInfo<'a, T: 'a> {
+pub struct CallbackInfo<'a, 'b, T: 'a> {
     /// Mutable access to the application state. Use this field to modify data in the `T` data model.
     pub state: &'a mut AppState<T>,
     /// UiState containing the necessary data for testing what
     pub ui_state: &'a UiState<T>,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
-    pub focus_target: &'a mut Option<FocusTarget>,
+    pub focus_target: &'b mut Option<FocusTarget>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
-    pub window_id: &'a WindowId,
+    pub window_id: &'b WindowId,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: NodeId,
     /// What items are currently being hit
-    pub hit_test_items: &'a [HitTestItem],
+    pub hit_test_items: &'b [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: Option<(f32, f32)>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -261,7 +261,7 @@ pub struct CallbackInfo<'a, T: 'a> {
 pub type CallbackReturn = UpdateScreen;
 pub type CallbackType<T> = fn(CallbackInfo<T>) -> CallbackReturn;
 
-impl<'a, T: 'a> CallbackInfo<'a, T> {
+impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     pub fn get_window(&self) -> &FakeWindow<T> {
         &self.state.windows[self.window_id]
     }
@@ -350,7 +350,7 @@ pub struct LayoutInfo<'a, 'b, T: 'b> {
     pub resources: &'a AppResources,
 }
 
-impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
+impl<'a, 'b, T: 'a> fmt::Debug for CallbackInfo<'a, 'b, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CallbackInfo {{ \
             focus_target: {:?}, \
@@ -411,11 +411,11 @@ pub enum FocusTarget {
     NoFocus,
 }
 
-impl<'a, T: 'a> CallbackInfo<'a, T> {
+impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the parent NodeId, until it gets to the root component.
-    pub fn parent_nodes<'b>(&'b self) -> ParentNodesIterator<'b> {
+    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c> {
         ParentNodesIterator {
             current_item: self.hit_dom_node,
             node_hierarchy: &self.ui_state.dom.arena.node_layout,
@@ -442,17 +442,17 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
     // used to query DOM information when the callbacks are run
 
     /// Returns the hierarchy of the given node ID
-    pub fn get_node<'b>(&'b self, node_id: NodeId) -> Option<&'b Node> {
+    pub fn get_node(&self, node_id: NodeId) -> Option<&Node> {
         self.ui_state.dom.arena.node_layout.internal.get(node_id.index())
     }
 
     /// Returns the node hierarchy (DOM tree order)
-    pub fn get_node_hierarchy<'b>(&'b self) -> &'b NodeHierarchy {
+    pub fn get_node_hierarchy(&self) -> &NodeHierarchy {
         &self.ui_state.dom.arena.node_layout
     }
 
     /// Returns the node content of a specific node
-    pub fn get_node_content<'b>(&'b self, node_id: NodeId) -> Option<&'b NodeData<T>> {
+    pub fn get_node_content(&self, node_id: NodeId) -> Option<&NodeData<T>> {
         self.ui_state.dom.arena.node_data.internal.get(node_id.index())
     }
 
@@ -529,7 +529,7 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
     /// Set the focus_target to a certain div by parsing a string.
     /// Note that the parsing of the string can fail, therefore the Result
     #[cfg(feature = "css_parser")]
-    pub fn set_focus_target<'b>(&mut self, input: &'b str) -> Result<(), CssPathParseError<'b>> {
+    pub fn set_focus_target<'c>(&mut self, input: &'c str) -> Result<(), CssPathParseError<'c>> {
         use azul_css_parser::parse_css_path;
         let path = parse_css_path(input)?;
         *self.focus_target = Some(FocusTarget::Path(path));

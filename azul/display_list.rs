@@ -891,16 +891,15 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 
         // Make sure that the app data is locked before invoking the callback
         let _lock = &mut referenced_mutable_content.app_data;
-        let gl_info = GlCallbackInfoUnchecked {
+
+        let tex = (texture_callback.0)(GlCallbackInfoUnchecked {
             ptr: *texture_stack_ptr,
             layout_info: LayoutInfo {
                 window: &mut *referenced_mutable_content.fake_window,
                 resources: &referenced_mutable_content.app_resources,
             },
             bounds,
-        };
-
-        let tex = (texture_callback.0)(gl_info);
+        });
 
         // Reset the framebuffer and SRGB color target to 0
         let gl_context = referenced_mutable_content.fake_window.get_gl_context();
