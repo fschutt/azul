@@ -1,10 +1,7 @@
-* {
-    font-size: 12px;
-    font-family: Helvetica;
-    color: #4c4c4c;
-}
-
 .__azul-native-button {
+    font-size: 12px;
+    font-family: "Helvetica";
+    color: #4c4c4c;
     background-color: #e7e7e7;
     border: 1px solid #b7b7b7;
     border-radius: 4px;
@@ -16,12 +13,18 @@
 }
 
 .__azul-native-label {
+    font-size: 12px;
+    font-family: "Helvetica";
+    color: #4c4c4c;
     text-align: center;
     flex-direction: column;
     justify-content: center;
 }
 
 .__azul-native-input-text {
+    font-size: 12px;
+    font-family: "Helvetica";
+    color: #4c4c4c;
     background-color: white;
     height: 14px;
     border: 1px solid #9b9b9b;
@@ -38,5 +41,7 @@
 }
 
 .__azul-native-input-text-label {
-
+    font-size: 12px;
+    font-family: "Helvetica";
+    color: #4c4c4c;
 }

@@ -7,7 +7,7 @@ use {
     callbacks::PipelineId,
 };
 
-pub const DEFAULT_FONT_SIZE_PX: isize = 10;
+pub const DEFAULT_FONT_SIZE_PX: isize = 16;
 pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(DEFAULT_FONT_SIZE_PX));
 pub const DEFAULT_FONT_ID: &str = "serif";
 pub const DEFAULT_FONT_COLOR: StyleTextColor = StyleTextColor(StyleColorU { r: 0, b: 0, g: 0, a: 255 });

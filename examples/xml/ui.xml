@@ -2,8 +2,9 @@
     <div id="wrapper">
       <div class="test" id="red" ></div>
       <div class="test" id="blue"></div>
-          <p id="test4">Cool line breaking text</p>
+
       <div class="test" id="yellow">
+        <p id="test4">Cool line breaking text</p>
       </div>
     </div>
 </app>

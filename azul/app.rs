@@ -311,8 +311,6 @@ impl<T> App<T> {
 
         #[cfg(debug_assertions)]
         let mut last_style_reload = Instant::now();
-        #[cfg(debug_assertions)]
-        let mut should_print_css_error = true;
 
         while !self.windows.is_empty() {
 
@@ -380,12 +378,12 @@ impl<T> App<T> {
                 self.window_states.remove(&closed_window_id);
             });
 
+            let css_has_error = false;
             #[cfg(debug_assertions)]
-            let css_has_reloaded = hot_reload_css(
-                    &mut self.windows,
-                    &mut last_style_reload,
-                    &mut should_print_css_error,
-                )?;
+            let (css_has_reloaded, css_has_error) = match hot_reload_css(&mut self.windows, &mut last_style_reload) {
+                Ok(has_reloaded) => (has_reloaded, None),
+                Err(css_error) => (true, Some(css_error)),
+            };
 
             #[cfg(not(debug_assertions))]
             let css_has_reloaded = false;
@@ -400,9 +398,17 @@ impl<T> App<T> {
             // If there is a relayout necessary, re-layout *all* windows!
             if should_relayout_all_windows || should_redraw_timers_or_tasks {
                 for (current_window_id, mut window) in self.windows.iter_mut() {
+                    use ui_state::ui_state_from_dom;
+
                     let full_window_state = self.window_states.get_mut(current_window_id).unwrap();
+
+                    // Call the Layout::layout() fn, get the DOM
+                    *ui_state_cache.get_mut(current_window_id).ok_or(WindowIndexError)? = match &css_has_error {
+                        None => ui_state_from_app_state(&mut self.app_state, current_window_id, self.layout_callback)?,
+                        Some(s) => ui_state_from_dom(Dom::label(s.clone())),
+                    };
+
                     relayout_single_window(
-                        self.layout_callback,
                         &current_window_id,
                         &mut window,
                         full_window_state,
@@ -702,7 +708,6 @@ fn hit_test_single_window<T>(
 
 #[cfg(not(test))]
 fn relayout_single_window<T>(
-    layout_callback: fn(&T, LayoutInfo<T>) -> Dom<T>,
     window_id: &WindowId,
     window: &mut Window<T>,
     full_window_state: &mut FullWindowState,
@@ -714,15 +719,6 @@ fn relayout_single_window<T>(
 ) -> Result<(), RuntimeError> {
 
     use azul_core::app::RuntimeError::*;
-    use ui_state::ui_state_from_app_state;
-
-    // Call the Layout::layout() fn, get the DOM
-    *ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-        ui_state_from_app_state(
-            app_state,
-            window_id,
-            layout_callback
-        )?;
 
     // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
     let is_mouse_down = full_window_state.mouse_state.mouse_down();
@@ -757,8 +753,7 @@ fn relayout_single_window<T>(
 fn hot_reload_css<T>(
     windows: &mut BTreeMap<WindowId, Window<T>>,
     last_style_reload: &mut Instant,
-    should_print_error: &mut bool,
-) -> Result<bool, RuntimeError> {
+) -> Result<bool, String> {
 
     let mut has_reloaded = false;
 
@@ -780,18 +775,11 @@ fn hot_reload_css<T>(
             Ok(mut new_css) => {
                 new_css.sort_by_specificity();
                 window.css = new_css;
-                if !(*should_print_error) {
-                    println!("--- OK: CSS parsed without errors, continuing hot-reload.");
-                }
                 *last_style_reload = Instant::now();
                 has_reloaded = true;
-                *should_print_error = true;
             },
             Err(why) => {
-                if *should_print_error {
-                    println!("{}", why);
-                }
-                *should_print_error = false;
+                return Err(format!("{}", why));
             },
         };
     }

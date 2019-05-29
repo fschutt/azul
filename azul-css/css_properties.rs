@@ -2121,7 +2121,7 @@ pub enum StyleTextAlignmentHorz {
 
 impl Default for StyleTextAlignmentHorz {
     fn default() -> Self {
-        StyleTextAlignmentHorz::Center
+        StyleTextAlignmentHorz::Left
     }
 }
 
@@ -2135,7 +2135,7 @@ pub enum StyleTextAlignmentVert {
 
 impl Default for StyleTextAlignmentVert {
     fn default() -> Self {
-        StyleTextAlignmentVert::Center
+        StyleTextAlignmentVert::Top
     }
 }
 

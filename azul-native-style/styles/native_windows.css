@@ -1,8 +1,5 @@
-* {
-    font-size: 14.66px;
-}
-
 .__azul-native-button {
+    font-size: 14.66px;
     border: 1px solid rgb(172, 172, 172);
     background: linear-gradient(to bottom, rgb(239, 239, 239), rgb(229, 229, 229));
     text-align: center;
@@ -27,6 +24,7 @@
 }
 
 .__azul-native-label {
+    font-size: 14.66px;
     text-align: center;
     flex-direction: column;
     justify-content: center;
@@ -34,6 +32,7 @@
 }
 
 .__azul-native-input-text {
+    font-size: 14.66px;
     flex-grow: 1;
     background-color: white;
     border: 1px solid #9b9b9b;

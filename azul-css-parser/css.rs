@@ -19,8 +19,18 @@ use azul_css::{
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseError<'a> {
+    pub css_string: &'a str,
     pub error: CssParseErrorInner<'a>,
     pub location: (ErrorLocation, ErrorLocation),
+}
+
+impl<'a> CssParseError<'a> {
+    /// Returns the string between the (start, end) location
+    pub fn get_error_string(&self) -> &'a str {
+        let (start, end) = (self.location.0.original_pos, self.location.1.original_pos);
+        let s = &self.css_string[start..end];
+        s.trim()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,7 +61,7 @@ impl_display!{ CssParseErrorInner<'a>, {
     ParseError(e) => format!("Parse Error: {:?}", e),
     UnclosedBlock => "Unclosed block",
     MalformedCss => "Malformed Css",
-    DynamicCssParseError(e) => format!("Error parsing dynamic CSS property: {}", e),
+    DynamicCssParseError(e) => format!("{}", e),
     PseudoSelectorParseError(e) => format!("Failed to parse pseudo-selector: {}", e),
     NodeTypePath(e) => format!("Failed to parse CSS selector path: {}", e),
     UnknownPropertyKey(k, v) => format!("Unknown CSS key: \"{}: {}\"", k, v),
@@ -113,7 +123,7 @@ pub enum DynamicCssParseError<'a> {
 
 impl_display!{ DynamicCssParseError<'a>, {
     InvalidBraceContents(e) => format!("Invalid contents of var() function: var({})", e),
-    UnexpectedValue(e) => format!("Unexpected value: {}", e),
+    UnexpectedValue(e) => format!("{}", e),
 }}
 
 impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
@@ -266,7 +276,14 @@ impl ErrorLocation {
 
 impl<'a> fmt::Display for CssParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CSS error at location {}..{}: {}", self.location.0.original_pos, self.location.1.original_pos, self.error)
+        let start_location = self.location.0.get_line_column_from_error(self.css_string);
+        let end_location = self.location.1.get_line_column_from_error(self.css_string);
+        write!(f, "    start: line {}:{}\r\n    end: line:{}:{}\r\n    text: \"{}\"\r\n    reason: {}",
+            start_location.0, start_location.1,
+            end_location.0, end_location.1,
+            self.get_error_string(),
+            self.error,
+        )
     }
 }
 
@@ -430,14 +447,18 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
 
     loop {
 
-        let new_location = get_error_location(tokenizer);
-        let token = tokenizer.parse_next().map_err(|e| CssParseError { error: e.into(), location: (last_error_location, new_location) })?;
+        let token = tokenizer.parse_next().map_err(|e| CssParseError {
+            css_string,
+            error: e.into(),
+            location: (last_error_location, get_error_location(tokenizer))
+        })?;
 
         macro_rules! check_parser_is_outside_block {() => {
             if parser_in_block {
                 return Err(CssParseError {
+                    css_string,
                     error: CssParseErrorInner::MalformedCss,
-                    location: (last_error_location, new_location),
+                    location: (last_error_location, get_error_location(tokenizer)),
                 });
             }
         }}
@@ -445,8 +466,9 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
         macro_rules! check_parser_is_inside_block {() => {
             if !parser_in_block {
                 return Err(CssParseError {
+                    css_string,
                     error: CssParseErrorInner::MalformedCss,
-                    location: (last_error_location, new_location),
+                    location: (last_error_location, get_error_location(tokenizer)),
                 });
             }
         }}
@@ -490,8 +512,9 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
                 check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::Type(NodeTypePath::from_str(div_type).map_err(|e| {
                     CssParseError {
+                        css_string,
                         error: e.into(),
-                        location: (last_error_location, new_location),
+                        location: (last_error_location, get_error_location(tokenizer)),
                     }
                 })?));
             },
@@ -515,22 +538,24 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
                 check_parser_is_outside_block!();
                 last_path.push(CssPathSelector::PseudoSelector(pseudo_selector_from_str(selector, value).map_err(|e| {
                     CssParseError {
+                        css_string,
                         error: e.into(),
-                        location: (last_error_location, new_location),
+                        location: (last_error_location, get_error_location(tokenizer)),
                     }
                 })?));
             },
             Token::Declaration(key, val) => {
                 check_parser_is_inside_block!();
-                current_rules.insert(key, (val, (last_error_location, new_location)));
+                current_rules.insert(key, (val, (last_error_location, get_error_location(tokenizer))));
             },
             Token::EndOfStream => {
 
                 // uneven number of open / close braces
                 if block_nesting != 0 {
                     return Err(CssParseError {
+                        css_string,
                         error: CssParseErrorInner::UnclosedBlock,
-                        location: (last_error_location, new_location),
+                        location: (last_error_location, get_error_location(tokenizer)),
                     });
                 }
 
@@ -541,13 +566,13 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
             }
         }
 
-        last_error_location = new_location;
+        last_error_location = get_error_location(tokenizer);
     }
 
-    unparsed_css_blocks_to_stylesheet(css_blocks)
+    unparsed_css_blocks_to_stylesheet(css_blocks, css_string)
 }
 
-fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a>>)
+fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a>>, css_string: &'a str)
 -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
 
     // Actually parse the properties (TODO: this could be done in parallel and in a separate function)
@@ -568,6 +593,7 @@ fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a
                 &mut warnings,
                 &mut declarations,
             ).map_err(|e| CssParseError {
+                css_string,
                 error: e.into(),
                 location,
             })?;
