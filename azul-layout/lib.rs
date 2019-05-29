@@ -26,7 +26,7 @@ extern crate azul_css;
 use std::collections::BTreeMap;
 use azul_css::LayoutRect;
 use azul_core::{
-    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions},
+    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions, InlineTextLayout},
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
 };
@@ -42,18 +42,6 @@ pub use number::Number;
 
 pub trait GetStyle { fn get_style(&self) -> Style; }
 pub trait GetTextLayout { fn get_text_layout(&mut self, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout; }
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct InlineTextLayout {
-    pub lines: Vec<LayoutRect>,
-}
-
-impl InlineTextLayout {
-    #[inline]
-    pub fn get_bounds(&self) -> LayoutRect {
-        LayoutRect::union(self.lines.iter().map(|c| *c)).unwrap_or(LayoutRect::zero())
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct SolvedUi {

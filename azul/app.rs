@@ -293,14 +293,34 @@ impl<T> App<T> {
 
         use std::{thread, time::Duration};
         use glium::glutin::{Event, WindowId as GliumWindowId};
-        use ui_state::ui_state_from_dom;
+        use ui_state::{ui_state_from_dom, ui_state_from_app_state};
         use azul_core::app::RuntimeError::*;
 
+        // Initialize UI state cache
         let mut ui_state_cache = {
             let mut ui_state_map = BTreeMap::new();
-            for window_id in self.windows.keys() {
-                ui_state_map.insert(*window_id, ui_state_from_dom(Dom::div()));
+            let window_ids = self.windows.keys().cloned().collect::<Vec<_>>();
+            for window_id in window_ids {
+                let ui_state = {
+                        #[cfg(debug_assertions)] {
+                        let (css_has_reloaded, css_has_error) = match hot_reload_css(&mut self.windows, &mut Instant::now(), true) {
+                            Ok(has_reloaded) => (has_reloaded, None),
+                            Err(css_error) => (true, Some(css_error)),
+                        };
+
+                        // ui_state_map.insert(window_id)
+                        match &css_has_error {
+                            None => ui_state_from_app_state(&mut self.app_state, &window_id, self.layout_callback),
+                            Some(s) => Ok(ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"))),
+                        }
+                    }
+                    #[cfg(not(debug_assertions))] {
+                        ui_state_from_app_state(&mut self.app_state, &window_id, self.layout_callback)
+                    }
+                }?;
+                ui_state_map.insert(window_id, ui_state);
             }
+
             ui_state_map
         };
         let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect::<BTreeMap<_, _>>();
@@ -377,7 +397,7 @@ impl<T> App<T> {
 
             let css_has_error = false;
             #[cfg(debug_assertions)]
-            let (css_has_reloaded, css_has_error) = match hot_reload_css(&mut self.windows, &mut last_style_reload) {
+            let (css_has_reloaded, css_has_error) = match hot_reload_css(&mut self.windows, &mut last_style_reload, false) {
                 Ok(has_reloaded) => (has_reloaded, None),
                 Err(css_error) => (true, Some(css_error)),
             };
@@ -395,7 +415,6 @@ impl<T> App<T> {
             // If there is a relayout necessary, re-layout *all* windows!
             if should_relayout_all_windows || should_redraw_timers_or_tasks {
                 for (current_window_id, mut window) in self.windows.iter_mut() {
-                    use ui_state::ui_state_from_app_state;
 
                     let full_window_state = self.window_states.get_mut(current_window_id).unwrap();
 
@@ -750,6 +769,7 @@ fn relayout_single_window<T>(
 fn hot_reload_css<T>(
     windows: &mut BTreeMap<WindowId, Window<T>>,
     last_style_reload: &mut Instant,
+    force_reload: bool,
 ) -> Result<bool, String> {
 
     let mut has_reloaded = false;
@@ -762,10 +782,12 @@ fn hot_reload_css<T>(
             Some(s) => s,
         };
 
-        let should_reload = Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
+        if !force_reload {
+            let should_reload = Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
 
-        if !should_reload {
-            continue;
+            if !should_reload {
+                continue;
+            }
         }
 
         match hot_reloader.reload_style() {

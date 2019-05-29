@@ -24,7 +24,7 @@ use std::{collections::BTreeMap, f32};
 
 use azul_css::{LayoutRect, LayoutPoint, LayoutSize};
 use azul_core::{
-    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions, ResolvedOffsets},
+    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions, InlineTextLayout, ResolvedOffsets},
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
 };
@@ -201,7 +201,7 @@ fn compute_internal<T: GetTextLayout>(
     node_hierarchy: &NodeHierarchy,
     node_styles: &NodeDataContainer<Style>,
     node_rects: &mut NodeDataContainer<Rect>,
-    resolved_text_layout_options: &mut BTreeMap<NodeId, ResolvedTextLayoutOptions>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, (ResolvedTextLayoutOptions, InlineTextLayout, LayoutRect)>,
     rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
     node_size: Size<Number>,
     parent_size: Size<Number>,
@@ -259,13 +259,16 @@ fn compute_internal<T: GetTextLayout>(
     };
 
     // TODO - Investigate if this is the correct way to go about things
-    let content_size = rect_contents.get_mut(&node_id).and_then(|content| {
+    let content_size = rect_contents.get_mut(&node_id).map(|content| {
+
+        if let Some((_, _, bounds)) = resolved_text_layout_options.get(&node_id) {
+            return RectSize {
+                width: Number::Defined(bounds.size.width),
+                height: Number::Defined(bounds.size.height),
+            };
+        }
 
         use RectContent::*;
-
-        if resolved_text_layout_options.get(&node_id).is_some() {
-            return None;
-        }
 
         match content {
             Text(t) => {
@@ -295,8 +298,8 @@ fn compute_internal<T: GetTextLayout>(
                     height: Number::Defined(inline_text_bounds.size.height),
                 };
 
-                resolved_text_layout_options.insert(node_id, text_layout_options);
-                Some(inline_text_bounds_size)
+                resolved_text_layout_options.insert(node_id, (text_layout_options, layouted_inline_text, inline_text_bounds));
+                inline_text_bounds_size
             },
             Image(w, h) => {
                 let image_original_size = RectSize {
@@ -304,7 +307,7 @@ fn compute_internal<T: GetTextLayout>(
                     height: Number::Defined(*h as f32),
                 };
                 let image_original_ratio = *w as f32 / *h as f32;
-                Some(match node_size.cross(dir) {
+                match node_size.cross(dir) {
                     Defined(cross) => {
                         RectSize {
                             width: Number::Defined((*w as f32) * image_original_ratio * cross),
@@ -312,7 +315,7 @@ fn compute_internal<T: GetTextLayout>(
                         }
                     },
                     Undefined => image_original_size,
-                })
+                }
             },
         }
     });
@@ -1402,7 +1405,7 @@ fn layout_line<T: GetTextLayout>(
     node_rects: &mut NodeDataContainer<Rect>,
     node_styles: &NodeDataContainer<Style>,
     rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
-    resolved_text_layout_options: &mut BTreeMap<NodeId, ResolvedTextLayoutOptions>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, (ResolvedTextLayoutOptions, InlineTextLayout, LayoutRect)>,
     total_offset_cross: &mut f32,
     padding_border: &Offsets<f32>,
     dir: FlexDirection,
@@ -1460,7 +1463,7 @@ fn layout_item<T: GetTextLayout>(
     node_rects: &mut NodeDataContainer<Rect>,
     node_styles: &NodeDataContainer<Style>,
     rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
-    resolved_text_layout_options: &mut BTreeMap<NodeId, ResolvedTextLayoutOptions>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, (ResolvedTextLayoutOptions, InlineTextLayout, LayoutRect)>,
     total_offset_cross: &mut f32,
     total_offset_main: &mut f32,
     line_offset_cross: f32,

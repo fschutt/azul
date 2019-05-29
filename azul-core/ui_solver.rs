@@ -16,6 +16,18 @@ pub const DEFAULT_WORD_SPACING: f32 = 1.0;
 pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
 pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct InlineTextLayout {
+    pub lines: Vec<LayoutRect>,
+}
+
+impl InlineTextLayout {
+    #[inline]
+    pub fn get_bounds(&self) -> LayoutRect {
+        LayoutRect::union(self.lines.iter().map(|c| *c)).unwrap_or(LayoutRect::zero())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct ExternalScrollId(pub u64, pub PipelineId);
@@ -127,5 +139,5 @@ pub struct PositionedRectangle {
     pub content_size: Option<LayoutSize>,
     /// If this is an inline rectangle, resolve the %-based font sizes
     /// and store them here.
-    pub resolved_text_layout_options: Option<ResolvedTextLayoutOptions>,
+    pub resolved_text_layout_options: Option<(ResolvedTextLayoutOptions, InlineTextLayout, LayoutRect)>,
 }

@@ -17,7 +17,9 @@
 #yellow {
     background: yellow;
     position: absolute;
-    width: 100px;
+    width: auto;
+    height: auto;
+    padding: 5px;
     top: 50px;
     left: 150px;
 }

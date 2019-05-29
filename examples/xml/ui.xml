@@ -4,7 +4,7 @@
       <div class="test" id="blue"></div>
 
       <div class="test" id="yellow">
-        <p id="test4">Cool line breaking text</p>
+        <p id="test4">Test</p>
       </div>
     </div>
 </app>

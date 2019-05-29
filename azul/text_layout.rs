@@ -12,9 +12,8 @@ pub use azul_core::{
         ClusterIterator, ClusterInfo,
     },
     display_list::GlyphInstance,
-    ui_solver::ResolvedTextLayoutOptions,
+    ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
 };
-use azul_layout::InlineTextLayout;
 pub(crate) use azul_core::ui_solver::{
     DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
 };

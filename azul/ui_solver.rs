@@ -13,9 +13,9 @@ use {
 };
 use azul_core::{
     app_resources::{Au, FontInstanceKey},
-    ui_solver::{PositionedRectangle, LayoutResult, ResolvedTextLayoutOptions},
+    ui_solver::{PositionedRectangle, InlineTextLayout, LayoutResult, ResolvedTextLayoutOptions},
 };
-use azul_layout::{GetTextLayout, InlineTextLayout, RectContent};
+use azul_layout::{GetTextLayout, RectContent};
 
 type PixelSize = f32;
 
@@ -131,13 +131,17 @@ fn create_word_cache<T>(
     node_data
     .linear_iter()
     .filter_map(|node_id| {
-        match &node_data[node_id].get_node_type() {
+        let w = match &node_data[node_id].get_node_type() {
             NodeType::Label(string) => Some((node_id, split_text_into_words(string.as_str()))),
             NodeType::Text(text_id) => {
                 app_resources.get_text(text_id).map(|words| (node_id, words.clone()))
             },
             _ => None,
+        };
+        if let Some(w) = &w {
+            println!("words: {:#?}", w);
         }
+        w
     }).collect()
 }
 
@@ -211,7 +215,7 @@ fn create_word_positions<'a>(
     use text_layout;
     words.iter().filter_map(|(node_id, words)| {
         let (scaled_words, font_instance_key) = scaled_words.get(&node_id)?;
-        let text_layout_options = layouted_rects[*node_id].resolved_text_layout_options.as_ref()?;
+        let (text_layout_options, _, _) = layouted_rects[*node_id].resolved_text_layout_options.as_ref()?;
         let positioned_words = text_layout::position_words(words, scaled_words, text_layout_options);
         Some((*node_id, (positioned_words, *font_instance_key)))
     }).collect()
