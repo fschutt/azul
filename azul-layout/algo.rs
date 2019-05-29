@@ -157,7 +157,7 @@ pub(crate) fn compute<T: GetTextLayout>(
         );
     };
 
-    node_rects.transform(|rect, node_id| {
+    let mut arena = node_rects.transform(|rect, node_id| {
 
         let bounds = LayoutRect {
             origin: LayoutPoint { x: rect.origin.x.unwrap_or_zero(), y: rect.origin.y.unwrap_or_zero() },
@@ -172,7 +172,18 @@ pub(crate) fn compute<T: GetTextLayout>(
             margin: rect.margin,
             resolved_text_layout_options: resolved_text_layout_options.get(&node_id).cloned(),
         }
-    })
+    });
+
+    for rect_content_id in rect_contents.keys() {
+        let parent_rect_origin = match &node_hierarchy[*rect_content_id].parent {
+            None => arena[NodeId::new(0)].bounds.origin,
+            Some(parent) => arena[*parent].bounds.origin,
+        };
+        arena[*rect_content_id].bounds.origin.x += parent_rect_origin.x;
+        arena[*rect_content_id].bounds.origin.y += parent_rect_origin.y;
+    }
+
+    arena
 }
 
 

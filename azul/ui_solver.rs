@@ -237,18 +237,15 @@ fn get_glyphs<'a>(
         let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
 
         // The text rect is currently positioned at (0.0, 0.0), it has to be displaced by the parents position
-        let (parent_x, parent_y) = match &node_hierarchy[*node_id].parent {
-            None => (0.0, 0.0),
-            Some(s) => {
-                let parent_rect = &positioned_rectangles[*node_id];
-                (parent_rect.bounds.origin.x, parent_rect.bounds.origin.y)
-            }
+        let parent_height = match &node_hierarchy[*node_id].parent {
+            None => positioned_rectangles[NodeId::new(0)].bounds.size.height,
+            Some(parent) => positioned_rectangles[*parent].bounds.size.height,
         };
 
         let rect_padding_top = layouted_rect.padding.top;
         let rect_padding_left = layouted_rect.padding.left;
-        let rect_offset = LayoutPoint::new(parent_x + rect_padding_left, parent_y + rect_padding_top);
-        let bounding_size_height_px = layouted_rect.bounds.size.height - layouted_rect.padding.total_vertical();
+        let rect_offset = LayoutPoint::new(layouted_rect.bounds.origin.x + rect_padding_left, layouted_rect.bounds.origin.y + rect_padding_top);
+        let bounding_size_height_px = parent_height - layouted_rect.padding.total_vertical();
 
         Some((*node_id, get_layouted_glyphs(
             word_positions,

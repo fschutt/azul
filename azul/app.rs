@@ -293,17 +293,14 @@ impl<T> App<T> {
 
         use std::{thread, time::Duration};
         use glium::glutin::{Event, WindowId as GliumWindowId};
-        use ui_state::ui_state_from_app_state;
+        use ui_state::ui_state_from_dom;
         use azul_core::app::RuntimeError::*;
 
         let mut ui_state_cache = {
-            let app_state = &mut self.app_state;
             let mut ui_state_map = BTreeMap::new();
-
             for window_id in self.windows.keys() {
-                ui_state_map.insert(*window_id, ui_state_from_app_state(app_state, window_id, self.layout_callback)?);
+                ui_state_map.insert(*window_id, ui_state_from_dom(Dom::div()));
             }
-
             ui_state_map
         };
         let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect::<BTreeMap<_, _>>();
@@ -398,7 +395,7 @@ impl<T> App<T> {
             // If there is a relayout necessary, re-layout *all* windows!
             if should_relayout_all_windows || should_redraw_timers_or_tasks {
                 for (current_window_id, mut window) in self.windows.iter_mut() {
-                    use ui_state::ui_state_from_dom;
+                    use ui_state::ui_state_from_app_state;
 
                     let full_window_state = self.window_states.get_mut(current_window_id).unwrap();
 

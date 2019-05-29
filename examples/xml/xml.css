@@ -17,13 +17,13 @@
 #yellow {
     background: yellow;
     position: absolute;
+    width: 100px;
     top: 50px;
     left: 150px;
 }
 
 #yellow:hover {
     background: green;
-    border-radius: : 50%;
 }
 
 #yellow:active {
