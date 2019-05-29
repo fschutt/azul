@@ -1,7 +1,9 @@
 <app>
     <div id="wrapper">
       <div class="test" id="red" ></div>
-      <div class="test" id="blue"></div>
+      <div class="test" id="blue">
+        <div class="test" id="yellow3"></div>
+      </div>
 
       <div class="test" id="yellow">
         <p id="test4">Test</p>

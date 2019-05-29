@@ -193,6 +193,13 @@ impl ops::Add<Number> for Number {
     }
 }
 
+impl ops::AddAssign<Number> for Number {
+    #[inline]
+    fn add_assign(&mut self, other: Self) {
+        *self = *self + other;
+    }
+}
+
 impl ops::Sub<f32> for Number {
     type Output = Number;
 

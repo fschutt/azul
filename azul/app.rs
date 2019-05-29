@@ -395,12 +395,14 @@ impl<T> App<T> {
                 self.window_states.remove(&closed_window_id);
             });
 
-            let css_has_error = false;
             #[cfg(debug_assertions)]
             let (css_has_reloaded, css_has_error) = match hot_reload_css(&mut self.windows, &mut last_style_reload, false) {
                 Ok(has_reloaded) => (has_reloaded, None),
                 Err(css_error) => (true, Some(css_error)),
             };
+
+            #[cfg(not(debug_assertions))]
+            let css_has_error = false;
 
             #[cfg(not(debug_assertions))]
             let css_has_reloaded = false;

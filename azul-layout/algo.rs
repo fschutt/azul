@@ -33,7 +33,7 @@ use {
     RectContent, GetTextLayout,
     style::*,
     number::{OrElse, MinMax, ToNumber, Number::{self, *}},
-    geometry::{Rect, RectSize, RectOrigin, Offsets, Size},
+    geometry::{Rect, RectSize, Offsets, Size},
 };
 
 #[derive(Debug)]
@@ -157,7 +157,39 @@ pub(crate) fn compute<T: GetTextLayout>(
         );
     };
 
-    let mut arena = node_rects.transform(|rect, node_id| {
+    // Until now, the text blocks are all positioned at (0, 0)
+    for rect_content_id in rect_contents.keys() {
+        let parent_rect_origin = match &node_hierarchy[*rect_content_id].parent {
+            None => node_rects[NodeId::new(0)].origin,
+            Some(parent) => node_rects[*parent].origin,
+        };
+        node_rects[*rect_content_id].origin.x += parent_rect_origin.x;
+        node_rects[*rect_content_id].origin.y += parent_rect_origin.y;
+    }
+
+    // For all position: relative items, shift all sub-children by the top / left amount
+    for (_depth, parent_id) in node_hierarchy.get_parents_sorted_by_depth() {
+        let position = node_rects[parent_id].position_shift;
+        add_xy_to_all_children(parent_id, node_hierarchy, &mut node_rects, position.x, position.y).map(|_| ());
+    }
+
+    fn add_xy_to_all_children(parent: NodeId, node_hierarchy: &NodeHierarchy, node_rects: &mut NodeDataContainer<Rect>, x: Number, y: Number) -> Option<()> {
+
+        let first_child = node_hierarchy[parent].first_child?;
+        let last_child = node_hierarchy[parent].last_child?;
+        let all_sub_children_range = NodeId::range(first_child, last_child);
+
+        for c in all_sub_children_range {
+            node_rects[c].origin.x += x;
+            node_rects[c].origin.y += y;
+            node_rects[c].position_shift.x += x;
+            node_rects[c].position_shift.y += y;
+        }
+
+        Some(())
+    }
+
+    node_rects.transform(|rect, node_id| {
 
         let bounds = LayoutRect {
             origin: LayoutPoint { x: rect.origin.x.unwrap_or_zero(), y: rect.origin.y.unwrap_or_zero() },
@@ -172,18 +204,7 @@ pub(crate) fn compute<T: GetTextLayout>(
             margin: rect.margin,
             resolved_text_layout_options: resolved_text_layout_options.get(&node_id).cloned(),
         }
-    });
-
-    for rect_content_id in rect_contents.keys() {
-        let parent_rect_origin = match &node_hierarchy[*rect_content_id].parent {
-            None => arena[NodeId::new(0)].bounds.origin,
-            Some(parent) => arena[*parent].bounds.origin,
-        };
-        arena[*rect_content_id].bounds.origin.x += parent_rect_origin.x;
-        arena[*rect_content_id].bounds.origin.y += parent_rect_origin.y;
-    }
-
-    arena
+    })
 }
 
 
@@ -1375,10 +1396,9 @@ fn compute_internal<T: GetTextLayout>(
                 }
             };
 
-            node_rects[child_id].origin = RectOrigin {
-                x: Number::Defined(if is_row { offset_main } else { offset_cross }),
-                y: Number::Defined(if is_column { offset_main } else { offset_cross }),
-            };
+            node_rects[child_id].origin.x = Number::Defined(if is_row { offset_main } else { offset_cross });
+            node_rects[child_id].origin.y = Number::Defined(if is_column { offset_main } else { offset_cross });
+
             // node_rects[child_id].order = Some(order as u32)
         });
 
@@ -1486,21 +1506,29 @@ fn layout_item<T: GetTextLayout>(
         true,
     );
 
+    let main_position_offset = child.position.main_start(dir).or_else(0.0) - child.position.main_end(dir).or_else(0.0);
     let offset_main = *total_offset_main
         + child.offset_main
         + child.margin.main_start(dir)
-        + (child.position.main_start(dir).or_else(0.0) - child.position.main_end(dir).or_else(0.0));
+        + main_position_offset;
 
+    let cross_position_offset = child.position.cross_start(dir).or_else(0.0) - child.position.cross_end(dir).or_else(0.0);
     let offset_cross = *total_offset_cross
         + child.offset_cross
         + line_offset_cross
         + child.margin.cross_start(dir)
-        + (child.position.cross_start(dir).or_else(0.0) - child.position.cross_end(dir).or_else(0.0));
+        + cross_position_offset;
 
-    node_rects[child.node_id].origin = RectOrigin {
-        x: Number::Defined(if is_row { offset_main } else { offset_cross }),
-        y: Number::Defined(if is_column { offset_main } else { offset_cross }),
-    };
+    {
+        let node = &mut node_rects[child.node_id];
+        node.origin.x = Number::Defined(if is_row { offset_main } else { offset_cross });
+        node.origin.y = Number::Defined(if is_column { offset_main } else { offset_cross });
+        node.position_shift.x = Number::Defined(if is_row { main_position_offset } else { cross_position_offset });
+        node.position_shift.y = Number::Defined(if is_column { main_position_offset } else { cross_position_offset });
+    }
+
+    // for all children of this node, offset them by the cross / main offset
+    // (children of position: relative / position: absolute items)
 
     *total_offset_main += child.offset_main + child.margin.main(dir) + node_rects[child.node_id].size.main(dir).unwrap_or_zero();
 }

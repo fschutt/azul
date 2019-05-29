@@ -1,8 +1,11 @@
 #wrapper {
+    position: relative;
+    left: 50px;
     width: 200px;
     height: 200px;
     background: linear-gradient(#e66465, #9198e5);
     border-radius: 50px;
+    display: flex;
 }
 
 .test {
@@ -22,6 +25,12 @@
     padding: 5px;
     top: 50px;
     left: 150px;
+}
+
+#yellow3 {
+    width: 20px;
+    height: 20px;
+    background: orange;
 }
 
 #yellow:hover {

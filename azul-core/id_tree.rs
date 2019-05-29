@@ -44,6 +44,12 @@ mod node_id {
         pub fn index(&self) -> usize {
             self.index.get() - 1
         }
+
+        /// Return an iterator of references to this node’s children.
+        #[inline]
+        pub fn range(start: Self, end: Self) -> Vec<NodeId> {
+            (start.index()..end.index()).map(NodeId::new).collect()
+        }
     }
 
     impl Add<usize> for NodeId {
