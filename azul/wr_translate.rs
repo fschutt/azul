@@ -1040,8 +1040,6 @@ mod image {
 
         let tile_spacing = WrLayoutSize::zero();
 
-        println!("pushing image: image info: {:?}, size: {:?}", offset_info, size);
-
         builder.push_image(
             &offset_info,
             wr_translate_layout_size(size),

@@ -61,6 +61,7 @@ impl OrElse<Number> for Number {
 }
 
 impl Number {
+    #[inline]
     pub fn is_defined(self) -> bool {
         match self {
             Number::Defined(_) => true,
@@ -68,6 +69,7 @@ impl Number {
         }
     }
 
+    #[inline]
     pub fn is_undefined(self) -> bool {
         match self {
             Number::Defined(_) => false,
@@ -75,6 +77,15 @@ impl Number {
         }
     }
 
+    #[inline]
+    pub fn to_option(&self) -> Option<f32> {
+        match self {
+            Number::Defined(f) => Some(*f),
+            Number::Undefined => None,
+        }
+    }
+
+    #[inline]
     pub fn unwrap_or_zero(&self) -> f32 {
         match self {
             Number::Defined(d) => *d,
@@ -89,6 +100,7 @@ pub trait MinMax<In, Out> {
 }
 
 impl MinMax<Number, Number> for Number {
+    #[inline]
     fn maybe_min(self, rhs: Number) -> Number {
         match self {
             Number::Defined(val) => match rhs {
@@ -99,6 +111,7 @@ impl MinMax<Number, Number> for Number {
         }
     }
 
+    #[inline]
     fn maybe_max(self, rhs: Number) -> Number {
         match self {
             Number::Defined(val) => match rhs {
@@ -111,6 +124,7 @@ impl MinMax<Number, Number> for Number {
 }
 
 impl MinMax<f32, Number> for Number {
+    #[inline]
     fn maybe_min(self, rhs: f32) -> Number {
         match self {
             Number::Defined(val) => Number::Defined(val.min(rhs)),
@@ -118,6 +132,7 @@ impl MinMax<f32, Number> for Number {
         }
     }
 
+    #[inline]
     fn maybe_max(self, rhs: f32) -> Number {
         match self {
             Number::Defined(val) => Number::Defined(val.max(rhs)),
@@ -127,6 +142,7 @@ impl MinMax<f32, Number> for Number {
 }
 
 impl MinMax<Number, f32> for f32 {
+    #[inline]
     fn maybe_min(self, rhs: Number) -> f32 {
         match rhs {
             Number::Defined(val) => self.min(val),
@@ -134,6 +150,7 @@ impl MinMax<Number, f32> for f32 {
         }
     }
 
+    #[inline]
     fn maybe_max(self, rhs: Number) -> f32 {
         match rhs {
             Number::Defined(val) => self.max(val),
@@ -143,6 +160,7 @@ impl MinMax<Number, f32> for f32 {
 }
 
 impl ToNumber for f32 {
+    #[inline]
     fn to_number(self) -> Number {
         Number::Defined(self)
     }
@@ -151,6 +169,7 @@ impl ToNumber for f32 {
 impl ops::Add<f32> for Number {
     type Output = Number;
 
+    #[inline]
     fn add(self, rhs: f32) -> Number {
         match self {
             Number::Defined(val) => Number::Defined(val + rhs),
@@ -162,6 +181,7 @@ impl ops::Add<f32> for Number {
 impl ops::Add<Number> for Number {
     type Output = Number;
 
+    #[inline]
     fn add(self, rhs: Number) -> Number {
         match self {
             Number::Defined(val) => match rhs {
@@ -176,6 +196,7 @@ impl ops::Add<Number> for Number {
 impl ops::Sub<f32> for Number {
     type Output = Number;
 
+    #[inline]
     fn sub(self, rhs: f32) -> Number {
         match self {
             Number::Defined(val) => Number::Defined(val - rhs),
@@ -187,6 +208,7 @@ impl ops::Sub<f32> for Number {
 impl ops::Sub<Number> for Number {
     type Output = Number;
 
+    #[inline]
     fn sub(self, rhs: Number) -> Number {
         match self {
             Number::Defined(val) => match rhs {
@@ -201,6 +223,7 @@ impl ops::Sub<Number> for Number {
 impl ops::Mul<f32> for Number {
     type Output = Number;
 
+    #[inline]
     fn mul(self, rhs: f32) -> Number {
         match self {
             Number::Defined(val) => Number::Defined(val * rhs),
@@ -212,6 +235,7 @@ impl ops::Mul<f32> for Number {
 impl ops::Mul<Number> for Number {
     type Output = Number;
 
+    #[inline]
     fn mul(self, rhs: Number) -> Number {
         match self {
             Number::Defined(val) => match rhs {
@@ -226,6 +250,7 @@ impl ops::Mul<Number> for Number {
 impl ops::Div<f32> for Number {
     type Output = Number;
 
+    #[inline]
     fn div(self, rhs: f32) -> Number {
         match self {
             Number::Defined(val) => Number::Defined(val / rhs),
@@ -237,6 +262,7 @@ impl ops::Div<f32> for Number {
 impl ops::Div<Number> for Number {
     type Output = Number;
 
+    #[inline]
     fn div(self, rhs: Number) -> Number {
         match self {
             Number::Defined(val) => match rhs {

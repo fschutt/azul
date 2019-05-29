@@ -1,7 +1,8 @@
 #wrapper {
-    width: 500px;
-    height: 500px;
-    background: green;
+    width: 200px;
+    height: 200px;
+    background: linear-gradient(#e66465, #9198e5);
+    border-radius: 50px;
 }
 
 .test {

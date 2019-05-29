@@ -48,6 +48,13 @@ pub struct InlineTextLayout {
     pub lines: Vec<LayoutRect>,
 }
 
+impl InlineTextLayout {
+    #[inline]
+    pub fn get_bounds(&self) -> LayoutRect {
+        LayoutRect::union(self.lines.iter().map(|c| *c)).unwrap_or(LayoutRect::zero())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct SolvedUi {
     pub solved_rects: NodeDataContainer<PositionedRectangle>,
@@ -60,6 +67,25 @@ pub enum RectContent<T: GetTextLayout> {
     /// Gives access an anonymous struct which, given the text bounds,
     /// can be used to calculate the text dimensions
     Text(T),
+}
+
+impl<T: GetTextLayout> RectContent<T> {
+
+    pub fn is_text(&self) -> bool {
+        use self::RectContent::*;
+        match self {
+            Image(_, _) => false,
+            Text(_) => true,
+        }
+    }
+
+    pub fn is_image(&self) -> bool {
+        use self::RectContent::*;
+        match self {
+            Image(_, _) => true,
+            Text(_) => false,
+        }
+    }
 }
 
 impl SolvedUi {
