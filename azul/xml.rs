@@ -248,6 +248,7 @@ impl<T> XmlComponent<T> for DynamicXmlComponent {
     ) -> Result<Dom<T>, RenderDomError> {
 
         let mut dom = Dom::div();
+
         for child_node in &self.root.children {
             dom.add_child(render_dom_from_app_node_inner(child_node, components, arguments)?);
         }
@@ -678,14 +679,12 @@ pub fn str_to_rust_code<T>(
     let components_source = compile_components_to_rust_code(&component_map)?;
     let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
 
-    Ok(
-        format!("{}\r\n{}\r\n{}\r\n{}",
-            HEADER_WARNING,
-            imports,
-            compile_components(components_source),
-            app_source,
-        )
-    )
+    let source_code = format!("{}\r\n{}\r\n{}\r\n{}", HEADER_WARNING, imports,
+        compile_components(components_source),
+        app_source,
+    );
+
+    Ok(source_code)
 }
 
 fn format_component_args(component_args: &FilteredComponentArguments) -> String {

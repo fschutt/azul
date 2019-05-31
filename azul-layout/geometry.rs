@@ -32,8 +32,6 @@ pub struct Rect {
     pub margin: ResolvedOffsets,
     pub padding: ResolvedOffsets,
     pub border_widths: ResolvedOffsets,
-    /// If the rectangle was affected by a top / left, etc. attribute, how much was it shifted in x / y position
-    pub position_shift: RectOrigin,
 }
 
 impl Rect {
@@ -44,7 +42,6 @@ impl Rect {
             margin: ResolvedOffsets::zero(),
             padding: ResolvedOffsets::zero(),
             border_widths: ResolvedOffsets::zero(),
-            position_shift: RectOrigin::undefined(),
         }
     }
 }
