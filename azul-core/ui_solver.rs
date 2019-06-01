@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
-use azul_css::{LayoutRect, PixelValue, LayoutSize, StyleFontSize, StyleTextColor, ColorU as StyleColorU};
+use azul_css::{
+    LayoutRect, PixelValue, LayoutSize, StyleFontSize,
+    StyleTextColor, ColorU as StyleColorU, Overflow,
+};
 use {
     app_resources::{Words, ScaledWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
     id_tree::{NodeId, NodeDataContainer},
@@ -40,7 +43,6 @@ pub struct ScrolledNodes {
 
 #[derive(Debug, Clone)]
 pub struct OverflowingScrollNode {
-    pub parent_rect: PositionedRectangle,
     pub child_rect: LayoutRect,
     pub parent_external_scroll_id: ExternalScrollId,
     pub parent_dom_hash: DomHash,
@@ -140,4 +142,6 @@ pub struct PositionedRectangle {
     /// If this is an inline rectangle, resolve the %-based font sizes
     /// and store them here.
     pub resolved_text_layout_options: Option<(ResolvedTextLayoutOptions, InlineTextLayout, LayoutRect)>,
+    /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
+    pub overflow: Overflow,
 }

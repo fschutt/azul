@@ -44,7 +44,7 @@ use azul_core::{
     },
     display_list::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
-        DisplayListFrame, DisplayListRect, DisplayListRectContent, DisplayListMsg,
+        DisplayListFrame, LayoutRectContent, DisplayListMsg,
         FontInstanceFlags, GlyphOptions, AlphaType, FontRenderMode, ImageRendering,
         StyleBorderRadius,
     },
@@ -52,7 +52,7 @@ use azul_core::{
     window::LogicalSize,
 };
 use azul_css::{
-    LayoutSize, LayoutPoint,
+    LayoutSize, LayoutPoint, LayoutRect,
     ColorU as CssColorU,
     ColorF as CssColorF,
     BorderSide as CssBorderSide,
@@ -528,7 +528,7 @@ fn wr_translate_layout_point(input: LayoutPoint) -> WrLayoutPoint {
 }
 
 #[inline]
-fn wr_translate_layout_rect(input: DisplayListRect) -> WrLayoutRect {
+fn wr_translate_layout_rect(input: LayoutRect) -> WrLayoutRect {
     WrLayoutRect::new(wr_translate_layout_point(input.origin), wr_translate_layout_size(input.size))
 }
 
@@ -543,8 +543,8 @@ fn translate_layout_point_wr(input: WrLayoutPoint) -> LayoutPoint {
 }
 
 #[inline]
-fn translate_layout_rect_wr(input: WrLayoutRect) -> DisplayListRect {
-    DisplayListRect::new(translate_layout_point_wr(input.origin), translate_layout_size_wr(input.size))
+fn translate_layout_rect_wr(input: WrLayoutRect) -> LayoutRect {
+    LayoutRect::new(translate_layout_point_wr(input.origin), translate_layout_size_wr(input.size))
 }
 
 #[inline]
@@ -665,7 +665,6 @@ fn push_scroll_frame(builder: &mut WrDisplayListBuilder, scroll_frame: DisplayLi
     };
 
     let wr_rect = wr_translate_layout_rect(scroll_frame.frame.rect);
-    let wr_scroll_frame_size = wr_translate_layout_size(scroll_frame.content_size);
     let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.rect.size);
 
     let scroll_frame_clip_region = WrComplexClipRegion::new(wr_rect, wr_border_radius, WrClipMode::Clip);
@@ -679,7 +678,7 @@ fn push_scroll_frame(builder: &mut WrDisplayListBuilder, scroll_frame: DisplayLi
 
     let scroll_frame_clip_id = builder.define_scroll_frame(
         /* external id*/ Some(wr_translate_external_scroll_id(scroll_frame.scroll_id)),
-        /* content_rect */ WrLayoutRect { origin: wr_rect.origin, size: wr_scroll_frame_size },
+        /* content_rect */ wr_translate_layout_rect(scroll_frame.content_rect),
         /* clip_rect */ wr_translate_layout_rect(scroll_frame.frame.clip_rect.unwrap_or(scroll_frame.frame.rect)),
         /* complex_clips */ vec![scroll_frame_clip_region],
         /* image_mask */ None,
@@ -701,12 +700,12 @@ fn push_scroll_frame(builder: &mut WrDisplayListBuilder, scroll_frame: DisplayLi
 #[inline]
 fn push_display_list_content(
     builder: &mut WrDisplayListBuilder,
-    content: DisplayListRectContent,
+    content: LayoutRectContent,
     info: &WrLayoutPrimitiveInfo,
     radii: StyleBorderRadius,
 ) {
 
-    use azul_core::display_list::DisplayListRectContent::*;
+    use azul_core::display_list::LayoutRectContent::*;
 
     match content {
         Text { glyphs, font_instance_key, color, glyph_options, clip } => {
@@ -735,9 +734,9 @@ mod text {
     };
     use azul_core::{
         app_resources::FontInstanceKey,
-        display_list::{GlyphOptions, GlyphInstance, DisplayListRect},
+        display_list::{GlyphOptions, GlyphInstance},
     };
-    use azul_css::ColorU;
+    use azul_css::{ColorU, LayoutRect};
 
     pub(in super) fn push_text(
          builder: &mut WrDisplayListBuilder,
@@ -746,7 +745,7 @@ mod text {
          font_instance_key: FontInstanceKey,
          color: ColorU,
          glyph_options: Option<GlyphOptions>,
-         clip: Option<DisplayListRect>,
+         clip: Option<LayoutRect>,
     ) {
         use super::{
             wr_translate_layouted_glyphs, wr_translate_font_instance_key,
@@ -1096,9 +1095,9 @@ mod image {
 
 mod box_shadow {
 
-    use azul_css::{BoxShadowClipMode, ColorF, BoxShadowPreDisplayItem};
+    use azul_css::{BoxShadowClipMode, LayoutRect, ColorF, BoxShadowPreDisplayItem};
     use azul_core::{
-        display_list::{StyleBoxShadow, DisplayListRect, StyleBorderRadius},
+        display_list::{StyleBoxShadow, StyleBorderRadius},
     };
     use webrender::api::{
         LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
@@ -1119,7 +1118,7 @@ mod box_shadow {
     #[inline]
     pub(in super) fn push_box_shadow(
         builder: &mut WrDisplayListBuilder,
-        bounds: DisplayListRect,
+        bounds: LayoutRect,
         shadow_type: BoxShadowClipMode,
         box_shadow: StyleBoxShadow,
         border_radius: StyleBorderRadius,
@@ -1217,7 +1216,7 @@ mod box_shadow {
     fn push_single_box_shadow_edge(
             builder: &mut WrDisplayListBuilder,
             current_shadow: &BoxShadowPreDisplayItem,
-            bounds: DisplayListRect,
+            bounds: LayoutRect,
             border_radius: StyleBorderRadius,
             shadow_type: BoxShadowClipMode,
             top: &Option<BoxShadowPreDisplayItem>,
@@ -1292,8 +1291,8 @@ mod box_shadow {
         builder: &mut WrDisplayListBuilder,
         pre_shadow: BoxShadowPreDisplayItem,
         border_radius: StyleBorderRadius,
-        bounds: DisplayListRect,
-        clip_rect: DisplayListRect,
+        bounds: LayoutRect,
+        clip_rect: LayoutRect,
         shadow_type: BoxShadowClipMode,
     ) {
         use webrender::api::{LayoutRect, LayoutPoint, LayoutVector2D};
@@ -1344,7 +1343,7 @@ mod box_shadow {
         }
     }
 
-    fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: DisplayListRect) -> DisplayListRect {
+    fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: LayoutRect) -> LayoutRect {
         if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
             // inset shadows do not work like outset shadows
             // for inset shadows, you have to push a clip ID first, so that they are

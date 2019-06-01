@@ -34,7 +34,7 @@ use azul_core::{
         LayoutResult, ScrolledNodes, OverflowingScrollNode
     },
     display_list::{
-        CachedDisplayList, DisplayListMsg, DisplayListRect, DisplayListRectContent,
+        CachedDisplayList, DisplayListMsg, LayoutRectContent,
         ImageRendering, AlphaType, DisplayListFrame, StyleBoxShadow, DisplayListScrollFrame,
         StyleBorderStyles, StyleBorderColors, StyleBorderRadius, StyleBorderWidths,
     },
@@ -328,7 +328,7 @@ struct ContentGroupOrder {
 
 /// Parameters that apply to a single rectangle / div node
 #[derive(Copy, Clone)]
-pub(crate) struct DisplayListRectParams<'a, T: 'a> {
+pub(crate) struct LayoutRectParams<'a, T: 'a> {
     pub epoch: Epoch,
     pub rect_idx: NodeId,
     pub html_node: &'a NodeType<T>,
@@ -471,6 +471,8 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
     pipeline_id: PipelineId,
 ) -> ScrolledNodes {
 
+    use azul_css::Overflow;
+
     let mut nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
 
@@ -481,9 +483,31 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
             Some(sum) => sum,
         };
 
-        let parent_rect = layouted_rects.get(*parent).unwrap();
+        // Since there can be a small floating point error, round the item to the nearest pixel, then compare the rects
+        fn contains_rect_rounded(a: &LayoutRect, b: LayoutRect) -> bool {
+            let a_x = a.origin.x.round() as isize;
+            let a_y = a.origin.x.round() as isize;
+            let a_width = a.size.width.round() as isize;
+            let a_height = a.size.height.round() as isize;
 
-        if children_sum_rect.contains_rect(&parent_rect.bounds) {
+            let b_x = b.origin.x.round() as isize;
+            let b_y = b.origin.x.round() as isize;
+            let b_width = b.size.width.round() as isize;
+            let b_height = b.size.height.round() as isize;
+
+            b_x >= a_x &&
+            b_y >= a_y &&
+            b_x + b_width <= a_x + a_width &&
+            b_y + b_height <= a_y + a_height
+        }
+
+        let parent_rect = &layouted_rects[*parent];
+        if contains_rect_rounded(&parent_rect.bounds, children_sum_rect) {
+            continue;
+        }
+
+        // If the overflow isn't "scroll", then there doesn't need to be a scroll frame
+        if parent_rect.overflow == Overflow::Visible || parent_rect.overflow == Overflow::Hidden {
             continue;
         }
 
@@ -501,7 +525,6 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
         tags_to_node_ids.insert(scroll_tag_id, *parent);
         nodes.insert(*parent, OverflowingScrollNode {
-            parent_rect: parent_rect.clone(),
             child_rect: children_sum_rect,
             parent_external_scroll_id,
             parent_dom_hash,
@@ -663,7 +686,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
 
     let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| {
 
-        let rectangle = DisplayListRectParams {
+        let rectangle = LayoutRectParams {
             epoch,
             rect_idx: content_group.root.node_id,
             html_node: referenced_content.node_data[content_group.root.node_id].get_node_type(),
@@ -679,7 +702,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
 
         let children = content_group.node_ids.iter().map(|item| {
 
-            let rectangle = DisplayListRectParams {
+            let rectangle = LayoutRectParams {
                 epoch,
                 rect_idx: item.node_id,
                 html_node: referenced_content.node_data[item.node_id].get_node_type(),
@@ -704,7 +727,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
 
     match scrollable_nodes.overflowing_nodes.get(&NodeId::ZERO) {
         Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
-            content_size: scroll_node.child_rect.size,
+            content_rect: scroll_node.child_rect,
             scroll_id: scroll_node.parent_external_scroll_id,
             scroll_tag: scroll_node.scroll_tag_id,
             frame: root,
@@ -716,18 +739,18 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
 /// Push a single rectangle into the display list builder
 fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     scrollable_nodes: &mut ScrolledNodes,
-    rectangle: &DisplayListRectParams<'a, T>,
+    rectangle: &LayoutRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'g, T, U>,
 ) -> DisplayListMsg {
 
     let DisplayListParametersRef { display_rectangle_arena, layout_result, .. } = referenced_content;
-    let DisplayListRectParams { rect_idx, html_node, window_size, .. } = rectangle;
+    let LayoutRectParams { rect_idx, html_node, window_size, .. } = rectangle;
 
     let rect = &display_rectangle_arena[*rect_idx];
     let bounds = layout_result.rects[*rect_idx].bounds;
 
-    let display_list_rect_bounds = DisplayListRect::new(
+    let display_list_rect_bounds = LayoutRect::new(
          LayoutPoint::new(bounds.origin.x, bounds.origin.y),
          LayoutSize::new(bounds.size.width, bounds.size.height),
     );
@@ -753,7 +776,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     };
 
     if rect.style.has_box_shadow() {
-        frame.content.push(DisplayListRectContent::BoxShadow {
+        frame.content.push(LayoutRectContent::BoxShadow {
             shadow: StyleBoxShadow {
                 left: rect.style.box_shadow_left,
                 right: rect.style.box_shadow_right,
@@ -785,7 +808,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
         };
 
         if let Some(background_content) = background_content {
-            frame.content.push(DisplayListRectContent::Background {
+            frame.content.push(LayoutRectContent::Background {
                 content: background_content,
                 size: rect.style.background_size.and_then(|bs| bs.get_property().cloned()),
                 offset: rect.style.background_position.and_then(|bs| bs.get_property().cloned()),
@@ -795,7 +818,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     }
 
     if rect.style.has_border() {
-        frame.content.push(DisplayListRectContent::Border {
+        frame.content.push(LayoutRectContent::Border {
             widths: StyleBorderWidths {
                 top: rect.layout.border_top_width,
                 left: rect.layout.border_left_width,
@@ -842,7 +865,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
         },
         Image(image_id) => {
             if let Some(image_info) = referenced_mutable_content.app_resources.get_image_info(image_id) {
-                frame.content.push(DisplayListRectContent::Image {
+                frame.content.push(LayoutRectContent::Image {
                     size: LayoutSize::new(bounds.size.width, bounds.size.height),
                     offset: LayoutPoint::new(0.0, 0.0),
                     image_rendering: ImageRendering::Auto,
@@ -861,7 +884,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     };
 
     if rect.style.has_box_shadow() {
-        frame.content.push(DisplayListRectContent::BoxShadow {
+        frame.content.push(LayoutRectContent::BoxShadow {
             shadow: StyleBoxShadow {
                 left: rect.style.box_shadow_left,
                 right: rect.style.box_shadow_right,
@@ -874,7 +897,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
 
     match scrollable_nodes.overflowing_nodes.get(&rect_idx) {
         Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
-            content_size: scroll_node.child_rect.size,
+            content_rect: scroll_node.child_rect,
             scroll_id: scroll_node.parent_external_scroll_id,
             scroll_tag: scroll_node.scroll_tag_id,
             frame,
@@ -887,9 +910,9 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
 fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     (texture_callback, texture_stack_ptr): &(GlCallback<T>, StackCheckedPointer<T>),
     bounds: LayoutRect,
-    rectangle: &DisplayListRectParams<'a, T>,
+    rectangle: &LayoutRectParams<'a, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
-) -> DisplayListRectContent {
+) -> LayoutRectContent {
 
     use gleam::gl;
     use {
@@ -969,7 +992,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         ImageInfo { key, descriptor }
     )));
 
-    DisplayListRectContent::Image {
+    LayoutRectContent::Image {
         size: LayoutSize::new(texture_width as f32, texture_height as f32),
         offset: LayoutPoint::new(0.0, 0.0),
         image_rendering: ImageRendering::Auto,
@@ -984,7 +1007,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     rect: LayoutRect,
     parent_scrollable_nodes: &mut ScrolledNodes,
-    rectangle: &DisplayListRectParams<'a, T>,
+    rectangle: &LayoutRectParams<'a, T>,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
@@ -1087,14 +1110,14 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 }
 
 fn get_text(
-    bounds: DisplayListRect,
+    bounds: LayoutRect,
     padding: &ResolvedOffsets,
     root_window_size: LayoutSize,
     layouted_glyphs: LayoutedGlyphs,
     font_instance_key: FontInstanceKey,
     font_color: ColorU,
     rect_layout: &RectLayout,
-) -> DisplayListRectContent {
+) -> LayoutRectContent {
 
     let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
@@ -1107,21 +1130,21 @@ fn get_text(
         (false, false) => Some(padding_clip_bounds),
         (true, false) => {
             // Horizontally visible, vertically cut
-            Some(DisplayListRect {
+            Some(LayoutRect {
                 origin: bounds.origin,
                 size: LayoutSize::new(root_window_size.width, padding_clip_bounds.size.height),
             })
         },
         (false, true) => {
             // Vertically visible, horizontally cut
-            Some(DisplayListRect {
+            Some(LayoutRect {
                 origin: bounds.origin,
                 size: LayoutSize::new(padding_clip_bounds.size.width, root_window_size.height),
             })
         },
     };
 
-    DisplayListRectContent::Text {
+    LayoutRectContent::Text {
         glyphs: layouted_glyphs.glyphs,
         font_instance_key,
         color: font_color,
@@ -1133,7 +1156,7 @@ fn get_text(
 /// Subtracts the padding from the bounds, returning the new bounds
 ///
 /// Warning: The resulting rectangle may have negative width or height
-fn subtract_padding(bounds: &DisplayListRect, padding: &ResolvedOffsets) -> DisplayListRect {
+fn subtract_padding(bounds: &LayoutRect, padding: &ResolvedOffsets) -> LayoutRect {
 
     let mut new_bounds = *bounds;
 

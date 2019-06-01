@@ -84,6 +84,8 @@ pub(crate) fn compute<T: GetTextLayout>(
     root_size: LayoutSize,
 ) -> NodeDataContainer<PositionedRectangle> {
 
+    use azul_css::Overflow as LayoutOverflow;
+
     let root_min_size = node_styles[root_id].min_size;
     let root_max_size = node_styles[root_id].max_size;
 
@@ -177,6 +179,11 @@ pub(crate) fn compute<T: GetTextLayout>(
             border_widths: rect.border_widths,
             margin: rect.margin,
             resolved_text_layout_options: resolved_text_layout_options.get(&node_id).cloned(),
+            overflow: match node_styles[node_id].overflow {
+                Overflow::Scroll => LayoutOverflow::Scroll,
+                Overflow::Hidden => LayoutOverflow::Hidden,
+                Overflow::Visible => LayoutOverflow::Visible,
+            },
         }
     })
 }

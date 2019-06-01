@@ -1,6 +1,6 @@
 use std::fmt;
 use azul_css::{
-    LayoutPoint, LayoutSize,
+    LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
     LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
     CssPropertyValue,
@@ -68,25 +68,6 @@ pub struct GlyphInstance {
     pub point: LayoutPoint,
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
-pub struct DisplayListRect {
-    pub origin: LayoutPoint,
-    pub size: LayoutSize,
-}
-
-impl fmt::Debug for DisplayListRect {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-            "{{ origin: {{ x: {}, y: {} }}, size: {{ width: {}, height: {} }} }}",
-            self.origin.x, self.origin.y, self.size.width, self.size.height,
-        )
-    }
-}
-
-impl DisplayListRect {
-    pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct CachedDisplayList {
     pub root: DisplayListMsg,
@@ -132,8 +113,8 @@ impl DisplayListMsg {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListScrollFrame {
-    /// Size of the (overflowing) content of the scroll frame
-    pub content_size: LayoutSize,
+    /// Bounding rect of the (overflowing) content of the scroll frame
+    pub content_rect: LayoutRect,
     /// The scroll ID is the hash of the DOM node, so that scrolling
     /// positions can be tracked across multiple frames
     pub scroll_id: ExternalScrollId,
@@ -145,12 +126,12 @@ pub struct DisplayListScrollFrame {
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub struct DisplayListFrame {
-    pub rect: DisplayListRect,
+    pub rect: LayoutRect,
     /// Border radius, set to none only if overflow: visible is set!
     pub border_radius: StyleBorderRadius,
-    pub clip_rect: Option<DisplayListRect>,
+    pub clip_rect: Option<LayoutRect>,
     pub tag: Option<ItemTag>,
-    pub content: Vec<DisplayListRectContent>,
+    pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
 }
 
@@ -179,7 +160,7 @@ impl DisplayListFrame {
         DisplayListFrame {
             tag: None,
             clip_rect: None,
-            rect: DisplayListRect {
+            rect: LayoutRect {
                 origin: LayoutPoint { x: 0.0, y: 0.0 },
                 size: dimensions,
             },
@@ -292,13 +273,13 @@ pub struct StyleBoxShadow {
 tlbr_debug!(StyleBoxShadow);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum DisplayListRectContent {
+pub enum LayoutRectContent {
     Text {
         glyphs: Vec<GlyphInstance>,
         font_instance_key: FontInstanceKey,
         color: ColorU,
         glyph_options: Option<GlyphOptions>,
-        clip: Option<DisplayListRect>,
+        clip: Option<LayoutRect>,
     },
     Background {
         content: RectBackground,
