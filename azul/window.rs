@@ -287,6 +287,7 @@ pub struct Window<T> {
 pub(crate) struct ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
+
     pub fn new() -> ScrollStates {
         ScrollStates(FastHashMap::default())
     }
