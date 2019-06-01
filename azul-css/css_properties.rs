@@ -2278,6 +2278,20 @@ impl Default for ScrollbarInfo {
     }
 }
 
+/// Width and height of the scrollbars at the side of the text field.
+///
+/// This information is necessary in order to reserve space at
+/// the side of the text field so that the text doesn't overlap the scrollbar.
+/// In some cases (when the scrollbar is set to "auto"), the scrollbar space
+/// is only taken up when the text overflows the rectangle itself.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ScrollbarStyle {
+    /// Vertical scrollbar style, if any
+    pub horizontal: Option<ScrollbarInfo>,
+    /// Horizontal scrollbar style, if any
+    pub vertical: Option<ScrollbarInfo>,
+}
+
 impl RectStyle {
 
     pub fn get_horizontal_scrollbar_style(&self) -> ScrollbarInfo {

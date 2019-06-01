@@ -360,6 +360,10 @@ pub struct ScaledWord {
     pub glyph_positions: Vec<GlyphPosition>,
     /// The sum of the width of all the characters in this word
     pub word_width: f32,
+    /// Height of the largest character in this word
+    pub word_height: f32,
+    ///
+    pub word_descent: f32,
 }
 
 /// Stores the positions of the vertically laid out texts

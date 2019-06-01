@@ -1,7 +1,7 @@
 #![allow(unused_variables, dead_code)]
 
 use azul_css::{
-    StyleTextAlignmentHorz, StyleTextAlignmentVert, ScrollbarInfo,
+    StyleTextAlignmentHorz, StyleTextAlignmentVert,
     LayoutSize, LayoutRect, LayoutPoint,
 };
 pub use azul_core::{
@@ -17,20 +17,6 @@ pub use azul_core::{
 pub(crate) use azul_core::ui_solver::{
     DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
 };
-
-/// Width and height of the scrollbars at the side of the text field.
-///
-/// This information is necessary in order to reserve space at
-/// the side of the text field so that the text doesn't overlap the scrollbar.
-/// In some cases (when the scrollbar is set to "auto"), the scrollbar space
-/// is only taken up when the text overflows the rectangle itself.
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
-pub struct ScrollbarStyle {
-    /// Vertical scrollbar style, if any
-    pub horizontal: Option<ScrollbarInfo>,
-    /// Horizontal scrollbar style, if any
-    pub vertical: Option<ScrollbarInfo>,
-}
 
 /// Given the scale of words + the word positions, lays out the words in a
 #[derive(Debug, Clone, PartialEq)]
@@ -174,6 +160,7 @@ pub fn words_to_scaled_words(
 
     use text_shaping::{self, HbBuffer, HbFont, HbScaledFont};
     use std::mem;
+    use std::char;
 
     let hb_font = HbFont::from_bytes(font_bytes, font_index);
     let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size_px);
@@ -184,7 +171,9 @@ pub fn words_to_scaled_words(
     let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / 128.0; // TODO: Half width for spaces?
     let space_codepoint = hb_shaped_space.glyph_infos[0].codepoint;
 
-    let hb_buffer_entire_paragraph = HbBuffer::from_str(&words.internal_str);
+    let internal_str = words.internal_str.replace(char::is_whitespace, " ");
+
+    let hb_buffer_entire_paragraph = HbBuffer::from_str(&internal_str);
     let hb_shaped_entire_paragraph = text_shaping::shape_word_hb(&hb_buffer_entire_paragraph, &hb_scaled_font);
 
     let mut shaped_word_positions = Vec::<Vec<GlyphPosition>>::new();
@@ -225,6 +214,7 @@ pub fn words_to_scaled_words(
             let hb_glyph_positions = shaped_word_positions.get(word_idx)?.clone();
             let hb_glyph_infos = shaped_word_infos.get(word_idx)?.clone();
             let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_glyph_positions);
+            let (hb_word_height, hb_word_descent) = text_shaping::get_word_visual_height_hb(&hb_glyph_positions);
 
             longest_word_width = longest_word_width.max(hb_word_width.abs());
 
@@ -232,8 +222,12 @@ pub fn words_to_scaled_words(
                 glyph_infos: hb_glyph_infos,
                 glyph_positions: hb_glyph_positions,
                 word_width: hb_word_width,
+                word_height: hb_word_height,
+                word_descent: hb_word_descent,
             })
         }).collect();
+
+    println!("--------");
 
     ScaledWords {
         items: scaled_words,

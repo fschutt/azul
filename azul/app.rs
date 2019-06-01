@@ -303,7 +303,7 @@ impl<T> App<T> {
             for window_id in window_ids {
                 let ui_state = {
                         #[cfg(debug_assertions)] {
-                        let (css_has_reloaded, css_has_error) = match hot_reload_css(&mut self.windows, &mut Instant::now(), true) {
+                        let (_, css_has_error) = match hot_reload_css(&mut self.windows, &mut Instant::now(), true) {
                             Ok(has_reloaded) => (has_reloaded, None),
                             Err(css_error) => (true, Some(css_error)),
                         };

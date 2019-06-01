@@ -236,6 +236,24 @@ pub(crate) fn get_word_visual_width_hb(glyph_positions: &[GlyphPosition]) -> f32
     glyph_positions.iter().map(|pos| pos.x_advance as f32 / HB_SCALE_FACTOR).sum()
 }
 
+pub(crate) fn get_word_visual_height_hb(glyph_positions: &[GlyphPosition]) -> (f32, f32) {
+    /*
+    x_bearing: hb_position_t
+    y_bearing: hb_position_t
+    width: hb_position_t
+    height: hb_position_t
+    */
+    /*
+    pub unsafe extern "C" fn hb_font_get_glyph_extents(
+        font: *mut hb_font_t,
+        glyph: hb_codepoint_t,
+        extents: *mut hb_glyph_extents_t
+    ) -> hb_bool_t
+    */
+    // let (hb_word_height, hb_word_descent) = text_shaping::get_word_visual_height_hb(&hb_glyph_positions);
+    (0.0, 0.0)
+}
+
 pub(crate) fn get_glyph_instances_hb(
     glyph_infos: &[GlyphInfo],
     glyph_positions: &[GlyphPosition],
