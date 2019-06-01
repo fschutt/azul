@@ -402,7 +402,7 @@ impl<T> App<T> {
             };
 
             #[cfg(not(debug_assertions))]
-            let css_has_error = false;
+            let css_has_error: Option<String> = None;
 
             #[cfg(not(debug_assertions))]
             let css_has_reloaded = false;
