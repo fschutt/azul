@@ -12,7 +12,7 @@ use webrender::{
     PipelineInfo, Renderer,
     api::{
         HitTestFlags, DevicePixel, WorldPoint,
-        LayoutSize, LayoutPoint, Epoch, Transaction,
+        LayoutSize, Epoch, Transaction,
     },
 };
 #[cfg(feature = "image_loading")]
@@ -716,10 +716,10 @@ fn hit_test_single_window<T>(
         &window.display.gl_window()
     );
 
+    app_state.windows.get_mut(window_id).unwrap().state = window::full_window_state_to_window_state(full_window_state);
+
     // Reset the scroll amount to 0 (for the next frame)
     window::clear_scroll_state(full_window_state);
-
-    app_state.windows.get_mut(window_id).unwrap().state = window::full_window_state_to_window_state(full_window_state);
 
     Ok(ret)
 }
@@ -983,6 +983,9 @@ fn update_display_list<T>(
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
+    // Make sure unused scroll states are garbage collected.
+    window.scroll_states.remove_unused_scroll_states();
+
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
     let CachedDisplayListResult {
@@ -999,9 +1002,8 @@ fn update_display_list<T>(
         &mut fake_display.render_api,
     );
 
-    println!("cached display list: {:#?}", cached_display_list.root);
-
     add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
+
     window.internal.layout_result = layout_result;
     window.internal.scrolled_nodes = scrollable_nodes;
     window.internal.cached_display_list = cached_display_list.clone();
@@ -1030,10 +1032,13 @@ fn update_display_list<T>(
 /// indicate whether it was used during the current frame or not.
 fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
     use webrender::api::ScrollClamping;
-    use wr_translate::wr_translate_external_scroll_id;
+    use wr_translate::{wr_translate_external_scroll_id, wr_translate_layout_point};
     for (key, value) in scroll_states.0.iter_mut() {
-        let (x, y) = value.get();
-        txn.scroll_node_with_id(LayoutPoint::new(x, y), wr_translate_external_scroll_id(*key), ScrollClamping::ToContentBounds);
+        txn.scroll_node_with_id(
+            wr_translate_layout_point(value.get()),
+            wr_translate_external_scroll_id(*key),
+            ScrollClamping::ToContentBounds
+        );
     }
 }
 
@@ -1074,13 +1079,8 @@ fn update_scroll_state(
         .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id)) {
 
         // The external scroll ID is constructed from the DOM hash
-        let scroll_id = scroll_node.parent_external_scroll_id;
-
-        if scroll_states.0.contains_key(&scroll_id) {
-            // TODO: make scroll speed configurable (system setting?)
-            scroll_states.scroll_node(&scroll_id, scroll_x as f32, scroll_y as f32);
-            should_scroll_render = true;
-        }
+        scroll_states.scroll_node(&scroll_node, scroll_x as f32, scroll_y as f32);
+        should_scroll_render = true;
     }
 
     should_scroll_render
@@ -1169,6 +1169,7 @@ fn render_inner<T>(
         window.state.size.hidpi_factor as f32
     );
     txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(window.internal.pipeline_id));
+    println!("scrolling nodes: {:#?}", window.scroll_states);
     scroll_all_nodes(&mut window.scroll_states, &mut txn);
     txn.generate_frame();
 

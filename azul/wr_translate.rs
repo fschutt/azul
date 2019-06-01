@@ -523,7 +523,7 @@ fn wr_translate_layout_size(input: LayoutSize) -> WrLayoutSize {
 }
 
 #[inline]
-fn wr_translate_layout_point(input: LayoutPoint) -> WrLayoutPoint {
+pub(crate) fn wr_translate_layout_point(input: LayoutPoint) -> WrLayoutPoint {
     WrLayoutPoint::new(input.x, input.y)
 }
 

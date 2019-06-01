@@ -21,7 +21,7 @@ use glium::{
     backend::glutin::DisplayCreationError,
 };
 use gleam::gl::{self, Gl};
-use azul_css::{Css, ColorU};
+use azul_css::{Css, ColorU, LayoutPoint, LayoutRect};
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
 use {
@@ -32,7 +32,7 @@ use {
 use azul_core::{
     callbacks::PipelineId,
     window::WindowId,
-    ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult},
+    ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
     display_list::CachedDisplayList,
 };
 pub use webrender::api::HitTestItem;
@@ -284,31 +284,33 @@ pub struct Window<T> {
     marker: PhantomData<T>,
 }
 
+#[derive(Debug, Default)]
 pub(crate) struct ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
 
     pub fn new() -> ScrollStates {
-        ScrollStates(FastHashMap::default())
+        ScrollStates::default()
+    }
+
+    #[must_use]
+    pub fn get_scroll_amount(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+        self.0.get_mut(&scroll_id).map(|entry| entry.get())
     }
 
     /// NOTE: This has to be a getter, because we need to update
     #[must_use]
-    pub(crate) fn get_scroll_amount(&mut self, scroll_id: &ExternalScrollId) -> Option<(f32, f32)> {
+    pub(crate) fn get_scroll_amount_internal(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
         let entry = self.0.get_mut(&scroll_id)?;
-        Some(entry.get())
+        Some(entry.get_internal())
     }
 
     /// Updating the scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub(crate) fn scroll_node(&mut self, scroll_id: &ExternalScrollId, scroll_by_x: f32, scroll_by_y: f32) {
-        if let Some(entry) = self.0.get_mut(scroll_id) {
-            entry.add(scroll_by_x, scroll_by_y);
-        }
-    }
-
-    pub(crate) fn ensure_initialized_scroll_state(&mut self, scroll_id: ExternalScrollId, overflow_x: f32, overflow_y: f32) {
-        self.0.entry(scroll_id).or_insert_with(|| ScrollState::new(overflow_x, overflow_y));
+    pub(crate) fn scroll_node(&mut self, node: &OverflowingScrollNode, scroll_by_x: f32, scroll_by_y: f32) {
+        self.0.entry(node.parent_external_scroll_id)
+        .or_insert_with(|| ScrollState::default())
+        .add(scroll_by_x, scroll_by_y, &node.child_rect);
     }
 
     /// Removes all scroll states that weren't used in the last frame
@@ -320,44 +322,41 @@ impl ScrollStates {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ScrollState {
     /// Amount in pixel that the current node is scrolled
-    scroll_amount_x: f32,
-    scroll_amount_y: f32,
-    overflow_x: f32,
-    overflow_y: f32,
+    scroll_position: LayoutPoint,
     /// Was the scroll amount used in this frame?
     used_this_frame: bool,
 }
 
 impl ScrollState {
 
-    fn new(overflow_x: f32, overflow_y: f32) -> Self {
-        ScrollState {
-            scroll_amount_x: 0.0,
-            scroll_amount_y: 0.0,
-            overflow_x,
-            overflow_y,
-            used_this_frame: true,
-        }
+    /// Return the current position of the scroll state
+    pub fn get(&mut self) -> LayoutPoint {
+        self.scroll_position
     }
 
-    pub fn get(&mut self) -> (f32, f32) {
+    /// Add a scroll X / Y onto the existing scroll state
+    pub fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
+        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
+        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
+    }
+
+    /// Set the scroll state to a new position
+    pub fn set(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
+        self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
+        self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
+    }
+
+    /// Returns the scroll position and also set the "used_this_frame" flag
+    pub(crate) fn get_internal(&mut self) -> LayoutPoint {
         self.used_this_frame = true;
-        (self.scroll_amount_x, self.scroll_amount_y)
-    }
-
-    pub fn add(&mut self, x: f32, y: f32) {
-        self.scroll_amount_x = self.overflow_x.min(self.scroll_amount_x + x).max(0.0);
-        self.scroll_amount_y = self.overflow_y.min(self.scroll_amount_y + y).max(0.0);
+        self.scroll_position
     }
 }
 
 impl Default for ScrollState {
     fn default() -> Self {
         ScrollState {
-            scroll_amount_x: 0.0,
-            scroll_amount_y: 0.0,
-            overflow_x: 0.0,
-            overflow_y: 0.0,
+            scroll_position: LayoutPoint::zero(),
             used_this_frame: true,
         }
     }

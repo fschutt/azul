@@ -638,9 +638,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
         &layout_result.node_depths, window.internal.pipeline_id
     );
 
-    // Make sure unused scroll states are garbage collected.
-    window.scroll_states.remove_unused_scroll_states();
-
     let root_node = push_rectangles_into_displaylist(
         window.internal.epoch,
         window.state.size,
