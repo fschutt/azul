@@ -227,8 +227,6 @@ pub fn words_to_scaled_words(
             })
         }).collect();
 
-    println!("--------");
-
     ScaledWords {
         items: scaled_words,
         longest_word_width: longest_word_width,
@@ -471,18 +469,17 @@ pub fn get_layouted_glyphs(
 }
 
 /// Returns the (left-aligned!) bounding boxes of the indidividual text lines
-pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions) -> InlineTextLayout {
+pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scaled_words: &ScaledWords) -> InlineTextLayout {
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
+    let space_advance = scaled_words.space_advance_px;
+    let line_height_px = space_advance * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
     let content_width = word_positions.content_size.width;
 
-    let mut line_pos_y = 0.0;
     InlineTextLayout {
-        lines: word_positions.line_breaks.iter().map(|(_, line_length)| {
-            let rect_y = line_pos_y;
-            line_pos_y += font_size_px;
+        lines: word_positions.line_breaks.iter().enumerate().map(|(line_number, (_, line_length))| {
             LayoutRect {
-                origin: LayoutPoint { x: 0.0, y: rect_y },
+                origin: LayoutPoint { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) },
                 size: LayoutSize { width: *line_length, height: font_size_px },
             }
         }).collect(),
@@ -490,8 +487,8 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions) -> I
 }
 
 /// Given a width, returns the vertical height and width of the text
-pub fn get_positioned_word_bounding_box(word_positions: &WordPositions) -> LayoutRect {
-    word_positions_to_inline_text_layout(word_positions).get_bounds()
+pub fn get_positioned_word_bounding_box(word_positions: &WordPositions, scaled_words: &ScaledWords) -> LayoutRect {
+    word_positions_to_inline_text_layout(word_positions, scaled_words).get_bounds()
 }
 
 pub fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {

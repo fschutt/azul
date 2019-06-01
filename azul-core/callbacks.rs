@@ -2,7 +2,7 @@ use std::{
     fmt,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use azul_css::CssPath;
+use azul_css::{LayoutPoint, CssPath};
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use {
@@ -12,7 +12,7 @@ use {
     ui_state::UiState,
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
-    window::{FakeWindow, LogicalSize, WindowId, PhysicalSize, LogicalPosition},
+    window::{FakeWindow, WindowId, LogicalSize, PhysicalSize},
     gl::Texture,
 };
 pub use stack_checked_pointer::StackCheckedPointer;
@@ -85,10 +85,10 @@ pub struct HitTestItem {
     pub tag: ItemTag,
     /// The hit point in the coordinate space of the "viewport" of the display item.
     /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
-    pub point_in_viewport: LogicalPosition,
+    pub point_in_viewport: LayoutPoint,
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
-    pub point_relative_to_item: LogicalPosition,
+    pub point_relative_to_item: LayoutPoint,
 }
 
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`

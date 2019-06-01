@@ -386,6 +386,8 @@ impl<T> Window<T> {
         background_color: ColorU,
     ) -> Result<Self, WindowCreateError> {
 
+        use wr_translate::wr_translate_logical_size;
+
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
 
@@ -493,7 +495,7 @@ impl<T> Window<T> {
 
         css.sort_by_specificity();
 
-        let display_list = CachedDisplayList::empty(state.size.dimensions);
+        let display_list = CachedDisplayList::empty(wr_translate_logical_size(state.size.dimensions));
 
         let window = Window {
             id: WindowId::new(),

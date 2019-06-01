@@ -18,4 +18,29 @@
 #other_test {
     background: yellow;
     margin: 5px;
+    flex-direction: row;
+}
+
+#other_test {
+    line-height: 1.0;
+}
+
+#text_cursor {
+    width: 0px;
+    height: 0px;
+    padding: 1px;
+    position: relative;
+    background: red;
+}
+
+#text_cursor_inner {
+    width: 1px;
+    height: 14px;
+    position: absolute;
+    background: black;
+    top: 4px;
+}
+
+#test_4 {
+    background: red;
 }

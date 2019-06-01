@@ -28,7 +28,6 @@ use {
 };
 use azul_core::{
     callbacks::PipelineId,
-    window::{LogicalSize, LogicalPosition},
     app_resources::{ImageId, FontInstanceKey},
     ui_solver::{
         PositionedRectangle, ResolvedOffsets, ExternalScrollId,
@@ -119,7 +118,7 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
         use azul_css::{
             PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap,
             LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,
-            LayoutBoxSizing,
+            LayoutBoxSizing, Overflow as LayoutOverflow,
         };
         use azul_core::ui_solver::DEFAULT_FONT_SIZE;
 
@@ -178,7 +177,13 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
                 Some(LayoutWrap::NoWrap) => FlexWrap::NoWrap,
                 None => FlexWrap::Wrap,
             },
-            overflow: Overflow::Visible, // todo!
+            overflow: match rect_layout.overflow_x.unwrap_or_default().get_property_or_default() {
+                Some(LayoutOverflow::Scroll) => Overflow::Scroll,
+                Some(LayoutOverflow::Auto) => Overflow::Scroll,
+                Some(LayoutOverflow::Hidden) => Overflow::Hidden,
+                Some(LayoutOverflow::Visible) => Overflow::Visible,
+                None => Overflow::Scroll,
+            },
             align_items: match rect_layout.align_items.unwrap_or_default().get_property_or_default() {
                 Some(LayoutAlignItems::Stretch) => AlignItems::Stretch,
                 Some(LayoutAlignItems::Center) => AlignItems::Center,
@@ -656,6 +661,8 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
 
+    use wr_translate::wr_translate_logical_size;
+
     let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| {
 
         let rectangle = DisplayListRectParams {
@@ -696,7 +703,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
         content
     }).collect();
 
-    let mut root = DisplayListFrame::root(window_size.dimensions);
+    let mut root = DisplayListFrame::root(wr_translate_logical_size(window_size.dimensions));
     root.children = root_children;
     DisplayListMsg::Frame(root)
 }
@@ -716,8 +723,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     let bounds = layout_result.rects[*rect_idx].bounds;
 
     let display_list_rect_bounds = DisplayListRect::new(
-         LogicalPosition::new(bounds.origin.x, bounds.origin.y),
-         LogicalSize::new(bounds.size.width, bounds.size.height),
+         LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+         LayoutSize::new(bounds.size.width, bounds.size.height),
     );
 
     let tag_id = rect.tag.map(|tag| (tag, 0)).or({
@@ -811,6 +818,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
             if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
 
                 use azul_core::ui_solver::DEFAULT_FONT_COLOR;
+                use wr_translate::wr_translate_logical_size;
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
                 let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
@@ -819,7 +827,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
                 frame.content.push(get_text(
                     display_list_rect_bounds,
                     &referenced_content.layout_result.rects[*rect_idx].padding,
-                    window_size.dimensions,
+                    wr_translate_logical_size(window_size.dimensions),
                     layouted_glyphs,
                     font_instance_key,
                     text_color,
@@ -830,8 +838,8 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
         Image(image_id) => {
             if let Some(image_info) = referenced_mutable_content.app_resources.get_image_info(image_id) {
                 frame.content.push(DisplayListRectContent::Image {
-                    size: LogicalSize::new(bounds.size.width, bounds.size.height),
-                    offset: LogicalPosition::new(0.0, 0.0),
+                    size: LayoutSize::new(bounds.size.width, bounds.size.height),
+                    offset: LayoutPoint::new(0.0, 0.0),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,
                     image_key: image_info.key,
@@ -949,8 +957,8 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     )));
 
     DisplayListRectContent::Image {
-        size: LogicalSize::new(texture_width as f32, texture_height as f32),
-        offset: LogicalPosition::new(0.0, 0.0),
+        size: LayoutSize::new(texture_width as f32, texture_height as f32),
+        offset: LayoutPoint::new(0.0, 0.0),
         image_rendering: ImageRendering::Auto,
         alpha_type: AlphaType::Alpha,
         image_key: key,
@@ -1069,7 +1077,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 fn get_text(
     bounds: DisplayListRect,
     padding: &ResolvedOffsets,
-    root_window_size: LogicalSize,
+    root_window_size: LayoutSize,
     layouted_glyphs: LayoutedGlyphs,
     font_instance_key: FontInstanceKey,
     font_color: ColorU,
@@ -1089,14 +1097,14 @@ fn get_text(
             // Horizontally visible, vertically cut
             Some(DisplayListRect {
                 origin: bounds.origin,
-                size: LogicalSize::new(root_window_size.width, padding_clip_bounds.size.height),
+                size: LayoutSize::new(root_window_size.width, padding_clip_bounds.size.height),
             })
         },
         (false, true) => {
             // Vertically visible, horizontally cut
             Some(DisplayListRect {
                 origin: bounds.origin,
-                size: LogicalSize::new(padding_clip_bounds.size.width, root_window_size.height),
+                size: LayoutSize::new(padding_clip_bounds.size.width, root_window_size.height),
             })
         },
     };

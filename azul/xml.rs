@@ -1052,6 +1052,7 @@ fn prepare_string(input: &str) -> String {
     for line in input.lines() {
 
         let line = line.trim();
+        let line = line.replace("&nbsp;", " ");
         let current_line_is_empty = line.is_empty();
 
         if !current_line_is_empty {

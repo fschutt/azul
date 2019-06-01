@@ -1,5 +1,6 @@
 use std::fmt;
 use azul_css::{
+    LayoutPoint, LayoutSize,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
     LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
     CssPropertyValue,
@@ -9,8 +10,11 @@ use azul_css::{
     StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderBottomStyle, StyleBorderLeftStyle,
     StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
 };
-use app_resources::{ImageKey, FontInstanceKey, ImageInfo};
-use window::{LogicalPosition, LogicalSize};
+use {
+    app_resources::{ImageKey, FontInstanceKey, ImageInfo},
+    ui_solver::ExternalScrollId,
+    dom::ScrollTagId,
+};
 
 /// A tag that can be used to identify items during hit testing. If the tag
 /// is missing then the item doesn't take part in hit testing at all. This
@@ -61,13 +65,13 @@ pub enum FontRenderMode {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
     pub index: GlyphIndex,
-    pub point: LogicalPosition,
+    pub point: LayoutPoint,
 }
 
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListRect {
-    pub origin: LogicalPosition,
-    pub size: LogicalSize,
+    pub origin: LayoutPoint,
+    pub size: LayoutSize,
 }
 
 impl fmt::Debug for DisplayListRect {
@@ -80,7 +84,7 @@ impl fmt::Debug for DisplayListRect {
 }
 
 impl DisplayListRect {
-    pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self { Self { origin, size } }
+    pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -89,7 +93,7 @@ pub struct CachedDisplayList {
 }
 
 impl CachedDisplayList {
-    pub fn empty(size: LogicalSize) -> Self {
+    pub fn empty(size: LayoutSize) -> Self {
         Self { root: DisplayListMsg::Frame(DisplayListFrame::root(size)) }
     }
 }
@@ -105,7 +109,7 @@ impl DisplayListMsg {
         use self::DisplayListMsg::*;
         match self {
             Frame(f) => { f.children.push(child); },
-            ScrollFrame(sf) => { sf.children.push(child); },
+            ScrollFrame(sf) => { sf.frame.children.push(child); },
         }
     }
 
@@ -113,29 +117,30 @@ impl DisplayListMsg {
         use self::DisplayListMsg::*;
         match self {
             Frame(f) => { f.children.append(&mut children); },
-            ScrollFrame(sf) => { sf.children.append(&mut children); },
+            ScrollFrame(sf) => { sf.frame.children.append(&mut children); },
         }
     }
 
-    pub fn get_size(&self) -> LogicalSize {
+    pub fn get_size(&self) -> LayoutSize {
         use self::DisplayListMsg::*;
         match self {
             Frame(f) => f.rect.size,
-            ScrollFrame(sf) => sf.rect.size,
+            ScrollFrame(sf) => sf.frame.rect.size,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListScrollFrame {
-    pub rect: DisplayListRect,
-    pub scroll_position: LogicalPosition,
-    pub content_size: LogicalSize,
-    pub overlay_scrollbars: bool,
-    pub border_radius: StyleBorderRadius,
-    pub tag: Option<ItemTag>,
-    pub content: Vec<DisplayListRectContent>,
-    pub children: Vec<DisplayListMsg>,
+    /// Size of the (overflowing) content of the scroll frame
+    pub content_size: LayoutSize,
+    /// The scroll ID is the hash of the DOM node, so that scrolling
+    /// positions can be tracked across multiple frames
+    pub scroll_id: ExternalScrollId,
+    /// The scroll tag is used for hit-testing
+    pub scroll_tag: ScrollTagId,
+    /// Content + children of the scroll clip
+    pub frame: DisplayListFrame,
 }
 
 #[derive(Clone, PartialEq, PartialOrd)]
@@ -170,12 +175,12 @@ impl fmt::Debug for DisplayListFrame {
 }
 
 impl DisplayListFrame {
-    pub fn root(dimensions: LogicalSize) -> Self {
+    pub fn root(dimensions: LayoutSize) -> Self {
         DisplayListFrame {
             tag: None,
             clip_rect: None,
             rect: DisplayListRect {
-                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                origin: LayoutPoint { x: 0.0, y: 0.0 },
                 size: dimensions,
             },
             border_radius: StyleBorderRadius::default(),
@@ -302,8 +307,8 @@ pub enum DisplayListRectContent {
         repeat: Option<StyleBackgroundRepeat>,
     },
     Image {
-        size: LogicalSize,
-        offset: LogicalPosition,
+        size: LayoutSize,
+        offset: LayoutPoint,
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
         image_key: ImageKey,

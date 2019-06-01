@@ -272,7 +272,9 @@ fn compute_internal<T: GetTextLayout>(
 
                 let text_holes = Vec::new(); // TODO: All children that have float:left / float:right!
                 let rect_style = &node_styles[node_id];
-                let allows_overflow = rect_style.overflow == Overflow::Visible;
+                let parent_id = node_hierarchy[node_id].parent.unwrap_or(NodeId::ZERO);
+                let parent_style = &node_styles[parent_id];
+                let allows_overflow = parent_style.overflow == Overflow::Visible;
 
                 let text_layout_options = ResolvedTextLayoutOptions {
                     max_horizontal_width: if allows_overflow { None } else { available_space.width.to_option() },

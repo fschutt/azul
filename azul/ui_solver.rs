@@ -75,7 +75,7 @@ impl<'a> GetTextLayout for InlineText<'a> {
             text_layout_options,
         );
         // TODO: Cache the layouted text block on the &mut self
-        text_layout::word_positions_to_inline_text_layout(&layouted_text_block)
+        text_layout::word_positions_to_inline_text_layout(&layouted_text_block, &self.scaled_words)
     }
 }
 
@@ -131,17 +131,13 @@ fn create_word_cache<T>(
     node_data
     .linear_iter()
     .filter_map(|node_id| {
-        let w = match &node_data[node_id].get_node_type() {
+        match &node_data[node_id].get_node_type() {
             NodeType::Label(string) => Some((node_id, split_text_into_words(string.as_str()))),
             NodeType::Text(text_id) => {
                 app_resources.get_text(text_id).map(|words| (node_id, words.clone()))
             },
             _ => None,
-        };
-        if let Some(w) = &w {
-            println!("words: {:#?}", w);
         }
-        w
     }).collect()
 }
 
