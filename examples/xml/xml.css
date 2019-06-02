@@ -1,47 +1,46 @@
+* {
+    border: 1px solid black;
+    box-sizing: border-box;
+    border-radius: 10px;
+}
+
 #wrapper {
-    width: 100px;
-    height: 100%;
+    top: 50px;
+    left: 50px;
+    width: 400px;
+    height: 400px;
     background: green;
+    overflow: scroll;
 }
 
-#test {
+#overflowing_1 {
+    position: absolute;
+    top: 200px;
+    left: 40px;
+    width: 40px;
+    height: 40px;
     background: red;
-    margin: 5px;
 }
 
-#other {
+#overflowing_2 {
+    position: absolute;
+    top: 290px;
+    left: 40px;
+    width: 40px;
+    height: 40px;
     background: blue;
-    width: 500px;
-    height: 100%;
-}
-
-#other_test {
-    background: yellow;
-    margin: 5px;
-    flex-direction: row;
-}
-
-#other_test {
-    line-height: 1.0;
-}
-
-#text_cursor {
-    width: 0px;
-    height: 0px;
-    padding: 1px;
-    position: relative;
-    background: red;
     overflow: visible;
 }
 
-#text_cursor_inner {
-    width: 1px;
-    height: 14px;
+#overflowing_3 {
     position: absolute;
-    background: black;
-    top: 4px;
+    width: 40px;
+    height: 40px;
+    top: 100px;
+    left: 100px;
+    background: yellow;
 }
 
-#test_4 {
-    background: red;
+#overflowing_3:hover {
+    background-color: red;
 }

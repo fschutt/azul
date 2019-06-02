@@ -259,197 +259,75 @@ impl<'a> GetStyle for DisplayRectangle<'a> {
     }
 }
 
-/// In order to render rectangles in the correct order, we have to group them together:
-/// As long as there are no position:absolute items, items are inserted in a parents-then-child order
-///
-/// ```no_run,ignore
-/// a
-/// |- b
-/// |- c
-/// |  |- d
-/// e
-/// |- f
-/// g
-/// ```
-/// is rendered in the order `a, b, c, d, e, f, g`. This is necessary for clipping and scrolling,
-/// meaning that if there is an overflow:scroll element, all children of that element are clipped
-/// within that group. This means, that the z-order is completely determined by the DOM hierarchy.
-///
-/// Trees with elements with `position:absolute` are more complex: The absolute items need
-/// to be rendered completely on top of all other items, however, they still need to clip
-/// and scroll properly.
-///
-/// ```no_run,ignore
-/// a:relative
-/// |- b
-/// |- c:absolute
-/// |  |- d
-/// e
-/// |- f
-/// g
-/// ```
-///
-/// will be rendered as: `a,b,e,f,g,c,d`, so that the `c,d` sub-DOM is on top of the rest
-/// of the content. To support this, the content needs to be grouped: Whenever there is a
-/// `position:absolute` encountered, the children are grouped into a new `ContentGroup`:
-///
-/// ```no_run,ignore
-/// Group 1: [a, b, c, e, f, g]
-/// Group 2: [c, d]
-/// ```
-/// Then the groups are simply rendered in-order: if there are multiple position:absolute
-/// groups, this has the side effect of later groups drawing on top of earlier groups.
+/// Parameters that apply to a single rectangle / div node
+#[derive(Copy, Clone)]
+struct LayoutRectParams<'a, T: 'a> {
+    epoch: Epoch,
+    rect_idx: NodeId,
+    html_node: &'a NodeType<T>,
+    window_size: WindowSize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ContentGroup {
     /// The parent of the current node group, i.e. either the root node (0)
     /// or the last positioned node ()
-    root: RenderableNodeId,
-    /// Depth of the root node in the DOM hierarchy
-    root_depth: usize,
+    root: NodeId,
     /// Node ids in order of drawing
-    node_ids: Vec<RenderableNodeId>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct RenderableNodeId {
-    /// Whether the (hierarchical) children of this group need to be clipped (usually
-    /// because the parent has an `overflow:hidden` property set).
-    clip_children: bool,
-    /// Whether the children overflow the parent (see `O`)
-    scrolls_children: bool,
-    /// The actual node ID of the content
-    node_id: NodeId,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct ContentGroupOrder {
-    groups: Vec<ContentGroup>,
-}
-
-/// Parameters that apply to a single rectangle / div node
-#[derive(Copy, Clone)]
-pub(crate) struct LayoutRectParams<'a, T: 'a> {
-    pub epoch: Epoch,
-    pub rect_idx: NodeId,
-    pub html_node: &'a NodeType<T>,
-    window_size: WindowSize,
+    children: Vec<ContentGroup>,
 }
 
 fn determine_rendering_order<'a>(
     node_hierarchy: &NodeHierarchy,
     rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
-    layouted_rects: &NodeDataContainer<PositionedRectangle>,
-) -> ContentGroupOrder
-{
-    let mut content_groups = Vec::new();
+) -> ContentGroup {
 
-    determine_rendering_order_inner(
-        node_hierarchy,
-        rectangles,
-        layouted_rects,
-        0, // depth of this node
-        NodeId::new(0),
-        &mut content_groups
-    );
+    let children_sorted: BTreeMap<NodeId, Vec<NodeId>> = node_hierarchy
+        .get_parents_sorted_by_depth()
+        .into_iter()
+        .map(|(_, parent_id)| (parent_id, sort_children_by_position(parent_id, node_hierarchy, rectangles)))
+        .collect();
 
-    ContentGroupOrder { groups: content_groups }
+    let mut root_content_group = ContentGroup { root: NodeId::ZERO, children: Vec::new() };
+    fill_content_group_children(&mut root_content_group, &children_sorted);
+    root_content_group
 }
 
-fn determine_rendering_order_inner<'a>(
+fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTreeMap<NodeId, Vec<NodeId>>) {
+    if let Some(c) = children_sorted.get(&group.root) { // returns None for leaf nodes
+        group.children = c
+            .iter()
+            .map(|child| ContentGroup { root: *child, children: Vec::new() })
+            .collect();
+
+        for c in &mut group.children {
+            fill_content_group_children(c, children_sorted);
+        }
+    }
+}
+
+fn sort_children_by_position<'a>(
+    parent: NodeId,
     node_hierarchy: &NodeHierarchy,
-    rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
-    layouted_rects: &NodeDataContainer<PositionedRectangle>,
-    // recursive parameters
-    root_depth: usize,
-    root_id: NodeId,
-    content_groups: &mut Vec<ContentGroup>,
-) {
-    use id_tree::NodeEdge;
+    rectangles: &NodeDataContainer<DisplayRectangle<'a>>
+) -> Vec<NodeId> {
+    use azul_css::LayoutPosition::*;
 
-    let mut root_group = ContentGroup {
-        root: RenderableNodeId {
-            node_id: root_id,
-            clip_children: node_needs_to_clip_children(&rectangles[root_id].layout),
-            scrolls_children: false, // TODO
-        },
-        root_depth,
-        node_ids: Vec::new(),
-    };
+    let mut not_absolute_children = parent
+        .children(node_hierarchy)
+        .filter(|id| rectangles[*id].layout.position.and_then(|p| p.get_property_or_default()).unwrap_or_default() != Absolute)
+        .collect::<Vec<NodeId>>();
 
-    let mut absolute_node_ids = Vec::new();
-    let mut depth = root_depth + 1;
+    let mut absolute_children = parent
+        .children(node_hierarchy)
+        .filter(|id| rectangles[*id].layout.position.and_then(|p| p.get_property_or_default()).unwrap_or_default() == Absolute)
+        .collect::<Vec<NodeId>>();
 
-    // Same as the traverse function, but allows us to skip items, returns the next element
-    fn traverse_simple(root_id: NodeId, current_node: NodeEdge<NodeId>, node_hierarchy: &NodeHierarchy) -> Option<NodeEdge<NodeId>> {
-        // returns the next item
-        match current_node {
-            NodeEdge::Start(current_node) => {
-                match node_hierarchy[current_node].first_child {
-                    Some(first_child) => Some(NodeEdge::Start(first_child)),
-                    None => Some(NodeEdge::End(current_node.clone()))
-                }
-            }
-            NodeEdge::End(current_node) => {
-                if current_node == root_id {
-                    None
-                } else {
-                    match node_hierarchy[current_node].next_sibling {
-                        Some(next_sibling) => Some(NodeEdge::Start(next_sibling)),
-                        None => node_hierarchy[current_node].parent.and_then(|parent| Some(NodeEdge::End(parent))),
-                    }
-                }
-            }
-        }
-    }
-
-    let mut current_node_edge = NodeEdge::Start(root_id);
-    while let Some(next_node_id) = traverse_simple(root_id, current_node_edge.clone(), node_hierarchy) {
-        let mut should_continue_loop = true;
-
-        if next_node_id.clone().inner_value() != root_id {
-            match next_node_id {
-                NodeEdge::Start(node_id) => {
-                    let rect_node = &rectangles[node_id];
-                    let position = rect_node.layout.position.and_then(|pos| pos.get_property_or_default()).unwrap_or_default();
-                    if position == LayoutPosition::Absolute {
-                        // For now, ignore the node and put it aside for later
-                        absolute_node_ids.push((depth, node_id));
-                        // Skip this sub-tree and go straight to the next sibling
-                        // Since the tree is positioned absolute, we'll worry about it later
-                        current_node_edge = NodeEdge::End(node_id);
-                        should_continue_loop = false;
-                    } else {
-                        // TODO: Overflow hidden in horizontal / vertical direction
-                        let node_is_overflow_hidden = node_needs_to_clip_children(&rect_node.layout);
-                        let node_needs_to_scroll_children = false; // TODO
-                        root_group.node_ids.push(RenderableNodeId {
-                            node_id,
-                            clip_children: node_is_overflow_hidden,
-                            scrolls_children: node_needs_to_scroll_children,
-                        });
-                    }
-
-                    depth += 1;
-                },
-                NodeEdge::End(_) => {
-                    depth -= 1;
-                },
-            }
-        }
-
-        if should_continue_loop {
-            current_node_edge = next_node_id;
-        }
-    }
-
-    content_groups.push(root_group);
-
-    // Note: Currently reversed order, so that earlier absolute
-    // items are drawn on top of later absolute items
-    for (absolute_depth, absolute_node_id) in absolute_node_ids.into_iter().rev() {
-        determine_rendering_order_inner(node_hierarchy, rectangles, layouted_rects, absolute_depth, absolute_node_id, content_groups);
-    }
+    // Append the position:absolute children after the regular children
+    not_absolute_children.append(&mut absolute_children);
+    not_absolute_children
 }
+
 
 /// Returns all node IDs where the children overflow the parent, together with the
 /// `(parent_rect, child_rect)` - the child rect is the sum of the children.
@@ -630,7 +508,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     let rects_in_rendering_order = determine_rendering_order(
         node_hierarchy,
         &display_list.rectangles,
-        &layout_result.rects
     );
 
     let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
@@ -673,64 +550,40 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
 fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
     epoch: Epoch,
     window_size: WindowSize,
-    content_grouped_rectangles: ContentGroupOrder,
+    root_content_group: ContentGroup,
     scrollable_nodes: &mut ScrolledNodes,
     referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
 
-    use wr_translate::wr_translate_logical_size;
+    let rectangle = LayoutRectParams {
+        epoch,
+        rect_idx: root_content_group.root,
+        html_node: referenced_content.node_data[root_content_group.root].get_node_type(),
+        window_size,
+    };
 
-    let root_children = content_grouped_rectangles.groups.into_iter().map(|content_group| {
+    let mut content = displaylist_handle_rect(
+        scrollable_nodes,
+        &rectangle,
+        referenced_content,
+        referenced_mutable_content,
+    );
 
-        let rectangle = LayoutRectParams {
+    let children = root_content_group.children.into_iter().map(|child_content_group| {
+        push_rectangles_into_displaylist(
             epoch,
-            rect_idx: content_group.root.node_id,
-            html_node: referenced_content.node_data[content_group.root.node_id].get_node_type(),
             window_size,
-        };
-
-        let mut content = displaylist_handle_rect(
+            child_content_group,
             scrollable_nodes,
-            &rectangle,
             referenced_content,
-            referenced_mutable_content,
-        );
-
-        let children = content_group.node_ids.iter().map(|item| {
-
-            let rectangle = LayoutRectParams {
-                epoch,
-                rect_idx: item.node_id,
-                html_node: referenced_content.node_data[item.node_id].get_node_type(),
-                window_size,
-            };
-
-            displaylist_handle_rect(
-                scrollable_nodes,
-                &rectangle,
-                referenced_content,
-                referenced_mutable_content,
-            )
-        }).collect::<Vec<DisplayListMsg>>();
-
-        content.append_children(children);
-
-        content
+            referenced_mutable_content
+        )
     }).collect();
 
-    let mut root = DisplayListFrame::root(wr_translate_logical_size(window_size.dimensions));
-    root.children = root_children;
+    content.append_children(children);
 
-    match scrollable_nodes.overflowing_nodes.get(&NodeId::ZERO) {
-        Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
-            content_rect: scroll_node.child_rect,
-            scroll_id: scroll_node.parent_external_scroll_id,
-            scroll_tag: scroll_node.scroll_tag_id,
-            frame: root,
-        }),
-        None => DisplayListMsg::Frame(root),
-    }
+    content
 }
 
 /// Push a single rectangle into the display list builder
@@ -1078,7 +931,8 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     );
 
     let rects_in_rendering_order = determine_rendering_order(
-        node_hierarchy, &display_list.rectangles, &layout_result.rects
+        node_hierarchy,
+        &display_list.rectangles,
     );
 
     let referenced_content = DisplayListParametersRef {
