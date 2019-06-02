@@ -1,3 +1,9 @@
+* {
+    flex-direction: column;
+    box-sizing: border-box;
+    flex-grow: 1;
+}
+
 #expression {
     max-height: 50pt;
     background-color: #444;

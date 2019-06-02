@@ -9,6 +9,15 @@ macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../asse
 
 const FONT: &[u8] = include_bytes!(FONT_PATH!());
 
+#[derive(Default)]
+struct Calculator {
+    current_operator: Option<OperandStack>,
+    current_operand_stack: OperandStack,
+    division_by_zero: bool,
+    expression: String,
+    last_event: Option<Event>,
+}
+
 #[derive(Clone, Debug)]
 enum Event {
     Clear,
@@ -23,35 +32,11 @@ enum Event {
     Number(u8),
 }
 
-#[derive(Default)]
-struct Calculator {
-    current_operator: Option<OperandStack>,
-    current_operand_stack: OperandStack,
-    division_by_zero: bool,
-    expression: String,
-    last_event: Option<Event>,
-}
 
 impl Layout for Calculator {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
-        fn numpad_btn(label: &'static str, class: &'static str) -> Dom<Calculator> {
-            Dom::label(label)
-                .with_class(class)
-                .with_tab_index(TabIndex::Auto)
-                .with_callback(On::MouseUp, Callback(handle_mouseclick_numpad_btn))
-        }
-
-        fn render_row(labels: &[&'static str; 4]) -> Dom<Calculator> {
-            Dom::div()
-                .with_class("row")
-                .with_child(numpad_btn(labels[0], "numpad-button"))
-                .with_child(numpad_btn(labels[1], "numpad-button"))
-                .with_child(numpad_btn(labels[2], "numpad-button"))
-                .with_child(numpad_btn(labels[3], "orange"))
-        }
-
         let result = if self.division_by_zero {
-            String::from("Cannot divide by zero.")
+            format!("Cannot divide by zero.")
         } else {
             self.current_operand_stack.get_display()
         };
@@ -62,10 +47,10 @@ impl Layout for Calculator {
             .with_child(
                 Dom::div()
                     .with_id("numpad-container")
-                    .with_child(render_row(&["C", "+/-", "%", "/"]))
-                    .with_child(render_row(&["7", "8", "9", "x"]))
-                    .with_child(render_row(&["4", "5", "6", "-"]))
-                    .with_child(render_row(&["1", "2", "3", "+"]))
+                    .with_child(render_row(["C", "+/-", "%", "/"]))
+                    .with_child(render_row(["7", "8", "9", "x"]))
+                    .with_child(render_row(["4", "5", "6", "-"]))
+                    .with_child(render_row(["1", "2", "3", "+"]))
                     .with_child(
                         Dom::div()
                             .with_class("row")
@@ -74,9 +59,25 @@ impl Layout for Calculator {
                             .with_child(numpad_btn("=", "orange")),
                     ),
             )
-            .with_callback(EventFilter::Window(WindowEventFilter::TextInput), Callback(handle_text_input))
-            .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), Callback(handle_virtual_key_input))
+            .with_callback(EventFilter::Window(WindowEventFilter::TextInput), handle_text_input)
+            .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), handle_virtual_key_input)
     }
+}
+
+fn render_row(labels: [&'static str; 4]) -> Dom<Calculator> {
+    Dom::div()
+        .with_class("row")
+        .with_child(numpad_btn(labels[0], "numpad-button"))
+        .with_child(numpad_btn(labels[1], "numpad-button"))
+        .with_child(numpad_btn(labels[2], "numpad-button"))
+        .with_child(numpad_btn(labels[3], "orange"))
+}
+
+fn numpad_btn(label: &'static str, class: &'static str) -> Dom<Calculator> {
+    Dom::label(label)
+        .with_class(class)
+        .with_tab_index(TabIndex::Auto)
+        .with_callback(On::MouseUp, handle_mouseclick_numpad_btn)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -147,7 +148,10 @@ impl OperandStack {
         }
 
         // Iterate the stack until the first Dot is found
-        let first_dot_position = self.stack.iter().position(|x| *x == Number::Dot).and_then(|x| Some(x - 1)).unwrap_or(stack_size - 1) as i32;
+        let first_dot_position = self.stack.iter()
+            .position(|x| *x == Number::Dot)
+            .and_then(|x| Some(x - 1))
+            .unwrap_or(stack_size - 1) as i32;
 
         let mut final_number = 0.0;
 
@@ -169,14 +173,14 @@ impl OperandStack {
     }
 }
 
-fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
-
-    let mut row_iter = event.parent_nodes();
-    row_iter.next()?;
+fn handle_mouseclick_numpad_btn(info: CallbackInfo<Calculator>) -> UpdateScreen {
 
     // Figure out which row and column was clicked...
-    let clicked_col_idx = event.target_index_in_parent()?;
-    let clicked_row_idx = row_iter.current_index_in_parent()?;
+    let (clicked_col_idx, clicked_row_idx) = {
+        let mut row_iter = info.parent_nodes();
+        row_iter.next()?;
+        (info.target_index_in_parent()?, row_iter.current_index_in_parent()?)
+    };
 
     // Figure out what button was clicked from the given row and column, filter bad events
     let event = match (clicked_row_idx, clicked_col_idx) {
@@ -208,11 +212,12 @@ fn handle_mouseclick_numpad_btn(app_state: &mut AppState<Calculator>, event: &mu
     };
 
     println!("Got event via mouse input: {:?}", event);
-    process_event(app_state, event)
+    process_event(info.state, event)
 }
 
-fn handle_text_input(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
-    let current_key = app_state.windows[event.window_id].state.keyboard_state.current_char?;
+fn handle_text_input(info: CallbackInfo<Calculator>) -> UpdateScreen {
+    let CallbackInfo { state, window_id, .. } = info;
+    let current_key = state.windows[window_id].state.keyboard_state.current_char?;
     let event = match current_key {
         '0' => Event::Number(0),
         '1' => Event::Number(1),
@@ -234,17 +239,18 @@ fn handle_text_input(app_state: &mut AppState<Calculator>, event: &mut CallbackI
     };
 
     println!("Got event via keyboard input: {:?}", event);
-    process_event(app_state, event)
+    process_event(state, event)
 }
 
-fn handle_virtual_key_input(app_state: &mut AppState<Calculator>, event: &mut CallbackInfo<Calculator>) -> UpdateScreen {
-    let current_key = app_state.windows[event.window_id].state.keyboard_state.latest_virtual_keycode?;
+fn handle_virtual_key_input(info: CallbackInfo<Calculator>) -> UpdateScreen {
+    let CallbackInfo { state, window_id, .. } = info;
+    let current_key = state.windows[window_id].state.keyboard_state.latest_virtual_keycode?;
     let event = match current_key {
         VirtualKeyCode::Return => Event::EqualSign,
         VirtualKeyCode::Back => Event::Clear,
         _ => return DontRedraw,
     };
-    process_event(app_state, event)
+    process_event(state, event)
 }
 
 fn process_event(app_state: &mut AppState<Calculator>, event: Event) -> UpdateScreen {
