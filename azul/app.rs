@@ -1236,7 +1236,9 @@ fn render_inner<T>(
 
         // Invoke WebRender to render the frame - renders to the currently bound FB
         gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+        gl_context.clear(gl::COLOR_BUFFER_BIT);
         gl_context.clear_depth(0.0);
+        gl_context.clear(gl::DEPTH_BUFFER_BIT);
         fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
 
         // FBOs can't be shared between windows, but textures can.
