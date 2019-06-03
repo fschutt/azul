@@ -667,29 +667,6 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
         }
     }
 
-    if rect.style.has_border() {
-        frame.content.push(LayoutRectContent::Border {
-            widths: StyleBorderWidths {
-                top: rect.layout.border_top_width,
-                left: rect.layout.border_left_width,
-                bottom: rect.layout.border_bottom_width,
-                right: rect.layout.border_right_width,
-            },
-            colors: StyleBorderColors {
-                top: rect.style.border_top_color,
-                left: rect.style.border_left_color,
-                bottom: rect.style.border_bottom_color,
-                right: rect.style.border_right_color,
-            },
-            styles: StyleBorderStyles {
-                top: rect.style.border_top_style,
-                left: rect.style.border_left_style,
-                bottom: rect.style.border_bottom_style,
-                right: rect.style.border_right_style,
-            },
-        });
-    }
-
     match html_node {
         Div => { },
         Text(_) | Label(_) => {
@@ -732,6 +709,29 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
             frame.children.push(call_iframe_callback(callback, bounds, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content));
         },
     };
+
+    if rect.style.has_border() {
+        frame.content.push(LayoutRectContent::Border {
+            widths: StyleBorderWidths {
+                top: rect.layout.border_top_width,
+                left: rect.layout.border_left_width,
+                bottom: rect.layout.border_bottom_width,
+                right: rect.layout.border_right_width,
+            },
+            colors: StyleBorderColors {
+                top: rect.style.border_top_color,
+                left: rect.style.border_left_color,
+                bottom: rect.style.border_bottom_color,
+                right: rect.style.border_right_color,
+            },
+            styles: StyleBorderStyles {
+                top: rect.style.border_top_style,
+                left: rect.style.border_left_style,
+                bottom: rect.style.border_bottom_style,
+                right: rect.style.border_right_style,
+            },
+        });
+    }
 
     if rect.style.has_box_shadow() {
         frame.content.push(LayoutRectContent::BoxShadow {

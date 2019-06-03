@@ -14,7 +14,7 @@ use glium::{
     IncompatibleOpenGl, Display, SwapBuffersError,
     debug::DebugCallbackBehavior,
     glutin::{
-        self, EventsLoop, ContextTrait, CombinedContext, CreationError,
+        EventsLoop, ContextTrait, CombinedContext, CreationError,
         MonitorId, ContextError, ContextBuilder, Window as GliumWindow,
         WindowBuilder as GliumWindowBuilder, Context,
     },

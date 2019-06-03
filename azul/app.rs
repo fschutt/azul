@@ -737,7 +737,6 @@ fn relayout_single_window<T>(
 ) -> Result<(), RuntimeError> {
 
     use azul_core::app::RuntimeError::*;
-    use glium::glutin::ContextTrait;
 
     // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
     let is_mouse_down = full_window_state.mouse_state.mouse_down();

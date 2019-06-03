@@ -2,6 +2,7 @@ extern crate azul;
 extern crate gleam;
 
 use azul::prelude::*;
+use azul::widgets::button::Button;
 use gleam::gl;
 
 const CSS: &str = "
@@ -11,6 +12,14 @@ const CSS: &str = "
         border: 4px solid green;
         box-sizing: border-box;
     }
+
+    #the_button {
+        width: 200px;
+        height: 50px;
+        position: absolute;
+        top: 50px;
+        left: 50px;
+    }
 ";
 
 struct OpenGlAppState { }
@@ -18,6 +27,7 @@ struct OpenGlAppState { }
 impl Layout for OpenGlAppState {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
         Dom::gl_texture(render_my_texture, StackCheckedPointer::new_entire_struct(self))
+        .with_child(Button::with_label("Hello").dom().with_id("the_button"))
     }
 }
 
@@ -74,6 +84,7 @@ fn render_my_texture(info: GlCallbackInfoUnchecked<OpenGlAppState>) -> GlCallbac
     gl_context.active_texture(0);
     gl_context.bind_texture(gl::TEXTURE_2D, 0);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    gl_context.bind_renderbuffer(gl::RENDERBUFFER, 0);
 
     /*
         let mut texture = Texture::new(
