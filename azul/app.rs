@@ -239,7 +239,7 @@ impl<T> App<T> {
         let fake_window = FakeWindow {
             state: window.state.clone(),
             default_callbacks: BTreeMap::new(),
-            gl_context: window.get_gl_context(),
+            gl_context: self.fake_display.get_gl_context(),
             cached_display_list: window.internal.cached_display_list.clone(),
             scrolled_nodes: window.internal.scrolled_nodes.clone(),
             layout_result: window.internal.layout_result.clone(),
@@ -452,7 +452,7 @@ impl<T> App<T> {
                     // to actually update the screen. For some reason the first swap_buffers() has
                     // no effect (winit bug?)
                     render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
-                    render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
+                    // render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
                 }
                 clean_up_unused_opengl_textures(self.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
             }
@@ -737,6 +737,7 @@ fn relayout_single_window<T>(
 ) -> Result<(), RuntimeError> {
 
     use azul_core::app::RuntimeError::*;
+    use glium::glutin::ContextTrait;
 
     // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
     let is_mouse_down = full_window_state.mouse_state.mouse_down();
@@ -752,6 +753,7 @@ fn relayout_single_window<T>(
         );
 
     let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
+
     update_display_list(
         &mut app_state.data,
         &ui_description_cache[window_id],
@@ -761,6 +763,7 @@ fn relayout_single_window<T>(
         fake_display,
         &mut app_state.resources,
     );
+
     *awakened_tasks.get_mut(window_id).ok_or(WindowIndexError)? = false;
 
     Ok(())
@@ -1148,7 +1151,6 @@ fn render_inner<T>(
     background_color: ColorU,
 ) {
 
-    use window::get_gl_context;
     use glium::glutin::ContextTrait;
     use webrender::api::{DeviceIntRect, DeviceIntPoint};
     use azul_css::ColorF;
@@ -1185,7 +1187,7 @@ fn render_inner<T>(
 
         // NOTE: GlContext is the context of the app-global, hidden window
         // (that shares the renderer), not the context of the window itself.
-        let gl_context = get_gl_context(&fake_display.hidden_display).unwrap();
+        let gl_context = fake_display.get_gl_context();
 
         // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
         // otherwise this will segfault! Use `ContextBuilder::with_shared_lists` to share the

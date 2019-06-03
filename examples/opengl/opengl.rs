@@ -17,21 +17,16 @@ struct OpenGlAppState { }
 
 impl Layout for OpenGlAppState {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
-        Dom::gl_texture(GlTextureCallback(render_my_texture), StackCheckedPointer::new(self, self).unwrap())
+        Dom::gl_texture(render_my_texture, StackCheckedPointer::new_entire_struct(self))
     }
 }
 
-fn render_my_texture(
-    _state: &StackCheckedPointer<OpenGlAppState>,
-    info: LayoutInfo<OpenGlAppState>,
-    hi_dpi_bounds: HidpiAdjustedBounds
-) -> Texture {
+fn render_my_texture(info: GlCallbackInfoUnchecked<OpenGlAppState>) -> GlCallbackReturn {
 
     println!("rendering opengl state!");
 
-    let physical_size = hi_dpi_bounds.get_physical_size();
-
-    let gl_context = info.window.get_gl_context();
+    let physical_size = info.bounds.get_physical_size();
+    let gl_context = info.layout_info.window.get_gl_context();
 
     // Create the texture to render to
     let textures = gl_context.gen_textures(1);
@@ -40,8 +35,6 @@ fn render_my_texture(
     let framebuffers = gl_context.gen_framebuffers(1);
     let framebuffer_id = framebuffers[0];
 
-    println!("binding FB: {:?}", framebuffer_id);
-    println!("binding texture: {:?}", texture_id);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
     gl_context.enable(gl::TEXTURE_2D);
     gl_context.active_texture(texture_id);

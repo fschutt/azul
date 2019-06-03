@@ -3,6 +3,7 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     marker::PhantomData,
+    any::TypeId,
 };
 
 /// A `StackCheckedPointer<T>` is a type-erased, raw pointer to a
@@ -26,6 +27,15 @@ pub struct StackCheckedPointer<T> {
     /// Marker so that one stack checked pointer can't be shared across
     /// two data models that are both `T: Layout`.
     marker: PhantomData<T>,
+    /// ID of the erased type behind the pointer
+    pointer_type: TypeId,
+}
+
+impl<T: Sized + 'static> StackCheckedPointer<T> {
+    /// Creates a `StackCheckedPointer` that points to the entire struct
+    pub fn new_entire_struct(stack: &T) -> Self {
+        StackCheckedPointer::new(stack, stack).unwrap()
+    }
 }
 
 impl<T> StackCheckedPointer<T> {
@@ -35,11 +45,12 @@ impl<T> StackCheckedPointer<T> {
     /// This means that the lifetime of U is the same lifetime as T -
     /// the returned `StackCheckedPointer` is valid for as long as `stack`
     /// is valid.
-    pub fn new<U: Sized>(stack: &T, pointer: &U) -> Option<Self> {
+    pub fn new<U: Sized + 'static>(stack: &T, pointer: &U) -> Option<Self> {
         if is_subtype_of(stack, pointer) {
             Some(Self {
                 internal: pointer as *const _ as *const (),
                 marker: PhantomData,
+                pointer_type: TypeId::of::<U>(),
             })
         } else {
             None
@@ -55,7 +66,17 @@ impl<T> StackCheckedPointer<T> {
     /// **NOTE**: To avoid undefined behaviour, you **must** check that
     /// the `StackCheckedPointer` isn't mutably aliased at the time of
     /// calling the callback.
-    pub(crate) unsafe fn cast<'a, U: Sized>(&'a self) -> &'a mut U {
+    #[inline]
+    pub(crate) unsafe fn cast<'a, U: Sized + 'static>(&'a self) -> &'a mut U {
+        #[cfg(debug_assertions)] {
+            let type_id_new = TypeId::of::<U>();
+            if type_id_new != self.pointer_type {
+                panic!(
+                    "Tried to cast a StackCheckedPointer to an invalid type - expected {:?}, got {:?}",
+                    self.pointer_type, type_id_new
+                );
+            }
+        }
         &mut *(self.internal as *mut U)
     }
 }
@@ -73,7 +94,11 @@ impl<T> fmt::Debug for StackCheckedPointer<T> {
 
 impl<T> Clone for StackCheckedPointer<T> {
     fn clone(&self) -> Self {
-        StackCheckedPointer { internal: self.internal, marker: self.marker.clone() }
+        StackCheckedPointer {
+            internal: self.internal,
+            marker: self.marker.clone(),
+            pointer_type: self.pointer_type,
+        }
     }
 }
 

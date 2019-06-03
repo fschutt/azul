@@ -545,12 +545,6 @@ impl<T> Window<T> {
     pub fn get_current_monitor(&self) -> MonitorId {
         self.display.gl_window().window().get_current_monitor()
     }
-
-    /// Returns a read-only window which can be used to create / draw
-    /// custom OpenGL texture during the `.layout()` phase
-    pub fn get_gl_context(&self) -> Rc<Gl> {
-        get_gl_context(&*self.display).unwrap()
-    }
 }
 
 /// Synchronize the FullWindowState with the WindowState,
@@ -731,6 +725,8 @@ pub(crate) struct FakeDisplay {
     /// TODO: Not sure if we even need this, the events loop isn't important
     /// for a window that is never shown
     pub(crate) hidden_events_loop: EventsLoop,
+    /// Stores the GL context that is shared across all windows
+    pub(crate) gl_context: Rc<Gl>,
 }
 
 impl FakeDisplay {
@@ -748,8 +744,9 @@ impl FakeDisplay {
         let (dpi_factor, _) = get_hidpi_factor(&gl_window.window(), &events_loop);
         gl_window.hide();
 
+        unsafe { gl_window.make_current().unwrap() };
+        let gl = get_gl_context(&gl_window)?;
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
-        let gl = get_gl_context(&display)?;
 
         // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
         let notifier = Box::new(Notifier { });
@@ -757,12 +754,26 @@ impl FakeDisplay {
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
+        fn get_gl_context(gl_window: &CombinedContext) -> Result<Rc<dyn Gl>, WindowCreateError> {
+            use glium::glutin::Api;
+            match gl_window.get_api() {
+                Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
+                Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
+                Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
+            }
+        }
+
         Ok(Self {
             render_api,
             renderer: Some(renderer),
             hidden_display: display,
             hidden_events_loop: events_loop,
+            gl_context: gl,
         })
+    }
+
+    pub fn get_gl_context(&self) -> Rc<Gl> {
+        self.gl_context.clone()
     }
 }
 
@@ -783,17 +794,9 @@ impl Drop for FakeDisplay {
             },
         }
 
-        let gl_context = match get_gl_context(&self.hidden_display) {
-            Ok(o) => o,
-            Err(e) => {
-                error!("Shutdown error: {}", e);
-                return;
-            },
-        };
-
-        gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        gl_context.disable(gl::MULTISAMPLE);
-        gl_context.disable(gl::POLYGON_SMOOTH);
+        self.gl_context.disable(gl::FRAMEBUFFER_SRGB);
+        self.gl_context.disable(gl::MULTISAMPLE);
+        self.gl_context.disable(gl::POLYGON_SMOOTH);
 
         if let Some(renderer) = self.renderer.take() {
             renderer.deinit();
@@ -940,18 +943,6 @@ fn create_renderer(
     let api = sender.create_api();
 
     Ok((renderer, api))
-}
-
-pub(crate) fn get_gl_context(display: &Display) -> Result<Rc<dyn Gl>, WindowCreateError> {
-    match display.gl_window().get_api() {
-        glutin::Api::OpenGl => Ok(unsafe {
-            gl::GlFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
-        }),
-        glutin::Api::OpenGlEs => Ok(unsafe {
-            gl::GlesFns::load_with(|symbol| display.gl_window().get_proc_address(symbol) as *const _)
-        }),
-        glutin::Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
-    }
 }
 
 #[cfg(target_os = "linux")]

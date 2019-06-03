@@ -205,7 +205,7 @@ pub type DefaultCallbackTypeUnchecked<T> = fn(DefaultCallbackInfoUnchecked<T>) -
 pub type DefaultCallbackType<T, U> = fn(DefaultCallbackInfo<T, U>) -> CallbackReturn;
 
 impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
-    pub unsafe fn invoke_callback<U: Sized>(self, callback: DefaultCallbackType<T, U>) -> CallbackReturn {
+    pub unsafe fn invoke_callback<U: Sized + 'static>(self, callback: DefaultCallbackType<T, U>) -> CallbackReturn {
         let casted_value: &mut U = self.ptr.cast();
         let casted_callback_info = DefaultCallbackInfo {
             state: casted_value,
@@ -287,7 +287,7 @@ pub type GlCallbackTypeUnchecked<T> = fn(GlCallbackInfoUnchecked<T>) -> GlCallba
 pub type GlCallbackType<T, U> = fn(GlCallbackInfo<T, U>) -> GlCallbackReturn;
 
 impl<'a, 'b, T: 'b> GlCallbackInfoUnchecked<'a, 'b, T> {
-    pub unsafe fn invoke_callback<U: Sized>(self, callback: GlCallbackType<T, U>) -> GlCallbackReturn {
+    pub unsafe fn invoke_callback<U: Sized + 'static>(self, callback: GlCallbackType<T, U>) -> GlCallbackReturn {
         let casted_value: &mut U = self.ptr.cast();
         let casted_callback_info = GlCallbackInfo {
             state: casted_value,
@@ -318,7 +318,7 @@ pub type IFrameCallbackTypeUnchecked<T> = fn(IFrameCallbackInfoUnchecked<T>) -> 
 pub type IFrameCallbackType<T, U> = fn(IFrameCallbackInfo<T, U>) -> IFrameCallbackReturn<T>;
 
 impl<'a, 'b, T: 'b> IFrameCallbackInfoUnchecked<'a, 'b, T> {
-    pub unsafe fn invoke_callback<U: Sized>(self, callback: IFrameCallbackType<T, U>) -> IFrameCallbackReturn<T> {
+    pub unsafe fn invoke_callback<U: Sized + 'static>(self, callback: IFrameCallbackType<T, U>) -> IFrameCallbackReturn<T> {
         let casted_value: &mut U = self.ptr.cast();
         let casted_callback_info = IFrameCallbackInfo {
             state: casted_value,

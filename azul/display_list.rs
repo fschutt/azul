@@ -783,9 +783,6 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 
     let texture = {
 
-        // Make sure that the app data is locked before invoking the callback
-        let _lock = &mut referenced_mutable_content.app_data;
-
         let tex = (texture_callback.0)(GlCallbackInfoUnchecked {
             ptr: *texture_stack_ptr,
             layout_info: LayoutInfo {
@@ -796,8 +793,10 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         });
 
         // Reset the framebuffer and SRGB color target to 0
-        let gl_context = referenced_mutable_content.fake_window.get_gl_context();
+        println!("after calling texture callback, gl context: !");
+        let gl_context = &*referenced_mutable_content.fake_window.gl_context;
 
+        println!("after calling texture callback, binding framebuffer: !");
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);
@@ -874,8 +873,6 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     );
 
     let new_dom = {
-        // Make sure that the app data is locked before invoking the callback
-        let _lock = &mut referenced_mutable_content.app_data;
         let iframe_info = IFrameCallbackInfoUnchecked {
             ptr: *iframe_pointer,
             layout_info: LayoutInfo {
