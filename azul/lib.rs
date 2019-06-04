@@ -150,7 +150,43 @@ extern crate serde;
 #[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde_derive;
 #[cfg(feature = "widgets")]
-pub extern crate azul_widgets as widgets;
+extern crate azul_widgets;
+
+#[cfg(feature = "widgets")]
+pub mod widgets {
+    pub use azul_widgets::{button, label, table_view, text_input, errors};
+
+    pub mod svg {
+
+        pub use azul_widgets::svg::*;
+        use azul_css::StyleTextAlignmentHorz;
+        use azul_core::ui_solver::ResolvedTextLayoutOptions;
+
+        pub fn svg_text_layout_from_str(
+            text: &str,
+            font_bytes: &[u8],
+            font_index: u32,
+            mut text_layout_options: ResolvedTextLayoutOptions,
+            horizontal_alignment: StyleTextAlignmentHorz,
+        ) -> SvgTextLayout {
+            use text_layout;
+
+            text_layout_options.font_size_px = SVG_FAKE_FONT_SIZE;
+            let words = text_layout::split_text_into_words(text);
+            let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, SVG_FAKE_FONT_SIZE);
+            let word_positions = text_layout::position_words(&words, &scaled_words, &text_layout_options);
+            let (layouted_glyphs, line_breaks) = text_layout::get_layouted_glyphs_with_horizonal_alignment(&word_positions, &scaled_words, horizontal_alignment);
+
+            SvgTextLayout {
+               words,
+               scaled_words,
+               word_positions,
+               layouted_glyphs,
+               line_breaks,
+            }
+        }
+    }
+}
 
 pub(crate) use azul_dependencies::glium as glium;
 pub(crate) use azul_dependencies::euclid;
@@ -236,7 +272,7 @@ pub mod resources {
     pub use app_resources::{
         LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
         ImageSource, RawImageFormat, CssFontId, CssImageId,
-        TextCache, TextId, FontId, ImageId, image_source_get_bytes,
+        TextCache, TextId, FontId, ImageId, image_source_get_bytes, font_source_get_bytes,
     };
 }
 
@@ -287,8 +323,6 @@ pub mod errors {
         app_resources::{ImageReloadError, FontReloadError},
         window::WindowCreateError,
     };
-    #[cfg(feature = "widgets")]
-    pub use widgets::errors::*;
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
 

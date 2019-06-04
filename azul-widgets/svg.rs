@@ -24,7 +24,7 @@ use lyon::{
 use std::io::{Error as IoError};
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
-use azul_css::{ColorU, ColorF, StyleTextAlignmentHorz};
+use azul_css::{ColorU, ColorF};
 use gleam::gl::{self, Gl};
 use azul_core::{
     FastHashMap,
@@ -33,8 +33,7 @@ use azul_core::{
         VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
     window::FakeWindow,
-    app_resources::{AppResources, Words, FontId, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs},
-    ui_solver::ResolvedTextLayoutOptions,
+    app_resources::{Words, FontId, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs},
     display_list::GlyphInstance,
 };
 pub use lyon::{
@@ -1768,7 +1767,7 @@ pub struct SvgTextLayout {
 }
 
 /// Since the SvgText is scaled on the GPU, the font size doesn't matter here
-const SVG_FAKE_FONT_SIZE: f32 = 64.0;
+pub const SVG_FAKE_FONT_SIZE: f32 = 64.0;
 
 impl SvgTextLayout {
 
@@ -2023,14 +2022,14 @@ impl Svg {
 
         let bg_col: ColorF = self.background_color.into();
 
-        let multisampling_factor = match self.multisampling_factor {
-            0 => None,
-            i if i <= 2 => Some(2),
-            i if i <= 4 => Some(4),
-            i if i <= 8 => Some(8),
-            i if i <= 16 => Some(16),
-            _ => None,
-        };
+        // let multisampling_factor = match self.multisampling_factor {
+        //     0 => None,
+        //     i if i <= 2 => Some(2),
+        //     i if i <= 4 => Some(4),
+        //     i if i <= 8 => Some(8),
+        //     i if i <= 16 => Some(16),
+        //     _ => None,
+        // };
 
         let z_index: f32 = 0.5;
         let bbox_size = TypedSize2D::new(texture_width as f32, texture_height as f32);
@@ -2097,7 +2096,6 @@ impl Svg {
 
             gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
             fb.unbind();
-            fb.finish();
         }
 
         tex
