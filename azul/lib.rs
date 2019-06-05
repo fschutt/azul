@@ -156,6 +156,7 @@ extern crate azul_widgets;
 pub mod widgets {
     pub use azul_widgets::{button, label, table_view, text_input, errors};
 
+    #[cfg(feature = "svg")]
     pub mod svg {
 
         pub use azul_widgets::svg::*;

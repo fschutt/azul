@@ -649,60 +649,78 @@ impl<T> fmt::Display for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
         let html_type = self.node_type.get_path();
-        let text_content = self.node_type.get_text_content();
+        let attributes_string = node_data_to_string(&self);
 
-        let id_string = if self.ids.is_empty() {
-            String::new()
-        } else {
-            format!(" id=\"{}\"", self.ids.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
-        };
-
-        let class_string = if self.classes.is_empty() {
-            String::new()
-        } else {
-            format!(" class=\"{}\"", self.classes.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
-        };
-
-        let draggable = if self.is_draggable {
-            format!(" draggable=\"true\"")
-        } else {
-            String::new()
-        };
-
-        let tabindex = if let Some(tab_index) = self.tab_index {
-            format!(" tabindex=\"{}\"", tab_index.get_index())
-        } else {
-            String::new()
-        };
-
-        let callbacks = if self.callbacks.is_empty() {
-            String::new()
-        } else {
-            format!(" callbacks=\"{}\"", self.callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
-        };
-
-        let default_callbacks = if self.default_callback_ids.is_empty() {
-            String::new()
-        } else {
-            format!(" default-callbacks=\"{}\"", self.default_callback_ids.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
-        };
-
-        let css_overrides = if self.dynamic_css_overrides.is_empty() {
-            String::new()
-        } else {
-            format!(" css-overrides=\"{}\"", self.dynamic_css_overrides.iter().map(|(id, prop)| format!("{}={:?};", id, prop)).collect::<Vec<String>>().join(" "))
-        };
-
-        if let Some(content) = text_content {
-            write!(f, "<{}{}{}{}{}{}{}{}>{}</{}>",
-                html_type, id_string, class_string, tabindex, draggable, callbacks, default_callbacks, css_overrides, content, html_type
-            )
-        } else {
-            write!(f, "<{}{}{}{}{}{}{}{}/>",
-                html_type, id_string, class_string, tabindex, draggable, callbacks, default_callbacks, css_overrides,
-            )
+        match self.node_type.get_text_content() {
+            Some(content) => write!(f, "<{}{}>{}</{}>", html_type, attributes_string, content, html_type),
+            None => write!(f, "<{}{}/>", html_type, attributes_string)
         }
     }
+}
+
+impl<T> NodeData<T> {
+    pub fn debug_print_start(&self) -> String {
+
+        let html_type = self.node_type.get_path();
+        let attributes_string = node_data_to_string(&self);
+
+        match self.node_type.get_text_content() {
+            Some(content) => format!("<{}{}>{}</{}>", html_type, attributes_string, content, html_type),
+            None => format!("<{}{}>", html_type, attributes_string),
+        }
+    }
+
+    pub fn debug_print_end(&self) -> String {
+        let html_type = self.node_type.get_path();
+        format!("</{}>", html_type)
+    }
+}
+
+fn node_data_to_string<T>(node_data: &NodeData<T>) -> String {
+
+    let id_string = if node_data.ids.is_empty() {
+        String::new()
+    } else {
+        format!(" id=\"{}\"", node_data.ids.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
+    };
+
+    let class_string = if node_data.classes.is_empty() {
+        String::new()
+    } else {
+        format!(" class=\"{}\"", node_data.classes.iter().map(|s| s.as_str().to_string()).collect::<Vec<String>>().join(" "))
+    };
+
+    let draggable = if node_data.is_draggable {
+        format!(" draggable=\"true\"")
+    } else {
+        String::new()
+    };
+
+    let tabindex = if let Some(tab_index) = node_data.tab_index {
+        format!(" tabindex=\"{}\"", tab_index.get_index())
+    } else {
+        String::new()
+    };
+
+    let callbacks = if node_data.callbacks.is_empty() {
+        String::new()
+    } else {
+        format!(" callbacks=\"{}\"", node_data.callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
+    };
+
+    let default_callbacks = if node_data.default_callback_ids.is_empty() {
+        String::new()
+    } else {
+        format!(" default-callbacks=\"{}\"", node_data.default_callback_ids.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
+    };
+
+    let css_overrides = if node_data.dynamic_css_overrides.is_empty() {
+        String::new()
+    } else {
+        format!(" css-overrides=\"{}\"", node_data.dynamic_css_overrides.iter().map(|(id, prop)| format!("{}={:?};", id, prop)).collect::<Vec<String>>().join(" "))
+    };
+
+    format!("{}{}{}{}{}{}{}", id_string, class_string, tabindex, draggable, callbacks, default_callbacks, css_overrides)
 }
 
 impl<T> fmt::Debug for NodeData<T> {
@@ -1060,31 +1078,31 @@ fn init_arena_with_node_data<T>(node_data: NodeData<T>) -> Arena<NodeData<T>> {
     }
 }
 
-/// Prints the debug version of the arena, without printing the actual arena
-pub(crate) fn print_tree<T, F: Fn(&NodeData<T>) -> String + Copy>(arena: &Arena<NodeData<T>>, format_cb: F) -> String {
-    let mut s = String::new();
-    if arena.len() > 0 {
-        print_tree_recursive(arena, format_cb, &mut s, NodeId::new(0), 0);
-    }
-    s
-}
 
-fn print_tree_recursive<T, F: Fn(&NodeData<T>) -> String + Copy>(arena: &Arena<NodeData<T>>, format_cb: F, string: &mut String, current_node_id: NodeId, indent: usize) {
+
+fn print_tree_recursive<T>(arena: &Arena<NodeData<T>>, string: &mut String, current_node_id: NodeId, indent: usize) {
+
     let node = &arena.node_layout[current_node_id];
     let tabs = String::from("    ").repeat(indent);
-    string.push_str(&format!("{}{}\n", tabs, format_cb(&arena.node_data[current_node_id])));
+
+    string.push_str(&tabs);
+    string.push_str(&arena.node_data[current_node_id].debug_print_start());
+    string.push_str("\r\n");
 
     if let Some(first_child) = node.first_child {
-        print_tree_recursive(arena, format_cb, string, first_child, indent + 1);
+        print_tree_recursive(arena, string, first_child, indent + 1);
         if node.last_child.is_some() {
-            string.push_str(&format!("{}</{}>\n", tabs, arena.node_data[current_node_id].node_type.get_path()));
+            string.push_str(&tabs);
+            string.push_str(&arena.node_data[current_node_id].debug_print_end());
+            string.push_str("\r\n");
         }
     }
 
     if let Some(next_sibling) = node.next_sibling {
-        print_tree_recursive(arena, format_cb, string, next_sibling, indent);
+        print_tree_recursive(arena, string, next_sibling, indent);
     }
 }
+
 
 impl<T> Dom<T> {
 
@@ -1329,7 +1347,12 @@ impl<T> Dom<T> {
 
     /// Returns a debug formatted version of the DOM for easier debugging
     pub fn debug_dump(&self) -> String {
-        format!("{}", print_tree(&self.arena, |t| format!("{}", t)))
+
+        let mut s = String::new();
+        if self.arena.len() > 0 {
+            print_tree_recursive(&self.arena, &mut s, NodeId::new(0), 0);
+        }
+        s
     }
 }
 

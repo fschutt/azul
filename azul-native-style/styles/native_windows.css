@@ -7,6 +7,7 @@
     justify-content: center;
     cursor: pointer;
     flex-grow: 1;
+    font-family: sans-serif;
 }
 
 .__azul-native-button:hover {
@@ -29,6 +30,7 @@
     flex-direction: column;
     justify-content: center;
     flex-grow: 1;
+    font-family: sans-serif;
 }
 
 .__azul-native-input-text {
