@@ -178,7 +178,7 @@ fn fill_vertex_buffer_cache<'a>(
     id: &SvgLayerId,
     mut rmut: RefMut<'a, FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
     rnotmut: &FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    gl_context: Rc<Gl>,
+    shader: &GlShader,
 ) {
     use std::collections::hash_map::Entry::*;
 
@@ -189,8 +189,8 @@ fn fill_vertex_buffer_cache<'a>(
                 Some(s) => s,
                 None => return,
             };
-            let vertex_buffer = VertexBuffer::new(gl_context.clone(), vbuf);
-            let index_buffer = IndexBuffer::new(gl_context, ibuf, IndexBufferFormat::TriangleStrip);
+            let vertex_buffer = VertexBuffer::new(shader.clone(), vbuf);
+            let index_buffer = IndexBuffer::new(shader.gl_context.clone(), ibuf, IndexBufferFormat::TriangleStrip);
             v.insert(Rc::new((vertex_buffer, index_buffer)));
         }
     }
@@ -208,13 +208,13 @@ impl SvgCache {
         self.shader.borrow_mut().get_or_insert_with(|| SvgShader::new(gl_context));
     }
 
-    fn get_stroke_vertices_and_indices(&self, gl_context: Rc<Gl>, id: &SvgLayerId)
+    fn get_stroke_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
     -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
     {
         {
             let rmut = self.stroke_vertex_index_buffer_cache.borrow_mut();
             let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
-            fill_vertex_buffer_cache(id, rmut, rnotmut, gl_context);
+            fill_vertex_buffer_cache(id, rmut, rnotmut, shader);
         }
 
         self.stroke_vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
@@ -224,7 +224,7 @@ impl SvgCache {
     ///
     /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
     /// in sync, a panic should never happen
-    fn get_vertices_and_indices(&self, gl_context: Rc<Gl>, id: &SvgLayerId)
+    fn get_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
     -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
     {
         // We need the SvgCache to call this function immutably, otherwise we can't
@@ -233,7 +233,7 @@ impl SvgCache {
             let rmut = self.vertex_index_buffer_cache.borrow_mut();
             let rnotmut = &self.gpu_ready_to_upload_cache;
 
-            fill_vertex_buffer_cache(id, rmut, rnotmut, gl_context);
+            fill_vertex_buffer_cache(id, rmut, rnotmut, shader);
         }
 
         self.vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
@@ -1503,7 +1503,7 @@ impl Default for Svg {
             zoom: 1.0,
             enable_fxaa: false,
             enable_hidpi: true,
-            background_color: ColorU { r: 0, b: 0, g: 0, a: 0 },
+            background_color: ColorU::TRANSPARENT,
             multisampling_factor: 1,
         }
     }
@@ -2046,15 +2046,10 @@ impl Svg {
         let mut shader = svg_cache.shader.borrow_mut();
         let shader = &mut (*shader).as_mut().unwrap().program;
 
-        let mut tex = Texture::new(gl_context.clone(), texture_width, texture_height);
+        let mut tex = Texture::new(shader.gl_context.clone(), texture_width, texture_height);
 
         {
-            let mut fb = FrameBuffer::new(&mut tex);
-
-            fb.bind();
-
-            gl_context.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
-            gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+            let mut layers = Vec::new();
 
             for layer in &self.layers {
 
@@ -2064,37 +2059,46 @@ impl Svg {
                 };
 
                 let fill_vi = match &layer {
-                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(gl_context.clone(), layer_id),
+                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(&shader, layer_id),
                     SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
-                        let vertex_buffer = VertexBuffer::new(gl_context.clone(), &f.vertices);
-                        let index_buffer = IndexBuffer::new(gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
+                        let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
+                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
                         Rc::new((vertex_buffer, index_buffer))
                     }),
                 };
 
                 let stroke_vi = match &layer {
-                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(gl_context.clone(), layer_id),
+                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&shader, layer_id),
                     SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
-                        let vertex_buffer = VertexBuffer::new(gl_context.clone(), &f.vertices);
-                        let index_buffer = IndexBuffer::new(gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
+                        let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
+                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
                         Rc::new((vertex_buffer, index_buffer))
                     }),
                 };
 
                 if let (Some(fill_color), Some(fill_vi))  = (style.fill, fill_vi) {
-                    let (fill_vertices, fill_indices) = &*fill_vi;
                     let uniforms = build_uniforms(&bbox_size, fill_color, z_index, pan, zoom, &style.transform);
-                    shader.draw(&mut fb, fill_vertices, fill_indices, &uniforms);
+                    layers.push((fill_vi, uniforms));
                 }
 
                 if let (Some(stroke_color), Some(stroke_vi))  = (style.stroke, stroke_vi) {
-                    let (stroke_vertices, stroke_indices) = &*stroke_vi;
                     let uniforms = build_uniforms(&bbox_size, stroke_color.0, z_index, pan, zoom, &style.transform);
-                    shader.draw(&mut fb, stroke_vertices, stroke_indices, &uniforms);
+                    layers.push((stroke_vi, uniforms));
                 }
             }
 
-            gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+            let mut fb = FrameBuffer::new(&mut tex);
+            fb.bind();
+
+            gl_context.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
+            gl_context.clear(gl::COLOR_BUFFER_BIT);
+
+            if !layers.is_empty() {
+                gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+                shader.draw(&layers);
+                gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+            }
+
             fb.unbind();
         }
 

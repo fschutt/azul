@@ -50,22 +50,17 @@ const CSS: &str = "
 const SVG: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/svg/tiger.svg"));
 
 #[derive(Debug)]
-pub struct MyAppData {
-    pub map: Map,
-}
-
-#[derive(Debug)]
-pub struct Map {
-    pub cache: SvgCache,
-    pub layers: Vec<(SvgLayerId, SvgStyle)>,
-    pub zoom: f32,
-    pub pan_horz: f32,
-    pub pan_vert: f32,
+struct MyAppData {
+    cache: SvgCache,
+    layers: Vec<(SvgLayerId, SvgStyle)>,
+    zoom: f32,
+    pan_horz: f32,
+    pan_vert: f32,
 }
 
 impl Layout for MyAppData {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<MyAppData> {
-        let ptr = StackCheckedPointer::new(self, &self.map).unwrap();
+        let ptr = StackCheckedPointer::new(self, self).unwrap();
         Dom::gl_texture(draw_svg, ptr).with_callback(On::Scroll, scroll_map_contents).with_id("svg-container")
         .with_child(Button::with_label("Zoom in").dom().with_class("control-btn").with_id("btn-zoom-in"))
         .with_child(Button::with_label("Zoom out").dom().with_class("control-btn").with_id("btn-zoom-in"))
@@ -78,7 +73,7 @@ impl Layout for MyAppData {
 
 fn draw_svg(info: GlCallbackInfoUnchecked<MyAppData>) -> GlCallbackReturn {
     unsafe {
-        info.invoke_callback(|info: GlCallbackInfo<MyAppData, Map>| {
+        info.invoke_callback(|info: GlCallbackInfo<MyAppData, MyAppData>| {
             use azul::widgets::svg::SvgLayerResource::*;
 
             let map = info.state;
@@ -101,15 +96,15 @@ fn scroll_map_contents(info: CallbackInfo<MyAppData>) -> UpdateScreen {
     let keyboard_state = info.state.windows.get(&window_id)?.get_keyboard_state();
 
     if keyboard_state.shift_down {
-        info.state.data.map.pan_horz += mouse_state.scroll_y;
+        info.state.data.pan_horz += mouse_state.scroll_y;
     } else if keyboard_state.ctrl_down {
         if mouse_state.scroll_y.is_sign_positive() {
-            info.state.data.map.zoom /= 2.0;
+            info.state.data.zoom /= 2.0;
         } else {
-            info.state.data.map.zoom *= 2.0;
+            info.state.data.zoom *= 2.0;
         }
     } else {
-        info.state.data.map.pan_vert += mouse_state.scroll_y;
+        info.state.data.pan_vert += mouse_state.scroll_y;
     }
 
     Redraw
@@ -121,13 +116,11 @@ fn main() {
     let svg_layers = svg_cache.add_svg(&SVG).unwrap();
 
     let app_data = MyAppData {
-        map: Map {
-            cache: svg_cache,
-            layers: svg_layers,
-            zoom: 1.0,
-            pan_horz: 0.0,
-            pan_vert: 0.0,
-        }
+        cache: svg_cache,
+        layers: svg_layers,
+        zoom: 1.0,
+        pan_horz: 0.0,
+        pan_vert: 0.0,
     };
 
     let css = css::override_native(CSS).unwrap();
