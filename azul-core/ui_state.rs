@@ -343,7 +343,13 @@ pub fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
                 node_tag_id = Some(tag_id);
             }
 
-            if let Some(tab_index) = node.get_tab_index() {
+            // It's a very common mistake is to set a default callback, but not to call
+            // .with_tab_index() - so this "fixes" this behaviour so that if at least one FocusEventFilter
+            // is set, the item automatically gets a tabindex attribute assigned.
+            let should_insert_tabindex_auto = !focus_callbacks.is_empty() || !focus_default_callbacks.is_empty();
+            let node_tab_index = node.get_tab_index().or(if should_insert_tabindex_auto { Some(TabIndex::Auto) } else { None });
+
+            if let Some(tab_index) = node_tab_index {
                 let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
                 tab_index_tags.insert(tag_id, (node_id, tab_index));
                 node_tag_id = Some(tag_id);

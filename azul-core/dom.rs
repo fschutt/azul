@@ -1078,13 +1078,12 @@ fn init_arena_with_node_data<T>(node_data: NodeData<T>) -> Arena<NodeData<T>> {
     }
 }
 
-
-
 fn print_tree_recursive<T>(arena: &Arena<NodeData<T>>, string: &mut String, current_node_id: NodeId, indent: usize) {
 
     let node = &arena.node_layout[current_node_id];
     let tabs = String::from("    ").repeat(indent);
 
+    string.push_str(&format!("{} ", current_node_id.index()));
     string.push_str(&tabs);
     string.push_str(&arena.node_data[current_node_id].debug_print_start());
     string.push_str("\r\n");
@@ -1092,6 +1091,7 @@ fn print_tree_recursive<T>(arena: &Arena<NodeData<T>>, string: &mut String, curr
     if let Some(first_child) = node.first_child {
         print_tree_recursive(arena, string, first_child, indent + 1);
         if node.last_child.is_some() {
+            string.push_str(&format!("{} ", current_node_id.index()));
             string.push_str(&tabs);
             string.push_str(&arena.node_data[current_node_id].debug_print_end());
             string.push_str("\r\n");

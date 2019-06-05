@@ -1,4 +1,6 @@
 .__azul-native-button {
+    display: flex;
+    box-sizing: border-box;
     font-size: 14.66px;
     border: 1px solid rgb(172, 172, 172);
     background: linear-gradient(to bottom, rgb(239, 239, 239), rgb(229, 229, 229));
@@ -25,6 +27,8 @@
 }
 
 .__azul-native-label {
+    display: flex;
+    box-sizing: border-box;
     font-size: 14.66px;
     text-align: center;
     flex-direction: column;
@@ -34,6 +38,8 @@
 }
 
 .__azul-native-input-text {
+    display: flex;
+    box-sizing: border-box;
     font-size: 14.66px;
     flex-grow: 1;
     background-color: white;
@@ -44,6 +50,7 @@
     flex-direction: row;
     align-content: flex-end;
     justify-content: flex-end;
+    font-family: sans-serif;
 }
 
 .__azul-native-input-text:hover {
