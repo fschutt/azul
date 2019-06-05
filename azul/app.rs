@@ -1004,8 +1004,6 @@ fn update_display_list<T>(
         &mut fake_display.render_api,
     );
 
-    // println!("cached display list: {:#?}", cached_display_list.root);
-
     add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
 
     window.internal.layout_result = layout_result;

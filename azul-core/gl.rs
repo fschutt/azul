@@ -730,7 +730,7 @@ impl GlShader {
         let gl_context = &*fb.texture.gl_context;
 
         gl_context.bind_buffer(gl::ARRAY_BUFFER, vertices.vertex_buffer_id);
-        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, vertices.vertex_buffer_id);
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, indices.index_buffer_id);
         gl_context.use_program(self.program_id);
 
         for uniform in uniforms {

@@ -54,7 +54,6 @@ impl<T> FakeWindow<T> {
 
     /// Returns a reference-counted pointer to the OpenGL context
     pub fn get_gl_context(&self) -> Rc<Gl> {
-        println!("get gl context from FakeWindow!");
         self.gl_context.clone()
     }
 

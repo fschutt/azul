@@ -793,10 +793,8 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         });
 
         // Reset the framebuffer and SRGB color target to 0
-        println!("after calling texture callback, gl context: !");
         let gl_context = &*referenced_mutable_content.fake_window.gl_context;
 
-        println!("after calling texture callback, binding framebuffer: !");
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
         gl_context.disable(gl::MULTISAMPLE);

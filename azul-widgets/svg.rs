@@ -96,11 +96,11 @@ const SVG_VERTEX_SHADER: &str = "
         // Rotation first, then scale, then translation -- all in pixel space
         vec2 vRotationCenterXY = vAttrXY - vRotationCenter;
         vec2 vAttrXYRotated = vec2(
-            (vRotationCenterXY.x * rotation_cos) - (vRotationCenterXY.y * vRotationSin),
-            (vAttrXY.x * vRotationSin) + (vAttrXY.y * rotation_cos)
+            (vRotationCenterXY.x * vRotationCos) - (vRotationCenterXY.y * vRotationSin),
+            (vAttrXY.x * vRotationSin) + (vAttrXY.y * vRotationCos)
         );
 
-        vec2 vAttrXYScaled = vAttrXYRotated * scale_factor;
+        vec2 vAttrXYScaled = vAttrXYRotated * vScaleFactor;
         vec2 vAttrXYTranslated = vAttrXYScaled + vTranslatePx + vRotationCenter;
 
         vec2 vPositionCentered = vAttrXYTranslated / vBboxSize;
