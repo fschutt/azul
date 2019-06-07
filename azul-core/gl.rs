@@ -191,21 +191,24 @@ impl VertexLayout {
 
         let mut offset = 0;
 
+        let stride_between_vertices: usize = self.fields.iter().map(VertexAttribute::get_stride).sum();
+
         for vertex_attribute in self.fields.iter() {
+
             let attribute_location = vertex_attribute.layout_location
                 .map(|ll| ll as i32)
                 .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, &vertex_attribute.name));
-            let stride = vertex_attribute.item_size * vertex_attribute.item_count;
+
             gl_context.vertex_attrib_pointer(
                 attribute_location as u32,
                 vertex_attribute.item_count as i32,
                 vertex_attribute.attribute_type.get_gl_id(),
                 VERTICES_ARE_NORMALIZED,
-                stride as i32,
+                stride_between_vertices as i32,
                 offset as u32,
             );
             gl_context.enable_vertex_attrib_array(attribute_location as u32);
-            offset += stride;
+            offset += vertex_attribute.get_stride();
         }
     }
 
@@ -230,10 +233,14 @@ pub struct VertexAttribute {
     pub layout_location: Option<usize>,
     /// Type of items of this attribute (i.e. for a `FloatVec2`, would be `VertexAttributeType::Float`)
     pub attribute_type: VertexAttributeType,
-    /// Size of a *single* item (i.e. for a `FloatVec2`, would be `mem::size_of::<f32>()`)
-    pub item_size: usize,
     /// Number of items of this attribute (i.e. for a `FloatVec2`, would be `2` (= 2 consecutive f32 values))
     pub item_count: usize,
+}
+
+impl VertexAttribute {
+    pub fn get_stride(&self) -> usize {
+        self.attribute_type.get_mem_size() * self.item_count
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -261,6 +268,18 @@ impl VertexAttributeType {
             UnsignedByte => gl::UNSIGNED_BYTE,
             UnsignedShort => gl::UNSIGNED_SHORT,
             UnsignedInt => gl::UNSIGNED_INT,
+        }
+    }
+
+    pub fn get_mem_size(&self) -> usize {
+        use std::mem;
+        use self::VertexAttributeType::*;
+        match self {
+            Float => mem::size_of::<f32>(),
+            Double => mem::size_of::<f64>(),
+            UnsignedByte => mem::size_of::<u8>(),
+            UnsignedShort => mem::size_of::<u16>(),
+            UnsignedInt => mem::size_of::<u32>(),
         }
     }
 }
@@ -406,6 +425,7 @@ pub struct IndexBuffer {
 impl IndexBuffer {
 
     pub fn new(gl_context: Rc<Gl>, indices: &[u32], format: IndexBufferFormat) -> Self {
+
         use std::mem;
 
         // save the OpenGL state
@@ -462,12 +482,6 @@ impl Uniform {
 
     pub fn new<S: Into<String>>(name: S, uniform_type: UniformType) -> Self {
         Self { name: name.into(), uniform_type }
-    }
-
-    /// Calls `glGetUniformLocation` and then `glUniform4f` with the uniform value (depending on the type of the uniform)
-    pub fn bind(&self, shader: &GlShader, gl_context: &Gl) {
-        let uniform_location = gl_context.get_uniform_location(shader.program_id, &self.name);
-        self.uniform_type.set(gl_context, uniform_location);
     }
 }
 
@@ -756,20 +770,38 @@ impl GlShader {
     pub fn draw<T: VertexLayoutDescription>(&mut self, buffers: &[(Rc<(VertexBuffer<T>, IndexBuffer)>, Vec<Uniform>)]) {
 
         use std::ops::Deref;
+        use std::collections::HashMap;
 
-        const INDEX_TYPE: GLuint = gl::UNSIGNED_INT; // since indices are in u32 format
+        const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
 
         let gl_context = &*self.gl_context;
 
         // save the OpenGL state
+        let mut current_multisample = [0_i32];
         let mut current_index_buffer = [0_i32];
         let mut current_vertex_buffer = [0_i32];
         let mut current_program = [0_i32];
+
+        unsafe { gl_context.get_integer_v(gl::MULTISAMPLE, &mut current_multisample) };
         unsafe { gl_context.get_integer_v(gl::ARRAY_BUFFER, &mut current_vertex_buffer) };
         unsafe { gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, &mut current_index_buffer) };
         unsafe { gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
 
         gl_context.use_program(self.program_id);
+        gl_context.disable(gl::MULTISAMPLE);
+
+        // Avoid multiple calls to get_uniform_location by caching the uniform locations
+        let mut uniform_locations: HashMap<String, i32> = HashMap::new();
+        let mut max_uniform_len = 0;
+        for (_, uniforms) in buffers {
+            for uniform in uniforms.iter() {
+                if !uniform_locations.contains_key(&uniform.name) {
+                    uniform_locations.insert(uniform.name.clone(), gl_context.get_uniform_location(self.program_id, &uniform.name));
+                }
+            }
+            max_uniform_len = max_uniform_len.max(uniforms.len());
+        }
+        let mut current_uniforms = vec![None;max_uniform_len];
 
         for (vi, uniforms) in buffers {
 
@@ -779,14 +811,22 @@ impl GlShader {
             gl_context.bind_buffer(gl::ARRAY_BUFFER, vertices.vertex_buffer_id);
             gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, indices.index_buffer_id);
 
-            for uniform in uniforms.iter() {
-                uniform.bind(&self, gl_context);
+            // Only set the uniform if the value has changed
+            for (uniform_index, uniform) in uniforms.iter().enumerate() {
+                if current_uniforms[uniform_index] != Some(uniform.uniform_type) {
+                    let uniform_location = uniform_locations[&uniform.name];
+                    uniform.uniform_type.set(gl_context, uniform_location);
+                    current_uniforms[uniform_index] = Some(uniform.uniform_type);
+                }
             }
 
             gl_context.draw_elements(indices.index_buffer_format.get_gl_id(), indices.index_buffer_len as i32, INDEX_TYPE, 0);
         }
 
         // Reset the OpenGL state to what it was before
+        if current_multisample[0] == gl::TRUE as i32 {
+            gl_context.enable(gl::MULTISAMPLE);
+        }
         gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
         gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
         gl_context.use_program(current_program[0] as u32);

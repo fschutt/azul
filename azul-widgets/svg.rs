@@ -81,6 +81,9 @@ const SVG_VERTEX_SHADER: &str = "
     in vec2 vAttrXY;
     in vec2 vAttrNormal;
 
+    out vec2 fAttrXY;
+    out vec2 fAttrNormal;
+
     uniform vec2 vBboxSize;
     uniform vec2 vGlobalOffset;
     uniform float vZIndex;
@@ -106,7 +109,9 @@ const SVG_VERTEX_SHADER: &str = "
         vec2 vPositionCentered = vAttrXYTranslated / vBboxSize;
         vec2 vPositionZoomed = vPositionCentered * vec2(vZoom);
 
-        gl_Position = vec4(vPositionZoomed + (vGlobalOffset / vBboxSize) - vec2(1.0), vZIndex, 1.0);
+        fAttrXY = vPositionZoomed + (vGlobalOffset / vBboxSize) - vec2(1.0);
+        fAttrNormal = vAttrNormal;
+        gl_Position = vec4(fAttrXY, vZIndex, 1.0);
     }";
 
 const SVG_FRAGMENT_SHADER: &str = "
@@ -115,15 +120,21 @@ const SVG_FRAGMENT_SHADER: &str = "
 
     #define attribute in
     #define varying out
+    #define ANTIALIASING_FACTOR 0.5
+
+    in vec2 fAttrXY;
+    in vec2 fAttrNormal;
+
+    out vec4 fOutColor;
 
     uniform vec4 fFillColor;
-    out vec4 fOutColor;
 
     // The shader output is in SRGB color space,
     // and the shader assumes that the input colors are in SRGB, too.
 
     void main() {
-        fOutColor = fFillColor;
+        // fOutColor = fFillColor;
+        fOutColor = vec4(fAttrNormal.x, fAttrNormal.y, fAttrXY.x, fAttrXY.y);
     }
 ";
 
@@ -190,7 +201,7 @@ fn fill_vertex_buffer_cache<'a>(
                 None => return,
             };
             let vertex_buffer = VertexBuffer::new(shader.clone(), vbuf);
-            let index_buffer = IndexBuffer::new(shader.gl_context.clone(), ibuf, IndexBufferFormat::TriangleStrip);
+            let index_buffer = IndexBuffer::new(shader.gl_context.clone(), ibuf, IndexBufferFormat::Triangles);
             v.insert(Rc::new((vertex_buffer, index_buffer)));
         }
     }
@@ -698,18 +709,18 @@ pub fn join_vertex_buffers(input: &[VertexBuffers<SvgVert, u32>]) -> VerticesInd
 
 pub fn transform_vertex_buffer(input: &mut [SvgVert], x: f32, y: f32) {
     for vert in input {
-        vert.xy.0 += x;
-        vert.xy.1 += y;
+        vert.xy[0] += x;
+        vert.xy[1] += y;
     }
 }
 
 /// sin and cos are the sinus and cosinus of the rotation
 pub fn rotate_vertex_buffer(input: &mut [SvgVert], sin: f32, cos: f32) {
     for vert in input {
-        let (x, y) = vert.xy;
+        let (x, y) = (vert.xy[0], vert.xy[1]);
         let new_x = (x * cos) - (y * sin);
         let new_y = (x * sin) + (y * cos);
-        vert.xy = (new_x, new_y);
+        vert.xy = [new_x, new_y];
     }
 }
 
@@ -1032,30 +1043,28 @@ pub enum SvgLayerType {
     Rect(SvgRect),
 }
 
+#[repr(packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct SvgVert {
-    pub xy: (f32, f32),
-    pub normal: (f32, f32),
+    pub xy: [f32;2],
+    pub normal: [f32;2],
 }
 
 // implement_vertex!(SvgVert, xy, normal);
 impl VertexLayoutDescription for SvgVert {
     fn get_description() -> VertexLayout {
-        use std::mem;
         VertexLayout {
             fields: vec![
                 VertexAttribute {
                     name: "vAttrXY",
                     layout_location: None,
                     attribute_type: VertexAttributeType::Float,
-                    item_size: mem::size_of::<f32>(),
                     item_count: 2,
                 },
                 VertexAttribute {
                     name: "vAttrNormal",
                     layout_location: None,
                     attribute_type: VertexAttributeType::Float,
-                    item_size: mem::size_of::<f32>(),
                     item_count: 2,
                 }
             ],
@@ -1220,8 +1229,8 @@ impl SvgLayerType {
                     &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
+                            xy: vertex.position.to_array(),
+                            normal: vertex.normal.to_array(),
                         }
                     }),
                 ).unwrap();
@@ -1231,8 +1240,8 @@ impl SvgLayerType {
                 fill_circle(center, c.radius, &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
+                            xy: vertex.position.to_array(),
+                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
@@ -1242,8 +1251,8 @@ impl SvgLayerType {
                 fill_rounded_rectangle(&rect, &radii, &FillOptions::default(),
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
+                            xy: vertex.position.to_array(),
+                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
@@ -1278,8 +1287,8 @@ impl SvgLayerType {
                     &stroke_options,
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
+                            xy: vertex.position.to_array(),
+                            normal: vertex.normal.to_array(),
                         }
                     }),
                 );
@@ -1289,8 +1298,8 @@ impl SvgLayerType {
                 stroke_circle(center, c.radius, &stroke_options,
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
+                            xy: vertex.position.to_array(),
+                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
@@ -1300,8 +1309,8 @@ impl SvgLayerType {
                 stroke_rounded_rectangle(&rect, &radii, &stroke_options,
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
-                            xy: (vertex.position.x, vertex.position.y),
-                            normal: (vertex.normal.x, vertex.position.y),
+                            xy: vertex.position.to_array(),
+                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
@@ -2062,7 +2071,7 @@ impl Svg {
                     SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(&shader, layer_id),
                     SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
                         let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
-                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
+                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
                         Rc::new((vertex_buffer, index_buffer))
                     }),
                 };
@@ -2071,7 +2080,7 @@ impl Svg {
                     SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&shader, layer_id),
                     SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
                         let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
-                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::TriangleStrip);
+                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
                         Rc::new((vertex_buffer, index_buffer))
                     }),
                 };
@@ -2127,7 +2136,7 @@ fn build_uniforms(
     vec! [
 
         // Vertex shader
-        Uniform::new("vBboxSize", FloatVec2([bbox_size.width / 2.0, bbox_size.height / 2.0])),
+        Uniform::new("vBboxSize", FloatVec2([bbox_size.width, bbox_size.height])),
         Uniform::new("vGlobalOffset", FloatVec2([pan.0, pan.1])),
         Uniform::new("vZIndex", Float(z_index)),
         Uniform::new("vZoom", Float(zoom)),
