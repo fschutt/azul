@@ -79,10 +79,6 @@ const SVG_VERTEX_SHADER: &str = "
     #define varying out
 
     in vec2 vAttrXY;
-    in vec2 vAttrNormal;
-
-    out vec2 fAttrXY;
-    out vec2 fAttrNormal;
 
     uniform vec2 vBboxSize;
     uniform vec2 vGlobalOffset;
@@ -109,9 +105,7 @@ const SVG_VERTEX_SHADER: &str = "
         vec2 vPositionCentered = vAttrXYTranslated / vBboxSize;
         vec2 vPositionZoomed = vPositionCentered * vec2(vZoom);
 
-        fAttrXY = vPositionZoomed + (vGlobalOffset / vBboxSize) - vec2(1.0);
-        fAttrNormal = vAttrNormal;
-        gl_Position = vec4(fAttrXY, vZIndex, 1.0);
+        gl_Position = vec4(vPositionZoomed + (vGlobalOffset / vBboxSize) - vec2(1.0), vZIndex, 1.0);
     }";
 
 const SVG_FRAGMENT_SHADER: &str = "
@@ -120,10 +114,6 @@ const SVG_FRAGMENT_SHADER: &str = "
 
     #define attribute in
     #define varying out
-    #define ANTIALIASING_FACTOR 0.5
-
-    in vec2 fAttrXY;
-    in vec2 fAttrNormal;
 
     out vec4 fOutColor;
 
@@ -133,8 +123,7 @@ const SVG_FRAGMENT_SHADER: &str = "
     // and the shader assumes that the input colors are in SRGB, too.
 
     void main() {
-        // fOutColor = fFillColor;
-        fOutColor = vec4(fAttrNormal.x, fAttrNormal.y, fAttrXY.x, fAttrXY.y);
+        fOutColor = fFillColor;
     }
 ";
 
@@ -1047,7 +1036,6 @@ pub enum SvgLayerType {
 #[derive(Debug, Copy, Clone)]
 pub struct SvgVert {
     pub xy: [f32;2],
-    pub normal: [f32;2],
 }
 
 // implement_vertex!(SvgVert, xy, normal);
@@ -1061,12 +1049,6 @@ impl VertexLayoutDescription for SvgVert {
                     attribute_type: VertexAttributeType::Float,
                     item_count: 2,
                 },
-                VertexAttribute {
-                    name: "vAttrNormal",
-                    layout_location: None,
-                    attribute_type: VertexAttributeType::Float,
-                    item_count: 2,
-                }
             ],
         }
     }
@@ -1230,7 +1212,6 @@ impl SvgLayerType {
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
                             xy: vertex.position.to_array(),
-                            normal: vertex.normal.to_array(),
                         }
                     }),
                 ).unwrap();
@@ -1241,7 +1222,6 @@ impl SvgLayerType {
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
                             xy: vertex.position.to_array(),
-                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
@@ -1252,7 +1232,6 @@ impl SvgLayerType {
                     &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
                         SvgVert {
                             xy: vertex.position.to_array(),
-                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
@@ -1288,7 +1267,6 @@ impl SvgLayerType {
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
                             xy: vertex.position.to_array(),
-                            normal: vertex.normal.to_array(),
                         }
                     }),
                 );
@@ -1299,7 +1277,6 @@ impl SvgLayerType {
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
                             xy: vertex.position.to_array(),
-                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
@@ -1310,7 +1287,6 @@ impl SvgLayerType {
                     &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
                         SvgVert {
                             xy: vertex.position.to_array(),
-                            normal: vertex.normal.to_array(),
                         }
                     }
                 ));
