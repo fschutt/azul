@@ -7,45 +7,7 @@ use azul::{
     widgets::{button::Button, svg::*},
 };
 
-const CSS: &str = "
-    #svg-container {
-        width: 100%;
-        height: 100%;
-    }
-
-    .control-btn {
-        width: 50px;
-        height: 50px;
-        position: absolute;
-    }
-
-    #btn-zoom-in {
-        top: 100px;
-        left: 50px;
-    }
-
-    #btn-zoom-out {
-        top: 100px;
-        left: 150px;
-    }
-
-    #btn-move-up {
-        top: 50px;
-        left: 50px;
-    }
-    #btn-move-right {
-        top: 50px;
-        left: 50px;
-    }
-    #btn-move-left {
-        top: 50px;
-        left: 50px;
-    }
-    #btn-move-down {
-        top: 50px;
-        left: 50px;
-    }
-";
+macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/svg/svg.css")) }
 
 const SVG: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/svg/tiger.svg"));
 
@@ -61,9 +23,9 @@ struct MyAppData {
 impl Layout for MyAppData {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<MyAppData> {
         let ptr = StackCheckedPointer::new(self, self).unwrap();
-        Dom::gl_texture(draw_svg, ptr).with_callback(On::Scroll, scroll_map_contents).with_id("svg-container")
-        .with_child(Button::with_label("Zoom in").dom().with_class("control-btn").with_id("btn-zoom-in"))
-        .with_child(Button::with_label("Zoom out").dom().with_class("control-btn").with_id("btn-zoom-in"))
+        /*Dom::gl_texture(draw_svg, ptr)*/Dom::div().with_callback(On::Scroll, scroll_map_contents).with_id("svg-container")
+        .with_child(Button::with_label("+").dom().with_class("control-btn").with_id("btn-zoom-in"))
+        .with_child(Button::with_label("-").dom().with_class("control-btn").with_id("btn-zoom-out"))
         .with_child(Button::with_label("^").dom().with_class("control-btn").with_id("btn-move-up"))
         .with_child(Button::with_label(">").dom().with_class("control-btn").with_id("btn-move-right"))
         .with_child(Button::with_label("<").dom().with_class("control-btn").with_id("btn-move-left"))
@@ -123,8 +85,20 @@ fn main() {
         pan_vert: 0.0,
     };
 
-    let css = css::override_native(CSS).unwrap();
     let mut app = App::new(app_data, AppConfig::default()).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
+
+    #[cfg(debug_assertions)]
+    let window = {
+        use std::time::Duration;
+        let hot_reloader = css::hot_reload_override_native(CSS_PATH!(), Duration::from_millis(500));
+        app.create_hot_reload_window(WindowCreateOptions::default(), hot_reloader).unwrap()
+    };
+
+    #[cfg(not(debug_assertions))]
+    let window = {
+        let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
+        app.create_window(WindowCreateOptions::default(), css).unwrap()
+    };
+
     app.run(window).unwrap();
 }
