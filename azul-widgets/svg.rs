@@ -2,7 +2,7 @@ use std::{
     fmt,
     rc::Rc,
     sync::{atomic::{Ordering, AtomicUsize}},
-    cell::{RefCell, RefMut},
+    cell::RefCell,
     collections::hash_map::Entry::*,
 };
 use lyon::{
@@ -46,6 +46,8 @@ static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);
 
+const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SvgTransformId(usize);
 
@@ -63,8 +65,10 @@ pub fn new_view_box_id() -> SvgViewBoxId {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct SvgLayerId(usize);
 
-pub fn new_svg_layer_id() -> SvgLayerId {
-    SvgLayerId(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
+impl SvgLayerId {
+    pub fn new() -> Self {
+        Self(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
+    }
 }
 
 const SHADER_VERSION_GL: &str = "#version 150";
@@ -155,20 +159,20 @@ impl SvgShader {
 
 pub struct SvgCache {
     // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
-    gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    stroke_gpu_ready_to_upload_cache: FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
-    stroke_vertex_index_buffer_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
+    cpu_fill_cache: RefCell<FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>>,
+    cpu_stroke_cache: RefCell<FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>>,
+    gpu_fill_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
+    gpu_stroke_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
     shader: RefCell<Option<SvgShader>>,
 }
 
 impl Default for SvgCache {
     fn default() -> Self {
         Self {
-            gpu_ready_to_upload_cache: FastHashMap::default(),
-            stroke_gpu_ready_to_upload_cache: FastHashMap::default(),
-            vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
-            stroke_vertex_index_buffer_cache: RefCell::new(FastHashMap::default()),
+            cpu_fill_cache: RefCell::new(FastHashMap::default()),
+            cpu_stroke_cache: RefCell::new(FastHashMap::default()),
+            gpu_fill_cache: RefCell::new(FastHashMap::default()),
+            gpu_stroke_cache: RefCell::new(FastHashMap::default()),
             shader: RefCell::new(None),
         }
     }
@@ -176,21 +180,21 @@ impl Default for SvgCache {
 
 fn fill_vertex_buffer_cache<'a>(
     id: &SvgLayerId,
-    mut rmut: RefMut<'a, FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
-    rnotmut: &FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
+    cpu_cache: &mut FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
+    gpu_cache: &mut FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>,
     shader: &GlShader,
 ) {
     use std::collections::hash_map::Entry::*;
 
-    match rmut.entry(*id) {
+    match gpu_cache.entry(*id) {
         Occupied(_) => { },
         Vacant(v) => {
-            let (vbuf, ibuf) = match rnotmut.get(id).as_ref() {
+            let (vbuf, ibuf) = match cpu_cache.remove(id) {
                 Some(s) => s,
                 None => return,
             };
-            let vertex_buffer = VertexBuffer::new(shader.clone(), vbuf);
-            let index_buffer = IndexBuffer::new(shader.gl_context.clone(), ibuf, IndexBufferFormat::Triangles);
+            let vertex_buffer = VertexBuffer::new(shader.clone(), &vbuf);
+            let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &ibuf, IndexBufferFormat::Triangles);
             v.insert(Rc::new((vertex_buffer, index_buffer)));
         }
     }
@@ -203,104 +207,56 @@ impl SvgCache {
         Self::default()
     }
 
-    /// Builds and compiles the SVG shader if the shader isn't already present
-    fn init_shader<'a>(&'a self, gl_context: Rc<Gl>) {
-        self.shader.borrow_mut().get_or_insert_with(|| SvgShader::new(gl_context));
-    }
-
-    fn get_stroke_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
-    {
-        {
-            let rmut = self.stroke_vertex_index_buffer_cache.borrow_mut();
-            let rnotmut = &self.stroke_gpu_ready_to_upload_cache;
-            fill_vertex_buffer_cache(id, rmut, rnotmut, shader);
-        }
-
-        self.stroke_vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
-    }
-
-    /// Note: panics if the ID isn't found.
-    ///
-    /// Since we are required to keep the `self.layers` and the `self.gpu_buffer_cache`
-    /// in sync, a panic should never happen
-    fn get_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
-    {
-        // We need the SvgCache to call this function immutably, otherwise we can't
-        // use it from the Layout::layout() function
-        {
-            let rmut = self.vertex_index_buffer_cache.borrow_mut();
-            let rnotmut = &self.gpu_ready_to_upload_cache;
-
-            fill_vertex_buffer_cache(id, rmut, rnotmut, shader);
-        }
-
-        self.vertex_index_buffer_cache.borrow().get(id).map(|x| x.clone())
-    }
-
     pub fn add_layer(&mut self, layer: SvgLayerResourceDirect) -> (SvgLayerId, SvgStyle) {
 
         let SvgLayerResourceDirect { style, stroke, fill } = layer;
 
-        let new_svg_id = new_svg_layer_id();
+        let new_svg_id = SvgLayerId::new();
 
         if let Some(fill) = fill {
-            self.gpu_ready_to_upload_cache.insert(new_svg_id, (fill.vertices, fill.indices));
+            self.cpu_fill_cache.borrow_mut().insert(new_svg_id, (fill.vertices, fill.indices));
         }
 
         if let Some(stroke) = stroke {
-            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, (stroke.vertices, stroke.indices));
+            self.cpu_stroke_cache.borrow_mut().insert(new_svg_id, (stroke.vertices, stroke.indices));
         }
 
         (new_svg_id, style)
     }
 
     pub fn delete_layer(&mut self, svg_id: SvgLayerId) {
-        self.gpu_ready_to_upload_cache.remove(&svg_id);
-        self.stroke_gpu_ready_to_upload_cache.remove(&svg_id);
-        let rmut = self.vertex_index_buffer_cache.get_mut();
-        let stroke_rmut = self.stroke_vertex_index_buffer_cache.get_mut();
-        rmut.remove(&svg_id);
-        stroke_rmut.remove(&svg_id);
+        self.cpu_fill_cache.borrow_mut().remove(&svg_id);
+        self.cpu_stroke_cache.borrow_mut().remove(&svg_id);
+        self.gpu_fill_cache.borrow_mut().remove(&svg_id);
+        self.gpu_stroke_cache.borrow_mut().remove(&svg_id);
     }
 
     pub fn clear_all_layers(&mut self) {
-        self.gpu_ready_to_upload_cache.clear();
-        self.stroke_gpu_ready_to_upload_cache.clear();
-
-        let rmut = self.vertex_index_buffer_cache.get_mut();
-        rmut.clear();
-
-        let stroke_rmut = self.stroke_vertex_index_buffer_cache.get_mut();
-        stroke_rmut.clear();
+        self.cpu_fill_cache.borrow_mut().clear();
+        self.cpu_stroke_cache.borrow_mut().clear();
+        self.gpu_fill_cache.borrow_mut().clear();
+        self.gpu_stroke_cache.borrow_mut().clear();
     }
 
     /// Creates a new, identical, copied instance of the given layer - duplicates
     /// the object in GPU memory, but this way re-tesselation can be avoided.
     pub fn clone_layer(&mut self, svg_id: SvgLayerId) -> SvgLayerId {
 
-        let new_svg_id = new_svg_layer_id();
+        let new_svg_id = SvgLayerId::new();
         let old_svg_id = svg_id;
 
-        if let Some(vertices_indices) = self.gpu_ready_to_upload_cache.get(&old_svg_id).cloned() {
-            self.gpu_ready_to_upload_cache.insert(new_svg_id, vertices_indices);
-        }
+        macro_rules! clone_buffer {($buffer:ident) => {
+            // .clone() needs to be on a separate line, otherwise it would trigger a BorrowMut error!
+            let cpu_fill_vertices_indices = self.$buffer.borrow().get(&old_svg_id).cloned();
+            if let Some(vertices_indices) = cpu_fill_vertices_indices {
+                self.$buffer.borrow_mut().insert(new_svg_id, vertices_indices);
+            }
+        }}
 
-        if let Some(stroke_vertices_indices) = self.stroke_gpu_ready_to_upload_cache.get(&old_svg_id).cloned() {
-            self.stroke_gpu_ready_to_upload_cache.insert(new_svg_id, stroke_vertices_indices);
-        }
-
-        // Needs to be on a separate line, otherwise it would get a BorrowMut error!
-        let vertices_indices_clone = self.vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned();
-        if let Some(vertices_indices) = vertices_indices_clone {
-            self.vertex_index_buffer_cache.borrow_mut().insert(new_svg_id, vertices_indices);
-        }
-
-        let stroke_vertices_indices_clone = self.stroke_vertex_index_buffer_cache.borrow().get(&old_svg_id).cloned();
-        if let Some(stroke_vertices_indices) = stroke_vertices_indices_clone {
-            self.stroke_vertex_index_buffer_cache.borrow_mut().insert(new_svg_id, stroke_vertices_indices);
-        }
+        clone_buffer!(cpu_fill_cache);
+        clone_buffer!(cpu_stroke_cache);
+        clone_buffer!(gpu_fill_cache);
+        clone_buffer!(gpu_stroke_cache);
 
         new_svg_id
     }
@@ -316,18 +272,52 @@ impl SvgCache {
             .map(|tesselated_layer| self.add_layer(tesselated_layer))
             .collect())
     }
+
+    /// Builds and compiles the SVG shader if the shader isn't already present
+    fn init_shader<'a>(&'a self, gl_context: Rc<Gl>) {
+        self.shader.borrow_mut().get_or_insert_with(|| SvgShader::new(gl_context));
+    }
+
+    fn get_fill_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
+    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
+    {
+        {
+            let cpu_fill_cache = &mut *self.cpu_fill_cache.borrow_mut();
+            let gpu_fill_cache = &mut *self.gpu_fill_cache.borrow_mut();
+            fill_vertex_buffer_cache(id, cpu_fill_cache, gpu_fill_cache, shader);
+        }
+        self.gpu_fill_cache.borrow().get(id).map(|x| x.clone())
+    }
+
+    fn get_stroke_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
+    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
+    {
+        {
+            let cpu_stroke_cache = &mut *self.cpu_stroke_cache.borrow_mut();
+            let gpu_stroke_cache = &mut *self.gpu_stroke_cache.borrow_mut();
+            fill_vertex_buffer_cache(id, cpu_stroke_cache, gpu_stroke_cache, shader);
+        }
+        self.gpu_stroke_cache.borrow().get(id).map(|x| x.clone())
+    }
 }
 
 impl fmt::Debug for SvgCache {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for layer_id in self.gpu_ready_to_upload_cache.keys() {
-            write!(f, "{:?}", layer_id)?;
+        for layer_id in self.cpu_fill_cache.borrow().keys() {
+            write!(f, "cpu: {:?}", layer_id)?;
+        }
+        for layer_id in self.cpu_stroke_cache.borrow().keys() {
+            write!(f, "cpu: {:?}", layer_id)?;
+        }
+        for layer_id in self.gpu_fill_cache.borrow().keys() {
+            write!(f, "gpu: {:?}", layer_id)?;
+        }
+        for layer_id in self.gpu_stroke_cache.borrow().keys() {
+            write!(f, "gpu: {:?}", layer_id)?;
         }
         Ok(())
     }
 }
-
-const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 
 /// Returns the (fill, stroke) vertices of a layer
 pub fn tesselate_polygon_data(layer_data: &[SvgLayerType], style: SvgStyle)
@@ -2044,7 +2034,7 @@ impl Svg {
                 };
 
                 let fill_vi = match &layer {
-                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_vertices_and_indices(&shader, layer_id),
+                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_fill_vertices_and_indices(&shader, layer_id),
                     SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
                         let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
                         let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);

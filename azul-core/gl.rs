@@ -291,6 +291,13 @@ pub trait VertexLayoutDescription {
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
     pub vao_id: GLuint,
+    pub gl_context: Rc<Gl>,
+}
+
+impl Drop for VertexArrayObject {
+    fn drop(&mut self) {
+        self.gl_context.delete_vertex_arrays(&[self.vao_id]);
+    }
 }
 
 pub struct VertexBuffer<T: VertexLayoutDescription> {
@@ -358,10 +365,11 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         Self {
             vertex_buffer_id,
             vertex_buffer_len: vertices.len(),
-            gl_context,
+            gl_context: gl_context.clone(),
             vao: VertexArrayObject {
                 vertex_layout: vertex_description,
                 vao_id: vertex_array_object,
+                gl_context,
             },
             vertex_buffer_type: PhantomData,
         }
@@ -459,6 +467,49 @@ impl IndexBuffer {
         Self::new(gl_context, &[], IndexBufferFormat::Triangles)
     }
 }
+
+/*
+impl Clone for IndexBuffer {
+    // Deep-clones the IndexBuffer by cloning the GPU vertices
+    fn clone(&self) -> Self {
+
+        let gl_context = self.gl_context.clone();
+
+        let mut current_index_buffer = [0_i32];
+        let mut current_copy_read_buffer = [0_i32];
+        let mut current_copy_write_buffer = [0_i32];
+        unsafe { gl_context.get_integer_v(gl::COPY_READ_BUFFER, &mut current_copy_read_buffer) };
+        unsafe { gl_context.get_integer_v(gl::COPY_WRITE_BUFFER, &mut current_copy_write_buffer) };
+
+        let new_index_buffer_id = gl_context.gen_buffers(1);
+        #[cfg(debug_assertions)] {
+            if new_index_buffer_id[0] < 0 { panic!("Failed to call glGenBuffers(1) in IndexBuffer::clone()"); }
+        }
+        let new_index_buffer_id = new_index_buffer_id[0] as u32;
+
+        gl_context.bind_buffer(gl::COPY_READ_BUFFER, self.index_buffer_id);
+        gl_context.bind_buffer(gl::COPY_WRITE_BUFFER, new_index_buffer_id);
+
+        let buffer_size = gl_context.get_buffer_parameter_iv(gl::COPY_READ_BUFFER, gl::BUFFER_SIZE);
+
+        // TODO: necessary?
+        // gl_context.buffer_data_untyped(gl::COPY_WRITE_BUFFER, buffer_size, 0 as *const c_void, gl::STATIC_DRAW);
+        // TODO: copy_buffer_sub_data is not available, see https://github.com/servo/gleam/issues/196
+        gl_context.copy_buffer_sub_data(new_index_buffer_id, self.index_buffer_id, 0, 0, buffer_size);
+
+        // reset the OpenGL state
+        gl_context.bind_buffer(gl::COPY_READ_BUFFER, current_copy_read_buffer[0] as u32);
+        gl_context.bind_buffer(gl::COPY_WRITE_BUFFER, current_copy_write_buffer[0] as u32);
+
+        Self {
+            index_buffer_id: new_index_buffer_id,
+            index_buffer_len: self.index_buffer_len,
+            index_buffer_format: self.index_buffer_format,
+            gl_context,
+        }
+    }
+}
+*/
 
 impl ::std::fmt::Display for IndexBuffer {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
