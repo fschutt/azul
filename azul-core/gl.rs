@@ -28,6 +28,9 @@ pub struct Texture {
 impl Texture {
     pub fn new(gl_context: Rc<Gl>, width: usize, height: usize) -> Texture {
 
+        let mut current_bound_texture = [0_i32];
+        unsafe { gl_context.get_integer_v(gl::TEXTURE_2D, &mut current_bound_texture) };
+
         let textures = gl_context.gen_textures(1);
         let texture_id = textures[0];
 
@@ -48,6 +51,9 @@ impl Texture {
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+        // Reset OpenGL state
+        gl_context.bind_texture(gl::TEXTURE_2D, current_bound_texture[0] as u32);
 
         Self {
             texture_id,
@@ -468,49 +474,6 @@ impl IndexBuffer {
     }
 }
 
-/*
-impl Clone for IndexBuffer {
-    // Deep-clones the IndexBuffer by cloning the GPU vertices
-    fn clone(&self) -> Self {
-
-        let gl_context = self.gl_context.clone();
-
-        let mut current_index_buffer = [0_i32];
-        let mut current_copy_read_buffer = [0_i32];
-        let mut current_copy_write_buffer = [0_i32];
-        unsafe { gl_context.get_integer_v(gl::COPY_READ_BUFFER, &mut current_copy_read_buffer) };
-        unsafe { gl_context.get_integer_v(gl::COPY_WRITE_BUFFER, &mut current_copy_write_buffer) };
-
-        let new_index_buffer_id = gl_context.gen_buffers(1);
-        #[cfg(debug_assertions)] {
-            if new_index_buffer_id[0] < 0 { panic!("Failed to call glGenBuffers(1) in IndexBuffer::clone()"); }
-        }
-        let new_index_buffer_id = new_index_buffer_id[0] as u32;
-
-        gl_context.bind_buffer(gl::COPY_READ_BUFFER, self.index_buffer_id);
-        gl_context.bind_buffer(gl::COPY_WRITE_BUFFER, new_index_buffer_id);
-
-        let buffer_size = gl_context.get_buffer_parameter_iv(gl::COPY_READ_BUFFER, gl::BUFFER_SIZE);
-
-        // TODO: necessary?
-        // gl_context.buffer_data_untyped(gl::COPY_WRITE_BUFFER, buffer_size, 0 as *const c_void, gl::STATIC_DRAW);
-        // TODO: copy_buffer_sub_data is not available, see https://github.com/servo/gleam/issues/196
-        gl_context.copy_buffer_sub_data(new_index_buffer_id, self.index_buffer_id, 0, 0, buffer_size);
-
-        // reset the OpenGL state
-        gl_context.bind_buffer(gl::COPY_READ_BUFFER, current_copy_read_buffer[0] as u32);
-        gl_context.bind_buffer(gl::COPY_WRITE_BUFFER, current_copy_write_buffer[0] as u32);
-
-        Self {
-            index_buffer_id: new_index_buffer_id,
-            index_buffer_len: self.index_buffer_len,
-            index_buffer_format: self.index_buffer_format,
-            gl_context,
-        }
-    }
-}
-*/
-
 impl ::std::fmt::Display for IndexBuffer {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         write!(f, "IndexBuffer {{ id: {}, length: {} }}", self.index_buffer_id, self.index_buffer_len)
@@ -583,6 +546,7 @@ impl UniformType {
 pub struct FrameBuffer<'a> {
     pub framebuffer_id: GLuint,
     pub texture: &'a mut Texture,
+    pub opengl_state: (GLint, GLint),
 }
 
 impl<'a> ::std::fmt::Display for FrameBuffer<'a> {
@@ -596,6 +560,13 @@ impl_traits_for_gl_object!(FrameBuffer<'a>, framebuffer_id);
 impl<'a> FrameBuffer<'a> {
 
     pub fn new(texture: &'a mut Texture) -> Self {
+
+        // save the OpenGL state
+        let mut current_framebuffers = [0_i32];
+        let mut current_texture_2d = [0_i32];
+        unsafe { texture.gl_context.get_integer_v(gl::FRAMEBUFFER, &mut current_framebuffers) };
+        unsafe { texture.gl_context.get_integer_v(gl::TEXTURE_2D, &mut current_texture_2d) };
+
         let framebuffers = texture.gl_context.gen_framebuffers(1);
         texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
         texture.gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
@@ -610,18 +581,21 @@ impl<'a> FrameBuffer<'a> {
         Self {
             framebuffer_id: framebuffers[0],
             texture,
+            opengl_state: (current_framebuffers[0], current_texture_2d[0])
         }
     }
 
     pub fn bind(&mut self) {
         self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
         self.texture.gl_context.bind_texture(gl::TEXTURE_2D, self.texture.texture_id);
+        self.texture.gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, self.texture.width as i32, self.texture.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None);
+        self.texture.gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, self.texture.texture_id, 0);
         self.texture.gl_context.viewport(0, 0, self.texture.width as i32, self.texture.height as i32);
     }
 
     pub fn unbind(&mut self) {
-        self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
-        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, 0);
+        self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.opengl_state.0 as u32);
+        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, self.opengl_state.1 as u32);
     }
 }
 

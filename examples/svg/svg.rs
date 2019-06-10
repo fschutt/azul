@@ -23,7 +23,7 @@ struct MyAppData {
 impl Layout for MyAppData {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<MyAppData> {
         let ptr = StackCheckedPointer::new(self, self).unwrap();
-        /*Dom::gl_texture(draw_svg, ptr)*/Dom::div().with_callback(On::Scroll, scroll_map_contents).with_id("svg-container")
+        Dom::gl_texture(draw_svg, ptr).with_callback(On::Scroll, scroll_map_contents).with_id("svg-container")
         .with_child(Button::with_label("+").dom().with_class("control-btn").with_id("btn-zoom-in"))
         .with_child(Button::with_label("-").dom().with_class("control-btn").with_id("btn-zoom-out"))
         .with_child(Button::with_label("^").dom().with_class("control-btn").with_id("btn-move-up"))
@@ -86,19 +86,7 @@ fn main() {
     };
 
     let mut app = App::new(app_data, AppConfig::default()).unwrap();
-
-    #[cfg(debug_assertions)]
-    let window = {
-        use std::time::Duration;
-        let hot_reloader = css::hot_reload_override_native(CSS_PATH!(), Duration::from_millis(500));
-        app.create_hot_reload_window(WindowCreateOptions::default(), hot_reloader).unwrap()
-    };
-
-    #[cfg(not(debug_assertions))]
-    let window = {
-        let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
-        app.create_window(WindowCreateOptions::default(), css).unwrap()
-    };
-
+    let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
+    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
     app.run(window).unwrap();
 }
