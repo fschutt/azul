@@ -33,7 +33,7 @@ use azul_core::{
         VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
     window::FakeWindow,
-    app_resources::{Words, FontId, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs},
+    app_resources::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs},
     display_list::GlyphInstance,
 };
 pub use lyon::{
@@ -45,32 +45,9 @@ pub use lyon::{
 static SVG_LAYER_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);
+static VECTORIZED_FONT_ID: AtomicUsize = AtomicUsize::new(0);
 
 const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct SvgTransformId(usize);
-
-pub fn new_svg_transform_id() -> SvgTransformId {
-    SvgTransformId(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst))
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct SvgViewBoxId(usize);
-
-pub fn new_view_box_id() -> SvgViewBoxId {
-    SvgViewBoxId(SVG_VIEW_BOX_ID.fetch_add(1, Ordering::SeqCst))
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct SvgLayerId(usize);
-
-impl SvgLayerId {
-    pub fn new() -> Self {
-        Self(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
-    }
-}
-
 const SHADER_VERSION_GL: &str = "#version 150";
 const SHADER_VERSION_GLES: &str = "#version 300 es";
 const DEFAULT_GLYPH_TOLERANCE: f32 = 0.01;
@@ -138,13 +115,48 @@ fn prefix_gl_version(shader: &str, gl: GlApiVersion) -> String {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SvgTransformId(usize);
+
+impl SvgTransformId {
+    pub fn new() -> Self {
+        Self(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SvgViewBoxId(usize);
+
+impl SvgViewBoxId {
+    pub fn new() -> Self {
+        Self(SVG_VIEW_BOX_ID.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct SvgLayerId(usize);
+
+impl SvgLayerId {
+    pub fn new() -> Self {
+        Self(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct VectorizedFontId(usize);
+
+impl VectorizedFontId {
+    pub fn new() -> Self {
+        Self(VECTORIZED_FONT_ID.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SvgShader {
     pub program: GlShader,
 }
 
 impl SvgShader {
-
     pub fn new(gl_context: Rc<Gl>) -> Self {
 
         let current_gl_api = GlApiVersion::get(&*gl_context);
@@ -1149,7 +1161,7 @@ pub struct VectorizedFontCache {
     ///
     /// Needs to be wrapped in a RefCell / Rc since we want to lazy-load the
     /// fonts to keep the memory usage down
-    vectorized_fonts: RefCell<FastHashMap<FontId, Rc<VectorizedFont>>>,
+    vectorized_fonts: RefCell<FastHashMap<VectorizedFontId, Rc<VectorizedFont>>>,
 }
 
 impl VectorizedFontCache {
@@ -1158,24 +1170,24 @@ impl VectorizedFontCache {
         Self::default()
     }
 
-    pub fn insert_if_not_exist(&mut self, id: FontId, font_bytes: Vec<u8>) {
+    pub fn insert_if_not_exist(&mut self, id: VectorizedFontId, font_bytes: Vec<u8>) {
         self.vectorized_fonts.borrow_mut().entry(id).or_insert_with(|| Rc::new(VectorizedFont::from_bytes(font_bytes)));
     }
 
-    pub fn insert(&mut self, id: FontId, font: VectorizedFont) {
+    pub fn insert(&mut self, id: VectorizedFontId, font: VectorizedFont) {
         self.vectorized_fonts.borrow_mut().insert(id, Rc::new(font));
     }
 
-    pub fn get_font(&self, id: &FontId) -> Option<Rc<VectorizedFont>> {
+    pub fn get_font(&self, id: &VectorizedFontId) -> Option<Rc<VectorizedFont>> {
         self.vectorized_fonts.borrow().get(&id).map(|font| font.clone())
     }
 
     /// Returns true if the font cache has the respective font
-    pub fn has_font(&self, id: &FontId) -> bool {
+    pub fn has_font(&self, id: &VectorizedFontId) -> bool {
         self.vectorized_fonts.borrow().get(id).is_some()
     }
 
-    pub fn remove_font(&mut self, id: &FontId) {
+    pub fn remove_font(&mut self, id: &VectorizedFontId) {
         self.vectorized_fonts.borrow_mut().remove(id);
     }
 }
@@ -1649,7 +1661,7 @@ pub struct SvgText {
     /// Font size of the text, in pixels
     pub font_size_px: f32,
     /// Font ID, such as FontId(0)
-    pub font_id: FontId,
+    pub font_id: VectorizedFontId,
     /// What are the words / glyphs in this text
     pub text_layout: SvgTextLayout,
     /// What is the font color & stroke (if any)?
