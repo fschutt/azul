@@ -10,7 +10,9 @@
     text-align: center;
     flex-direction: column;
     justify-content: center;
+    align-items: center;
     box-sizing: border-box;
+    border: fdalkfjadsf;
 }
 
 .control-btn p {

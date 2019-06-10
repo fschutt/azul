@@ -19,10 +19,10 @@ use azul_core::{
     display_list::GlyphInstance,
     app_resources::{GlyphInfo, GlyphPosition},
 };
-use azul_css::LayoutPoint;
+use azul_css::{LayoutPoint, LayoutSize};
 
 const MEMORY_MODE_READONLY: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
-const HB_SCALE_FACTOR: f32 = 128.0;
+pub(crate) const HB_SCALE_FACTOR: f32 = 128.0;
 
 // NOTE: hb_tag_t = u32
 // See: https://github.com/tangrams/harfbuzz-example/blob/master/src/hbshaper.h
@@ -236,24 +236,6 @@ pub(crate) fn get_word_visual_width_hb(glyph_positions: &[GlyphPosition]) -> f32
     glyph_positions.iter().map(|pos| pos.x_advance as f32 / HB_SCALE_FACTOR).sum()
 }
 
-pub(crate) fn get_word_visual_height_hb(glyph_positions: &[GlyphPosition]) -> (f32, f32) {
-    /*
-    x_bearing: hb_position_t
-    y_bearing: hb_position_t
-    width: hb_position_t
-    height: hb_position_t
-    */
-    /*
-    pub unsafe extern "C" fn hb_font_get_glyph_extents(
-        font: *mut hb_font_t,
-        glyph: hb_codepoint_t,
-        extents: *mut hb_glyph_extents_t
-    ) -> hb_bool_t
-    */
-    // let (hb_word_height, hb_word_descent) = text_shaping::get_word_visual_height_hb(&hb_glyph_positions);
-    (0.0, 0.0)
-}
-
 pub(crate) fn get_glyph_instances_hb(
     glyph_infos: &[GlyphInfo],
     glyph_positions: &[GlyphPosition],
@@ -271,6 +253,7 @@ pub(crate) fn get_glyph_instances_hb(
         let y_advance = glyph_pos.y_advance as f32 / HB_SCALE_FACTOR;
 
         let point = LayoutPoint::new(current_cursor_x + x_offset, current_cursor_y + y_offset);
+        let size = LayoutSize::new(x_advance, y_advance);
 
         current_cursor_x += x_advance;
         current_cursor_y += y_advance;
@@ -278,6 +261,7 @@ pub(crate) fn get_glyph_instances_hb(
         GlyphInstance {
             index: glyph_index,
             point,
+            size,
         }
     }).collect()
 }

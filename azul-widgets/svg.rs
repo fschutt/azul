@@ -33,8 +33,9 @@ use azul_core::{
         VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
     window::FakeWindow,
-    app_resources::{Words, ScaledWords, WordPositions, LineBreaks, LayoutedGlyphs},
+    app_resources::{Words, ScaledWords, WordPositions, LayoutedGlyphs},
     display_list::GlyphInstance,
+    ui_solver::InlineTextLayout,
 };
 pub use lyon::{
     tessellation::VertexBuffers,
@@ -1750,7 +1751,7 @@ pub struct SvgTextLayout {
     /// Positioned and horizontally aligned glyphs
     pub layouted_glyphs: LayoutedGlyphs,
     /// At what glyphs does the line actually break (necessary for aligning content)
-    pub line_breaks: LineBreaks,
+    pub inline_text_layout: InlineTextLayout,
 }
 
 /// Since the SvgText is scaled on the GPU, the font size doesn't matter here

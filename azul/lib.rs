@@ -160,7 +160,7 @@ pub mod widgets {
     pub mod svg {
 
         pub use azul_widgets::svg::*;
-        use azul_css::StyleTextAlignmentHorz;
+        use azul_css::{StyleTextAlignmentHorz, LayoutPoint};
         use azul_core::ui_solver::ResolvedTextLayoutOptions;
 
         pub fn svg_text_layout_from_str(
@@ -176,14 +176,16 @@ pub mod widgets {
             let words = text_layout::split_text_into_words(text);
             let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, SVG_FAKE_FONT_SIZE);
             let word_positions = text_layout::position_words(&words, &scaled_words, &text_layout_options);
-            let (layouted_glyphs, line_breaks) = text_layout::get_layouted_glyphs_with_horizonal_alignment(&word_positions, &scaled_words, horizontal_alignment);
+            let mut inline_text_layout = text_layout::word_positions_to_inline_text_layout(&word_positions, &scaled_words);
+            inline_text_layout.align_children_horizontal(horizontal_alignment);
+            let layouted_glyphs = text_layout::get_layouted_glyphs(&word_positions, &scaled_words, &inline_text_layout, LayoutPoint::zero());
 
             SvgTextLayout {
                words,
                scaled_words,
                word_positions,
                layouted_glyphs,
-               line_breaks,
+               inline_text_layout,
             }
         }
     }

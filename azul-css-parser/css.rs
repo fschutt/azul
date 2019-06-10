@@ -278,7 +278,7 @@ impl<'a> fmt::Display for CssParseError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let start_location = self.location.0.get_line_column_from_error(self.css_string);
         let end_location = self.location.1.get_line_column_from_error(self.css_string);
-        write!(f, "    start: line {}:{}\r\n    end: line:{}:{}\r\n    text: \"{}\"\r\n    reason: {}",
+        write!(f, "    start: line {}:{}\r\n    end: line {}:{}\r\n    text: \"{}\"\r\n    reason: {}",
             start_location.0, start_location.1,
             end_location.0, end_location.1,
             self.get_error_string(),

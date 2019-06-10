@@ -311,7 +311,10 @@ impl<T> App<T> {
                         // ui_state_map.insert(window_id)
                         match &css_has_error {
                             None => ui_state_from_app_state(&mut self.app_state, &window_id, self.layout_callback),
-                            Some(s) => Ok(ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"))),
+                            Some(s) => {
+                                println!("{}", s);
+                                Ok(ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error")))
+                            },
                         }
                     }
                     #[cfg(not(debug_assertions))] {
@@ -423,7 +426,10 @@ impl<T> App<T> {
                     // Call the Layout::layout() fn, get the DOM
                     *ui_state_cache.get_mut(current_window_id).ok_or(WindowIndexError)? = match &css_has_error {
                         None => ui_state_from_app_state(&mut self.app_state, current_window_id, self.layout_callback)?,
-                        Some(s) => ui_state_from_dom(Dom::label(s.clone())),
+                        Some(s) => {
+                            println!("{}", s);
+                            ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"))
+                        },
                     };
 
                     relayout_single_window(

@@ -339,6 +339,8 @@ pub enum WordType {
 pub struct ScaledWords {
     /// Font size (in pixels) that was used to scale these words
     pub font_size_px: f32,
+    /// Baseline of the font (usually lower than the font size)
+    pub baseline_px: f32,
     /// Words scaled to their appropriate font size, but not yet positioned on the screen
     pub items: Vec<ScaledWord>,
     /// Longest word in the `self.scaled_words`, necessary for
@@ -360,10 +362,6 @@ pub struct ScaledWord {
     pub glyph_positions: Vec<GlyphPosition>,
     /// The sum of the width of all the characters in this word
     pub word_width: f32,
-    /// Height of the largest character in this word
-    pub word_height: f32,
-    ///
-    pub word_descent: f32,
 }
 
 /// Stores the positions of the vertically laid out texts

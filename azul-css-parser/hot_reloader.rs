@@ -34,7 +34,7 @@ impl HotReloadHandler for HotReloader {
         let file_name = self.file_path.file_name().map(|os_str| os_str.to_string_lossy()).unwrap_or_default();
 
         let reloaded_css = fs::read_to_string(&self.file_path)
-            .map_err(|e| format!("Error parsing CSS file: \"{}\": IO Error: {}", file_name, e))?;
+            .map_err(|e| format!("Error parsing CSS file: \"{}\":\r\nIO Error: {}", file_name, e))?;
 
         css::new_from_str(&reloaded_css).map_err(|e| format!("Error parsing CSS file: \"{}\":\r\n{}", file_name, e))
     }

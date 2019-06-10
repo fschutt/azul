@@ -66,6 +66,7 @@ pub enum FontRenderMode {
 pub struct GlyphInstance {
     pub index: GlyphIndex,
     pub point: LayoutPoint,
+    pub size: LayoutSize,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]

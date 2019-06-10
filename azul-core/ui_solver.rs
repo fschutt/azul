@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use azul_css::{
     LayoutRect, PixelValue, LayoutSize, StyleFontSize,
     StyleTextColor, ColorU as StyleColorU, Overflow,
+    StyleTextAlignmentHorz, StyleTextAlignmentVert,
 };
 use {
     app_resources::{Words, ScaledWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
@@ -21,13 +22,90 @@ pub const DEFAULT_TAB_WIDTH: f32 = 4.0;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct InlineTextLayout {
-    pub lines: Vec<LayoutRect>,
+    pub lines: Vec<InlineTextLine>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct InlineTextLine {
+    pub bounds: LayoutRect,
+    /// At which word does this line start?
+    pub word_start: usize,
+    /// At which word does this line end
+    pub word_end: usize,
 }
 
 impl InlineTextLayout {
+
     #[inline]
+    #[must_use]
     pub fn get_bounds(&self) -> LayoutRect {
-        LayoutRect::union(self.lines.iter().map(|c| *c)).unwrap_or(LayoutRect::zero())
+        LayoutRect::union(self.lines.iter().map(|c| c.bounds)).unwrap_or(LayoutRect::zero())
+    }
+
+    #[must_use]
+    pub fn get_children_horizontal_diff_to_right_edge(&self, parent: &LayoutRect) -> Vec<f32> {
+        let parent_right_edge = parent.origin.x + parent.size.width;
+        let parent_left_edge = parent.origin.x;
+        self.lines.iter().map(|line| {
+            let child_right_edge = line.bounds.origin.x + line.bounds.size.width;
+            let child_left_edge = line.bounds.origin.x;
+            (child_left_edge - parent_left_edge) + (parent_right_edge - child_right_edge)
+        }).collect()
+    }
+
+    /// Align the lines horizontal to *their bounding box*
+    pub fn align_children_horizontal(&mut self, horizontal_alignment: StyleTextAlignmentHorz) {
+        let shift_multiplier = match calculate_horizontal_shift_multiplier(horizontal_alignment) {
+            None =>  return,
+            Some(s) => s,
+        };
+        let self_bounds = self.get_bounds();
+        let horz_diff = self.get_children_horizontal_diff_to_right_edge(&self_bounds);
+
+        for (line, shift) in self.lines.iter_mut().zip(horz_diff.into_iter()) {
+            line.bounds.origin.x += shift * shift_multiplier;
+        }
+    }
+
+    /// Align the lines vertical to *their parents container*
+    pub fn align_children_vertical_in_parent_bounds(&mut self, parent: &LayoutRect, vertical_alignment: StyleTextAlignmentVert) {
+
+        let shift_multiplier = match calculate_vertical_shift_multiplier(vertical_alignment) {
+            None =>  return,
+            Some(s) => s,
+        };
+
+        let parent_bottom_edge = parent.origin.y + parent.size.height;
+        let parent_top_edge = parent.origin.y;
+
+        let self_bounds = self.get_bounds();
+        let child_bottom_edge = self_bounds.origin.y + self_bounds.size.height;
+        let child_top_edge = self_bounds.origin.y;
+        let shift = (child_top_edge - parent_top_edge) + (parent_bottom_edge - child_bottom_edge);
+
+        for line in &mut self.lines {
+            line.bounds.origin.y += shift * shift_multiplier;
+        }
+    }
+}
+
+#[inline]
+pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlignmentHorz) -> Option<f32> {
+    use azul_css::StyleTextAlignmentHorz::*;
+    match horizontal_alignment {
+        Left => None,
+        Center => Some(0.5), // move the line by the half width
+        Right => Some(1.0), // move the line by the full width
+    }
+}
+
+#[inline]
+pub fn calculate_vertical_shift_multiplier(vertical_alignment: StyleTextAlignmentVert) -> Option<f32> {
+    use azul_css::StyleTextAlignmentVert::*;
+    match vertical_alignment {
+        Top => None,
+        Center => Some(0.5), // move the line by the half width
+        Bottom => Some(1.0), // move the line by the full width
     }
 }
 

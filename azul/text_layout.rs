@@ -1,9 +1,6 @@
 #![allow(unused_variables, dead_code)]
 
-use azul_css::{
-    StyleTextAlignmentHorz, StyleTextAlignmentVert,
-    LayoutSize, LayoutRect, LayoutPoint,
-};
+use azul_css::{LayoutSize, LayoutRect, LayoutPoint};
 pub use azul_core::{
     app_resources::{
         Words, Word, WordType, GlyphInfo, GlyphPosition,
@@ -17,20 +14,6 @@ pub use azul_core::{
 pub(crate) use azul_core::ui_solver::{
     DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
 };
-
-/// Given the scale of words + the word positions, lays out the words in a
-#[derive(Debug, Clone, PartialEq)]
-pub struct LeftAlignedGlyphs<'a> {
-    /// Width that was used to layout these glyphs (or None if the text has overflow:visible)
-    pub max_horizontal_width: Option<f32>,
-    /// Actual glyph instances, copied
-    pub glyphs: Vec<&'a GlyphInstance>,
-    /// Rectangles of the different lines, necessary for text selection
-    /// and hovering over text, etc.
-    pub line_rects: &'a Vec<LayoutRect>,
-    /// Horizontal and vertical extent of the text
-    pub text_bbox: LayoutSize,
-}
 
 /// Whether the text overflows the parent rectangle, and if yes, by how many pixels,
 /// necessary for determining if / how to show a scrollbar + aligning / centering text.
@@ -158,7 +141,7 @@ pub fn words_to_scaled_words(
     font_size_px: f32,
 ) -> ScaledWords {
 
-    use text_shaping::{self, HbBuffer, HbFont, HbScaledFont};
+    use text_shaping::{self, HB_SCALE_FACTOR, HbBuffer, HbFont, HbScaledFont};
     use std::mem;
     use std::char;
 
@@ -168,7 +151,7 @@ pub fn words_to_scaled_words(
     // Get the dimensions of the space glyph
     let hb_space_buffer = HbBuffer::from_str(" ");
     let hb_shaped_space = text_shaping::shape_word_hb(&hb_space_buffer, &hb_scaled_font);
-    let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / 128.0; // TODO: Half width for spaces?
+    let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / HB_SCALE_FACTOR;
     let space_codepoint = hb_shaped_space.glyph_infos[0].codepoint;
 
     let internal_str = words.internal_str.replace(char::is_whitespace, " ");
@@ -214,7 +197,6 @@ pub fn words_to_scaled_words(
             let hb_glyph_positions = shaped_word_positions.get(word_idx)?.clone();
             let hb_glyph_infos = shaped_word_infos.get(word_idx)?.clone();
             let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_glyph_positions);
-            let (hb_word_height, hb_word_descent) = text_shaping::get_word_visual_height_hb(&hb_glyph_positions);
 
             longest_word_width = longest_word_width.max(hb_word_width.abs());
 
@@ -222,17 +204,16 @@ pub fn words_to_scaled_words(
                 glyph_infos: hb_glyph_infos,
                 glyph_positions: hb_glyph_positions,
                 word_width: hb_word_width,
-                word_height: hb_word_height,
-                word_descent: hb_word_descent,
             })
         }).collect();
 
     ScaledWords {
+        font_size_px,
+        baseline_px: font_size_px, // TODO!
         items: scaled_words,
         longest_word_width: longest_word_width,
         space_advance_px,
         space_codepoint,
-        font_size_px,
     }
 }
 
@@ -410,129 +391,77 @@ pub fn position_words(
     }
 }
 
-pub fn get_layouted_glyphs_unpositioned(
-    word_positions: &WordPositions,
-    scaled_words: &ScaledWords,
-) -> LayoutedGlyphs {
-
-    use text_shaping;
-
-    let mut glyphs = Vec::with_capacity(scaled_words.items.len());
-
-    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
-
-    for (scaled_word, word_position) in scaled_words.items.iter()
-    .zip(word_positions.word_positions.iter()) {
-        glyphs.extend(
-            text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions)
-            .into_iter()
-            .zip(scaled_word.cluster_iter())
-            .map(|(mut glyph, cluster_info)| {
-                glyph.point.x += word_position.x;
-                glyph.point.y += word_position.y;
-                glyph.point.x += letter_spacing_px * cluster_info.cluster_idx as f32;
-                glyph
-            })
-        )
-    }
-
-    LayoutedGlyphs { glyphs }
-}
-
-/// Align glyphs horizontally, return the line breaks
-pub fn get_layouted_glyphs_with_horizonal_alignment(
-    word_positions: &WordPositions,
-    scaled_words: &ScaledWords,
-    alignment_horz: StyleTextAlignmentHorz,
-) -> (LayoutedGlyphs, LineBreaks) {
-    let mut glyphs = get_layouted_glyphs_unpositioned(word_positions, scaled_words);
-    let line_breaks = get_char_indices(&word_positions, &scaled_words);
-    align_text_horz(&mut glyphs.glyphs, alignment_horz, &line_breaks);
-    (glyphs, line_breaks)
-}
-
-/// Returns the final glyphs and positions them relative to the `rect_offset`,
-/// ready for webrender to display
-pub fn get_layouted_glyphs(
-    word_positions: &WordPositions,
-    scaled_words: &ScaledWords,
-    alignment_horz: StyleTextAlignmentHorz,
-    alignment_vert: StyleTextAlignmentVert,
-    rect_offset: LayoutPoint,
-    bounding_size_height_px: f32,
-) -> LayoutedGlyphs {
-    let (mut glyphs, line_breaks) = get_layouted_glyphs_with_horizonal_alignment(word_positions, scaled_words, alignment_horz);
-    let vertical_overflow = get_vertical_overflow(&word_positions, bounding_size_height_px);
-    align_text_vert(&mut glyphs.glyphs, alignment_vert, &line_breaks, vertical_overflow);
-    add_origin(&mut glyphs.glyphs, rect_offset.x, rect_offset.y);
-    glyphs
-}
-
 /// Returns the (left-aligned!) bounding boxes of the indidividual text lines
-pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scaled_words: &ScaledWords) -> InlineTextLayout {
+pub fn word_positions_to_inline_text_layout(
+    word_positions: &WordPositions,
+    scaled_words: &ScaledWords
+) -> InlineTextLayout {
+
+    use azul_core::ui_solver::InlineTextLine;
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
     let space_advance = scaled_words.space_advance_px;
     let line_height_px = space_advance * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
     let content_width = word_positions.content_size.width;
 
+    let mut last_word_index = 0;
+
     InlineTextLayout {
-        lines: word_positions.line_breaks.iter().enumerate().map(|(line_number, (_, line_length))| {
-            LayoutRect {
-                origin: LayoutPoint { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) },
-                size: LayoutSize { width: *line_length, height: font_size_px },
-            }
+        lines: word_positions.line_breaks
+            .iter()
+            .enumerate()
+            .map(|(line_number, (word_idx, line_length))| {
+                let start_word_idx = last_word_index;
+                let line = InlineTextLine {
+                    bounds: LayoutRect {
+                        origin: LayoutPoint { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) },
+                        size: LayoutSize { width: *line_length, height: font_size_px },
+                    },
+                    word_start: start_word_idx,
+                    word_end: *word_idx,
+                };
+                last_word_index = *word_idx;
+                line
         }).collect(),
     }
 }
 
-/// Given a width, returns the vertical height and width of the text
-pub fn get_positioned_word_bounding_box(word_positions: &WordPositions, scaled_words: &ScaledWords) -> LayoutRect {
-    word_positions_to_inline_text_layout(word_positions, scaled_words).get_bounds()
-}
+pub fn get_layouted_glyphs(
+    word_positions: &WordPositions,
+    scaled_words: &ScaledWords,
+    inline_text_layout: &InlineTextLayout,
+    origin: LayoutPoint
+) -> LayoutedGlyphs {
 
-pub fn get_vertical_overflow(word_positions: &WordPositions, bounding_size_height_px: f32) -> TextOverflow {
-    let content_size = word_positions.content_size;
-    if bounding_size_height_px > content_size.height {
-        TextOverflow::InBounds(bounding_size_height_px - content_size.height)
-    } else {
-        TextOverflow::IsOverflowing(content_size.height - bounding_size_height_px)
+    use text_shaping;
+
+    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
+    let mut all_glyphs = Vec::with_capacity(scaled_words.items.len());
+
+    for line in inline_text_layout.lines.iter() {
+
+        let line_x = line.bounds.origin.x;
+        let line_y = line.bounds.origin.y;
+
+        let scaled_words_in_this_line = &scaled_words.items[line.word_start..line.word_end];
+        let word_positions_in_this_line = &word_positions.word_positions[line.word_start..line.word_end];
+
+        for (scaled_word, word_position) in scaled_words_in_this_line.iter().zip(word_positions_in_this_line.iter()) {
+            let mut glyphs = text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions);
+            for (glyph, cluster_info) in glyphs.iter_mut().zip(scaled_word.cluster_iter()) {
+                glyph.point.x += origin.x + line_x + word_position.x + (letter_spacing_px * cluster_info.cluster_idx as f32);
+                glyph.point.y += origin.y + line_y;
+            }
+
+            all_glyphs.append(&mut glyphs);
+        }
     }
+
+    LayoutedGlyphs { glyphs: all_glyphs }
 }
 
 pub fn word_item_is_return(item: &Word) -> bool {
     item.word_type == WordType::Return
-}
-
-pub fn text_overflow_is_overflowing(overflow: &TextOverflow) -> bool {
-    use self::TextOverflow::*;
-    match overflow {
-        IsOverflowing(_) => true,
-        InBounds(_) => false,
-    }
-}
-
-pub fn get_char_indices(word_positions: &WordPositions, scaled_words: &ScaledWords) -> LineBreaks {
-
-    let width = word_positions.content_size.width;
-
-    if scaled_words.items.is_empty() {
-        return Vec::new();
-    }
-
-    let mut current_glyph_count = 0;
-    let mut last_word_idx = 0;
-
-    word_positions.line_breaks.iter().map(|(current_word_idx, line_length)| {
-        let remaining_space_px = width - line_length;
-        let words = &scaled_words.items[last_word_idx..*current_word_idx];
-        let glyphs_in_this_line: usize = words.iter().map(|w| w.glyph_infos.len()).sum::<usize>();
-
-        current_glyph_count += glyphs_in_this_line;
-        last_word_idx = *current_word_idx;
-
-        (current_glyph_count, remaining_space_px)
-    }).collect()
 }
 
 /// For a given line number (**NOTE: 0-indexed!**), calculates the Y
@@ -645,130 +574,6 @@ fn advance_caret(caret: &mut f32, line_number: &mut usize, intersection: LineCar
         NoIntersection => { },
         AdvanceCaretTo(x) => { *caret = x; },
         PushCaretOntoNextLine(num_lines, x) => { *line_number += num_lines; *caret = x; },
-    }
-}
-
-pub fn align_text_horz(
-    glyphs: &mut [GlyphInstance],
-    alignment: StyleTextAlignmentHorz,
-    line_breaks: &[(usize, f32)]
-) {
-    use azul_css::StyleTextAlignmentHorz::*;
-
-    // Text alignment is theoretically very simple:
-    //
-    // If we have a bunch of text, such as this (the `glyphs`):
-
-    // ^^^^^^^^^^^^
-    // ^^^^^^^^
-    // ^^^^^^^^^^^^^^^^
-    // ^^^^^^^^^^
-
-    // and we have information about how much space each line has to the right:
-    // (the "---" is the space)
-
-    // ^^^^^^^^^^^^----
-    // ^^^^^^^^--------
-    // ^^^^^^^^^^^^^^^^
-    // ^^^^^^^^^^------
-
-    // Then we can center-align the text, by just taking the "-----", dividing
-    // it by 2 and moving all characters to the right:
-
-    // --^^^^^^^^^^^^--
-    // ----^^^^^^^^----
-    // ^^^^^^^^^^^^^^^^
-    // ---^^^^^^^^^^---
-
-    // Same for right-aligned text, but without the "divide by 2 step"
-
-    if line_breaks.is_empty() || glyphs.is_empty() {
-        return; // ??? maybe a 0-height rectangle?
-    }
-
-    // // assert that the last info in the line_breaks vec has the same glyph index
-    // // i.e. the last line has to end with the last glyph
-    // assert!(glyphs.len() - 1 == line_breaks[line_breaks.len() - 1].0);
-
-    let multiply_factor = match alignment {
-        Left => return,
-        Center => 0.5, // move the line by the half width
-        Right => 1.0, // move the line by the full width
-    };
-
-    // If we have the characters "ABC\n\nDEF", this will result in:
-    //
-    //     [ Glyph(A), Glyph(B), Glyph(C), Glyph(D), Glyph(E), Glyph(F)]
-    //
-    //     [LineBreak(2), LineBreak(2), LineBreak(5)]
-    //
-    // If we'd just shift every character after the line break, we'd get into
-    // the problem of shifting the 3rd character twice, because of the \n\n.
-    //
-    // To avoid the double-line-break problem, we can use ranges:
-    //
-    // - from 0..=2, shift the characters at i by X amount
-    // - from 3..3 (e.g. 0 characters) shift the characters at i by X amount
-    // - from 3..=5 shift the characters by X amount
-    //
-    // Because the middle range selects 0 characters, the shift is effectively
-    // ignored, which is what we want - because there are no characters to shift.
-
-    let mut start_range_char = 0;
-
-    for (line_break_char, line_break_amount) in line_breaks {
-
-        // NOTE: Inclusive range - beware: off-by-one-errors!
-        for glyph in &mut glyphs[start_range_char..*line_break_char] {
-            let old_glyph_x = glyph.point.x;
-            glyph.point.x += line_break_amount * multiply_factor;
-        }
-        start_range_char = *line_break_char; // NOTE: beware off-by-one error - note the +1!
-    }
-}
-
-pub fn align_text_vert(
-    glyphs: &mut [GlyphInstance],
-    alignment: StyleTextAlignmentVert,
-    line_breaks: &[(usize, f32)],
-    vertical_overflow: TextOverflow,
-){
-    use self::TextOverflow::*;
-    use self::StyleTextAlignmentVert::*;
-
-    if line_breaks.is_empty() || glyphs.is_empty() {
-        return;
-    }
-
-    // // Die if we have a line break at a position bigger than the position of the last glyph,
-    // // because something went horribly wrong!
-    // //
-    // // The next unwrap is always safe as line_breaks will have a minimum of one entry!
-    // assert!(glyphs.len() - 1 == line_breaks.last().unwrap().0);
-
-    let multiply_factor = match alignment {
-        Top => return,
-        Center => 0.5,
-        Bottom => 1.0,
-    };
-
-    let space_to_add = match vertical_overflow {
-        IsOverflowing(_) => return,
-        InBounds(remaining_space_px) => {
-            // Total text height (including last leading!)
-            // All metrics in pixels
-            (remaining_space_px * multiply_factor)
-        },
-    };
-
-    glyphs.iter_mut().for_each(|g| g.point.y += space_to_add);
-}
-
-/// Adds the X and Y offset to each glyph in the positioned glyph
-pub fn add_origin(positioned_glyphs: &mut [GlyphInstance], x: f32, y: f32) {
-    for c in positioned_glyphs {
-        c.point.x += x;
-        c.point.y += y;
     }
 }
 

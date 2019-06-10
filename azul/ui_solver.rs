@@ -2,7 +2,7 @@ use std::{f32, collections::BTreeMap};
 use azul_css::{
     RectLayout, StyleFontSize, RectStyle,
     StyleTextAlignmentHorz, StyleTextAlignmentVert,
-    LayoutRect, LayoutPoint, LayoutSize,
+    LayoutRect, LayoutSize,
 };
 use {
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
@@ -99,7 +99,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
 
     let word_cache = create_word_cache(app_resources, node_data);
     let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
-    let solved_ui = {
+    let mut solved_ui = {
         let rect_contents = create_rect_contents_cache(&word_cache, &scaled_words, node_data, app_resources);
         SolvedUi::new(bounding_rect, node_hierarchy, display_rects, rect_contents)
     };
@@ -108,7 +108,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
 
     // Get the final word positions
     let positioned_word_cache = create_word_positions(&word_cache, &scaled_words, &solved_ui.solved_rects);
-    let layouted_glyph_cache = get_glyphs(node_hierarchy, &scaled_words, &positioned_word_cache, &display_rects, &solved_ui.solved_rects);
+    let layouted_glyph_cache = get_glyphs(node_hierarchy, &scaled_words, &positioned_word_cache, &display_rects, &mut solved_ui.solved_rects);
     let node_depths = node_hierarchy.get_parents_sorted_by_depth();
 
     // TODO: Set the final content sizes on layouted_rects!
@@ -222,7 +222,7 @@ fn get_glyphs<'a>(
     scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
     positioned_word_cache: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    positioned_rectangles: &NodeDataContainer<PositionedRectangle>,
+    positioned_rectangles: &mut NodeDataContainer<PositionedRectangle>,
 ) -> BTreeMap<NodeId, LayoutedGlyphs> {
 
     use text_layout::get_layouted_glyphs;
@@ -233,28 +233,18 @@ fn get_glyphs<'a>(
 
         let (word_positions, _) = positioned_word_cache.get(node_id)?;
         let display_rect = &display_rects[*node_id];
-        let layouted_rect = &positioned_rectangles[*node_id];
         let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
-
-        // The text rect is currently positioned at (0.0, 0.0), it has to be displaced by the parents position
-        let parent_height = match &node_hierarchy[*node_id].parent {
-            None => positioned_rectangles[NodeId::new(0)].bounds.size.height,
-            Some(parent) => positioned_rectangles[*parent].bounds.size.height,
+        let parent_bounds = match &node_hierarchy[*node_id].parent {
+            None => positioned_rectangles[NodeId::new(0)].bounds,
+            Some(parent) => positioned_rectangles[*parent].bounds,
         };
+        let bounds = positioned_rectangles[*node_id].bounds;
+        let (_, inline_text_layout, _) = positioned_rectangles[*node_id].resolved_text_layout_options.as_mut()?;
+        inline_text_layout.align_children_horizontal(horz_alignment);
+        inline_text_layout.align_children_vertical_in_parent_bounds(&parent_bounds, vert_alignment);
 
-        let rect_padding_top = layouted_rect.padding.top;
-        let rect_padding_left = layouted_rect.padding.left;
-        let rect_offset = LayoutPoint::new(layouted_rect.bounds.origin.x + rect_padding_left, layouted_rect.bounds.origin.y + rect_padding_top);
-        let bounding_size_height_px = parent_height - layouted_rect.padding.total_vertical();
-
-        Some((*node_id, get_layouted_glyphs(
-            word_positions,
-            scaled_words,
-            horz_alignment,
-            vert_alignment,
-            rect_offset,
-            bounding_size_height_px
-        )))
+        let glyphs = get_layouted_glyphs(word_positions, scaled_words, &inline_text_layout, bounds.origin);
+        Some((*node_id, glyphs))
     }).collect()
 }
 
