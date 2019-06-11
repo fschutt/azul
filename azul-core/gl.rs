@@ -687,16 +687,22 @@ impl GlShader {
         let texture_id = textures[0];
         let framebuffers = gl_context.gen_framebuffers(1);
         let framebuffer_id = framebuffers[0];
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
+
         let depthbuffers = gl_context.gen_renderbuffers(1);
         let depthbuffer_id = depthbuffers[0];
 
         gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
-        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffer_id);
         gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None);
-        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture_id, 0);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffer_id);
         gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, texture_size.width as i32, texture_size.height as i32);
         gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffer_id);
+
         gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture_id, 0);
         gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);

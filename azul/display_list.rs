@@ -811,7 +811,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 
     // Note: The ImageDescriptor has no effect on how large the image appears on-screen
     let descriptor = ImageDescriptor {
-        format: RawImageFormat::BGRA8,
+        format: RawImageFormat::RGBA8,
         dimensions: (texture.size.width as usize, texture.size.height as usize),
         stride: None,
         offset: 0,
