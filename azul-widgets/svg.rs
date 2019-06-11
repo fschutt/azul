@@ -2034,47 +2034,48 @@ impl Svg {
         let mut shader = svg_cache.shader.borrow_mut();
         let shader = &mut (*shader).as_mut().unwrap().program;
 
+        let mut layers = Vec::new();
+
+        for layer in &self.layers {
+
+            let style = match &layer {
+                SvgLayerResource::Reference((_, style)) => *style,
+                SvgLayerResource::Direct(d) => d.style,
+            };
+
+            let fill_vi = match &layer {
+                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_fill_vertices_and_indices(&shader, layer_id),
+                SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
+                    let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
+                    let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
+                    Rc::new((vertex_buffer, index_buffer))
+                }),
+            };
+
+            let stroke_vi = match &layer {
+                SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&shader, layer_id),
+                SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
+                    let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
+                    let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
+                    Rc::new((vertex_buffer, index_buffer))
+                }),
+            };
+
+            if let (Some(fill_color), Some(fill_vi))  = (style.fill, fill_vi) {
+                let uniforms = build_uniforms(&bbox_size, fill_color, z_index, pan, zoom, &style.transform);
+                layers.push((fill_vi, uniforms));
+            }
+
+            if let (Some(stroke_color), Some(stroke_vi))  = (style.stroke, stroke_vi) {
+                let uniforms = build_uniforms(&bbox_size, stroke_color.0, z_index, pan, zoom, &style.transform);
+                layers.push((stroke_vi, uniforms));
+            }
+        }
+
+        println!("begin SVG draw: ------------- ");
         let mut tex = Texture::new(shader.gl_context.clone(), texture_width, texture_height);
 
         {
-            let mut layers = Vec::new();
-
-            for layer in &self.layers {
-
-                let style = match &layer {
-                    SvgLayerResource::Reference((_, style)) => *style,
-                    SvgLayerResource::Direct(d) => d.style,
-                };
-
-                let fill_vi = match &layer {
-                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_fill_vertices_and_indices(&shader, layer_id),
-                    SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
-                        let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
-                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
-                        Rc::new((vertex_buffer, index_buffer))
-                    }),
-                };
-
-                let stroke_vi = match &layer {
-                    SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&shader, layer_id),
-                    SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
-                        let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
-                        let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
-                        Rc::new((vertex_buffer, index_buffer))
-                    }),
-                };
-
-                if let (Some(fill_color), Some(fill_vi))  = (style.fill, fill_vi) {
-                    let uniforms = build_uniforms(&bbox_size, fill_color, z_index, pan, zoom, &style.transform);
-                    layers.push((fill_vi, uniforms));
-                }
-
-                if let (Some(stroke_color), Some(stroke_vi))  = (style.stroke, stroke_vi) {
-                    let uniforms = build_uniforms(&bbox_size, stroke_color.0, z_index, pan, zoom, &style.transform);
-                    layers.push((stroke_vi, uniforms));
-                }
-            }
-
             let mut fb = FrameBuffer::new(&mut tex);
             fb.bind();
 
@@ -2089,6 +2090,8 @@ impl Svg {
 
             fb.unbind();
         }
+
+        println!("end SVG draw: ------------- ");
 
         tex
     }
