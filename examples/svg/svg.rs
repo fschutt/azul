@@ -20,17 +20,23 @@ struct MyAppData {
     pan_vert: f32,
 }
 
+type CbInfo<'a, 'b> = CallbackInfo<'a, 'b, MyAppData>;
+
 impl Layout for MyAppData {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<MyAppData> {
         let ptr = StackCheckedPointer::new(self, self).unwrap();
         Dom::gl_texture(draw_svg, ptr).with_callback(On::Scroll, scroll_map_contents).with_id("svg-container")
-        .with_child(Button::with_label("+").dom().with_class("control-btn").with_id("btn-zoom-in"))
-        .with_child(Button::with_label("-").dom().with_class("control-btn").with_id("btn-zoom-out"))
-        .with_child(Button::with_label("^").dom().with_class("control-btn").with_id("btn-move-up"))
-        .with_child(Button::with_label(">").dom().with_class("control-btn").with_id("btn-move-right"))
-        .with_child(Button::with_label("<").dom().with_class("control-btn").with_id("btn-move-left"))
-        .with_child(Button::with_label("v").dom().with_class("control-btn").with_id("btn-move-down"))
+        .with_child(render_control_btn("+", "btn-zoom-in",      |info: CbInfo| { info.state.data.zoom *= 2.0; Redraw }))
+        .with_child(render_control_btn("-", "btn-zoom-out",     |info: CbInfo| { info.state.data.zoom /= 2.0; Redraw }))
+        .with_child(render_control_btn("^", "btn-move-up",      |info: CbInfo| { info.state.data.pan_vert += 100.0; Redraw }))
+        .with_child(render_control_btn(">", "btn-move-right",   |info: CbInfo| { info.state.data.pan_horz += 100.0; Redraw }))
+        .with_child(render_control_btn("<", "btn-move-left",    |info: CbInfo| { info.state.data.pan_horz -= 100.0; Redraw }))
+        .with_child(render_control_btn("v", "btn-move-down",    |info: CbInfo| { info.state.data.pan_vert -= 100.0; Redraw }))
     }
+}
+
+fn render_control_btn(label: &'static str, css_id: &'static str, callback: fn(CbInfo) -> UpdateScreen) -> Dom<MyAppData> {
+    Button::with_label(label).dom().with_class("control-btn").with_id(css_id).with_callback(On::MouseUp, callback)
 }
 
 fn draw_svg(info: GlCallbackInfoUnchecked<MyAppData>) -> GlCallbackReturn {

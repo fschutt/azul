@@ -712,12 +712,6 @@ impl GlShader {
         gl_context.use_program(self.program_id);
         gl_context.disable(gl::MULTISAMPLE);
 
-        // if let Some(clear_color) = clear_color {
-        //     let clear_color: ColorF = clear_color.into();
-        //     gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
-        //     gl_context.clear(gl::COLOR_BUFFER_BIT);
-        // }
-
         // Avoid multiple calls to get_uniform_location by caching the uniform locations
         let mut uniform_locations: HashMap<String, i32> = HashMap::new();
         let mut max_uniform_len = 0;
@@ -732,6 +726,15 @@ impl GlShader {
         let mut current_uniforms = vec![None;max_uniform_len];
 
         // Since the description of the vertex buffers is always the same, only the first layer needs to bind its VAO
+
+
+        if let Some(clear_color) = clear_color {
+            let clear_color: ColorF = clear_color.into();
+            gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+        }
+
+        gl_context.clear_depth(0.0);
+        gl_context.clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
         // Draw the actual layers
         for (vi, uniforms) in buffers {
