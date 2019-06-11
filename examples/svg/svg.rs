@@ -39,14 +39,12 @@ fn draw_svg(info: GlCallbackInfoUnchecked<MyAppData>) -> GlCallbackReturn {
             use azul::widgets::svg::SvgLayerResource::*;
 
             let map = info.state;
-            let physical_size = info.bounds.get_physical_size();
-            let width = physical_size.width as usize;
-            let height = physical_size.height as usize;
+            let logical_size = info.bounds.get_logical_size();
 
             Svg::with_layers(map.layers.iter().map(|e| Reference(*e)).collect())
                 .with_pan(map.pan_horz, map.pan_vert)
                 .with_zoom(map.zoom)
-                .render_svg(&map.cache, &info.layout_info.window, width, height)
+                .render_svg(&map.cache, &info.layout_info.window, logical_size)
         })
     }
 }

@@ -78,7 +78,7 @@ impl ExternalImageHandler for Compositor {
             .and_then(|tex| {
                 Some((
                     ExternalImageSource::NativeTexture(tex.texture.texture_id),
-                    TypedPoint2D::<f32, DevicePixel>::new(tex.texture.width as f32, tex.texture.height as f32)
+                    TypedPoint2D::<f32, DevicePixel>::new(tex.texture.size.width as f32, tex.texture.size.height as f32)
                 ))
             })
             .unwrap_or((ExternalImageSource::Invalid, TypedPoint2D::zero()));

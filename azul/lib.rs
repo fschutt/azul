@@ -292,7 +292,7 @@ pub mod prelude {
     pub use gl::{
         GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
         VertexLayoutDescription, VertexBuffer, GlApiVersion, IndexBufferFormat,
-        IndexBuffer, Uniform, UniformType, FrameBuffer, GlShader, VertexShaderCompileError,
+        Uniform, UniformType, GlShader, VertexShaderCompileError,
         FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
     };
     pub use dom::{

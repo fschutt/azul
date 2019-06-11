@@ -5,6 +5,8 @@ use std::{
     marker::PhantomData,
 };
 use gleam::gl::{self, Gl};
+use window::LogicalSize;
+use azul_css::{ColorU, ColorF};
 
 /// Typedef for an OpenGL handle
 pub type GLuint = u32;
@@ -14,57 +16,15 @@ pub type GLint = i32;
 pub struct Texture {
     /// Raw OpenGL texture ID
     pub texture_id: GLuint,
-    /// Width of this texture in pixels
-    pub width: usize,
-    /// Height of this texture in pixels
-    pub height: usize,
+    /// Size of this texture (in pixels)
+    pub size: LogicalSize,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
     pub gl_context: Rc<Gl>,
 }
 
-/// Note: Creates a new texture (calls `gen_textures()`)
-impl Texture {
-    pub fn new(gl_context: Rc<Gl>, width: usize, height: usize) -> Texture {
-
-        let mut current_bound_texture = [0_i32];
-        unsafe { gl_context.get_integer_v(gl::TEXTURE_2D, &mut current_bound_texture) };
-
-        let textures = gl_context.gen_textures(1);
-        let texture_id = textures[0];
-
-        gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
-        gl_context.tex_image_2d(
-            gl::TEXTURE_2D,
-            0,
-            gl::RGBA as i32,
-            width as i32,
-            height as i32,
-            0,
-            gl::RGBA,
-            gl::UNSIGNED_BYTE,
-            None
-        );
-
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-
-        // Reset OpenGL state
-        gl_context.bind_texture(gl::TEXTURE_2D, current_bound_texture[0] as u32);
-
-        Self {
-            texture_id,
-            width,
-            height,
-            gl_context,
-        }
-    }
-}
-
 impl ::std::fmt::Display for Texture {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "Texture {{ id: {}, {}x{} }}", self.texture_id, self.width, self.height)
+        write!(f, "Texture {{ id: {}, {}x{} }}", self.texture_id, self.size.width, self.size.height)
     }
 }
 
@@ -175,7 +135,6 @@ impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        println!("gl_context.delete_textures({})", self.texture_id);
         self.gl_context.delete_textures(&[self.texture_id]);
     }
 }
@@ -192,7 +151,6 @@ impl VertexLayout {
 
         const VERTICES_ARE_NORMALIZED: bool = false;
 
-        println!("begin VertexLayout::bind");
         let gl_context = &*shader.gl_context;
 
         let mut offset = 0;
@@ -216,13 +174,10 @@ impl VertexLayout {
             gl_context.enable_vertex_attrib_array(attribute_location as u32);
             offset += vertex_attribute.get_stride();
         }
-
-        println!("end VertexLayout::bind");
     }
 
     /// Unsets the vertex buffer description
     pub fn unbind(&self, shader: &GlShader) {
-        println!("begin VertexLayout::unbind");
         let gl_context = &*shader.gl_context;
         for vertex_attribute in self.fields.iter() {
             let attribute_location = vertex_attribute.layout_location
@@ -230,7 +185,6 @@ impl VertexLayout {
                 .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, &vertex_attribute.name));
             gl_context.disable_vertex_attrib_array(attribute_location as u32);
         }
-        println!("end VertexLayout::unbind");
     }
 }
 
@@ -306,7 +260,6 @@ pub struct VertexArrayObject {
 
 impl Drop for VertexArrayObject {
     fn drop(&mut self) {
-        println!("gl_context.delete_vertex_arrays({})", self.vao_id);
         self.gl_context.delete_vertex_arrays(&[self.vao_id]);
     }
 }
@@ -317,6 +270,11 @@ pub struct VertexBuffer<T: VertexLayoutDescription> {
     pub gl_context: Rc<Gl>,
     pub vao: VertexArrayObject,
     pub vertex_buffer_type: PhantomData<T>,
+
+    // Since vertex buffer + index buffer have to be created together (because of the VAO), s
+    pub index_buffer_id: GLuint,
+    pub index_buffer_len: usize,
+    pub index_buffer_format: IndexBufferFormat,
 }
 
 impl<T: VertexLayoutDescription> ::std::fmt::Display for VertexBuffer<T> {
@@ -332,14 +290,12 @@ impl_traits_for_gl_object!(VertexBuffer<T: VertexLayoutDescription>, vertex_buff
 
 impl<T: VertexLayoutDescription> Drop for VertexBuffer<T> {
     fn drop(&mut self) {
-        println!("gl_context.delete_buffers({}) (vertex buffer)", self.vertex_buffer_id);
-        self.gl_context.delete_buffers(&[self.vertex_buffer_id]);
+        self.gl_context.delete_buffers(&[self.vertex_buffer_id, self.index_buffer_id]);
     }
 }
 
 impl<T: VertexLayoutDescription> VertexBuffer<T> {
-
-    pub fn new(shader: &GlShader, vertices: &[T]) -> Self {
+    pub fn new(shader: &GlShader, vertices: &[T], indices: &[u32], index_buffer_format: IndexBufferFormat) -> Self {
 
         use std::mem;
 
@@ -348,25 +304,25 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         // Save the OpenGL state
         let mut current_vertex_array = [0_i32];
         let mut current_vertex_buffer = [0_i32];
+        let mut current_index_buffer = [0_i32];
+
         unsafe { gl_context.get_integer_v(gl::VERTEX_ARRAY, &mut current_vertex_array) };
         unsafe { gl_context.get_integer_v(gl::ARRAY_BUFFER, &mut current_vertex_buffer) };
+        unsafe { gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, &mut current_index_buffer) };
 
         let vertex_array_object = gl_context.gen_vertex_arrays(1);
         let vertex_array_object = vertex_array_object[0];
-        println!("gl_context.gen_vertex_arrays(1) = new vertex array object: {}", vertex_array_object);
 
         let vertex_buffer_id = gl_context.gen_buffers(1);
         let vertex_buffer_id = vertex_buffer_id[0];
-        println!("gl_context.gen_buffers(1) = new vertex buffer: {}", vertex_buffer_id);
 
-        println!("gl_context.bind_vertex_array({})", vertex_array_object);
+        let index_buffer_id = gl_context.gen_buffers(1);
+        let index_buffer_id = index_buffer_id[0];
+
         gl_context.bind_vertex_array(vertex_array_object);
 
         // Upload vertex data to GPU
-        println!("gl_context.bind_buffer(gl::ARRAY_BUFFER, {})", vertex_buffer_id);
         gl_context.bind_buffer(gl::ARRAY_BUFFER, vertex_buffer_id);
-        println!("gl_context.buffer_data_untyped(gl::ARRAY_BUFFER, {}, {:0x}, gl::STATIC_DRAW)",
-                 (mem::size_of::<T>() * vertices.len()) as isize, vertices.as_ptr() as usize);
         gl_context.buffer_data_untyped(
             gl::ARRAY_BUFFER,
             (mem::size_of::<T>() * vertices.len()) as isize,
@@ -374,12 +330,22 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
             gl::STATIC_DRAW
         );
 
+        // Generate the index buffer + upload data
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, index_buffer_id);
+        gl_context.buffer_data_untyped(
+            gl::ELEMENT_ARRAY_BUFFER,
+            (mem::size_of::<u32>() * indices.len()) as isize,
+            indices.as_ptr() as *const c_void,
+            gl::STATIC_DRAW
+        );
+
         let vertex_description = T::get_description();
         vertex_description.bind(shader);
 
         // Reset the OpenGL state
-        println!("gl_context.bind_buffer(gl::ARRAY_BUFFER, {}) (reset opengl state)", current_vertex_buffer[0] as u32);
         gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
+        gl_context.bind_vertex_array(current_vertex_array[0] as u32);
 
         Self {
             vertex_buffer_id,
@@ -391,11 +357,10 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
                 gl_context,
             },
             vertex_buffer_type: PhantomData,
+            index_buffer_id,
+            index_buffer_len: indices.len(),
+            index_buffer_format,
         }
-    }
-
-    pub fn empty(shader: &GlShader) -> Self {
-        Self::new(shader, &[])
     }
 }
 
@@ -442,63 +407,6 @@ impl IndexBufferFormat {
     }
 }
 
-pub struct IndexBuffer {
-    pub index_buffer_id: GLuint,
-    pub index_buffer_len: usize,
-    pub index_buffer_format: IndexBufferFormat,
-    pub gl_context: Rc<Gl>,
-}
-
-impl IndexBuffer {
-
-    pub fn new(gl_context: Rc<Gl>, indices: &[u32], format: IndexBufferFormat) -> Self {
-
-        use std::mem;
-
-        // save the OpenGL state
-        let mut current_index_buffer = [0_i32];
-        unsafe { gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, &mut current_index_buffer) };
-
-        let index_buffer_id = gl_context.gen_buffers(1);
-        let index_buffer_id = index_buffer_id[0];
-
-        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, index_buffer_id);
-        gl_context.buffer_data_untyped(
-            gl::ELEMENT_ARRAY_BUFFER,
-            (mem::size_of::<u32>() * indices.len()) as isize,
-            indices.as_ptr() as *const c_void,
-            gl::STATIC_DRAW
-        );
-
-        // reset the OpenGL state
-        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
-
-        Self {
-            index_buffer_id,
-            index_buffer_len: indices.len(),
-            index_buffer_format: format,
-            gl_context,
-        }
-    }
-
-    /// Creates an empty `IndexBuffer` with a `gl::TRIANGLES` format.
-    pub fn empty(gl_context: Rc<Gl>) -> Self {
-        Self::new(gl_context, &[], IndexBufferFormat::Triangles)
-    }
-}
-
-impl ::std::fmt::Display for IndexBuffer {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "IndexBuffer {{ id: {}, length: {} }}", self.index_buffer_id, self.index_buffer_len)
-    }
-}
-
-impl Drop for IndexBuffer {
-    fn drop(&mut self) {
-        self.gl_context.delete_buffers(&[self.index_buffer_id]);
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Uniform {
     pub name: String,
@@ -506,7 +414,6 @@ pub struct Uniform {
 }
 
 impl Uniform {
-
     pub fn new<S: Into<String>>(name: S, uniform_type: UniformType) -> Self {
         Self { name: name.into(), uniform_type }
     }
@@ -552,81 +459,6 @@ impl UniformType {
             Matrix3 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
             Matrix4 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
         }
-    }
-}
-
-/// RGBA-backed framebuffer
-pub struct FrameBuffer<'a> {
-    pub framebuffer_id: GLuint,
-    pub texture: &'a mut Texture,
-    pub opengl_state: (GLint, GLint),
-}
-
-impl<'a> ::std::fmt::Display for FrameBuffer<'a> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        write!(f, "FrameBuffer {{ id: {}, texture: {} }}", self.framebuffer_id, self.texture)
-    }
-}
-
-impl_traits_for_gl_object!(FrameBuffer<'a>, framebuffer_id);
-
-impl<'a> FrameBuffer<'a> {
-
-    pub fn new(texture: &'a mut Texture) -> Self {
-
-        // save the OpenGL state
-        let mut current_framebuffers = [0_i32];
-        let mut current_texture_2d = [0_i32];
-        unsafe { texture.gl_context.get_integer_v(gl::FRAMEBUFFER, &mut current_framebuffers) };
-        unsafe { texture.gl_context.get_integer_v(gl::TEXTURE_2D, &mut current_texture_2d) };
-
-        let framebuffers = texture.gl_context.gen_framebuffers(1);
-        // texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
-        // texture.gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
-        // texture.gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, texture.width as i32, texture.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None);
-        //
-        // // Set "textures[0]" as the color attachement #0
-        // texture.gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture.texture_id, 0);
-        //
-        // // Check that the framebuffer is complete
-        // debug_assert!(texture.gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
-
-        Self {
-            framebuffer_id: framebuffers[0],
-            texture,
-            opengl_state: (current_framebuffers[0], current_texture_2d[0])
-        }
-    }
-
-    pub fn bind(&mut self) {
-        println!("begin FrameBuffer::bind");
-        println!("gl_context.bind_framebuffer(gl::FRAMEBUFFER, {})", self.framebuffer_id);
-        self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
-        println!("gl_context.bind_texture(gl::TEXTURE_2D, {})", self.texture.texture_id);
-        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, self.texture.texture_id);
-        println!("gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, {}, {}, 0, gl::RGBA, gl::UNSIGNED_BYTE, None)", self.texture.width as i32, self.texture.height as i32);
-        self.texture.gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, self.texture.width as i32, self.texture.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None);
-        println!("gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, {}, 0)", self.texture.texture_id);
-        self.texture.gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, self.texture.texture_id, 0);
-        println!("gl_context.viewport(0, 0, {}, {})", self.texture.width as i32, self.texture.height as i32);
-        self.texture.gl_context.viewport(0, 0, self.texture.width as i32, self.texture.height as i32);
-        println!("end FrameBuffer::bind");
-    }
-
-    pub fn unbind(&mut self) {
-        println!("begin FrameBuffer::unbind");
-        println!("gl_context.bind_framebuffer(gl::FRAMEBUFFER, {})", self.opengl_state.0 as u32);
-        self.texture.gl_context.bind_framebuffer(gl::FRAMEBUFFER, self.opengl_state.0 as u32);
-        println!("gl_context.bind_texture(gl::TEXTURE_2D, {})", self.opengl_state.1 as u32);
-        self.texture.gl_context.bind_texture(gl::TEXTURE_2D, self.opengl_state.1 as u32);
-        println!("end FrameBuffer::unbind");
-    }
-}
-
-impl<'a> Drop for FrameBuffer<'a> {
-    fn drop(&mut self) {
-        println!("gl_context.delete_framebuffers({})", self.framebuffer_id);
-        self.texture.gl_context.delete_framebuffers(&[self.framebuffer_id]);
     }
 }
 
@@ -742,9 +574,8 @@ impl GlShader {
     /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader string.
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup necessary.
-    pub fn new(gl_context: Rc<Gl>, vertex_shader_source: &str, fragment_shader_source: &str)
-    -> Result<Self, GlShaderCreateError>
-    {
+    pub fn new(gl_context: Rc<Gl>, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
+
         // Check whether the OpenGL implementation supports a shader compiler...
         let mut shader_compiler_supported = [gl::FALSE];
         unsafe { gl_context.get_boolean_v(gl::SHADER_COMPILER, &mut shader_compiler_supported) };
@@ -759,8 +590,8 @@ impl GlShader {
             v
         }
 
-        let vertex_shader_source = str_to_bytes(vertex_shader_source);
-        let fragment_shader_source = str_to_bytes(fragment_shader_source);
+        let vertex_shader_source = str_to_bytes(vertex_shader);
+        let fragment_shader_source = str_to_bytes(fragment_shader);
 
         // Compile vertex shader
 
@@ -817,7 +648,12 @@ impl GlShader {
     /// Draws vertex buffers, index buffers + uniforms to the currently bound framebuffer
     ///
     /// **NOTE: `FrameBuffer::bind()` and `VertexBuffer::bind()` have to be called first!**
-    pub fn draw<T: VertexLayoutDescription>(&mut self, buffers: &[(Rc<(VertexBuffer<T>, IndexBuffer)>, Vec<Uniform>)]) {
+    pub fn draw<T: VertexLayoutDescription>(
+        &mut self,
+        buffers: &[(Rc<VertexBuffer<T>>, Vec<Uniform>)],
+        clear_color: Option<ColorU>,
+        texture_size: LogicalSize,
+    ) -> Texture {
 
         use std::ops::Deref;
         use std::collections::HashMap;
@@ -826,25 +662,55 @@ impl GlShader {
 
         let gl_context = &*self.gl_context;
 
-        println!("begin GlShader::draw()");
-
         // save the OpenGL state
         let mut current_multisample = [0_u8];
         let mut current_index_buffer = [0_i32];
         let mut current_vertex_buffer = [0_i32];
         let mut current_vertex_array_object = [0_i32];
         let mut current_program = [0_i32];
+        let mut current_framebuffers = [0_i32];
+        let mut current_renderbuffers = [0_i32];
+        let mut current_texture_2d = [0_i32];
 
         unsafe { gl_context.get_boolean_v(gl::MULTISAMPLE, &mut current_multisample) };
         unsafe { gl_context.get_integer_v(gl::ARRAY_BUFFER_BINDING, &mut current_vertex_buffer) };
         unsafe { gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER_BINDING, &mut current_index_buffer) };
         unsafe { gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
         unsafe { gl_context.get_integer_v(gl::VERTEX_ARRAY_BINDING, &mut current_vertex_array_object) };
+        unsafe { gl_context.get_integer_v(gl::RENDERBUFFER, &mut current_renderbuffers) };
+        unsafe { gl_context.get_integer_v(gl::FRAMEBUFFER, &mut current_framebuffers) };
+        unsafe { gl_context.get_integer_v(gl::TEXTURE_2D, &mut current_texture_2d) };
 
-        println!("gl_context.use_program({})", self.program_id);
+        // 1. Create the texture + framebuffer
+
+        let textures = gl_context.gen_textures(1);
+        let texture_id = textures[0];
+        let framebuffers = gl_context.gen_framebuffers(1);
+        let framebuffer_id = framebuffers[0];
+        let depthbuffers = gl_context.gen_renderbuffers(1);
+        let depthbuffer_id = depthbuffers[0];
+
+        gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
+        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffer_id);
+        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None);
+        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture_id, 0);
+        gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, texture_size.width as i32, texture_size.height as i32);
+        gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffer_id);
+        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture_id, 0);
+        gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
+        gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
+
+        debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
+
         gl_context.use_program(self.program_id);
-        println!("gl_context.disable(gl::MULTISAMPLE)");
         gl_context.disable(gl::MULTISAMPLE);
+
+        // if let Some(clear_color) = clear_color {
+        //     let clear_color: ColorF = clear_color.into();
+        //     gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+        //     gl_context.clear(gl::COLOR_BUFFER_BIT);
+        // }
 
         // Avoid multiple calls to get_uniform_location by caching the uniform locations
         let mut uniform_locations: HashMap<String, i32> = HashMap::new();
@@ -859,45 +725,47 @@ impl GlShader {
         }
         let mut current_uniforms = vec![None;max_uniform_len];
 
+        // Since the description of the vertex buffers is always the same, only the first layer needs to bind its VAO
+
+        // Draw the actual layers
         for (vi, uniforms) in buffers {
 
-            let (vertices, indices) = vi.deref();
+            let vertex_buffer = vi.deref();
 
-            println!("gl_context.bind_vertex_array({})", vertices.vao.vao_id);
-            gl_context.bind_vertex_array(vertices.vao.vao_id);
-            println!("gl_context.bind_buffer(gl::ARRAY_BUFFER, {})", vertices.vertex_buffer_id);
-            gl_context.bind_buffer(gl::ARRAY_BUFFER, vertices.vertex_buffer_id);
-            println!("gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, {})", indices.index_buffer_id);
-            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, indices.index_buffer_id);
+            gl_context.bind_vertex_array(vertex_buffer.vao.vao_id);
+            // NOTE: Technically not required, but some drivers...
+            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, vertex_buffer.index_buffer_id);
 
             // Only set the uniform if the value has changed
             for (uniform_index, uniform) in uniforms.iter().enumerate() {
                 if current_uniforms[uniform_index] != Some(uniform.uniform_type) {
-                    println!("gl_context.set_uniform(\"{}\")", uniform.name);
                     let uniform_location = uniform_locations[&uniform.name];
                     uniform.uniform_type.set(gl_context, uniform_location);
                     current_uniforms[uniform_index] = Some(uniform.uniform_type);
                 }
             }
 
-            println!("gl_context.draw_elements({:?}, {}, {:?}, {})", indices.index_buffer_format.get_gl_id(), indices.index_buffer_len as i32, INDEX_TYPE, 0);
-            gl_context.draw_elements(indices.index_buffer_format.get_gl_id(), indices.index_buffer_len as i32, INDEX_TYPE, 0);
+            gl_context.draw_elements(vertex_buffer.index_buffer_format.get_gl_id(), vertex_buffer.index_buffer_len as i32, INDEX_TYPE, 0);
         }
 
         // Reset the OpenGL state to what it was before
-        if current_multisample[0] == gl::TRUE {
-            println!("gl_context.enable(gl::MULTISAMPLE)");
-            gl_context.enable(gl::MULTISAMPLE);
-        }
+        if current_multisample[0] == gl::TRUE { gl_context.enable(gl::MULTISAMPLE); }
         gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
-        println!("gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, {})", current_index_buffer[0] as u32);
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
+        gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
+        gl_context.bind_texture(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
         gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
-        println!("gl_context.bind_buffer(gl::ARRAY_BUFFER, {})", current_vertex_buffer[0] as u32);
         gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
-        println!("gl_context.use_program({})", current_program[0] as u32);
         gl_context.use_program(current_program[0] as u32);
 
-        println!("end GlShader::draw()");
+        gl_context.delete_framebuffers(&[framebuffer_id]);
+        gl_context.delete_renderbuffers(&[depthbuffer_id]);
+
+        Texture {
+            texture_id,
+            size: texture_size,
+            gl_context: self.gl_context.clone(),
+        }
     }
 }
 

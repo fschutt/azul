@@ -988,11 +988,14 @@ fn update_display_list<T>(
         wr_translate_pipeline_id,
         wr_translate_display_list,
     };
+    use glium::glutin::ContextTrait;
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
     // Make sure unused scroll states are garbage collected.
     window.scroll_states.remove_unused_scroll_states();
+
+    unsafe { window.display.gl_window().make_current().unwrap() };
 
     // NOTE: layout_result contains all words, text information, etc.
     // - very important for selection!
@@ -1009,6 +1012,8 @@ fn update_display_list<T>(
         app_resources,
         &mut fake_display.render_api,
     );
+
+    unsafe { fake_display.hidden_display.gl_window().make_current().unwrap() };
 
     add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
 

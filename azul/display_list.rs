@@ -806,13 +806,13 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
     let allow_mipmaps = false;
 
-    let texture_width = texture.width as f32;
-    let texture_height = texture.height as f32;
+    let texture_width = texture.size.width;
+    let texture_height = texture.size.height;
 
     // Note: The ImageDescriptor has no effect on how large the image appears on-screen
     let descriptor = ImageDescriptor {
         format: RawImageFormat::BGRA8,
-        dimensions: (texture.width, texture.height),
+        dimensions: (texture.size.width as usize, texture.size.height as usize),
         stride: None,
         offset: 0,
         is_opaque: opaque,
@@ -840,7 +840,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     )));
 
     LayoutRectContent::Image {
-        size: LayoutSize::new(texture_width as f32, texture_height as f32),
+        size: LayoutSize::new(texture_width, texture_height),
         offset: LayoutPoint::new(0.0, 0.0),
         image_rendering: ImageRendering::Auto,
         alpha_type: AlphaType::Alpha,

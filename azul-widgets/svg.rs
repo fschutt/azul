@@ -29,10 +29,10 @@ use gleam::gl::{self, Gl};
 use azul_core::{
     FastHashMap,
     gl::{
-        VertexBuffer, VertexLayout, VertexLayoutDescription, VertexAttributeType, FrameBuffer,
-        VertexAttribute, IndexBuffer, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
+        VertexBuffer, VertexLayout, VertexLayoutDescription, VertexAttributeType,
+        VertexAttribute, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
-    window::FakeWindow,
+    window::{FakeWindow, LogicalSize},
     app_resources::{Words, ScaledWords, WordPositions, LayoutedGlyphs},
     display_list::GlyphInstance,
     ui_solver::InlineTextLayout,
@@ -174,8 +174,8 @@ pub struct SvgCache {
     // Stores the vertices and indices necessary for drawing. Must be synchronized with the `layers`
     cpu_fill_cache: RefCell<FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>>,
     cpu_stroke_cache: RefCell<FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>>,
-    gpu_fill_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
-    gpu_stroke_cache: RefCell<FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>>,
+    gpu_fill_cache: RefCell<FastHashMap<SvgLayerId, Rc<VertexBuffer<SvgVert>>>>,
+    gpu_stroke_cache: RefCell<FastHashMap<SvgLayerId, Rc<VertexBuffer<SvgVert>>>>,
     shader: RefCell<Option<SvgShader>>,
 }
 
@@ -194,7 +194,7 @@ impl Default for SvgCache {
 fn fill_vertex_buffer_cache<'a>(
     id: &SvgLayerId,
     cpu_cache: &mut FastHashMap<SvgLayerId, (Vec<SvgVert>, Vec<u32>)>,
-    gpu_cache: &mut FastHashMap<SvgLayerId, Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>,
+    gpu_cache: &mut FastHashMap<SvgLayerId, Rc<VertexBuffer<SvgVert>>>,
     shader: &GlShader,
 ) {
     use std::collections::hash_map::Entry::*;
@@ -206,9 +206,7 @@ fn fill_vertex_buffer_cache<'a>(
                 Some(s) => s,
                 None => return,
             };
-            let vertex_buffer = VertexBuffer::new(shader.clone(), &vbuf);
-            let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &ibuf, IndexBufferFormat::Triangles);
-            v.insert(Rc::new((vertex_buffer, index_buffer)));
+            v.insert(Rc::new(VertexBuffer::new(shader.clone(), &vbuf, &ibuf, IndexBufferFormat::Triangles)));
         }
     }
 }
@@ -292,7 +290,7 @@ impl SvgCache {
     }
 
     fn get_fill_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
+    -> Option<Rc<VertexBuffer<SvgVert>>>
     {
         {
             let cpu_fill_cache = &mut *self.cpu_fill_cache.borrow_mut();
@@ -303,7 +301,7 @@ impl SvgCache {
     }
 
     fn get_stroke_vertices_and_indices(&self, shader: &GlShader, id: &SvgLayerId)
-    -> Option<Rc<(VertexBuffer<SvgVert>, IndexBuffer)>>
+    -> Option<Rc<VertexBuffer<SvgVert>>>
     {
         {
             let cpu_stroke_cache = &mut *self.cpu_stroke_cache.borrow_mut();
@@ -1035,7 +1033,7 @@ pub enum SvgLayerType {
     Rect(SvgRect),
 }
 
-#[repr(packed)]
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
 pub struct SvgVert {
     pub xy: [f32;2],
@@ -2003,12 +2001,10 @@ impl Svg {
     /// The final texture will be width * height large. Note that width and height
     /// need to be multiplied with the current `HiDPI` factor, otherwise the texture
     /// will be blurry on HiDPI screens. This isn't done automatically.
-    pub fn render_svg<T>(&self, svg_cache: &SvgCache, window: &FakeWindow<T>, width: usize, height: usize) -> Texture {
+    pub fn render_svg<T>(&self, svg_cache: &SvgCache, window: &FakeWindow<T>, svg_size: LogicalSize) -> Texture {
 
-        let texture_width = width;
-        let texture_height = height;
-
-        let bg_col: ColorF = self.background_color.into();
+        let texture_width = svg_size.width;
+        let texture_height = svg_size.height;
 
         // let multisampling_factor = match self.multisampling_factor {
         //     0 => None,
@@ -2046,18 +2042,14 @@ impl Svg {
             let fill_vi = match &layer {
                 SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_fill_vertices_and_indices(&shader, layer_id),
                 SvgLayerResource::Direct(d) => d.fill.as_ref().map(|f| {
-                    let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
-                    let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
-                    Rc::new((vertex_buffer, index_buffer))
+                    Rc::new(VertexBuffer::new(&shader, &f.vertices, &f.indices, IndexBufferFormat::Triangles))
                 }),
             };
 
             let stroke_vi = match &layer {
                 SvgLayerResource::Reference((layer_id, _)) => svg_cache.get_stroke_vertices_and_indices(&shader, layer_id),
                 SvgLayerResource::Direct(d) => d.stroke.as_ref().map(|f| {
-                    let vertex_buffer = VertexBuffer::new(&shader, &f.vertices);
-                    let index_buffer = IndexBuffer::new(shader.gl_context.clone(), &f.indices, IndexBufferFormat::Triangles);
-                    Rc::new((vertex_buffer, index_buffer))
+                    Rc::new(VertexBuffer::new(&shader, &f.vertices, &f.indices, IndexBufferFormat::Triangles))
                 }),
             };
 
@@ -2072,28 +2064,11 @@ impl Svg {
             }
         }
 
-        println!("begin SVG draw: ------------- ");
-        let mut tex = Texture::new(shader.gl_context.clone(), texture_width, texture_height);
+        gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
+        let texture = shader.draw(&layers, Some(self.background_color), svg_size);
+        gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
 
-        {
-            let mut fb = FrameBuffer::new(&mut tex);
-            fb.bind();
-
-            gl_context.clear_color(bg_col.r, bg_col.g, bg_col.b, bg_col.a);
-            gl_context.clear(gl::COLOR_BUFFER_BIT);
-
-            if !layers.is_empty() {
-                gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
-                shader.draw(&layers);
-                gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
-            }
-
-            fb.unbind();
-        }
-
-        println!("end SVG draw: ------------- ");
-
-        tex
+        texture
     }
 }
 
