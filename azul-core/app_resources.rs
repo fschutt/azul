@@ -194,7 +194,7 @@ pub enum ImageSource {
     File(PathBuf),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontSource {
     /// The font is embedded inside the binary file
     Embedded(&'static [u8]),
@@ -202,6 +202,17 @@ pub enum FontSource {
     File(PathBuf),
     /// The font is a system built-in font
     System(String),
+}
+
+impl fmt::Display for FontSource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::FontSource::*;
+        match self {
+            Embedded(e) => write!(f, "Embedded(0x{:x})", e as *const _ as usize),
+            File(p) => write!(f, "\"{}\"", p.as_path().to_string_lossy()),
+            System(id) => write!(f, "\"{}\"", id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -576,7 +587,7 @@ impl AppResources {
         self.css_ids_to_font_ids.remove(css_id)
     }
 
-    pub fn add_font(&mut self, font_id: FontId, font_source: FontSource) {
+    pub fn add_font_source(&mut self, font_id: FontId, font_source: FontSource) {
         self.font_sources.insert(font_id, font_source);
     }
 
@@ -586,11 +597,11 @@ impl AppResources {
     }
 
     /// Checks if a `FontId` is valid, i.e. if a font is currently ready-to-use
-    pub fn has_font(&self, id: &FontId) -> bool {
+    pub fn has_font_source(&self, id: &FontId) -> bool {
         self.font_sources.get(id).is_some()
     }
 
-    pub fn delete_font(&mut self, id: &FontId) {
+    pub fn delete_font_source(&mut self, id: &FontId) {
         self.font_sources.remove(id);
     }
 

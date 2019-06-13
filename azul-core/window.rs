@@ -308,6 +308,17 @@ pub struct WindowState {
     pub wayland_theme: Option<WaylandTheme>,
 }
 
+impl WindowState{
+
+    pub fn get_mouse_state(&self) -> &MouseState {
+        &self.mouse_state
+    }
+
+    pub fn get_keyboard_state(&self) -> &KeyboardState {
+        &self.keyboard_state
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FullScreenMode {
     /// - macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode

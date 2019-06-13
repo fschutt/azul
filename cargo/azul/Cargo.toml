@@ -51,8 +51,8 @@ logging = ["azul-dependencies/logging"]
 # dependency and use a bit of extra runtime.
 icon_loading = ["azul-dependencies/icon_loading"]
 # For serializing / deserializing CSS colors using serde
-serde_serialization = ["azul-dependencies/serde_serialization", "serde_derive", "serde"]
-serde_serialization_css = ["css_parser", "azul-css-parser/serde_serialization", "serde_serialization"]
+serde_serialization = ["azul-dependencies/serde_serialization", "azul-widgets/serde_serialization", "serde_derive", "serde"]
+serde_serialization_css = ["azul-css-parser/serde_serialization", "serde_serialization"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
 image_loading = ["azul-dependencies/image_loading"]

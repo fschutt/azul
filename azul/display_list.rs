@@ -772,6 +772,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     };
     use azul_core::{
         callbacks::GlCallbackInfoUnchecked,
+        display_list::RectBackground,
         app_resources::{ImageDescriptor, RawImageFormat}
     };
 
@@ -800,6 +801,16 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         gl_context.disable(gl::MULTISAMPLE);
 
         tex
+    };
+
+    let texture = match texture {
+        Some(s) => s,
+        None => return LayoutRectContent::Background {
+            content: RectBackground::Color(ColorU::TRANSPARENT),
+            size: None,
+            offset: None,
+            repeat: None,
+        },
     };
 
     let opaque = false;
@@ -881,6 +892,18 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         };
 
         (iframe_callback.0)(iframe_info)
+    };
+
+    let new_dom = match new_dom {
+        Some(s) => s,
+        None => return DisplayListMsg::Frame(DisplayListFrame {
+            tag: None,
+            clip_rect: None,
+            rect,
+            border_radius: StyleBorderRadius::default(),
+            content: vec![],
+            children: vec![],
+        }),
     };
 
     // TODO: Right now, no focusing, hovering or :active allowed in iframes!

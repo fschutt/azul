@@ -11,10 +11,9 @@ use glium::glutin::{
 use {
     app::FrameEventInfo,
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {CallbackInfo, Callback, HitTestItem, DefaultCallbackId, UpdateScreen},
+    callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
-    app::AppState,
 };
 pub use azul_core::window::{
     WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
@@ -891,8 +890,8 @@ fn window_should_close(event: &WindowEvent, frame_event_info: &mut FrameEventInf
 /// ```no_run,ignore
 /// use azul::prelude::{AcceleratorKey::*, VirtualKeyCode::*};
 ///
-/// fn my_callback<T>(app_state: &mut AppState<T>, event: &mut CallbackInfo<T>) -> UpdateScreen {
-///     keymap(app_state, event, &[
+/// fn my_callback<T>(info: CallbackInfo<T>) -> UpdateScreen {
+///     keymap(info, &[
 ///         [vec![Ctrl, S], save_document],
 ///         [vec![Ctrl, N], create_new_document],
 ///         [vec![Ctrl, O], open_new_file],
@@ -901,12 +900,11 @@ fn window_should_close(event: &WindowEvent, frame_event_info: &mut FrameEventInf
 /// }
 /// ```
 pub fn keymap<T>(
-    app_state: &mut AppState<T>,
-    event: &mut CallbackInfo<T>,
-    events: &[(Vec<AcceleratorKey>, fn(&mut AppState<T>, &mut CallbackInfo<T>) -> UpdateScreen)]
+    info: CallbackInfo<T>,
+    events: &[(Vec<AcceleratorKey>, CallbackType<T>)]
 ) -> UpdateScreen {
 
-    let keyboard_state = app_state.windows[event.window_id].get_keyboard_state().clone();
+    let keyboard_state = info.state.windows[info.window_id].get_keyboard_state().clone();
 
     events
         .iter()
@@ -916,5 +914,5 @@ pub fn keymap<T>(
                 .all(|keymap_char| keymap_char.matches(&keyboard_state))
         })
         .next()
-        .and_then(|(_, callback)| (callback)(app_state, event))
+        .and_then(|(_, callback)| (callback)(info))
 }

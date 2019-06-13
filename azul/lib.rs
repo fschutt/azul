@@ -144,10 +144,8 @@ extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
 #[cfg(feature = "serde_serialization")]
-#[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde;
 #[cfg(feature = "serde_serialization")]
-#[cfg_attr(feature = "serde_serialization", macro_use)]
 extern crate serde_derive;
 #[cfg(feature = "widgets")]
 extern crate azul_widgets;
@@ -256,8 +254,6 @@ mod compositor;
 /// Default logger, can be turned off with `feature = "logging"`
 #[cfg(feature = "logging")]
 mod logging;
-/// Flexbox-based UI solver
-mod ui_solver;
 /// DOM diffing
 mod diff;
 /// Window state handling and diffing
@@ -266,6 +262,8 @@ mod window_state;
 mod app_resources;
 /// Translation between data types (so that Azuls API can be independent of the actual "backend" type)
 mod wr_translate;
+/// Flexbox-based UI solver
+mod ui_solver;
 
 pub use azul_core::{FastHashMap, FastHashSet};
 

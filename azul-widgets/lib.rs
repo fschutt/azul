@@ -4,6 +4,11 @@ extern crate azul_css;
 extern crate azul_dependencies;
 #[cfg(feature = "svg")]
 extern crate gleam;
+#[cfg(feature = "serde_serialization")]
+extern crate serde;
+#[cfg(feature = "serde_serialization")]
+#[cfg_attr(feature = "serde_serialization", macro_use(Serialize, Deserialize))]
+extern crate serde_derive;
 
 
 #[cfg(feature = "svg")]

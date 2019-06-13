@@ -149,7 +149,7 @@ fn render_table_iframe_callback<T>(info: IFrameCallbackInfoUnchecked<T>) -> IFra
             let logical_size = info.bounds.get_logical_size();
             let necessary_rows = (logical_size.height as f32 / info.state.row_height).ceil() as usize;
             let necessary_columns = (logical_size.width as f32 / info.state.column_width).ceil() as usize;
-            render_table_view(info.state, necessary_rows, necessary_columns)
+            Some(render_table_view(info.state, necessary_rows, necessary_columns))
         })
     }
 }

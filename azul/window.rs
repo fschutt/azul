@@ -21,6 +21,7 @@ use glium::{
     backend::glutin::DisplayCreationError,
 };
 use gleam::gl::{self, Gl};
+use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use azul_css::{Css, ColorU, LayoutPoint, LayoutRect};
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;
@@ -544,6 +545,26 @@ impl<T> Window<T> {
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
     pub fn get_current_monitor(&self) -> MonitorId {
         self.display.gl_window().window().get_current_monitor()
+    }
+}
+
+/// Clipboard is an empty class with only static methods,
+/// which is why it doesn't have any #[derive] markers.
+#[allow(missing_copy_implementations)]
+pub struct Clipboard;
+
+impl Clipboard {
+
+    /// Returns the contents of the system clipboard
+    pub fn get_clipboard_string() -> Result<String, ClipboardError> {
+        let clipboard = SystemClipboard::new()?;
+        clipboard.get_string_contents()
+    }
+
+    /// Sets the contents of the system clipboard
+    pub fn set_clipboard_string(contents: String) -> Result<(), ClipboardError> {
+        let clipboard = SystemClipboard::new()?;
+        clipboard.set_string_contents(contents)
     }
 }
 

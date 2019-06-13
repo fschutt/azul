@@ -1059,6 +1059,8 @@ impl VertexLayoutDescription for SvgVert {
 pub struct SvgWorldPixel;
 
 pub type GlyphId = u32;
+pub type FontBytes = Vec<u8>;
+pub type FontIndex = i32;
 
 /// A vectorized font holds the glyphs for a given font, but in a vector format
 #[derive(Debug, Clone, Default)]
@@ -1068,7 +1070,9 @@ pub struct VectorizedFont {
     /// Glyph -> Stroke map
     glyph_stroke_map: RefCell<FastHashMap<GlyphId, VertexBuffers<SvgVert, u32>>>,
     /// Original font bytes
-    font_bytes: Vec<u8>,
+    font_bytes: FontBytes,
+    /// Index of the font in the Vec<u8>, usually 0
+    font_index: FontIndex,
 }
 
 use stb_truetype::{FontInfo, Vertex};
@@ -1076,9 +1080,10 @@ use stb_truetype::{FontInfo, Vertex};
 impl VectorizedFont {
 
     /// Prepares a vectorized font from a set of bytes
-    pub fn from_bytes(font_bytes: Vec<u8>) -> Self {
+    pub fn from_bytes(font_bytes: FontBytes, font_index: FontIndex) -> Self {
         Self {
             font_bytes,
+            font_index,
             .. Default::default()
         }
     }
@@ -1128,6 +1133,10 @@ impl VectorizedFont {
             }
         }).collect()
     }
+
+    pub fn get_font_bytes(&self) -> (&FontBytes, FontIndex) {
+        (&self.font_bytes, self.font_index)
+    }
 }
 
 
@@ -1169,12 +1178,14 @@ impl VectorizedFontCache {
         Self::default()
     }
 
-    pub fn insert_if_not_exist(&mut self, id: VectorizedFontId, font_bytes: Vec<u8>) {
-        self.vectorized_fonts.borrow_mut().entry(id).or_insert_with(|| Rc::new(VectorizedFont::from_bytes(font_bytes)));
+    pub fn clear(&mut self) {
+        self.vectorized_fonts.borrow_mut().clear();
     }
 
-    pub fn insert(&mut self, id: VectorizedFontId, font: VectorizedFont) {
-        self.vectorized_fonts.borrow_mut().insert(id, Rc::new(font));
+    pub fn add_font(&mut self, font: VectorizedFont) -> VectorizedFontId {
+        let font_id = VectorizedFontId::new();
+        self.vectorized_fonts.borrow_mut().insert(font_id, Rc::new(font));
+        font_id
     }
 
     pub fn get_font(&self, id: &VectorizedFontId) -> Option<Rc<VectorizedFont>> {

@@ -15,8 +15,6 @@ use webrender::{
         LayoutSize, Epoch, Transaction,
     },
 };
-#[cfg(feature = "image_loading")]
-use app_resources::ImageSource;
 #[cfg(feature = "logging")]
 use log::LevelFilter;
 use azul_css::{Css, ColorU};
@@ -288,6 +286,20 @@ impl<T> App<T> {
         Ok(self.app_state.data)
     }
 
+    /// See `AppState::add_task`.
+    pub fn add_task(&mut self, task: Task<T>) {
+        self.app_state.add_task(task);
+    }
+
+    /// Toggles debugging flags in webrender, updates `self.config.debug_state`
+    #[cfg(not(test))]
+    pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
+        if let Some(r) = &mut self.fake_display.renderer {
+            set_webrender_debug_flags(r, &self.config.debug_state, &new_state);
+        }
+        self.config.debug_state = new_state;
+    }
+
     #[cfg(not(test))]
     fn run_inner(&mut self) -> Result<(), RuntimeError> {
 
@@ -493,20 +505,6 @@ impl<T> App<T> {
         }
 
         Ok(())
-    }
-
-    /// See `AppState::add_task`.
-    pub fn add_task(&mut self, task: Task<T>) {
-        self.app_state.add_task(task);
-    }
-
-    /// Toggles debugging flags in webrender, updates `self.config.debug_state`
-    #[cfg(not(test))]
-    pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
-        if let Some(r) = &mut self.fake_display.renderer {
-            set_webrender_debug_flags(r, &self.config.debug_state, &new_state);
-        }
-        self.config.debug_state = new_state;
     }
 }
 

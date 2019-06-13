@@ -282,7 +282,7 @@ pub struct GlCallbackInfo<'a, 'b, T: 'b, U: Sized> {
     pub layout_info: LayoutInfo<'a, 'b, T>,
     pub bounds: HidpiAdjustedBounds,
 }
-pub type GlCallbackReturn = Texture;
+pub type GlCallbackReturn = Option<Texture>;
 pub type GlCallbackTypeUnchecked<T> = fn(GlCallbackInfoUnchecked<T>) -> GlCallbackReturn;
 pub type GlCallbackType<T, U> = fn(GlCallbackInfo<T, U>) -> GlCallbackReturn;
 
@@ -313,7 +313,7 @@ pub struct IFrameCallbackInfo<'a, 'b, T: 'b, U: Sized> {
     pub layout_info: LayoutInfo<'a, 'b, T>,
     pub bounds: HidpiAdjustedBounds,
 }
-pub type IFrameCallbackReturn<T> = Dom<T>; // todo: return virtual scrolling frames!
+pub type IFrameCallbackReturn<T> = Option<Dom<T>>; // todo: return virtual scrolling frames!
 pub type IFrameCallbackTypeUnchecked<T> = fn(IFrameCallbackInfoUnchecked<T>) -> IFrameCallbackReturn<T>;
 pub type IFrameCallbackType<T, U> = fn(IFrameCallbackInfo<T, U>) -> IFrameCallbackReturn<T>;
 
@@ -529,7 +529,7 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     /// Set the focus_target to a certain div by parsing a string.
     /// Note that the parsing of the string can fail, therefore the Result
     #[cfg(feature = "css_parser")]
-    pub fn set_focus_target<'c>(&mut self, input: &'c str) -> Result<(), CssPathParseError<'c>> {
+    pub fn set_focus_target_from_css<'c>(&mut self, input: &'c str) -> Result<(), CssPathParseError<'c>> {
         use azul_css_parser::parse_css_path;
         let path = parse_css_path(input)?;
         *self.focus_target = Some(FocusTarget::Path(path));
@@ -537,7 +537,7 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     }
 
     /// Sets the focus_target by using an already-parsed `CssPath`.
-    pub fn set_focus_target_by_path(&mut self, path: CssPath) {
+    pub fn set_focus_target_from_path(&mut self, path: CssPath) {
         *self.focus_target = Some(FocusTarget::Path(path))
     }
 
@@ -546,7 +546,7 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     /// Note that this ID will be dependent on the position in the DOM and therefore
     /// the next frames UI must be the exact same as the current one, otherwise
     /// the focus_target will be cleared or shifted (depending on apps setting).
-    pub fn set_focus_target_by_node_id(&mut self, id: NodeId) {
+    pub fn set_focus_target_from_node_id(&mut self, id: NodeId) {
         *self.focus_target = Some(FocusTarget::Id(id));
     }
 

@@ -196,25 +196,23 @@ pub struct DropCheck(Arc<()>);
 ///
 /// Azul will join the thread automatically after it is finished (joining won't block the UI).
 pub struct Task<T> {
-    // Task is in progress
+    // Thread handle of the currently in-progress task
     join_handle: Option<JoinHandle<()>>,
     dropcheck: Weak<()>,
     /// Timer that will run directly after this task is completed.
     pub after_completion_timer: Option<Timer<T>>,
 }
 
+pub type TaskCallback<U> = fn(Arc<Mutex<U>>, DropCheck);
+
 impl<T> Task<T> {
 
     /// Creates a new task from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
-    pub fn new<U>(data: &Arc<Mutex<U>>, callback: fn(Arc<Mutex<U>>, DropCheck)) -> Self where U: Send + 'static {
+    pub fn new<U: Send + 'static>(data: Arc<Mutex<U>>, callback: TaskCallback<U>) -> Self {
 
         let thread_check = Arc::new(());
         let thread_weak = Arc::downgrade(&thread_check);
-        let app_state_clone = data.clone();
-
-        let thread_handle = thread::spawn(move || {
-            callback(app_state_clone, DropCheck(thread_check))
-        });
+        let thread_handle = thread::spawn(move || callback(data, DropCheck(thread_check)));
 
         Self {
             join_handle: Some(thread_handle),
