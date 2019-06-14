@@ -577,7 +577,7 @@ fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_ar
     for (xml_attribute_name, xml_attribute_value) in xml_attributes.iter() {
 
         let arg_value = match valid_args.get(xml_attribute_name) {
-            Some(s) => Some(s),
+            Some(valid_arg_type) => Some(xml_attribute_value),
             None => {
                 if DEFAULT_ARGS.contains(&xml_attribute_name.as_str()) {
                     None // no error, but don't insert the attribute name

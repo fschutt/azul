@@ -1,8 +1,15 @@
-<app>
-  <div id="wrapper">
-    <div id="overflowing_1"></div>
-    <div id="overflowing_2">
-      <div id="overflowing_3"></div>
+<component name="MenuBarLabel" args="menu_name: String">
+    <div class="menubar_label_container">
+        <p class="menubar_label">{menu_name}</p>
     </div>
-  </div>
+</component>
+
+<component name="MenuBar">
+    <div class="menubar_container">
+        <MenuBarLabel menu_name="Test"/>
+    </div>
+</component>
+
+<app>
+  <MenuBar />
 </app>
