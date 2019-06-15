@@ -698,84 +698,9 @@ fn parse_css_variable_brace_contents<'a>(input: &'a str) -> Option<(&'a str, Opt
 }
 
 #[test]
-fn test_detect_static_or_dynamic_property() {
-    use azul_css::{CssProperty, StyleTextAlignmentHorz};
-    use crate::css_parser::InvalidValueErr;
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, " center   "),
-        Ok(CssDeclaration::Static(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[    400px ]]"),
-        Err(DynamicCssParseError::NoDefaultCase)
-    );
-
-    assert_eq!(determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  400px"),
-        Err(DynamicCssParseError::UnclosedBraces)
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  400px | center ]]"),
-        Err(DynamicCssParseError::InvalidId)
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  hello | center ]]"),
-        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            property_type: CssPropertyType::TextAlign,
-            default: CssPropertyValue::Exact(CssProperty::TextAlign(StyleTextAlignmentHorz::Center)),
-            dynamic_id: String::from("hello"),
-        }))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  hello | auto ]]"),
-        Ok(CssDeclaration::Dynamic(DynamicCssProperty {
-            property_type: CssPropertyType::TextAlign,
-            default: CssPropertyValue::Auto,
-            dynamic_id: String::from("hello"),
-        }))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[  abc | hello ]]"),
-        Err(DynamicCssParseError::UnexpectedValue(
-            CssParsingError::InvalidValueErr(InvalidValueErr("hello"))
-        ))
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ ]]"),
-        Err(DynamicCssParseError::EmptyBraces)
-    );
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[]]"),
-        Err(DynamicCssParseError::EmptyBraces)
-    );
-
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ center ]]"),
-        Err(DynamicCssParseError::NoId)
-    );
-
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ hello |  ]]"),
-        Err(DynamicCssParseError::NoDefaultCase)
-    );
-
-    // debatable if this is a suitable error for this case:
-    assert_eq!(
-        determine_static_or_dynamic_css_property(CssPropertyType::TextAlign, "[[ |  ]]"),
-        Err(DynamicCssParseError::EmptyBraces)
-    );
-}
-
-#[test]
 fn test_css_parse_1() {
 
-    use azul_css::{ColorU, StyleBackground, NodeTypePath, CssProperty};
+    use azul_css::*;
 
     let parsed_css = new_from_str("
         div#my_id .my_class:first {
@@ -783,24 +708,35 @@ fn test_css_parse_1() {
         }
     ").unwrap();
 
-    let expected_css_rules = vec![
-        CssRuleBlock {
-            path: CssPath {
-                selectors: vec![
-                    CssPathSelector::Type(NodeTypePath::Div),
-                    CssPathSelector::Id(String::from("my_id")),
-                    CssPathSelector::Children,
-                    // NOTE: This is technically wrong, the space between "#my_id"
-                    // and ".my_class" is important, but gets ignored for now
-                    CssPathSelector::Class(String::from("my_class")),
-                    CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
-                ],
-            },
-            declarations: vec![CssDeclaration::Static(CssProperty::Background(StyleBackground::Color(ColorU { r: 255, g: 0, b: 0, a: 255 })))],
-        }
-    ];
 
-    assert_eq!(parsed_css, Css { stylesheets: vec![expected_css_rules.into()] });
+    let expected_css_rules = vec![CssRuleBlock {
+        path: CssPath {
+            selectors: vec![
+                CssPathSelector::Type(NodeTypePath::Div),
+                CssPathSelector::Id(String::from("my_id")),
+                CssPathSelector::Children,
+                // NOTE: This is technically wrong, the space between "#my_id"
+                // and ".my_class" is important, but gets ignored for now
+                CssPathSelector::Class(String::from("my_class")),
+                CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
+            ],
+        },
+        declarations: vec![CssDeclaration::Static(CssProperty::BackgroundContent(
+            CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            })),
+        ))],
+    }];
+
+    assert_eq!(
+        parsed_css,
+        Css {
+            stylesheets: vec![expected_css_rules.into()]
+        }
+    );
 }
 
 #[test]
@@ -841,10 +777,30 @@ mod stylesheet_parse {
     // Tests that an element with a single class always gets the CSS element applied properly
     #[test]
     fn test_apply_css_pure_class() {
-
-        let red = CssProperty::Background(StyleBackground::Color(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-        let blue = CssProperty::Background(StyleBackground::Color(ColorU { r: 0, g: 0, b: 255, a: 255 }));
-        let black = CssProperty::Background(StyleBackground::Color(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+        let red = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+            StyleBackgroundContent::Color(ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        ));
+        let blue = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+            StyleBackgroundContent::Color(ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            }),
+        ));
+        let black = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+            StyleBackgroundContent::Color(ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        ));
 
         // Simple example
         {
@@ -946,10 +902,12 @@ fn test_case_issue_93() {
 
     fn declaration(classes: &[CssPathSelector], color: ColorU) -> CssRuleBlock {
         CssRuleBlock {
-            path: CssPath { selectors: classes.to_vec() },
-            declarations: vec![
-                CssDeclaration::Static(CssProperty::TextColor(StyleTextColor(color))),
-            ],
+            path: CssPath {
+                selectors: classes.to_vec(),
+            },
+            declarations: vec![CssDeclaration::Static(CssProperty::TextColor(
+                CssPropertyValue::Exact(StyleTextColor(color)),
+            ))],
         }
     }
 
