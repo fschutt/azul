@@ -828,7 +828,7 @@ mod background {
         use super::{wr_translate_color_u, wr_translate_layout_size, wr_translate_extend_mode};
 
         let background_position = background_position.unwrap_or_default();
-        let background_repeat = background_repeat.unwrap_or_default();
+        let _background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
         let offset = calculate_background_position(info, background_position, background_size);
 
@@ -874,7 +874,7 @@ mod background {
         };
 
         let background_position = background_position.unwrap_or_default();
-        let background_repeat = background_repeat.unwrap_or_default();
+        let _background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
         let offset = calculate_background_position(info, background_position, background_size);
 
@@ -936,7 +936,7 @@ mod background {
         use super::wr_translate_color_u;
 
         let background_position = background_position.unwrap_or_default();
-        let background_repeat = background_repeat.unwrap_or_default();
+        let _background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
         let offset = calculate_background_position(info, background_position, background_size);
 
