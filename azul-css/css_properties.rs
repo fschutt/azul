@@ -496,9 +496,9 @@ impl CombinedCssPropertyType {
     /// # Example
     ///
     /// ```rust
-    /// # use azul_css::{CombinedCssProperty, get_css_key_map};
+    /// # use azul_css::{CombinedCssPropertyType, get_css_key_map};
     /// let map = get_css_key_map();
-    /// assert_eq!(Some(CssPropertyType::Border), CssPropertyType::from_str("border", &map));
+    /// assert_eq!(Some(CombinedCssPropertyType::Border), CombinedCssPropertyType::from_str("border", &map));
     /// ```
     pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
         let input = input.trim();
