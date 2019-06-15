@@ -13,8 +13,7 @@ struct DragMeApp {
     is_dragging: bool,
 }
 
-type Event<'a> = CallbackInfo<'a, DragMeApp>;
-type State = AppState<DragMeApp>;
+type Event<'a, 'b> = CallbackInfo<'a, 'b, DragMeApp>;
 
 impl Layout for DragMeApp {
     fn layout(&self, _: LayoutInfo<DragMeApp>) -> Dom<Self> {
@@ -39,39 +38,39 @@ impl Layout for DragMeApp {
                 .with_child(
                     Dom::div()
                     .with_id("dragger_handle")
-                    .with_callback(On::MouseDown, Callback(start_drag))
-                    .with_callback(EventFilter::Not(NotEventFilter::Hover(HoverEventFilter::MouseDown)), Callback(click_outside_drag))
+                    .with_callback(On::MouseDown, start_drag)
+                    .with_callback(EventFilter::Not(NotEventFilter::Hover(HoverEventFilter::MouseDown)), click_outside_drag)
                 )
             );
 
         Dom::new(NodeType::Div).with_id("container")
-            .with_callback(On::MouseOver, Callback(update_drag))
-            .with_callback(On::MouseUp, Callback(stop_drag))
+            .with_callback(On::MouseOver, update_drag)
+            .with_callback(On::MouseUp, stop_drag)
             .with_child(left)
             .with_child(dragger)
             .with_child(right)
     }
 }
 
-fn click_outside_drag(_state: &mut State, _event: &mut Event) -> UpdateScreen {
+fn click_outside_drag(_event: Event) -> UpdateScreen {
     println!("click outside drag!");
     DontRedraw
 }
 
-fn start_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
-    state.data.is_dragging = true;
+fn start_drag(event: Event) -> UpdateScreen {
+    event.state.data.is_dragging = true;
     DontRedraw
 }
 
-fn stop_drag(state: &mut State, _event: &mut Event) -> UpdateScreen {
-    state.data.is_dragging = false;
+fn stop_drag(event: Event) -> UpdateScreen {
+    event.state.data.is_dragging = false;
     Redraw
 }
 
-fn update_drag(state: &mut State, event: &mut Event) -> UpdateScreen {
-    let cursor_pos = state.windows.get(event.window_id)?.state.mouse_state.cursor_pos.get_position().unwrap_or(LogicalPosition::new(0.0, 0.0));
-    if state.data.is_dragging {
-        state.data.width = Some(cursor_pos.x as f32);
+fn update_drag(event: Event) -> UpdateScreen {
+    let cursor_pos = event.get_window().state.mouse_state.cursor_pos.get_position().unwrap_or(LogicalPosition::new(0.0, 0.0));
+    if event.state.data.is_dragging {
+        event.state.data.width = Some(cursor_pos.x as f32);
         Redraw
     } else {
         DontRedraw

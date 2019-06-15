@@ -47,10 +47,10 @@ fn draw_svg(info: GlCallbackInfoUnchecked<MyAppData>) -> GlCallbackReturn {
             let map = info.state;
             let logical_size = info.bounds.get_logical_size();
 
-            Svg::with_layers(map.layers.iter().map(|e| Reference(*e)).collect())
+            Some(Svg::with_layers(map.layers.iter().map(|e| Reference(*e)).collect())
                 .with_pan(map.pan_horz, map.pan_vert)
                 .with_zoom(map.zoom)
-                .render_svg(&map.cache, &info.layout_info.window, logical_size)
+                .render_svg(&map.cache, &info.layout_info.window, logical_size))
         })
     }
 }
