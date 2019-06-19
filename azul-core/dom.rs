@@ -1083,7 +1083,6 @@ fn print_tree_recursive<T>(arena: &Arena<NodeData<T>>, string: &mut String, curr
     let node = &arena.node_layout[current_node_id];
     let tabs = String::from("    ").repeat(indent);
 
-    string.push_str(&format!("{} ", current_node_id.index()));
     string.push_str(&tabs);
     string.push_str(&arena.node_data[current_node_id].debug_print_start());
     string.push_str("\r\n");
