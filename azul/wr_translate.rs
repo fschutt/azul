@@ -612,7 +612,10 @@ fn push_display_list_msg(builder: &mut WrDisplayListBuilder, msg: DisplayListMsg
 #[inline]
 fn push_frame(builder: &mut WrDisplayListBuilder, frame: DisplayListFrame) {
 
-    use webrender::api::{ClipMode as WrClipMode, ComplexClipRegion as WrComplexClipRegion};
+    use webrender::api::{
+        ClipMode as WrClipMode,
+        ComplexClipRegion as WrComplexClipRegion
+    };
 
     let wr_rect = wr_translate_layout_rect(frame.rect);
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
@@ -676,6 +679,13 @@ fn push_scroll_frame(builder: &mut WrDisplayListBuilder, scroll_frame: DisplayLi
         tag: Some((scroll_frame.scroll_tag.0, 0)),
     };
 
+    let info = WrLayoutPrimitiveInfo {
+        rect: wr_rect,
+        clip_rect: wr_rect,
+        is_backface_visible: false,
+        tag: scroll_frame.frame.tag,
+    };
+
     let scroll_frame_clip_id = builder.define_scroll_frame(
         /* external id*/ Some(wr_translate_external_scroll_id(scroll_frame.scroll_id)),
         /* content_rect */ wr_translate_layout_rect(scroll_frame.content_rect),
@@ -685,13 +695,28 @@ fn push_scroll_frame(builder: &mut WrDisplayListBuilder, scroll_frame: DisplayLi
         /* sensitivity */ WrScrollSensitivity::Script,
     );
 
-    let content_clip_id = builder.define_clip(wr_rect, vec![scroll_frame_clip_region], None);
+    let hit_testing_clip_id = builder.define_clip(wr_rect, vec![scroll_frame_clip_region], None);
 
-    builder.push_clip_id(content_clip_id); // push hit-testing clip
+    // Push content (overflowing)
+    let content_clip = WrComplexClipRegion::new(wr_rect, wr_border_radius, WrClipMode::Clip);
+    let content_clip_id = builder.define_clip(wr_rect, vec![content_clip], /* image_mask: */ None);
+    builder.push_clip_id(content_clip_id);
+
+    for item in scroll_frame.frame.content {
+        push_display_list_content(builder, item, &info, scroll_frame.frame.border_radius);
+    }
+
+    builder.pop_clip_id();
+    // End pushing content
+
+    builder.push_clip_id(hit_testing_clip_id); // push hit-testing clip
     builder.push_rect(&hit_test_info, wr_translate_color_u(ColorU::TRANSPARENT).into()); // push hit-testing rect
     builder.push_clip_id(scroll_frame_clip_id); // push scroll frame clip
 
-    push_frame(builder, scroll_frame.frame); // push content
+    // only children should scroll, not the frame itself
+    for child in scroll_frame.frame.children {
+        push_display_list_msg(builder, child);
+    }
 
     builder.pop_clip_id(); // pop scroll frame
     builder.pop_clip_id(); // pop hit-testing clip

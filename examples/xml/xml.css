@@ -7,8 +7,9 @@
 }
 
 #green {
-    width: 10px;
-    height: 10px;
-    background: green;
+    width: 100px;
+    height: 100px;
+    background: linear-gradient(green, blue);
     top: 500px;
+    left: 600px;
 }
