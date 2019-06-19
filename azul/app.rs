@@ -361,7 +361,7 @@ impl<T> App<T> {
 
             self.fake_display.hidden_events_loop.poll_events(|e| match e {
                 // Filter out all events that are uninteresting or unnecessary
-                Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
+                // Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
                 Event::WindowEvent { window_id, event } => {
                     if let Some(wid) = glium_window_id_to_window_id.get(&window_id) {
                         events.entry(wid).or_insert_with(|| Vec::new()).push(event);

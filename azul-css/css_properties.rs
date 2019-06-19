@@ -118,10 +118,18 @@ impl LayoutRect {
     pub fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }
     #[inline(always)]
     pub fn zero() -> Self { Self::new(LayoutPoint::zero(), LayoutSize::zero()) }
-    #[inline]
+    #[inline(always)]
+    pub fn max_x(&self) -> f32 { self.origin.x + self.size.width }
+    #[inline(always)]
+    pub fn min_x(&self) -> f32 { self.origin.x }
+    #[inline(always)]
+    pub fn max_y(&self) -> f32 { self.origin.y + self.size.height }
+    #[inline(always)]
+    pub fn min_y(&self) -> f32 { self.origin.y }
+    #[inline(always)]
     pub fn contains(&self, other: &LayoutPoint) -> bool {
-        self.origin.x <= other.x && other.x < self.origin.x + self.size.width &&
-        self.origin.y <= other.y && other.y < self.origin.y + self.size.height
+        self.min_x() <= other.x && other.x < self.max_x() &&
+        self.min_y() <= other.y && other.y < self.max_y()
     }
 
     /// Faster union for a Vec<LayoutRect>
@@ -147,6 +155,13 @@ impl LayoutRect {
             origin: LayoutPoint { x: min_x, y: min_y },
             size: LayoutSize { width: max_width, height: max_height },
         })
+    }
+
+    // Returns the scroll rect (not the union rect) of the parent / children
+    #[inline]
+    pub fn get_scroll_rect<I: Iterator<Item=Self>>(&self, children: I) -> Option<Self> {
+        let children_union = Self::union(children)?;
+        Self::union([*self, children_union].into_iter().map(|r| *r))
     }
 
     // Returns if b overlaps a

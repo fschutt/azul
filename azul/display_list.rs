@@ -356,7 +356,9 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
     for (_, parent) in parents {
 
-        let children_sum_rect = match LayoutRect::union(parent.children(&node_hierarchy).map(|child_id| layouted_rects[child_id].bounds)) {
+        let parent_rect = &layouted_rects[*parent];
+
+        let children_scroll_rect = match parent_rect.bounds.get_scroll_rect(parent.children(&node_hierarchy).map(|child_id| layouted_rects[child_id].bounds)) {
             None => continue,
             Some(sum) => sum,
         };
@@ -379,8 +381,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
             b_y + b_height <= a_y + a_height
         }
 
-        let parent_rect = &layouted_rects[*parent];
-        if contains_rect_rounded(&parent_rect.bounds, children_sum_rect) {
+        if contains_rect_rounded(&parent_rect.bounds, children_scroll_rect) {
             continue;
         }
 
@@ -403,7 +404,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
 
         tags_to_node_ids.insert(scroll_tag_id, *parent);
         nodes.insert(*parent, OverflowingScrollNode {
-            child_rect: children_sum_rect,
+            child_rect: children_scroll_rect,
             parent_external_scroll_id,
             parent_dom_hash,
             scroll_tag_id,

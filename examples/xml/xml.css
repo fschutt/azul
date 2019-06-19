@@ -1,0 +1,14 @@
+#red {
+    width: 500px;
+    height: 400px;
+    background: red;
+    border-radius: 10px;
+    overflow: scroll;
+}
+
+#green {
+    width: 10px;
+    height: 10px;
+    background: green;
+    top: 500px;
+}
