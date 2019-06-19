@@ -46,17 +46,10 @@ impl Button {
 
 #[test]
 fn test_button_ui_1() {
-
-    use prelude::*;
-
     struct Mock;
 
-    let expected = DomXml::mock(r#"
-        <div class="__azul-native-button" focusable="true">
-            <p>Hello</p>
-        </div>
-    "#);
+    let expected = String::from("0 <div class=\"__azul-native-button\" tabindex=\"0\">\r\n1     <p>Hello</p>\r\n0 </div>\r\n");
     let button: Dom<Mock> = Button::with_label("Hello").dom();
 
-    expected.assert_eq(button);
+    assert_eq!(expected, button.debug_dump());
 }
