@@ -492,10 +492,9 @@ pub fn update_focus_from_callbacks<'a, T: 'a>(
 
 #[test]
 fn test_case_issue_93() {
-
-    use azul_cssCssPathSelector::*;
+    use azul_css::CssPathSelector::*;
     use azul_css::*;
-    use prelude::*;
+    use dom::*;
 
     struct DataModel;
 
@@ -522,7 +521,7 @@ fn test_case_issue_93() {
     ] };
 
     let node_hierarchy = &dom.arena.node_layout;
-    let nodes_sorted = node_hierarchy.get_parents_sorted_by_depth();
+    let nodes_sorted: Vec<_> = node_hierarchy.get_parents_sorted_by_depth();
     let html_node_tree = construct_html_cascade_tree(
         &dom.arena.node_data,
         &node_hierarchy,
@@ -568,9 +567,8 @@ fn test_case_issue_93() {
 
 #[test]
 fn test_css_group_iterator() {
-
     use self::CssPathSelector::*;
-    use azul_cssNodeTypePath;
+    use azul_css::*;
 
     // ".hello > #id_text.new_class div.content"
     // -> ["div.content", "#id_text.new_class", ".hello"]
