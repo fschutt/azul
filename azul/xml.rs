@@ -178,7 +178,7 @@ impl<T> DomXml<T> {
     ///
     /// ## Example
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use azul::dom::Dom;
     /// # use azul::xml::DomXml;
     /// let dom = DomXml::mock("<div id='test' />");

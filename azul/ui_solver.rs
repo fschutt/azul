@@ -295,7 +295,7 @@ mod layout_tests {
     /// Returns a DOM for testing so we don't have to construct it every time.
     /// The DOM structure looks like this:
     ///
-    /// ```no_run
+    /// ```compile_fail
     /// 0
     /// '- 1
     ///    '-- 2
