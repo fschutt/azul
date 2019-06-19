@@ -86,11 +86,11 @@ fn render_my_texture(info: GlCallbackInfoUnchecked<OpenGlAppState>) -> GlCallbac
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
     gl_context.bind_renderbuffer(gl::RENDERBUFFER, 0);
 
-    Texture {
+    Some(Texture {
         texture_id: textures[0],
         size: texture_size,
         gl_context,
-    }
+    })
 }
 
 fn main() {

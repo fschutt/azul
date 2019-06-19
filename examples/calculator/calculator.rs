@@ -404,7 +404,7 @@ fn main() {
 
     let mut app = App::new(Calculator::default(), AppConfig::default()).unwrap();
     let font_id = app.app_state.resources.add_css_font_id("KoHo-Light");
-    app.app_state.resources.add_font(font_id, FontSource::Embedded(FONT));
+    app.app_state.resources.add_font_source(font_id, FontSource::Embedded(FONT));
 
     let window = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
     let window2 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();

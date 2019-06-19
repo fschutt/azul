@@ -45,13 +45,13 @@ impl Layout for MyDataModel {
             NotConnected => {
                 dom.add_child(
                     Button::with_label("Connect to database...").dom()
-                    .with_callback(On::MouseUp, Callback(start_connection))
+                    .with_callback(On::MouseUp, start_connection)
                 );
             },
             Connected => {
                 dom.add_child(
                     Button::with_label(format!("{}\nRetry?", status)).dom()
-                    .with_callback(On::MouseUp, Callback(reset_connection))
+                    .with_callback(On::MouseUp, reset_connection)
                 );
             }
             InProgress(_, _) => { },
@@ -61,23 +61,23 @@ impl Layout for MyDataModel {
     }
 }
 
-fn reset_connection(app_state: &mut AppState<MyDataModel>, _event: &mut CallbackInfo<MyDataModel>) -> UpdateScreen {
-    app_state.data.connection_status.modify(|state| *state = ConnectionStatus::NotConnected);
+fn reset_connection(event: CallbackInfo<MyDataModel>) -> UpdateScreen {
+    event.state.data.connection_status.modify(|state| *state = ConnectionStatus::NotConnected);
     Redraw
 }
 
-fn start_connection(app_state: &mut AppState<MyDataModel>, _event: &mut CallbackInfo<MyDataModel>) -> UpdateScreen {
-    app_state.data.connection_status.modify(|state| {
+fn start_connection(event: CallbackInfo<MyDataModel>) -> UpdateScreen {
+    event.state.data.connection_status.modify(|state| {
         *state = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
     });
-    let task = Task::new(&app_state.data.connection_status, connect_to_db_async);
-    app_state.add_task(task);
-    app_state.add_timer(TimerId::new(), Timer::new(timer_timer));
+    let task = Task::new(Arc::clone(&event.state.data.connection_status), connect_to_db_async);
+    event.state.add_task(task);
+    event.state.add_timer(TimerId::new(), Timer::new(timer_timer));
     Redraw
 }
 
-fn timer_timer(state: &mut MyDataModel, _resources: &mut AppResources) -> (UpdateScreen, TerminateTimer) {
-    if let ConnectionStatus::InProgress(start, duration) = &mut *state.connection_status.lock().unwrap() {
+fn timer_timer(event: TimerCallbackInfo<MyDataModel>) -> (UpdateScreen, TerminateTimer) {
+    if let ConnectionStatus::InProgress(start, duration) = &mut *event.state.connection_status.lock().unwrap() {
         *duration = Instant::now() - *start;
         (Redraw, TerminateTimer::Continue)
     } else {

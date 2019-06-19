@@ -59,7 +59,7 @@ impl Layout for Universe {
             .with_child(
                 Button::with_label(if !self.game_is_running { "Start" } else { "Restart" }).dom()
                 .with_id("start_btn")
-                .with_callback(On::MouseUp, Callback(start_stop_game))
+                .with_callback(On::MouseUp, start_stop_game)
             );
 
         Dom::new(NodeType::Div)
@@ -119,8 +119,8 @@ impl Board {
 }
 
 // Update the cell state
-fn tick(state: &mut Universe, _: &mut AppResources) -> (UpdateScreen, TerminateTimer) {
-    state.board = next_iteration(&state.board);
+fn tick(event: TimerCallbackInfo<Universe>) -> (UpdateScreen, TerminateTimer) {
+    event.state.board = next_iteration(&event.state.board);
     (Redraw, TerminateTimer::Continue)
 }
 
@@ -164,12 +164,12 @@ fn next_iteration(input: &Board) -> Board {
 }
 
 /// Callback that starts the main
-fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Universe>) -> UpdateScreen {
+fn start_stop_game(event: CallbackInfo<Universe>) -> UpdateScreen {
 
     use std::time::Duration;
 
     if let Some(timer) = {
-        let state = &mut app_state.data;
+        let state = &mut event.state.data;
         state.board = Board::new_random(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT);
 
         if state.game_is_running {
@@ -181,7 +181,7 @@ fn start_stop_game(app_state: &mut AppState<Universe>, _: &mut CallbackInfo<Univ
             Some(timer)
         }
     }{
-        app_state.add_timer(TimerId::new(), timer);
+        event.state.add_timer(TimerId::new(), timer);
     }
 
     Redraw
