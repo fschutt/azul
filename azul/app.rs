@@ -3,7 +3,6 @@ use std::{
     time::Instant,
     collections::BTreeMap,
 };
-#[cfg(debug_assertions)]
 use glium::glutin::WindowEvent;
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
@@ -15,7 +14,7 @@ use azul_css::ColorU;
 use {
     FastHashMap,
     window::{
-        Window, ScrollStates, LogicalPosition, LogicalSize, 
+        Window, ScrollStates, LogicalPosition, LogicalSize,
         RendererType, WindowSize, DebugState,
         FullWindowState,
     },
