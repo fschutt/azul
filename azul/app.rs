@@ -1,35 +1,28 @@
 use std::{
-    mem,
     rc::Rc,
     time::Instant,
     collections::BTreeMap,
 };
 #[cfg(debug_assertions)]
-use azul_css::HotReloadHandler;
 use glium::glutin::WindowEvent;
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
-    api::{
-        HitTestFlags, DevicePixel, WorldPoint,
-        LayoutSize, Epoch, Transaction,
-    },
+    api::{ DevicePixel, LayoutSize, Epoch, Transaction },
 };
-#[cfg(feature = "logging")]
 use log::LevelFilter;
-use azul_css::{Css, ColorU};
+use azul_css::ColorU;
 use {
     FastHashMap,
     window::{
-        Window, FakeWindow, ScrollStates, LogicalPosition, LogicalSize, FakeDisplay,
-        WindowCreateError, WindowCreateOptions, RendererType, WindowSize, DebugState,
+        Window, ScrollStates, LogicalPosition, LogicalSize, 
+        RendererType, WindowSize, DebugState,
         FullWindowState,
     },
     dom::{Dom, ScrollTagId},
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
-    ui_description::UiDescription,
     async::{Task, TimerId, TerminateTimer},
     callbacks::{
         FocusTarget, UpdateScreen, HitTestItem, Redraw, DontRedraw, LayoutInfo,
@@ -41,6 +34,18 @@ pub use azul_core::{
     window::WindowId,
     ui_solver::ScrolledNodes,
 };
+
+#[cfg(not(test))]
+use azul_core::{
+    window::FakeWindow,
+    ui_description::UiDescription,
+};
+#[cfg(not(test))]
+use window::{ FakeDisplay, WindowCreateError, WindowCreateOptions };
+#[cfg(not(test))]
+use azul_css::{HotReloadHandler, Css};
+#[cfg(not(test))]
+use webrender::api::{WorldPoint, HitTestFlags};
 #[cfg(test)]
 use app_resources::FakeRenderApi;
 
@@ -231,6 +236,7 @@ impl<T> App<T> {
     /// Spawn a new window on the screen. Note that this should only be used to
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
+    #[cfg(not(test))]
     pub fn add_window(&mut self, window: Window<T>) {
         use window_state::full_window_state_from_normal_state;
         let window_id = window.id;
@@ -281,7 +287,7 @@ impl<T> App<T> {
         // since one Arc is still owned by the app_state.tasks structure
         //
         // See https://github.com/maps4print/azul/issues/24#issuecomment-429737273
-        mem::drop(self.app_state.tasks);
+        std::mem::drop(self.app_state.tasks);
 
         Ok(self.app_state.data)
     }

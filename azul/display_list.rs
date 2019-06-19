@@ -1171,8 +1171,7 @@ fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property
 
 #[test]
 fn test_overflow_parsing() {
-
-    use azul_cssOverflow;
+    use prelude::Overflow;
 
     let layout1 = RectLayout::default();
 
@@ -1181,19 +1180,15 @@ fn test_overflow_parsing() {
     assert_eq!(node_needs_to_clip_children(&layout1), true);
 
     let layout2 = RectLayout {
-        overflow: Some(LayoutOverflow {
-            horizontal: Some(Overflow::Visible),
-            vertical: Some(Overflow::Visible),
-        }),
+        overflow_x: Some(CssPropertyValue::Exact(Overflow::Visible)),
+        overflow_y: Some(CssPropertyValue::Exact(Overflow::Visible)),
         .. Default::default()
     };
     assert_eq!(node_needs_to_clip_children(&layout2), false);
 
     let layout3 = RectLayout {
-        overflow: Some(LayoutOverflow {
-            horizontal: Some(Overflow::Hidden),
-            vertical: Some(Overflow::Visible),
-        }),
+        overflow_x: Some(CssPropertyValue::Exact(Overflow::Hidden)),
+        overflow_y: Some(CssPropertyValue::Exact(Overflow::Hidden)),
         .. Default::default()
     };
     assert_eq!(node_needs_to_clip_children(&layout3), true);

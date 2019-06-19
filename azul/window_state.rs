@@ -599,7 +599,7 @@ pub(crate) fn determine_callbacks<T>(
                     }
                     // TODO: Same thing for default callbacks here
                 },
-                NotEventFilter::Focus(f) => {
+                NotEventFilter::Focus(_f) => {
                     // TODO: Same thing for focus
                 }
             }
