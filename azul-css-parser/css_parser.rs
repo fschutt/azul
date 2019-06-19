@@ -106,11 +106,12 @@ macro_rules! typed_pixel_value_parser {
 /// ```rust
 /// # extern crate azul_css_parser;
 /// # extern crate azul_css;
+/// 
 /// # use azul_css_parser;
-/// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssProperty};
+/// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssPropertyValue, CssProperty};
 /// assert_eq!(
 ///     azul_css_parser::parse_css_property(CssPropertyType::Width, "500px"),
-///     Ok(CssPropertyValue::Exact(CssProperty::Width(LayoutWidth(PixelValue::px(500.0)))))
+///     Ok(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth(PixelValue::px(500.0)))))
 /// )
 /// ```
 pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<CssProperty, CssParsingError<'a>> {
@@ -210,14 +211,14 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
 /// # extern crate azul_css_parser;
 /// # extern crate azul_css;
 /// # use azul_css_parser;
-/// # use azul_css::{LayoutWidth, PixelValue, CombinedCssPropertyType, CssProperty};
+/// # use azul_css::*;
 /// assert_eq!(
 ///     azul_css_parser::parse_combined_css_property(CombinedCssPropertyType::BorderRadius, "10px"),
 ///     Ok(vec![
-///         CssPropertyValue::Exact(CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadius(PixelValue::px(10.0)))),
-///         CssPropertyValue::Exact(CssProperty::BorderTopRightRadius(StyleBorderTopLeftRadius(PixelValue::px(10.0)))),
-///         CssPropertyValue::Exact(CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadius(PixelValue::px(10.0)))),
-///         CssPropertyValue::Exact(CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadius(PixelValue::px(10.0)))),
+///         CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(StyleBorderTopLeftRadius::px(10.0))),
+///         CssProperty::BorderTopRightRadius(CssPropertyValue::Exact(StyleBorderTopRightRadius::px(10.0))),
+///         CssProperty::BorderBottomLeftRadius(CssPropertyValue::Exact(StyleBorderBottomLeftRadius::px(10.0))),
+///         CssProperty::BorderBottomRightRadius(CssPropertyValue::Exact(StyleBorderBottomRightRadius::px(10.0))),
 ///     ])
 /// )
 /// ```
@@ -2450,109 +2451,213 @@ multi_type_parser!(parse_layout_text_align, StyleTextAlignmentHorz,
 mod css_tests {
     use super::*;
 
+    
     #[test]
     fn test_parse_box_shadow_1() {
-        assert_eq!(parse_style_box_shadow("none"), Ok(None));
+        assert_eq!(
+            parse_style_box_shadow("none"),
+            Err(CssShadowParseError::TooManyComponents("none"))
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_2() {
-        assert_eq!(parse_style_box_shadow("5px 10px"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
-            blur_radius: PixelValue::px(0.0),
-            spread_radius: PixelValue::px(0.0),
-            clip_mode: BoxShadowClipMode::Outset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                clip_mode: BoxShadowClipMode::Outset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_3() {
-        assert_eq!(parse_style_box_shadow("5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 136, g: 136, b: 136, a: 255 },
-            blur_radius: PixelValue::px(0.0),
-            spread_radius: PixelValue::px(0.0),
-            clip_mode: BoxShadowClipMode::Outset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px #888888"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 136,
+                    g: 136,
+                    b: 136,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                clip_mode: BoxShadowClipMode::Outset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_4() {
-        assert_eq!(parse_style_box_shadow("5px 10px inset"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
-            blur_radius: PixelValue::px(0.0),
-            spread_radius: PixelValue::px(0.0),
-            clip_mode: BoxShadowClipMode::Inset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px inset"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                clip_mode: BoxShadowClipMode::Inset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_5() {
-        assert_eq!(parse_style_box_shadow("5px 10px outset"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
-            blur_radius: PixelValue::px(0.0),
-            spread_radius: PixelValue::px(0.0),
-            clip_mode: BoxShadowClipMode::Outset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px outset"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                clip_mode: BoxShadowClipMode::Outset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_6() {
-        assert_eq!(parse_style_box_shadow("5px 10px 5px #888888"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 136, g: 136, b: 136, a: 255 },
-            blur_radius: PixelValue::px(5.0),
-            spread_radius: PixelValue::px(0.0),
-            clip_mode: BoxShadowClipMode::Outset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px 5px #888888"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 136,
+                    g: 136,
+                    b: 136,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                clip_mode: BoxShadowClipMode::Outset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_7() {
-        assert_eq!(parse_style_box_shadow("5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 136, g: 136, b: 136, a: 255 },
-            blur_radius: PixelValue::px(0.0),
-            spread_radius: PixelValue::px(0.0),
-            clip_mode: BoxShadowClipMode::Inset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px #888888 inset"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 136,
+                    g: 136,
+                    b: 136,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                clip_mode: BoxShadowClipMode::Inset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_8() {
-        assert_eq!(parse_style_box_shadow("5px 10px 5px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 136, g: 136, b: 136, a: 255 },
-            blur_radius: PixelValue::px(5.0),
-            spread_radius: PixelValue::px(0.0),
-            clip_mode: BoxShadowClipMode::Inset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px 5px #888888 inset"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 136,
+                    g: 136,
+                    b: 136,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                clip_mode: BoxShadowClipMode::Inset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_9() {
-        assert_eq!(parse_style_box_shadow("5px 10px 5px 10px #888888"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 136, g: 136, b: 136, a: 255 },
-            blur_radius: PixelValue::px(5.0),
-            spread_radius: PixelValue::px(10.0),
-            clip_mode: BoxShadowClipMode::Outset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px 5px 10px #888888"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0)),
+                ],
+                color: ColorU {
+                    r: 136,
+                    g: 136,
+                    b: 136,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(10.0)),
+                clip_mode: BoxShadowClipMode::Outset,
+            })
+        );
     }
 
     #[test]
     fn test_parse_box_shadow_10() {
-        assert_eq!(parse_style_box_shadow("5px 10px 5px 10px #888888 inset"), Ok(Some(BoxShadowPreDisplayItem {
-            offset: [PixelValue::px(5.0), PixelValue::px(10.0)],
-            color: ColorU { r: 136, g: 136, b: 136, a: 255 },
-            blur_radius: PixelValue::px(5.0),
-            spread_radius: PixelValue::px(10.0),
-            clip_mode: BoxShadowClipMode::Inset,
-        })));
+        assert_eq!(
+            parse_style_box_shadow("5px 10px 5px 10px #888888 inset"),
+            Ok(BoxShadowPreDisplayItem {
+                offset: [
+                    PixelValueNoPercent(PixelValue::px(5.0)),
+                    PixelValueNoPercent(PixelValue::px(10.0))
+                ],
+                color: ColorU {
+                    r: 136,
+                    g: 136,
+                    b: 136,
+                    a: 255
+                },
+                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
+                spread_radius: PixelValueNoPercent(PixelValue::px(10.0)),
+                clip_mode: BoxShadowClipMode::Inset,
+            })
+        );
     }
+
 
     #[test]
     fn test_parse_css_border_1() {
@@ -2592,8 +2697,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_1() {
-        assert_eq!(parse_style_background("linear-gradient(red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(red, yellow)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2609,8 +2714,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_2() {
-        assert_eq!(parse_style_background("linear-gradient(red, lime, blue, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(red, lime, blue, yellow)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2634,8 +2739,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_3() {
-        assert_eq!(parse_style_background("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("repeating-linear-gradient(50deg, blue, yellow, #00FF00)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(50.0.into()),
                 extend_mode: ExtendMode::Repeat,
                 stops: vec![
@@ -2656,8 +2761,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_4() {
-        assert_eq!(parse_style_background("linear-gradient(to bottom right, red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(to bottom right, red, yellow)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2674,8 +2779,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_5() {
-        assert_eq!(parse_style_background("linear-gradient(0.42rad, red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(0.42rad, red, yellow)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(24.0642)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2691,8 +2796,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_6() {
-        assert_eq!(parse_style_background("linear-gradient(12.93grad, red, yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(12.93grad, red, yellow)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(11.637)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2708,8 +2813,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_7() {
-        assert_eq!(parse_style_background("linear-gradient(to right, rgba(255,0, 0,1) 0%,rgba(0,0,0, 0) 100%)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(to right, rgba(255,0, 0,1) 0%,rgba(0,0,0, 0) 100%)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::Left, DirectionCorner::Right),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2726,8 +2831,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_8() {
-        assert_eq!(parse_style_background("linear-gradient(to bottom, rgb(255,0, 0),rgb(0,0,0))"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(to bottom, rgb(255,0, 0),rgb(0,0,0))"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2744,8 +2849,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_9() {
-        assert_eq!(parse_style_background("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(10deg, rgb(10, 30, 20), yellow)"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(10.0)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2761,8 +2866,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_linear_gradient_10() {
-        assert_eq!(parse_style_background("linear-gradient(50deg, rgba(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(50deg, rgba(10, 30, 20, 0.93), hsla(40deg, 80%, 30%, 0.1))"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(50.0)),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2779,8 +2884,8 @@ mod css_tests {
     #[test]
     fn test_parse_linear_gradient_11() {
         // wacky whitespace on purpose
-        assert_eq!(parse_style_background("linear-gradient(to bottom,rgb(255,0, 0)0%, rgb( 0 , 255 , 0 ) 10% ,blue   100%  )"),
-            Ok(StyleBackground::LinearGradient(LinearGradient {
+        assert_eq!(parse_style_background_content("linear-gradient(to bottom,rgb(255,0, 0)0%, rgb( 0 , 255 , 0 ) 10% ,blue   100%  )"),
+            Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![GradientStopPre {
@@ -2801,8 +2906,8 @@ mod css_tests {
 
     #[test]
     fn test_parse_radial_gradient_1() {
-        assert_eq!(parse_style_background("radial-gradient(circle, lime, blue, yellow)"),
-            Ok(StyleBackground::RadialGradient(RadialGradient {
+        assert_eq!(parse_style_background_content("radial-gradient(circle, lime, blue, yellow)"),
+            Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
@@ -2825,7 +2930,7 @@ mod css_tests {
     /*
     #[test]
     fn test_parse_radial_gradient_2() {
-        assert_eq!(parse_style_background("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
+        assert_eq!(parse_style_background_content("repeating-radial-gradient(circle, red 10%, blue 50%, lime, yellow)"),
             Ok(ParsedGradient::RadialGradient(RadialGradient {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Repeat,
@@ -3065,39 +3170,54 @@ mod css_tests {
 
     #[test]
     fn test_parse_style_border_radius_1() {
-        assert_eq!(parse_style_border_radius("15px"), Ok(StyleBorderRadius(
-            BorderRadius::uniform(PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)))
-        )));
+        assert_eq!(
+            parse_style_border_radius("15px"),
+            Ok(StyleBorderRadius {
+                top_left: PixelValue::px(15.0),
+                top_right: PixelValue::px(15.0),
+                bottom_left: PixelValue::px(15.0),
+                bottom_right: PixelValue::px(15.0),
+            })
+        );
     }
 
     #[test]
     fn test_parse_style_border_radius_2() {
-        assert_eq!(parse_style_border_radius("15px 50px"), Ok(StyleBorderRadius(BorderRadius {
-            top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
-            bottom_right: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
-            top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
-            bottom_left: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
-        })));
+        assert_eq!(
+            parse_style_border_radius("15px 50px"),
+            Ok(StyleBorderRadius {
+                top_left: PixelValue::px(15.0),
+                bottom_right: PixelValue::px(15.0),
+                top_right: PixelValue::px(50.0),
+                bottom_left: PixelValue::px(50.0),
+            })
+        );
     }
 
     #[test]
     fn test_parse_style_border_radius_3() {
-        assert_eq!(parse_style_border_radius("15px 50px 30px"), Ok(StyleBorderRadius(BorderRadius {
-            top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
-            bottom_right: PixelSize::new(PixelValue::px(30.0), PixelValue::px(30.0)),
-            top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
-            bottom_left: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
-        })));
+        assert_eq!(
+            parse_style_border_radius("15px 50px 30px"),
+            Ok(StyleBorderRadius {
+                top_left: PixelValue::px(15.0),
+                bottom_right: PixelValue::px(30.0),
+                top_right: PixelValue::px(50.0),
+                bottom_left: PixelValue::px(50.0),
+            })
+        );
     }
 
     #[test]
     fn test_parse_style_border_radius_4() {
-        assert_eq!(parse_style_border_radius("15px 50px 30px 5px"), Ok(StyleBorderRadius(BorderRadius {
-            top_left: PixelSize::new(PixelValue::px(15.0), PixelValue::px(15.0)),
-            bottom_right: PixelSize::new(PixelValue::px(30.0), PixelValue::px(30.0)),
-            top_right: PixelSize::new(PixelValue::px(50.0), PixelValue::px(50.0)),
-            bottom_left: PixelSize::new(PixelValue::px(5.0), PixelValue::px(5.0)),
-        })));
+        assert_eq!(
+            parse_style_border_radius("15px 50px 30px 5px"),
+            Ok(StyleBorderRadius {
+                top_left: PixelValue::px(15.0),
+                bottom_right: PixelValue::px(30.0),
+                top_right: PixelValue::px(50.0),
+                bottom_left: PixelValue::px(5.0),
+            })
+        );
     }
 
     #[test]
@@ -3121,48 +3241,60 @@ mod css_tests {
 
     #[test]
     fn test_parse_background_image() {
-        assert_eq!(parse_style_background("image(\"Cat 01\")"), Ok(StyleBackground::Image(
+        assert_eq!(parse_style_background_content("image(\"Cat 01\")"), Ok(StyleBackgroundContent::Image(
             CssImageId(String::from("Cat 01"))
         )));
     }
 
     #[test]
     fn test_parse_padding_1() {
-        assert_eq!(parse_layout_padding("10px"), Ok(LayoutPadding {
-            top: Some(PixelValue::px(10.0)),
-            right: Some(PixelValue::px(10.0)),
-            bottom: Some(PixelValue::px(10.0)),
-            left: Some(PixelValue::px(10.0)),
-        }));
+        assert_eq!(
+            parse_layout_padding("10px"),
+            Ok(LayoutPadding {
+                top: PixelValue::px(10.0),
+                right: PixelValue::px(10.0),
+                bottom: PixelValue::px(10.0),
+                left: PixelValue::px(10.0),
+            })
+        );
     }
 
     #[test]
     fn test_parse_padding_2() {
-        assert_eq!(parse_layout_padding("25px 50px"), Ok(LayoutPadding {
-            top: Some(PixelValue::px(25.0)),
-            right: Some(PixelValue::px(50.0)),
-            bottom: Some(PixelValue::px(25.0)),
-            left: Some(PixelValue::px(50.0)),
-        }));
+        assert_eq!(
+            parse_layout_padding("25px 50px"),
+            Ok(LayoutPadding {
+                top: PixelValue::px(25.0),
+                right: PixelValue::px(50.0),
+                bottom: PixelValue::px(25.0),
+                left: PixelValue::px(50.0),
+            })
+        );
     }
 
     #[test]
     fn test_parse_padding_3() {
-        assert_eq!(parse_layout_padding("25px 50px 75px"), Ok(LayoutPadding {
-            top: Some(PixelValue::px(25.0)),
-            right: Some(PixelValue::px(50.0)),
-            left: Some(PixelValue::px(50.0)),
-            bottom: Some(PixelValue::px(75.0)),
-        }));
+        assert_eq!(
+            parse_layout_padding("25px 50px 75px"),
+            Ok(LayoutPadding {
+                top: PixelValue::px(25.0),
+                right: PixelValue::px(50.0),
+                left: PixelValue::px(50.0),
+                bottom: PixelValue::px(75.0),
+            })
+        );
     }
 
     #[test]
     fn test_parse_padding_4() {
-        assert_eq!(parse_layout_padding("25px 50px 75px 100px"), Ok(LayoutPadding {
-            top: Some(PixelValue::px(25.0)),
-            right: Some(PixelValue::px(50.0)),
-            bottom: Some(PixelValue::px(75.0)),
-            left: Some(PixelValue::px(100.0)),
-        }));
+        assert_eq!(
+            parse_layout_padding("25px 50px 75px 100px"),
+            Ok(LayoutPadding {
+                top: PixelValue::px(25.0),
+                right: PixelValue::px(50.0),
+                bottom: PixelValue::px(75.0),
+                left: PixelValue::px(100.0),
+            })
+        );
     }
 }
