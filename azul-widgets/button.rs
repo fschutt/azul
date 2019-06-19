@@ -48,7 +48,7 @@ impl Button {
 fn test_button_ui_1() {
     struct Mock;
 
-    let expected = String::from("0 <div class=\"__azul-native-button\" tabindex=\"0\">\r\n1     <p>Hello</p>\r\n0 </div>\r\n");
+    let expected = String::from("<div class=\"__azul-native-button\" tabindex=\"0\">\r\n    <p>Hello</p>\r\n</div>\r\n");
     let button: Dom<Mock> = Button::with_label("Hello").dom();
 
     assert_eq!(expected, button.debug_dump());
