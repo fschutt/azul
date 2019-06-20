@@ -243,6 +243,8 @@ use azul_core::id_tree;
 use azul_core::ui_description;
 /// Manages the hover / focus tags for the DOM items
 use azul_core::ui_state;
+/// DOM diffing
+use azul_core::diff;
 /// HarfBuzz text shaping utilities
 mod text_shaping;
 /// Converts the UI description (the styled HTML nodes)
@@ -254,8 +256,6 @@ mod compositor;
 /// Default logger, can be turned off with `feature = "logging"`
 #[cfg(feature = "logging")]
 mod logging;
-/// DOM diffing
-mod diff;
 /// Window state handling and diffing
 mod window_state;
 /// ImageId / FontId handling and caching

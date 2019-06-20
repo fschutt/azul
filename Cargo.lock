@@ -75,7 +75,6 @@ version = "0.1.0"
 dependencies = [
  "azul-css 0.1.0",
  "azul-css-parser 0.1.0",
- "azul-dependencies 0.1.0 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)",
  "gleam 0.6.17 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

@@ -66,7 +66,6 @@ webp = ["azul-dependencies/webp"]
 css_parser = ["azul-core/css_parser", "azul-css-parser"]
 widgets = ["azul-widgets"]
 native_style = ["azul-native-style"]
-faster_hashing = ["azul-core/faster_hashing"]
 svg_parsing = ["azul-widgets/svg_parsing"]
 svg = ["azul-widgets/svg"]
 

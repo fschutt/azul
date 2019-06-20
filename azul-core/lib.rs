@@ -10,6 +10,7 @@ pub mod app_resources;
 pub mod async;
 pub mod callbacks;
 pub mod dom;
+pub mod diff;
 pub mod id_tree;
 pub mod window;
 pub mod ui_state;
@@ -21,6 +22,6 @@ pub mod ui_description;
 
 mod stack_checked_pointer;
 
-// Faster implementation of a HashMap (optional, disabled by default, turn on with --feature="faster-hashing")
+// Typedef for possible faster implementation of hashing
 pub type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
 pub type FastHashSet<T> = ::std::collections::HashSet<T>;

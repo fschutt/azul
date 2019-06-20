@@ -363,24 +363,7 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
             Some(sum) => sum,
         };
 
-        // Since there can be a small floating point error, round the item to the nearest pixel, then compare the rects
-        fn contains_rect_rounded(a: &LayoutRect, b: LayoutRect) -> bool {
-            let a_x = a.origin.x.round() as isize;
-            let a_y = a.origin.x.round() as isize;
-            let a_width = a.size.width.round() as isize;
-            let a_height = a.size.height.round() as isize;
-
-            let b_x = b.origin.x.round() as isize;
-            let b_y = b.origin.x.round() as isize;
-            let b_width = b.size.width.round() as isize;
-            let b_height = b.size.height.round() as isize;
-
-            b_x >= a_x &&
-            b_y >= a_y &&
-            b_x + b_width <= a_x + a_width &&
-            b_y + b_height <= a_y + a_height
-        }
-
+        // Check if the scroll rect overflows the parent bounds
         if contains_rect_rounded(&parent_rect.bounds, children_scroll_rect) {
             continue;
         }
@@ -412,6 +395,25 @@ fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
     }
 
     ScrolledNodes { overflowing_nodes: nodes, tags_to_node_ids }
+}
+
+// Since there can be a small floating point error, round the item to the nearest pixel,
+// then compare the rects
+fn contains_rect_rounded(a: &LayoutRect, b: LayoutRect) -> bool {
+    let a_x = a.origin.x.round() as isize;
+    let a_y = a.origin.x.round() as isize;
+    let a_width = a.size.width.round() as isize;
+    let a_height = a.size.height.round() as isize;
+
+    let b_x = b.origin.x.round() as isize;
+    let b_y = b.origin.x.round() as isize;
+    let b_width = b.size.width.round() as isize;
+    let b_height = b.size.height.round() as isize;
+
+    b_x >= a_x &&
+    b_y >= a_y &&
+    b_x + b_width <= a_x + a_width &&
+    b_y + b_height <= a_y + a_height
 }
 
 fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
