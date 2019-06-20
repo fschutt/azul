@@ -226,6 +226,8 @@ pub mod css;
 pub mod dialogs;
 /// DOM / HTML node handling
 pub use azul_core::dom;
+/// DOM diffing
+pub use azul_core::diff;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
 pub use azul_core::gl;
 /// Handles text layout (modularized, can be used as a standalone module)
@@ -243,8 +245,6 @@ use azul_core::id_tree;
 use azul_core::ui_description;
 /// Manages the hover / focus tags for the DOM items
 use azul_core::ui_state;
-/// DOM diffing
-use azul_core::diff;
 /// HarfBuzz text shaping utilities
 mod text_shaping;
 /// Converts the UI description (the styled HTML nodes)

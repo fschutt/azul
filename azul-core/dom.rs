@@ -55,6 +55,11 @@ pub struct DomId {
 }
 
 impl DomId {
+
+    /// ID for the top-level DOM (of a window)
+    pub const ROOT_ID: DomId = Self { id: 0, parent: None };
+
+    #[inline(always)]
     pub fn new(parent: Option<(DomId, NodeId)>) -> DomId {
         DomId {
             id: DOM_ID.fetch_add(1, Ordering::SeqCst),
@@ -63,22 +68,15 @@ impl DomId {
     }
 
     /// Reset the DOM ID to 1, usually done once-per-frame for the root DOM
+    #[inline(always)]
     pub fn reset() {
         DOM_ID.swap(1, Ordering::SeqCst);
     }
 
-    /// Creates an ID for the root node
-    #[inline]
-    pub const fn create_root_dom_id() -> Self  {
-        Self {
-            id: 0,
-            parent: None,
-        }
-    }
-
     /// Returns if this is the root node
+    #[inline(always)]
     pub fn is_root(&self) -> bool {
-        *self == Self::create_root_dom_id()
+        *self == Self::ROOT_ID
     }
 }
 

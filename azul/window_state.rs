@@ -337,7 +337,7 @@ pub(crate) fn determine_callbacks<T>(
         .cloned();
 
         // Even if the focused node is None, we still have to update window_state.focused_node!
-        window_state.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| node_id);
+        window_state.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| (ui_state.dom_id.clone(), node_id));
     }
 
     macro_rules! insert_only_non_empty_callbacks {
@@ -420,32 +420,32 @@ pub(crate) fn determine_callbacks<T>(
 
     // Insert (normal + default) focus events
     if let Some(current_focused_node) = &window_state.focused_node {
-        insert_callbacks!(current_focused_node, None, focus_callbacks, focus_default_callbacks, current_focus_events, Focus);
+        insert_callbacks!(&current_focused_node.1, None, focus_callbacks, focus_default_callbacks, current_focus_events, Focus);
     }
 
     // If the last focused node and the current focused node aren't the same,
     // submit a FocusLost for the last node and a FocusReceived for the current one.
     let mut focus_received_lost_events: BTreeMap<NodeId, FocusEventFilter> = BTreeMap::new();
-    match (window_state.focused_node, previous_state.focused_node) {
+    match (window_state.focused_node.as_ref(), previous_state.focused_node.as_ref()) {
         (Some((cur_dom_id, cur_node_id)), None) => {
-            if cur_dom_id == ui_state.dom_id {
-                focus_received_lost_events.insert(cur_node_id, FocusEventFilter::FocusReceived);
+            if *cur_dom_id == ui_state.dom_id {
+                focus_received_lost_events.insert(*cur_node_id, FocusEventFilter::FocusReceived);
             }
         },
         (None, Some((prev_dom_id, prev_node_id))) => {
-            if prev_dom_id == ui_state.dom_id {
-                focus_received_lost_events.insert(prev_node_id, FocusEventFilter::FocusLost);
+            if *prev_dom_id == ui_state.dom_id {
+                focus_received_lost_events.insert(*prev_node_id, FocusEventFilter::FocusLost);
             }
         },
         (Some(cur), Some(prev)) => {
-            if cur != prev {
+            if *cur != *prev {
                 let (cur_dom_id, cur_node_id) = cur;
                 let (prev_dom_id, prev_node_id) = prev;
-                if cur_dom_id == ui_state.dom_id {
-                    focus_received_lost_events.insert(cur_node_id, FocusEventFilter::FocusReceived);
+                if *cur_dom_id == ui_state.dom_id {
+                    focus_received_lost_events.insert(*cur_node_id, FocusEventFilter::FocusReceived);
                 }
-                if prev_node_id == ui_state.dom_id {
-                    focus_received_lost_events.insert(prev_node_id, FocusEventFilter::FocusLost);
+                if *prev_dom_id == ui_state.dom_id {
+                    focus_received_lost_events.insert(*prev_node_id, FocusEventFilter::FocusLost);
                 }
             }
         }
@@ -458,10 +458,12 @@ pub(crate) fn determine_callbacks<T>(
         insert_callbacks!(node_id, None, focus_callbacks, focus_default_callbacks, current_focus_leave_events, Focus);
     }
 
+    let current_dom_id = ui_state.dom_id.clone();
+
     macro_rules! mouse_enter {
         ($node_id:expr, $hit_test_item:expr, $event_filter:ident) => ({
 
-            let node_is_focused = window_state.focused_node == Some($node_id);
+            let node_is_focused = window_state.focused_node == Some((current_dom_id.clone(), $node_id));
 
             // BTreeMap<EventFilter, Callback<T>>
             let mut normal_callbacks = BTreeMap::new();
@@ -526,7 +528,7 @@ pub(crate) fn determine_callbacks<T>(
 
     // Collect all On::MouseEnter nodes (for both hover and focus events)
     let onmouseenter_nodes: BTreeMap<NodeId, HitTestItem> = new_hit_node_ids.iter()
-        .filter(|(current_node_id, _)| previous_state.hovered_nodes.get(current_node_id).is_none())
+        .filter(|(current_node_id, _)| previous_state.hovered_nodes.get(&current_dom_id).and_then(|hn| hn.get(current_node_id)).is_none())
         .map(|(x, y)| (*x, y.clone()))
         .collect();
 
@@ -538,10 +540,15 @@ pub(crate) fn determine_callbacks<T>(
     }
 
     // Collect all On::MouseLeave nodes (for both hover and focus events)
-    let onmouseleave_nodes: BTreeMap<NodeId, HitTestItem> = previous_state.hovered_nodes.iter()
-        .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
-        .map(|(x, y)| (*x, y.clone()))
-        .collect();
+    let onmouseleave_nodes: BTreeMap<NodeId, HitTestItem> = match previous_state.hovered_nodes.get(&current_dom_id) {
+        Some(hn) => {
+            hn.iter()
+            .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
+            .map(|(x, y)| (*x, y.clone()))
+            .collect()
+        },
+        None => BTreeMap::new(),
+    };
 
     let onmouseleave_empty = onmouseleave_nodes.is_empty();
 
@@ -616,7 +623,7 @@ pub(crate) fn determine_callbacks<T>(
         }
     }
 
-    window_state.hovered_nodes = new_hit_node_ids;
+    window_state.hovered_nodes.insert(current_dom_id, new_hit_node_ids);
     window_state.previous_window_state = Some(previous_state);
 
     CallbacksOfHitTest {

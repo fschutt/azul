@@ -483,7 +483,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     let arena = &display_list.ui_descr.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;
     let node_data = &arena.node_data;
-    let root_dom_id = display_list.ui_descr.dom_id;
+    let root_dom_id = display_list.ui_descr.dom_id.clone();
 
     // Scan the styled DOM for image and font keys.
     //
@@ -523,10 +523,10 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     );
 
     let mut scrollable_nodes_map = BTreeMap::new();
-    scrollable_nodes_map.insert(root_dom_id, scrollable_nodes);
+    scrollable_nodes_map.insert(root_dom_id.clone(), scrollable_nodes);
 
     let mut layout_result_map = BTreeMap::new();
-    layout_result_map.insert(root_dom_id, layout_result);
+    layout_result_map.insert(root_dom_id.clone(), layout_result);
 
     let mut image_resource_updates = BTreeMap::new();
 
@@ -715,10 +715,10 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
             }
         },
         GlTexture(callback) => {
-            frame.content.push(call_opengl_callback(callback, bounds, *dom_id, rectangle, referenced_mutable_content));
+            frame.content.push(call_opengl_callback(callback, bounds, dom_id.clone(), rectangle, referenced_mutable_content));
         },
         IFrame(callback) => {
-            let parent = Some((*dom_id, *rect_idx));
+            let parent = Some((dom_id.clone(), *rect_idx));
             frame.children.push(call_iframe_callback(callback, bounds, rectangle, referenced_content, referenced_mutable_content, parent));
         },
     };
@@ -941,7 +941,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
         is_mouse_down,
     );
 
-    let iframe_dom_id = ui_description.dom_id;
+    let iframe_dom_id = ui_description.dom_id.clone();
 
     let display_list = display_list_from_ui_description(&ui_description, &ui_state);
 
@@ -974,8 +974,8 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
         &display_list.rectangles,
     );
 
-    referenced_mutable_content.scrollable_nodes.insert(iframe_dom_id, scrollable_nodes_iframe);
-    referenced_mutable_content.layout_result.insert(iframe_dom_id, layout_result_iframe);
+    referenced_mutable_content.scrollable_nodes.insert(iframe_dom_id.clone(), scrollable_nodes_iframe);
+    referenced_mutable_content.layout_result.insert(iframe_dom_id.clone(), layout_result_iframe);
 
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description,

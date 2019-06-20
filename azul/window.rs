@@ -498,6 +498,8 @@ impl<T> Window<T> {
 
         css.sort_by_specificity();
 
+        let display_list_dimensions = wr_translate_logical_size(state.size.dimensions);
+
         let window = Window {
             id: WindowId::new(),
             create_options: options,
@@ -513,7 +515,7 @@ impl<T> Window<T> {
                 document_id,
                 scrolled_nodes: BTreeMap::new(),
                 layout_result: BTreeMap::new(),
-                cached_display_list: CachedDisplayList::empty(wr_translate_logical_size(state.size.dimensions)),
+                cached_display_list: CachedDisplayList::empty(display_list_dimensions),
             },
             marker: PhantomData,
         };
