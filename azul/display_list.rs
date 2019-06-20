@@ -17,7 +17,7 @@ use {
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
-        NodeData, ScrollTagId, DomString,
+        DomId, NodeData, ScrollTagId, DomString,
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
     },
     ui_solver::do_the_layout,
@@ -52,18 +52,19 @@ pub(crate) struct DisplayList<'a, T: 'a> {
 ///
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
-#[derive(Copy, Clone)]
-struct DisplayListParametersRef<'a, 'b, 'c, 'd, 'e, T: 'a> {
+#[derive(Clone)]
+struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a> {
+    /// ID of this Dom
+    pub dom_id: DomId,
+    /// Reference to original DOM data
     pub node_data: &'a NodeDataContainer<NodeData<T>>,
     /// The CSS that should be applied to the DOM
     pub css: &'b Css,
-    /// Laid out words and rectangles (contains info about content bounds and text layout)
-    pub layout_result: &'c LayoutResult,
     /// Reference to the arena that contains all the styled rectangles
-    pub display_rectangle_arena: &'d NodeDataContainer<DisplayRectangle<'d>>,
+    pub display_rectangle_arena: &'c NodeDataContainer<DisplayRectangle<'d>>,
     /// Reference to the arena that contains the node hierarchy data, so
     /// that the node hierarchy can be re-used
-    pub node_hierarchy: &'e NodeHierarchy,
+    pub node_hierarchy: &'d NodeHierarchy,
     /// The current pipeline of the display list
     pub pipeline_id: PipelineId,
 }
@@ -81,11 +82,15 @@ struct DisplayListParametersMut<'a, T: 'a, U: FontImageApi> {
     pub app_resources: &'a mut AppResources,
     /// The OpenGL callback can push textures / images into the display list, however,
     /// those texture IDs have to be submitted to the actual Render API before drawing
-    pub image_resource_updates: &'a mut Vec<(ImageId, AddImageMsg)>,
+    pub image_resource_updates: &'a mut BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
     /// Window access, so that sub-items can register OpenGL textures
     pub fake_window: &'a mut FakeWindow<T>,
     /// The render API that fonts and images should be added onto.
     pub render_api: &'a mut U,
+    /// Laid out words and rectangles (contains info about content bounds and text layout)
+    pub layout_result: &'a mut BTreeMap<DomId, LayoutResult>,
+    /// Stores all scrollable nodes / hit-testable nodes on a per-DOM basis
+    pub scrollable_nodes: &'a mut BTreeMap<DomId, ScrolledNodes>,
 }
 
 /// DisplayRectangle is the main type which the layout parsing step gets operated on.
@@ -458,9 +463,9 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
 
 pub(crate) struct CachedDisplayListResult {
     pub cached_display_list: CachedDisplayList,
-    pub scrollable_nodes: ScrolledNodes,
-    pub layout_result: LayoutResult,
-    pub image_resource_updates: Vec<(ImageId, AddImageMsg)>,
+    pub scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
+    pub layout_result: BTreeMap<DomId, LayoutResult>,
+    pub image_resource_updates: BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
 }
 
 /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
@@ -475,11 +480,10 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
 
     use app_resources::add_fonts_and_images;
 
-    let mut image_resource_updates = Vec::new();
-
     let arena = &display_list.ui_descr.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;
     let node_data = &arena.node_data;
+    let root_dom_id = display_list.ui_descr.dom_id;
 
     // Scan the styled DOM for image and font keys.
     //
@@ -513,23 +517,30 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
         &display_list.rectangles,
     );
 
-    let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
+    let scrollable_nodes = get_nodes_that_need_scroll_clip(
         node_hierarchy, &display_list.rectangles, node_data, &layout_result.rects,
         &layout_result.node_depths, window.internal.pipeline_id
     );
+
+    let mut scrollable_nodes_map = BTreeMap::new();
+    scrollable_nodes_map.insert(root_dom_id, scrollable_nodes);
+
+    let mut layout_result_map = BTreeMap::new();
+    layout_result_map.insert(root_dom_id, layout_result);
+
+    let mut image_resource_updates = BTreeMap::new();
 
     let root_node = push_rectangles_into_displaylist(
         window.internal.epoch,
         window.state.size,
         rects_in_rendering_order,
-        &mut scrollable_nodes,
         &DisplayListParametersRef {
+            dom_id: root_dom_id,
             pipeline_id: window.internal.pipeline_id,
             node_hierarchy,
             node_data,
             display_rectangle_arena: &display_list.rectangles,
             css: &window.css,
-            layout_result: &layout_result,
         },
         &mut DisplayListParametersMut {
             app_data: app_data_access,
@@ -537,6 +548,8 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
             fake_window,
             image_resource_updates: &mut image_resource_updates,
             render_api,
+            layout_result: &mut layout_result_map,
+            scrollable_nodes: &mut scrollable_nodes_map,
         },
     );
 
@@ -544,8 +557,8 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
 
     CachedDisplayListResult {
         cached_display_list,
-        scrollable_nodes,
-        layout_result,
+        scrollable_nodes: scrollable_nodes_map,
+        layout_result: layout_result_map,
         image_resource_updates,
     }
 }
@@ -554,8 +567,7 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
     epoch: Epoch,
     window_size: WindowSize,
     root_content_group: ContentGroup,
-    scrollable_nodes: &mut ScrolledNodes,
-    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
+    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
 
@@ -567,7 +579,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
     };
 
     let mut content = displaylist_handle_rect(
-        scrollable_nodes,
         &rectangle,
         referenced_content,
         referenced_mutable_content,
@@ -578,7 +589,6 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
             epoch,
             window_size,
             child_content_group,
-            scrollable_nodes,
             referenced_content,
             referenced_mutable_content
         )
@@ -590,18 +600,17 @@ fn push_rectangles_into_displaylist<'a, 'b, 'c, 'd, 'e, 'f, T, U: FontImageApi>(
 }
 
 /// Push a single rectangle into the display list builder
-fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
-    scrollable_nodes: &mut ScrolledNodes,
+fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     rectangle: &LayoutRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'b,'c,'d,'e,'f, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'g, T, U>,
+    referenced_content: &DisplayListParametersRef<'b,'c,'d,'e, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
 
-    let DisplayListParametersRef { display_rectangle_arena, layout_result, .. } = referenced_content;
+    let DisplayListParametersRef { display_rectangle_arena, dom_id, .. } = referenced_content;
     let LayoutRectParams { rect_idx, html_node, window_size, .. } = rectangle;
 
     let rect = &display_rectangle_arena[*rect_idx];
-    let bounds = layout_result.rects[*rect_idx].bounds;
+    let bounds = referenced_mutable_content.layout_result[dom_id].rects[*rect_idx].bounds;
 
     let display_list_rect_bounds = LayoutRect::new(
          LayoutPoint::new(bounds.origin.x, bounds.origin.y),
@@ -609,7 +618,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     );
 
     let tag_id = rect.tag.map(|tag| (tag, 0)).or({
-        scrollable_nodes.overflowing_nodes
+        referenced_mutable_content.scrollable_nodes[dom_id].overflowing_nodes
         .get(&rect_idx)
         .map(|scrolled| (scrolled.scroll_tag_id.0, 0))
     });
@@ -673,18 +682,18 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
     match html_node {
         Div => { },
         Text(_) | Label(_) => {
-            if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
+            if let Some(layouted_glyphs) = referenced_mutable_content.layout_result[dom_id].layouted_glyph_cache.get(&rect_idx).cloned() {
 
                 use azul_core::ui_solver::DEFAULT_FONT_COLOR;
                 use wr_translate::wr_translate_logical_size;
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
-                let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
+                let positioned_words = &referenced_mutable_content.layout_result[dom_id].positioned_word_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 
                 frame.content.push(get_text(
                     display_list_rect_bounds,
-                    &referenced_content.layout_result.rects[*rect_idx].padding,
+                    &referenced_mutable_content.layout_result[dom_id].rects[*rect_idx].padding,
                     wr_translate_logical_size(window_size.dimensions),
                     layouted_glyphs,
                     font_instance_key,
@@ -706,10 +715,11 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
             }
         },
         GlTexture(callback) => {
-            frame.content.push(call_opengl_callback(callback, bounds, rectangle, referenced_mutable_content));
+            frame.content.push(call_opengl_callback(callback, bounds, *dom_id, rectangle, referenced_mutable_content));
         },
         IFrame(callback) => {
-            frame.children.push(call_iframe_callback(callback, bounds, scrollable_nodes, rectangle, referenced_content, referenced_mutable_content));
+            let parent = Some((*dom_id, *rect_idx));
+            frame.children.push(call_iframe_callback(callback, bounds, rectangle, referenced_content, referenced_mutable_content, parent));
         },
     };
 
@@ -748,7 +758,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
         });
     }
 
-    match scrollable_nodes.overflowing_nodes.get(&rect_idx) {
+    match referenced_mutable_content.scrollable_nodes[dom_id].overflowing_nodes.get(&rect_idx) {
         Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
             content_rect: scroll_node.child_rect,
             scroll_id: scroll_node.parent_external_scroll_id,
@@ -763,6 +773,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f,'g, T, U: FontImageApi>(
 fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     (texture_callback, texture_stack_ptr): &(GlCallback<T>, StackCheckedPointer<T>),
     bounds: LayoutRect,
+    dom_id: DomId,
     rectangle: &LayoutRectParams<'a, T>,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> LayoutRectContent {
@@ -839,7 +850,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         .entry(rectangle.epoch).or_insert_with(|| FastHashMap::default())
         .insert(external_image_id, ActiveTexture { texture });
 
-    referenced_mutable_content.image_resource_updates.push((ImageId::new(), AddImageMsg(
+    let add_img_msg = AddImageMsg(
         AddImage {
             key: wr_translate_image_key(key),
             descriptor: wr_translate_image_descriptor(descriptor),
@@ -851,7 +862,12 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
             tiling: None,
         },
         ImageInfo { key, descriptor }
-    )));
+    );
+
+    referenced_mutable_content.image_resource_updates
+        .entry(dom_id)
+        .or_insert_with(|| Vec::new())
+        .push((ImageId::new(), add_img_msg));
 
     LayoutRectContent::Image {
         size: LayoutSize::new(texture_width, texture_height),
@@ -864,13 +880,13 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 }
 
 #[inline]
-fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
+fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
     (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
     rect: LayoutRect,
-    parent_scrollable_nodes: &mut ScrolledNodes,
     rectangle: &LayoutRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d,'e, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
+    referenced_content: &DisplayListParametersRef<'a,'b,'c,'d, T>,
+    referenced_mutable_content: &mut DisplayListParametersMut<'e, T, U>,
+    parent_dom_id: Option<(DomId, NodeId)>,
 ) -> DisplayListMsg {
 
     use app_resources;
@@ -915,15 +931,17 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     let mut focus_target = None;
     let hovered_nodes = BTreeMap::new();
 
-    let mut ui_state = ui_state_from_dom(new_dom);
+    let mut ui_state = ui_state_from_dom(new_dom, parent_dom_id);
     let ui_description = UiDescription::<T>::match_css_to_dom(
         &mut ui_state,
         &referenced_content.css,
         &mut focused_node,
         &mut focus_target,
         &hovered_nodes,
-        is_mouse_down
+        is_mouse_down,
     );
+
+    let iframe_dom_id = ui_description.dom_id;
 
     let display_list = display_list_from_ui_description(&ui_description, &ui_state);
 
@@ -938,7 +956,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     let node_data = &arena.node_data;
 
     // Insert the DOM into the solver so we can solve the layout of the rectangles
-    let layout_result = do_the_layout(
+    let layout_result_iframe = do_the_layout(
         &node_hierarchy,
         &node_data,
         &display_list.rectangles,
@@ -946,9 +964,9 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         rect,
     );
 
-    let mut scrollable_nodes = get_nodes_that_need_scroll_clip(
-        node_hierarchy, &display_list.rectangles, node_data, &layout_result.rects,
-        &layout_result.node_depths, referenced_content.pipeline_id
+    let scrollable_nodes_iframe = get_nodes_that_need_scroll_clip(
+        node_hierarchy, &display_list.rectangles, node_data, &layout_result_iframe.rects,
+        &layout_result_iframe.node_depths, referenced_content.pipeline_id
     );
 
     let rects_in_rendering_order = determine_rendering_order(
@@ -956,29 +974,26 @@ fn call_iframe_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         &display_list.rectangles,
     );
 
+    referenced_mutable_content.scrollable_nodes.insert(iframe_dom_id, scrollable_nodes_iframe);
+    referenced_mutable_content.layout_result.insert(iframe_dom_id, layout_result_iframe);
+
     let referenced_content = DisplayListParametersRef {
         // Important: Need to update the ui description,
         // otherwise this function would be endlessly recurse
         node_hierarchy,
         node_data,
         display_rectangle_arena: &display_list.rectangles,
-        layout_result: &layout_result,
+        dom_id: iframe_dom_id,
         .. *referenced_content
     };
 
-    let display_list_msg = push_rectangles_into_displaylist(
+    push_rectangles_into_displaylist(
         rectangle.epoch,
         rectangle.window_size,
         rects_in_rendering_order,
-        &mut scrollable_nodes,
         &referenced_content,
         referenced_mutable_content
-    );
-
-    parent_scrollable_nodes.overflowing_nodes.extend(scrollable_nodes.overflowing_nodes.into_iter());
-    parent_scrollable_nodes.tags_to_node_ids.extend(scrollable_nodes.tags_to_node_ids.into_iter());
-
-    display_list_msg
+    )
 }
 
 fn get_text(

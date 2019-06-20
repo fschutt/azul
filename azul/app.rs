@@ -18,13 +18,14 @@ use {
         RendererType, WindowSize, DebugState,
         FullWindowState,
     },
-    dom::{Dom, ScrollTagId},
+    dom::{Dom, DomId, ScrollTagId},
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
     async::{Task, TimerId, TerminateTimer},
     callbacks::{
-        FocusTarget, UpdateScreen, HitTestItem, Redraw, DontRedraw, LayoutInfo,
+        LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
+        Redraw, DontRedraw, LayoutInfo,
     },
 };
 pub use app_resources::AppResources;
@@ -73,7 +74,7 @@ pub struct App<T> {
     /// - It's potentially more efficient to compile (less type-checking required)
     /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
     ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
-    layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>,
+    layout_callback: LayoutCallback<T>,
     /// The actual renderer of this application
     #[cfg(not(test))]
     fake_display: FakeDisplay,
@@ -314,36 +315,8 @@ impl<T> App<T> {
         use azul_core::app::RuntimeError::*;
 
         // Initialize UI state cache
-        let mut ui_state_cache = {
-            let mut ui_state_map = BTreeMap::new();
-            let window_ids = self.windows.keys().cloned().collect::<Vec<_>>();
-            for window_id in window_ids {
-                let ui_state = {
-                        #[cfg(debug_assertions)] {
-                        let (_, css_has_error) = match hot_reload_css(&mut self.windows, &mut Instant::now(), true) {
-                            Ok(has_reloaded) => (has_reloaded, None),
-                            Err(css_error) => (true, Some(css_error)),
-                        };
-
-                        // ui_state_map.insert(window_id)
-                        match &css_has_error {
-                            None => ui_state_from_app_state(&mut self.app_state, &window_id, self.layout_callback),
-                            Some(s) => {
-                                println!("{}", s);
-                                Ok(ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error")))
-                            },
-                        }
-                    }
-                    #[cfg(not(debug_assertions))] {
-                        ui_state_from_app_state(&mut self.app_state, &window_id, self.layout_callback)
-                    }
-                }?;
-                ui_state_map.insert(window_id, ui_state);
-            }
-
-            ui_state_map
-        };
-        let mut ui_description_cache = self.windows.keys().map(|window_id| (*window_id, UiDescription::default())).collect::<BTreeMap<_, _>>();
+        let mut ui_state_cache = initialize_ui_state_cache(&mut self.windows, &mut self.app_state, self.layout_callback)?;
+        let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
         let mut awakened_tasks = self.windows.keys().map(|window_id| (*window_id, false)).collect();
 
         #[cfg(debug_assertions)]
@@ -441,13 +414,16 @@ impl<T> App<T> {
                     let full_window_state = self.window_states.get_mut(current_window_id).unwrap();
 
                     // Call the Layout::layout() fn, get the DOM
-                    *ui_state_cache.get_mut(current_window_id).ok_or(WindowIndexError)? = match &css_has_error {
-                        None => ui_state_from_app_state(&mut self.app_state, current_window_id, self.layout_callback)?,
+                    let rendered_dom = match &css_has_error {
+                        None => ui_state_from_app_state(&mut self.app_state, current_window_id, None, self.layout_callback)?,
                         Some(s) => {
                             println!("{}", s);
-                            ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"))
+                            ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None)
                         },
                     };
+                    let mut ui_state_map = BTreeMap::new();
+                    ui_state_map.insert(rendered_dom.dom_id.clone(), rendered_dom);
+                    *ui_state_cache.get_mut(current_window_id).ok_or(WindowIndexError)? = ui_state_map;
 
                     relayout_single_window(
                         &current_window_id,
@@ -511,6 +487,54 @@ impl<T> App<T> {
 
         Ok(())
     }
+}
+
+fn initialize_ui_state_cache<T>(
+    windows: &mut BTreeMap<WindowId, Window<T>>,
+    app_state: &mut AppState<T>,
+    layout_callback: LayoutCallback<T>,
+) -> Result<BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>, RuntimeError> {
+
+    use ui_state::{ui_state_from_app_state, ui_state_from_dom};
+
+    let mut ui_state_map = BTreeMap::new();
+    let window_ids = windows.keys().cloned().collect::<Vec<_>>();
+
+    for window_id in window_ids {
+
+        #[cfg(debug_assertions)]
+        let ui_state = {
+            let (_, css_has_error) = match hot_reload_css(&mut windows, &mut Instant::now(), true) {
+                Ok(has_reloaded) => (has_reloaded, None),
+                Err(css_error) => (true, Some(css_error)),
+            };
+
+            match &css_has_error {
+                None => ui_state_from_app_state(app_state, &window_id, None, layout_callback),
+                Some(s) => {
+                    println!("{}", s);
+                    Ok(ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None))
+                },
+            }
+        }?;
+
+        #[cfg(not(debug_assertions))]
+        let ui_state = ui_state_from_app_state(app_state, &window_id, layout_callback)?;
+
+        let mut dom_id_map = BTreeMap::new();
+        dom_id_map.insert(ui_state.dom_id.clone(), ui_state);
+        ui_state_map.insert(window_id, dom_id_map);
+    }
+
+    Ok(ui_state_map)
+}
+
+fn initialize_ui_description_cache<T>(
+    ui_states: &BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>
+) -> BTreeMap<WindowId, BTreeMap<DomId, UiDescription<T>>> {
+    ui_states.iter().map(|(window_id, ui_states)| {
+        (*window_id, ui_states.iter().map(|(dom_id, ui_state)| (*dom_id, UiDescription::default())).collect())
+    }).collect()
 }
 
 /// Run all currently registered timers
@@ -612,7 +636,7 @@ fn hit_test_single_window<T>(
     full_window_state: &mut FullWindowState,
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
-    ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
+    ui_state_cache: &mut BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<SingleWindowContentResult, RuntimeError> {
 
@@ -683,12 +707,15 @@ fn hit_test_single_window<T>(
     // Scroll for the scrolled amount for each node that registered a scroll state.
     let should_scroll_render = match &ret.hit_test_results {
         Some(hit_test_results) => {
-            update_scroll_state(
-                full_window_state,
-                &window.internal.scrolled_nodes,
-                &mut window.scroll_states,
-                hit_test_results,
-            )
+            let mut should_update = false;
+
+            for (_dom_id, scrolled_nodes) in &window.internal.scrolled_nodes {
+                if update_scroll_state(full_window_state, scrolled_nodes, &mut window.scroll_states, hit_test_results) {
+                    should_update = true;
+                }
+            }
+
+            should_update
         }
         None => false,
     };
@@ -740,8 +767,8 @@ fn relayout_single_window<T>(
     full_window_state: &mut FullWindowState,
     app_state: &mut AppState<T>,
     fake_display: &mut FakeDisplay,
-    ui_state_cache: &mut BTreeMap<WindowId, UiState<T>>,
-    ui_description_cache: &mut BTreeMap<WindowId, UiDescription<T>>,
+    ui_state_cache: &mut BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>,
+    ui_description_cache: &mut BTreeMap<WindowId, BTreeMap<DomId, UiDescription<T>>>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<(), RuntimeError> {
 
@@ -750,27 +777,38 @@ fn relayout_single_window<T>(
     // Style the DOM (is_mouse_down is necessary for styling :hover, :active + :focus nodes)
     let is_mouse_down = full_window_state.mouse_state.mouse_down();
 
-    *ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)? =
-        UiDescription::match_css_to_dom(
-            ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
-            &window.css,
-            &mut full_window_state.focused_node,
-            &mut full_window_state.pending_focus_target,
-            &full_window_state.hovered_nodes,
-            is_mouse_down,
-        );
+    {
+        let ui_description_mut = ui_description_cache.get_mut(window_id).ok_or(WindowIndexError)?;
+        let ui_state_mut = ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?;
+
+        *ui_description_mut = ui_state_mut.iter_mut().map(|(dom_id, ui_state)| {
+            (*dom_id, UiDescription::match_css_to_dom(
+                ui_state,
+                &window.css,
+                &mut full_window_state.focused_node,
+                &mut full_window_state.pending_focus_target,
+                &full_window_state.hovered_nodes[dom_id],
+                is_mouse_down,
+            ))
+        }).collect();
+    }
 
     let mut fake_window = app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?;
 
-    update_display_list(
-        &mut app_state.data,
-        &ui_description_cache[window_id],
-        &ui_state_cache[window_id],
-        &mut *window,
-        &mut fake_window,
-        fake_display,
-        &mut app_state.resources,
-    );
+    for (window_id, ui_state_map) in ui_state_cache.iter() {
+        for (dom_id, ui_state) in ui_state_map.iter() {
+            let ui_description = &ui_description_cache[window_id][dom_id];
+            update_display_list(
+                &mut app_state.data,
+                ui_description,
+                ui_state,
+                &mut *window,
+                &mut fake_window,
+                fake_display,
+                &mut app_state.resources,
+            );
+        }
+    }
 
     *awakened_tasks.get_mut(window_id).ok_or(WindowIndexError)? = false;
 
@@ -869,7 +907,7 @@ fn call_callbacks<T>(
     event: &WindowEvent,
     full_window_state: &mut FullWindowState,
     window_id: &WindowId,
-    ui_state: &UiState<T>,
+    ui_state_map: &BTreeMap<DomId, UiState<T>>,
     app_state: &mut AppState<T>
 ) -> Result<CallCallbackReturn, RuntimeError> {
 
@@ -879,7 +917,9 @@ fn call_callbacks<T>(
     };
 
     let hit_test_items = hit_test_results.map(|items| items.clone()).unwrap_or_default();
-    let callbacks_filter_list = determine_callbacks(full_window_state, &hit_test_items, event, ui_state);
+    let callbacks_filter_list = ui_state_map.iter().map(|(dom_id, ui_state)| {
+        (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_items, event, ui_state))
+    }).collect::<BTreeMap<_, _>>();
 
     let mut should_update_screen = DontRedraw;
     let mut callbacks_overwrites_focus = None;
@@ -887,43 +927,45 @@ fn call_callbacks<T>(
     let mut default_tasks = Vec::new();
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
-    for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
-        let hit_item = &callback_results.hit_test_item;
-        for default_callback_id in callback_results.default_callbacks.values() {
+    for dom_id in ui_state_map.keys().cloned() {
+        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
+            let hit_item = &callback_results.hit_test_item;
+            for default_callback_id in callback_results.default_callbacks.values() {
 
-            let mut new_focus = None;
-            let mut timers = FastHashMap::default();
-            let mut tasks = Vec::new();
+                let mut new_focus = None;
+                let mut timers = FastHashMap::default();
+                let mut tasks = Vec::new();
 
 
-            if app_state.windows[window_id].default_callbacks.get(default_callback_id).cloned().and_then(|(callback_ptr, callback_fn)| {
-                let info = DefaultCallbackInfoUnchecked {
-                    ptr: callback_ptr,
-                    app_state_no_data: AppStateNoData {
-                        windows: &app_state.windows,
-                        resources: &mut app_state.resources,
-                        timers: &mut timers,
-                        tasks: &mut tasks,
-                    },
-                    focus_target: &mut new_focus,
-                    window_id,
-                    hit_dom_node: *node_id,
-                    ui_state,
-                    hit_test_items: &hit_test_items,
-                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                };
-                (callback_fn.0)(info)
-            }) == Redraw {
-                should_update_screen = Redraw;
-            }
+                if app_state.windows[window_id].default_callbacks.get(default_callback_id).cloned().and_then(|(callback_ptr, callback_fn)| {
+                    let info = DefaultCallbackInfoUnchecked {
+                        ptr: callback_ptr,
+                        app_state_no_data: AppStateNoData {
+                            windows: &app_state.windows,
+                            resources: &mut app_state.resources,
+                            timers: &mut timers,
+                            tasks: &mut tasks,
+                        },
+                        focus_target: &mut new_focus,
+                        window_id,
+                        hit_dom_node: (dom_id, *node_id),
+                        ui_state: ui_state_map,
+                        hit_test_items: &hit_test_items,
+                        cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                        cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                    };
+                    (callback_fn.0)(info)
+                }) == Redraw {
+                    should_update_screen = Redraw;
+                }
 
-            default_timers.extend(timers.into_iter());
-            default_tasks.extend(tasks.into_iter());
+                default_timers.extend(timers.into_iter());
+                default_tasks.extend(tasks.into_iter());
 
-            // Overwrite the focus from the callback info
-            if let Some(new_focus) = new_focus {
-                callbacks_overwrites_focus = Some(new_focus);
+                // Overwrite the focus from the callback info
+                if let Some(new_focus) = new_focus {
+                    callbacks_overwrites_focus = Some(new_focus);
+                }
             }
         }
     }
@@ -937,27 +979,29 @@ fn call_callbacks<T>(
         app_state.add_task(task);
     }
 
-    for (node_id, callback_results) in callbacks_filter_list.nodes_with_callbacks.iter() {
-        let hit_item = &callback_results.hit_test_item;
-        for callback in callback_results.normal_callbacks.values() {
+    for dom_id in ui_state_map.keys().cloned() {
+        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
+            let hit_item = &callback_results.hit_test_item;
+            for callback in callback_results.normal_callbacks.values() {
 
-            let mut new_focus = None;
+                let mut new_focus = None;
 
-            if (callback.0)(CallbackInfo {
-                state: app_state,
-                focus_target: &mut new_focus,
-                window_id,
-                hit_dom_node: *node_id,
-                ui_state: &ui_state,
-                hit_test_items: &hit_test_items,
-                cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-            }) == Redraw {
-                should_update_screen = Redraw;
-            }
+                if (callback.0)(CallbackInfo {
+                    state: app_state,
+                    focus_target: &mut new_focus,
+                    window_id,
+                    hit_dom_node: (dom_id, *node_id),
+                    ui_state: ui_state_map,
+                    hit_test_items: &hit_test_items,
+                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                }) == Redraw {
+                    should_update_screen = Redraw;
+                }
 
-            if let Some(new_focus) = new_focus {
-                callbacks_overwrites_focus = Some(new_focus);
+                if let Some(new_focus) = new_focus {
+                    callbacks_overwrites_focus = Some(new_focus);
+                }
             }
         }
     }
@@ -965,8 +1009,8 @@ fn call_callbacks<T>(
     Ok(CallCallbackReturn {
         should_update_screen,
         callbacks_overwrites_focus,
-        needs_redraw_anyways: callbacks_filter_list.needs_redraw_anyways,
-        needs_relayout_anyways: callbacks_filter_list.needs_relayout_anyways,
+        needs_redraw_anyways: callbacks_filter_list.values().any(|v| v.needs_redraw_anyways),
+        needs_relayout_anyways: callbacks_filter_list.values().any(|v| v.needs_relayout_anyways),
     })
 }
 
@@ -1018,7 +1062,9 @@ fn update_display_list<T>(
 
     unsafe { fake_display.hidden_display.gl_window().make_current().unwrap() };
 
-    add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
+    for (_dom_id, image_resource_updates) in image_resource_updates {
+        add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
+    }
 
     window.internal.layout_result = layout_result;
     window.internal.scrolled_nodes = scrollable_nodes;

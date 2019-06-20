@@ -2,6 +2,7 @@ use std::{
     rc::Rc,
     marker::PhantomData,
     io::Error as IoError,
+    collections::BTreeMap,
 };
 use webrender::{
     api::{
@@ -35,6 +36,7 @@ use azul_core::{
     window::WindowId,
     ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
     display_list::CachedDisplayList,
+    dom::DomId,
 };
 pub use webrender::api::HitTestItem;
 pub use glium::glutin::AvailableMonitorsIter;
@@ -364,12 +366,12 @@ impl Default for ScrollState {
 }
 
 pub(crate) struct WindowInternal {
-    /// Currently active, layouted rectangles
-    pub(crate) layout_result: LayoutResult,
     /// Current display list active in this window (useful for debugging)
     pub(crate) cached_display_list: CachedDisplayList,
+    /// Currently active, layouted rectangles
+    pub(crate) layout_result: BTreeMap<DomId, LayoutResult>,
     /// Current scroll states of nodes (x and y position of where they are scrolled)
-    pub(crate) scrolled_nodes: ScrolledNodes,
+    pub(crate) scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
     pub(crate) epoch: Epoch,
     pub(crate) pipeline_id: PipelineId,
     pub(crate) document_id: DocumentId,
@@ -496,8 +498,6 @@ impl<T> Window<T> {
 
         css.sort_by_specificity();
 
-        let display_list = CachedDisplayList::empty(wr_translate_logical_size(state.size.dimensions));
-
         let window = Window {
             id: WindowId::new(),
             create_options: options,
@@ -511,9 +511,9 @@ impl<T> Window<T> {
                 epoch,
                 pipeline_id,
                 document_id,
-                scrolled_nodes: ScrolledNodes::default(),
-                layout_result: LayoutResult::default(),
-                cached_display_list: display_list,
+                scrolled_nodes: BTreeMap::new(),
+                layout_result: BTreeMap::new(),
+                cached_display_list: CachedDisplayList::empty(wr_translate_logical_size(state.size.dimensions)),
             },
             marker: PhantomData,
         };

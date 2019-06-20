@@ -9,7 +9,7 @@ use {
     window::WindowId,
     id_tree::NodeId,
     dom::{
-        Dom, TagId, TabIndex, DomString,
+        Dom, DomId, TagId, TabIndex, DomString,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
         WindowEventFilter
     },
@@ -17,6 +17,8 @@ use {
 };
 
 pub struct UiState<T> {
+    /// Unique identifier for the DOM
+    pub dom_id: DomId,
     /// The actual DOM, rendered from the .layout() function
     pub dom: Dom<T>,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
@@ -114,7 +116,8 @@ pub enum ActiveHover {
 pub fn ui_state_from_app_state<T>(
     app_state: &mut AppState<T>,
     window_id: &WindowId,
-    layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>
+    parent_dom: Option<(DomId, NodeId)>,
+    layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>,
 ) -> Result<UiState<T>, RuntimeError> {
 
     use app::RuntimeError::*;
@@ -134,7 +137,7 @@ pub fn ui_state_from_app_state<T>(
         }
     };
 
-    Ok(ui_state_from_dom(dom))
+    Ok(ui_state_from_dom(dom, parent_dom))
 }
 
 pub fn ui_state_create_tags_for_hover_nodes<T>(
@@ -158,7 +161,7 @@ pub fn ui_state_create_tags_for_hover_nodes<T>(
 /// The UiState contains all the tags (for hit-testing) as well as the mapping
 /// from Hit-testing tags to NodeIds (which are important for filtering input events
 /// and routing input events to the callbacks).
-pub fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
+pub fn ui_state_from_dom<T>(dom: Dom<T>, parent_dom_node_id: Option<(DomId, NodeId)>) -> UiState<T> {
 
     use dom::{self, new_tag_id};
 
@@ -369,6 +372,7 @@ pub fn ui_state_from_dom<T>(dom: Dom<T>) -> UiState<T> {
 
     UiState {
 
+        dom_id: DomId::new(parent_dom_node_id),
         dom,
         dynamic_css_overrides,
         tag_ids_to_hover_active_states: BTreeMap::new(),

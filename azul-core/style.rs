@@ -6,7 +6,7 @@ use azul_css::{
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
 };
 use {
-    dom::NodeData,
+    dom::{DomId, NodeData},
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
     callbacks::{FocusTarget, HitTestItem},
     ui_state::{UiState, HoverGroup, ActiveHover},
@@ -98,7 +98,7 @@ pub fn matches_html_element<'a, T>(
 pub fn match_dom_selectors<T>(
     ui_state: &UiState<T>,
     css: &Css,
-    focused_node: &mut Option<NodeId>,
+    focused_node: &mut Option<(DomId, NodeId)>,
     pending_focus_target: &mut Option<FocusTarget>,
     hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
     is_mouse_down: bool,
@@ -112,7 +112,9 @@ pub fn match_dom_selectors<T>(
         &ui_state.dom.arena.node_data,
         &ui_state.dom.arena.node_layout,
         &non_leaf_nodes,
-        *focused_node,
+        focused_node.as_ref().and_then(|(dom_id, node_id)| {
+            if *dom_id == ui_state.dom_id { Some(*node_id) } else { None }
+        }),
         hovered_nodes,
         is_mouse_down,
     );
@@ -120,6 +122,7 @@ pub fn match_dom_selectors<T>(
     // Update the current focused field if the callbacks of the
     // previous frame has overridden the focus field
     update_focus_from_callbacks(
+        &ui_state.dom_id,
         pending_focus_target,
         focused_node,
         &ui_state.dom.arena.node_layout,
@@ -173,7 +176,7 @@ pub fn match_dom_selectors<T>(
         //
         // NOTE: This deep-clones the entire arena, which may be a
         // performance-sensitive operation!
-
+        dom_id: ui_state.dom_id.clone(),
         ui_descr_arena: ui_state.dom.arena.clone(),
         dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
         ui_descr_root: ui_state.dom.root,
@@ -444,8 +447,9 @@ impl ::std::fmt::Display for UpdateFocusWarning {
 /// and updates the `WindowState.focused_node` accordingly.
 /// Should be called before ``
 pub fn update_focus_from_callbacks<'a, T: 'a>(
+    self_dom_id: &DomId,
     pending_focus_target: &mut Option<FocusTarget>,
-    focused_node: &mut Option<NodeId>,
+    focused_node: &mut Option<(DomId, NodeId)>,
     node_hierarchy: &NodeHierarchy,
     html_node_tree: &mut NodeDataContainer<HtmlCascadeInfo<'a, T>>,
 ) -> Option<UpdateFocusWarning> {
@@ -457,9 +461,9 @@ pub fn update_focus_from_callbacks<'a, T: 'a>(
     let mut warning = None;
 
     match new_focus_target {
-        FocusTarget::Id(node_id) => {
-            if html_node_tree.len() < node_id.index() {
-                *focused_node = Some(node_id);
+        FocusTarget::Id((dom_id, node_id)) => {
+            if dom_id == *self_dom_id && html_node_tree.len() < node_id.index() {
+                *focused_node = Some((dom_id, node_id));
             } else {
                 warning = Some(UpdateFocusWarning::FocusInvalidNodeId(node_id));
             }
@@ -468,7 +472,7 @@ pub fn update_focus_from_callbacks<'a, T: 'a>(
         FocusTarget::Path(css_path) => {
             if let Some(new_focused_node_id) = html_node_tree.linear_iter()
             .find(|node_id| matches_html_element(&css_path, *node_id, &node_hierarchy, &html_node_tree)) {
-                 *focused_node = Some(new_focused_node_id);
+                 *focused_node = Some((self_dom_id.clone(), new_focused_node_id));
             } else {
                 warning = Some(UpdateFocusWarning::CouldNotFindFocusNode(css_path));
             }
@@ -481,7 +485,7 @@ pub fn update_focus_from_callbacks<'a, T: 'a>(
         html_node.is_focused = false;
     }
 
-    if let Some(focused_node) = focused_node {
+    if let Some((_dom_id, focused_node)) = focused_node {
         html_node_tree[*focused_node].is_focused = true;
     }
 

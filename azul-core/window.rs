@@ -9,6 +9,7 @@ use {
     stack_checked_pointer::StackCheckedPointer,
     ui_solver::{LayoutResult, ScrolledNodes},
     display_list::CachedDisplayList,
+    dom::DomId,
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -35,9 +36,9 @@ pub struct FakeWindow<T> {
     /// The window state for the next frame
     pub state: WindowState,
     /// Currently active, layouted rectangles
-    pub layout_result: LayoutResult,
+    pub layout_result: BTreeMap<DomId, LayoutResult>,
     /// Nodes that overflow their parents and are able to scroll
-    pub scrolled_nodes: ScrolledNodes,
+    pub scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
     /// Current display list active in this window (useful for debugging)
     pub cached_display_list: CachedDisplayList,
     /// The user can push default callbacks in this `DefaultCallbackSystem`,

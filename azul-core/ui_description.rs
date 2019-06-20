@@ -6,12 +6,15 @@ use azul_css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
 use {
     FastHashMap,
     id_tree::{Arena, NodeId, NodeDataContainer},
-    dom::{NodeData, DomString},
+    dom::{DomId, NodeData, DomString},
     ui_state::{UiState, HoverGroup},
     callbacks::{FocusTarget, HitTestItem},
 };
 
 pub struct UiDescription<T> {
+    /// DOM ID of this arena (so that multiple DOMs / IFrames can be displayed in one window)
+    pub dom_id: DomId,
+    /// The DOM data (arena-allocated)
     pub ui_descr_arena: Arena<NodeData<T>>,
     /// ID of the root node of the arena (usually NodeId(0))
     pub ui_descr_root: NodeId,
@@ -28,12 +31,14 @@ pub struct UiDescription<T> {
 impl<T> fmt::Debug for UiDescription<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "UiDescription {{ \
+            dom_id: {:?},
             ui_descr_arena: {:?},
             ui_descr_root: {:?},
             styled_nodes: {:?},
             dynamic_css_overrides: {:?},
             selected_hover_nodes: {:?},
         }}",
+            self.dom_id,
             self.ui_descr_arena,
             self.ui_descr_root,
             self.styled_nodes,
@@ -46,6 +51,7 @@ impl<T> fmt::Debug for UiDescription<T> {
 impl<T> Clone for UiDescription<T> {
     fn clone(&self) -> Self {
         Self {
+            dom_id: self.dom_id.clone(),
             ui_descr_arena: self.ui_descr_arena.clone(),
             ui_descr_root: self.ui_descr_root,
             styled_nodes: self.styled_nodes.clone(),
@@ -69,7 +75,7 @@ impl<T> Default for UiDescription<T> {
 
         let mut focused_node = None;
         let mut focus_target = None;
-        let mut ui_state = ui_state_from_dom(default_dom);
+        let mut ui_state = ui_state_from_dom(default_dom, None);
 
         Self::match_css_to_dom(
             &mut ui_state,
@@ -89,12 +95,12 @@ impl<T> UiDescription<T> {
     pub fn match_css_to_dom(
         ui_state: &mut UiState<T>,
         style: &Css,
-        focused_node: &mut Option<NodeId>,
+        focused_node: &mut Option<(DomId, NodeId)>,
         pending_focus_target: &mut Option<FocusTarget>,
         hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
         is_mouse_down: bool,
-    ) -> Self
-    {
+    ) -> Self {
+
         use ui_state::ui_state_create_tags_for_hover_nodes;
 
         let ui_description = ::style::match_dom_selectors(
@@ -103,7 +109,7 @@ impl<T> UiDescription<T> {
             focused_node,
             pending_focus_target,
             hovered_nodes,
-            is_mouse_down
+            is_mouse_down,
         );
 
         // Important: Create all the tags for the :hover and :active selectors

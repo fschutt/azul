@@ -1,6 +1,7 @@
 use std::{
     fmt,
     sync::atomic::{AtomicUsize, Ordering},
+    collections::BTreeMap,
 };
 use azul_css::{LayoutPoint, CssPath};
 #[cfg(feature = "css_parser")]
@@ -8,7 +9,7 @@ use azul_css_parser::CssPathParseError;
 use {
     app::{AppState, AppStateNoData},
     async::TerminateTimer,
-    dom::{Dom, NodeType, NodeData},
+    dom::{Dom, DomId, NodeType, NodeData},
     ui_state::UiState,
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
@@ -152,13 +153,15 @@ macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
     impl<$t> Copy for $callback_value<$t> { }
 )}
 
+pub type LayoutCallback<T> = fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>;
+
 // -- default callback
 
 pub struct DefaultCallbackInfoUnchecked<'a, T> {
     pub ptr: StackCheckedPointer<T>,
     pub app_state_no_data: AppStateNoData<'a, T>,
     /// UiState containing the necessary data for testing what
-    pub ui_state: &'a UiState<T>,
+    pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
@@ -167,7 +170,7 @@ pub struct DefaultCallbackInfoUnchecked<'a, T> {
     pub window_id: &'a WindowId,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
-    pub hit_dom_node: NodeId,
+    pub hit_dom_node: (DomId, NodeId),
     /// What items are currently being hit
     pub hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
@@ -179,7 +182,7 @@ pub struct DefaultCallbackInfo<'a, T, U> {
     pub state: &'a mut U,
     pub app_state_no_data: AppStateNoData<'a, T>,
     /// UiState containing the necessary data for testing what
-    pub ui_state: &'a UiState<T>,
+    pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
@@ -188,7 +191,7 @@ pub struct DefaultCallbackInfo<'a, T, U> {
     pub window_id: &'a WindowId,
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
-    pub hit_dom_node: NodeId,
+    pub hit_dom_node: (DomId, NodeId),
     /// What items are currently being hit
     pub hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
@@ -241,16 +244,17 @@ pub struct CallbackInfo<'a, 'b, T: 'a> {
     /// Mutable access to the application state. Use this field to modify data in the `T` data model.
     pub state: &'a mut AppState<T>,
     /// UiState containing the necessary data for testing what
-    pub ui_state: &'a UiState<T>,
+    pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'b mut Option<FocusTarget>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'b WindowId,
-    /// The ID of the node that was hit. You can use this to query information about
-    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
-    pub hit_dom_node: NodeId,
+    /// The ID of the DOM + the node that was hit. You can use this to query
+    /// information about the node, but please don't hard-code any if / else
+    /// statements based on the `NodeId`
+    pub hit_dom_node: (DomId, NodeId),
     /// What items are currently being hit
     pub hit_test_items: &'b [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
@@ -406,7 +410,7 @@ impl HidpiAdjustedBounds {
 /// Defines the focus_targeted node ID for the next frame
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FocusTarget {
-    Id(NodeId),
+    Id((DomId, NodeId)),
     Path(CssPath),
     NoFocus,
 }
@@ -415,10 +419,10 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the parent NodeId, until it gets to the root component.
-    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c> {
+    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c, 'a, 'b, T> {
         ParentNodesIterator {
-            current_item: self.hit_dom_node,
-            node_hierarchy: &self.ui_state.dom.arena.node_layout,
+            callback_info: &self,
+            current_item: self.hit_dom_node.clone(),
         }
     }
 
@@ -426,15 +430,15 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     /// Returns `None` on the root ID (because the root has no parent, therefore it's the 1st item)
     ///
     /// Note: Index is 0-based (first item has the index of 0)
-    pub fn get_index_in_parent(&self, node_id: NodeId) -> Option<(usize, NodeId)> {
-        let node_layout = &self.ui_state.dom.arena.node_layout;
+    pub fn get_index_in_parent(&self, node_id: &(DomId, NodeId)) -> Option<(usize, (DomId, NodeId))> {
+        let node_layout = &self.ui_state[&node_id.0].dom.arena.node_layout;
 
-        if node_id.index() > node_layout.len() {
+        if node_id.1.index() > node_layout.len() {
             return None; // node_id out of range
         }
 
-        let parent = node_layout[node_id].parent?;
-        Some((node_layout.get_index_in_parent(node_id), parent))
+        let parent_node = self.parent(node_id)?;
+        Some((node_layout.get_index_in_parent(node_id.1), parent_node))
     }
 
     // Functions that are may be called from the user callback
@@ -442,43 +446,41 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     // used to query DOM information when the callbacks are run
 
     /// Returns the hierarchy of the given node ID
-    pub fn get_node(&self, node_id: NodeId) -> Option<&Node> {
-        self.ui_state.dom.arena.node_layout.internal.get(node_id.index())
+    pub fn get_node(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&Node> {
+        self.ui_state[dom_id].dom.arena.node_layout.internal.get(node_id.index())
     }
 
     /// Returns the node hierarchy (DOM tree order)
     pub fn get_node_hierarchy(&self) -> &NodeHierarchy {
-        &self.ui_state.dom.arena.node_layout
+        &self.ui_state[&self.hit_dom_node.0].dom.arena.node_layout
     }
 
     /// Returns the node content of a specific node
-    pub fn get_node_content(&self, node_id: NodeId) -> Option<&NodeData<T>> {
-        self.ui_state.dom.arena.node_data.internal.get(node_id.index())
+    pub fn get_node_content(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&NodeData<T>> {
+        self.ui_state[dom_id].dom.arena.node_data.internal.get(node_id.index())
     }
 
     /// Returns the index of the target NodeId (the target that received the event)
     /// in the targets parent or None if the target is the root node
     pub fn target_index_in_parent(&self) -> Option<usize> {
-        if self.get_node(self.hit_dom_node)?.parent.is_some() {
-            Some(self.ui_state.dom.arena.node_layout.get_index_in_parent(self.hit_dom_node))
-        } else {
-            None
-        }
+        let (index, _) = self.get_index_in_parent(&self.hit_dom_node)?;
+        Some(index)
     }
 
     /// Returns the parent of the given `NodeId` or None if the target is the root node.
-    pub fn parent(&self, node_id: NodeId) -> Option<NodeId> {
-        self.get_node(node_id)?.parent
+    pub fn parent(&self, node_id: &(DomId, NodeId)) -> Option<(DomId, NodeId)> {
+        let new_node_id = self.get_node(node_id)?.parent?;
+        Some((node_id.0.clone(), new_node_id))
     }
 
     /// Returns the parent of the current target or None if the target is the root node.
-    pub fn target_parent(&self) -> Option<NodeId> {
-        self.parent(self.hit_dom_node)
+    pub fn target_parent(&self) -> Option<(DomId, NodeId)> {
+        self.parent(&self.hit_dom_node)
     }
 
     /// Checks whether the target of the CallbackInfo has a certain node type
     pub fn target_is_node_type(&self, node_type: NodeType<T>) -> bool {
-        if let Some(self_node) = self.get_node_content(self.hit_dom_node) {
+        if let Some(self_node) = self.get_node_content(&self.hit_dom_node) {
             self_node.is_node_type(node_type)
         } else {
             false
@@ -487,7 +489,7 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
     /// Checks whether the target of the CallbackInfo has a certain ID
     pub fn target_has_id(&self, id: &str) -> bool {
-        if let Some(self_node) = self.get_node_content(self.hit_dom_node) {
+        if let Some(self_node) = self.get_node_content(&self.hit_dom_node) {
             self_node.has_id(id)
         } else {
             false
@@ -496,7 +498,7 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
     /// Checks whether the target of the CallbackInfo has a certain class
     pub fn target_has_class(&self, class: &str) -> bool {
-        if let Some(self_node) = self.get_node_content(self.hit_dom_node) {
+        if let Some(self_node) = self.get_node_content(&self.hit_dom_node) {
             self_node.has_class(class)
         } else {
             false
@@ -505,9 +507,9 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
     /// Traverses up the hierarchy, checks whether any parent has a certain ID,
     /// the returns that parent
-    pub fn any_parent_has_id(&self, id: &str) -> Option<NodeId> {
+    pub fn any_parent_has_id(&self, id: &str) -> Option<(DomId, NodeId)> {
         self.parent_nodes().find(|parent_id| {
-            if let Some(self_node) = self.get_node_content(*parent_id) {
+            if let Some(self_node) = self.get_node_content(parent_id) {
                 self_node.has_id(id)
             } else {
                 false
@@ -516,9 +518,9 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     }
 
     /// Traverses up the hierarchy, checks whether any parent has a certain class
-    pub fn any_parent_has_class(&self, class: &str) -> Option<NodeId> {
+    pub fn any_parent_has_class(&self, class: &str) -> Option<(DomId, NodeId)> {
         self.parent_nodes().find(|parent_id| {
-            if let Some(self_node) = self.get_node_content(*parent_id) {
+            if let Some(self_node) = self.get_node_content(parent_id) {
                 self_node.has_class(class)
             } else {
                 false
@@ -546,7 +548,7 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     /// Note that this ID will be dependent on the position in the DOM and therefore
     /// the next frames UI must be the exact same as the current one, otherwise
     /// the focus_target will be cleared or shifted (depending on apps setting).
-    pub fn set_focus_target_from_node_id(&mut self, id: NodeId) {
+    pub fn set_focus_target_from_node_id(&mut self, id: (DomId, NodeId)) {
         *self.focus_target = Some(FocusTarget::Id(id));
     }
 
@@ -558,35 +560,31 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
 /// Iterator that, starting from a certain starting point, returns the
 /// parent node until it gets to the root node.
-pub struct ParentNodesIterator<'a> {
-    current_item: NodeId,
-    node_hierarchy: &'a NodeHierarchy,
+pub struct ParentNodesIterator<'a, 'b, 'c, T: 'c> {
+    callback_info: &'a CallbackInfo<'b, 'c, T>,
+    current_item: (DomId, NodeId),
 }
 
-impl<'a> ParentNodesIterator<'a> {
+impl<'a, 'b, 'c, T: 'b> ParentNodesIterator<'a, 'b, 'c, T> {
 
     /// Returns what node ID the iterator is currently processing
-    pub fn current_node(&self) -> NodeId {
-        self.current_item
+    pub fn current_node(&self) -> (DomId, NodeId) {
+        self.current_item.clone()
     }
 
     /// Returns the offset into the parent of the current node or None if the item has no parent
     pub fn current_index_in_parent(&self) -> Option<usize> {
-        if self.node_hierarchy[self.current_item].has_parent() {
-            Some(self.node_hierarchy.get_index_in_parent(self.current_item))
-        } else {
-            None
-        }
+        self.callback_info.get_index_in_parent(&self.current_node()).map(|(index, _)| index)
     }
 }
 
-impl<'a> Iterator for ParentNodesIterator<'a> {
-    type Item = NodeId;
+impl<'a, 'b, 'c, T: 'b> Iterator for ParentNodesIterator<'a, 'b, 'c, T> {
+    type Item = (DomId, NodeId);
 
     /// For each item in the current item path, returns the index of the item in the parent
-    fn next(&mut self) -> Option<NodeId> {
-        let new_parent = self.node_hierarchy[self.current_item].parent?;
-        self.current_item = new_parent;
+    fn next(&mut self) -> Option<(DomId, NodeId)> {
+        let new_parent = self.callback_info.parent(&self.current_item)?;
+        self.current_item = new_parent.clone();
         Some(new_parent)
     }
 }

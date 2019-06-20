@@ -10,7 +10,7 @@ use glium::glutin::{
 };
 use {
     app::FrameEventInfo,
-    dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
+    dom::{DomId, EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
@@ -137,10 +137,10 @@ pub(crate) struct FullWindowState {
     /// What node is currently hovered over, default to None. Only necessary internal
     /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
     /// as well as styling `:focus` elements
-    pub focused_node: Option<NodeId>,
+    pub focused_node: Option<(DomId, NodeId)>,
     /// Currently hovered nodes, default to an empty Vec. Important for
     /// styling `:hover` elements.
-    pub hovered_nodes: BTreeMap<NodeId, HitTestItem>,
+    pub hovered_nodes: BTreeMap<DomId, BTreeMap<NodeId, HitTestItem>>,
     /// Whether there is a focus field overwrite from the last callback calls.
     pub pending_focus_target: Option<FocusTarget>,
 }
@@ -427,16 +427,26 @@ pub(crate) fn determine_callbacks<T>(
     // submit a FocusLost for the last node and a FocusReceived for the current one.
     let mut focus_received_lost_events: BTreeMap<NodeId, FocusEventFilter> = BTreeMap::new();
     match (window_state.focused_node, previous_state.focused_node) {
-        (Some(cur), None) => {
-            focus_received_lost_events.insert(cur, FocusEventFilter::FocusReceived);
+        (Some((cur_dom_id, cur_node_id)), None) => {
+            if cur_dom_id == ui_state.dom_id {
+                focus_received_lost_events.insert(cur_node_id, FocusEventFilter::FocusReceived);
+            }
         },
-        (None, Some(prev)) => {
-            focus_received_lost_events.insert(prev, FocusEventFilter::FocusLost);
+        (None, Some((prev_dom_id, prev_node_id))) => {
+            if prev_dom_id == ui_state.dom_id {
+                focus_received_lost_events.insert(prev_node_id, FocusEventFilter::FocusLost);
+            }
         },
         (Some(cur), Some(prev)) => {
             if cur != prev {
-                focus_received_lost_events.insert(cur, FocusEventFilter::FocusReceived);
-                focus_received_lost_events.insert(prev, FocusEventFilter::FocusLost);
+                let (cur_dom_id, cur_node_id) = cur;
+                let (prev_dom_id, prev_node_id) = prev;
+                if cur_dom_id == ui_state.dom_id {
+                    focus_received_lost_events.insert(cur_node_id, FocusEventFilter::FocusReceived);
+                }
+                if prev_node_id == ui_state.dom_id {
+                    focus_received_lost_events.insert(prev_node_id, FocusEventFilter::FocusLost);
+                }
             }
         }
         (None, None) => { },
