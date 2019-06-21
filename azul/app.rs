@@ -934,6 +934,10 @@ fn call_callbacks<T>(
     let mut default_timers = FastHashMap::default();
     let mut default_tasks = Vec::new();
 
+    // ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
+    let current_scroll_states = BTreeMap::new(); // TODO: get all currently scrollable nodes and store their positions
+    let mut scrolled_nodes = BTreeMap::new(); // Nodes scrolled inside the callbacks
+
     // Run all default callbacks - **before** the user-defined callbacks are run!
     for dom_id in ui_state_map.keys().cloned() {
         for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
@@ -948,13 +952,15 @@ fn call_callbacks<T>(
                 if app_state.windows[window_id].default_callbacks.get(default_callback_id).cloned().and_then(|(callback_ptr, callback_fn)| {
                     let info = DefaultCallbackInfoUnchecked {
                         ptr: callback_ptr,
-                        app_state_no_data: AppStateNoData {
+                        state: AppStateNoData {
                             windows: &app_state.windows,
                             resources: &mut app_state.resources,
                             timers: &mut timers,
                             tasks: &mut tasks,
                         },
                         focus_target: &mut new_focus,
+                        current_scroll_states: &current_scroll_states,
+                        scrolled_nodes: &mut scrolled_nodes,
                         window_id,
                         hit_dom_node: (dom_id.clone(), *node_id),
                         ui_state: ui_state_map,
@@ -997,6 +1003,8 @@ fn call_callbacks<T>(
                 if (callback.0)(CallbackInfo {
                     state: app_state,
                     focus_target: &mut new_focus,
+                    current_scroll_states: &current_scroll_states,
+                    scrolled_nodes: &mut scrolled_nodes,
                     window_id,
                     hit_dom_node: (dom_id.clone(), *node_id),
                     ui_state: ui_state_map,

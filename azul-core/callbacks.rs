@@ -15,7 +15,7 @@ use {
     ui_solver::PositionedRectangle,
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
-    window::{FakeWindow, WindowId, LogicalSize, PhysicalSize},
+    window::{FakeWindow, KeyboardState, MouseState, WindowId, LogicalSize, PhysicalSize},
     gl::Texture,
 };
 pub use stack_checked_pointer::StackCheckedPointer;
@@ -163,13 +163,20 @@ pub type LayoutCallback<T> = fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>;
 // -- default callback
 
 pub struct DefaultCallbackInfoUnchecked<'a, T> {
+    /// Type-erased pointer to a unknown type on the stack (inside of `T`),
+    /// pointer has to be casted to a `U` type first (via `.invoke_callback()`)
     pub ptr: StackCheckedPointer<T>,
-    pub app_state_no_data: AppStateNoData<'a, T>,
+    /// AppState, but without the `data` - since the `data` is already stored in the `self.ptr` field
+    pub state: AppStateNoData<'a, T>,
     /// UiState containing the necessary data for testing what
     pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
+    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
+    pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
+    pub scrolled_nodes: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'a WindowId,
@@ -183,14 +190,20 @@ pub struct DefaultCallbackInfoUnchecked<'a, T> {
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
     pub cursor_in_viewport: Option<(f32, f32)>,
 }
+
 pub struct DefaultCallbackInfo<'a, T, U> {
-    pub state: &'a mut U,
-    pub app_state_no_data: AppStateNoData<'a, T>,
+    pub data: &'a mut U,
+    /// AppState, but without the `data` - since the `data` is already stored in the `self.ptr` field
+    pub state: AppStateNoData<'a, T>,
     /// UiState containing the necessary data for testing what
     pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
+    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
+    pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
+    pub scrolled_nodes: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'a WindowId,
@@ -216,10 +229,12 @@ impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
     pub unsafe fn invoke_callback<U: Sized + 'static>(self, callback: DefaultCallbackType<T, U>) -> CallbackReturn {
         let casted_value: &mut U = self.ptr.cast();
         let casted_callback_info = DefaultCallbackInfo {
-            state: casted_value,
-            app_state_no_data: self.app_state_no_data,
+            data: casted_value,
+            state: self.state,
             ui_state: self.ui_state,
             focus_target: self.focus_target,
+            current_scroll_states: self.current_scroll_states,
+            scrolled_nodes: self.scrolled_nodes,
             window_id: self.window_id,
             hit_dom_node: self.hit_dom_node,
             hit_test_items: self.hit_test_items,
@@ -227,10 +242,6 @@ impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
             cursor_in_viewport: self.cursor_in_viewport,
         };
         callback(casted_callback_info)
-    }
-
-    pub fn get_window(&self) -> &FakeWindow<T> {
-        &self.app_state_no_data.windows[self.window_id]
     }
 }
 
@@ -418,17 +429,21 @@ pub enum FocusTarget {
     NoFocus,
 }
 
-impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
+/// Implements functions for `CallbackInfo`, `DefaultCallbackInfoUnchecked` and `DefaultCallbackInfo`,
+/// to prevent duplicating the functions
+macro_rules! impl_callback_info_api {() => (
 
     /// Returns an immutable reference to the current window state
     pub fn window(&self) -> &FakeWindow<T> {
         &self.state.windows[self.window_id]
     }
 
-    /// Returns a mutable reference to the current window state
-    pub fn window_mut(&mut self) -> &mut FakeWindow<T> {
-        let window_id = *self.window_id;
-        self.state.windows.get_mut(&window_id).unwrap()
+    pub fn get_keyboard_state(&self) -> &KeyboardState {
+        self.window().get_keyboard_state()
+    }
+
+    pub fn get_mouse_state(&self) -> &MouseState {
+        self.window().get_mouse_state()
     }
 
     /// Returns the bounds (width / height / position / margins / border) for any given NodeId,
@@ -589,9 +604,9 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the parent `(DomId, NodeId)`, until the iterator gets to the root DOM node.
-    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c, 'a, 'b, T> {
+    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c, T> {
         ParentNodesIterator {
-            callback_info: &self,
+            ui_state: &self.ui_state,
             current_item: self.hit_dom_node.clone(),
         }
     }
@@ -614,16 +629,34 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     pub fn clear_focus(&mut self) {
         *self.focus_target = Some(FocusTarget::NoFocus);
     }
+)}
+
+impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
+    impl_callback_info_api!();
+
+    /// Returns a mutable reference to the current window state
+    pub fn window_mut(&mut self) -> &mut FakeWindow<T> {
+        let window_id = *self.window_id;
+        self.state.windows.get_mut(&window_id).unwrap()
+    }
+}
+
+impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
+    impl_callback_info_api!();
+}
+
+impl<'a, T, U> DefaultCallbackInfo<'a, T, U> {
+    impl_callback_info_api!();
 }
 
 /// Iterator that, starting from a certain starting point, returns the
 /// parent node until it gets to the root node.
-pub struct ParentNodesIterator<'a, 'b, 'c, T: 'c> {
-    callback_info: &'a CallbackInfo<'b, 'c, T>,
+pub struct ParentNodesIterator<'a, T: 'a> {
+    ui_state: &'a BTreeMap<DomId, UiState<T>>,
     current_item: (DomId, NodeId),
 }
 
-impl<'a, 'b, 'c, T: 'b> ParentNodesIterator<'a, 'b, 'c, T> {
+impl<'a, T: 'a> ParentNodesIterator<'a, T> {
 
     /// Returns what node ID the iterator is currently processing
     pub fn current_node(&self) -> (DomId, NodeId) {
@@ -632,17 +665,22 @@ impl<'a, 'b, 'c, T: 'b> ParentNodesIterator<'a, 'b, 'c, T> {
 
     /// Returns the offset into the parent of the current node or None if the item has no parent
     pub fn current_index_in_parent(&self) -> Option<usize> {
-        self.callback_info.get_index_in_parent(&self.current_node()).map(|(index, _)| index)
+        let node_layout = &self.ui_state[&self.current_item.0].dom.arena.node_layout;
+        if node_layout[self.current_item.1].parent.is_some() {
+            Some(node_layout.get_index_in_parent(self.current_item.1))
+        } else {
+            None
+        }
     }
 }
 
-impl<'a, 'b, 'c, T: 'b> Iterator for ParentNodesIterator<'a, 'b, 'c, T> {
+impl<'a, T: 'a> Iterator for ParentNodesIterator<'a, T> {
     type Item = (DomId, NodeId);
 
     /// For each item in the current item path, returns the index of the item in the parent
     fn next(&mut self) -> Option<(DomId, NodeId)> {
-        let new_parent = self.callback_info.get_parent_node_id(&self.current_item)?;
-        self.current_item = new_parent.clone();
-        Some(new_parent)
+        let parent_node_id = self.ui_state[&self.current_item.0].dom.arena.node_layout[self.current_item.1].parent?;
+        self.current_item.1 = parent_node_id;
+        Some((self.current_item.0.clone(), parent_node_id))
     }
 }

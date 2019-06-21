@@ -99,29 +99,29 @@ fn text_input_on_virtual_key_down_private<T>(info: DefaultCallbackInfoUnchecked<
 
 pub fn text_input_on_text_input<T>(info: DefaultCallbackInfo<T, TextInputState>) -> CallbackReturn {
 
-    let DefaultCallbackInfo { state, app_state_no_data, window_id, .. } = info;
-    let keyboard_state = app_state_no_data.windows[window_id].get_keyboard_state();
+    let DefaultCallbackInfo { data, state, window_id, .. } = info;
+    let keyboard_state = state.windows[window_id].get_keyboard_state();
 
     match keyboard_state.current_char {
         Some(c) => {
-            let selection = state.selection.clone();
+            let selection = data.selection.clone();
             match selection {
                 None => {
-                    if state.cursor == state.text.len() {
-                        state.text.push(c);
+                    if data.cursor == data.text.len() {
+                        data.text.push(c);
                     } else {
                         // TODO: insert character at the cursor location!
-                        state.text.push(c);
+                        data.text.push(c);
                     }
-                    state.cursor = state.cursor.saturating_add(1);
+                    data.cursor = data.cursor.saturating_add(1);
                 },
                 Some(Selection::All) => {
-                    state.text = format!("{}", c);
-                    state.cursor = 1;
-                    state.selection = None;
+                    data.text = format!("{}", c);
+                    data.cursor = 1;
+                    data.selection = None;
                 },
                 Some(Selection::FromTo(range)) => {
-                    delete_selection(state, range, Some(c));
+                    delete_selection(data, range, Some(c));
                 },
             }
             Redraw
@@ -132,60 +132,60 @@ pub fn text_input_on_text_input<T>(info: DefaultCallbackInfo<T, TextInputState>)
 
 pub fn text_input_on_virtual_key_down<T>(info: DefaultCallbackInfo<T, TextInputState>) -> CallbackReturn {
 
-    let DefaultCallbackInfo { state, app_state_no_data, window_id, .. } = info;
-    let keyboard_state = app_state_no_data.windows[window_id].get_keyboard_state();
+    let DefaultCallbackInfo { data, state, window_id, .. } = info;
+    let keyboard_state = state.windows[window_id].get_keyboard_state();
     let last_keycode = keyboard_state.latest_virtual_keycode?;
 
     match last_keycode {
         VirtualKeyCode::Back => {
             // TODO: shift + back = delete last word
-            let selection = state.selection.clone();
+            let selection = data.selection.clone();
             match selection {
                 None => {
-                    if state.cursor == state.text.len() {
-                        state.text.pop();
+                    if data.cursor == data.text.len() {
+                        data.text.pop();
                     } else {
-                        let mut a = state.text.chars().take(state.cursor).collect::<String>();
-                        let new = state.text.len().min(state.cursor.saturating_add(1));
-                        a.extend(state.text.chars().skip(new));
-                        state.text = a;
+                        let mut a = data.text.chars().take(data.cursor).collect::<String>();
+                        let new = data.text.len().min(data.cursor.saturating_add(1));
+                        a.extend(data.text.chars().skip(new));
+                        data.text = a;
                     }
-                    state.cursor = state.cursor.saturating_sub(1);
+                    data.cursor = data.cursor.saturating_sub(1);
                 },
                 Some(Selection::All) => {
-                    state.text.clear();
-                    state.cursor = 0;
-                    state.selection = None;
+                    data.text.clear();
+                    data.cursor = 0;
+                    data.selection = None;
                 },
                 Some(Selection::FromTo(range)) => {
-                    delete_selection(state, range, None);
+                    delete_selection(data, range, None);
                 },
             }
         },
         VirtualKeyCode::Return => {
             // TODO: selection!
-            state.text.push('\n');
-            state.cursor = state.cursor.saturating_add(1);
+            data.text.push('\n');
+            data.cursor = data.cursor.saturating_add(1);
         },
         VirtualKeyCode::Home => {
-            state.cursor = 0;
-            state.selection = None;
+            data.cursor = 0;
+            data.selection = None;
         },
         VirtualKeyCode::End => {
-            state.cursor = state.text.len();
-            state.selection = None;
+            data.cursor = data.text.len();
+            data.selection = None;
         },
         VirtualKeyCode::Escape => {
-            state.selection = None;
+            data.selection = None;
         },
         VirtualKeyCode::Right => {
-            state.cursor = state.text.len().min(state.cursor.saturating_add(1));
+            data.cursor = data.text.len().min(data.cursor.saturating_add(1));
         },
         VirtualKeyCode::Left => {
-            state.cursor = (0.max(state.cursor.saturating_sub(1))).min(state.cursor.saturating_add(1));
+            data.cursor = (0.max(data.cursor.saturating_sub(1))).min(data.cursor.saturating_add(1));
         },
         VirtualKeyCode::A if keyboard_state.ctrl_down => {
-            state.selection = Some(Selection::All);
+            data.selection = Some(Selection::All);
         },
         VirtualKeyCode::C if keyboard_state.ctrl_down => {},
         VirtualKeyCode::V if keyboard_state.ctrl_down => {},
@@ -195,24 +195,24 @@ pub fn text_input_on_virtual_key_down<T>(info: DefaultCallbackInfo<T, TextInputS
     Redraw
 }
 
-fn delete_selection(state: &mut TextInputState, selection: Range<usize>, new_text: Option<char>) {
+fn delete_selection(data: &mut TextInputState, selection: Range<usize>, new_text: Option<char>) {
     let Range { start, end } = selection;
-    let max = if end > state.text.len() { state.text.len() } else { end };
+    let max = if end > data.text.len() { data.text.len() } else { end };
 
     let mut cur = start;
-    if max == state.text.len() {
-        state.text.truncate(start);
+    if max == data.text.len() {
+        data.text.truncate(start);
     } else {
-        let mut a = state.text.chars().take(start).collect::<String>();
+        let mut a = data.text.chars().take(start).collect::<String>();
 
         if let Some(new) = new_text {
             a.push(new);
             cur += 1;
         }
 
-        a.extend(state.text.chars().skip(end));
-        state.text = a;
+        a.extend(data.text.chars().skip(end));
+        data.text = a;
     }
 
-    state.cursor = cur;
+    data.cursor = cur;
 }
