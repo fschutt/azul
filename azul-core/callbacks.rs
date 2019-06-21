@@ -8,9 +8,11 @@ use azul_css::{LayoutPoint, CssPath};
 use azul_css_parser::CssPathParseError;
 use {
     app::{AppState, AppStateNoData},
+    app_resources::{Words, WordPositions, ScaledWords, LayoutedGlyphs},
     async::TerminateTimer,
     dom::{Dom, DomId, NodeType, NodeData},
     ui_state::UiState,
+    ui_solver::PositionedRectangle,
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
     window::{FakeWindow, WindowId, LogicalSize, PhysicalSize},
@@ -64,6 +66,9 @@ pub type ItemTag = (u64, u16);
 /// These pipelines still belong to the same `IdNamespace` and the same `DocumentId`.
 /// Having this extra Id field enables them to generate `PipelineId` without collision.
 pub type PipelineSourceId = u32;
+
+/// (x, y) position of where to scroll to, in pixel
+pub type ScrollPosition = (f32, f32);
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
@@ -248,6 +253,10 @@ pub struct CallbackInfo<'a, 'b, T: 'a> {
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'b mut Option<FocusTarget>,
+    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
+    pub current_scroll_states: &'b BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
+    pub scrolled_nodes: &'b mut BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'b WindowId,
@@ -264,12 +273,6 @@ pub struct CallbackInfo<'a, 'b, T: 'a> {
 }
 pub type CallbackReturn = UpdateScreen;
 pub type CallbackType<T> = fn(CallbackInfo<T>) -> CallbackReturn;
-
-impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
-    pub fn get_window(&self) -> &FakeWindow<T> {
-        &self.state.windows[self.window_id]
-    }
-}
 
 // -- opengl callback
 
@@ -417,13 +420,45 @@ pub enum FocusTarget {
 
 impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
 
-    /// Creates an iterator that starts at the current DOM node and continouusly
-    /// returns the parent NodeId, until it gets to the root component.
-    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c, 'a, 'b, T> {
-        ParentNodesIterator {
-            callback_info: &self,
-            current_item: self.hit_dom_node.clone(),
-        }
+    /// Returns an immutable reference to the current window state
+    pub fn window(&self) -> &FakeWindow<T> {
+        &self.state.windows[self.window_id]
+    }
+
+    /// Returns a mutable reference to the current window state
+    pub fn window_mut(&mut self) -> &mut FakeWindow<T> {
+        let window_id = *self.window_id;
+        self.state.windows.get_mut(&window_id).unwrap()
+    }
+
+    /// Returns the bounds (width / height / position / margins / border) for any given NodeId,
+    /// useful for calculating scroll positions / offsets
+    pub fn get_bounds(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&PositionedRectangle> {
+        self.window().layout_result.get(&dom_id)?.rects.get(*node_id)
+    }
+
+    /// If the node is a text node, return the text of the node
+    pub fn get_words(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&Words> {
+        self.window().layout_result.get(&dom_id)?.word_cache.get(&node_id)
+    }
+
+    /// If the node is a text node, return the shaped glyphs (on a per-word basis, unpositioned)
+    pub fn get_scaled_words(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&ScaledWords> {
+        self.window().layout_result.get(&dom_id).as_ref().and_then(|lr| lr.scaled_words.get(&node_id).as_ref().map(|sw| &sw.0))
+    }
+
+    /// If the node is a text node, return the shaped glyphs (on a per-word basis, unpositioned)
+    pub fn get_word_positions(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&WordPositions> {
+        self.window().layout_result.get(&dom_id).as_ref().and_then(|lr| lr.positioned_word_cache.get(&node_id).as_ref().map(|sw| &sw.0))
+    }
+
+    pub fn get_layouted_glyphs(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&LayoutedGlyphs> {
+        self.window().layout_result.get(&dom_id)?.layouted_glyph_cache.get(&node_id)
+    }
+
+    /// Returns the current position (before)
+    pub fn get_current_scroll_position(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<ScrollPosition> {
+        self.current_scroll_states.get(&dom_id)?.get(node_id).cloned()
     }
 
     /// For any node ID, returns what the position in its parent it is, plus the parent itself.
@@ -437,7 +472,7 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
             return None; // node_id out of range
         }
 
-        let parent_node = self.parent(node_id)?;
+        let parent_node = self.get_parent_node_id(node_id)?;
         Some((node_layout.get_index_in_parent(node_id.1), parent_node))
     }
 
@@ -448,6 +483,12 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     /// Returns the hierarchy of the given node ID
     pub fn get_node(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&Node> {
         self.ui_state[dom_id].dom.arena.node_layout.internal.get(node_id.index())
+    }
+
+    /// Returns the parent of the given `NodeId` or None if the target is the root node.
+    pub fn get_parent_node_id(&self, node_id: &(DomId, NodeId)) -> Option<(DomId, NodeId)> {
+        let new_node_id = self.get_node(node_id)?.parent?;
+        Some((node_id.0.clone(), new_node_id))
     }
 
     /// Returns the node hierarchy (DOM tree order)
@@ -467,15 +508,9 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
         Some(index)
     }
 
-    /// Returns the parent of the given `NodeId` or None if the target is the root node.
-    pub fn parent(&self, node_id: &(DomId, NodeId)) -> Option<(DomId, NodeId)> {
-        let new_node_id = self.get_node(node_id)?.parent?;
-        Some((node_id.0.clone(), new_node_id))
-    }
-
     /// Returns the parent of the current target or None if the target is the root node.
-    pub fn target_parent(&self) -> Option<(DomId, NodeId)> {
-        self.parent(&self.hit_dom_node)
+    pub fn target_parent_node_id(&self) -> Option<(DomId, NodeId)> {
+        self.get_parent_node_id(&self.hit_dom_node)
     }
 
     /// Checks whether the target of the CallbackInfo has a certain node type
@@ -528,18 +563,41 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
         })
     }
 
+    /// Scrolls a node to a certain position
+    pub fn scroll_node(&mut self, (dom_id, node_id): &(DomId, NodeId), position: ScrollPosition) {
+        self.scrolled_nodes
+            .entry(dom_id.clone())
+            .or_insert_with(|| BTreeMap::default())
+            .insert(*node_id, position);
+    }
+
+    /// Scrolls a node to a certain position
+    pub fn scroll_target(&mut self, position: ScrollPosition) {
+        let target = self.hit_dom_node.clone(); // borrowing issue
+        self.scroll_node(&target, position);
+    }
+
     /// Set the focus_target to a certain div by parsing a string.
     /// Note that the parsing of the string can fail, therefore the Result
     #[cfg(feature = "css_parser")]
-    pub fn set_focus_target_from_css<'c>(&mut self, input: &'c str) -> Result<(), CssPathParseError<'c>> {
+    pub fn set_focus_from_css<'c>(&mut self, input: &'c str) -> Result<(), CssPathParseError<'c>> {
         use azul_css_parser::parse_css_path;
         let path = parse_css_path(input)?;
         *self.focus_target = Some(FocusTarget::Path(path));
         Ok(())
     }
 
+    /// Creates an iterator that starts at the current DOM node and continouusly
+    /// returns the parent `(DomId, NodeId)`, until the iterator gets to the root DOM node.
+    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c, 'a, 'b, T> {
+        ParentNodesIterator {
+            callback_info: &self,
+            current_item: self.hit_dom_node.clone(),
+        }
+    }
+
     /// Sets the focus_target by using an already-parsed `CssPath`.
-    pub fn set_focus_target_from_path(&mut self, path: CssPath) {
+    pub fn set_focus_from_path(&mut self, path: CssPath) {
         *self.focus_target = Some(FocusTarget::Path(path))
     }
 
@@ -548,12 +606,12 @@ impl<'a, 'b, T: 'a> CallbackInfo<'a, 'b, T> {
     /// Note that this ID will be dependent on the position in the DOM and therefore
     /// the next frames UI must be the exact same as the current one, otherwise
     /// the focus_target will be cleared or shifted (depending on apps setting).
-    pub fn set_focus_target_from_node_id(&mut self, id: (DomId, NodeId)) {
+    pub fn set_focus_from_node_id(&mut self, id: (DomId, NodeId)) {
         *self.focus_target = Some(FocusTarget::Id(id));
     }
 
     /// Clears the focus_target for the next frame.
-    pub fn clear_focus_target(&mut self) {
+    pub fn clear_focus(&mut self) {
         *self.focus_target = Some(FocusTarget::NoFocus);
     }
 }
@@ -583,7 +641,7 @@ impl<'a, 'b, 'c, T: 'b> Iterator for ParentNodesIterator<'a, 'b, 'c, T> {
 
     /// For each item in the current item path, returns the index of the item in the parent
     fn next(&mut self) -> Option<(DomId, NodeId)> {
-        let new_parent = self.callback_info.parent(&self.current_item)?;
+        let new_parent = self.callback_info.get_parent_node_id(&self.current_item)?;
         self.current_item = new_parent.clone();
         Some(new_parent)
     }
