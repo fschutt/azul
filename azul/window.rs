@@ -11,6 +11,7 @@ use azul_css::HotReloadHandler;
 use azul_css::{ColorU, Css, LayoutPoint, LayoutRect};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use gleam::gl::{self, Gl};
+pub use glium::glutin::os::unix::XWindowType as WinitXWindowType;
 pub use glium::glutin::AvailableMonitorsIter;
 use glium::{
     backend::glutin::DisplayCreationError,
@@ -52,6 +53,8 @@ pub struct WindowCreateOptions {
     pub window_icon: Option<WindowIcon>,
     /// Windows only: Sets the 256x256 taskbar icon during startup
     pub taskbar_icon: Option<TaskBarIcon>,
+    /// Linux + X11 only: Sets the X11 window type
+    pub x_window_type: Option<WinitXWindowType>,
 }
 
 impl Default for WindowCreateOptions {
@@ -62,6 +65,7 @@ impl Default for WindowCreateOptions {
             renderer_type: RendererType::default(),
             window_icon: None,
             taskbar_icon: None,
+            x_window_type: None,
         }
     }
 }
@@ -411,6 +415,7 @@ impl<T> Window<T> {
         mut css: Css,
         background_color: ColorU,
     ) -> Result<Self, WindowCreateError> {
+        use glium::glutin::os::unix::WindowBuilderExt;
         use wr_translate::wr_translate_logical_size;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
@@ -463,6 +468,10 @@ impl<T> Window<T> {
         if let Some(max_dim) = options.state.size.max_dimensions {
             // TODO: reverse logical size!
             window = window.with_max_dimensions(winit_translate::translate_logical_size(max_dim));
+        }
+
+        if let Some(x_window_type) = options.x_window_type {
+            window = window.with_x11_window_type(x_window_type);
         }
 
         // Only create a context with VSync and SRGB if the context creation works
