@@ -523,7 +523,7 @@ fn initialize_ui_state_cache<T>(
         }?;
 
         #[cfg(not(debug_assertions))]
-        let mut ui_state = ui_state_from_app_state(app_state, &window_id, layout_callback)?;
+        let mut ui_state = ui_state_from_app_state(app_state, &window_id, None, layout_callback)?;
 
         ui_state.dom_id = DomId::ROOT_ID;
 
