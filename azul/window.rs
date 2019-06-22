@@ -1,47 +1,39 @@
-use std::{
-    rc::Rc,
-    marker::PhantomData,
-    io::Error as IoError,
-    collections::BTreeMap,
-};
-use webrender::{
-    api::{
-        Epoch, DocumentId, RenderApi, RenderNotifier, DeviceIntSize,
-    },
-    Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
-    // renderer::RendererError; -- not currently public in WebRender
-};
-use glium::{
-    IncompatibleOpenGl, Display, SwapBuffersError,
-    debug::DebugCallbackBehavior,
-    glutin::{
-        EventsLoop, ContextTrait, CombinedContext, CreationError,
-        MonitorId, ContextError, ContextBuilder, Window as GliumWindow,
-        WindowBuilder as GliumWindowBuilder, Context,
-    },
-    backend::glutin::DisplayCreationError,
-};
-use gleam::gl::{self, Gl};
-use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
-use azul_css::{Css, ColorU, LayoutPoint, LayoutRect};
-#[cfg(debug_assertions)]
-use azul_css::HotReloadHandler;
-use {
-    FastHashMap,
-    compositor::Compositor,
-    app::FrameEventInfo,
-};
+pub use azul_core::window::*;
 use azul_core::{
     callbacks::PipelineId,
-    window::WindowId,
-    ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
     display_list::CachedDisplayList,
     dom::DomId,
+    ui_solver::{ExternalScrollId, LayoutResult, OverflowingScrollNode, ScrolledNodes},
+    window::WindowId,
 };
-pub use webrender::api::HitTestItem;
+#[cfg(debug_assertions)]
+use azul_css::HotReloadHandler;
+use azul_css::{ColorU, Css, LayoutPoint, LayoutRect};
+use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
+use gleam::gl::{self, Gl};
 pub use glium::glutin::AvailableMonitorsIter;
-pub use azul_core::window::*;
+use glium::{
+    backend::glutin::DisplayCreationError,
+    debug::DebugCallbackBehavior,
+    glutin::{
+        CombinedContext, Context, ContextBuilder, ContextError, ContextTrait, CreationError,
+        EventsLoop, MonitorId, Window as GliumWindow, WindowBuilder as GliumWindowBuilder,
+    },
+    Display, IncompatibleOpenGl, SwapBuffersError,
+};
+use std::{collections::BTreeMap, io::Error as IoError, marker::PhantomData, rc::Rc};
+pub use webrender::api::HitTestItem;
+use webrender::{
+    api::{DeviceIntSize, DocumentId, Epoch, RenderApi, RenderNotifier},
+    Renderer,
+    RendererKind,
+    RendererOptions,
+    ShaderPrecacheFlags,
+    WrShaders,
+    // renderer::RendererError; -- not currently public in WebRender
+};
 pub use window_state::*;
+use {app::FrameEventInfo, compositor::Compositor, FastHashMap};
 
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
@@ -129,7 +121,7 @@ pub enum WindowCreateError {
     /// IO error
     Io(::std::io::Error),
     /// WebRender creation error (probably OpenGL missing?)
-    Renderer/*(RendererError)*/,
+    Renderer, /*(RendererError)*/
 }
 
 impl_display! {WindowCreateError, {
@@ -151,11 +143,11 @@ impl_from!(IncompatibleOpenGl, WindowCreateError::Gl);
 impl_from!(DisplayCreationError, WindowCreateError::DisplayCreateError);
 impl_from!(ContextError, WindowCreateError::Context);
 
-struct Notifier { }
+struct Notifier {}
 
 impl RenderNotifier for Notifier {
     fn clone(&self) -> Box<RenderNotifier> {
-        Box::new(Notifier { })
+        Box::new(Notifier {})
     }
 
     // NOTE: Rendering is single threaded (because that's the nature of OpenGL),
@@ -164,8 +156,15 @@ impl RenderNotifier for Notifier {
     // There is no point in implementing RenderNotifier, it only leads to
     // synchronization problems (when handling Event::Awakened).
 
-    fn wake_up(&self) { }
-    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) { }
+    fn wake_up(&self) {}
+    fn new_frame_ready(
+        &self,
+        _id: DocumentId,
+        _scrolled: bool,
+        _composite_needed: bool,
+        _render_time: Option<u64>,
+    ) {
+    }
 }
 
 /// Select on which monitor the window should pop up.
@@ -174,7 +173,7 @@ pub enum WindowMonitorTarget {
     /// Window should appear on the primary monitor
     Primary,
     /// Use `Window::get_available_monitors()` to select the correct monitor
-    Custom(MonitorId)
+    Custom(MonitorId),
 }
 
 #[cfg(target_os = "linux")]
@@ -187,31 +186,45 @@ type NativeMonitorId = u32;
 
 impl WindowMonitorTarget {
     fn get_native_id(&self) -> Option<NativeMonitorId> {
-
         use self::WindowMonitorTarget::*;
 
+        #[cfg(target_os = "macos")]
+        use glium::glutin::os::macos::MonitorIdExt;
         #[cfg(target_os = "linux")]
         use glium::glutin::os::unix::MonitorIdExt;
         #[cfg(target_os = "windows")]
         use glium::glutin::os::windows::MonitorIdExt;
-        #[cfg(target_os = "macos")]
-        use glium::glutin::os::macos::MonitorIdExt;
 
         match self {
             Primary => None,
             Custom(m) => Some({
-                #[cfg(target_os = "windows")] { m.hmonitor() as usize }
-                #[cfg(target_os = "linux")] { m.native_id() }
-                #[cfg(target_os = "macos")] { m.native_id() }
+                #[cfg(target_os = "windows")]
+                {
+                    m.hmonitor() as usize
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    m.native_id()
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    m.native_id()
+                }
             }),
         }
     }
 }
 
 impl ::std::hash::Hash for WindowMonitorTarget {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: ::std::hash::Hasher,
+    {
         use self::WindowMonitorTarget::*;
-        state.write_usize(match self { Primary => 0, Custom(_) => 1, });
+        state.write_usize(match self {
+            Primary => 0,
+            Custom(_) => 1,
+        });
         state.write_usize(self.get_native_id().unwrap_or(0) as usize);
     }
 }
@@ -234,7 +247,7 @@ impl Ord for WindowMonitorTarget {
     }
 }
 
-impl Eq for WindowMonitorTarget { }
+impl Eq for WindowMonitorTarget {}
 
 impl Default for WindowMonitorTarget {
     fn default() -> Self {
@@ -291,7 +304,6 @@ pub struct Window<T> {
 pub(crate) struct ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
-
     pub fn new() -> ScrollStates {
         ScrollStates::default()
     }
@@ -303,17 +315,26 @@ impl ScrollStates {
 
     /// NOTE: This has to be a getter, because we need to update
     #[must_use]
-    pub(crate) fn get_scroll_amount_internal(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+    pub(crate) fn get_scroll_amount_internal(
+        &mut self,
+        scroll_id: &ExternalScrollId,
+    ) -> Option<LayoutPoint> {
         let entry = self.0.get_mut(&scroll_id)?;
         Some(entry.get_internal())
     }
 
     /// Updating the scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub(crate) fn scroll_node(&mut self, node: &OverflowingScrollNode, scroll_by_x: f32, scroll_by_y: f32) {
-        self.0.entry(node.parent_external_scroll_id)
-        .or_insert_with(|| ScrollState::default())
-        .add(scroll_by_x, scroll_by_y, &node.child_rect);
+    pub(crate) fn scroll_node(
+        &mut self,
+        node: &OverflowingScrollNode,
+        scroll_by_x: f32,
+        scroll_by_y: f32,
+    ) {
+        self.0
+            .entry(node.parent_external_scroll_id)
+            .or_insert_with(|| ScrollState::default())
+            .add(scroll_by_x, scroll_by_y, &node.child_rect);
     }
 
     /// Removes all scroll states that weren't used in the last frame
@@ -331,7 +352,6 @@ pub struct ScrollState {
 }
 
 impl ScrollState {
-
     /// Return the current position of the scroll state
     pub fn get(&mut self) -> LayoutPoint {
         self.scroll_position
@@ -339,8 +359,12 @@ impl ScrollState {
 
     /// Add a scroll X / Y onto the existing scroll state
     pub fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
-        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
-        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
+        self.scroll_position.x = (self.scroll_position.x + x)
+            .max(0.0)
+            .min(child_rect.size.width);
+        self.scroll_position.y = (self.scroll_position.y + y)
+            .max(0.0)
+            .min(child_rect.size.height);
     }
 
     /// Set the scroll state to a new position
@@ -378,7 +402,6 @@ pub(crate) struct WindowInternal {
 }
 
 impl<T> Window<T> {
-
     /// Creates a new window
     pub(crate) fn new(
         render_api: &mut RenderApi,
@@ -388,7 +411,6 @@ impl<T> Window<T> {
         mut css: Css,
         background_color: ColorU,
     ) -> Result<Self, WindowCreateError> {
-
         use wr_translate::wr_translate_logical_size;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
@@ -449,25 +471,34 @@ impl<T> Window<T> {
         // Hide the window until the first draw (prevents flash on startup)
         gl_window.hide();
 
-        let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
+        let (hidpi_factor, winit_hidpi_factor) =
+            get_hidpi_factor(&gl_window.window(), &events_loop);
 
         let mut state = options.state.clone();
         state.size.hidpi_factor = hidpi_factor;
         state.size.winit_hidpi_factor = winit_hidpi_factor;
 
         if options.state.is_fullscreen {
-            gl_window.window().set_fullscreen(Some(gl_window.window().get_current_monitor()));
+            gl_window
+                .window()
+                .set_fullscreen(Some(gl_window.window().get_current_monitor()));
         }
 
         if let Some(pos) = options.state.position {
             // TODO: reverse logical size!
-            gl_window.window().set_position(winit_translate::translate_logical_position(pos));
+            gl_window
+                .window()
+                .set_position(winit_translate::translate_logical_position(pos));
         }
 
         if options.state.is_maximized && !options.state.is_fullscreen {
             gl_window.window().set_maximized(true);
         } else if !options.state.is_fullscreen {
-            gl_window.window().set_inner_size(winit_translate::translate_logical_size(state.size.get_reverse_logical_size()));
+            gl_window
+                .window()
+                .set_inner_size(winit_translate::translate_logical_size(
+                    state.size.get_reverse_logical_size(),
+                ));
         }
 
         // #[cfg(debug_assertions)]
@@ -477,7 +508,8 @@ impl<T> Window<T> {
 
         let framebuffer_size = {
             let inner_logical_size = display.gl_window().get_inner_size().unwrap();
-            let (width, height): (u32, u32) = inner_logical_size.to_physical(hidpi_factor as f64).into();
+            let (width, height): (u32, u32) =
+                inner_logical_size.to_physical(hidpi_factor as f64).into();
             DeviceIntSize::new(width as i32, height as i32)
         };
 
@@ -533,8 +565,15 @@ impl<T> Window<T> {
         options: WindowCreateOptions,
         css_loader: Box<dyn HotReloadHandler>,
         background_color: ColorU,
-    ) -> Result<Self, WindowCreateError>  {
-        let mut window = Window::new(render_api, shared_context, events_loop, options, Css::default(), background_color)?;
+    ) -> Result<Self, WindowCreateError> {
+        let mut window = Window::new(
+            render_api,
+            shared_context,
+            events_loop,
+            options,
+            Css::default(),
+            background_color,
+        )?;
         window.css_loader = Some(css_loader);
         Ok(window)
     }
@@ -556,7 +595,6 @@ impl<T> Window<T> {
 pub struct Clipboard;
 
 impl Clipboard {
-
     /// Returns the contents of the system clipboard
     pub fn get_clipboard_string() -> Result<String, ClipboardError> {
         let clipboard = SystemClipboard::new()?;
@@ -610,11 +648,21 @@ pub(crate) fn synchronize_window_state_with_os_window(
     }
 
     if old_state.size.min_dimensions != new_state.size.min_dimensions {
-        window.set_min_dimensions(new_state.size.min_dimensions.map(|min| winit_translate::translate_logical_size(min).into()));
+        window.set_min_dimensions(
+            new_state
+                .size
+                .min_dimensions
+                .map(|min| winit_translate::translate_logical_size(min).into()),
+        );
     }
 
     if old_state.size.max_dimensions != new_state.size.max_dimensions {
-        window.set_max_dimensions(new_state.size.max_dimensions.map(|max| winit_translate::translate_logical_size(max).into()));
+        window.set_max_dimensions(
+            new_state
+                .size
+                .max_dimensions
+                .map(|max| winit_translate::translate_logical_size(max).into()),
+        );
     }
 
     // Overwrite all fields of the old state with the new window state
@@ -624,10 +672,7 @@ pub(crate) fn synchronize_window_state_with_os_window(
 
 /// Reverse function of `full_window_state_to_window_state` - overwrites all
 /// fields of the `FullWindowState` with the fields of the `WindowState`
-fn update_full_window_state(
-    full_window_state: &mut FullWindowState,
-    window_state: &WindowState
-) {
+fn update_full_window_state(full_window_state: &mut FullWindowState, window_state: &WindowState) {
     full_window_state.title = window_state.title.clone();
     full_window_state.size = window_state.size;
     full_window_state.position = window_state.position;
@@ -651,32 +696,41 @@ fn synchronize_mouse_state(
     window: &GliumWindow,
 ) {
     use wr_translate::winit_translate_cursor;
-    match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
+    match (
+        old_mouse_state.mouse_cursor_type,
+        new_mouse_state.mouse_cursor_type,
+    ) {
         (Some(_old_mouse_cursor), None) => {
             window.hide_cursor(true);
-        },
+        }
         (None, Some(new_mouse_cursor)) => {
             window.hide_cursor(false);
             window.set_cursor(winit_translate_cursor(new_mouse_cursor));
-        },
+        }
         (Some(old_mouse_cursor), Some(new_mouse_cursor)) => {
             if old_mouse_cursor != new_mouse_cursor {
                 window.set_cursor(winit_translate_cursor(new_mouse_cursor));
             }
-        },
-        (None, None) => { },
+        }
+        (None, None) => {}
     }
 
     if old_mouse_state.is_cursor_locked != new_mouse_state.is_cursor_locked {
-        window.grab_cursor(new_mouse_state.is_cursor_locked)
-        .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
-        .unwrap_or(());
+        window
+            .grab_cursor(new_mouse_state.is_cursor_locked)
+            .map_err(|e| {
+                #[cfg(feature = "logging")]
+                warn!("{}", e);
+            })
+            .unwrap_or(());
     }
 
     // TODO: Synchronize mouse cursor position!
 }
 
-pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowState) -> WindowState {
+pub(crate) fn full_window_state_to_window_state(
+    full_window_state: &FullWindowState,
+) -> WindowState {
     WindowState {
         title: full_window_state.title.clone(),
         size: full_window_state.size,
@@ -703,12 +757,11 @@ pub(crate) fn update_from_external_window_state(
     events_loop: &EventsLoop,
     window: &GliumWindow,
 ) {
-    #[cfg(target_os = "linux")] {
+    #[cfg(target_os = "linux")]
+    {
         if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
-            window_state.size.hidpi_factor = linux_get_hidpi_factor(
-                &window.get_current_monitor(),
-                events_loop
-            );
+            window_state.size.hidpi_factor =
+                linux_get_hidpi_factor(&window.get_current_monitor(), events_loop);
         }
     }
 
@@ -753,14 +806,13 @@ pub(crate) struct FakeDisplay {
 }
 
 impl FakeDisplay {
-
     /// Creates a new render + a new display, given a renderer type (software or hardware)
-    pub(crate) fn new(renderer_type: RendererType)
-    -> Result<Self, WindowCreateError>
-    {
+    pub(crate) fn new(renderer_type: RendererType) -> Result<Self, WindowCreateError> {
         let events_loop = EventsLoop::new();
         let window = GliumWindowBuilder::new()
-            .with_dimensions(winit_translate::translate_logical_size(LogicalSize::new(10.0, 10.0)))
+            .with_dimensions(winit_translate::translate_logical_size(LogicalSize::new(
+                10.0, 10.0,
+            )))
             .with_visibility(false);
 
         let gl_window = create_gl_window(window, &events_loop, None)?;
@@ -772,16 +824,21 @@ impl FakeDisplay {
         let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
 
         // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
-        let notifier = Box::new(Notifier { });
-        let (mut renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor)?;
+        let notifier = Box::new(Notifier {});
+        let (mut renderer, render_api) =
+            create_renderer(gl.clone(), notifier, renderer_type, dpi_factor)?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
         fn get_gl_context(gl_window: &CombinedContext) -> Result<Rc<dyn Gl>, WindowCreateError> {
             use glium::glutin::Api;
             match gl_window.get_api() {
-                Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
-                Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
+                Api::OpenGl => Ok(unsafe {
+                    gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _)
+                }),
+                Api::OpenGlEs => Ok(unsafe {
+                    gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _)
+                }),
                 Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
             }
         }
@@ -802,7 +859,6 @@ impl FakeDisplay {
 
 impl Drop for FakeDisplay {
     fn drop(&mut self) {
-
         // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
         //
         // TODO: This still crashes on Linux because the makeCurrent call doesn't succeed
@@ -810,11 +866,11 @@ impl Drop for FakeDisplay {
         // we don't de-initialize the rendered (since this is an application shutdown it
         // doesn't matter, the resources are going to get cleaned up by the OS).
         match unsafe { self.hidden_display.gl_window().make_current() } {
-            Ok(_) => { },
+            Ok(_) => {}
             Err(e) => {
                 error!("Shutdown error: {}", e);
                 return;
-            },
+            }
         }
 
         self.gl_context.disable(gl::FRAMEBUFFER_SRGB);
@@ -833,28 +889,56 @@ fn get_hidpi_factor(window: &GliumWindow, events_loop: &EventsLoop) -> (f32, f32
     let monitor = window.get_current_monitor();
     let winit_hidpi_factor = monitor.get_hidpi_factor();
 
-    #[cfg(target_os = "linux")] {
-        (linux_get_hidpi_factor(&monitor, &events_loop), winit_hidpi_factor as f32)
+    #[cfg(target_os = "linux")]
+    {
+        (
+            linux_get_hidpi_factor(&monitor, &events_loop),
+            winit_hidpi_factor as f32,
+        )
     }
-    #[cfg(not(target_os = "linux"))] {
+    #[cfg(not(target_os = "linux"))]
+    {
         (winit_hidpi_factor as f32, winit_hidpi_factor as f32)
     }
 }
 
-
-fn create_gl_window(window: GliumWindowBuilder, events_loop: &EventsLoop, shared_context: Option<&Context>)
--> Result<CombinedContext, WindowCreateError>
-{
+fn create_gl_window(
+    window: GliumWindowBuilder,
+    events_loop: &EventsLoop,
+    shared_context: Option<&Context>,
+) -> Result<CombinedContext, WindowCreateError> {
     // The shared_context is reversed: If the shared_context is None, then this window is the root window,
     // so the window should be created with new_shared (so the context can be shared to all other windows).
     //
     // If the shared_context is Some() then the window is not a root window, so it should share the existing
     // context, but not re-share it (so, create it normally via ::new() instead of ::new_shared()).
 
-    CombinedContext::new(window.clone(), create_context_builder(true, true, shared_context),  &events_loop).or_else(|_|
-    CombinedContext::new(window.clone(), create_context_builder(true, false, shared_context), &events_loop)).or_else(|_|
-    CombinedContext::new(window.clone(), create_context_builder(false, true, shared_context), &events_loop)).or_else(|_|
-    CombinedContext::new(window.clone(), create_context_builder(false, false,shared_context), &events_loop))
+    CombinedContext::new(
+        window.clone(),
+        create_context_builder(true, true, shared_context),
+        &events_loop,
+    )
+    .or_else(|_| {
+        CombinedContext::new(
+            window.clone(),
+            create_context_builder(true, false, shared_context),
+            &events_loop,
+        )
+    })
+    .or_else(|_| {
+        CombinedContext::new(
+            window.clone(),
+            create_context_builder(false, true, shared_context),
+            &events_loop,
+        )
+    })
+    .or_else(|_| {
+        CombinedContext::new(
+            window.clone(),
+            create_context_builder(false, false, shared_context),
+            &events_loop,
+        )
+    })
     .map_err(|e| WindowCreateError::CreateError(e))
 }
 
@@ -873,7 +957,6 @@ fn create_context_builder<'a>(
     srgb: bool,
     shared_context: Option<&'a Context>,
 ) -> ContextBuilder<'a> {
-
     // See #33 - specifying a specific OpenGL version
     // makes winit crash on older Intel drivers, which is why we
     // don't specify a specific OpenGL version here
@@ -888,7 +971,7 @@ fn create_context_builder<'a>(
     // }
 
     // #[cfg(not(debug_assertions))] {
-        builder = builder.with_gl_debug_flag(false);
+    builder = builder.with_gl_debug_flag(false);
     // }
 
     if vsync {
@@ -904,7 +987,6 @@ fn create_context_builder<'a>(
 
 // This exists because RendererOptions isn't Clone-able
 fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
-
     use webrender::ProgramCache;
 
     // pre-caching shaders means to compile all shaders on startup
@@ -929,7 +1011,7 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
         } else {
             RendererKind::OSMesa
         },
-        .. RendererOptions::default()
+        ..RendererOptions::default()
     }
 }
 
@@ -939,7 +1021,6 @@ fn create_renderer(
     renderer_type: RendererType,
     device_pixel_ratio: f32,
 ) -> Result<(Renderer, RenderApi), WindowCreateError> {
-
     use self::RendererType::*;
 
     let opts_native = get_renderer_opts(true, device_pixel_ratio);
@@ -949,16 +1030,16 @@ fn create_renderer(
         Hardware => {
             // force hardware renderer
             Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
-        },
+        }
         Software => {
             // force software renderer
             Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
-        },
+        }
         Default => {
             // try hardware first, fall back to software
             match Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
                 Ok(r) => r,
-                Err(_) => Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+                Err(_) => Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap(),
             }
         }
     };
@@ -969,7 +1050,7 @@ fn create_renderer(
 }
 
 #[cfg(target_os = "linux")]
-fn get_xft_dpi() -> Option<f32>{
+fn get_xft_dpi() -> Option<f32> {
     // TODO!
     /*
     #include <X11/Xlib.h>
@@ -1007,30 +1088,46 @@ fn get_xft_dpi() -> Option<f32>{
 /// Return the DPI on X11 systems
 #[cfg(target_os = "linux")]
 fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f32 {
-
+    use glium::glutin::os::unix::EventsLoopExt;
     use std::env;
     use std::process::Command;
-    use glium::glutin::os::unix::EventsLoopExt;
 
     let winit_dpi = monitor.get_hidpi_factor() as f32;
-    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
-    let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f32>().ok());
+    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR")
+        .ok()
+        .and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
+    let qt_font_dpi = env::var("QT_FONT_DPI")
+        .ok()
+        .and_then(|font_dpi| font_dpi.parse::<f32>().ok());
 
     // Execute "gsettings get org.gnome.desktop.interface text-scaling-factor" and parse the output
-    let gsettings_dpi_factor =
-        Command::new("gsettings")
-            .arg("get")
-            .arg("org.gnome.desktop.interface")
-            .arg("text-scaling-factor")
-            .output().ok()
-            .map(|output| output.stdout)
-            .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
-            .map(|stdout_string| stdout_string.lines().collect::<String>())
-            .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
+    let gsettings_dpi_factor = Command::new("gsettings")
+        .arg("get")
+        .arg("org.gnome.desktop.interface")
+        .arg("text-scaling-factor")
+        .output()
+        .ok()
+        .map(|output| output.stdout)
+        .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
+        .map(|stdout_string| stdout_string.lines().collect::<String>())
+        .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
 
     // Wayland: Ignore Xft.dpi
-    let xft_dpi = if events_loop.is_x11() { get_xft_dpi() } else { None };
+    let xft_dpi = if events_loop.is_x11() {
+        get_xft_dpi()
+    } else {
+        None
+    };
 
-    let options = [winit_hidpi_factor, qt_font_dpi, gsettings_dpi_factor, xft_dpi];
-    options.into_iter().filter_map(|x| *x).next().unwrap_or(winit_dpi)
+    let options = [
+        winit_hidpi_factor,
+        qt_font_dpi,
+        gsettings_dpi_factor,
+        xft_dpi,
+    ];
+    options
+        .into_iter()
+        .filter_map(|x| *x)
+        .next()
+        .unwrap_or(winit_dpi)
 }
