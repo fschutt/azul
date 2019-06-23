@@ -223,3 +223,34 @@ pub struct PositionedRectangle {
     /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
     pub overflow: Overflow,
 }
+
+impl PositionedRectangle {
+    pub fn to_layouted_rectangle(&self) -> LayoutedRectangle {
+        LayoutedRectangle {
+            bounds: self.bounds,
+            padding: self.padding,
+            margin: self.margin,
+            border_widths: self.border_widths,
+            content_size: self.content_size,
+            overflow: self.overflow,
+        }
+    }
+}
+/// Same as `PositionedRectangle`, but without the `text_layout_options`,
+/// so that the struct implements `Copy`.
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct LayoutedRectangle {
+    /// Outer bounds of the rectangle
+    pub bounds: LayoutRect,
+    /// Padding of the rectangle
+    pub padding: ResolvedOffsets,
+    /// Margin of the rectangle
+    pub margin: ResolvedOffsets,
+    /// Border widths of the rectangle
+    pub border_widths: ResolvedOffsets,
+    /// Size of the content, for example if a div contains an image or text,
+    /// that image or the text block can be bigger than the actual rect
+    pub content_size: Option<LayoutSize>,
+    /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
+    pub overflow: Overflow,
+}

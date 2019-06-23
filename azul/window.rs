@@ -30,13 +30,14 @@ use {
     FastHashMap,
     compositor::Compositor,
     app::FrameEventInfo,
+    callbacks::{PipelineId, ScrollPosition},
+    dom::{NodeId, DomId},
 };
 use azul_core::{
-    callbacks::PipelineId,
-    window::WindowId,
-    ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
+    ui_state::UiState,
     display_list::CachedDisplayList,
-    dom::DomId,
+    ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
+    window::WindowId,
 };
 pub use webrender::api::HitTestItem;
 pub use glium::glutin::AvailableMonitorsIter;
@@ -262,8 +263,6 @@ pub struct Window<T> {
     pub(crate) display: Rc<Display>,
     /// The `WindowInternal` allows us to solve some borrowing issues
     pub(crate) internal: WindowInternal,
-    /// States of scrolling animations, updated every frame
-    pub(crate) scroll_states: ScrollStates,
     // The background thread that is running for this window.
     // pub(crate) background_thread: Option<JoinHandle<()>>,
     /// The style applied to the current window
@@ -292,23 +291,31 @@ pub(crate) struct ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollSt
 
 impl ScrollStates {
 
-    pub fn new() -> ScrollStates {
+    pub(crate) fn new() -> ScrollStates {
         ScrollStates::default()
     }
 
     #[must_use]
-    pub fn get_scroll_amount(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
-        self.0.get_mut(&scroll_id).map(|entry| entry.get())
+    pub(crate) fn get_scroll_position(&self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+        self.0.get(&scroll_id).map(|entry| entry.get())
+    }
+
+    /// Set the scroll amount - does not update the `entry.used_this_frame`,
+    /// since that is only relevant when we are actually querying the renderer.
+    pub(crate) fn set_scroll_position(&mut self, node: &OverflowingScrollNode, scroll_position: LayoutPoint) {
+        self.0.entry(node.parent_external_scroll_id)
+        .or_insert_with(|| ScrollState::default())
+        .set(scroll_position.x, scroll_position.y, &node.child_rect);
     }
 
     /// NOTE: This has to be a getter, because we need to update
     #[must_use]
-    pub(crate) fn get_scroll_amount_internal(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+    pub(crate) fn get_scroll_position_and_mark_as_used(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
         let entry = self.0.get_mut(&scroll_id)?;
-        Some(entry.get_internal())
+        Some(entry.get_and_mark_as_used())
     }
 
-    /// Updating the scroll amount does not update the `entry.used_this_frame`,
+    /// Updating (add to) the existing scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
     pub(crate) fn scroll_node(&mut self, node: &OverflowingScrollNode, scroll_by_x: f32, scroll_by_y: f32) {
         self.0.entry(node.parent_external_scroll_id)
@@ -323,7 +330,7 @@ impl ScrollStates {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct ScrollState {
+pub(crate) struct ScrollState {
     /// Amount in pixel that the current node is scrolled
     scroll_position: LayoutPoint,
     /// Was the scroll amount used in this frame?
@@ -333,24 +340,24 @@ pub struct ScrollState {
 impl ScrollState {
 
     /// Return the current position of the scroll state
-    pub fn get(&mut self) -> LayoutPoint {
+    pub(crate) fn get(&self) -> LayoutPoint {
         self.scroll_position
     }
 
     /// Add a scroll X / Y onto the existing scroll state
-    pub fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
+    pub(crate) fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
         self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
         self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
     }
 
     /// Set the scroll state to a new position
-    pub fn set(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
+    pub(crate) fn set(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
         self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
         self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
     }
 
     /// Returns the scroll position and also set the "used_this_frame" flag
-    pub(crate) fn get_internal(&mut self) -> LayoutPoint {
+    pub(crate) fn get_and_mark_as_used(&mut self) -> LayoutPoint {
         self.used_this_frame = true;
         self.scroll_position
     }
@@ -372,9 +379,38 @@ pub(crate) struct WindowInternal {
     pub(crate) layout_result: BTreeMap<DomId, LayoutResult>,
     /// Current scroll states of nodes (x and y position of where they are scrolled)
     pub(crate) scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
+    /// States of scrolling animations, updated every frame
+    pub(crate) scroll_states: ScrollStates,
     pub(crate) epoch: Epoch,
     pub(crate) pipeline_id: PipelineId,
     pub(crate) document_id: DocumentId,
+}
+
+impl WindowInternal {
+
+    /// Returns a copy of the current scroll states + scroll positions
+    pub(crate) fn get_current_scroll_states<T>(&self, ui_states: &BTreeMap<DomId, UiState<T>>)
+    -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>
+    {
+        self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
+
+            let layout_result = self.layout_result.get(dom_id)?;
+            let ui_state = &ui_states.get(dom_id)?;
+
+            let scroll_positions = scrolled_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
+                let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?;
+                let parent_node = ui_state.dom.arena.node_layout[*node_id].parent.unwrap_or(NodeId::ZERO);
+                let scroll_position = ScrollPosition {
+                    scroll_frame_rect: overflowing_node.child_rect,
+                    parent_rect: layout_result.rects[parent_node].to_layouted_rectangle(),
+                    scroll_location,
+                };
+                Some((*node_id, scroll_position))
+            }).collect();
+
+            Some((dom_id.clone(), scroll_positions))
+        }).collect()
+    }
 }
 
 impl<T> Window<T> {
@@ -508,12 +544,12 @@ impl<T> Window<T> {
             css,
             #[cfg(debug_assertions)]
             css_loader: None,
-            scroll_states: ScrollStates::new(),
             internal: WindowInternal {
                 epoch,
                 pipeline_id,
                 document_id,
                 scrolled_nodes: BTreeMap::new(),
+                scroll_states: ScrollStates::new(),
                 layout_result: BTreeMap::new(),
                 cached_display_list: CachedDisplayList::empty(display_list_dimensions),
             },

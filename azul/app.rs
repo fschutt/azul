@@ -10,7 +10,7 @@ use webrender::{
     api::{ DevicePixel, LayoutSize, Epoch, Transaction },
 };
 use log::LevelFilter;
-use azul_css::ColorU;
+use azul_css::{ColorU, LayoutPoint};
 use {
     FastHashMap,
     window::{
@@ -18,23 +18,21 @@ use {
         RendererType, WindowSize, DebugState,
         FullWindowState,
     },
-    dom::{Dom, DomId, ScrollTagId},
+    dom::{Dom, DomId, NodeId, ScrollTagId},
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
     async::{Task, TimerId, TerminateTimer},
     callbacks::{
         LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
-        Redraw, DontRedraw,
+        Redraw, DontRedraw, ScrollPosition,
     },
 };
-pub use app_resources::AppResources;
-pub use azul_core::{
-    app::{AppState, AppStateNoData, RuntimeError},
-    window::WindowId,
+use azul_core::{
     ui_solver::ScrolledNodes,
+    window::WindowId,
 };
-
+pub use app_resources::AppResources;
 #[cfg(not(test))]
 use azul_core::{
     window::FakeWindow,
@@ -48,6 +46,7 @@ use azul_css::{HotReloadHandler, Css};
 use webrender::api::{WorldPoint, HitTestFlags};
 #[cfg(test)]
 use app_resources::FakeRenderApi;
+pub use azul_core::app::*; // {App, AppState, AppStateNoData, RuntimeError}
 
 type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
@@ -523,7 +522,7 @@ fn initialize_ui_state_cache<T>(
         }?;
 
         #[cfg(not(debug_assertions))]
-        let mut ui_state = ui_state_from_app_state(app_state, &window_id, layout_callback)?;
+        let mut ui_state = ui_state_from_app_state(app_state, &window_id, None, layout_callback)?;
 
         ui_state.dom_id = DomId::ROOT_ID;
 
@@ -671,6 +670,9 @@ fn hit_test_single_window<T>(
         return Ok(ret);
     }
 
+    let scroll_states = window.internal.get_current_scroll_states(&ui_state_cache[window_id]);
+    let mut scrolled_nodes = BTreeMap::new();
+
     if frame_event_info.should_hittest {
 
         ret.hit_test_results = do_hit_test(&window, full_window_state, fake_display);
@@ -681,12 +683,14 @@ fn hit_test_single_window<T>(
                 window::full_window_state_to_window_state(full_window_state);
 
             let callback_result = call_callbacks(
-                ret.hit_test_results.as_ref(),
                 event,
-                full_window_state,
                 &window_id,
+                ret.hit_test_results.as_ref(),
+                full_window_state,
+                &scroll_states,
+                &mut scrolled_nodes,
                 ui_state_cache.get_mut(window_id).ok_or(WindowIndexError)?,
-                app_state
+                app_state,
             )?;
 
             if callback_result.should_update_screen == Redraw {
@@ -712,21 +716,32 @@ fn hit_test_single_window<T>(
 
     ret.hit_test_results = ret.hit_test_results.or_else(|| do_hit_test(window, full_window_state, fake_display));
 
-    // Scroll for the scrolled amount for each node that registered a scroll state.
-    let should_scroll_render = match &ret.hit_test_results {
-        Some(hit_test_results) => {
-            let mut should_update = false;
+    // Scroll nodes from input (mouse scroll) events
+    let mut should_scroll_render_from_input_events = false;
 
-            for (_dom_id, scrolled_nodes) in &window.internal.scrolled_nodes {
-                if update_scroll_state(full_window_state, scrolled_nodes, &mut window.scroll_states, hit_test_results) {
-                    should_update = true;
+    if let Some(hit_test_results) = &ret.hit_test_results {
+        for (_dom_id, scrolled_nodes) in &window.internal.scrolled_nodes {
+            if update_scroll_state(full_window_state, scrolled_nodes, &mut window.internal.scroll_states, hit_test_results) {
+                should_scroll_render_from_input_events = true;
+            }
+        }
+    }
+
+    let mut should_scroll_render_from_callbacks = false;
+
+    // Scroll nodes that were scrolled via the callbacks
+    for (dom_id, callback_scrolled_nodes) in scrolled_nodes {
+        if let Some(scrolled_nodes) = window.internal.scrolled_nodes.get(&dom_id) {
+            for (scroll_node_id, scroll_position) in &callback_scrolled_nodes {
+                if let Some(overflowing_node) = scrolled_nodes.overflowing_nodes.get(&scroll_node_id) {
+                    window.internal.scroll_states.set_scroll_position(&overflowing_node, *scroll_position);
+                    should_scroll_render_from_callbacks = true;
                 }
             }
-
-            should_update
         }
-        None => false,
-    };
+    }
+
+    let should_scroll_render = should_scroll_render_from_input_events || should_scroll_render_from_callbacks;
 
     ret.should_scroll_render = should_scroll_render;
 
@@ -892,7 +907,7 @@ fn do_hit_test<T>(
 
 /// Struct returned from the `call_callbacks()` function -
 /// returns important information from the callbacks
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 struct CallCallbackReturn {
     /// Whether one or more callbacks say to redraw the screen or not
     pub should_update_screen: UpdateScreen,
@@ -911,10 +926,12 @@ struct CallCallbackReturn {
 
 /// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
 fn call_callbacks<T>(
-    hit_test_results: Option<&Vec<HitTestItem>>,
     event: &WindowEvent,
-    full_window_state: &mut FullWindowState,
     window_id: &WindowId,
+    hit_test_results: Option<&Vec<HitTestItem>>,
+    full_window_state: &mut FullWindowState,
+    scroll_states: &BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    scrolled_nodes: &mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
     ui_state_map: &BTreeMap<DomId, UiState<T>>,
     app_state: &mut AppState<T>
 ) -> Result<CallCallbackReturn, RuntimeError> {
@@ -934,10 +951,6 @@ fn call_callbacks<T>(
     let mut default_timers = FastHashMap::default();
     let mut default_tasks = Vec::new();
 
-    // ScrollStates(pub(crate) FastHashMap<ExternalScrollId, ScrollState>);
-    let current_scroll_states = BTreeMap::new(); // TODO: get all currently scrollable nodes and store their positions
-    let mut scrolled_nodes = BTreeMap::new(); // Nodes scrolled inside the callbacks
-
     // Run all default callbacks - **before** the user-defined callbacks are run!
     for dom_id in ui_state_map.keys().cloned() {
         for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
@@ -947,7 +960,6 @@ fn call_callbacks<T>(
                 let mut new_focus = None;
                 let mut timers = FastHashMap::default();
                 let mut tasks = Vec::new();
-
 
                 if app_state.windows[window_id].default_callbacks.get(default_callback_id).cloned().and_then(|(callback_ptr, callback_fn)| {
                     let info = DefaultCallbackInfoUnchecked {
@@ -959,8 +971,8 @@ fn call_callbacks<T>(
                             tasks: &mut tasks,
                         },
                         focus_target: &mut new_focus,
-                        current_scroll_states: &current_scroll_states,
-                        scrolled_nodes: &mut scrolled_nodes,
+                        current_scroll_states: scroll_states,
+                        scrolled_nodes,
                         window_id,
                         hit_dom_node: (dom_id.clone(), *node_id),
                         ui_state: ui_state_map,
@@ -1003,8 +1015,8 @@ fn call_callbacks<T>(
                 if (callback.0)(CallbackInfo {
                     state: app_state,
                     focus_target: &mut new_focus,
-                    current_scroll_states: &current_scroll_states,
-                    scrolled_nodes: &mut scrolled_nodes,
+                    current_scroll_states: &scroll_states,
+                    scrolled_nodes,
                     window_id,
                     hit_dom_node: (dom_id.clone(), *node_id),
                     ui_state: ui_state_map,
@@ -1056,7 +1068,7 @@ fn update_display_list<T>(
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
     // Make sure unused scroll states are garbage collected.
-    window.scroll_states.remove_unused_scroll_states();
+    window.internal.scroll_states.remove_unused_scroll_states();
 
     unsafe { window.display.gl_window().make_current().unwrap() };
 
@@ -1248,7 +1260,7 @@ fn render_inner<T>(
         window.state.size.hidpi_factor as f32
     );
     txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(window.internal.pipeline_id));
-    scroll_all_nodes(&mut window.scroll_states, &mut txn);
+    scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
     txn.generate_frame();
 
     fake_display.render_api.send_transaction(window.internal.document_id, txn);

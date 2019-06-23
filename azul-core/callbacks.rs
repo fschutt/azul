@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
 };
-use azul_css::{LayoutPoint, CssPath};
+use azul_css::{LayoutPoint, LayoutRect, CssPath};
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use {
@@ -12,7 +12,7 @@ use {
     async::TerminateTimer,
     dom::{Dom, DomId, NodeType, NodeData},
     ui_state::UiState,
-    ui_solver::PositionedRectangle,
+    ui_solver::{PositionedRectangle, LayoutedRectangle},
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
     window::{FakeWindow, KeyboardState, MouseState, WindowId, LogicalSize, PhysicalSize},
@@ -67,8 +67,16 @@ pub type ItemTag = (u64, u16);
 /// Having this extra Id field enables them to generate `PipelineId` without collision.
 pub type PipelineSourceId = u32;
 
-/// (x, y) position of where to scroll to, in pixel
-pub type ScrollPosition = (f32, f32);
+/// Information about a scroll frame, given to the user by the framework
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct ScrollPosition {
+    /// How big is the scroll rect (i.e. the union of all children)?
+    pub scroll_frame_rect: LayoutRect,
+    /// How big is the parent container (so that things like "scroll to left edge" can be implemented)?
+    pub parent_rect: LayoutedRectangle,
+    /// Where (measured from the top left corner) is the frame currently scrolled to?
+    pub scroll_location: LayoutPoint,
+}
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
@@ -176,7 +184,7 @@ pub struct DefaultCallbackInfoUnchecked<'a, T> {
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
     pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub scrolled_nodes: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    pub scrolled_nodes: &'a mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'a WindowId,
@@ -203,7 +211,7 @@ pub struct DefaultCallbackInfo<'a, T, U> {
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
     pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub scrolled_nodes: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    pub scrolled_nodes: &'a mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'a WindowId,
@@ -267,7 +275,7 @@ pub struct CallbackInfo<'a, 'b, T: 'a> {
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
     pub current_scroll_states: &'b BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub scrolled_nodes: &'b mut BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    pub scrolled_nodes: &'b mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
     /// The ID of the window that the event was clicked on (for indexing into
     /// `app_state.windows`). `app_state.windows[event.window]` should never panic.
     pub window_id: &'b WindowId,
@@ -471,7 +479,9 @@ macro_rules! impl_callback_info_api {() => (
         self.window().layout_result.get(&dom_id)?.layouted_glyph_cache.get(&node_id)
     }
 
-    /// Returns the current position (before)
+    /// Returns information about the current scroll position of a node, such as the
+    /// size of the scroll frame, the position of the scroll in the parent (how far the node has been scrolled),
+    /// as well as the size of the parent node (so that things like "scroll to left edge", etc. are easy to calculate).
     pub fn get_current_scroll_position(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<ScrollPosition> {
         self.current_scroll_states.get(&dom_id)?.get(node_id).cloned()
     }
@@ -579,17 +589,17 @@ macro_rules! impl_callback_info_api {() => (
     }
 
     /// Scrolls a node to a certain position
-    pub fn scroll_node(&mut self, (dom_id, node_id): &(DomId, NodeId), position: ScrollPosition) {
+    pub fn scroll_node(&mut self, (dom_id, node_id): &(DomId, NodeId), scroll_location: LayoutPoint) {
         self.scrolled_nodes
             .entry(dom_id.clone())
             .or_insert_with(|| BTreeMap::default())
-            .insert(*node_id, position);
+            .insert(*node_id, scroll_location);
     }
 
     /// Scrolls a node to a certain position
-    pub fn scroll_target(&mut self, position: ScrollPosition) {
+    pub fn scroll_target(&mut self, scroll_location: LayoutPoint) {
         let target = self.hit_dom_node.clone(); // borrowing issue
-        self.scroll_node(&target, position);
+        self.scroll_node(&target, scroll_location);
     }
 
     /// Set the focus_target to a certain div by parsing a string.
