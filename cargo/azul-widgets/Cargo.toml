@@ -19,13 +19,14 @@ autoexamples = false
 path = "../../azul-widgets/lib.rs"
 
 [dependencies]
-azul-core               = { version = "0.1.0",                  path = "../azul-core"                               }
-azul-css                = { version = "0.1.0",                  path = "../azul-css"                                }
-gleam                   = { version = "0.6",                    optional = true                                     }
-lyon                    = { version = "0.11.0",                 optional = true, default-features = false           }
-usvg                    = { version = "0.3.0",                  optional = true, default-features = false           }
-serde_derive            = { version = "1",                      optional = true                                     }
-serde                   = { version = "1",                      optional = true                                     }
+azul-core               = { version = "0.1.0",  default-features = false,                   path = "../azul-core" }
+azul-css                = { version = "0.1.0",  default-features = false,                   path = "../azul-css"  }
+gleam                   = { version = "0.6",    default-features = false, optional = true                         }
+lyon                    = { version = "0.11.0", default-features = false, optional = true                         }
+usvg                    = { version = "0.3.0",  default-features = false, optional = true                         }
+serde_derive            = { version = "1",      default-features = false, optional = true                         }
+serde                   = { version = "1",      default-features = false, optional = true                         }
+stb_truetype            = { version = "0.2.6",  default-features = false, optional = true                         }
 
 [features]
 default = []
@@ -37,5 +38,7 @@ svg = ["lyon", "gleam"]
 # want to draw shapes on the screen, you do not need to activate this feature,
 # this is just for parsing the SVG from a file.
 svg_parsing = ["usvg", "svg"]
+# Necessary for getting the glyphs out of a TTF font (until harfbuzz / etc. would implement something like this)
+fonts = ["stb_truetype"]
 # For serializing / deserializing CSS colors using serde
 serde_serialization = ["serde_derive", "serde"]

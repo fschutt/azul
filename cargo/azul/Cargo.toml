@@ -21,21 +21,18 @@ autoexamples = false
 path = "../../azul/lib.rs"
 
 [dependencies]
-azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"             }
-azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"            }
-azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout"          }
 gleam                   = { version = "0.6",            default-features = false                                                    }
 glutin                  = { version = "0.22.0-alpha1",  default-features = false                                                    }
-euclid                  = { version = "0.19.4",         default-features = false                                                    }
-rusttype                = { version = "0.7.3",          default-features = false                                                    }
 app_units               = { version = "0.7.1",          default-features = false                                                    }
 unicode-normalization   = { version = "0.1.7",          default-features = false                                                    }
-lazy_static             = { version = "1.2.0",          default-features = false                                                    }
 tinyfiledialogs         = { version = "3.3.5",          default-features = false                                                    }
 clipboard2              = { version = "0.1.1",          default-features = false                                                    }
 font-loader             = { version = "0.8.0",          default-features = false                                                    }
 xmlparser               = { version = "0.6.1",          default-features = false                                                    }
 harfbuzz-sys            = { version = "0.3.0",          default-features = false                                                    }
+azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"             }
+azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"            }
+azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout"          }
 azul-css-parser         = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-css-parser"      }
 azul-widgets            = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-widgets"         }
 azul-native-style       = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-native-style"    }
@@ -45,8 +42,6 @@ log                     = { version = "0.4.6",          default-features = false
 stb_truetype            = { version = "0.2.2",          default-features = false, optional = true                                   }
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                   }
 backtrace               = { version = "0.3.12",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
-lyon                    = { version = "0.11.0",         default-features = false, optional = true                                   }
-usvg                    = { version = "0.3.0",          default-features = false, optional = true                                   }
 image                   = { version = "0.20.1",         default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"] }
 
 # Linux: Use webrender with freetype feature enabled

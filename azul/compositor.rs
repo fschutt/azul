@@ -15,37 +15,31 @@ pub fn new_opengl_texture_id() -> usize {
     LAST_OPENGL_ID.fetch_add(1, Ordering::SeqCst)
 }
 
-lazy_static! {
-
-    /// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
-    /// as WebRender needs it for drawing. To transparently do this, we store the epoch that the
-    /// texture was originally created with, and check, **after we have drawn the frame**,
-    /// if there are any textures that need cleanup.
-    ///
-    /// Because the Texture2d is wrapped in an Rc, the destructor (which cleans up the OpenGL
-    /// texture) does not run until we remove the textures
-    ///
-    /// Note: Because textures could be used after the current draw call (ex. for scrolling),
-    /// the ACTIVE_GL_TEXTURES are indexed by their epoch. Use `renderer.flush_pipeline_info()`
-    /// to see which textures are still active and which ones can be safely removed.
-    ///
-    /// See: https://github.com/servo/webrender/issues/2940
-    pub(crate) static ref ACTIVE_GL_TEXTURES: Mutex<FastHashMap<Epoch, FastHashMap<ExternalImageId, ActiveTexture>>> = Mutex::new(FastHashMap::default());
-}
-
-/// The Texture struct is public to the user
+/// Non-cleaned up textures. When a GlTexture is registered, it has to stay active as long
+/// as WebRender needs it for drawing. To transparently do this, we store the epoch that the
+/// texture was originally created with, and check, **after we have drawn the frame**,
+/// if there are any textures that need cleanup.
 ///
-/// With this wrapper struct we can implement Send + Sync, but we don't want to do that
-/// on the Texture itself
-#[derive(Debug)]
-pub(crate) struct ActiveTexture {
-    pub(crate) texture: Texture,
-}
+/// Because the Texture2d is wrapped in an Rc, the destructor (which cleans up the OpenGL
+/// texture) does not run until we remove the textures
+///
+/// Note: Because textures could be used after the current draw call (ex. for scrolling),
+/// the ACTIVE_GL_TEXTURES are indexed by their epoch. Use `renderer.flush_pipeline_info()`
+/// to see which textures are still active and which ones can be safely removed.
+///
+/// See: https://github.com/servo/webrender/issues/2940
+///
+/// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever be misused)
+static mut ACTIVE_GL_TEXTURES: Option<FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>>> = None;
 
-// necessary because of lazy_static rules - theoretically unsafe,
-// but we do addition / removal of textures on the main thread
-unsafe impl Send for ActiveTexture { }
-unsafe impl Sync for ActiveTexture { }
+/// This function exists so azul doesn't have to use lazy_static or similar
+pub(crate) fn get_active_gl_textures() -> &'static mut FastHashMap<Epoch, FastHashMap<ExternalImageId, ActiveTexture>> {
+    if ACTIVE_GL_TEXTURES.is_none() {
+        unsafe { ACTIVE_GL_TEXTURES = Some(FastHashMap::default()) };
+    }
+
+    ACTIVE_GL_TEXTURES.as_mut().unwrap()
+}
 
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct Compositor { }

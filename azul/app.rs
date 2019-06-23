@@ -7,7 +7,7 @@ use glutin::WindowEvent;
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
-    api::{ DevicePixel, LayoutSize, Epoch, Transaction },
+    api::{ DevicePixel, LayoutSize, DeviceIntSize, Epoch, Transaction },
 };
 use log::LevelFilter;
 use azul_css::{ColorU, LayoutPoint};
@@ -47,8 +47,6 @@ use webrender::api::{WorldPoint, HitTestFlags};
 #[cfg(test)]
 use app_resources::FakeRenderApi;
 pub use azul_core::app::*; // {App, AppState, AppStateNoData, RuntimeError}
-
-type DeviceIntSize = ::euclid::TypedSize2D<i32, DevicePixel>;
 
 // Default clear color is white, to signify that there is rendering going on
 // (otherwise, "transparent") backgrounds would be painted black.
@@ -1180,7 +1178,7 @@ fn update_scroll_state(
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
 
-    use compositor::ACTIVE_GL_TEXTURES;
+    use compositor::get_active_gl_textures;
 
     // TODO: currently active epochs can be empty, why?
     //
@@ -1200,12 +1198,10 @@ fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo) {
     // Epoch(44), Epoch(45), which are currently active.
     let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
 
-    let mut active_textures_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
-
     // Retain all OpenGL textures from epochs higher than the lowest epoch
     //
     // TODO: Handle overflow of Epochs correctly (low priority)
-    active_textures_lock.retain(|key, _| key > oldest_to_remove_epoch);
+    get_active_gl_textures().retain(|key, _| key > oldest_to_remove_epoch);
 }
 
 // We don't want the epoch to increase to u32::MAX, since
