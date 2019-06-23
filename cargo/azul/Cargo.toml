@@ -21,53 +21,71 @@ autoexamples = false
 path = "../../azul/lib.rs"
 
 [dependencies]
-azul-css                = { version = "0.1.0",                path = "../azul-css"                              }
-azul-core               = { version = "0.1.0",                path = "../azul-core"                             }
-azul-layout             = { version = "0.1.0",                path = "../azul-layout"                           }
-azul-css-parser         = { version = "0.1.0",                path = "../azul-css-parser",      optional = true }
-azul-widgets            = { version = "0.1.0",                path = "../azul-widgets",         optional = true }
-azul-native-style       = { version = "0.1.0",                path = "../azul-native-style",    optional = true }
-azul-dependencies       = { version = "0.1.0",                git = "https://github.com/maps4print/azul-dependencies", rev = "bf2933b9aac43a7003278862772250398e4fa457" }
-serde_derive            = { version = "1",                    optional = true }
-serde                   = { version = "1",                    optional = true }
-gleam                   = { version = "0.6"                                                                     }
+azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"             }
+azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"            }
+azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout"          }
+gleam                   = { version = "0.6",            default-features = false                                                    }
+glutin                  = { version = "0.22.0-alpha1",  default-features = false                                                    }
+euclid                  = { version = "0.19.4",         default-features = false                                                    }
+rusttype                = { version = "0.7.3",          default-features = false                                                    }
+app_units               = { version = "0.7.1",          default-features = false                                                    }
+unicode-normalization   = { version = "0.1.7",          default-features = false                                                    }
+lazy_static             = { version = "1.2.0",          default-features = false                                                    }
+tinyfiledialogs         = { version = "3.3.5",          default-features = false                                                    }
+clipboard2              = { version = "0.1.1",          default-features = false                                                    }
+font-loader             = { version = "0.8.0",          default-features = false                                                    }
+xmlparser               = { version = "0.6.1",          default-features = false                                                    }
+harfbuzz-sys            = { version = "0.3.0",          default-features = false                                                    }
+azul-css-parser         = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-css-parser"      }
+azul-widgets            = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-widgets"         }
+azul-native-style       = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-native-style"    }
+serde_derive            = { version = "1",              default-features = false, optional = true                                   }
+serde                   = { version = "1",              default-features = false, optional = true                                   }
+log                     = { version = "0.4.6",          default-features = false, optional = true                                   }
+stb_truetype            = { version = "0.2.2",          default-features = false, optional = true                                   }
+fern                    = { version = "0.5.7",          default-features = false, optional = true                                   }
+backtrace               = { version = "0.3.12",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
+lyon                    = { version = "0.11.0",         default-features = false, optional = true                                   }
+usvg                    = { version = "0.3.0",          default-features = false, optional = true                                   }
+image                   = { version = "0.20.1",         default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"] }
+
+# Linux: Use webrender with freetype feature enabled
+[target.'cfg(target_os = "linux")'.dependencies]
+webrender = { version = "0.58.0", default-features = false }
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+webrender = { version = "0.58.0", default-features = false }
 
 [features]
-# The "SVG" feature only enables the creation of shapes / polygons, etc. not the actual parsing
-# (which needs the `svg_parsing` feature).
-default = [
-    "logging",
-    "widgets",
-    "native_style",
-    "css_parser",
-]
+default = ["logging", "widgets", "native_style", "css_parser"]
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details
-logging = ["azul-dependencies/logging"]
-# If you want an application icon, you can either load it via the raw
-# RGBA bytes or use the icon_loading feature to decode it from a PNG / JPG /
-# whatever image format on startup. Note that this will import the image
-# dependency and use a bit of extra runtime.
-icon_loading = ["azul-dependencies/icon_loading"]
+logging = ["fern", "backtrace", "log"]
 # For serializing / deserializing CSS colors using serde
-serde_serialization = ["azul-dependencies/serde_serialization", "azul-widgets/serde_serialization", "serde_derive", "serde"]
-serde_serialization_css = ["azul-css-parser/serde_serialization", "serde_serialization"]
+serde_serialization = ["serde", "serde_derive"]
+# Enable / diable the CSS parser
+css_parser = ["azul-core/css_parser", "azul-css-parser"]
+# Enable / disable the built-in widgets
+widgets = ["azul-widgets"]
+# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
+svg = ["widgets", "azul-widgets/svg"]
+# Enable / disable the SVG parser (requires usvg)
+svg_parsing = ["svg", "azul-widgets/svg_parsing"]
+# Enable / disable the OS-native CSS style loader
+native_style = ["azul-native-style"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
-image_loading = ["azul-dependencies/image_loading"]
+image_loading = ["image"]
 # Features to load extra image formats
-ico = ["azul-dependencies/ico"]
-tga = ["azul-dependencies/tga"]
-hdr = ["azul-dependencies/hdr"]
-jpeg_rayon = ["azul-dependencies/jpeg_rayon"]
-dxt = ["azul-dependencies/dxt"]
-webp = ["azul-dependencies/webp"]
-css_parser = ["azul-core/css_parser", "azul-css-parser"]
-widgets = ["azul-widgets"]
-native_style = ["azul-native-style"]
-svg_parsing = ["azul-widgets/svg_parsing"]
-svg = ["azul-widgets/svg"]
+ico = ["image/ico"]
+tga = ["image/tga"]
+hdr = ["image/hdr"]
+jpeg_rayon = ["image/jpeg_rayon"]
+dxt = ["image/dxt"]
+webp = ["image/webp"]
+pnm = ["image/pnm"]
+
+## -----------
 
 [[example]]
 name = "async"
@@ -119,11 +137,6 @@ required-features = ["svg_parsing"]
 name = "table"
 path = "../../examples/table/table.rs"
 required-features = []
-
-# [[example]]
-# name = "text_editor"
-# path = "../../examples/text_editor/text_editor.rs"
-# required-features = []
 
 [[example]]
 name = "text_input"

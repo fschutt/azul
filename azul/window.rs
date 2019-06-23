@@ -11,16 +11,16 @@ use webrender::{
     Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
     // renderer::RendererError; -- not currently public in WebRender
 };
-use glium::{
-    IncompatibleOpenGl, Display, SwapBuffersError,
-    debug::DebugCallbackBehavior,
-    glutin::{
-        EventsLoop, ContextTrait, CombinedContext, CreationError,
-        MonitorId, ContextError, ContextBuilder, Window as GliumWindow,
-        WindowBuilder as GliumWindowBuilder, Context,
-    },
-    backend::glutin::DisplayCreationError,
+use glutin::{
+    EventsLoop, ContextTrait, CombinedContext, CreationError,
+    MonitorId, ContextError, ContextBuilder, Window as GliumWindow,
+    WindowBuilder as GliumWindowBuilder, Context, DisplayCreationError,
 };
+// use glium::{
+//     IncompatibleOpenGl, Display, SwapBuffersError,
+//     debug::DebugCallbackBehavior,
+//     backend::glutin::DisplayCreationError,
+// };
 use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use azul_css::{Css, ColorU, LayoutPoint, LayoutRect};
@@ -40,7 +40,7 @@ use azul_core::{
     window::WindowId,
 };
 pub use webrender::api::HitTestItem;
-pub use glium::glutin::AvailableMonitorsIter;
+pub use glutin::AvailableMonitorsIter;
 pub use azul_core::window::*;
 pub use window_state::*;
 
@@ -125,8 +125,9 @@ pub enum WindowCreateError {
     Context(ContextError),
     /// Could not create a window
     CreateError(CreationError),
-    /// Could not swap the front & back buffers
-    SwapBuffers(::glium::SwapBuffersError),
+    // TODO: Replace with glutin error type
+    // /// Could not swap the front & back buffers
+    // SwapBuffers(::glium::SwapBuffersError),
     /// IO error
     Io(::std::io::Error),
     /// WebRender creation error (probably OpenGL missing?)
@@ -138,14 +139,13 @@ impl_display! {WindowCreateError, {
         Gl(e) => format!("{}", e),
         Context(e) => format!("{}", e),
         CreateError(e) => format!("{}", e),
-        SwapBuffers(e) => format!("{}", e),
         Io(e) => format!("{}", e),
         WebGlNotSupported => "WebGl is not supported by WebRender",
         Renderer => "Webrender creation error (probably OpenGL missing?)",
     }
 }
 
-impl_from!(SwapBuffersError, WindowCreateError::SwapBuffers);
+// impl_from!(SwapBuffersError, WindowCreateError::SwapBuffers);
 impl_from!(CreationError, WindowCreateError::CreateError);
 impl_from!(IoError, WindowCreateError::Io);
 impl_from!(IncompatibleOpenGl, WindowCreateError::Gl);
@@ -192,11 +192,11 @@ impl WindowMonitorTarget {
         use self::WindowMonitorTarget::*;
 
         #[cfg(target_os = "linux")]
-        use glium::glutin::os::unix::MonitorIdExt;
+        use glutin::os::unix::MonitorIdExt;
         #[cfg(target_os = "windows")]
-        use glium::glutin::os::windows::MonitorIdExt;
+        use glutin::os::windows::MonitorIdExt;
         #[cfg(target_os = "macos")]
-        use glium::glutin::os::macos::MonitorIdExt;
+        use glutin::os::macos::MonitorIdExt;
 
         match self {
             Primary => None,
@@ -459,12 +459,12 @@ impl<T> Window<T> {
         // // TODO: Platform-specific options!
         // #[cfg(target_os = "windows")] {
         //     if let Some(icon) = options.taskbar_icon.clone() {
-        //         use glium::glutin::os::windows::WindowBuilderExt;
+        //         use glutin::os::windows::WindowBuilderExt;
         //         window = window.with_taskbar_icon(Some(icon));
         //     }
         //
         //     // if options.no_redirection_bitmap {
-        //     //     use glium::glutin::os::windows::WindowBuilderExt;
+        //     //     use glutin::os::windows::WindowBuilderExt;
         //     //     window = window.with_no_redirection_bitmap(true);
         //     // }
         // }
@@ -814,7 +814,7 @@ impl FakeDisplay {
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
         fn get_gl_context(gl_window: &CombinedContext) -> Result<Rc<dyn Gl>, WindowCreateError> {
-            use glium::glutin::Api;
+            use glutin::Api;
             match gl_window.get_api() {
                 Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
                 Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
@@ -1046,7 +1046,7 @@ fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventsLoop) -> f32 
 
     use std::env;
     use std::process::Command;
-    use glium::glutin::os::unix::EventsLoopExt;
+    use glutin::os::unix::EventsLoopExt;
 
     let winit_dpi = monitor.get_hidpi_factor() as f32;
     let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
