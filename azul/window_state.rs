@@ -3,7 +3,7 @@ use std::{
     fmt,
     path::PathBuf,
 };
-use glium::glutin::{
+use glutin::{
     WindowEvent, KeyboardInput, ElementState,
     MouseScrollDelta, ModifiersState,
     dpi::LogicalPosition as WinitLogicalPosition,
@@ -26,8 +26,8 @@ pub(crate) mod winit_translate {
 
     use super::{LogicalPosition, LogicalSize};
     use super::{PhysicalPosition, PhysicalSize};
-    use glium::glutin::dpi::{LogicalPosition as WinitLogicalPosition, LogicalSize as WinitLogicalSize};
-    use glium::glutin::dpi::{PhysicalPosition as WinitPhysicalPosition, PhysicalSize as WinitPhysicalSize};
+    use glutin::dpi::{LogicalPosition as WinitLogicalPosition, LogicalSize as WinitLogicalSize};
+    use glutin::dpi::{PhysicalPosition as WinitPhysicalPosition, PhysicalSize as WinitPhysicalSize};
 
     pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
         WinitLogicalPosition::new(input.x as f64, input.y as f64)
@@ -47,7 +47,7 @@ pub(crate) mod winit_translate {
     }
 
     use azul_core::window::MouseCursorType;
-    use glium::glutin::MouseCursor as WinitMouseCursorType;
+    use glutin::MouseCursor as WinitMouseCursorType;
 
     pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitMouseCursorType {
         use azul_core::window::MouseCursorType::*;
@@ -768,7 +768,7 @@ fn update_misc_events(window_state: &mut FullWindowState, event: &WindowEvent) {
 
 fn get_window_events(window_state: &mut FullWindowState, event: &WindowEvent) -> HashSet<WindowEventFilter> {
 
-    use glium::glutin::MouseButton::*;
+    use glutin::MouseButton::*;
 
     let mut events_vec = HashSet::<WindowEventFilter>::new();
 
