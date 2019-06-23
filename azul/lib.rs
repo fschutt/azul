@@ -139,7 +139,6 @@ extern crate azul_css;
 extern crate azul_core;
 extern crate azul_layout;
 extern crate glutin;
-extern crate euclid;
 extern crate webrender;
 extern crate app_units;
 extern crate unicode_normalization;

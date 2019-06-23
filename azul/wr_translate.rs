@@ -1,8 +1,8 @@
 //! Type translation functions (from azul-css to webrender types)
 //!
-//! The reason for doing this is so that azul-css doesn't depend on webrender or euclid
+//! The reason for doing this is so that azul-core doesn't depend on webrender
 //! (since webrender is a huge dependency) just to use the types. Only if you depend on
-//! azul, you have to depend on webrender.
+//! azul (not azul-core), you have to depend on webrender.
 
 use webrender::api::{
     LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
