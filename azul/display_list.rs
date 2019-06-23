@@ -780,7 +780,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 
     use gleam::gl;
     use {
-        compositor::{ActiveTexture, ACTIVE_GL_TEXTURES},
+        compositor::{ActiveTexture, get_active_gl_textures},
         wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key, wr_translate_image_descriptor},
         app_resources::ImageInfo,
     };
@@ -846,7 +846,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     let key = referenced_mutable_content.render_api.new_image_key();
     let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
 
-    ACTIVE_GL_TEXTURES.lock().unwrap()
+    get_active_gl_textures()
         .entry(rectangle.epoch).or_insert_with(|| FastHashMap::default())
         .insert(external_image_id, ActiveTexture { texture });
 
