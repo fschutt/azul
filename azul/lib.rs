@@ -134,12 +134,20 @@
 #![deny(missing_copy_implementations)]
 #![deny(clippy::all)]
 
-#[macro_use(warn, error, lazy_static)]
-extern crate azul_dependencies;
 extern crate azul_native_style;
 extern crate azul_css;
 extern crate azul_core;
 extern crate azul_layout;
+extern crate glutin;
+extern crate euclid;
+extern crate webrender;
+extern crate app_units;
+extern crate unicode_normalization;
+extern crate tinyfiledialogs;
+extern crate clipboard2;
+extern crate font_loader;
+extern crate xmlparser;
+extern crate harfbuzz_sys;
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
@@ -149,6 +157,14 @@ extern crate serde;
 extern crate serde_derive;
 #[cfg(feature = "widgets")]
 extern crate azul_widgets;
+#[cfg(feature = "logging")]
+extern crate log;
+#[cfg(feature = "logging")]
+extern crate fern;
+#[cfg(feature = "logging")]
+extern crate backtrace;
+#[cfg(feature = "image_loading")]
+extern crate image;
 
 #[cfg(feature = "widgets")]
 pub mod widgets {
@@ -188,26 +204,6 @@ pub mod widgets {
         }
     }
 }
-
-pub(crate) use azul_dependencies::glium as glium;
-pub(crate) use azul_dependencies::euclid;
-pub(crate) use azul_dependencies::webrender;
-pub(crate) use azul_dependencies::app_units;
-pub(crate) use azul_dependencies::unicode_normalization;
-pub(crate) use azul_dependencies::tinyfiledialogs;
-pub(crate) use azul_dependencies::clipboard2;
-pub(crate) use azul_dependencies::font_loader;
-pub(crate) use azul_dependencies::xmlparser;
-pub(crate) use azul_dependencies::harfbuzz_sys;
-
-#[cfg(feature = "logging")]
-pub(crate) use azul_dependencies::log;
-#[cfg(feature = "logging")]
-pub(crate) use azul_dependencies::fern;
-#[cfg(feature = "logging")]
-pub(crate) use azul_dependencies::backtrace;
-#[cfg(feature = "image_loading")]
-pub(crate) use azul_dependencies::image;
 
 // Crate-internal macros
 #[macro_use]

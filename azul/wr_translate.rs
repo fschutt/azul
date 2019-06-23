@@ -65,7 +65,7 @@ use azul_css::{
     LayoutSideOffsets as CssLayoutSideOffsets,
 };
 use app_units::Au as WrAu;
-use glium::glutin::{VirtualKeyCode as WinitVirtualKeyCode, MouseCursor as WinitCursorType};
+use glutin::{VirtualKeyCode as WinitVirtualKeyCode, MouseCursor as WinitCursorType};
 
 #[inline(always)]
 pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {

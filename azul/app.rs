@@ -3,7 +3,7 @@ use std::{
     time::Instant,
     collections::BTreeMap,
 };
-use glium::glutin::WindowEvent;
+use glutin::WindowEvent;
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
@@ -309,7 +309,7 @@ impl<T> App<T> {
     fn run_inner(&mut self) -> Result<(), RuntimeError> {
 
         use std::{thread, time::Duration};
-        use glium::glutin::{Event, WindowId as GliumWindowId};
+        use glutin::{Event, WindowId as GlutinWindowId};
         use ui_state::{ui_state_from_dom, ui_state_from_app_state};
         use azul_core::app::RuntimeError::*;
 
@@ -325,9 +325,9 @@ impl<T> App<T> {
 
             let time_start = Instant::now();
 
-            let glium_window_id_to_window_id = self.windows.iter()
+            let glutin_window_id_to_window_id = self.windows.iter()
                 .map(|(window_id, window)| (window.display.gl_window().id(), *window_id))
-                .collect::<BTreeMap<GliumWindowId, WindowId>>();
+                .collect::<BTreeMap<GlutinWindowId, WindowId>>();
 
             let mut events = BTreeMap::new();
 
@@ -335,7 +335,7 @@ impl<T> App<T> {
                 // Filter out all events that are uninteresting or unnecessary
                 // Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
                 Event::WindowEvent { window_id, event } => {
-                    if let Some(wid) = glium_window_id_to_window_id.get(&window_id) {
+                    if let Some(wid) = glutin_window_id_to_window_id.get(&window_id) {
                         events.entry(wid).or_insert_with(|| Vec::new()).push(event);
                     }
                 },
@@ -1063,7 +1063,7 @@ fn update_display_list<T>(
         wr_translate_pipeline_id,
         wr_translate_display_list,
     };
-    use glium::glutin::ContextTrait;
+    use glutin::ContextTrait;
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
@@ -1224,7 +1224,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 // have been committed before this function is called.
 //
 // WebRender doesn't reset the active shader back to what it was, but rather sets it
-// to zero, which glium doesn't know about, so on the next frame it tries to draw with shader 0.
+// to zero, which glutin doesn't know about, so on the next frame it tries to draw with shader 0.
 // This leads to problems when invoking GlCallbacks, because those don't expect
 // the OpenGL state to change between calls. Also see: https://github.com/servo/webrender/pull/2880
 //
@@ -1238,7 +1238,7 @@ fn render_inner<T>(
     background_color: ColorU,
 ) {
 
-    use glium::glutin::ContextTrait;
+    use glutin::ContextTrait;
     use webrender::api::{DeviceIntRect, DeviceIntPoint};
     use azul_css::ColorF;
     use wr_translate;
