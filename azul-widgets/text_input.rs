@@ -134,7 +134,7 @@ pub fn text_input_on_virtual_key_down<T>(info: DefaultCallbackInfo<T, TextInputS
 
     let DefaultCallbackInfo { data, state, window_id, .. } = info;
     let keyboard_state = state.windows[window_id].get_keyboard_state();
-    let last_keycode = keyboard_state.latest_virtual_keycode?;
+    let last_keycode = keyboard_state.current_virtual_keycode?;
 
     match last_keycode {
         VirtualKeyCode::Back => {
