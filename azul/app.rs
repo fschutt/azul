@@ -3,7 +3,7 @@ use std::{
     time::Instant,
     collections::BTreeMap,
 };
-use glutin::WindowEvent;
+use glutin::event::WindowEvent;
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
@@ -307,7 +307,7 @@ impl<T> App<T> {
     fn run_inner(&mut self) -> Result<(), RuntimeError> {
 
         use std::{thread, time::Duration};
-        use glutin::{Event, WindowId as GlutinWindowId};
+        use glutin::{window:: WindowId as GlutinWindowId, event::Event};
         use ui_state::{ui_state_from_dom, ui_state_from_app_state};
         use azul_core::app::RuntimeError::*;
 
@@ -888,7 +888,7 @@ fn do_hit_test<T>(
 
     use wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
 
-    let cursor_location = full_window_state.mouse_state.cursor_pos.get_position().map(|pos| WorldPoint::new(pos.x, pos.y))?;
+    let cursor_location = full_window_state.mouse_state.cursor_position.get_position().map(|pos| WorldPoint::new(pos.x, pos.y))?;
 
     let mut hit_test_results: Vec<HitTestItem> = fake_display.render_api.hit_test(
         window.internal.document_id,
@@ -1061,7 +1061,6 @@ fn update_display_list<T>(
         wr_translate_pipeline_id,
         wr_translate_display_list,
     };
-    use glutin::ContextTrait;
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
@@ -1234,7 +1233,6 @@ fn render_inner<T>(
     background_color: ColorU,
 ) {
 
-    use glutin::ContextTrait;
     use webrender::api::{DeviceIntRect, DeviceIntPoint};
     use azul_css::ColorF;
     use wr_translate;
@@ -1344,10 +1342,10 @@ fn render_inner<T>(
 
     // The initial setup can lead to flickering during startup, by default
     // the window is hidden until the first frame has been rendered.
-    if window.create_options.state.is_visible && window.state.is_visible {
+    if window.create_options.state.flags.is_visible && window.state.flags.is_visible {
         window.display.gl_window().window().show();
-        window.state.is_visible = true;
-        window.create_options.state.is_visible = false;
+        window.state.flags.is_visible = true;
+        window.create_options.state.flags.is_visible = false;
     }
 }
 
@@ -1424,43 +1422,22 @@ fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags
 
     use webrender::DebugFlags;
 
-    if old_flags.profiler_dbg != new_flags.profiler_dbg {
-        r.set_debug_flag(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
-    }
-    if old_flags.render_target_dbg != new_flags.render_target_dbg {
-        r.set_debug_flag(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
-    }
-    if old_flags.texture_cache_dbg != new_flags.texture_cache_dbg {
-        r.set_debug_flag(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
-    }
-    if old_flags.gpu_time_queries != new_flags.gpu_time_queries {
-        r.set_debug_flag(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
-    }
-    if old_flags.gpu_sample_queries != new_flags.gpu_sample_queries {
-        r.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
-    }
-    if old_flags.disable_batching != new_flags.disable_batching {
-        r.set_debug_flag(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
-    }
-    if old_flags.epochs != new_flags.epochs {
-        r.set_debug_flag(DebugFlags::EPOCHS, new_flags.epochs);
-    }
-    if old_flags.compact_profiler != new_flags.compact_profiler {
-        r.set_debug_flag(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
-    }
-    if old_flags.echo_driver_messages != new_flags.echo_driver_messages {
-        r.set_debug_flag(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
-    }
-    if old_flags.new_frame_indicator != new_flags.new_frame_indicator {
-        r.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
-    }
-    if old_flags.new_scene_indicator != new_flags.new_scene_indicator {
-        r.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
-    }
-    if old_flags.show_overdraw != new_flags.show_overdraw {
-        r.set_debug_flag(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
-    }
-    if old_flags.gpu_cache_dbg != new_flags.gpu_cache_dbg {
-        r.set_debug_flag(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
-    }
+    // Set all flags to false
+    let mut debug_flags = DebugFlags::empty();
+
+    debug_flags.set(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
+    debug_flags.set(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
+    debug_flags.set(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
+    debug_flags.set(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
+    debug_flags.set(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
+    debug_flags.set(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
+    debug_flags.set(DebugFlags::EPOCHS, new_flags.epochs);
+    debug_flags.set(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
+    debug_flags.set(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+    debug_flags.set(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
+    debug_flags.set(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
+    debug_flags.set(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
+    debug_flags.set(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
+
+    r.set_debug_flags(debug_flags);
 }

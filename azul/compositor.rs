@@ -37,7 +37,6 @@ pub(crate) fn get_active_gl_textures() -> &'static mut FastHashMap<Epoch, FastHa
     if ACTIVE_GL_TEXTURES.is_none() {
         unsafe { ACTIVE_GL_TEXTURES = Some(FastHashMap::default()) };
     }
-
     ACTIVE_GL_TEXTURES.as_mut().unwrap()
 }
 
@@ -53,8 +52,6 @@ impl Default for Compositor {
 impl ExternalImageHandler for Compositor {
     fn lock(&mut self, key: ExternalImageId, _channel_index: u8, _rendering: ImageRendering) -> ExternalImage {
 
-        let gl_tex_lock = ACTIVE_GL_TEXTURES.lock().unwrap();
-
         // Search all epoch hash maps for the given key
         // There does not seem to be a way to get the epoch for the key,
         // so we simply have to search all active epochs
@@ -65,7 +62,7 @@ impl ExternalImageHandler for Compositor {
         // we encounter an invalid ID, webrender simply won't draw anything,
         // but at least it won't crash. Usually invalid textures are also 0x0
         // pixels large - so it's not like we had anything to draw anyway.
-        let (tex, wh) = gl_tex_lock
+        let (tex, wh) = get_active_gl_textures()
             .values()
             .filter_map(|epoch_map| epoch_map.get(&key))
             .next()
