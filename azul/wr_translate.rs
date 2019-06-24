@@ -49,7 +49,7 @@ use azul_core::{
         StyleBorderRadius,
     },
     ui_solver::ExternalScrollId,
-    window::LogicalSize,
+    window::{LogicalSize, WaylandTheme, TaskBarIcon, WindowIcon},
 };
 use azul_css::{
     LayoutSize, LayoutPoint, LayoutRect,
@@ -65,7 +65,16 @@ use azul_css::{
     LayoutSideOffsets as CssLayoutSideOffsets,
 };
 use app_units::Au as WrAu;
-use glutin::{VirtualKeyCode as WinitVirtualKeyCode, MouseCursor as WinitCursorType};
+use glutin::{
+    event::VirtualKeyCode as WinitVirtualKeyCode,
+    window::{
+        CursorIcon as WinitCursorIcon,
+        BadIcon as WinitBadIcon,
+        Icon as WinitIcon,
+    },
+};
+#[cfg(target_os = "linux")]
+use glutin::platform::unix::WaylandTheme as WinitWaylandTheme;
 
 #[inline(always)]
 pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {
@@ -302,43 +311,73 @@ pub const fn wr_translate_css_layout_rect(input: WrLayoutRect) -> CssLayoutRect 
 }
 
 #[inline]
-pub(crate) fn winit_translate_cursor(input: MouseCursorType) -> WinitCursorType {
+pub(crate) fn winit_translate_window_icon(input: WindowIcon) -> Result<WinitIcon, WinitBadIcon> {
     match input {
-        MouseCursorType::Default => WinitCursorType::Default,
-        MouseCursorType::Crosshair => WinitCursorType::Crosshair,
-        MouseCursorType::Hand => WinitCursorType::Hand,
-        MouseCursorType::Arrow => WinitCursorType::Arrow,
-        MouseCursorType::Move => WinitCursorType::Move,
-        MouseCursorType::Text => WinitCursorType::Text,
-        MouseCursorType::Wait => WinitCursorType::Wait,
-        MouseCursorType::Help => WinitCursorType::Help,
-        MouseCursorType::Progress => WinitCursorType::Progress,
-        MouseCursorType::NotAllowed => WinitCursorType::NotAllowed,
-        MouseCursorType::ContextMenu => WinitCursorType::ContextMenu,
-        MouseCursorType::Cell => WinitCursorType::Cell,
-        MouseCursorType::VerticalText => WinitCursorType::VerticalText,
-        MouseCursorType::Alias => WinitCursorType::Alias,
-        MouseCursorType::Copy => WinitCursorType::Copy,
-        MouseCursorType::NoDrop => WinitCursorType::NoDrop,
-        MouseCursorType::Grab => WinitCursorType::Grab,
-        MouseCursorType::Grabbing => WinitCursorType::Grabbing,
-        MouseCursorType::AllScroll => WinitCursorType::AllScroll,
-        MouseCursorType::ZoomIn => WinitCursorType::ZoomIn,
-        MouseCursorType::ZoomOut => WinitCursorType::ZoomOut,
-        MouseCursorType::EResize => WinitCursorType::EResize,
-        MouseCursorType::NResize => WinitCursorType::NResize,
-        MouseCursorType::NeResize => WinitCursorType::NeResize,
-        MouseCursorType::NwResize => WinitCursorType::NwResize,
-        MouseCursorType::SResize => WinitCursorType::SResize,
-        MouseCursorType::SeResize => WinitCursorType::SeResize,
-        MouseCursorType::SwResize => WinitCursorType::SwResize,
-        MouseCursorType::WResize => WinitCursorType::WResize,
-        MouseCursorType::EwResize => WinitCursorType::EwResize,
-        MouseCursorType::NsResize => WinitCursorType::NsResize,
-        MouseCursorType::NeswResize => WinitCursorType::NeswResize,
-        MouseCursorType::NwseResize => WinitCursorType::NwseResize,
-        MouseCursorType::ColResize => WinitCursorType::ColResize,
-        MouseCursorType::RowResize => WinitCursorType::RowResize,
+        WindowIcon::Small { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 16, 16),
+        WindowIcon::Large { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 32, 32),
+    }
+}
+
+#[inline]
+pub(crate) fn winit_translate_taskbar_icon(input: TaskBarIcon) -> Result<WinitIcon, WinitBadIcon> {
+    WinitIcon::from_rgba(input.rgba_bytes, 256, 256)
+}
+
+#[cfg(target_os = "linux")]
+#[inline]
+pub(crate) fn winit_translate_wayland_theme(input: WaylandTheme) -> WinitWaylandTheme {
+    WinitWaylandTheme {
+        primary_active: input.primary_active,
+        primary_inactive: input.primary_inactive,
+        secondary_active: input.secondary_active,
+        secondary_inactive: input.secondary_inactive,
+        close_button_hovered: input.close_button_hovered,
+        close_button: input.close_button,
+        maximize_button_hovered: input.maximize_button_hovered,
+        maximize_button: input.maximize_button,
+        minimize_button_hovered: input.minimize_button_hovered,
+        minimize_button: input.minimize_button,
+    }
+}
+
+#[inline]
+pub(crate) fn winit_translate_cursor_icon(input: MouseCursorType) -> WinitCursorIcon {
+    match input {
+        MouseCursorType::Default => WinitCursorIcon::Default,
+        MouseCursorType::Crosshair => WinitCursorIcon::Crosshair,
+        MouseCursorType::Hand WinitCursorIcon> WinitCursorType::Hand,
+        MouseCursorType::Arrow => WinitCursorIcon::Arrow,
+        MouseCursorType::Move WinitCursorIcon> WinitCursorType::Move,
+        MouseCursorType::Text WinitCursorIcon> WinitCursorType::Text,
+        MouseCursorType::Wait WinitCursorIcon> WinitCursorType::Wait,
+        MouseCursorType::Help WinitCursorIcon> WinitCursorType::Help,
+        MouseCursorType::Progress => WinitCursorIcon::Progress,
+        MouseCursorType::NotAllowed => WinitCursorIcon::NotAllowed,
+        MouseCursorType::ContextMenu => WinitCursorIcon::ContextMenu,
+        MouseCursorType::Cell WinitCursorIcon> WinitCursorType::Cell,
+        MouseCursorType::VerticalText => WinitCursorIcon::VerticalText,
+        MouseCursorType::Alias => WinitCursorIcon::Alias,
+        MouseCursorType::Copy WinitCursorIcon> WinitCursorType::Copy,
+        MouseCursorType::NoDrop => WinitCursorIcon::NoDrop,
+        MouseCursorType::Grab WinitCursorIcon> WinitCursorType::Grab,
+        MouseCursorType::Grabbing => WinitCursorIcon::Grabbing,
+        MouseCursorType::AllScroll => WinitCursorIcon::AllScroll,
+        MouseCursorType::ZoomIn => WinitCursorIcon::ZoomIn,
+        MouseCursorType::ZoomOut => WinitCursorIcon::ZoomOut,
+        MouseCursorType::EResize => WinitCursorIcon::EResize,
+        MouseCursorType::NResize => WinitCursorIcon::NResize,
+        MouseCursorType::NeResize => WinitCursorIcon::NeResize,
+        MouseCursorType::NwResize => WinitCursorIcon::NwResize,
+        MouseCursorType::SResize => WinitCursorIcon::SResize,
+        MouseCursorType::SeResize => WinitCursorIcon::SeResize,
+        MouseCursorType::SwResize => WinitCursorIcon::SwResize,
+        MouseCursorType::WResize => WinitCursorIcon::WResize,
+        MouseCursorType::EwResize => WinitCursorIcon::EwResize,
+        MouseCursorType::NsResize => WinitCursorIcon::NsResize,
+        MouseCursorType::NeswResize => WinitCursorIcon::NeswResize,
+        MouseCursorType::NwseResize => WinitCursorIcon::NwseResize,
+        MouseCursorType::ColResize => WinitCursorIcon::ColResize,
+        MouseCursorType::RowResize => WinitCursorIcon::RowResize,
     }
 }
 
