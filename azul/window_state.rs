@@ -99,34 +99,22 @@ pub(crate) struct FullWindowState {
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
     pub position: Option<LogicalPosition>,
-    /// Is the window currently maximized
-    pub is_maximized: bool,
-    /// Is the window currently fullscreened?
-    pub is_fullscreen: bool,
-    /// Does the window have decorations (close, minimize, maximize, title bar)?
-    pub has_decorations: bool,
-    /// Is the window currently visible?
-    pub is_visible: bool,
-    /// Is the window always on top?
-    pub is_always_on_top: bool,
-    /// Whether the window is resizable
-    pub is_resizable: bool,
+    /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
+    pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
     /// Used for performance monitoring and displaying frame times (rendering-only).
     pub debug_state: DebugState,
     /// Current keyboard state - NOTE: mutating this field (currently) does nothing
     /// (doesn't get synchronized with OS-level window)!
     pub keyboard_state: KeyboardState,
-    /// Current mouse state - NOTE: mutating this field (currently) does nothing
-    /// (doesn't get synchronized with OS-level window)!
+    /// Current mouse state
     pub mouse_state: MouseState,
-    /// Sets location of IME candidate box in client area coordinates relative to the top left
-    /// Supported on all platforms.
+    /// Sets location of IME candidate box in client area coordinates
+    /// relative to the top left of the window.
     pub ime_position: Option<LogicalPosition>,
-    /// On X11, sets window urgency hint (`XUrgencyHint`). On macOs, requests user attention via
-    pub request_user_attention: bool,
-    /// Set the windows Wayland theme. Irrelevant on other platforms, set to `None`
-    pub wayland_theme: Option<WaylandTheme>,
+    /// Window options that can only be set on a certain platform
+    /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
+    pub platform_specific_options: PlatformSpecificOptions,
 
     // --
 
@@ -152,18 +140,12 @@ impl Default for FullWindowState {
             title: DEFAULT_TITLE.into(),
             size: WindowSize::default(),
             position: None,
-            is_maximized: false,
-            is_fullscreen: false,
-            has_decorations: true,
-            is_visible: true,
-            is_always_on_top: false,
-            is_resizable: true,
+            flags: WindowFlags::default(),
             debug_state: DebugState::default(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
             ime_position: None,
-            request_user_attention: false,
-            wayland_theme: None,
+            platform_specific_options: PlatformSpecificOptions::default(),
 
             // --
 
@@ -201,21 +183,51 @@ impl FullWindowState {
 
 /// Creates a FullWindowState from a regular WindowState, fills non-available
 /// fields with their default values
-pub(crate) fn full_window_state_from_normal_state(window_state: WindowState) -> FullWindowState {
+pub(crate) fn full_window_state_from_window_state(window_state: WindowState) -> FullWindowState {
     FullWindowState {
         title: window_state.title,
-        position: window_state.position,
         size: window_state.size,
-        is_maximized: window_state.is_maximized,
-        is_fullscreen: window_state.is_fullscreen,
-        has_decorations: window_state.has_decorations,
-        is_visible: window_state.is_visible,
-        is_always_on_top: window_state.is_always_on_top,
-        mouse_state: window_state.mouse_state,
-        keyboard_state: window_state.keyboard_state,
+        position: window_state.position,
+        flags: window_state.flags,
         debug_state: window_state.debug_state,
+        keyboard_state: window_state.keyboard_state,
+        mouse_state: window_state.mouse_state,
+        ime_position: window_state.ime_position,
+        platform_specific_options: window_state.platform_specific_options,
         .. Default::default()
     }
+}
+
+/// Reverse function of `full_window_state_from_window_state`
+pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowState) -> WindowState {
+    WindowState {
+        title: window_state.title.clone(),
+        size: window_state.size,
+        position: window_state.position,
+        flags: window_state.flags,
+        debug_state: window_state.debug_state,
+        keyboard_state: window_state.keyboard_state.clone(),
+        mouse_state: window_state.mouse_state,
+        ime_position: window_state.ime_position,
+        platform_specific_options: window_state.platform_specific_options,
+    }
+}
+
+/// Overwrites all fields of the `FullWindowState` with the fields of the `WindowState`,
+/// but leaves the extra fields such as `.hover_nodes` untouched
+fn update_full_window_state(
+    full_window_state: &mut FullWindowState,
+    window_state: &WindowState
+) {
+    full_window_state.title = window_state.title.clone();
+    full_window_state.size = window_state.size;
+    full_window_state.position = window_state.position;
+    full_window_state.flags = window_state.flags;
+    full_window_state.debug_state = window_state.debug_state;
+    full_window_state.keyboard_state = window_state.keyboard_state.clone();
+    full_window_state.mouse_state = window_state.mouse_state;
+    full_window_state.ime_position = window_state.ime_position;
+    full_window_state.platform_specific_options = window_state.platform_specific_options;
 }
 
 fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState, state: ModifiersState) {
@@ -684,13 +696,13 @@ fn update_mouse_cursor_position(window_state: &mut FullWindowState, event: &Wind
         WindowEvent::CursorMoved { position, .. } => {
             let world_pos_x = position.x as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
             let world_pos_y = position.y as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
-            window_state.mouse_state.cursor_pos = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
+            window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
         },
         WindowEvent::CursorLeft { .. } => {
-            window_state.mouse_state.cursor_pos = CursorPosition::OutOfWindow;
+            window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
         },
         WindowEvent::CursorEntered { .. } => {
-            window_state.mouse_state.cursor_pos = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
+            window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
         },
         _ => { }
     }
@@ -721,10 +733,10 @@ fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &Win
         } => {
             if let Some(vk) = virtual_keycode {
                 let vk = winit_translate_virtual_keycode(*vk);
-                window_state.keyboard_state.current_virtual_keycodes.insert(vk);
-                window_state.keyboard_state.latest_virtual_keycode = Some(vk);
+                window_state.keyboard_state.pressed_virtual_keycodes.insert(vk);
+                window_state.keyboard_state.current_virtual_keycode = Some(vk);
             }
-            window_state.keyboard_state.current_scancodes.insert(*scancode);
+            window_state.keyboard_state.pressed_scancodes.insert(*scancode);
         },
         // The char event is sliced inbetween a keydown and a keyup event
         // so the keyup has to clear the character again
@@ -736,16 +748,16 @@ fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &Win
         } => {
             if let Some(vk) = virtual_keycode {
                 let vk = winit_translate_virtual_keycode(*vk);
-                window_state.keyboard_state.current_virtual_keycodes.remove(&vk);
-                window_state.keyboard_state.latest_virtual_keycode = None;
+                window_state.keyboard_state.pressed_virtual_keycodes.remove(&vk);
+                window_state.keyboard_state.current_virtual_keycode = None;
             }
-            window_state.keyboard_state.current_scancodes.remove(scancode);
+            window_state.keyboard_state.pressed_scancodes.remove(scancode);
         },
         WindowEvent::Focused(false) => {
             window_state.keyboard_state.current_char = None;
-            window_state.keyboard_state.current_virtual_keycodes.clear();
-            window_state.keyboard_state.latest_virtual_keycode = None;
-            window_state.keyboard_state.current_scancodes.clear();
+            window_state.keyboard_state.pressed_virtual_keycodes.clear();
+            window_state.keyboard_state.current_virtual_keycode = None;
+            window_state.keyboard_state.pressed_scancodes.clear();
         },
         _ => { },
     }
