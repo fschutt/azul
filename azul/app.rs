@@ -39,7 +39,7 @@ use azul_core::{
     window::FakeWindow,
 };
 #[cfg(not(test))]
-use window::{ FakeDisplay, WindowCreateError, WindowCreateOptions };
+use window::{ FakeDisplay, CreationError, WindowCreateOptions };
 #[cfg(not(test))]
 use azul_css::{HotReloadHandler, Css};
 #[cfg(not(test))]
@@ -154,7 +154,7 @@ impl<T: Layout> App<T> {
     #[cfg(not(test))]
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
-    pub fn new(initial_data: T, app_config: AppConfig) -> Result<Self, WindowCreateError> {
+    pub fn new(initial_data: T, app_config: AppConfig) -> Result<Self, CreationError> {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = app_config.enable_logging {
@@ -204,11 +204,11 @@ impl<T> App<T> {
     /// Creates a new window
     #[cfg(not(test))]
     pub fn create_window(&mut self, options: WindowCreateOptions, css: Css)
-    -> Result<Window<T>, WindowCreateError>
+    -> Result<Window<T>, CreationError>
     {
         Window::new(
             &mut self.fake_display.render_api,
-            &mut self.fake_display.hidden_display.gl_window().context(),
+            self.fake_display.hidden_display.context(),
             &mut self.fake_display.hidden_events_loop,
             options,
             css,
@@ -219,10 +219,10 @@ impl<T> App<T> {
     #[cfg(debug_assertions)]
     #[cfg(not(test))]
     pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions, css_loader: Box<dyn HotReloadHandler>)
-    -> Result<Window<T>, WindowCreateError> {
+    -> Result<Window<T>, CreationError> {
         Window::new_hot_reload(
             &mut self.fake_display.render_api,
-            &mut self.fake_display.hidden_display.gl_window().context(),
+            self.fake_display.hidden_display.context(),
             &mut self.fake_display.hidden_events_loop,
             options,
             css_loader,
@@ -1326,7 +1326,7 @@ fn render_inner<T>(
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
         draw_texture_to_screen(gl_context.clone(), textures[0], framebuffer_size);
-        window.display.swap_buffers().unwrap();
+        window.display.swap_buffers().unwrap(); // warning: will block until next vsync frame!
 
         fake_display.hidden_display.gl_window().make_current().unwrap();
 
@@ -1343,7 +1343,7 @@ fn render_inner<T>(
     // The initial setup can lead to flickering during startup, by default
     // the window is hidden until the first frame has been rendered.
     if window.create_options.state.flags.is_visible && window.state.flags.is_visible {
-        window.display.gl_window().window().show();
+        window.display.window().set_visible(true);
         window.state.flags.is_visible = true;
         window.create_options.state.flags.is_visible = false;
     }

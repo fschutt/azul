@@ -16,7 +16,7 @@ use glutin::{
     window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
     monitor::{MonitorHandle, AvailableMonitorsIter},
     CreationError, ContextError, ContextBuilder, RawContext, WindowedContext,
-    NotCurrent,
+    NotCurrent, PossiblyCurrent,
 };
 use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
@@ -129,28 +129,28 @@ pub enum WindowMonitorTarget {
     /// Window should appear on the primary monitor
     Primary,
     /// Use `Window::get_available_monitors()` to select the correct monitor
-    Custom(MonitorId)
+    Custom(MonitorHandle)
 }
 
 #[cfg(target_os = "linux")]
-type NativeMonitorId = u32;
+type NativeMonitorHandle = u32;
 // HMONITOR, (*mut c_void), casted to a usize
 #[cfg(target_os = "windows")]
-type NativeMonitorId = usize;
+type NativeMonitorHandle = usize;
 #[cfg(target_os = "macos")]
-type NativeMonitorId = u32;
+type NativeMonitorHandle = u32;
 
 impl WindowMonitorTarget {
-    fn get_native_id(&self) -> Option<NativeMonitorId> {
+    fn get_native_id(&self) -> Option<NativeMonitorHandle> {
 
         use self::WindowMonitorTarget::*;
 
         #[cfg(target_os = "linux")]
-        use glutin::os::unix::MonitorIdExt;
+        use glutin::platform::unix::MonitorHandleExtUnix;
         #[cfg(target_os = "windows")]
-        use glutin::os::windows::MonitorIdExt;
+        use glutin::platform::windows::MonitorHandleExtWindows;
         #[cfg(target_os = "macos")]
-        use glutin::os::macos::MonitorIdExt;
+        use glutin::platform::macos::MonitorHandleExtMac;
 
         match self {
             Primary => None,
@@ -370,103 +370,44 @@ impl<T> Window<T> {
     /// Creates a new window
     pub(crate) fn new(
         render_api: &mut RenderApi,
-        shared_context: &Context,
+        shared_context: &RawContext<NotCurrent>,
         events_loop: &EventLoop<AzulUpdateEvent>,
         options: WindowCreateOptions,
         mut css: Css,
         background_color: ColorU,
-    ) -> Result<Self, WindowCreateError> {
+    ) -> Result<Self, CreationError> {
 
         use wr_translate::wr_translate_logical_size;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
 
-        // NOTE: Creating a new EventLoop for the new window causes a segfault.
-        // Report this to the winit developers.
-        // let events_loop = EventLoop::new();
+        // NOTE: All windows MUST have a shared EventsLoop, creating a new EventLoop for the
+        // new window causes a segfault.
 
         let is_transparent_background = background_color.a != 0;
 
         let mut window = GlutinWindowBuilder::new()
-            .with_title(options.state.title.clone())
-            .with_maximized(options.state.flags.is_maximized)
-            .with_decorations(options.state.flags.has_decorations)
-            .with_visibility(false)
-            .with_transparency(is_transparent_background)
-            .with_multitouch();
-
-        // TODO: Update winit to have:
-        //      .with_always_on_top(options.state.flags.is_always_on_top)
-        //
-        // winit 0.13 -> winit 0.15
-
-        // TODO: Add all the extensions for X11 / Mac / Windows,
-        // like setting the taskbar icon, setting the titlebar icon, etc.
-
-        // if let Some(icon) = options.window_icon.clone() {
-        //     window = window.with_window_icon(Some(icon));
-        // }
-
-        // // TODO: Platform-specific options!
-        // #[cfg(target_os = "windows")] {
-        //     if let Some(icon) = options.taskbar_icon.clone() {
-        //         use glutin::os::windows::WindowBuilderExt;
-        //         window = window.with_taskbar_icon(Some(icon));
-        //     }
-        //
-        //     // if options.no_redirection_bitmap {
-        //     //     use glutin::os::windows::WindowBuilderExt;
-        //     //     window = window.with_no_redirection_bitmap(true);
-        //     // }
-        // }
-
-        if let Some(min_dim) = options.state.size.min_dimensions {
-            // TODO: reverse logical size!
-            window.set_min_inner_size(winit_translate::translate_logical_size(min_dim));
-        }
-
-        if let Some(max_dim) = options.state.size.max_dimensions {
-            // TODO: reverse logical size!
-            window.set_max_inner_size(winit_translate::translate_logical_size(max_dim));
-        }
+            .with_multitouch()
+            .with_transparency(is_transparent_background);
 
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window, &events_loop, Some(shared_context))?;
 
-        // Hide the window until the first draw (prevents flash on startup)
-        gl_window.hide();
-
         let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
+        options.state.size.hidpi_factor = hidpi_factor;
+        options.state.size.winit_hidpi_factor = winit_hidpi_factor;
 
-        let mut state = options.state.clone();
-        state.size.hidpi_factor = hidpi_factor;
-        state.size.winit_hidpi_factor = winit_hidpi_factor;
+        // Synchronize the state from the WindowCreateOptions with the window for the first time
+        // (set maxmimization, etc.)
+        initialize_os_window(&options.state, &gl_window.window());
 
-        if options.state.flags.is_fullscreen {
-            gl_window.window().set_fullscreen(Some(gl_window.window().get_current_monitor()));
-        }
-
-        if let Some(pos) = options.state.position {
-            // TODO: reverse logical size!
-            gl_window.window().set_inner_position(winit_translate::translate_logical_position(pos));
-        }
-
-        if options.state.flags.is_maximized && !options.state.flags.is_fullscreen {
-            gl_window.window().set_maximized(true);
-        } else if !options.state.flags.is_fullscreen {
-            gl_window.window().set_inner_size(winit_translate::translate_logical_size(state.size.get_reverse_logical_size()));
-        }
-
-        // #[cfg(debug_assertions)]
-        // let display = Display::with_debug(gl_window, DebugCallbackBehavior::DebugMessageOnError)?;
-        // #[cfg(not(debug_assertions))]
-        let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
+        // Hide the window until the first draw (prevents flash on startup)
+        gl_window.set_visible(false);
 
         let framebuffer_size = {
-            let inner_logical_size = display.gl_window().get_inner_size().unwrap();
-            let (width, height): (u32, u32) = inner_logical_size.to_physical(hidpi_factor as f64).into();
-            DeviceIntSize::new(width as i32, height as i32)
+            let physical_size = options.state.size.dimensions.to_physical(hidpi_factor as f64).into();
+            DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32)
         };
 
         let document_id = render_api.add_document(framebuffer_size, 0);
@@ -481,18 +422,15 @@ impl<T> Window<T> {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
-        // let (sender, receiver) = channel();
-        // let thread = Builder::new().name(options.title.clone()).spawn(move || Self::handle_event(receiver))?;
-
         css.sort_by_specificity();
 
-        let display_list_dimensions = wr_translate_logical_size(state.size.dimensions);
+        let display_list_dimensions = wr_translate_logical_size(options.state.size.dimensions);
 
         let window = Window {
             id: WindowId::new(),
             create_options: options,
-            state,
-            display: Rc::new(display),
+            state: options.state,
+            display: gl_window,
             css,
             #[cfg(debug_assertions)]
             css_loader: None,
@@ -516,12 +454,12 @@ impl<T> Window<T> {
     #[cfg(debug_assertions)]
     pub(crate) fn new_hot_reload(
         render_api: &mut RenderApi,
-        shared_context: &Context,
+        shared_context: &RawContext<NotCurrent>,
         events_loop: &EventLoop<AzulUpdateEvent>,
         options: WindowCreateOptions,
         css_loader: Box<dyn HotReloadHandler>,
         background_color: ColorU,
-    ) -> Result<Self, WindowCreateError>  {
+    ) -> Result<Self, CreationError>  {
         let mut window = Window::new(render_api, shared_context, events_loop, options, Css::default(), background_color)?;
         window.css_loader = Some(css_loader);
         Ok(window)
@@ -533,8 +471,8 @@ impl<T> Window<T> {
     }
 
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
-    pub fn get_current_monitor(&self) -> MonitorId {
-        self.display.gl_window().window().get_current_monitor()
+    pub fn get_current_monitor(&self) -> MonitorHandle {
+        self.display.window().get_current_monitor()
     }
 }
 
@@ -565,6 +503,8 @@ pub(crate) fn synchronize_window_state_with_os_window(
     new_state: &WindowState,
     window: &GlutinWindow,
 ) {
+    use wr_translate::winit_translate::{translate_logical_position, translate_logical_size};
+
     let current_window_state = old_state.clone();
 
     if old_state.title != new_state.title {
@@ -591,24 +531,28 @@ pub(crate) fn synchronize_window_state_with_os_window(
         window.set_visible(new_state.flags.is_visible);
     }
 
+    if old_state.size.dimensions != new_state.size.dimensions {
+        window.set_inner_size(translate_logical_size(new_state.size.dimensions));
+    }
+
     if old_state.size.min_dimensions != new_state.size.min_dimensions {
-        window.set_min_inner_size(new_state.size.min_dimensions.map(|min| winit_translate::translate_logical_size(min).into()));
+        window.set_min_inner_size(new_state.size.min_dimensions.map(translate_logical_size));
     }
 
     if old_state.size.max_dimensions != new_state.size.max_dimensions {
-        window.set_max_inner_size(new_state.size.max_dimensions.map(|max| winit_translate::translate_logical_size(max).into()));
+        window.set_max_inner_size(new_state.size.max_dimensions.map(translate_logical_size));
     }
 
     if old_state.position != new_state.position {
-        window.set_outer_position(new_state.size.min_dimensions.map(|min| winit_translate::translate_logical_size(min).into()));
+        if let Some(new_position) = new_state.position {
+            window.set_outer_position(new_position.map(translate_logical_position));
+        }
     }
 
     if old_state.ime_position != new_state.ime_position {
-        window.set_ime_position(winit_translate_logical_position(new_state.ime_position));
-    }
-
-    if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon);
+        if let Some(new_ime_position) = new_state.ime_position {
+            window.set_ime_position(translate_logical_position(new_ime_position));
+        }
     }
 
     if old_state.flags.is_always_on_top != new_state.flags.is_always_on_top {
@@ -650,50 +594,60 @@ pub(crate) fn synchronize_window_state_with_os_window(
     old_state.previous_window_state = Some(Box::new(current_window_state));
 }
 
-fn synchronize_full_window_state(
+/// Do the inital synchronization of the window with the OS-level window
+fn initialize_os_window(
     new_state: &WindowState,
     window: &GlutinWindow,
 ) {
+    use wr_translate::winit_translate::{translate_logical_size, translate_logical_position};
 
-}
+    window.set_title(&new_state.title);
+    window.set_maximized(new_state.flags.is_maximized);
 
-// Windows-specific window options
-#[cfg(target_os = "windows")]
-fn synchronize_os_window_windows_extensions(
-    old_state: &WindowsWindowOptions,
-    new_state: &WindowsWindowOptions,
-    window: &GlutinWindow,
-) {
-    if old_state.no_redirection_bitmap != new_state.no_redirection_bitmap {
-        window.set_no_redirection_bitmap(new_state.no_redirection_bitmap);
-    }
-}
-
-// Linux-specific window options
-#[cfg(target_os = "linux")]
-fn synchronize_os_window_linux_extensions(
-    old_state: &LinuxWindowOptions,
-    new_state: &LinuxWindowOptions,
-    window: &GlutinWindow,
-) {
-    if old_state.request_user_attention != new_state.request_user_attention {
-        window.request_user_attention(new_state.request_user_attention);
+    if new_state.flags.is_fullscreen {
+        window.set_fullscreen(Some(window.current_monitor()));
+    } else {
+        window.set_fullscreen(None);
     }
 
-    if old_state.wayland_theme != new_state.wayland_theme {
-        window.set_wayland_theme(new_state.wayland_theme);
-    }
-}
+    window.set_decorations(new_state.flags.has_decorations);
+    window.set_visible(new_state.flags.is_visible);
+    window.set_inner_size(translate_logical_size(new_state.size.dimensions));
+    window.set_min_inner_size(new_state.size.min_dimensions.map(translate_logical_size));
+    window.set_min_inner_size(new_state.size.max_dimensions.map(translate_logical_size));
 
-// Mac-specific window options
-#[cfg(target_os = "macos")]
-fn synchronize_os_window_mac_extensions(
-    old_state: &MacWindowOptions,
-    new_state: &MacWindowOptions,
-    window: &GlutinWindow,
-) {
-    if old_state.request_user_attention != new_state.request_user_attention {
-        window.request_user_attention(new_state.request_user_attention);
+    if let Some(new_position) = new_state.position {
+        window.set_outer_position(translate_logical_position(new_position));
+    }
+
+    if let Some(new_ime_position) = new_state.ime_position {
+        window.set_ime_position(translate_logical_position(new_ime_position));
+    }
+
+    window.set_always_on_top(new_state.flags.is_always_on_top);
+    window.set_resizable(new_state.flags.is_resizable);
+
+    // mouse position, cursor type, etc.
+    initialize_mouse_state(&new_state.mouse_state, window);
+
+    // platform-specific extensions
+    #[cfg(target_os = "windows")] {
+        initialize_os_window_windows_extensions(
+            &new_state.platform_specific_options,
+            &window
+        );
+    }
+    #[cfg(target_os = "linux")] {
+        initialize_os_window_linux_extensions(
+            &new_state.platform_specific_options,
+            &window
+        );
+    }
+    #[cfg(target_os = "macos")] {
+        initialize_os_window_mac_extensions(
+            &new_state.platform_specific_options,
+            &window
+        );
     }
 }
 
@@ -702,7 +656,8 @@ fn synchronize_mouse_state(
     new_mouse_state: &MouseState,
     window: &GlutinWindow,
 ) {
-    use wr_translate::winit_translate_cursor;
+    use wr_translate::{winit_translate_cursor_icon, winit_translate::translate_logical_position};
+
     match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
         (Some(_old_mouse_cursor), None) => {
             window.set_cursor_visible(false);
@@ -725,11 +680,164 @@ fn synchronize_mouse_state(
         .unwrap_or(());
     }
 
-    if old_mouse_state.position != new_mouse_state.position {
-        window.set_cursor_position(winit_translate_cursor_position(new_mouse_state.cursor_positionition))
+    if old_mouse_state.cursor_position != new_mouse_state.cursor_position {
+        if let Some(new_cursor_position) = new_mouse_state.cursor_position.get_position() {
+            window.set_cursor_position(translate_logical_position(new_cursor_position))
+            .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
+            .unwrap_or(());
+        }
+    }
+}
+
+fn initialize_mouse_state(
+    new_mouse_state: &MouseState,
+    window: &GlutinWindow,
+) {
+    use wr_translate::{winit_translate_cursor_icon, winit_translate::translate_logical_position};
+
+    match new_mouse_state.mouse_cursor_type {
+        None => { window.set_cursor_visible(false); },
+        Some(new_mouse_cursor) => {
+            window.set_cursor_visible(true);
+            window.set_cursor_icon(winit_translate_cursor_icon(new_mouse_cursor));
+        },
+    }
+
+    window.set_cursor_grab(new_mouse_state.is_cursor_locked)
+    .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
+    .unwrap_or(());
+
+    if let Some(new_cursor_position) = new_mouse_state.cursor_position.get_position() {
+        window.set_cursor_position(translate_logical_position(new_cursor_position))
         .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
         .unwrap_or(());
     }
+}
+
+// Windows-specific window options
+#[cfg(target_os = "windows")]
+fn synchronize_os_window_windows_extensions(
+    old_state: &WindowsWindowOptions,
+    new_state: &WindowsWindowOptions,
+    window: &GlutinWindow,
+) {
+    use glutin::platform::windows::WindowExtWindows;
+
+    if old_state.no_redirection_bitmap != new_state.no_redirection_bitmap {
+        window.set_no_redirection_bitmap(new_state.no_redirection_bitmap);
+    }
+
+    if old_state.window_icon != new_state.window_icon {
+        window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
+    }
+
+    if old_state.taskbar_icon != new_state.taskbar_icon {
+        if let Some(new_taskbar_icon) = new_state.taskbar_icon {
+            window.set_taskbar_icon(new_taskbar_icon);
+        }
+    }
+}
+
+// Linux-specific window options
+#[cfg(target_os = "linux")]
+fn synchronize_os_window_linux_extensions(
+    old_state: &LinuxWindowOptions,
+    new_state: &LinuxWindowOptions,
+    window: &GlutinWindow,
+) {
+    use glutin::platform::unix::WindowExtUnix;
+    use wr_translate::{winit_translate_icon, winit_translate_wayland_theme};
+
+    if old_state.request_user_attention != new_state.request_user_attention {
+        window.set_urgent(new_state.request_user_attention);
+    }
+
+    if old_state.wayland_theme != new_state.wayland_theme {
+        if let Some(new_wayland_theme) = new_state.wayland_theme {
+            window.set_wayland_theme(winit_translate_wayland_theme(new_wayland_theme));
+        }
+    }
+
+    if old_state.window_icon != new_state.window_icon {
+        window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
+    }
+}
+
+// Mac-specific window options
+#[cfg(target_os = "macos")]
+fn synchronize_os_window_mac_extensions(
+    old_state: &MacWindowOptions,
+    new_state: &MacWindowOptions,
+    window: &GlutinWindow,
+) {
+    use glutin::platform::macos::WindowExtMacOs;
+
+    if old_state.request_user_attention != new_state.request_user_attention {
+        window.set_urgent(new_state.request_user_attention);
+    }
+}
+
+// Windows-specific window options
+#[cfg(target_os = "windows")]
+fn initialize_os_window_windows_extensions(
+    new_state: &WindowsWindowOptions,
+    window: &GlutinWindow,
+) {
+    use glutin::platform::windows::WindowExtWindows;
+
+    window.set_no_redirection_bitmap(new_state.no_redirection_bitmap);
+
+    window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
+
+    if let Some(new_taskbar_icon) = new_state.taskbar_icon {
+        window.set_taskbar_icon(new_taskbar_icon);
+    }
+}
+
+// Linux-specific window options
+#[cfg(target_os = "linux")]
+fn initialize_os_window_linux_extensions(
+    new_state: &LinuxWindowOptions,
+    window: &GlutinWindow,
+) {
+    use glutin::platform::unix::WindowExtUnix;
+    use wr_translate::{winit_translate_icon, winit_translate_wayland_theme};
+
+    window.set_urgent(new_state.request_user_attention);
+
+    if let Some(new_wayland_theme) = new_state.wayland_theme {
+        window.set_wayland_theme(winit_translate_wayland_theme(new_wayland_theme));
+    }
+
+    window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
+}
+
+// Mac-specific window options
+#[cfg(target_os = "macos")]
+fn initialize_os_window_mac_extensions(
+    new_state: &MacWindowOptions,
+    window: &GlutinWindow,
+) {
+    use glutin::platform::macos::WindowExtMacOs;
+
+    window.set_urgent(new_state.request_user_attention);
+}
+
+/// Overwrites all fields of the `FullWindowState` with the fields of the `WindowState`,
+/// but leaves the extra fields such as `.hover_nodes` untouched
+fn update_full_window_state(
+    full_window_state: &mut FullWindowState,
+    window_state: &WindowState
+) {
+    full_window_state.title = window_state.title.clone();
+    full_window_state.size = window_state.size;
+    full_window_state.position = window_state.position;
+    full_window_state.flags = window_state.flags;
+    full_window_state.debug_state = window_state.debug_state;
+    full_window_state.keyboard_state = window_state.keyboard_state.clone();
+    full_window_state.mouse_state = window_state.mouse_state;
+    full_window_state.ime_position = window_state.ime_position;
+    full_window_state.platform_specific_options = window_state.platform_specific_options;
 }
 
 #[allow(unused_variables)]
@@ -742,7 +850,7 @@ pub(crate) fn update_from_external_window_state(
     #[cfg(target_os = "linux")] {
         if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
             window_state.size.hidpi_factor = linux_get_hidpi_factor(
-                &window.get_current_monitor(),
+                &window.current_monitor(),
                 events_loop
             );
         }
@@ -791,20 +899,19 @@ pub(crate) struct FakeDisplay {
 impl FakeDisplay {
 
     /// Creates a new render + a new display, given a renderer type (software or hardware)
-    pub(crate) fn new(renderer_type: RendererType) -> Result<Self, WindowCreateError> {
+    pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
 
+        // The events loop is shared across all windows
         let events_loop = EventLoop::new_user_event();
         let window = GlutinWindowBuilder::new()
-            .with_dimensions(winit_translate::translate_logical_size(LogicalSize::new(10.0, 10.0)))
-            .with_visibility(false);
+            .with_inner_size(winit_translate::translate_logical_size(LogicalSize::new(10.0, 10.0)))
+            .with_visible(false);
 
         let gl_window = create_gl_window(window, &events_loop, None)?;
         let (dpi_factor, _) = get_hidpi_factor(&gl_window.window(), &events_loop);
-        gl_window.hide();
+        gl_window.window().set_visible(false);
 
-        unsafe { gl_window.make_current().unwrap() };
-        let gl = get_gl_context(&gl_window)?;
-        let display = Display::with_debug(gl_window, DebugCallbackBehavior::Ignore)?;
+        let gl = get_gl_context(&gl_window.make_current().unwrap())?;
 
         // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
         let notifier = Box::new(Notifier { });
@@ -812,19 +919,10 @@ impl FakeDisplay {
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
-        fn get_gl_context(gl_window: &CombinedContext) -> Result<Rc<dyn Gl>, WindowCreateError> {
-            use glutin::Api;
-            match gl_window.get_api() {
-                Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
-                Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
-                Api::WebGl => Err(WindowCreateError::WebGlNotSupported),
-            }
-        }
-
         Ok(Self {
             render_api,
             renderer: Some(renderer),
-            hidden_display: display,
+            hidden_display: gl_window,
             hidden_events_loop: events_loop,
             gl_context: gl,
         })
@@ -844,7 +942,7 @@ impl Drop for FakeDisplay {
         // (likely because the underlying surface has been destroyed). In those cases,
         // we don't de-initialize the rendered (since this is an application shutdown it
         // doesn't matter, the resources are going to get cleaned up by the OS).
-        match unsafe { self.hidden_display.gl_window().make_current() } {
+        let window = match unsafe { self.hidden_display.make_current() } {
             Ok(_) => { },
             Err(e) => {
                 #[cfg(feature = "logging")] {
@@ -854,9 +952,9 @@ impl Drop for FakeDisplay {
             },
         }
 
-        self.gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        self.gl_context.disable(gl::MULTISAMPLE);
-        self.gl_context.disable(gl::POLYGON_SMOOTH);
+        window.context().disable(gl::FRAMEBUFFER_SRGB);
+        window.context().disable(gl::MULTISAMPLE);
+        window.context().disable(gl::POLYGON_SMOOTH);
 
         if let Some(renderer) = self.renderer.take() {
             renderer.deinit();
@@ -864,11 +962,20 @@ impl Drop for FakeDisplay {
     }
 }
 
+fn get_gl_context(gl_window: &WindowedContext<PossiblyCurrent>) -> Result<Rc<dyn Gl>, CreationError> {
+    use glutin::Api;
+    match gl_window.get_api() {
+        Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
+        Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
+        Api::WebGl => Err(CreationError::WebGlNotSupported),
+    }
+}
+
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
 #[allow(unused_variables)]
 fn get_hidpi_factor(window: &GlutinWindow, events_loop: &EventLoop<AzulUpdateEvent>) -> (f32, f32) {
-    let monitor = window.get_current_monitor();
-    let winit_hidpi_factor = monitor.get_hidpi_factor();
+    let monitor = window.current_monitor();
+    let winit_hidpi_factor = monitor.hidpi_factor();
 
     #[cfg(target_os = "linux")] {
         (linux_get_hidpi_factor(&monitor, &events_loop), winit_hidpi_factor as f32)
@@ -959,7 +1066,7 @@ fn create_renderer(
     notifier: Box<Notifier>,
     renderer_type: RendererType,
     device_pixel_ratio: f32,
-) -> Result<(Renderer, RenderApi), WindowCreateError> {
+) -> Result<(Renderer, RenderApi), CreationError> {
 
     use self::RendererType::*;
 
@@ -1027,13 +1134,13 @@ fn get_xft_dpi() -> Option<f32>{
 
 /// Return the DPI on X11 systems
 #[cfg(target_os = "linux")]
-fn linux_get_hidpi_factor(monitor: &MonitorId, events_loop: &EventLoop<AzulUpdateEvent>) -> f32 {
+fn linux_get_hidpi_factor(monitor: &MonitorHandle, events_loop: &EventLoop<AzulUpdateEvent>) -> f32 {
 
     use std::env;
     use std::process::Command;
     use glutin::platform::unix::EventLoopExtUnix;
 
-    let winit_dpi = monitor.get_hidpi_factor() as f32;
+    let winit_dpi = monitor.hidpi_factor() as f32;
     let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
     let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f32>().ok());
 
