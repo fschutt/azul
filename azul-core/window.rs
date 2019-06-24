@@ -196,7 +196,7 @@ pub struct KeyboardState {
 pub struct MouseState {
     /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
     pub mouse_cursor_type: Option<MouseCursorType>,
-    /// Where is the mouse cursor currently? Set to `None` if the window is not focused? (READWRITE)
+    /// Where is the mouse cursor currently? Set to `None` if the window is not focused. (READWRITE)
     pub cursor_position: CursorPosition,
     /// Is the mouse cursor locked to the current window (important for applications like games)? (READWRITE)
     pub is_cursor_locked: bool,
@@ -284,12 +284,12 @@ pub struct DebugState {
     pub new_scene_indicator: bool,
     /// Toggles `webrender::DebugFlags::SHOW_OVERDRAW`
     pub show_overdraw: bool,
-    /// Toggles `webrender::DebugFlags::GPU_CACHE_DBG`
+    /// Toggles `webrender::DebugFlagsFGPU_CACHE_DBG`
     pub gpu_cache_dbg: bool,
 }
 
 /// State, size, etc of the window, for comparing to the last frame
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindowState {
     /// Current title of the window
     pub title: String,
@@ -757,10 +757,10 @@ pub enum VirtualKeyCode {
 // Window icon that usually appears in the top-left corner of the window
 #[derive(Debug, Clone)]
 pub enum WindowIcon {
-    /// 16x16x3 bytes icon
-    Small { key: IconKey, bytes: Vec<u8> },
-    /// 32x32x3 bytes icon
-    Large { key: IconKey, bytes: Vec<u8> },
+    /// 16x16x4 bytes icon
+    Small { key: IconKey, rgba_bytes: Vec<u8> },
+    /// 32x32x4 bytes icon
+    Large { key: IconKey, rgba_bytes: Vec<u8> },
 }
 
 impl WindowIcon {
@@ -799,11 +799,11 @@ impl ::std::hash::Hash for WindowIcon {
     }
 }
 
-/// 256x256x3 bytes window icon
+/// 256x256x4 bytes window icon
 #[derive(Debug, Clone)]
 pub struct TaskBarIcon {
     pub key: IconKey,
-    pub bytes: Vec<u8>,
+    pub rgba_bytes: Vec<u8>,
 }
 
 impl PartialEq for TaskBarIcon {

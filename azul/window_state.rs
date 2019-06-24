@@ -4,8 +4,10 @@ use std::{
     path::PathBuf,
 };
 use glutin::{
-    WindowEvent, KeyboardInput, ElementState,
-    MouseScrollDelta, ModifiersState,
+    event::{
+        WindowEvent, KeyboardInput, ElementState,
+        MouseScrollDelta, ModifiersState,
+    },
     dpi::LogicalPosition as WinitLogicalPosition,
 };
 use {
@@ -18,7 +20,7 @@ use {
 pub use azul_core::window::{
     WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
-    WaylandTheme,
+    WaylandTheme, WindowFlags, PlatformSpecificOptions,
 };
 use azul_core::callbacks::FocusTarget;
 
@@ -47,7 +49,6 @@ pub(crate) mod winit_translate {
     }
 
     use azul_core::window::MouseCursorType;
-    use glutin::MouseCursor as WinitMouseCursorType;
 
     pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitMouseCursorType {
         use azul_core::window::MouseCursorType::*;
@@ -201,33 +202,16 @@ pub(crate) fn full_window_state_from_window_state(window_state: WindowState) -> 
 /// Reverse function of `full_window_state_from_window_state`
 pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowState) -> WindowState {
     WindowState {
-        title: window_state.title.clone(),
-        size: window_state.size,
-        position: window_state.position,
-        flags: window_state.flags,
-        debug_state: window_state.debug_state,
-        keyboard_state: window_state.keyboard_state.clone(),
-        mouse_state: window_state.mouse_state,
-        ime_position: window_state.ime_position,
-        platform_specific_options: window_state.platform_specific_options,
+        title: full_window_state.title.clone(),
+        size: full_window_state.size,
+        position: full_window_state.position,
+        flags: full_window_state.flags,
+        debug_state: full_window_state.debug_state,
+        keyboard_state: full_window_state.keyboard_state.clone(),
+        mouse_state: full_window_state.mouse_state,
+        ime_position: full_window_state.ime_position,
+        platform_specific_options: full_window_state.platform_specific_options,
     }
-}
-
-/// Overwrites all fields of the `FullWindowState` with the fields of the `WindowState`,
-/// but leaves the extra fields such as `.hover_nodes` untouched
-fn update_full_window_state(
-    full_window_state: &mut FullWindowState,
-    window_state: &WindowState
-) {
-    full_window_state.title = window_state.title.clone();
-    full_window_state.size = window_state.size;
-    full_window_state.position = window_state.position;
-    full_window_state.flags = window_state.flags;
-    full_window_state.debug_state = window_state.debug_state;
-    full_window_state.keyboard_state = window_state.keyboard_state.clone();
-    full_window_state.mouse_state = window_state.mouse_state;
-    full_window_state.ime_position = window_state.ime_position;
-    full_window_state.platform_specific_options = window_state.platform_specific_options;
 }
 
 fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState, state: ModifiersState) {

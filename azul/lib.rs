@@ -157,6 +157,7 @@ extern crate serde_derive;
 #[cfg(feature = "widgets")]
 extern crate azul_widgets;
 #[cfg(feature = "logging")]
+#[cfg_attr(feature = "logging", macro_use(error, warn, log))]
 extern crate log;
 #[cfg(feature = "logging")]
 extern crate fern;
@@ -317,7 +318,7 @@ pub mod errors {
     pub use {
         app::RuntimeError,
         app_resources::{ImageReloadError, FontReloadError},
-        window::WindowCreateError,
+        window::CreationError,
     };
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
@@ -326,12 +327,12 @@ pub mod errors {
     pub enum Error {
         Resource(ResourceReloadError),
         Clipboard(ClipboardError),
-        WindowCreate(WindowCreateError),
+        WindowCreate(CreationError),
     }
 
     impl_from!(ResourceReloadError, Error::Resource);
     impl_from!(ClipboardError, Error::Clipboard);
-    impl_from!(WindowCreateError, Error::WindowCreate);
+    impl_from!(CreationError, Error::WindowCreate);
 
     #[derive(Debug)]
     pub enum ResourceReloadError {

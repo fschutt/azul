@@ -1,9 +1,8 @@
 use std::sync::{Mutex, atomic::{Ordering, AtomicUsize}};
 use webrender::{
-    ExternalImageHandler, ExternalImage, ExternalImageSource,
+    ExternalImageHandler, ExternalImage, ExternalImageSource, DevicePoint,
     api::{ExternalImageId, TexelRect, DevicePixel, Epoch, ImageRendering},
 };
-use euclid::TypedPoint2D;
 use {
     FastHashMap,
     gl::Texture,
@@ -33,7 +32,7 @@ pub fn new_opengl_texture_id() -> usize {
 static mut ACTIVE_GL_TEXTURES: Option<FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>>> = None;
 
 /// This function exists so azul doesn't have to use lazy_static or similar
-pub(crate) fn get_active_gl_textures() -> &'static mut FastHashMap<Epoch, FastHashMap<ExternalImageId, ActiveTexture>> {
+pub(crate) fn get_active_gl_textures() -> &'static mut FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>> {
     if ACTIVE_GL_TEXTURES.is_none() {
         unsafe { ACTIVE_GL_TEXTURES = Some(FastHashMap::default()) };
     }
@@ -68,15 +67,15 @@ impl ExternalImageHandler for Compositor {
             .next()
             .and_then(|tex| {
                 Some((
-                    ExternalImageSource::NativeTexture(tex.texture.texture_id),
-                    TypedPoint2D::<f32, DevicePixel>::new(tex.texture.size.width as f32, tex.texture.size.height as f32)
+                    ExternalImageSource::NativeTexture(tex.texture_id),
+                    DevicePoint::new(tex.size.width as f32, tex.size.height as f32)
                 ))
             })
-            .unwrap_or((ExternalImageSource::Invalid, TypedPoint2D::zero()));
+            .unwrap_or((ExternalImageSource::Invalid, DevicePoint::zero()));
 
         ExternalImage {
             uv: TexelRect {
-                uv0: TypedPoint2D::zero(),
+                uv0: DevicePoint::zero(),
                 uv1: wh,
             },
             source: tex,
