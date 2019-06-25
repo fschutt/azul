@@ -40,8 +40,6 @@ which closely follows the CSS flexbox model.
 
 Here is what a Hello World application in Azul looks like:
 
-![Hello World Application](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_hello_world_button.png)
-
 This application is created by the following code:
 
 ```rust
@@ -94,8 +92,6 @@ In order to comply with Rust's mutability rules, the application lifecycle in Az
 consists of three states that are called over and over again. The framework determines
 exactly when a repaint is necessary, you don't need to worry about manually repainting
 your UI:
-
-![Azul callback model](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_event_model.png)
 
 Azul works through composition instead of inheritance - widgets are composed of other
 widgets, instead of inheriting from them (since Rust does not support inheritance).
@@ -186,8 +182,6 @@ For drawing non-rectangular shapes, such as triangles, circles, polygons or SVG 
 Azul provides a GPU-accelerated 2D renderer, featuring lines drawing (incl. bezier curves),
 rects, circles, arbitrary polygons, text (incl. translation / rotation and text-on-curve
 positioning), hit-testing texts, caching and an (optional) SVG parsing module.
-
-![Azul SVG Tiger drawing](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_svg_tiger.png)
 
 [Read more about SVG drawing ...](https://github.com/maps4print/azul/wiki/SVG-drawing)
 
