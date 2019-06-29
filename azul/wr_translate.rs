@@ -69,7 +69,7 @@ pub(crate) mod winit_translate {
     use azul_core::{
         window::{
             LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition,
-            WaylandTheme, WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode,
+            WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode,
         },
     };
     use glutin::{
@@ -84,11 +84,12 @@ pub(crate) mod winit_translate {
             CursorIcon as WinitCursorIcon,
             BadIcon as WinitBadIcon,
             Icon as WinitIcon,
-            MouseCursorType as WinitMouseCursorType,
         },
     };
     #[cfg(target_os = "linux")]
     use glutin::platform::unix::WaylandTheme as WinitWaylandTheme;
+    #[cfg(target_os = "linux")]
+    use azul_core::window::WaylandTheme;
 
     pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
         WinitLogicalPosition::new(input.x as f64, input.y as f64)
@@ -106,44 +107,44 @@ pub(crate) mod winit_translate {
         WinitPhysicalSize::new(input.width as f64, input.height as f64)
     }
 
-    pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitMouseCursorType {
+    pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitCursorIcon {
         use azul_core::window::MouseCursorType::*;
         match mouse_cursor_type {
-            Default => WinitMouseCursorType::Default,
-            Crosshair => WinitMouseCursorType::Crosshair,
-            Hand => WinitMouseCursorType::Hand,
-            Arrow => WinitMouseCursorType::Arrow,
-            Move => WinitMouseCursorType::Move,
-            Text => WinitMouseCursorType::Text,
-            Wait => WinitMouseCursorType::Wait,
-            Help => WinitMouseCursorType::Help,
-            Progress => WinitMouseCursorType::Progress,
-            NotAllowed => WinitMouseCursorType::NotAllowed,
-            ContextMenu => WinitMouseCursorType::ContextMenu,
-            Cell => WinitMouseCursorType::Cell,
-            VerticalText => WinitMouseCursorType::VerticalText,
-            Alias => WinitMouseCursorType::Alias,
-            Copy => WinitMouseCursorType::Copy,
-            NoDrop => WinitMouseCursorType::NoDrop,
-            Grab => WinitMouseCursorType::Grab,
-            Grabbing => WinitMouseCursorType::Grabbing,
-            AllScroll => WinitMouseCursorType::AllScroll,
-            ZoomIn => WinitMouseCursorType::ZoomIn,
-            ZoomOut => WinitMouseCursorType::ZoomOut,
-            EResize => WinitMouseCursorType::EResize,
-            NResize => WinitMouseCursorType::NResize,
-            NeResize => WinitMouseCursorType::NeResize,
-            NwResize => WinitMouseCursorType::NwResize,
-            SResize => WinitMouseCursorType::SResize,
-            SeResize => WinitMouseCursorType::SeResize,
-            SwResize => WinitMouseCursorType::SwResize,
-            WResize => WinitMouseCursorType::WResize,
-            EwResize => WinitMouseCursorType::EwResize,
-            NsResize => WinitMouseCursorType::NsResize,
-            NeswResize => WinitMouseCursorType::NeswResize,
-            NwseResize => WinitMouseCursorType::NwseResize,
-            ColResize => WinitMouseCursorType::ColResize,
-            RowResize => WinitMouseCursorType::RowResize,
+            Default => WinitCursorIcon::Default,
+            Crosshair => WinitCursorIcon::Crosshair,
+            Hand => WinitCursorIcon::Hand,
+            Arrow => WinitCursorIcon::Arrow,
+            Move => WinitCursorIcon::Move,
+            Text => WinitCursorIcon::Text,
+            Wait => WinitCursorIcon::Wait,
+            Help => WinitCursorIcon::Help,
+            Progress => WinitCursorIcon::Progress,
+            NotAllowed => WinitCursorIcon::NotAllowed,
+            ContextMenu => WinitCursorIcon::ContextMenu,
+            Cell => WinitCursorIcon::Cell,
+            VerticalText => WinitCursorIcon::VerticalText,
+            Alias => WinitCursorIcon::Alias,
+            Copy => WinitCursorIcon::Copy,
+            NoDrop => WinitCursorIcon::NoDrop,
+            Grab => WinitCursorIcon::Grab,
+            Grabbing => WinitCursorIcon::Grabbing,
+            AllScroll => WinitCursorIcon::AllScroll,
+            ZoomIn => WinitCursorIcon::ZoomIn,
+            ZoomOut => WinitCursorIcon::ZoomOut,
+            EResize => WinitCursorIcon::EResize,
+            NResize => WinitCursorIcon::NResize,
+            NeResize => WinitCursorIcon::NeResize,
+            NwResize => WinitCursorIcon::NwResize,
+            SResize => WinitCursorIcon::SResize,
+            SeResize => WinitCursorIcon::SeResize,
+            SwResize => WinitCursorIcon::SwResize,
+            WResize => WinitCursorIcon::WResize,
+            EwResize => WinitCursorIcon::EwResize,
+            NsResize => WinitCursorIcon::NsResize,
+            NeswResize => WinitCursorIcon::NeswResize,
+            NwseResize => WinitCursorIcon::NwseResize,
+            ColResize => WinitCursorIcon::ColResize,
+            RowResize => WinitCursorIcon::RowResize,
         }
     }
 
