@@ -157,7 +157,7 @@ extern crate serde_derive;
 #[cfg(feature = "widgets")]
 extern crate azul_widgets;
 #[cfg(feature = "logging")]
-#[cfg_attr(feature = "logging", macro_use(error, warn, log))]
+#[cfg_attr(feature = "logging", macro_use(error, warn))]
 extern crate log;
 #[cfg(feature = "logging")]
 extern crate fern;
@@ -295,7 +295,7 @@ pub mod prelude {
     };
     pub use traits::{Layout, Modify};
     pub use window::{
-        AvailableMonitorsIter, Window, WindowCreateOptions,
+        Window, WindowCreateOptions, MonitorHandle,
         WindowMonitorTarget, RendererType,
         LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
         WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
@@ -318,10 +318,10 @@ pub mod errors {
     pub use {
         app::RuntimeError,
         app_resources::{ImageReloadError, FontReloadError},
-        window::CreationError,
     };
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
+    pub use glutin::CreationError;
 
     #[derive(Debug)]
     pub enum Error {

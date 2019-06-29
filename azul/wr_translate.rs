@@ -37,7 +37,6 @@ use webrender::api::{
 };
 use azul_core::{
     callbacks::{HidpiAdjustedBounds, HitTestItem, PipelineId},
-    window::{MouseCursorType, VirtualKeyCode},
     app_resources::{
         FontKey, Au, FontInstanceKey, ImageKey,
         IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor
@@ -49,10 +48,9 @@ use azul_core::{
         StyleBorderRadius,
     },
     ui_solver::ExternalScrollId,
-    window::{LogicalSize, WaylandTheme, TaskBarIcon, WindowIcon},
+    window::LogicalSize,
 };
 use azul_css::{
-    LayoutSize, LayoutPoint, LayoutRect,
     ColorU as CssColorU,
     ColorF as CssColorF,
     BorderSide as CssBorderSide,
@@ -65,24 +63,344 @@ use azul_css::{
     LayoutSideOffsets as CssLayoutSideOffsets,
 };
 use app_units::Au as WrAu;
-use glutin::{
-    event::VirtualKeyCode as WinitVirtualKeyCode,
-    window::{
-        CursorIcon as WinitCursorIcon,
-        BadIcon as WinitBadIcon,
-        Icon as WinitIcon,
-    },
-};
-#[cfg(target_os = "linux")]
-use glutin::platform::unix::WaylandTheme as WinitWaylandTheme;
+
+pub(crate) mod winit_translate {
+
+    use azul_core::{
+        window::{
+            LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition,
+            WaylandTheme, WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode,
+        },
+    };
+    use glutin::{
+        event::VirtualKeyCode as WinitVirtualKeyCode,
+        dpi::{
+            LogicalPosition as WinitLogicalPosition,
+            LogicalSize as WinitLogicalSize,
+            PhysicalPosition as WinitPhysicalPosition,
+            PhysicalSize as WinitPhysicalSize,
+        },
+        window::{
+            CursorIcon as WinitCursorIcon,
+            BadIcon as WinitBadIcon,
+            Icon as WinitIcon,
+            MouseCursorType as WinitMouseCursorType,
+        },
+    };
+    #[cfg(target_os = "linux")]
+    use glutin::platform::unix::WaylandTheme as WinitWaylandTheme;
+
+    pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
+        WinitLogicalPosition::new(input.x as f64, input.y as f64)
+    }
+
+    pub(crate) fn translate_logical_size(input: LogicalSize) -> WinitLogicalSize {
+        WinitLogicalSize::new(input.width as f64, input.height as f64)
+    }
+
+    pub(crate) fn translate_physical_position(input: PhysicalPosition) -> WinitPhysicalPosition {
+        WinitPhysicalPosition::new(input.x as f64, input.y as f64)
+    }
+
+    pub(crate) fn translate_physical_size(input: PhysicalSize) -> WinitPhysicalSize {
+        WinitPhysicalSize::new(input.width as f64, input.height as f64)
+    }
+
+    pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitMouseCursorType {
+        use azul_core::window::MouseCursorType::*;
+        match mouse_cursor_type {
+            Default => WinitMouseCursorType::Default,
+            Crosshair => WinitMouseCursorType::Crosshair,
+            Hand => WinitMouseCursorType::Hand,
+            Arrow => WinitMouseCursorType::Arrow,
+            Move => WinitMouseCursorType::Move,
+            Text => WinitMouseCursorType::Text,
+            Wait => WinitMouseCursorType::Wait,
+            Help => WinitMouseCursorType::Help,
+            Progress => WinitMouseCursorType::Progress,
+            NotAllowed => WinitMouseCursorType::NotAllowed,
+            ContextMenu => WinitMouseCursorType::ContextMenu,
+            Cell => WinitMouseCursorType::Cell,
+            VerticalText => WinitMouseCursorType::VerticalText,
+            Alias => WinitMouseCursorType::Alias,
+            Copy => WinitMouseCursorType::Copy,
+            NoDrop => WinitMouseCursorType::NoDrop,
+            Grab => WinitMouseCursorType::Grab,
+            Grabbing => WinitMouseCursorType::Grabbing,
+            AllScroll => WinitMouseCursorType::AllScroll,
+            ZoomIn => WinitMouseCursorType::ZoomIn,
+            ZoomOut => WinitMouseCursorType::ZoomOut,
+            EResize => WinitMouseCursorType::EResize,
+            NResize => WinitMouseCursorType::NResize,
+            NeResize => WinitMouseCursorType::NeResize,
+            NwResize => WinitMouseCursorType::NwResize,
+            SResize => WinitMouseCursorType::SResize,
+            SeResize => WinitMouseCursorType::SeResize,
+            SwResize => WinitMouseCursorType::SwResize,
+            WResize => WinitMouseCursorType::WResize,
+            EwResize => WinitMouseCursorType::EwResize,
+            NsResize => WinitMouseCursorType::NsResize,
+            NeswResize => WinitMouseCursorType::NeswResize,
+            NwseResize => WinitMouseCursorType::NwseResize,
+            ColResize => WinitMouseCursorType::ColResize,
+            RowResize => WinitMouseCursorType::RowResize,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn translate_window_icon(input: WindowIcon) -> Result<WinitIcon, WinitBadIcon> {
+        match input {
+            WindowIcon::Small { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 16, 16),
+            WindowIcon::Large { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 32, 32),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn translate_taskbar_icon(input: TaskBarIcon) -> Result<WinitIcon, WinitBadIcon> {
+        WinitIcon::from_rgba(input.rgba_bytes, 256, 256)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[inline]
+    pub(crate) fn translate_wayland_theme(input: WaylandTheme) -> WinitWaylandTheme {
+        WinitWaylandTheme {
+            primary_active: input.primary_active,
+            primary_inactive: input.primary_inactive,
+            secondary_active: input.secondary_active,
+            secondary_inactive: input.secondary_inactive,
+            close_button_hovered: input.close_button_hovered,
+            close_button: input.close_button,
+            maximize_button_hovered: input.maximize_button_hovered,
+            maximize_button: input.maximize_button,
+            minimize_button_hovered: input.minimize_button_hovered,
+            minimize_button: input.minimize_button,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn translate_cursor_icon(input: MouseCursorType) -> WinitCursorIcon {
+        match input {
+            MouseCursorType::Default => WinitCursorIcon::Default,
+            MouseCursorType::Crosshair => WinitCursorIcon::Crosshair,
+            MouseCursorType::Hand => WinitCursorIcon::Hand,
+            MouseCursorType::Arrow => WinitCursorIcon::Arrow,
+            MouseCursorType::Move => WinitCursorIcon::Move,
+            MouseCursorType::Text => WinitCursorIcon::Text,
+            MouseCursorType::Wait => WinitCursorIcon::Wait,
+            MouseCursorType::Help => WinitCursorIcon::Help,
+            MouseCursorType::Progress => WinitCursorIcon::Progress,
+            MouseCursorType::NotAllowed => WinitCursorIcon::NotAllowed,
+            MouseCursorType::ContextMenu => WinitCursorIcon::ContextMenu,
+            MouseCursorType::Cell => WinitCursorIcon::Cell,
+            MouseCursorType::VerticalText => WinitCursorIcon::VerticalText,
+            MouseCursorType::Alias => WinitCursorIcon::Alias,
+            MouseCursorType::Copy => WinitCursorIcon::Copy,
+            MouseCursorType::NoDrop => WinitCursorIcon::NoDrop,
+            MouseCursorType::Grab => WinitCursorIcon::Grab,
+            MouseCursorType::Grabbing => WinitCursorIcon::Grabbing,
+            MouseCursorType::AllScroll => WinitCursorIcon::AllScroll,
+            MouseCursorType::ZoomIn => WinitCursorIcon::ZoomIn,
+            MouseCursorType::ZoomOut => WinitCursorIcon::ZoomOut,
+            MouseCursorType::EResize => WinitCursorIcon::EResize,
+            MouseCursorType::NResize => WinitCursorIcon::NResize,
+            MouseCursorType::NeResize => WinitCursorIcon::NeResize,
+            MouseCursorType::NwResize => WinitCursorIcon::NwResize,
+            MouseCursorType::SResize => WinitCursorIcon::SResize,
+            MouseCursorType::SeResize => WinitCursorIcon::SeResize,
+            MouseCursorType::SwResize => WinitCursorIcon::SwResize,
+            MouseCursorType::WResize => WinitCursorIcon::WResize,
+            MouseCursorType::EwResize => WinitCursorIcon::EwResize,
+            MouseCursorType::NsResize => WinitCursorIcon::NsResize,
+            MouseCursorType::NeswResize => WinitCursorIcon::NeswResize,
+            MouseCursorType::NwseResize => WinitCursorIcon::NwseResize,
+            MouseCursorType::ColResize => WinitCursorIcon::ColResize,
+            MouseCursorType::RowResize => WinitCursorIcon::RowResize,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn translate_virtual_keycode(input: WinitVirtualKeyCode) -> VirtualKeyCode {
+        match input {
+            WinitVirtualKeyCode::Key1 => VirtualKeyCode::Key1,
+            WinitVirtualKeyCode::Key2 => VirtualKeyCode::Key2,
+            WinitVirtualKeyCode::Key3 => VirtualKeyCode::Key3,
+            WinitVirtualKeyCode::Key4 => VirtualKeyCode::Key4,
+            WinitVirtualKeyCode::Key5 => VirtualKeyCode::Key5,
+            WinitVirtualKeyCode::Key6 => VirtualKeyCode::Key6,
+            WinitVirtualKeyCode::Key7 => VirtualKeyCode::Key7,
+            WinitVirtualKeyCode::Key8 => VirtualKeyCode::Key8,
+            WinitVirtualKeyCode::Key9 => VirtualKeyCode::Key9,
+            WinitVirtualKeyCode::Key0 => VirtualKeyCode::Key0,
+            WinitVirtualKeyCode::A => VirtualKeyCode::A,
+            WinitVirtualKeyCode::B => VirtualKeyCode::B,
+            WinitVirtualKeyCode::C => VirtualKeyCode::C,
+            WinitVirtualKeyCode::D => VirtualKeyCode::D,
+            WinitVirtualKeyCode::E => VirtualKeyCode::E,
+            WinitVirtualKeyCode::F => VirtualKeyCode::F,
+            WinitVirtualKeyCode::G => VirtualKeyCode::G,
+            WinitVirtualKeyCode::H => VirtualKeyCode::H,
+            WinitVirtualKeyCode::I => VirtualKeyCode::I,
+            WinitVirtualKeyCode::J => VirtualKeyCode::J,
+            WinitVirtualKeyCode::K => VirtualKeyCode::K,
+            WinitVirtualKeyCode::L => VirtualKeyCode::L,
+            WinitVirtualKeyCode::M => VirtualKeyCode::M,
+            WinitVirtualKeyCode::N => VirtualKeyCode::N,
+            WinitVirtualKeyCode::O => VirtualKeyCode::O,
+            WinitVirtualKeyCode::P => VirtualKeyCode::P,
+            WinitVirtualKeyCode::Q => VirtualKeyCode::Q,
+            WinitVirtualKeyCode::R => VirtualKeyCode::R,
+            WinitVirtualKeyCode::S => VirtualKeyCode::S,
+            WinitVirtualKeyCode::T => VirtualKeyCode::T,
+            WinitVirtualKeyCode::U => VirtualKeyCode::U,
+            WinitVirtualKeyCode::V => VirtualKeyCode::V,
+            WinitVirtualKeyCode::W => VirtualKeyCode::W,
+            WinitVirtualKeyCode::X => VirtualKeyCode::X,
+            WinitVirtualKeyCode::Y => VirtualKeyCode::Y,
+            WinitVirtualKeyCode::Z => VirtualKeyCode::Z,
+            WinitVirtualKeyCode::Escape => VirtualKeyCode::Escape,
+            WinitVirtualKeyCode::F1 => VirtualKeyCode::F1,
+            WinitVirtualKeyCode::F2 => VirtualKeyCode::F2,
+            WinitVirtualKeyCode::F3 => VirtualKeyCode::F3,
+            WinitVirtualKeyCode::F4 => VirtualKeyCode::F4,
+            WinitVirtualKeyCode::F5 => VirtualKeyCode::F5,
+            WinitVirtualKeyCode::F6 => VirtualKeyCode::F6,
+            WinitVirtualKeyCode::F7 => VirtualKeyCode::F7,
+            WinitVirtualKeyCode::F8 => VirtualKeyCode::F8,
+            WinitVirtualKeyCode::F9 => VirtualKeyCode::F9,
+            WinitVirtualKeyCode::F10 => VirtualKeyCode::F10,
+            WinitVirtualKeyCode::F11 => VirtualKeyCode::F11,
+            WinitVirtualKeyCode::F12 => VirtualKeyCode::F12,
+            WinitVirtualKeyCode::F13 => VirtualKeyCode::F13,
+            WinitVirtualKeyCode::F14 => VirtualKeyCode::F14,
+            WinitVirtualKeyCode::F15 => VirtualKeyCode::F15,
+            WinitVirtualKeyCode::F16 => VirtualKeyCode::F16,
+            WinitVirtualKeyCode::F17 => VirtualKeyCode::F17,
+            WinitVirtualKeyCode::F18 => VirtualKeyCode::F18,
+            WinitVirtualKeyCode::F19 => VirtualKeyCode::F19,
+            WinitVirtualKeyCode::F20 => VirtualKeyCode::F20,
+            WinitVirtualKeyCode::F21 => VirtualKeyCode::F21,
+            WinitVirtualKeyCode::F22 => VirtualKeyCode::F22,
+            WinitVirtualKeyCode::F23 => VirtualKeyCode::F23,
+            WinitVirtualKeyCode::F24 => VirtualKeyCode::F24,
+            WinitVirtualKeyCode::Snapshot => VirtualKeyCode::Snapshot,
+            WinitVirtualKeyCode::Scroll => VirtualKeyCode::Scroll,
+            WinitVirtualKeyCode::Pause => VirtualKeyCode::Pause,
+            WinitVirtualKeyCode::Insert => VirtualKeyCode::Insert,
+            WinitVirtualKeyCode::Home => VirtualKeyCode::Home,
+            WinitVirtualKeyCode::Delete => VirtualKeyCode::Delete,
+            WinitVirtualKeyCode::End => VirtualKeyCode::End,
+            WinitVirtualKeyCode::PageDown => VirtualKeyCode::PageDown,
+            WinitVirtualKeyCode::PageUp => VirtualKeyCode::PageUp,
+            WinitVirtualKeyCode::Left => VirtualKeyCode::Left,
+            WinitVirtualKeyCode::Up => VirtualKeyCode::Up,
+            WinitVirtualKeyCode::Right => VirtualKeyCode::Right,
+            WinitVirtualKeyCode::Down => VirtualKeyCode::Down,
+            WinitVirtualKeyCode::Back => VirtualKeyCode::Back,
+            WinitVirtualKeyCode::Return => VirtualKeyCode::Return,
+            WinitVirtualKeyCode::Space => VirtualKeyCode::Space,
+            WinitVirtualKeyCode::Compose => VirtualKeyCode::Compose,
+            WinitVirtualKeyCode::Caret => VirtualKeyCode::Caret,
+            WinitVirtualKeyCode::Numlock => VirtualKeyCode::Numlock,
+            WinitVirtualKeyCode::Numpad0 => VirtualKeyCode::Numpad0,
+            WinitVirtualKeyCode::Numpad1 => VirtualKeyCode::Numpad1,
+            WinitVirtualKeyCode::Numpad2 => VirtualKeyCode::Numpad2,
+            WinitVirtualKeyCode::Numpad3 => VirtualKeyCode::Numpad3,
+            WinitVirtualKeyCode::Numpad4 => VirtualKeyCode::Numpad4,
+            WinitVirtualKeyCode::Numpad5 => VirtualKeyCode::Numpad5,
+            WinitVirtualKeyCode::Numpad6 => VirtualKeyCode::Numpad6,
+            WinitVirtualKeyCode::Numpad7 => VirtualKeyCode::Numpad7,
+            WinitVirtualKeyCode::Numpad8 => VirtualKeyCode::Numpad8,
+            WinitVirtualKeyCode::Numpad9 => VirtualKeyCode::Numpad9,
+            WinitVirtualKeyCode::AbntC1 => VirtualKeyCode::AbntC1,
+            WinitVirtualKeyCode::AbntC2 => VirtualKeyCode::AbntC2,
+            WinitVirtualKeyCode::Add => VirtualKeyCode::Add,
+            WinitVirtualKeyCode::Apostrophe => VirtualKeyCode::Apostrophe,
+            WinitVirtualKeyCode::Apps => VirtualKeyCode::Apps,
+            WinitVirtualKeyCode::At => VirtualKeyCode::At,
+            WinitVirtualKeyCode::Ax => VirtualKeyCode::Ax,
+            WinitVirtualKeyCode::Backslash => VirtualKeyCode::Backslash,
+            WinitVirtualKeyCode::Calculator => VirtualKeyCode::Calculator,
+            WinitVirtualKeyCode::Capital => VirtualKeyCode::Capital,
+            WinitVirtualKeyCode::Colon => VirtualKeyCode::Colon,
+            WinitVirtualKeyCode::Comma => VirtualKeyCode::Comma,
+            WinitVirtualKeyCode::Convert => VirtualKeyCode::Convert,
+            WinitVirtualKeyCode::Decimal => VirtualKeyCode::Decimal,
+            WinitVirtualKeyCode::Divide => VirtualKeyCode::Divide,
+            WinitVirtualKeyCode::Equals => VirtualKeyCode::Equals,
+            WinitVirtualKeyCode::Grave => VirtualKeyCode::Grave,
+            WinitVirtualKeyCode::Kana => VirtualKeyCode::Kana,
+            WinitVirtualKeyCode::Kanji => VirtualKeyCode::Kanji,
+            WinitVirtualKeyCode::LAlt => VirtualKeyCode::LAlt,
+            WinitVirtualKeyCode::LBracket => VirtualKeyCode::LBracket,
+            WinitVirtualKeyCode::LControl => VirtualKeyCode::LControl,
+            WinitVirtualKeyCode::LShift => VirtualKeyCode::LShift,
+            WinitVirtualKeyCode::LWin => VirtualKeyCode::LWin,
+            WinitVirtualKeyCode::Mail => VirtualKeyCode::Mail,
+            WinitVirtualKeyCode::MediaSelect => VirtualKeyCode::MediaSelect,
+            WinitVirtualKeyCode::MediaStop => VirtualKeyCode::MediaStop,
+            WinitVirtualKeyCode::Minus => VirtualKeyCode::Minus,
+            WinitVirtualKeyCode::Multiply => VirtualKeyCode::Multiply,
+            WinitVirtualKeyCode::Mute => VirtualKeyCode::Mute,
+            WinitVirtualKeyCode::MyComputer => VirtualKeyCode::MyComputer,
+            WinitVirtualKeyCode::NavigateForward => VirtualKeyCode::NavigateForward,
+            WinitVirtualKeyCode::NavigateBackward => VirtualKeyCode::NavigateBackward,
+            WinitVirtualKeyCode::NextTrack => VirtualKeyCode::NextTrack,
+            WinitVirtualKeyCode::NoConvert => VirtualKeyCode::NoConvert,
+            WinitVirtualKeyCode::NumpadComma => VirtualKeyCode::NumpadComma,
+            WinitVirtualKeyCode::NumpadEnter => VirtualKeyCode::NumpadEnter,
+            WinitVirtualKeyCode::NumpadEquals => VirtualKeyCode::NumpadEquals,
+            WinitVirtualKeyCode::OEM102 => VirtualKeyCode::OEM102,
+            WinitVirtualKeyCode::Period => VirtualKeyCode::Period,
+            WinitVirtualKeyCode::PlayPause => VirtualKeyCode::PlayPause,
+            WinitVirtualKeyCode::Power => VirtualKeyCode::Power,
+            WinitVirtualKeyCode::PrevTrack => VirtualKeyCode::PrevTrack,
+            WinitVirtualKeyCode::RAlt => VirtualKeyCode::RAlt,
+            WinitVirtualKeyCode::RBracket => VirtualKeyCode::RBracket,
+            WinitVirtualKeyCode::RControl => VirtualKeyCode::RControl,
+            WinitVirtualKeyCode::RShift => VirtualKeyCode::RShift,
+            WinitVirtualKeyCode::RWin => VirtualKeyCode::RWin,
+            WinitVirtualKeyCode::Semicolon => VirtualKeyCode::Semicolon,
+            WinitVirtualKeyCode::Slash => VirtualKeyCode::Slash,
+            WinitVirtualKeyCode::Sleep => VirtualKeyCode::Sleep,
+            WinitVirtualKeyCode::Stop => VirtualKeyCode::Stop,
+            WinitVirtualKeyCode::Subtract => VirtualKeyCode::Subtract,
+            WinitVirtualKeyCode::Sysrq => VirtualKeyCode::Sysrq,
+            WinitVirtualKeyCode::Tab => VirtualKeyCode::Tab,
+            WinitVirtualKeyCode::Underline => VirtualKeyCode::Underline,
+            WinitVirtualKeyCode::Unlabeled => VirtualKeyCode::Unlabeled,
+            WinitVirtualKeyCode::VolumeDown => VirtualKeyCode::VolumeDown,
+            WinitVirtualKeyCode::VolumeUp => VirtualKeyCode::VolumeUp,
+            WinitVirtualKeyCode::Wake => VirtualKeyCode::Wake,
+            WinitVirtualKeyCode::WebBack => VirtualKeyCode::WebBack,
+            WinitVirtualKeyCode::WebFavorites => VirtualKeyCode::WebFavorites,
+            WinitVirtualKeyCode::WebForward => VirtualKeyCode::WebForward,
+            WinitVirtualKeyCode::WebHome => VirtualKeyCode::WebHome,
+            WinitVirtualKeyCode::WebRefresh => VirtualKeyCode::WebRefresh,
+            WinitVirtualKeyCode::WebSearch => VirtualKeyCode::WebSearch,
+            WinitVirtualKeyCode::WebStop => VirtualKeyCode::WebStop,
+            WinitVirtualKeyCode::Yen => VirtualKeyCode::Yen,
+            WinitVirtualKeyCode::Copy => VirtualKeyCode::Copy,
+            WinitVirtualKeyCode::Paste => VirtualKeyCode::Paste,
+            WinitVirtualKeyCode::Cut => VirtualKeyCode::Cut,
+        }
+    }
+}
+
+#[inline]
+fn wr_translate_layouted_glyphs(input: Vec<GlyphInstance>) -> Vec<WrGlyphInstance> {
+    input.into_iter().map(|glyph| WrGlyphInstance {
+        index: glyph.index,
+        point: WrLayoutPoint::new(glyph.point.x, glyph.point.y),
+    }).collect()
+}
 
 #[inline(always)]
 pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {
     HitTestItem {
         pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
         tag: input.tag,
-        point_in_viewport: LayoutPoint::new(input.point_in_viewport.x, input.point_in_viewport.y),
-        point_relative_to_item: LayoutPoint::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
+        point_in_viewport: CssLayoutPoint::new(input.point_in_viewport.x, input.point_in_viewport.y),
+        point_relative_to_item: CssLayoutPoint::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
     }
 }
 
@@ -176,8 +494,13 @@ pub(crate) const fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipel
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_logical_size(logical_size: LogicalSize) -> LayoutSize {
-    LayoutSize::new(logical_size.width, logical_size.height)
+pub(crate) const fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSize {
+    WrLayoutSize::new(logical_size.width, logical_size.height)
+}
+
+#[inline(always)]
+pub(crate) const fn translate_logical_size_to_css_layout_size(logical_size: LogicalSize) -> CssLayoutSize {
+    CssLayoutSize::new(logical_size.width, logical_size.height)
 }
 
 #[inline]
@@ -264,7 +587,7 @@ pub const fn wr_translate_color_f(input: CssColorF) -> WrColorF {
 }
 
 #[inline]
-pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: LayoutSize) -> WrBorderRadius {
+pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: CssLayoutSize) -> WrBorderRadius {
 
     let StyleBorderRadius { top_left, top_right, bottom_left, bottom_right } = border_radius;
 
@@ -311,279 +634,33 @@ pub const fn wr_translate_css_layout_rect(input: WrLayoutRect) -> CssLayoutRect 
 }
 
 #[inline]
-pub(crate) fn winit_translate_window_icon(input: WindowIcon) -> Result<WinitIcon, WinitBadIcon> {
-    match input {
-        WindowIcon::Small { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 16, 16),
-        WindowIcon::Large { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 32, 32),
-    }
-}
-
-#[inline]
-pub(crate) fn winit_translate_taskbar_icon(input: TaskBarIcon) -> Result<WinitIcon, WinitBadIcon> {
-    WinitIcon::from_rgba(input.rgba_bytes, 256, 256)
-}
-
-#[cfg(target_os = "linux")]
-#[inline]
-pub(crate) fn winit_translate_wayland_theme(input: WaylandTheme) -> WinitWaylandTheme {
-    WinitWaylandTheme {
-        primary_active: input.primary_active,
-        primary_inactive: input.primary_inactive,
-        secondary_active: input.secondary_active,
-        secondary_inactive: input.secondary_inactive,
-        close_button_hovered: input.close_button_hovered,
-        close_button: input.close_button,
-        maximize_button_hovered: input.maximize_button_hovered,
-        maximize_button: input.maximize_button,
-        minimize_button_hovered: input.minimize_button_hovered,
-        minimize_button: input.minimize_button,
-    }
-}
-
-#[inline]
-pub(crate) fn winit_translate_cursor_icon(input: MouseCursorType) -> WinitCursorIcon {
-    match input {
-        MouseCursorType::Default => WinitCursorIcon::Default,
-        MouseCursorType::Crosshair => WinitCursorIcon::Crosshair,
-        MouseCursorType::Hand WinitCursorIcon> WinitCursorType::Hand,
-        MouseCursorType::Arrow => WinitCursorIcon::Arrow,
-        MouseCursorType::Move WinitCursorIcon> WinitCursorType::Move,
-        MouseCursorType::Text WinitCursorIcon> WinitCursorType::Text,
-        MouseCursorType::Wait WinitCursorIcon> WinitCursorType::Wait,
-        MouseCursorType::Help WinitCursorIcon> WinitCursorType::Help,
-        MouseCursorType::Progress => WinitCursorIcon::Progress,
-        MouseCursorType::NotAllowed => WinitCursorIcon::NotAllowed,
-        MouseCursorType::ContextMenu => WinitCursorIcon::ContextMenu,
-        MouseCursorType::Cell WinitCursorIcon> WinitCursorType::Cell,
-        MouseCursorType::VerticalText => WinitCursorIcon::VerticalText,
-        MouseCursorType::Alias => WinitCursorIcon::Alias,
-        MouseCursorType::Copy WinitCursorIcon> WinitCursorType::Copy,
-        MouseCursorType::NoDrop => WinitCursorIcon::NoDrop,
-        MouseCursorType::Grab WinitCursorIcon> WinitCursorType::Grab,
-        MouseCursorType::Grabbing => WinitCursorIcon::Grabbing,
-        MouseCursorType::AllScroll => WinitCursorIcon::AllScroll,
-        MouseCursorType::ZoomIn => WinitCursorIcon::ZoomIn,
-        MouseCursorType::ZoomOut => WinitCursorIcon::ZoomOut,
-        MouseCursorType::EResize => WinitCursorIcon::EResize,
-        MouseCursorType::NResize => WinitCursorIcon::NResize,
-        MouseCursorType::NeResize => WinitCursorIcon::NeResize,
-        MouseCursorType::NwResize => WinitCursorIcon::NwResize,
-        MouseCursorType::SResize => WinitCursorIcon::SResize,
-        MouseCursorType::SeResize => WinitCursorIcon::SeResize,
-        MouseCursorType::SwResize => WinitCursorIcon::SwResize,
-        MouseCursorType::WResize => WinitCursorIcon::WResize,
-        MouseCursorType::EwResize => WinitCursorIcon::EwResize,
-        MouseCursorType::NsResize => WinitCursorIcon::NsResize,
-        MouseCursorType::NeswResize => WinitCursorIcon::NeswResize,
-        MouseCursorType::NwseResize => WinitCursorIcon::NwseResize,
-        MouseCursorType::ColResize => WinitCursorIcon::ColResize,
-        MouseCursorType::RowResize => WinitCursorIcon::RowResize,
-    }
-}
-
-#[inline]
-pub(crate) fn winit_translate_virtual_keycode(input: WinitVirtualKeyCode) -> VirtualKeyCode {
-    match input {
-        WinitVirtualKeyCode::Key1 => VirtualKeyCode::Key1,
-        WinitVirtualKeyCode::Key2 => VirtualKeyCode::Key2,
-        WinitVirtualKeyCode::Key3 => VirtualKeyCode::Key3,
-        WinitVirtualKeyCode::Key4 => VirtualKeyCode::Key4,
-        WinitVirtualKeyCode::Key5 => VirtualKeyCode::Key5,
-        WinitVirtualKeyCode::Key6 => VirtualKeyCode::Key6,
-        WinitVirtualKeyCode::Key7 => VirtualKeyCode::Key7,
-        WinitVirtualKeyCode::Key8 => VirtualKeyCode::Key8,
-        WinitVirtualKeyCode::Key9 => VirtualKeyCode::Key9,
-        WinitVirtualKeyCode::Key0 => VirtualKeyCode::Key0,
-        WinitVirtualKeyCode::A => VirtualKeyCode::A,
-        WinitVirtualKeyCode::B => VirtualKeyCode::B,
-        WinitVirtualKeyCode::C => VirtualKeyCode::C,
-        WinitVirtualKeyCode::D => VirtualKeyCode::D,
-        WinitVirtualKeyCode::E => VirtualKeyCode::E,
-        WinitVirtualKeyCode::F => VirtualKeyCode::F,
-        WinitVirtualKeyCode::G => VirtualKeyCode::G,
-        WinitVirtualKeyCode::H => VirtualKeyCode::H,
-        WinitVirtualKeyCode::I => VirtualKeyCode::I,
-        WinitVirtualKeyCode::J => VirtualKeyCode::J,
-        WinitVirtualKeyCode::K => VirtualKeyCode::K,
-        WinitVirtualKeyCode::L => VirtualKeyCode::L,
-        WinitVirtualKeyCode::M => VirtualKeyCode::M,
-        WinitVirtualKeyCode::N => VirtualKeyCode::N,
-        WinitVirtualKeyCode::O => VirtualKeyCode::O,
-        WinitVirtualKeyCode::P => VirtualKeyCode::P,
-        WinitVirtualKeyCode::Q => VirtualKeyCode::Q,
-        WinitVirtualKeyCode::R => VirtualKeyCode::R,
-        WinitVirtualKeyCode::S => VirtualKeyCode::S,
-        WinitVirtualKeyCode::T => VirtualKeyCode::T,
-        WinitVirtualKeyCode::U => VirtualKeyCode::U,
-        WinitVirtualKeyCode::V => VirtualKeyCode::V,
-        WinitVirtualKeyCode::W => VirtualKeyCode::W,
-        WinitVirtualKeyCode::X => VirtualKeyCode::X,
-        WinitVirtualKeyCode::Y => VirtualKeyCode::Y,
-        WinitVirtualKeyCode::Z => VirtualKeyCode::Z,
-        WinitVirtualKeyCode::Escape => VirtualKeyCode::Escape,
-        WinitVirtualKeyCode::F1 => VirtualKeyCode::F1,
-        WinitVirtualKeyCode::F2 => VirtualKeyCode::F2,
-        WinitVirtualKeyCode::F3 => VirtualKeyCode::F3,
-        WinitVirtualKeyCode::F4 => VirtualKeyCode::F4,
-        WinitVirtualKeyCode::F5 => VirtualKeyCode::F5,
-        WinitVirtualKeyCode::F6 => VirtualKeyCode::F6,
-        WinitVirtualKeyCode::F7 => VirtualKeyCode::F7,
-        WinitVirtualKeyCode::F8 => VirtualKeyCode::F8,
-        WinitVirtualKeyCode::F9 => VirtualKeyCode::F9,
-        WinitVirtualKeyCode::F10 => VirtualKeyCode::F10,
-        WinitVirtualKeyCode::F11 => VirtualKeyCode::F11,
-        WinitVirtualKeyCode::F12 => VirtualKeyCode::F12,
-        WinitVirtualKeyCode::F13 => VirtualKeyCode::F13,
-        WinitVirtualKeyCode::F14 => VirtualKeyCode::F14,
-        WinitVirtualKeyCode::F15 => VirtualKeyCode::F15,
-        WinitVirtualKeyCode::F16 => VirtualKeyCode::F16,
-        WinitVirtualKeyCode::F17 => VirtualKeyCode::F17,
-        WinitVirtualKeyCode::F18 => VirtualKeyCode::F18,
-        WinitVirtualKeyCode::F19 => VirtualKeyCode::F19,
-        WinitVirtualKeyCode::F20 => VirtualKeyCode::F20,
-        WinitVirtualKeyCode::F21 => VirtualKeyCode::F21,
-        WinitVirtualKeyCode::F22 => VirtualKeyCode::F22,
-        WinitVirtualKeyCode::F23 => VirtualKeyCode::F23,
-        WinitVirtualKeyCode::F24 => VirtualKeyCode::F24,
-        WinitVirtualKeyCode::Snapshot => VirtualKeyCode::Snapshot,
-        WinitVirtualKeyCode::Scroll => VirtualKeyCode::Scroll,
-        WinitVirtualKeyCode::Pause => VirtualKeyCode::Pause,
-        WinitVirtualKeyCode::Insert => VirtualKeyCode::Insert,
-        WinitVirtualKeyCode::Home => VirtualKeyCode::Home,
-        WinitVirtualKeyCode::Delete => VirtualKeyCode::Delete,
-        WinitVirtualKeyCode::End => VirtualKeyCode::End,
-        WinitVirtualKeyCode::PageDown => VirtualKeyCode::PageDown,
-        WinitVirtualKeyCode::PageUp => VirtualKeyCode::PageUp,
-        WinitVirtualKeyCode::Left => VirtualKeyCode::Left,
-        WinitVirtualKeyCode::Up => VirtualKeyCode::Up,
-        WinitVirtualKeyCode::Right => VirtualKeyCode::Right,
-        WinitVirtualKeyCode::Down => VirtualKeyCode::Down,
-        WinitVirtualKeyCode::Back => VirtualKeyCode::Back,
-        WinitVirtualKeyCode::Return => VirtualKeyCode::Return,
-        WinitVirtualKeyCode::Space => VirtualKeyCode::Space,
-        WinitVirtualKeyCode::Compose => VirtualKeyCode::Compose,
-        WinitVirtualKeyCode::Caret => VirtualKeyCode::Caret,
-        WinitVirtualKeyCode::Numlock => VirtualKeyCode::Numlock,
-        WinitVirtualKeyCode::Numpad0 => VirtualKeyCode::Numpad0,
-        WinitVirtualKeyCode::Numpad1 => VirtualKeyCode::Numpad1,
-        WinitVirtualKeyCode::Numpad2 => VirtualKeyCode::Numpad2,
-        WinitVirtualKeyCode::Numpad3 => VirtualKeyCode::Numpad3,
-        WinitVirtualKeyCode::Numpad4 => VirtualKeyCode::Numpad4,
-        WinitVirtualKeyCode::Numpad5 => VirtualKeyCode::Numpad5,
-        WinitVirtualKeyCode::Numpad6 => VirtualKeyCode::Numpad6,
-        WinitVirtualKeyCode::Numpad7 => VirtualKeyCode::Numpad7,
-        WinitVirtualKeyCode::Numpad8 => VirtualKeyCode::Numpad8,
-        WinitVirtualKeyCode::Numpad9 => VirtualKeyCode::Numpad9,
-        WinitVirtualKeyCode::AbntC1 => VirtualKeyCode::AbntC1,
-        WinitVirtualKeyCode::AbntC2 => VirtualKeyCode::AbntC2,
-        WinitVirtualKeyCode::Add => VirtualKeyCode::Add,
-        WinitVirtualKeyCode::Apostrophe => VirtualKeyCode::Apostrophe,
-        WinitVirtualKeyCode::Apps => VirtualKeyCode::Apps,
-        WinitVirtualKeyCode::At => VirtualKeyCode::At,
-        WinitVirtualKeyCode::Ax => VirtualKeyCode::Ax,
-        WinitVirtualKeyCode::Backslash => VirtualKeyCode::Backslash,
-        WinitVirtualKeyCode::Calculator => VirtualKeyCode::Calculator,
-        WinitVirtualKeyCode::Capital => VirtualKeyCode::Capital,
-        WinitVirtualKeyCode::Colon => VirtualKeyCode::Colon,
-        WinitVirtualKeyCode::Comma => VirtualKeyCode::Comma,
-        WinitVirtualKeyCode::Convert => VirtualKeyCode::Convert,
-        WinitVirtualKeyCode::Decimal => VirtualKeyCode::Decimal,
-        WinitVirtualKeyCode::Divide => VirtualKeyCode::Divide,
-        WinitVirtualKeyCode::Equals => VirtualKeyCode::Equals,
-        WinitVirtualKeyCode::Grave => VirtualKeyCode::Grave,
-        WinitVirtualKeyCode::Kana => VirtualKeyCode::Kana,
-        WinitVirtualKeyCode::Kanji => VirtualKeyCode::Kanji,
-        WinitVirtualKeyCode::LAlt => VirtualKeyCode::LAlt,
-        WinitVirtualKeyCode::LBracket => VirtualKeyCode::LBracket,
-        WinitVirtualKeyCode::LControl => VirtualKeyCode::LControl,
-        WinitVirtualKeyCode::LShift => VirtualKeyCode::LShift,
-        WinitVirtualKeyCode::LWin => VirtualKeyCode::LWin,
-        WinitVirtualKeyCode::Mail => VirtualKeyCode::Mail,
-        WinitVirtualKeyCode::MediaSelect => VirtualKeyCode::MediaSelect,
-        WinitVirtualKeyCode::MediaStop => VirtualKeyCode::MediaStop,
-        WinitVirtualKeyCode::Minus => VirtualKeyCode::Minus,
-        WinitVirtualKeyCode::Multiply => VirtualKeyCode::Multiply,
-        WinitVirtualKeyCode::Mute => VirtualKeyCode::Mute,
-        WinitVirtualKeyCode::MyComputer => VirtualKeyCode::MyComputer,
-        WinitVirtualKeyCode::NavigateForward => VirtualKeyCode::NavigateForward,
-        WinitVirtualKeyCode::NavigateBackward => VirtualKeyCode::NavigateBackward,
-        WinitVirtualKeyCode::NextTrack => VirtualKeyCode::NextTrack,
-        WinitVirtualKeyCode::NoConvert => VirtualKeyCode::NoConvert,
-        WinitVirtualKeyCode::NumpadComma => VirtualKeyCode::NumpadComma,
-        WinitVirtualKeyCode::NumpadEnter => VirtualKeyCode::NumpadEnter,
-        WinitVirtualKeyCode::NumpadEquals => VirtualKeyCode::NumpadEquals,
-        WinitVirtualKeyCode::OEM102 => VirtualKeyCode::OEM102,
-        WinitVirtualKeyCode::Period => VirtualKeyCode::Period,
-        WinitVirtualKeyCode::PlayPause => VirtualKeyCode::PlayPause,
-        WinitVirtualKeyCode::Power => VirtualKeyCode::Power,
-        WinitVirtualKeyCode::PrevTrack => VirtualKeyCode::PrevTrack,
-        WinitVirtualKeyCode::RAlt => VirtualKeyCode::RAlt,
-        WinitVirtualKeyCode::RBracket => VirtualKeyCode::RBracket,
-        WinitVirtualKeyCode::RControl => VirtualKeyCode::RControl,
-        WinitVirtualKeyCode::RShift => VirtualKeyCode::RShift,
-        WinitVirtualKeyCode::RWin => VirtualKeyCode::RWin,
-        WinitVirtualKeyCode::Semicolon => VirtualKeyCode::Semicolon,
-        WinitVirtualKeyCode::Slash => VirtualKeyCode::Slash,
-        WinitVirtualKeyCode::Sleep => VirtualKeyCode::Sleep,
-        WinitVirtualKeyCode::Stop => VirtualKeyCode::Stop,
-        WinitVirtualKeyCode::Subtract => VirtualKeyCode::Subtract,
-        WinitVirtualKeyCode::Sysrq => VirtualKeyCode::Sysrq,
-        WinitVirtualKeyCode::Tab => VirtualKeyCode::Tab,
-        WinitVirtualKeyCode::Underline => VirtualKeyCode::Underline,
-        WinitVirtualKeyCode::Unlabeled => VirtualKeyCode::Unlabeled,
-        WinitVirtualKeyCode::VolumeDown => VirtualKeyCode::VolumeDown,
-        WinitVirtualKeyCode::VolumeUp => VirtualKeyCode::VolumeUp,
-        WinitVirtualKeyCode::Wake => VirtualKeyCode::Wake,
-        WinitVirtualKeyCode::WebBack => VirtualKeyCode::WebBack,
-        WinitVirtualKeyCode::WebFavorites => VirtualKeyCode::WebFavorites,
-        WinitVirtualKeyCode::WebForward => VirtualKeyCode::WebForward,
-        WinitVirtualKeyCode::WebHome => VirtualKeyCode::WebHome,
-        WinitVirtualKeyCode::WebRefresh => VirtualKeyCode::WebRefresh,
-        WinitVirtualKeyCode::WebSearch => VirtualKeyCode::WebSearch,
-        WinitVirtualKeyCode::WebStop => VirtualKeyCode::WebStop,
-        WinitVirtualKeyCode::Yen => VirtualKeyCode::Yen,
-        WinitVirtualKeyCode::Copy => VirtualKeyCode::Copy,
-        WinitVirtualKeyCode::Paste => VirtualKeyCode::Paste,
-        WinitVirtualKeyCode::Cut => VirtualKeyCode::Cut,
-    }
-}
-
-#[inline]
-fn wr_translate_layouted_glyphs(input: Vec<GlyphInstance>) -> Vec<WrGlyphInstance> {
-    input.into_iter().map(|glyph| WrGlyphInstance {
-        index: glyph.index,
-        point: WrLayoutPoint::new(glyph.point.x, glyph.point.y),
-    }).collect()
-}
-
-#[inline]
-fn wr_translate_layout_size(input: LayoutSize) -> WrLayoutSize {
+fn wr_translate_layout_size(input: CssLayoutSize) -> WrLayoutSize {
     WrLayoutSize::new(input.width, input.height)
 }
 
 #[inline]
-pub(crate) fn wr_translate_layout_point(input: LayoutPoint) -> WrLayoutPoint {
+pub(crate) fn wr_translate_layout_point(input: CssLayoutPoint) -> WrLayoutPoint {
     WrLayoutPoint::new(input.x, input.y)
 }
 
 #[inline]
-fn wr_translate_layout_rect(input: LayoutRect) -> WrLayoutRect {
+fn wr_translate_layout_rect(input: CssLayoutRect) -> WrLayoutRect {
     WrLayoutRect::new(wr_translate_layout_point(input.origin), wr_translate_layout_size(input.size))
 }
 
 #[inline]
-fn translate_layout_size_wr(input: WrLayoutSize) -> LayoutSize {
-    LayoutSize::new(input.width, input.height)
+fn translate_layout_size_wr(input: WrLayoutSize) -> CssLayoutSize {
+    CssLayoutSize::new(input.width, input.height)
 }
 
 #[inline]
-fn translate_layout_point_wr(input: WrLayoutPoint) -> LayoutPoint {
-    LayoutPoint::new(input.x, input.y)
+fn translate_layout_point_wr(input: WrLayoutPoint) -> CssLayoutPoint {
+    CssLayoutPoint::new(input.x, input.y)
 }
 
 #[inline]
-fn translate_layout_rect_wr(input: WrLayoutRect) -> LayoutRect {
-    LayoutRect::new(translate_layout_point_wr(input.origin), translate_layout_size_wr(input.size))
+fn translate_layout_rect_wr(input: WrLayoutRect) -> CssLayoutRect {
+    CssLayoutRect::new(translate_layout_point_wr(input.origin), translate_layout_size_wr(input.size))
 }
 
 #[inline]
