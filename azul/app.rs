@@ -213,7 +213,7 @@ impl<T> App<T> {
     {
         Window::new(
             &mut self.fake_display.render_api,
-            self.fake_display.hidden_display.context(),
+            &self.fake_display.hidden_display,
             &mut self.fake_display.hidden_events_loop,
             options,
             css,
