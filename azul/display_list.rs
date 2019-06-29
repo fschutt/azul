@@ -685,7 +685,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
             if let Some(layouted_glyphs) = referenced_mutable_content.layout_result[dom_id].layouted_glyph_cache.get(&rect_idx).cloned() {
 
                 use azul_core::ui_solver::DEFAULT_FONT_COLOR;
-                use wr_translate::wr_translate_logical_size;
+                use wr_translate::translate_logical_size_to_css_layout_size;
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
                 let positioned_words = &referenced_mutable_content.layout_result[dom_id].positioned_word_cache[&rect_idx];
@@ -694,7 +694,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
                 frame.content.push(get_text(
                     display_list_rect_bounds,
                     &referenced_mutable_content.layout_result[dom_id].rects[*rect_idx].padding,
-                    wr_translate_logical_size(window_size.dimensions),
+                    translate_logical_size_to_css_layout_size(window_size.dimensions),
                     layouted_glyphs,
                     font_instance_key,
                     text_color,

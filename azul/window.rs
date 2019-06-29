@@ -1,7 +1,6 @@
 use std::{
     rc::Rc,
     marker::PhantomData,
-    io::Error as IoError,
     collections::BTreeMap,
 };
 use webrender::{
@@ -12,10 +11,10 @@ use webrender::{
     // renderer::RendererError; -- not currently public in WebRender
 };
 use glutin::{
-    event_loop::{EventLoop, ControlFlow},
+    event_loop::EventLoop,
     window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
-    monitor::{MonitorHandle, AvailableMonitorsIter},
-    CreationError, ContextError, ContextBuilder, RawContext, WindowedContext,
+    monitor::MonitorHandle,
+    CreationError, ContextBuilder, RawContext, WindowedContext,
     NotCurrent, PossiblyCurrent,
 };
 use gleam::gl::{self, Gl};
@@ -37,7 +36,7 @@ use azul_core::{
     window::WindowId,
 };
 pub use webrender::api::HitTestItem;
-pub use glutin::AvailableMonitorsIter;
+pub use glutin::MonitorHandle;
 pub use azul_core::window::*;
 pub use window_state::*;
 
@@ -377,7 +376,7 @@ impl<T> Window<T> {
         background_color: ColorU,
     ) -> Result<Self, CreationError> {
 
-        use wr_translate::wr_translate_logical_size;
+        use wr_translate::translate_logical_size_to_css_layout_size;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
@@ -387,9 +386,7 @@ impl<T> Window<T> {
 
         let is_transparent_background = background_color.a != 0;
 
-        let mut window = GlutinWindowBuilder::new()
-            .with_multitouch()
-            .with_transparency(is_transparent_background);
+        let mut window = GlutinWindowBuilder::new().with_transparent(is_transparent_background);
 
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window, &events_loop, Some(shared_context))?;
@@ -403,10 +400,10 @@ impl<T> Window<T> {
         initialize_os_window(&options.state, &gl_window.window());
 
         // Hide the window until the first draw (prevents flash on startup)
-        gl_window.set_visible(false);
+        gl_window.window().set_visible(false);
 
         let framebuffer_size = {
-            let physical_size = options.state.size.dimensions.to_physical(hidpi_factor as f64).into();
+            let physical_size = options.state.size.dimensions.to_physical(hidpi_factor as f32);
             DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32)
         };
 
@@ -424,7 +421,7 @@ impl<T> Window<T> {
 
         css.sort_by_specificity();
 
-        let display_list_dimensions = wr_translate_logical_size(options.state.size.dimensions);
+        let display_list_dimensions = translate_logical_size_to_css_layout_size(options.state.size.dimensions);
 
         let window = Window {
             id: WindowId::new(),
@@ -466,13 +463,13 @@ impl<T> Window<T> {
     }
 
     /// Returns an iterator over all given monitors
-    pub fn get_available_monitors() -> AvailableMonitorsIter {
+    pub fn get_available_monitors() -> impl Iterator<Item = MonitorHandle> {
         EventLoop::new().available_monitors()
     }
 
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
     pub fn get_current_monitor(&self) -> MonitorHandle {
-        self.display.window().get_current_monitor()
+        self.display.window().current_monitor()
     }
 }
 
@@ -656,7 +653,7 @@ fn synchronize_mouse_state(
     new_mouse_state: &MouseState,
     window: &GlutinWindow,
 ) {
-    use wr_translate::{winit_translate_cursor_icon, winit_translate::translate_logical_position};
+    use wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
 
     match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
         (Some(_old_mouse_cursor), None) => {
@@ -664,11 +661,11 @@ fn synchronize_mouse_state(
         },
         (None, Some(new_mouse_cursor)) => {
             window.set_cursor_visible(true);
-            window.set_cursor_icon(winit_translate_cursor_icon(new_mouse_cursor));
+            window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
         },
         (Some(old_mouse_cursor), Some(new_mouse_cursor)) => {
             if old_mouse_cursor != new_mouse_cursor {
-                window.set_cursor_icon(winit_translate_cursor_icon(new_mouse_cursor));
+                window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
             }
         },
         (None, None) => { },
@@ -693,13 +690,13 @@ fn initialize_mouse_state(
     new_mouse_state: &MouseState,
     window: &GlutinWindow,
 ) {
-    use wr_translate::{winit_translate_cursor_icon, winit_translate::translate_logical_position};
+    use wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
 
     match new_mouse_state.mouse_cursor_type {
         None => { window.set_cursor_visible(false); },
         Some(new_mouse_cursor) => {
             window.set_cursor_visible(true);
-            window.set_cursor_icon(winit_translate_cursor_icon(new_mouse_cursor));
+            window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
         },
     }
 
@@ -722,19 +719,18 @@ fn synchronize_os_window_windows_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::windows::WindowExtWindows;
+    use wr_translate::winit_translate::{translate_window_icon, translate_taskbar_icon};
 
-    if old_state.no_redirection_bitmap != new_state.no_redirection_bitmap {
-        window.set_no_redirection_bitmap(new_state.no_redirection_bitmap);
+    if old_state.no_redirect_bitmap != new_state.no_redirect_bitmap {
+        window.set_no_redirect_bitmap(new_state.no_redirect_bitmap);
     }
 
     if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
+        window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
     }
 
     if old_state.taskbar_icon != new_state.taskbar_icon {
-        if let Some(new_taskbar_icon) = new_state.taskbar_icon {
-            window.set_taskbar_icon(new_taskbar_icon);
-        }
+        window.set_taskbar_icon(new_state.taskbar_icon.and_then(|ic| translate_taskbar_icon(ic).ok()));
     }
 }
 
@@ -746,7 +742,7 @@ fn synchronize_os_window_linux_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::unix::WindowExtUnix;
-    use wr_translate::{winit_translate_icon, winit_translate_wayland_theme};
+    use wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
 
     if old_state.request_user_attention != new_state.request_user_attention {
         window.set_urgent(new_state.request_user_attention);
@@ -754,12 +750,12 @@ fn synchronize_os_window_linux_extensions(
 
     if old_state.wayland_theme != new_state.wayland_theme {
         if let Some(new_wayland_theme) = new_state.wayland_theme {
-            window.set_wayland_theme(winit_translate_wayland_theme(new_wayland_theme));
+            window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
         }
     }
 
     if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
+        window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic)));
     }
 }
 
@@ -784,14 +780,11 @@ fn initialize_os_window_windows_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::windows::WindowExtWindows;
+    use wr_translate::winit_translate::{translate_taskbar_icon, translate_window_icon};
 
-    window.set_no_redirection_bitmap(new_state.no_redirection_bitmap);
-
-    window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
-
-    if let Some(new_taskbar_icon) = new_state.taskbar_icon {
-        window.set_taskbar_icon(new_taskbar_icon);
-    }
+    window.set_no_redirect_bitmap(new_state.no_redirect_bitmap);
+    window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
+    window.set_taskbar_icon(new_state.taskbar_icon.and_then(|ic| translate_taskbar_icon(ic).ok()));
 }
 
 // Linux-specific window options
@@ -801,15 +794,15 @@ fn initialize_os_window_linux_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::unix::WindowExtUnix;
-    use wr_translate::{winit_translate_icon, winit_translate_wayland_theme};
+    use wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
 
     window.set_urgent(new_state.request_user_attention);
 
     if let Some(new_wayland_theme) = new_state.wayland_theme {
-        window.set_wayland_theme(winit_translate_wayland_theme(new_wayland_theme));
+        window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
     }
 
-    window.set_window_icon(new_state.window_icon.map(|ic| winit_translate_icon(ic)));
+    window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic)));
 }
 
 // Mac-specific window options
@@ -901,10 +894,12 @@ impl FakeDisplay {
     /// Creates a new render + a new display, given a renderer type (software or hardware)
     pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
 
+        use wr_translate::winit_translate::translate_logical_size;
+
         // The events loop is shared across all windows
         let events_loop = EventLoop::new_user_event();
         let window = GlutinWindowBuilder::new()
-            .with_inner_size(winit_translate::translate_logical_size(LogicalSize::new(10.0, 10.0)))
+            .with_inner_size(translate_logical_size(LogicalSize::new(10.0, 10.0)))
             .with_visible(false);
 
         let gl_window = create_gl_window(window, &events_loop, None)?;
@@ -946,11 +941,11 @@ impl Drop for FakeDisplay {
             Ok(_) => { },
             Err(e) => {
                 #[cfg(feature = "logging")] {
-                    error!("Shutdown error: {}", e);
+                    error!("Shutdown error: {}", e.1);
                 }
                 return;
             },
-        }
+        };
 
         window.context().disable(gl::FRAMEBUFFER_SRGB);
         window.context().disable(gl::MULTISAMPLE);
@@ -1024,8 +1019,12 @@ fn create_window_context_builder<'a>(
         None => ContextBuilder::new(),
     };
 
+    #[cfg(debug_assertions)]
+    let gl_debug_enabled = true;
+    #[cfg(not(debug_assertions))]
+    let gl_debug_enabled = false;
     context_builder
-        .with_gl_debug_flag(#[cfg(debug_assertions)] { true } #[cfg(not(debug_assertions))] { false })
+        .with_gl_debug_flag(gl_debug_enabled)
         .with_vsync(vsync)
         .with_srgb(srgb)
 }

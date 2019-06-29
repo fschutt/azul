@@ -1,4 +1,4 @@
-use std::sync::{Mutex, atomic::{Ordering, AtomicUsize}};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::{
     ExternalImageHandler, ExternalImage, ExternalImageSource, DevicePoint,
     api::{ExternalImageId, TexelRect, DevicePixel, Epoch, ImageRendering},

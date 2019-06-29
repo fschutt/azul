@@ -24,74 +24,6 @@ pub use azul_core::window::{
 };
 use azul_core::callbacks::FocusTarget;
 
-pub(crate) mod winit_translate {
-
-    use super::{LogicalPosition, LogicalSize};
-    use super::{PhysicalPosition, PhysicalSize};
-    use glutin::dpi::{LogicalPosition as WinitLogicalPosition, LogicalSize as WinitLogicalSize};
-    use glutin::dpi::{PhysicalPosition as WinitPhysicalPosition, PhysicalSize as WinitPhysicalSize};
-
-    pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
-        WinitLogicalPosition::new(input.x as f64, input.y as f64)
-    }
-
-    pub(crate) fn translate_logical_size(input: LogicalSize) -> WinitLogicalSize {
-        WinitLogicalSize::new(input.width as f64, input.height as f64)
-
-    }
-
-    pub(crate) fn translate_physical_position(input: PhysicalPosition) -> WinitPhysicalPosition {
-        WinitPhysicalPosition::new(input.x as f64, input.y as f64)
-    }
-
-    pub(crate) fn translate_physical_size(input: PhysicalSize) -> WinitPhysicalSize {
-        WinitPhysicalSize::new(input.width as f64, input.height as f64)
-    }
-
-    use azul_core::window::MouseCursorType;
-
-    pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitMouseCursorType {
-        use azul_core::window::MouseCursorType::*;
-        match mouse_cursor_type {
-            Default => WinitMouseCursorType::Default,
-            Crosshair => WinitMouseCursorType::Crosshair,
-            Hand => WinitMouseCursorType::Hand,
-            Arrow => WinitMouseCursorType::Arrow,
-            Move => WinitMouseCursorType::Move,
-            Text => WinitMouseCursorType::Text,
-            Wait => WinitMouseCursorType::Wait,
-            Help => WinitMouseCursorType::Help,
-            Progress => WinitMouseCursorType::Progress,
-            NotAllowed => WinitMouseCursorType::NotAllowed,
-            ContextMenu => WinitMouseCursorType::ContextMenu,
-            Cell => WinitMouseCursorType::Cell,
-            VerticalText => WinitMouseCursorType::VerticalText,
-            Alias => WinitMouseCursorType::Alias,
-            Copy => WinitMouseCursorType::Copy,
-            NoDrop => WinitMouseCursorType::NoDrop,
-            Grab => WinitMouseCursorType::Grab,
-            Grabbing => WinitMouseCursorType::Grabbing,
-            AllScroll => WinitMouseCursorType::AllScroll,
-            ZoomIn => WinitMouseCursorType::ZoomIn,
-            ZoomOut => WinitMouseCursorType::ZoomOut,
-            EResize => WinitMouseCursorType::EResize,
-            NResize => WinitMouseCursorType::NResize,
-            NeResize => WinitMouseCursorType::NeResize,
-            NwResize => WinitMouseCursorType::NwResize,
-            SResize => WinitMouseCursorType::SResize,
-            SeResize => WinitMouseCursorType::SeResize,
-            SwResize => WinitMouseCursorType::SwResize,
-            WResize => WinitMouseCursorType::WResize,
-            EwResize => WinitMouseCursorType::EwResize,
-            NsResize => WinitMouseCursorType::NsResize,
-            NeswResize => WinitMouseCursorType::NeswResize,
-            NwseResize => WinitMouseCursorType::NwseResize,
-            ColResize => WinitMouseCursorType::ColResize,
-            RowResize => WinitMouseCursorType::RowResize,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FullWindowState {
     /// Current title of the window
@@ -710,13 +642,13 @@ fn update_scroll_state(window_state: &mut FullWindowState, event: &WindowEvent) 
 
 /// Updates self.keyboard_state to reflect what characters are currently held down
 fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &WindowEvent) {
-    use wr_translate::winit_translate_virtual_keycode;
+    use wr_translate::winit_translate::translate_virtual_keycode;
     match event {
         WindowEvent::KeyboardInput {
             input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, ..
         } => {
             if let Some(vk) = virtual_keycode {
-                let vk = winit_translate_virtual_keycode(*vk);
+                let vk = translate_virtual_keycode(*vk);
                 window_state.keyboard_state.pressed_virtual_keycodes.insert(vk);
                 window_state.keyboard_state.current_virtual_keycode = Some(vk);
             }
@@ -731,7 +663,7 @@ fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &Win
             input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, ..
         } => {
             if let Some(vk) = virtual_keycode {
-                let vk = winit_translate_virtual_keycode(*vk);
+                let vk = translate_virtual_keycode(*vk);
                 window_state.keyboard_state.pressed_virtual_keycodes.remove(&vk);
                 window_state.keyboard_state.current_virtual_keycode = None;
             }
@@ -764,7 +696,7 @@ fn update_misc_events(window_state: &mut FullWindowState, event: &WindowEvent) {
 
 fn get_window_events(window_state: &mut FullWindowState, event: &WindowEvent) -> HashSet<WindowEventFilter> {
 
-    use glutin::MouseButton::*;
+    use glutin::event::MouseButton::*;
 
     let mut events_vec = HashSet::<WindowEventFilter>::new();
 
