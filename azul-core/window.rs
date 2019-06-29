@@ -354,7 +354,8 @@ pub type PlatformSpecificOptions = MacWindowOptions;
 #[cfg(target_os = "windows")]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct WindowsWindowOptions {
-    pub no_redirect_bitmap: bool,
+    /// NOTE: Can only be set when the window is created!
+    pub no_redirection_bitmap: bool,
     pub window_icon: Option<WindowIcon>,
     pub taskbar_icon: Option<TaskBarIcon>,
 }
@@ -362,14 +363,35 @@ pub struct WindowsWindowOptions {
 #[cfg(target_os = "linux")]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct LinuxWindowOptions {
+    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
     pub x11_visual: Option<*const ()>,
+    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
     pub x11_screen: Option<i32>,
-    pub x11_wm_class: Option<Vec<(String, String)>>,
+    /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
+    pub x11_wm_classes: Option<Vec<(String, String)>>,
+    /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_override_redirect: bool,
+    /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
+    pub x11_window_type: Option<XWindowType>,
+    /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only relevant on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_gtk_theme_variant: Option<String>,
+    /// Build window with resize increment hint. Only implemented on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_resize_increments: Option<LogicalSize>,
+    /// Build window with base size hint. Only implemented on X11.
+    /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_base_size: Option<LogicalSize>,
-    pub app_id: Option<String>,
+    /// Build window with a given application ID. It should match the `.desktop` file distributed with
+    /// your program. Only relevant on Wayland.
+    /// Can only be set at window creation, can't be changed in callbacks.
+    ///
+    /// For details about application ID conventions, see the
+    /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
+    pub wayland_app_id: Option<String>,
     pub request_user_attention: bool,
     pub wayland_theme: Option<WaylandTheme>,
     pub window_icon: Option<WindowIcon>,

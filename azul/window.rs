@@ -13,7 +13,6 @@ use webrender::{
 use glutin::{
     event_loop::EventLoop,
     window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
-    monitor::MonitorHandle,
     CreationError, ContextBuilder, RawContext, WindowedContext,
     NotCurrent, PossiblyCurrent,
 };
@@ -36,7 +35,7 @@ use azul_core::{
     window::WindowId,
 };
 pub use webrender::api::HitTestItem;
-pub use glutin::MonitorHandle;
+pub use glutin::monitor::MonitorHandle;
 pub use azul_core::window::*;
 pub use window_state::*;
 
@@ -386,7 +385,7 @@ impl<T> Window<T> {
 
         let is_transparent_background = background_color.a != 0;
 
-        let mut window = GlutinWindowBuilder::new().with_transparent(is_transparent_background);
+        let mut window = create_window_builder(is_transparent_background, &options.platform_specific_options);
 
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window, &events_loop, Some(shared_context))?;
@@ -493,6 +492,79 @@ impl Clipboard {
     }
 }
 
+/// Create a window builder, depending on the platform options -
+/// set all options that *can only be set when the window is created*
+#[cfg(target_os = "windows")]
+fn create_window_builder(
+    has_transparent_background: bool,
+    platform_options: &WindowsWindowOptions,
+) -> GlutinWindowBuilder {
+    use glutin::platform::windows::WindowBuilderExtWindows;
+
+    let mut window_builder = GlutinWindowBuilder::new()
+        .with_transparent(has_transparent_background)
+        .with_no_redirection_bitmap(platform_options.no_redirection_bitmap);
+
+    window_builder
+}
+
+#[cfg(target_os = "linux")]
+fn create_window_builder(
+    has_transparent_background: bool,
+    platform_options: &LinuxWindowOptions,
+) -> GlutinWindowBuilder {
+    use glutin::platform::windows::WindowBuilderExtUnix;
+
+/*
+    fn with_override_redirect(self, override_redirect: bool) -> WindowBuilder
+    fn with_x11_window_type(self, x11_window_type: WindowType) -> WindowBuilder
+    fn with_gtk_theme_variant(self, variant: String) -> WindowBuilder
+    fn with_resize_increments(self, increments: LogicalSize) -> WindowBuilder
+    fn with_base_size(self, base_size: LogicalSize) -> WindowBuilder
+    fn with_app_id(self, app_id: String) -> WindowBuilder
+*/
+
+    let mut window_builder = GlutinWindowBuilder::new()
+        .with_transparent(has_transparent_background);
+/*
+    if let Some(classes) = platform_options.x11_wm_classes {
+        for class in classes {
+            window_builder = window_builder.with_class(class);
+        }
+    }
+
+    if let Some(override_redirect) = platform_options.x11_override_redirect {
+        window_builder = window_builder.with_override_redirect(override_redirect);
+    }
+
+    if let Some(override_redirect) = platform_options.x11_override_redirect {
+        window_builder = window_builder.with_override_redirect(override_redirect);
+    }
+
+    if let Some(override_redirect) = platform_options.x11_override_redirect {
+        window_builder = window_builder.with_override_redirect(override_redirect);
+    }
+
+    if let Some(override_redirect) = platform_options.x11_override_redirect {
+        window_builder = window_builder.with_override_redirect(override_redirect);
+    }
+*/
+    window_builder
+}
+
+#[cfg(target_os = "macos")]
+fn create_window_builder(
+    has_transparent_background: bool,
+    platform_options: &MacWindowOptions,
+) -> GlutinWindowBuilder {
+    use glutin::platform::windows::WindowBuilderExtMac;
+
+    let mut window_builder = GlutinWindowBuilder::new()
+        .with_transparent(has_transparent_background);
+
+    window_builder
+}
+
 /// Synchronize the FullWindowState with the WindowState,
 /// updating the OS-level window to reflect the new state
 pub(crate) fn synchronize_window_state_with_os_window(
@@ -542,7 +614,7 @@ pub(crate) fn synchronize_window_state_with_os_window(
 
     if old_state.position != new_state.position {
         if let Some(new_position) = new_state.position {
-            window.set_outer_position(new_position.map(translate_logical_position));
+            window.set_outer_position(translate_logical_position(new_position));
         }
     }
 
@@ -721,10 +793,6 @@ fn synchronize_os_window_windows_extensions(
     use glutin::platform::windows::WindowExtWindows;
     use wr_translate::winit_translate::{translate_window_icon, translate_taskbar_icon};
 
-    if old_state.no_redirect_bitmap != new_state.no_redirect_bitmap {
-        window.set_no_redirect_bitmap(new_state.no_redirect_bitmap);
-    }
-
     if old_state.window_icon != new_state.window_icon {
         window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
     }
@@ -782,7 +850,6 @@ fn initialize_os_window_windows_extensions(
     use glutin::platform::windows::WindowExtWindows;
     use wr_translate::winit_translate::{translate_taskbar_icon, translate_window_icon};
 
-    window.set_no_redirect_bitmap(new_state.no_redirect_bitmap);
     window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
     window.set_taskbar_icon(new_state.taskbar_icon.and_then(|ic| translate_taskbar_icon(ic).ok()));
 }
@@ -938,7 +1005,7 @@ impl Drop for FakeDisplay {
         // we don't de-initialize the rendered (since this is an application shutdown it
         // doesn't matter, the resources are going to get cleaned up by the OS).
         let window = match unsafe { self.hidden_display.make_current() } {
-            Ok(_) => { },
+            Ok(o) => o,
             Err(e) => {
                 #[cfg(feature = "logging")] {
                     error!("Shutdown error: {}", e.1);
@@ -947,9 +1014,9 @@ impl Drop for FakeDisplay {
             },
         };
 
-        window.context().disable(gl::FRAMEBUFFER_SRGB);
-        window.context().disable(gl::MULTISAMPLE);
-        window.context().disable(gl::POLYGON_SMOOTH);
+        self.gl_context.disable(gl::FRAMEBUFFER_SRGB);
+        self.gl_context.disable(gl::MULTISAMPLE);
+        self.gl_context.disable(gl::POLYGON_SMOOTH);
 
         if let Some(renderer) = self.renderer.take() {
             renderer.deinit();

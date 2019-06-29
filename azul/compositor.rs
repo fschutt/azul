@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use webrender::{
-    ExternalImageHandler, ExternalImage, ExternalImageSource, DevicePoint,
-    api::{ExternalImageId, TexelRect, DevicePixel, Epoch, ImageRendering},
+    ExternalImageHandler, ExternalImage, ExternalImageSource,
+    api::{ExternalImageId, TexelRect, DevicePoint, Epoch, ImageRendering},
 };
 use {
     FastHashMap,
