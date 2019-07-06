@@ -404,6 +404,7 @@ pub struct MacWindowOptions {
 }
 
 impl WindowState{
+
     pub fn get_mouse_state(&self) -> &MouseState {
         &self.mouse_state
     }
@@ -515,6 +516,18 @@ impl Default for WindowState {
             platform_specific_options: PlatformSpecificOptions::default(),
         }
     }
+}
+
+/// Custom event type, to construct an `EventLoop<AzulWindowUpdateEvent>`.
+/// This is dispatched into the `EventLoop` (to send a "custom" event)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AzulUpdateEvent {
+    ScrollUpdate,
+    TimerHasFinished,
+    ThreadHasFinished,
+    AnimationUpdate,
+    DisplayListUpdate,
+    // ... etc.
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

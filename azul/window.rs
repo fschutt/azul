@@ -2,6 +2,7 @@ use std::{
     rc::Rc,
     marker::PhantomData,
     collections::BTreeMap,
+    time::Duration,
 };
 use webrender::{
     api::{
@@ -32,7 +33,7 @@ use azul_core::{
     ui_state::UiState,
     display_list::CachedDisplayList,
     ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
-    window::WindowId,
+    window::{AzulUpdateEvent, WindowId},
 };
 pub use webrender::api::HitTestItem;
 pub use glutin::monitor::MonitorHandle;
@@ -44,8 +45,7 @@ pub use window_state::*;
 const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
 
 /// Options on how to initially create the window
-#[derive(Debug, Clone, PartialEq)]
-pub struct WindowCreateOptions {
+pub struct WindowCreateOptions<T> {
     /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
     /// Which monitor should the window be created on?
@@ -54,31 +54,72 @@ pub struct WindowCreateOptions {
     pub renderer_type: RendererType,
     /// Windows only: Sets the 256x256 taskbar icon during startup
     pub taskbar_icon: Option<TaskBarIcon>,
+    /// The style of this window
+    pub css: Css,
+    #[cfg(debug_assertions)]
+    #[cfg(not(test))]
+    /// An optional style hot-reloader for the current window, only available with debug_assertions
+    /// enabled
+    pub hot_reload: Option<Box<dyn HotReloadHandler>>,
+    // Marker, necessary to create a Window<T> out of the create options
+    pub marker: PhantomData<T>,
 }
 
-impl Default for WindowCreateOptions {
+impl<T> Default for WindowCreateOptions<T> {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
             monitor: WindowMonitorTarget::default(),
             renderer_type: RendererType::default(),
             taskbar_icon: None,
+            css: Css::default(),
+            #[cfg(debug_assertions)]
+            #[cfg(not(test))]
+            hot_reload: None,
+            marker: PhantomData,
         }
     }
 }
 
-/// Custom event type, to construct an `EventLoop<AzulWindowUpdateEvent>`.
-/// This is dispatched into the `EventLoop` (to send a "custom" event)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AzulUpdateEvent {
-    TaskHasFinished,
-    ThreadHasFinished,
-    AnimationHasFinished,
-    DisplayListUpdate,
-    AnimationUpdate,
-    // ... etc.
-}
+impl<T> WindowCreateOptions<T> {
 
+    pub(crate) fn get_reload_interval(&self) -> Option<Duration> {
+        let hot_reloader = self.hot_reload?;
+        Some(hot_reloader.get_reload_interval())
+    }
+
+    /// Reloads the CSS (if possible).
+    ///
+    /// Returns:
+    ///
+    /// - Ok(true) if the CSS has been successfully reloaded
+    /// - Ok(false) if there is no CSS hot-reloader
+    /// - Err(why) if the CSS failed to hot-reload.
+    pub(crate) fn reload_style(&mut self) -> Result<bool, String> {
+
+        #[cfg(debug_assertions)] {
+            let hot_reloader = match self.hot_reload.as_mut() {
+                None => return Ok(false),
+                Some(s) => s,
+            };
+
+            match hot_reloader.reload_style() {
+                Ok(mut new_css) => {
+                    new_css.sort_by_specificity();
+                    self.css = new_css;
+                    return Ok(true);
+                },
+                Err(why) => {
+                    return Err(format!("{}", why));
+                },
+            };
+        }
+
+        #[cfg(not(debug_assertions))] {
+            return Ok(false);
+        }
+    }
+}
 /// Force a specific renderer.
 /// By default, Azul will try to use the hardware renderer and fall
 /// back to the software renderer if it can't create an OpenGL 3.2 context.
@@ -201,7 +242,7 @@ pub struct Window<T> {
     pub(crate) id: WindowId,
     /// Stores the create_options: necessary because by default, the window is hidden
     /// and only gets shown after the first redraw.
-    pub(crate) create_options: WindowCreateOptions,
+    pub(crate) create_options: WindowCreateOptions<T>,
     /// Current state of the window, stores the keyboard / mouse state,
     /// visibility of the window, etc. of the LAST frame. The user never sets this
     /// field directly, but rather sets the WindowState he wants to have for the NEXT frame,
@@ -213,27 +254,8 @@ pub struct Window<T> {
     pub(crate) state: WindowState,
     /// Stores things like scroll states, display list + epoch for the window
     pub(crate) internal: WindowInternal,
-    /// The style applied to the current window
-    pub(crate) css: Css,
-    /// An optional style hot-reloader for the current window, only available with debug_assertions
-    /// enabled
-    #[cfg(debug_assertions)]
-    pub(crate) css_loader: Option<Box<dyn HotReloadHandler>>,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
     pub(crate) display: WindowedContext<NotCurrent>,
-    /// Purely a marker, so that `app.run()` can infer the type of `T: Layout`
-    /// of the `WindowCreateOptions`, so that we can write:
-    ///
-    /// ```rust,ignore
-    /// app.run(Window::new(WindowCreateOptions::new(), Css::default()).unwrap());
-    /// ```
-    ///
-    /// instead of having to annotate the type:
-    ///
-    /// ```rust,ignore
-    /// app.run(Window::new(WindowCreateOptions::<MyAppData>::new(), Css::default()).unwrap());
-    /// ```
-    marker: PhantomData<T>,
 }
 
 #[derive(Debug, Default)]
@@ -370,8 +392,7 @@ impl<T> Window<T> {
         render_api: &mut RenderApi,
         shared_context: &RawContext<NotCurrent>,
         events_loop: &EventLoop<AzulUpdateEvent>,
-        options: WindowCreateOptions,
-        mut css: Css,
+        mut options: WindowCreateOptions<T>,
         background_color: ColorU,
     ) -> Result<Self, CreationError> {
 
@@ -385,7 +406,7 @@ impl<T> Window<T> {
 
         let is_transparent_background = background_color.a != 0;
 
-        let mut window = create_window_builder(is_transparent_background, &options.platform_specific_options);
+        let mut window = create_window_builder(is_transparent_background, &options.state.platform_specific_options);
 
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window, &events_loop, Some(shared_context))?;
@@ -418,7 +439,7 @@ impl<T> Window<T> {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
-        css.sort_by_specificity();
+        options.css.sort_by_specificity();
 
         let display_list_dimensions = translate_logical_size_to_css_layout_size(options.state.size.dimensions);
 
@@ -427,9 +448,6 @@ impl<T> Window<T> {
             create_options: options,
             state: options.state,
             display: gl_window,
-            css,
-            #[cfg(debug_assertions)]
-            css_loader: None,
             internal: WindowInternal {
                 epoch,
                 pipeline_id,
@@ -439,7 +457,6 @@ impl<T> Window<T> {
                 layout_result: BTreeMap::new(),
                 cached_display_list: CachedDisplayList::empty(display_list_dimensions),
             },
-            marker: PhantomData,
         };
 
         Ok(window)
@@ -452,12 +469,10 @@ impl<T> Window<T> {
         render_api: &mut RenderApi,
         shared_context: &RawContext<NotCurrent>,
         events_loop: &EventLoop<AzulUpdateEvent>,
-        options: WindowCreateOptions,
-        css_loader: Box<dyn HotReloadHandler>,
+        options: WindowCreateOptions<T>,
         background_color: ColorU,
     ) -> Result<Self, CreationError>  {
-        let mut window = Window::new(render_api, shared_context, events_loop, options, Css::default(), background_color)?;
-        window.css_loader = Some(css_loader);
+        let mut window = Window::new(render_api, shared_context, events_loop, options, background_color)?;
         Ok(window)
     }
 
@@ -948,12 +963,15 @@ pub(crate) struct FakeDisplay {
     pub(crate) renderer: Option<Renderer>,
     /// Fake / invisible display, only used because OpenGL is tied to a display context
     /// (offscreen rendering is not supported out-of-the-box on many platforms)
-    pub(crate) hidden_display: WindowedContext<NotCurrent>,
-    /// TODO: Not sure if we even need this, the events loop isn't important
-    /// for a window that is never shown
+    ///
+    /// NOTE: The window and the associated context are split into separate fields.
+    pub(crate) hidden_raw_context: RawContext<NotCurrent>,
+    /// The hidden window associated with the root context
+    pub(crate) hidden_window: GlutinWindow,
+    /// Event loop that all windows share
     pub(crate) hidden_events_loop: EventLoop<AzulUpdateEvent>,
-    /// Stores the GL context that is shared across all windows
-    pub(crate) gl_context: Rc<dyn Gl>,
+    /// Stores the GL context (function pointers) that are shared across all windows
+    pub(crate) gl_context: Rc<Gl>,
 }
 
 impl FakeDisplay {
@@ -961,6 +979,7 @@ impl FakeDisplay {
     /// Creates a new render + a new display, given a renderer type (software or hardware)
     pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
 
+        use std::mem;
         use wr_translate::winit_translate::translate_logical_size;
 
         // The events loop is shared across all windows
@@ -970,10 +989,13 @@ impl FakeDisplay {
             .with_visible(false);
 
         let gl_window = create_gl_window(window, &events_loop, None)?;
-        let (dpi_factor, _) = get_hidpi_factor(&gl_window.window(), &events_loop);
-        gl_window.window().set_visible(false);
+        let (gl_context, window) = unsafe { gl_window.split() };
+        let (dpi_factor, _) = get_hidpi_factor(&window, &events_loop);
+        window.set_visible(false);
 
-        let gl = get_gl_context(&gl_window.make_current().unwrap())?;
+        let current_gl_context = gl_context.make_current().unwrap();
+        let gl = get_gl_context(&current_gl_context)?;
+        mem::drop(current_gl_context);
 
         // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
         let notifier = Box::new(Notifier { });
@@ -984,7 +1006,8 @@ impl FakeDisplay {
         Ok(Self {
             render_api,
             renderer: Some(renderer),
-            hidden_display: gl_window,
+            hidden_raw_context: gl_context,
+            hidden_window: window,
             hidden_events_loop: events_loop,
             gl_context: gl,
         })
@@ -1004,7 +1027,7 @@ impl Drop for FakeDisplay {
         // (likely because the underlying surface has been destroyed). In those cases,
         // we don't de-initialize the rendered (since this is an application shutdown it
         // doesn't matter, the resources are going to get cleaned up by the OS).
-        let window = match unsafe { self.hidden_display.make_current() } {
+        let window = match unsafe { self.hidden_raw_context.make_current() } {
             Ok(o) => o,
             Err(e) => {
                 #[cfg(feature = "logging")] {
@@ -1024,12 +1047,12 @@ impl Drop for FakeDisplay {
     }
 }
 
-fn get_gl_context(gl_window: &WindowedContext<PossiblyCurrent>) -> Result<Rc<dyn Gl>, CreationError> {
+fn get_gl_context(gl_window: &RawContext<PossiblyCurrent>) -> Result<Rc<dyn Gl>, CreationError> {
     use glutin::Api;
     match gl_window.get_api() {
         Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
         Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
-        Api::WebGl => Err(CreationError::WebGlNotSupported),
+        Api::WebGl => Err(CreationError::NoBackendAvailable("WebGL".into())),
     }
 }
 
@@ -1046,7 +1069,6 @@ fn get_hidpi_factor(window: &GlutinWindow, events_loop: &EventLoop<AzulUpdateEve
         (winit_hidpi_factor as f32, winit_hidpi_factor as f32)
     }
 }
-
 
 fn create_gl_window<'a>(
     window_builder: GlutinWindowBuilder,
