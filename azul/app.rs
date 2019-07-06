@@ -3,7 +3,10 @@ use std::{
     time::Instant,
     collections::BTreeMap,
 };
-use glutin::event::WindowEvent;
+use glutin::{
+    window::WindowId as GlutinWindowId,
+    event::WindowEvent as GlutinWindowEvent,
+};
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
@@ -44,8 +47,6 @@ use window::{ FakeDisplay, WindowCreateOptions };
 #[cfg(not(test))]
 use glutin::CreationError;
 #[cfg(not(test))]
-use azul_css::{HotReloadHandler, Css};
-#[cfg(not(test))]
 use webrender::api::{WorldPoint, HitTestFlags};
 
 #[cfg(test)]
@@ -59,8 +60,8 @@ const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T> {
-    /// The graphical windows, indexed by their system ID / handle
-    windows: BTreeMap<WindowId, Window<T>>,
+    /// The window create options (only set at startup),
+    windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
     /// Actual state of the window (synchronized with the OS window)
     window_states: BTreeMap<WindowId, FullWindowState>,
     /// The global application state
@@ -206,55 +207,30 @@ impl<T: Layout> App<T> {
 
 impl<T> App<T> {
 
-    /// Creates a new window
-    #[cfg(not(test))]
-    pub fn create_window(&mut self, options: WindowCreateOptions, css: Css)
-    -> Result<Window<T>, CreationError>
-    {
-        Window::new(
-            &mut self.fake_display.render_api,
-            &self.fake_display.hidden_display,
-            &mut self.fake_display.hidden_events_loop,
-            options,
-            css,
-            self.config.background_color,
-        )
-    }
-
-    #[cfg(debug_assertions)]
-    #[cfg(not(test))]
-    pub fn create_hot_reload_window(&mut self, options: WindowCreateOptions, css_loader: Box<dyn HotReloadHandler>)
-    -> Result<Window<T>, CreationError> {
-        Window::new_hot_reload(
-            &mut self.fake_display.render_api,
-            self.fake_display.hidden_display.context(),
-            &mut self.fake_display.hidden_events_loop,
-            options,
-            css_loader,
-            self.config.background_color,
-        )
-    }
-
     /// Spawn a new window on the screen. Note that this should only be used to
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     #[cfg(not(test))]
-    pub fn add_window(&mut self, window: Window<T>) {
-        use window_state::full_window_state_from_window_state;
-        let window_id = window.id;
-        let fake_window = FakeWindow {
-            state: window.state.clone(),
-            default_callbacks: BTreeMap::new(),
-            gl_context: self.fake_display.get_gl_context(),
-            cached_display_list: window.internal.cached_display_list.clone(),
-            scrolled_nodes: window.internal.scrolled_nodes.clone(),
-            layout_result: window.internal.layout_result.clone(),
-        };
-        let full_window_state = full_window_state_from_window_state(window.state.clone());
-        self.app_state.windows.insert(window_id, fake_window);
-        self.windows.insert(window_id, window);
-        self.window_states.insert(window_id, full_window_state);
+    pub fn add_window(&mut self, create_options: WindowCreateOptions<T>) {
+        self.windows.insert(WindowId::new(), create_options);
     }
+
+    /// See `AppState::add_task`.
+    pub fn add_task(&mut self, task: Task<T>) {
+        self.app_state.add_task(task);
+    }
+
+    /// Toggles debugging flags in webrender, updates `self.config.debug_state`
+    #[cfg(not(test))]
+    pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
+        if let Some(r) = &mut self.fake_display.renderer {
+            set_webrender_debug_flags(r, &self.config.debug_state, &new_state);
+        }
+        self.config.debug_state = new_state;
+    }
+}
+
+impl<T: 'static> App<T> {
 
     /// Start the rendering loop for the currently open windows
     /// This is the "main app loop", "main game loop" or whatever you want to call it.
@@ -279,234 +255,194 @@ impl<T> App<T> {
     /// println!("username: {:?}, password: {:?}", username, password);
     /// ```
     #[cfg(not(test))]
-    pub fn run(mut self, window: Window<T>) -> Result<T, RuntimeError> {
-
-        // Apps need to have at least one window open
-        self.add_window(window);
-        self.run_inner()?;
-
-        // NOTE: This is necessary because otherwise, the Arc::try_unwrap would fail,
-        // since one Arc is still owned by the app_state.tasks structure
-        //
-        // See https://github.com/maps4print/azul/issues/24#issuecomment-429737273
-        std::mem::drop(self.app_state.tasks);
-
-        Ok(self.app_state.data)
-    }
-
-    /// See `AppState::add_task`.
-    pub fn add_task(&mut self, task: Task<T>) {
-        self.app_state.add_task(task);
-    }
-
-    /// Toggles debugging flags in webrender, updates `self.config.debug_state`
-    #[cfg(not(test))]
-    pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
-        if let Some(r) = &mut self.fake_display.renderer {
-            set_webrender_debug_flags(r, &self.config.debug_state, &new_state);
-        }
-        self.config.debug_state = new_state;
+    pub fn run(mut self, root_window: WindowCreateOptions<T>) -> ! {
+        self.add_window(root_window);
+        self.run_inner()
     }
 
     #[cfg(not(test))]
-    fn run_inner(&mut self) -> Result<(), RuntimeError> {
+    fn run_inner(mut self) -> ! {
 
-        use std::{thread, time::Duration};
-        use glutin::{window:: WindowId as GlutinWindowId, event::Event};
-        use ui_state::{ui_state_from_dom, ui_state_from_app_state};
-        use azul_core::app::RuntimeError::*;
+        use std::mem;
+        use glutin::{
+            event::{WindowEvent, Event, StartCause},
+            event_loop::ControlFlow,
+        };
+        use azul_core::window::AzulUpdateEvent;
+        // use ui_state::{ui_state_from_dom, ui_state_from_app_state};
 
-        // Initialize UI state cache
-        let mut ui_state_cache = initialize_ui_state_cache(&mut self.windows, &mut self.app_state, self.layout_callback)?;
-        let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
-        let mut awakened_tasks = self.windows.keys().map(|window_id| (*window_id, false)).collect();
+        let App { windows, window_states, app_state, config, layout_callback, fake_display } = self;
 
         #[cfg(debug_assertions)]
         let mut last_style_reload = Instant::now();
 
-        while !self.windows.is_empty() {
+        let (mut active_windows, mut window_id_mapping) = initialize_windows(windows, &mut fake_display, &config);
+        let mut fake_windows = initialize_fake_windows(&active_windows, &fake_display);
+        let mut full_window_states = initialize_full_window_states(&active_windows);
+        let mut ui_state_cache = initialize_ui_state_cache(&mut active_windows, &window_id_mapping, &mut app_state, layout_callback);
+        let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
+        let mut is_first_redraw = true;
 
-            let time_start = Instant::now();
+        let event_loop_proxy = fake_display.hidden_events_loop.create_proxy();
 
-            let glutin_window_id_to_window_id = self.windows.iter()
-                .map(|(window_id, window)| (window.display.window().id(), *window_id))
-                .collect::<BTreeMap<GlutinWindowId, WindowId>>();
+        fake_display.hidden_events_loop.run(move |event, _, control_flow| {
+            *control_flow = ControlFlow::Wait;
 
-            let mut events = BTreeMap::new();
-
-            self.fake_display.hidden_events_loop.poll_events(|e| match e {
-                // Filter out all events that are uninteresting or unnecessary
-                // Event::WindowEvent { event: WindowEvent::Refresh, .. } => { },
-                Event::WindowEvent { window_id, event } => {
-                    if let Some(wid) = glutin_window_id_to_window_id.get(&window_id) {
-                        events.entry(wid).or_insert_with(|| Vec::new()).push(event);
+            match event {
+                Event::WindowEvent { event, window_id } => match &event {
+                    WindowEvent::Resized(logical_size) => {
+                        // relayout, rebuild cached display list, reinitialize scroll states
+                        let windowed_context = &active_windows[&window_id].display;
+                        let dpi_factor = windowed_context.window().hidpi_factor();
+                        let current_context = windowed_context.make_current().unwrap();
+                        current_context.resize(logical_size.to_physical(dpi_factor));
+                        mem::drop(current_context);
+                    },
+                    WindowEvent::RedrawRequested => {
+                        // only draw texture to screen
+                        let windowed_context = &active_windows[&window_id].display;
+                        let current_context = windowed_context.make_current().unwrap();
+                        current_context.swap_buffers().unwrap();
+                        mem::drop(current_context);
+                    },
+                    WindowEvent::CloseRequested => {
+                        active_windows.remove(&window_id);
+                        window_id_mapping.remove(&window_id);
+                        fake_windows.remove(&window_id);
+                        full_window_states.remove(&window_id);
+                        ui_state_cache.remove(&window_id);
+                        ui_description_cache.remove(&window_id);
+                        *control_flow = ControlFlow::Exit;
+                        return;
+                    },
+                    _ => { },
+                },
+                Event::NewEvents(StartCause::Init) => {
+                    // TODO: Initialize things that only run at startup
+                    for (_, window) in active_windows.iter() {
+                        window.display.window().request_redraw();
                     }
                 },
+                Event::UserEvent(AzulUpdateEvent::ScrollUpdate) => {
+                    // update scroll states here ...
+                    for (_, window) in active_windows.iter() {
+                        window.display.window().request_redraw();
+                    }
+                },
+                Event::UserEvent(AzulUpdateEvent::TimerHasFinished) => {
+                    for (_, window) in active_windows.iter() {
+                        window.display.window().request_redraw();
+                    }
+                },
+                Event::UserEvent(AzulUpdateEvent::ThreadHasFinished) => {
+                    for (_, window) in active_windows.iter() {
+                        window.display.window().request_redraw();
+                    }
+                },
+                Event::UserEvent(AzulUpdateEvent::AnimationUpdate) => {
+                    // update animation states here ...
+                    for (_, window) in active_windows.iter() {
+                        window.display.window().request_redraw();
+                    }
+                },
+                Event::UserEvent(AzulUpdateEvent::DisplayListUpdate) => {
+                    // only update display list here ...
+                    for (_, window) in active_windows.iter() {
+                        window.display.window().request_redraw();
+                    }
+                },
+                Event::LoopDestroyed => {
+                    active_windows.clear();
+                    window_id_mapping.clear();
+                    fake_windows.clear();
+                    full_window_states.clear();
+                    ui_state_cache.clear();
+                    ui_description_cache.clear();
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                },
                 _ => { },
-            });
-
-            let mut closed_windows = Vec::<WindowId>::new();
-            let mut frame_was_resize = false;
-            let mut single_window_results = Vec::with_capacity(self.windows.len());
-
-            for (current_window_id, mut window) in self.windows.iter_mut() {
-
-                // Only process the events belong to this window ID...
-                let window_events: Vec<WindowEvent> = events.get(current_window_id).cloned().unwrap_or_default();
-
-                let single_window_result =
-                    hit_test_single_window(
-                        &window_events,
-                        &current_window_id,
-                        &mut window,
-                        self.window_states.get_mut(current_window_id).ok_or(WindowIndexError)?,
-                        &mut self.app_state,
-                        &mut self.fake_display,
-                        &mut ui_state_cache,
-                        &mut awakened_tasks,
-                    )?;
-
-                if single_window_result.needs_relayout_resize {
-                    frame_was_resize = true;
-                }
-
-                if single_window_result.window_should_close {
-                    closed_windows.push(*current_window_id);
-
-                    // TODO: Currently there is no way to return from the main event loop
-                    // i.e. the windows aren't actually getting closed
-                    // This is a hack, so that windows currently close properly
-                    return Ok(());
-                }
-
-                single_window_results.push(single_window_result);
             }
-
-            // Close windows if necessary
-            closed_windows.into_iter().for_each(|closed_window_id| {
-                ui_state_cache.remove(&closed_window_id);
-                ui_description_cache.remove(&closed_window_id);
-                self.windows.remove(&closed_window_id);
-                self.window_states.remove(&closed_window_id);
-            });
-
-            #[cfg(debug_assertions)]
-            let (css_has_reloaded, css_has_error) = match hot_reload_css(&mut self.windows, &mut last_style_reload, false) {
-                Ok(has_reloaded) => (has_reloaded, None),
-                Err(css_error) => (true, Some(css_error)),
-            };
-
-            #[cfg(not(debug_assertions))]
-            let css_has_error: Option<String> = None;
-
-            #[cfg(not(debug_assertions))]
-            let css_has_reloaded = false;
-
-            let should_relayout_all_windows = css_has_reloaded || single_window_results.iter().any(|res| res.should_relayout());
-            let should_rerender_all_windows = should_relayout_all_windows || single_window_results.iter().any(|res| res.should_rerender());
-
-            let should_redraw_timers = app_state_run_all_timers(&mut self.app_state);
-            let should_redraw_tasks = app_state_clean_up_finished_tasks(&mut self.app_state);
-            let should_redraw_timers_or_tasks = [should_redraw_timers, should_redraw_tasks].into_iter().any(|e| *e == Redraw);
-
-            // If there is a relayout necessary, re-layout *all* windows!
-            if should_relayout_all_windows || should_redraw_timers_or_tasks {
-                for (current_window_id, mut window) in self.windows.iter_mut() {
-
-                    let full_window_state = self.window_states.get_mut(current_window_id).unwrap();
-
-                    // Call the Layout::layout() fn, get the DOM
-                    let mut rendered_dom = match &css_has_error {
-                        None => ui_state_from_app_state(&mut self.app_state, current_window_id, None, self.layout_callback)?,
-                        Some(s) => {
-                            println!("{}", s);
-                            ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None)
-                        },
-                    };
-
-                    // Since this is the root DOM of the window, set the DomID to 0
-                    rendered_dom.dom_id = DomId::ROOT_ID;
-
-                    let mut ui_state_map = BTreeMap::new();
-                    ui_state_map.insert(rendered_dom.dom_id.clone(), rendered_dom);
-                    *ui_state_cache.get_mut(current_window_id).ok_or(WindowIndexError)? = ui_state_map;
-
-                    relayout_single_window(
-                        &current_window_id,
-                        &mut window,
-                        full_window_state,
-                        &mut self.app_state,
-                        &mut self.fake_display,
-                        &mut ui_state_cache,
-                        &mut ui_description_cache,
-                        &mut awakened_tasks,
-                    )?;
-                }
-            }
-
-            // TODO: For some reason, the window state and the full window state get out of sync
-            for (window_id, full_window_state) in &self.window_states {
-                self.windows.get_mut(&window_id).ok_or(WindowIndexError)?.state =
-                    ::window::full_window_state_to_window_state(full_window_state);
-            }
-
-            // If there is a re-render necessary, re-render *all* windows
-            if should_rerender_all_windows || should_redraw_timers_or_tasks {
-                for window in self.windows.values_mut() {
-                    // TODO: For some reason this function has to be called twice in order
-                    // to actually update the screen. For some reason the first swap_buffers() has
-                    // no effect (winit bug?)
-                    render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
-                    // render_inner(window, &mut self.fake_display, Transaction::new(), self.config.background_color);
-                }
-                clean_up_unused_opengl_textures(self.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
-            }
-
-            if should_relayout_all_windows || should_redraw_timers_or_tasks {
-                use app_resources::garbage_collect_fonts_and_images;
-
-                // Automatically remove unused fonts and images from webrender
-                // Tell the font + image GC to start a new frame
-                #[cfg(not(test))] {
-                    garbage_collect_fonts_and_images(
-                        &mut self.app_state.resources,
-                        &mut self.fake_display.render_api,
-                    );
-                }
-                #[cfg(test)] {
-                    garbage_collect_fonts_and_images(
-                        &mut self.app_state.resources,
-                        &mut self.fake_render_api,
-                    );
-                }
-            }
-
-            if !frame_was_resize {
-                // Wait until 16ms have passed, but not during a resize event
-                let diff = time_start.elapsed();
-                const FRAME_TIME: Duration = Duration::from_millis(16);
-                if diff < FRAME_TIME {
-                    thread::sleep(FRAME_TIME - diff);
-                }
-            }
-        }
-
-        Ok(())
+        })
     }
 }
 
+/// Creates the intial windows on the screen and returns a mapping from
+/// the (azul-internal) WindowId to the (glutin-internal) WindowId.
+///
+/// Theoretically, this mapping isn't used anywhere else, but it might
+/// be useful for future refactoring.
+fn initialize_windows<T>(
+    windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
+    fake_display: &mut FakeDisplay,
+    config: &AppConfig,
+) -> (BTreeMap<GlutinWindowId, Window<T>>, BTreeMap<GlutinWindowId, WindowId>) {
+
+    let windows = windows.into_iter().filter_map(|(window_id, window_create_options)| {
+        let window = Window::new(
+            &mut fake_display.render_api,
+            &fake_display.hidden_raw_context,
+            &fake_display.hidden_events_loop,
+            window_create_options,
+            config.background_color,
+        ).ok()?;
+        let glutin_window_id = window.display.window().id();
+        Some(((window_id, glutin_window_id), window))
+    }).collect::<BTreeMap<_, _>>();
+
+    let window_id_mapping = windows.keys().cloned()
+        .map(|(window_id, glutin_window_id)| (glutin_window_id, window_id))
+        .collect();
+
+    let windows = windows.into_iter()
+        .map(|((_, glutin_window_id), window)| (glutin_window_id, window))
+        .collect();
+
+    (windows, window_id_mapping)
+}
+
+fn initialize_fake_windows<T>(
+    windows: &BTreeMap<GlutinWindowId, Window<T>>,
+    fake_display: &FakeDisplay,
+) -> BTreeMap<GlutinWindowId, FakeWindow<T>> {
+    windows.iter().map(|(window_id, window)| {
+        let fake_window = FakeWindow {
+            state: window.state.clone(),
+            default_callbacks: BTreeMap::new(),
+            gl_context: fake_display.get_gl_context(),
+            cached_display_list: window.internal.cached_display_list.clone(),
+            scrolled_nodes: window.internal.scrolled_nodes.clone(),
+            layout_result: window.internal.layout_result.clone(),
+        };
+        (*window_id, fake_window)
+    }).collect()
+}
+
+fn initialize_full_window_states<T>(
+    windows: &BTreeMap<GlutinWindowId, Window<T>>,
+) -> BTreeMap<GlutinWindowId, FullWindowState> {
+    windows.iter().map(|(window_id, window)| {
+        use window_state::full_window_state_from_window_state;
+        let full_window_state = full_window_state_from_window_state(window.state.clone());
+        (*window_id, full_window_state)
+    }).collect()
+}
+
 fn initialize_ui_state_cache<T>(
-    windows: &mut BTreeMap<WindowId, Window<T>>,
+    windows: &mut BTreeMap<GlutinWindowId, Window<T>>,
+    window_id_mapping: &BTreeMap<GlutinWindowId, WindowId>,
     app_state: &mut AppState<T>,
     layout_callback: LayoutCallback<T>,
-) -> Result<BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>, RuntimeError> {
+) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>> {
 
     use ui_state::{ui_state_from_app_state, ui_state_from_dom};
 
     let mut ui_state_map = BTreeMap::new();
     let window_ids = windows.keys().cloned().collect::<Vec<_>>();
 
-    for window_id in window_ids {
+    for glutin_window_id in window_ids {
+
+        let window_id = window_id_mapping[&glutin_window_id];
 
         #[cfg(debug_assertions)]
         let mut ui_state = {
@@ -516,32 +452,34 @@ fn initialize_ui_state_cache<T>(
             };
 
             match &css_has_error {
-                None => ui_state_from_app_state(app_state, &window_id, None, layout_callback),
+                None => {
+                    ui_state_from_app_state(app_state, &window_id, None, layout_callback)
+                },
                 Some(s) => {
                     println!("{}", s);
-                    Ok(ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None))
+                    ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None)
                 },
             }
-        }?;
+        };
 
         #[cfg(not(debug_assertions))]
-        let mut ui_state = ui_state_from_app_state(app_state, &window_id, None, layout_callback)?;
+        let mut ui_state = ui_state_from_app_state(app_state, &window_id, None, layout_callback);
 
         ui_state.dom_id = DomId::ROOT_ID;
 
         let mut dom_id_map = BTreeMap::new();
         dom_id_map.insert(ui_state.dom_id.clone(), ui_state);
-        ui_state_map.insert(window_id, dom_id_map);
+        ui_state_map.insert(glutin_window_id, dom_id_map);
     }
 
     DomId::reset();
 
-    Ok(ui_state_map)
+    ui_state_map
 }
 
 fn initialize_ui_description_cache<T>(
-    ui_states: &BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>
-) -> BTreeMap<WindowId, BTreeMap<DomId, UiDescription<T>>> {
+    ui_states: &BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>
+) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription<T>>> {
     ui_states.iter().map(|(window_id, ui_states)| {
         (*window_id, ui_states.iter().map(|(dom_id, _)| (dom_id.clone(), UiDescription::default())).collect())
     }).collect()
@@ -640,7 +578,7 @@ impl SingleWindowContentResult {
 /// Returns (if the event was a resize event, if the window was closed)
 #[cfg(not(test))]
 fn hit_test_single_window<T>(
-    events: &[WindowEvent],
+    events: &[GlutinWindowEvent],
     window_id: &WindowId,
     window: &mut Window<T>,
     full_window_state: &mut FullWindowState,
@@ -810,7 +748,7 @@ fn relayout_single_window<T>(
             let hovered_nodes = full_window_state.hovered_nodes.get(&dom_id).cloned().unwrap_or_default();
             (dom_id.clone(), UiDescription::match_css_to_dom(
                 ui_state,
-                &window.css,
+                &window.create_options.css,
                 &mut full_window_state.focused_node,
                 &mut full_window_state.pending_focus_target,
                 &hovered_nodes,
@@ -841,43 +779,31 @@ fn relayout_single_window<T>(
     Ok(())
 }
 
-/// Returns if the CSS has been successfully reloaded
+/// Returns if the CSS has been successfully reloaded or an error if the CSS failed to load
 #[cfg(debug_assertions)]
 fn hot_reload_css<T>(
-    windows: &mut BTreeMap<WindowId, Window<T>>,
+    windows: &mut BTreeMap<GlutinWindowId, Window<T>>,
     last_style_reload: &mut Instant,
     force_reload: bool,
 ) -> Result<bool, String> {
 
     let mut has_reloaded = false;
+    let now = Instant::now();
 
     for window in windows.values_mut() {
 
-        // Hot-reload a style if necessary
-        let hot_reloader = match window.css_loader.as_mut() {
-            None => continue,
-            Some(s) => s,
+        let should_reload = force_reload || match window.create_options.get_reload_interval() {
+            None => true,
+            Some(reload_interval) => now - *last_style_reload > reload_interval,
         };
 
-        if !force_reload {
-            let should_reload = Instant::now() - *last_style_reload > hot_reloader.get_reload_interval();
-
-            if !should_reload {
-                continue;
+        if should_reload {
+            let has_window_reloaded = window.create_options.reload_style()?;
+            if has_window_reloaded {
+                has_reloaded = true;
+                *last_style_reload = now;
             }
         }
-
-        match hot_reloader.reload_style() {
-            Ok(mut new_css) => {
-                new_css.sort_by_specificity();
-                window.css = new_css;
-                *last_style_reload = Instant::now();
-                has_reloaded = true;
-            },
-            Err(why) => {
-                return Err(format!("{}", why));
-            },
-        };
     }
 
     Ok(has_reloaded)
@@ -929,7 +855,7 @@ struct CallCallbackReturn {
 
 /// Returns an bool whether the window should be redrawn or not (true - redraw the screen, false: don't redraw).
 fn call_callbacks<T>(
-    event: &WindowEvent,
+    event: &GlutinWindowEvent,
     window_id: &WindowId,
     hit_test_results: Option<&Vec<HitTestItem>>,
     full_window_state: &mut FullWindowState,
