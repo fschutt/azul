@@ -5,7 +5,7 @@ use std::{
 use azul_css::CssProperty;
 use {
     FastHashMap,
-    app::{AppState, RuntimeError},
+    app::AppState,
     window::WindowId,
     id_tree::NodeId,
     dom::{
@@ -118,7 +118,7 @@ pub fn ui_state_from_app_state<T>(
     window_id: &WindowId,
     parent_dom: Option<(DomId, NodeId)>,
     layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>,
-) -> Result<UiState<T>, RuntimeError> {
+) -> UiState<T> {
 
     use app::RuntimeError::*;
 
@@ -130,14 +130,14 @@ pub fn ui_state_from_app_state<T>(
 
         #[cfg(not(test))]{
             let window_info = LayoutInfo {
-                window: app_state.windows.get_mut(window_id).ok_or(WindowIndexError)?,
+                window: app_state.windows.get_mut(window_id).unwrap(),
                 resources: &app_state.resources,
             };
             (layout_callback)(&app_state.data, window_info)
         }
     };
 
-    Ok(ui_state_from_dom(dom, parent_dom))
+    ui_state_from_dom(dom, parent_dom)
 }
 
 pub fn ui_state_create_tags_for_hover_nodes<T>(
