@@ -261,9 +261,8 @@ impl<T: 'static> App<T> {
     }
 
     #[cfg(not(test))]
-    fn run_inner(mut self) -> ! {
+    fn run_inner(self) -> ! {
 
-        use std::mem;
         use glutin::{
             event::{WindowEvent, Event, StartCause},
             event_loop::ControlFlow,
@@ -271,22 +270,21 @@ impl<T: 'static> App<T> {
         use azul_core::window::AzulUpdateEvent;
         // use ui_state::{ui_state_from_dom, ui_state_from_app_state};
 
-        let App { windows, window_states, app_state, config, layout_callback, fake_display } = self;
+        let App { windows, window_states, mut app_state, config, layout_callback, mut fake_display } = self;
 
-        #[cfg(debug_assertions)]
-        let mut last_style_reload = Instant::now();
+        // #[cfg(debug_assertions)]
+        // let mut last_style_reload = Instant::now();
 
         let (mut active_windows, mut window_id_mapping) = initialize_windows(windows, &mut fake_display, &config);
         let mut fake_windows = initialize_fake_windows(&active_windows, &fake_display);
         let mut full_window_states = initialize_full_window_states(&active_windows);
         let mut ui_state_cache = initialize_ui_state_cache(&mut active_windows, &window_id_mapping, &mut app_state, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
-        let mut is_first_redraw = true;
 
-        let event_loop_proxy = fake_display.hidden_events_loop.create_proxy();
+        // let event_loop_proxy = fake_display.hidden_event_loop.create_proxy();
 
-        fake_display.hidden_events_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Wait;
+        fake_display.hidden_event_loop.run(move |event, _, control_flow| {
+            *control_flow = ControlFlow::Wait; // TODO: if timers / tasks are running, set this to WaitTimeout(60ms) !
 
             match event {
                 Event::WindowEvent { event, window_id } => match &event {
@@ -294,16 +292,16 @@ impl<T: 'static> App<T> {
                         // relayout, rebuild cached display list, reinitialize scroll states
                         let windowed_context = &active_windows[&window_id].display;
                         let dpi_factor = windowed_context.window().hidpi_factor();
-                        let current_context = windowed_context.make_current().unwrap();
-                        current_context.resize(logical_size.to_physical(dpi_factor));
-                        mem::drop(current_context);
+                        windowed_context.make_current();
+                        windowed_context.window().resize(logical_size.to_physical(dpi_factor));
+                        windowed_context.make_not_current();
                     },
                     WindowEvent::RedrawRequested => {
                         // only draw texture to screen
                         let windowed_context = &active_windows[&window_id].display;
-                        let current_context = windowed_context.make_current().unwrap();
-                        current_context.swap_buffers().unwrap();
-                        mem::drop(current_context);
+                        windowed_context.make_current();
+                        windowed_context.window().swap_buffers().unwrap();
+                        windowed_context.make_not_current();
                     },
                     WindowEvent::CloseRequested => {
                         active_windows.remove(&window_id);
@@ -381,8 +379,8 @@ fn initialize_windows<T>(
     let windows = windows.into_iter().filter_map(|(window_id, window_create_options)| {
         let window = Window::new(
             &mut fake_display.render_api,
-            &fake_display.hidden_raw_context,
-            &fake_display.hidden_events_loop,
+            fake_display.hidden_context.headless_context_not_current().unwrap(),
+            &fake_display.hidden_event_loop,
             window_create_options,
             config.background_color,
         ).ok()?;
@@ -712,7 +710,7 @@ fn hit_test_single_window<T>(
     window::update_from_external_window_state(
         full_window_state,
         &mut frame_event_info,
-        &fake_display.hidden_events_loop,
+        &fake_display.hidden_event_loop,
         &window.display.window()
     );
 
@@ -998,7 +996,7 @@ fn update_display_list<T>(
     // Make sure unused scroll states are garbage collected.
     window.internal.scroll_states.remove_unused_scroll_states();
 
-    unsafe { window.display.window().make_current().unwrap() };
+    window.display.make_current();
 
     DomId::reset();
 
@@ -1018,7 +1016,8 @@ fn update_display_list<T>(
         &mut fake_display.render_api,
     );
 
-    unsafe { fake_display.hidden_display.window().make_current().unwrap() };
+    window.display.make_not_current();
+    fake_display.hidden_context.make_current();
 
     for (_dom_id, image_resource_updates) in image_resource_updates {
         add_resources(app_resources, &mut fake_display.render_api, Vec::new(), image_resource_updates);
@@ -1043,6 +1042,7 @@ fn update_display_list<T>(
     );
 
     fake_display.render_api.send_transaction(window.internal.document_id, txn);
+    fake_display.hidden_context.make_not_current();
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -1208,7 +1208,7 @@ fn render_inner<T>(
         // The context **must** be made current before calling `.bind_framebuffer()`,
         // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
         // hidden_display context, otherwise this will segfault on Windows.
-        fake_display.hidden_display.window().make_current().unwrap();
+        fake_display.hidden_context.make_current();
 
         let mut current_program = [0_i32];
         gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
@@ -1255,11 +1255,10 @@ fn render_inner<T>(
 
         // FBOs can't be shared between windows, but textures can.
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
-        window.display.window().make_current().unwrap();
+        window.display.make_current();
         draw_texture_to_screen(gl_context.clone(), textures[0], framebuffer_size);
-        window.display.swap_buffers().unwrap(); // warning: will block until next vsync frame!
-
-        fake_display.hidden_display.window().make_current().unwrap();
+        window.display.make_not_current();
+        fake_display.hidden_context.make_current();
 
         // Only delete the texture here...
         gl_context.delete_framebuffers(&framebuffers);
@@ -1269,6 +1268,7 @@ fn render_inner<T>(
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.bind_texture(gl::TEXTURE_2D, 0);
         gl_context.use_program(current_program[0] as u32);
+        fake_display.hidden_context.make_not_current();
     };
 
     // The initial setup can lead to flickering during startup, by default

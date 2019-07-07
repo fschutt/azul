@@ -33,10 +33,12 @@ static mut ACTIVE_GL_TEXTURES: Option<FastHashMap<Epoch, FastHashMap<ExternalIma
 
 /// This function exists so azul doesn't have to use lazy_static or similar
 pub(crate) fn get_active_gl_textures() -> &'static mut FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>> {
-    if ACTIVE_GL_TEXTURES.is_none() {
-        unsafe { ACTIVE_GL_TEXTURES = Some(FastHashMap::default()) };
+    unsafe {
+        if ACTIVE_GL_TEXTURES.is_none() {
+            ACTIVE_GL_TEXTURES = Some(FastHashMap::default());
+        }
+        ACTIVE_GL_TEXTURES.as_mut().unwrap()
     }
-    ACTIVE_GL_TEXTURES.as_mut().unwrap()
 }
 
 #[derive(Debug, Copy, Clone)]
