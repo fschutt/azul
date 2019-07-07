@@ -1,8 +1,7 @@
 use std::{
     rc::Rc,
-    marker::PhantomData,
     collections::BTreeMap,
-    time::Duration,
+    marker::PhantomData,
 };
 use webrender::{
     api::{
@@ -19,9 +18,7 @@ use glutin::{
 };
 use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
-use azul_css::{Css, ColorU, LayoutPoint, LayoutRect};
-#[cfg(debug_assertions)]
-use azul_css::HotReloadHandler;
+use azul_css::{ColorU, LayoutPoint, LayoutRect};
 use {
     FastHashMap,
     compositor::Compositor,
@@ -61,13 +58,97 @@ impl RenderNotifier for Notifier {
     fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) { }
 }
 
+/// Select on which monitor the window should pop up.
+#[derive(Debug, Clone)]
+pub enum Monitor {
+    /// Window should appear on the primary monitor
+    Primary,
+    /// Use `Window::get_available_monitors()` to select the correct monitor
+    Custom(MonitorHandle)
+}
+
+#[cfg(target_os = "linux")]
+pub type NativeMonitorHandle = u32;
+// HMONITOR, (*mut c_void), casted to a usize
+#[cfg(target_os = "windows")]
+pub type NativeMonitorHandle = usize;
+#[cfg(target_os = "macos")]
+pub type NativeMonitorHandle = u32;
+
+impl Monitor {
+
+    /// Returns an iterator over all given monitors
+    pub fn get_available_monitors() -> impl Iterator<Item = MonitorHandle> {
+        EventLoop::new().available_monitors()
+    }
+
+    pub fn get_native_id(&self) -> Option<NativeMonitorHandle> {
+
+        use self::Monitor::*;
+
+        #[cfg(target_os = "linux")]
+        use glutin::platform::unix::MonitorHandleExtUnix;
+        #[cfg(target_os = "windows")]
+        use glutin::platform::windows::MonitorHandleExtWindows;
+        #[cfg(target_os = "macos")]
+        use glutin::platform::macos::MonitorHandleExtMac;
+
+        match self {
+            Primary => None,
+            Custom(m) => Some({
+                #[cfg(target_os = "windows")] { m.hmonitor() as usize }
+                #[cfg(target_os = "linux")] { m.native_id() }
+                #[cfg(target_os = "macos")] { m.native_id() }
+            }),
+        }
+    }
+}
+
+impl ::std::hash::Hash for Monitor {
+    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+        use self::Monitor::*;
+        state.write_usize(match self { Primary => 0, Custom(_) => 1, });
+        state.write_usize(self.get_native_id().unwrap_or(0) as usize);
+    }
+}
+
+impl PartialEq for Monitor {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.get_native_id() == rhs.get_native_id()
+    }
+}
+
+impl PartialOrd for Monitor {
+    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+        Some((self.get_native_id()).cmp(&(other.get_native_id())))
+    }
+}
+
+impl Ord for Monitor {
+    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+        (self.get_native_id()).cmp(&(other.get_native_id()))
+    }
+}
+
+impl Eq for Monitor { }
+
+impl Default for Monitor {
+    fn default() -> Self {
+        Monitor::Primary
+    }
+}
+
 /// Represents one graphical window to be rendered
 pub struct Window<T> {
     /// System that can identify this window
     pub(crate) id: WindowId,
-    /// Stores the create_options: necessary because by default, the window is hidden
-    /// and only gets shown after the first redraw.
-    pub(crate) create_options: WindowCreateOptions<T>,
+    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
+    pub(crate) renderer_type: RendererType,
+    #[cfg(debug_assertions)]
+    #[cfg(not(test))]
+    /// An optional style hot-reloader for the current window, only
+    /// available with debug_assertions enabled
+    pub(crate) hot_reload_handler: Option<HotReloader>,
     /// Current state of the window, stores the keyboard / mouse state,
     /// visibility of the window, etc. of the LAST frame. The user never sets this
     /// field directly, but rather sets the WindowState he wants to have for the NEXT frame,
@@ -81,6 +162,8 @@ pub struct Window<T> {
     pub(crate) internal: WindowInternal,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
     pub(crate) display: ContextState,
+    // Marker, necessary to create a Window<T> out of the `WindowCreateOptions<T>`
+    marker: PhantomData<T>,
 }
 
 pub(crate) enum ContextState {
@@ -314,7 +397,7 @@ impl<T> Window<T> {
     pub(crate) fn new(
         render_api: &mut RenderApi,
         shared_context: &Context<NotCurrent>,
-        events_loop: &EventLoop<AzulUpdateEvent>,
+        events_loop: &EventLoop<AzulUpdateEvent<T>>,
         mut options: WindowCreateOptions<T>,
         background_color: ColorU,
     ) -> Result<Self, CreationError> {
@@ -362,7 +445,7 @@ impl<T> Window<T> {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
-        options.css.sort_by_specificity();
+        options.state.css.sort_by_specificity();
 
         let display_list_dimensions = translate_logical_size_to_css_layout_size(options.state.size.dimensions);
 
@@ -370,8 +453,9 @@ impl<T> Window<T> {
 
         let window = Window {
             id: WindowId::new(),
-            create_options: options,
-            state: window_state,
+            renderer_type: options.renderer_type,
+            hot_reload_handler: options.hot_reload_handler,
+            state: options.state,
             display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
                 epoch,
@@ -382,6 +466,7 @@ impl<T> Window<T> {
                 layout_result: BTreeMap::new(),
                 cached_display_list: CachedDisplayList::empty(display_list_dimensions),
             },
+            marker: options.marker,
         };
 
         Ok(window)
@@ -828,10 +913,10 @@ fn update_full_window_state(
 }
 
 #[allow(unused_variables)]
-pub(crate) fn update_from_external_window_state(
+pub(crate) fn update_from_external_window_state<T>(
     window_state: &mut FullWindowState,
     frame_event_info: &FrameEventInfo,
-    events_loop: &EventLoop<AzulUpdateEvent>,
+    events_loop: &EventLoop<AzulUpdateEvent<T>>,
     window: &GlutinWindow,
 ) {
     #[cfg(target_os = "linux")] {
@@ -858,7 +943,7 @@ pub(crate) fn clear_scroll_state(window_state: &mut FullWindowState) {
     window_state.mouse_state.scroll_y = 0.0;
 }
 
-/// Since the rendering is single-threaded anyways, the renderer is shared across windows.
+/// Since the rendering is single-th9readed anyways, the renderer is shared across windows.
 /// Second, in order to use the font-related functions on the `RenderApi`, we need to
 /// store the RenderApi somewhere in the AppResources. However, the `RenderApi` is bound
 /// to a window (because OpenGLs function pointer is bound to a window).
@@ -868,7 +953,7 @@ pub(crate) fn clear_scroll_state(window_state: &mut FullWindowState) {
 /// other windows can use said texture. This is also important for animations and multi-window
 /// apps later on, but for now the only reason is so that `AppResources::add_font()` has
 /// the proper access to the `RenderApi`
-pub(crate) struct FakeDisplay {
+pub(crate) struct FakeDisplay<T: 'static> {
     /// Main render API that can be used to register and un-register fonts and images
     pub(crate) render_api: RenderApi,
     /// Main renderer, responsible for rendering all windows
@@ -879,12 +964,12 @@ pub(crate) struct FakeDisplay {
     /// NOTE: The window and the associated context are split into separate fields.
     pub(crate) hidden_context: HeadlessContextState,
     /// Event loop that all windows share
-    pub(crate) hidden_event_loop: EventLoop<AzulUpdateEvent>,
+    pub(crate) hidden_event_loop: EventLoop<AzulUpdateEvent<T>>,
     /// Stores the GL context (function pointers) that are shared across all windows
     pub(crate) gl_context: Rc<Gl>,
 }
 
-impl FakeDisplay {
+impl<T> FakeDisplay<T> {
 
     /// Creates a new render + a new display, given a renderer type (software or hardware)
     pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
@@ -930,7 +1015,7 @@ fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, Cr
 
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
 #[allow(unused_variables)]
-fn get_hidpi_factor(window: &GlutinWindow, events_loop: &EventLoop<AzulUpdateEvent>) -> (f32, f32) {
+fn get_hidpi_factor<T>(window: &GlutinWindow, events_loop: &EventLoop<AzulUpdateEvent<T>>) -> (f32, f32) {
     let monitor = window.current_monitor();
     let winit_hidpi_factor = monitor.hidpi_factor();
 
@@ -942,9 +1027,9 @@ fn get_hidpi_factor(window: &GlutinWindow, events_loop: &EventLoop<AzulUpdateEve
     }
 }
 
-fn create_gl_window<'a>(
+fn create_gl_window<'a, T>(
     window_builder: GlutinWindowBuilder,
-    event_loop: &EventLoop<AzulUpdateEvent>,
+    event_loop: &EventLoop<AzulUpdateEvent<T>>,
     shared_context: Option<&'a Context<NotCurrent>>,
 ) -> Result<WindowedContext<NotCurrent>, CreationError> {
     create_window_context_builder(true, true, shared_context).build_windowed(window_builder.clone(), event_loop)
@@ -953,8 +1038,8 @@ fn create_gl_window<'a>(
         .or_else(|_| create_window_context_builder(false, false,shared_context).build_windowed(window_builder, event_loop))
 }
 
-fn create_headless_context(
-    event_loop: &EventLoop<AzulUpdateEvent>,
+fn create_headless_context<T>(
+    event_loop: &EventLoop<AzulUpdateEvent<T>>,
 ) -> Result<Context<NotCurrent>, CreationError> {
     use glutin::dpi::PhysicalSize as GlutinPhysicalSize;
     create_window_context_builder(true, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0))
@@ -1105,7 +1190,7 @@ fn get_xft_dpi() -> Option<f32>{
 
 /// Return the DPI on X11 systems
 #[cfg(target_os = "linux")]
-fn linux_get_hidpi_factor(monitor: &MonitorHandle, events_loop: &EventLoop<AzulUpdateEvent>) -> f32 {
+fn linux_get_hidpi_factor<T>(monitor: &MonitorHandle, events_loop: &EventLoop<AzulUpdateEvent<T>>) -> f32 {
 
     use std::env;
     use std::process::Command;
