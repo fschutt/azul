@@ -495,7 +495,7 @@ pub(crate) const fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipel
 }
 
 #[inline(always)]
-pub(crate) const fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSize {
+pub(crate) fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSize {
     WrLayoutSize::new(logical_size.width, logical_size.height)
 }
 
