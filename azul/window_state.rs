@@ -48,6 +48,8 @@ pub(crate) struct FullWindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
+    /// The style of this window
+    pub css: Css,
 
     // --
 
@@ -79,6 +81,7 @@ impl Default for FullWindowState {
             mouse_state: MouseState::default(),
             ime_position: None,
             platform_specific_options: PlatformSpecificOptions::default(),
+            css: Css::default(),
 
             // --
 
@@ -127,6 +130,7 @@ pub(crate) fn full_window_state_from_window_state(window_state: WindowState) -> 
         mouse_state: window_state.mouse_state,
         ime_position: window_state.ime_position,
         platform_specific_options: window_state.platform_specific_options,
+        css: window_state.css,
         .. Default::default()
     }
 }
@@ -142,7 +146,8 @@ pub(crate) fn full_window_state_to_window_state(full_window_state: &FullWindowSt
         keyboard_state: full_window_state.keyboard_state.clone(),
         mouse_state: full_window_state.mouse_state,
         ime_position: full_window_state.ime_position,
-        platform_specific_options: full_window_state.platform_specific_options,
+        platform_specific_options: full_window_state.platform_specific_options.clone(),
+        css: full_window_state.css.clone(),
     }
 }
 
