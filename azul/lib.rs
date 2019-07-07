@@ -296,7 +296,7 @@ pub mod prelude {
     pub use traits::{Layout, Modify};
     pub use window::{
         Window, WindowCreateOptions, MonitorHandle,
-        WindowMonitorTarget, RendererType,
+        Monitor, RendererType,
         LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
         WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
         VirtualKeyCode, ScanCode, keymap,

@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
+    ffi::c_void,
 };
 use gleam::gl::Gl;
 use {
@@ -313,6 +314,8 @@ pub struct WindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
+    /// The style of this window
+    pub css: Css,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -354,10 +357,16 @@ pub type PlatformSpecificOptions = MacWindowOptions;
 #[cfg(target_os = "windows")]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct WindowsWindowOptions {
-    /// NOTE: Can only be set when the window is created!
+    /// STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`
     pub no_redirection_bitmap: bool,
+    /// STARTUP ONLY: Window icon (decoded bytes), appears at the top right corner of the window
     pub window_icon: Option<WindowIcon>,
+    /// READWRITE: Taskbar icon (decoded bytes), usually 256x256x4 bytes large (`ICON_BIG`).
+    ///
+    /// Can be changed in callbacks / at runtime.
     pub taskbar_icon: Option<TaskBarIcon>,
+    /// STARTUP ONLY: Pointer (casted to void pointer) to a HWND handle
+    pub parent_window: Option<*mut c_void>,
 }
 
 #[cfg(target_os = "linux")]
@@ -514,7 +523,188 @@ impl Default for WindowState {
             mouse_state: MouseState::default(),
             ime_position: None,
             platform_specific_options: PlatformSpecificOptions::default(),
+            css: Css::default(),
         }
+    }
+}
+
+/// Select on which monitor the window should pop up.
+#[derive(Debug, Clone)]
+pub enum Monitor {
+    /// Window should appear on the primary monitor
+    Primary,
+    /// Use `Window::get_available_monitors()` to select the correct monitor
+    Custom(MonitorHandle)
+}
+
+#[cfg(target_os = "linux")]
+pub type NativeMonitorHandle = u32;
+// HMONITOR, (*mut c_void), casted to a usize
+#[cfg(target_os = "windows")]
+pub type NativeMonitorHandle = usize;
+#[cfg(target_os = "macos")]
+pub type NativeMonitorHandle = u32;
+
+impl Monitor {
+
+    /// Returns an iterator over all given monitors
+    pub fn get_available_monitors() -> impl Iterator<Item = MonitorHandle> {
+        EventLoop::new().available_monitors()
+    }
+
+    pub fn get_native_id(&self) -> Option<NativeMonitorHandle> {
+
+        use self::Monitor::*;
+
+        #[cfg(target_os = "linux")]
+        use glutin::platform::unix::MonitorHandleExtUnix;
+        #[cfg(target_os = "windows")]
+        use glutin::platform::windows::MonitorHandleExtWindows;
+        #[cfg(target_os = "macos")]
+        use glutin::platform::macos::MonitorHandleExtMac;
+
+        match self {
+            Primary => None,
+            Custom(m) => Some({
+                #[cfg(target_os = "windows")] { m.hmonitor() as usize }
+                #[cfg(target_os = "linux")] { m.native_id() }
+                #[cfg(target_os = "macos")] { m.native_id() }
+            }),
+        }
+    }
+}
+
+impl ::std::hash::Hash for Monitor {
+    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+        use self::Monitor::*;
+        state.write_usize(match self { Primary => 0, Custom(_) => 1, });
+        state.write_usize(self.get_native_id().unwrap_or(0) as usize);
+    }
+}
+
+impl PartialEq for Monitor {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.get_native_id() == rhs.get_native_id()
+    }
+}
+
+impl PartialOrd for Monitor {
+    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+        Some((self.get_native_id()).cmp(&(other.get_native_id())))
+    }
+}
+
+impl Ord for Monitor {
+    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+        (self.get_native_id()).cmp(&(other.get_native_id()))
+    }
+}
+
+impl Eq for Monitor { }
+
+impl Default for Monitor {
+    fn default() -> Self {
+        Monitor::Primary
+    }
+}
+
+
+/// Options on how to initially create the window
+pub struct WindowCreateOptions<T> {
+    /// State of the window, set the initial title / width / height here.
+    pub state: WindowState,
+    /// Which monitor should the window be created on?
+    pub monitor: Monitor,
+    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
+    pub renderer_type: RendererType,
+    /// Windows only: Sets the 256x256 taskbar icon during startup
+    pub taskbar_icon: Option<TaskBarIcon>,
+    #[cfg(debug_assertions)]
+    #[cfg(not(test))]
+    /// An optional style hot-reloader for the current window, only available with debug_assertions
+    /// enabled
+    pub hot_reload: Option<Box<dyn HotReloadHandler>>,
+    // Marker, necessary to create a Window<T> out of the create options
+    pub marker: PhantomData<T>,
+}
+
+impl<T> Default for WindowCreateOptions<T> {
+    fn default() -> Self {
+        Self {
+            state: WindowState::default(),
+            monitor: Monitor::default(),
+            renderer_type: RendererType::default(),
+            taskbar_icon: None,
+            #[cfg(debug_assertions)]
+            #[cfg(not(test))]
+            hot_reload: None,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<T> WindowCreateOptions<T> {
+
+    pub(crate) fn get_reload_interval(&self) -> Option<Duration> {
+        let hot_reloader = self.hot_reload.as_ref()?;
+        Some(hot_reloader.get_reload_interval())
+    }
+
+    /// Reloads the CSS (if possible).
+    ///
+    /// Returns:
+    ///
+    /// - Ok(true) if the CSS has been successfully reloaded
+    /// - Ok(false) if there is no CSS hot-reloader
+    /// - Err(why) if the CSS failed to hot-reload.
+    pub(crate) fn reload_style(&mut self) -> Result<bool, String> {
+
+        #[cfg(debug_assertions)] {
+            let hot_reloader = match self.hot_reload.as_mut() {
+                None => return Ok(false),
+                Some(s) => s,
+            };
+
+            match hot_reloader.reload_style() {
+                Ok(mut new_css) => {
+                    new_css.sort_by_specificity();
+                    self.css = new_css;
+                    return Ok(true);
+                },
+                Err(why) => {
+                    return Err(format!("{}", why));
+                },
+            };
+        }
+
+        #[cfg(not(debug_assertions))] {
+            return Ok(false);
+        }
+    }
+}
+
+/// Force a specific renderer.
+/// By default, Azul will try to use the hardware renderer and fall
+/// back to the software renderer if it can't create an OpenGL 3.2 context.
+/// However, in some cases a hardware renderer might create problems
+/// or you want to force either a software or hardware renderer.
+///
+/// If the field `renderer_type` on the `WindowCreateOptions` is not
+/// `RendererType::Default`, the `create_window` method will try to create
+/// a window with the specific renderer type and **crash** if the renderer is
+/// not available for whatever reason.
+///
+/// If you don't know what any of this means, leave it at `Default`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RendererType {
+    Default,
+    Hardware,
+    Software,
+}
+
+impl Default for RendererType {
+    fn default() -> Self {
+        RendererType::Default
     }
 }
 
@@ -527,6 +717,8 @@ pub enum AzulUpdateEvent {
     ThreadHasFinished,
     AnimationUpdate,
     DisplayListUpdate,
+    CreateWindow { window_create_options: WindowCreateOptions },
+    CloseWindow { window_id: WindowId },
     // ... etc.
 }
 

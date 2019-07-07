@@ -44,107 +44,6 @@ pub use window_state::*;
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
 
-/// Options on how to initially create the window
-pub struct WindowCreateOptions<T> {
-    /// State of the window, set the initial title / width / height here.
-    pub state: WindowState,
-    /// Which monitor should the window be created on?
-    pub monitor: WindowMonitorTarget,
-    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
-    pub renderer_type: RendererType,
-    /// Windows only: Sets the 256x256 taskbar icon during startup
-    pub taskbar_icon: Option<TaskBarIcon>,
-    /// The style of this window
-    pub css: Css,
-    #[cfg(debug_assertions)]
-    #[cfg(not(test))]
-    /// An optional style hot-reloader for the current window, only available with debug_assertions
-    /// enabled
-    pub hot_reload: Option<Box<dyn HotReloadHandler>>,
-    // Marker, necessary to create a Window<T> out of the create options
-    pub marker: PhantomData<T>,
-}
-
-impl<T> Default for WindowCreateOptions<T> {
-    fn default() -> Self {
-        Self {
-            state: WindowState::default(),
-            monitor: WindowMonitorTarget::default(),
-            renderer_type: RendererType::default(),
-            taskbar_icon: None,
-            css: Css::default(),
-            #[cfg(debug_assertions)]
-            #[cfg(not(test))]
-            hot_reload: None,
-            marker: PhantomData,
-        }
-    }
-}
-
-impl<T> WindowCreateOptions<T> {
-
-    pub(crate) fn get_reload_interval(&self) -> Option<Duration> {
-        let hot_reloader = self.hot_reload?;
-        Some(hot_reloader.get_reload_interval())
-    }
-
-    /// Reloads the CSS (if possible).
-    ///
-    /// Returns:
-    ///
-    /// - Ok(true) if the CSS has been successfully reloaded
-    /// - Ok(false) if there is no CSS hot-reloader
-    /// - Err(why) if the CSS failed to hot-reload.
-    pub(crate) fn reload_style(&mut self) -> Result<bool, String> {
-
-        #[cfg(debug_assertions)] {
-            let hot_reloader = match self.hot_reload.as_mut() {
-                None => return Ok(false),
-                Some(s) => s,
-            };
-
-            match hot_reloader.reload_style() {
-                Ok(mut new_css) => {
-                    new_css.sort_by_specificity();
-                    self.css = new_css;
-                    return Ok(true);
-                },
-                Err(why) => {
-                    return Err(format!("{}", why));
-                },
-            };
-        }
-
-        #[cfg(not(debug_assertions))] {
-            return Ok(false);
-        }
-    }
-}
-/// Force a specific renderer.
-/// By default, Azul will try to use the hardware renderer and fall
-/// back to the software renderer if it can't create an OpenGL 3.2 context.
-/// However, in some cases a hardware renderer might create problems
-/// or you want to force either a software or hardware renderer.
-///
-/// If the field `renderer_type` on the `WindowCreateOptions` is not
-/// `RendererType::Default`, the `create_window` method will try to create
-/// a window with the specific renderer type and **crash** if the renderer is
-/// not available for whatever reason.
-///
-/// If you don't know what any of this means, leave it at `Default`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RendererType {
-    Default,
-    Hardware,
-    Software,
-}
-
-impl Default for RendererType {
-    fn default() -> Self {
-        RendererType::Default
-    }
-}
-
 struct Notifier { }
 
 impl RenderNotifier for Notifier {
@@ -160,80 +59,6 @@ impl RenderNotifier for Notifier {
 
     fn wake_up(&self) { }
     fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) { }
-}
-
-/// Select on which monitor the window should pop up.
-#[derive(Debug, Clone)]
-pub enum WindowMonitorTarget {
-    /// Window should appear on the primary monitor
-    Primary,
-    /// Use `Window::get_available_monitors()` to select the correct monitor
-    Custom(MonitorHandle)
-}
-
-#[cfg(target_os = "linux")]
-type NativeMonitorHandle = u32;
-// HMONITOR, (*mut c_void), casted to a usize
-#[cfg(target_os = "windows")]
-type NativeMonitorHandle = usize;
-#[cfg(target_os = "macos")]
-type NativeMonitorHandle = u32;
-
-impl WindowMonitorTarget {
-    fn get_native_id(&self) -> Option<NativeMonitorHandle> {
-
-        use self::WindowMonitorTarget::*;
-
-        #[cfg(target_os = "linux")]
-        use glutin::platform::unix::MonitorHandleExtUnix;
-        #[cfg(target_os = "windows")]
-        use glutin::platform::windows::MonitorHandleExtWindows;
-        #[cfg(target_os = "macos")]
-        use glutin::platform::macos::MonitorHandleExtMac;
-
-        match self {
-            Primary => None,
-            Custom(m) => Some({
-                #[cfg(target_os = "windows")] { m.hmonitor() as usize }
-                #[cfg(target_os = "linux")] { m.native_id() }
-                #[cfg(target_os = "macos")] { m.native_id() }
-            }),
-        }
-    }
-}
-
-impl ::std::hash::Hash for WindowMonitorTarget {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-        use self::WindowMonitorTarget::*;
-        state.write_usize(match self { Primary => 0, Custom(_) => 1, });
-        state.write_usize(self.get_native_id().unwrap_or(0) as usize);
-    }
-}
-
-impl PartialEq for WindowMonitorTarget {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.get_native_id() == rhs.get_native_id()
-    }
-}
-
-impl PartialOrd for WindowMonitorTarget {
-    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-        Some((self.get_native_id()).cmp(&(other.get_native_id())))
-    }
-}
-
-impl Ord for WindowMonitorTarget {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-        (self.get_native_id()).cmp(&(other.get_native_id()))
-    }
-}
-
-impl Eq for WindowMonitorTarget { }
-
-impl Default for WindowMonitorTarget {
-    fn default() -> Self {
-        WindowMonitorTarget::Primary
-    }
 }
 
 /// Represents one graphical window to be rendered
@@ -324,7 +149,15 @@ impl ContextState {
         use self::ContextState::*;
         match &self {
             Current(c) => Some(c.context()),
-            NotCurrent(nc) => None,
+            NotCurrent(_) => None,
+        }
+    }
+
+    pub fn windowed_context(&self) -> Option<&WindowedContext<PossiblyCurrent>> {
+        use self::ContextState::*;
+        match &self {
+            Current(c) => Some(c),
+            NotCurrent(_) => None,
         }
     }
 }
@@ -496,10 +329,10 @@ impl<T> Window<T> {
 
         let is_transparent_background = background_color.a != 0;
 
-        let mut window = create_window_builder(is_transparent_background, &options.state.platform_specific_options);
+        let window_builder = create_window_builder(is_transparent_background, &options.state.platform_specific_options);
 
         // Only create a context with VSync and SRGB if the context creation works
-        let gl_window = create_gl_window(window, &events_loop, Some(shared_context))?;
+        let gl_window = create_gl_window(window_builder, &events_loop, Some(shared_context))?;
 
         let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
         options.state.size.hidpi_factor = hidpi_factor;
@@ -533,10 +366,12 @@ impl<T> Window<T> {
 
         let display_list_dimensions = translate_logical_size_to_css_layout_size(options.state.size.dimensions);
 
+        let window_state = options.state.clone();
+
         let window = Window {
             id: WindowId::new(),
             create_options: options,
-            state: options.state,
+            state: window_state,
             display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
                 epoch,
@@ -550,11 +385,6 @@ impl<T> Window<T> {
         };
 
         Ok(window)
-    }
-
-    /// Returns an iterator over all given monitors
-    pub fn get_available_monitors() -> impl Iterator<Item = MonitorHandle> {
-        EventLoop::new().available_monitors()
     }
 
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
@@ -590,11 +420,18 @@ fn create_window_builder(
     has_transparent_background: bool,
     platform_options: &WindowsWindowOptions,
 ) -> GlutinWindowBuilder {
+
     use glutin::platform::windows::WindowBuilderExtWindows;
+    use wr_translate::winit_translate::translate_taskbar_icon;
 
     let mut window_builder = GlutinWindowBuilder::new()
         .with_transparent(has_transparent_background)
-        .with_no_redirection_bitmap(platform_options.no_redirection_bitmap);
+        .with_no_redirection_bitmap(platform_options.no_redirection_bitmap)
+        .with_taskbar_icon(platform_options.taskbar_icon.clone().and_then(|ic| translate_taskbar_icon(ic).ok()));
+
+    if let Some(parent_window) = platform_options.parent_window {
+        window_builder = window_builder.with_parent_window(parent_window as *mut _);
+    }
 
     window_builder
 }
@@ -606,18 +443,9 @@ fn create_window_builder(
 ) -> GlutinWindowBuilder {
     use glutin::platform::windows::WindowBuilderExtUnix;
 
-/*
-    fn with_override_redirect(self, override_redirect: bool) -> WindowBuilder
-    fn with_x11_window_type(self, x11_window_type: WindowType) -> WindowBuilder
-    fn with_gtk_theme_variant(self, variant: String) -> WindowBuilder
-    fn with_resize_increments(self, increments: LogicalSize) -> WindowBuilder
-    fn with_base_size(self, base_size: LogicalSize) -> WindowBuilder
-    fn with_app_id(self, app_id: String) -> WindowBuilder
-*/
-
     let mut window_builder = GlutinWindowBuilder::new()
         .with_transparent(has_transparent_background);
-/*
+
     if let Some(classes) = platform_options.x11_wm_classes {
         for class in classes {
             window_builder = window_builder.with_class(class);
@@ -628,18 +456,26 @@ fn create_window_builder(
         window_builder = window_builder.with_override_redirect(override_redirect);
     }
 
-    if let Some(override_redirect) = platform_options.x11_override_redirect {
-        window_builder = window_builder.with_override_redirect(override_redirect);
+    if let Some(window_type) = platform_options.x11_window_type {
+        window_builder = window_builder.with_x11_window_type(window_type);
     }
 
-    if let Some(override_redirect) = platform_options.x11_override_redirect {
-        window_builder = window_builder.with_override_redirect(override_redirect);
+    if let Some(theme_variant) = platform_options.x11_gtk_theme_variant {
+        window_builder = window_builder.with_gtk_theme_variant(theme_variant);
     }
 
-    if let Some(override_redirect) = platform_options.x11_override_redirect {
-        window_builder = window_builder.with_override_redirect(override_redirect);
+    if let Some(resize_increments) = platform_options.x11_resize_increments {
+        window_builder = window_builder.with_resize_increments(resize_increments);
     }
-*/
+
+    if let Some(base_size) = platform_options.x11_base_size {
+        window_builder = window_builder.with_base_size(base_size);
+    }
+
+    if let Some(app_id) = platform_options.x11_app_id {
+        window_builder = window_builder.with_app_id(app_id);
+    }
+
     window_builder
 }
 
@@ -885,11 +721,11 @@ fn synchronize_os_window_windows_extensions(
     use wr_translate::winit_translate::{translate_window_icon, translate_taskbar_icon};
 
     if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
+        window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
     }
 
     if old_state.taskbar_icon != new_state.taskbar_icon {
-        window.set_taskbar_icon(new_state.taskbar_icon.and_then(|ic| translate_taskbar_icon(ic).ok()));
+        window.set_taskbar_icon(new_state.taskbar_icon.clone().and_then(|ic| translate_taskbar_icon(ic).ok()));
     }
 }
 
@@ -941,8 +777,8 @@ fn initialize_os_window_windows_extensions(
     use glutin::platform::windows::WindowExtWindows;
     use wr_translate::winit_translate::{translate_taskbar_icon, translate_window_icon};
 
-    window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
-    window.set_taskbar_icon(new_state.taskbar_icon.and_then(|ic| translate_taskbar_icon(ic).ok()));
+    window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
+    window.set_taskbar_icon(new_state.taskbar_icon.clone().and_then(|ic| translate_taskbar_icon(ic).ok()));
 }
 
 // Linux-specific window options
@@ -988,7 +824,7 @@ fn update_full_window_state(
     full_window_state.keyboard_state = window_state.keyboard_state.clone();
     full_window_state.mouse_state = window_state.mouse_state;
     full_window_state.ime_position = window_state.ime_position;
-    full_window_state.platform_specific_options = window_state.platform_specific_options;
+    full_window_state.platform_specific_options = window_state.platform_specific_options.clone();
 }
 
 #[allow(unused_variables)]
@@ -1055,7 +891,7 @@ impl FakeDisplay {
 
         // The events loop is shared across all windows
         let event_loop = EventLoop::new_user_event();
-        let gl_context = HeadlessContextState::NotCurrent(create_headless_context(&event_loop)?);
+        let mut gl_context = HeadlessContextState::NotCurrent(create_headless_context(&event_loop)?);
 
         gl_context.make_current();
         let gl_function_pointers = get_gl_context(gl_context.headless_context().unwrap())?;
@@ -1080,27 +916,6 @@ impl FakeDisplay {
 
     pub fn get_gl_context(&self) -> Rc<dyn Gl> {
         self.gl_context.clone()
-    }
-}
-
-impl Drop for FakeDisplay {
-    fn drop(&mut self) {
-
-        // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
-        //
-        // TODO: This still crashes on Linux because the makeCurrent call doesn't succeed
-        // (likely because the underlying surface has been destroyed). In those cases,
-        // we don't de-initialize the rendered (since this is an application shutdown it
-        // doesn't matter, the resources are going to get cleaned up by the OS).
-        self.hidden_context.make_current();
-
-        self.gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        self.gl_context.disable(gl::MULTISAMPLE);
-        self.gl_context.disable(gl::POLYGON_SMOOTH);
-
-        if let Some(renderer) = self.renderer.take() {
-            renderer.deinit();
-        }
     }
 }
 

@@ -9,16 +9,16 @@ pub const EM_HEIGHT: f32 = 16.0;
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
 const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);10] = [
-    (CombinedCssPropertyType::BorderRadius, "border-radius"),
-    (CombinedCssPropertyType::Overflow, "overflow"),
-    (CombinedCssPropertyType::Padding, "padding"),
-    (CombinedCssPropertyType::Margin, "margin"),
-    (CombinedCssPropertyType::Border, "border"),
-    (CombinedCssPropertyType::BorderLeft, "border-left"),
-    (CombinedCssPropertyType::BorderRight, "border-right"),
-    (CombinedCssPropertyType::BorderTop, "border-top"),
-    (CombinedCssPropertyType::BorderBottom, "border-bottom"),
-    (CombinedCssPropertyType::BoxShadow, "box-shadow"),
+    (CombinedCssPropertyType::BorderRadius,         "border-radius"),
+    (CombinedCssPropertyType::Overflow,             "overflow"),
+    (CombinedCssPropertyType::Padding,              "padding"),
+    (CombinedCssPropertyType::Margin,               "margin"),
+    (CombinedCssPropertyType::Border,               "border"),
+    (CombinedCssPropertyType::BorderLeft,           "border-left"),
+    (CombinedCssPropertyType::BorderRight,          "border-right"),
+    (CombinedCssPropertyType::BorderTop,            "border-top"),
+    (CombinedCssPropertyType::BorderBottom,         "border-bottom"),
+    (CombinedCssPropertyType::BoxShadow,            "box-shadow"),
 ];
 
 /// Map between CSS keys and a statically typed enum
@@ -26,7 +26,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);66] = [
 
     (CssPropertyType::Display,              "display"),
     (CssPropertyType::Float,                "float"),
-    (CssPropertyType::BoxSizing,             "box-sizing"),
+    (CssPropertyType::BoxSizing,            "box-sizing"),
 
     (CssPropertyType::TextColor,            "color"),
     (CssPropertyType::FontSize,             "font-size"),
