@@ -1,6 +1,6 @@
 use std::{
     rc::Rc,
-    time::Instant,
+    time::{Duration, Instant},
     collections::BTreeMap,
 };
 use glutin::{
@@ -114,6 +114,9 @@ pub struct AppConfig {
     pub debug_state: DebugState,
     /// Background color for all windows
     pub background_color: ColorU,
+    /// Framerate (i.e. 16ms) - sets how often the timer / tasks should check
+    /// for updates. Default: 30ms
+    pub min_frame_duration: Duration,
 }
 
 impl Default for AppConfig {
@@ -131,6 +134,7 @@ impl Default for AppConfig {
             renderer_type: RendererType::default(),
             debug_state: DebugState::default(),
             background_color: COLOR_WHITE,
+            min_frame_duration: Duration::from_millis(30),
         }
     }
 }
@@ -180,7 +184,7 @@ impl<T: Layout> App<T> {
         #[cfg(not(test))] {
             let mut fake_display = FakeDisplay::new(app_config.renderer_type)?;
             if let Some(r) = &mut fake_display.renderer {
-                set_webrender_debug_flags(r, &DebugState::default(), &app_config.debug_state);
+                set_webrender_debug_flags(r, &app_config.debug_state);
             }
             Ok(Self {
                 windows: BTreeMap::new(),
@@ -224,7 +228,7 @@ impl<T> App<T> {
     #[cfg(not(test))]
     pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
         if let Some(r) = &mut self.fake_display.renderer {
-            set_webrender_debug_flags(r, &self.config.debug_state, &new_state);
+            set_webrender_debug_flags(r, &new_state);
         }
         self.config.debug_state = new_state;
     }
@@ -284,34 +288,47 @@ impl<T: 'static> App<T> {
         // let event_loop_proxy = fake_display.hidden_event_loop.create_proxy();
 
         fake_display.hidden_event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Wait; // TODO: if timers / tasks are running, set this to WaitTimeout(60ms) !
+
+            let now = Instant::now();
+
+            macro_rules! close_window {($window_id:expr) => {
+                    active_windows.remove(&$window_id);
+                    window_id_mapping.remove(&$window_id);
+                    fake_windows.remove(&$window_id);
+                    full_window_states.remove(&$window_id);
+                    ui_state_cache.remove(&$window_id);
+                    ui_description_cache.remove(&$window_id);
+                    // TODO: Remove the window pipeline / document from the render_api!
+                };
+            }
+
+            macro_rules! redraw_all_windows {() => {
+                for (_, window) in active_windows.iter() {
+                    window.display.window().request_redraw();
+                }
+            };}
 
             match event {
                 Event::WindowEvent { event, window_id } => match &event {
                     WindowEvent::Resized(logical_size) => {
                         // relayout, rebuild cached display list, reinitialize scroll states
-                        let windowed_context = &active_windows[&window_id].display;
-                        let dpi_factor = windowed_context.window().hidpi_factor();
-                        windowed_context.make_current();
-                        windowed_context.window().resize(logical_size.to_physical(dpi_factor));
-                        windowed_context.make_not_current();
+                        let mut windowed_context = active_windows.get_mut(&window_id);
+                        let windowed_context = windowed_context.as_mut().unwrap();
+                        let dpi_factor = windowed_context.display.window().hidpi_factor();
+                        windowed_context.display.make_current();
+                        windowed_context.display.windowed_context().unwrap().resize(logical_size.to_physical(dpi_factor));
+                        windowed_context.display.make_not_current();
                     },
                     WindowEvent::RedrawRequested => {
-                        // only draw texture to screen
-                        let windowed_context = &active_windows[&window_id].display;
-                        windowed_context.make_current();
-                        windowed_context.window().swap_buffers().unwrap();
-                        windowed_context.make_not_current();
+                        let mut windowed_context = active_windows.get_mut(&window_id);
+                        let windowed_context = windowed_context.as_mut().unwrap();
+                        let dpi_factor = windowed_context.display.window().hidpi_factor();
+                        windowed_context.display.make_current();
+                        windowed_context.display.windowed_context().unwrap().swap_buffers().unwrap();
+                        windowed_context.display.make_not_current();
                     },
                     WindowEvent::CloseRequested => {
-                        active_windows.remove(&window_id);
-                        window_id_mapping.remove(&window_id);
-                        fake_windows.remove(&window_id);
-                        full_window_states.remove(&window_id);
-                        ui_state_cache.remove(&window_id);
-                        ui_description_cache.remove(&window_id);
-                        *control_flow = ControlFlow::Exit;
-                        return;
+                        close_window!(window_id);
                     },
                     _ => { },
                 },
@@ -321,45 +338,74 @@ impl<T: 'static> App<T> {
                         window.display.window().request_redraw();
                     }
                 },
+                Event::UserEvent(AzulUpdateEvent::CreateWindow { window_create_options }) => {
+                    if let Some(window) = Window::new(
+                        &mut fake_display.render_api,
+                        fake_display.hidden_context.headless_context_not_current().unwrap(),
+                        &event_loop_proxy,
+                        window_create_options,
+                        config.background_color,
+                    ) {
+                        let glutin_window_id = window.display.window().id();
+                        let window_id = window.id;
+                        active_windows.insert(glutin_window_id, window);
+                        window_id_mapping.insert(window_id, glutin_window_id);
+                    }
+                },
+                Event::UserEvent(AzulUpdateEvent::CloseWindow { window_id }) => {
+                    let glutin_id = window_id_mapping.get(window_id);
+                    if let Some(glutin_window_id) = glutin_id {
+                        close_window!(glutin_window_id);
+                    }
+                    redraw_all_windows!();
+                },
                 Event::UserEvent(AzulUpdateEvent::ScrollUpdate) => {
                     // update scroll states here ...
-                    for (_, window) in active_windows.iter() {
-                        window.display.window().request_redraw();
-                    }
+                    redraw_all_windows!();
                 },
                 Event::UserEvent(AzulUpdateEvent::TimerHasFinished) => {
-                    for (_, window) in active_windows.iter() {
-                        window.display.window().request_redraw();
-                    }
+                    redraw_all_windows!();
                 },
                 Event::UserEvent(AzulUpdateEvent::ThreadHasFinished) => {
-                    for (_, window) in active_windows.iter() {
-                        window.display.window().request_redraw();
-                    }
+                    redraw_all_windows!();
                 },
                 Event::UserEvent(AzulUpdateEvent::AnimationUpdate) => {
                     // update animation states here ...
-                    for (_, window) in active_windows.iter() {
-                        window.display.window().request_redraw();
-                    }
+                    redraw_all_windows!();
                 },
                 Event::UserEvent(AzulUpdateEvent::DisplayListUpdate) => {
                     // only update display list here ...
-                    for (_, window) in active_windows.iter() {
-                        window.display.window().request_redraw();
-                    }
-                },
-                Event::LoopDestroyed => {
-                    active_windows.clear();
-                    window_id_mapping.clear();
-                    fake_windows.clear();
-                    full_window_states.clear();
-                    ui_state_cache.clear();
-                    ui_description_cache.clear();
-                    *control_flow = ControlFlow::Exit;
-                    return;
+                    redraw_all_windows!();
                 },
                 _ => { },
+            }
+
+            // End of loop
+            if active_windows.is_empty() {
+                *control_flow = ControlFlow::Exit;
+
+                // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
+                //
+                // TODO: This still crashes on Linux because the makeCurrent call doesn't succeed
+                // (likely because the underlying surface has been destroyed). In those cases,
+                // we don't de-initialize the rendered (since this is an application shutdown it
+                // doesn't matter, the resources are going to get cleaned up by the OS).
+                fake_display.hidden_context.make_current();
+
+                fake_display.gl_context.disable(gl::FRAMEBUFFER_SRGB);
+                fake_display.gl_context.disable(gl::MULTISAMPLE);
+                fake_display.gl_context.disable(gl::POLYGON_SMOOTH);
+
+                if let Some(renderer) = fake_display.renderer.take() {
+                    renderer.deinit();
+                }
+            } else {
+                // TODO: if timers / tasks are running, set this to WaitTimeout(60ms) !
+                if app_state.timers.is_empty() && app_state.tasks.is_empty() {
+                    *control_flow = ControlFlow::Wait;
+                } else {
+                    *control_flow = ControlFlow::WaitUntil(now + config.min_frame_duration);
+                }
             }
         })
     }
@@ -1349,7 +1395,7 @@ fn draw_texture_to_screen(context: Rc<dyn Gl>, texture: GLuint, framebuffer_size
     context.bind_texture(gl::TEXTURE_2D, 0);
 }
 
-fn set_webrender_debug_flags(r: &mut Renderer, old_flags: &DebugState, new_flags: &DebugState) {
+fn set_webrender_debug_flags(r: &mut Renderer, new_flags: &DebugState) {
 
     use webrender::DebugFlags;
 
