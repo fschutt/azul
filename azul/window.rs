@@ -426,7 +426,7 @@ impl<T> Window<T> {
         initialize_os_window(&options.state, &gl_window.window());
 
         // Hide the window until the first draw (prevents flash on startup)
-        gl_window.window().set_visible(false);
+        // gl_window.window().set_visible(false);
 
         let framebuffer_size = {
             let physical_size = options.state.size.dimensions.to_physical(hidpi_factor as f32);

@@ -22,7 +22,7 @@ impl Layout for DataModel {
 }
 
 fn main() {
-    let mut app = App::new(DataModel { counter: 0 }, AppConfig::default()).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css::native()).unwrap();
-    app.run(window).unwrap();
+    let app = App::new(DataModel { counter: 0 }, AppConfig::default()).unwrap();
+    let root_window = WindowCreateOptions::new(css::native());
+    app.run(root_window);
 }
