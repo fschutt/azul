@@ -540,7 +540,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
             node_hierarchy,
             node_data,
             display_rectangle_arena: &display_list.rectangles,
-            css: &window.create_options.css,
+            css: &window.state.css,
         },
         &mut DisplayListParametersMut {
             app_data: app_data_access,
