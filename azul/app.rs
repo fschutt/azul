@@ -328,7 +328,6 @@ impl<T: 'static> App<T> {
                     WindowEvent::RedrawRequested => {
                         let mut windowed_context = active_windows.get_mut(&window_id);
                         let windowed_context = windowed_context.as_mut().unwrap();
-                        let dpi_factor = windowed_context.display.window().hidpi_factor();
                         windowed_context.display.make_current();
                         windowed_context.display.windowed_context().unwrap().swap_buffers().unwrap();
                         windowed_context.display.make_not_current();

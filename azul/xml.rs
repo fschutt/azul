@@ -465,11 +465,11 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
 
         let token = token.map_err(|e| ParseError(e))?;
         match token {
-            ElementStart(_, open_value) => {
+            ElementStart { local, .. } => {
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
                     let children_len = current_parent.children.len();
                     current_parent.children.push(XmlNode {
-                        node_type: normalize_casing(open_value.to_str()),
+                        node_type: normalize_casing(local.as_str()),
                         attributes: BTreeMap::new(),
                         children: Vec::new(),
                         text: None,
@@ -477,11 +477,11 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
                     current_hierarchy.push(children_len);
                 }
             },
-            ElementEnd(Empty) => {
+            ElementEnd { end: Empty, .. } => {
                 current_hierarchy.pop();
             },
-            ElementEnd(Close(_, close_value)) => {
-                let close_value = normalize_casing(close_value.to_str());
+            ElementEnd { end: Close(_, close_value), .. } => {
+                let close_value = normalize_casing(close_value.as_str());
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     if last.node_type != close_value {
                         return Err(MalformedHierarchy(close_value, last.node_type.clone()));
@@ -489,19 +489,19 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
                 }
                 current_hierarchy.pop();
             },
-            Attribute((_, key), value) => {
+            Attribute { local, value, .. } => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    // NOTE: Only lowercase the key, not the value!
-                    last.attributes.insert(normalize_casing(key.to_str()), value.to_str().to_string());
+                    // NOTE: Only lowercase the key ("local"), not the value!
+                    last.attributes.insert(normalize_casing(local.as_str()), value.as_str().to_string());
                 }
             },
-            Text(t) => {
+            Text { text } => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     if let Some(s) = last.text.as_mut() {
-                        s.push_str(t.to_str());
+                        s.push_str(text.as_str());
                     }
                     if last.text.is_none() {
-                        last.text = Some(t.to_str().into());
+                        last.text = Some(text.as_str().into());
                     }
                 }
             }
