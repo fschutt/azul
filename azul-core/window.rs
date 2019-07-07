@@ -418,7 +418,21 @@ pub struct MacWindowOptions {
     pub request_user_attention: bool,
 }
 
-impl WindowState{
+impl WindowState {
+
+    pub fn new(css: Css) -> Self {
+        Self {
+            css,
+            .. Default::default()
+        }
+    }
+
+    pub fn with_css(self, css: Css) -> Self {
+        Self {
+            css,
+            .. self
+        }
+    }
 
     pub fn get_mouse_state(&self) -> &MouseState {
         &self.mouse_state
@@ -560,6 +574,28 @@ impl<T> Default for WindowCreateOptions<T> {
             #[cfg(not(test))]
             hot_reload_handler: None,
             marker: PhantomData,
+        }
+    }
+}
+
+impl<T> WindowCreateOptions<T> {
+
+    pub fn new(css: Css) -> Self {
+        Self {
+            state: WindowState::new(css),
+            .. Default::default()
+        }
+    }
+
+    pub fn with_css(mut self, css: Css) -> Self {
+        self.state.css = css;
+        self
+    }
+
+    pub fn new_hot_reload(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
+        Self {
+            hot_reload_handler: Some(HotReloader::new(hot_reload_handler)),
+            .. Default::default()
         }
     }
 }
