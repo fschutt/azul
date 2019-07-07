@@ -3,8 +3,14 @@ use std::{
     rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
     ffi::c_void,
+    marker::PhantomData,
+    time::Duration,
 };
 use gleam::gl::Gl;
+use azul_css::Css;
+#[cfg(debug_assertions)]
+#[cfg(not(test))]
+use azul_css::HotReloadHandler;
 use {
     callbacks::{DefaultCallbackId, DefaultCallback, DefaultCallbackTypeUnchecked},
     stack_checked_pointer::StackCheckedPointer,
@@ -528,102 +534,19 @@ impl Default for WindowState {
     }
 }
 
-/// Select on which monitor the window should pop up.
-#[derive(Debug, Clone)]
-pub enum Monitor {
-    /// Window should appear on the primary monitor
-    Primary,
-    /// Use `Window::get_available_monitors()` to select the correct monitor
-    Custom(MonitorHandle)
-}
-
-#[cfg(target_os = "linux")]
-pub type NativeMonitorHandle = u32;
-// HMONITOR, (*mut c_void), casted to a usize
-#[cfg(target_os = "windows")]
-pub type NativeMonitorHandle = usize;
-#[cfg(target_os = "macos")]
-pub type NativeMonitorHandle = u32;
-
-impl Monitor {
-
-    /// Returns an iterator over all given monitors
-    pub fn get_available_monitors() -> impl Iterator<Item = MonitorHandle> {
-        EventLoop::new().available_monitors()
-    }
-
-    pub fn get_native_id(&self) -> Option<NativeMonitorHandle> {
-
-        use self::Monitor::*;
-
-        #[cfg(target_os = "linux")]
-        use glutin::platform::unix::MonitorHandleExtUnix;
-        #[cfg(target_os = "windows")]
-        use glutin::platform::windows::MonitorHandleExtWindows;
-        #[cfg(target_os = "macos")]
-        use glutin::platform::macos::MonitorHandleExtMac;
-
-        match self {
-            Primary => None,
-            Custom(m) => Some({
-                #[cfg(target_os = "windows")] { m.hmonitor() as usize }
-                #[cfg(target_os = "linux")] { m.native_id() }
-                #[cfg(target_os = "macos")] { m.native_id() }
-            }),
-        }
-    }
-}
-
-impl ::std::hash::Hash for Monitor {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-        use self::Monitor::*;
-        state.write_usize(match self { Primary => 0, Custom(_) => 1, });
-        state.write_usize(self.get_native_id().unwrap_or(0) as usize);
-    }
-}
-
-impl PartialEq for Monitor {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.get_native_id() == rhs.get_native_id()
-    }
-}
-
-impl PartialOrd for Monitor {
-    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-        Some((self.get_native_id()).cmp(&(other.get_native_id())))
-    }
-}
-
-impl Ord for Monitor {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-        (self.get_native_id()).cmp(&(other.get_native_id()))
-    }
-}
-
-impl Eq for Monitor { }
-
-impl Default for Monitor {
-    fn default() -> Self {
-        Monitor::Primary
-    }
-}
-
-
 /// Options on how to initially create the window
 pub struct WindowCreateOptions<T> {
     /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
-    /// Which monitor should the window be created on?
-    pub monitor: Monitor,
+    // /// Which monitor should the window be created on?
+    // pub monitor: Monitor,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
-    /// Windows only: Sets the 256x256 taskbar icon during startup
-    pub taskbar_icon: Option<TaskBarIcon>,
     #[cfg(debug_assertions)]
     #[cfg(not(test))]
     /// An optional style hot-reloader for the current window, only available with debug_assertions
     /// enabled
-    pub hot_reload: Option<Box<dyn HotReloadHandler>>,
+    pub hot_reload_handler: Option<HotReloader>,
     // Marker, necessary to create a Window<T> out of the create options
     pub marker: PhantomData<T>,
 }
@@ -632,53 +555,42 @@ impl<T> Default for WindowCreateOptions<T> {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
-            monitor: Monitor::default(),
             renderer_type: RendererType::default(),
-            taskbar_icon: None,
             #[cfg(debug_assertions)]
             #[cfg(not(test))]
-            hot_reload: None,
+            hot_reload_handler: None,
             marker: PhantomData,
         }
     }
 }
 
-impl<T> WindowCreateOptions<T> {
+pub struct HotReloader(pub Box<dyn HotReloadHandler>);
 
-    pub(crate) fn get_reload_interval(&self) -> Option<Duration> {
-        let hot_reloader = self.hot_reload.as_ref()?;
-        Some(hot_reloader.get_reload_interval())
+impl HotReloader {
+
+    pub fn new(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
+        Self(hot_reload_handler)
+    }
+
+    pub fn get_reload_interval(&self) -> Duration {
+        self.0.get_reload_interval()
     }
 
     /// Reloads the CSS (if possible).
     ///
     /// Returns:
     ///
-    /// - Ok(true) if the CSS has been successfully reloaded
-    /// - Ok(false) if there is no CSS hot-reloader
+    /// - Ok(css) if the CSS has been successfully reloaded
     /// - Err(why) if the CSS failed to hot-reload.
-    pub(crate) fn reload_style(&mut self) -> Result<bool, String> {
-
-        #[cfg(debug_assertions)] {
-            let hot_reloader = match self.hot_reload.as_mut() {
-                None => return Ok(false),
-                Some(s) => s,
-            };
-
-            match hot_reloader.reload_style() {
-                Ok(mut new_css) => {
-                    new_css.sort_by_specificity();
-                    self.css = new_css;
-                    return Ok(true);
-                },
-                Err(why) => {
-                    return Err(format!("{}", why));
-                },
-            };
-        }
-
-        #[cfg(not(debug_assertions))] {
-            return Ok(false);
+    pub fn reload_style(&mut self) -> Result<Css, String> {
+        match self.0.reload_style() {
+            Ok(mut new_css) => {
+                new_css.sort_by_specificity();
+                Ok(new_css)
+            },
+            Err(why) => {
+                Err(format!("{}", why))
+            },
         }
     }
 }
@@ -710,14 +622,13 @@ impl Default for RendererType {
 
 /// Custom event type, to construct an `EventLoop<AzulWindowUpdateEvent>`.
 /// This is dispatched into the `EventLoop` (to send a "custom" event)
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AzulUpdateEvent {
+pub enum AzulUpdateEvent<T> {
     ScrollUpdate,
     TimerHasFinished,
     ThreadHasFinished,
     AnimationUpdate,
     DisplayListUpdate,
-    CreateWindow { window_create_options: WindowCreateOptions },
+    CreateWindow { window_create_options: WindowCreateOptions<T> },
     CloseWindow { window_id: WindowId },
     // ... etc.
 }

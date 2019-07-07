@@ -59,7 +59,7 @@ pub use azul_core::app::*; // {App, AppState, AppStateNoData, RuntimeError}
 const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 
 /// Graphical application that maintains some kind of application state
-pub struct App<T> {
+pub struct App<T: 'static> {
     /// The window create options (only set at startup),
     windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
     /// Actual state of the window (synchronized with the OS window)
@@ -80,7 +80,7 @@ pub struct App<T> {
     layout_callback: LayoutCallback<T>,
     /// The actual renderer of this application
     #[cfg(not(test))]
-    fake_display: FakeDisplay,
+    fake_display: FakeDisplay<T>,
     #[cfg(test)]
     render_api: FakeRenderApi,
 }
@@ -279,25 +279,31 @@ impl<T: 'static> App<T> {
         // #[cfg(debug_assertions)]
         // let mut last_style_reload = Instant::now();
 
-        let (mut active_windows, mut window_id_mapping) = initialize_windows(windows, &mut fake_display, &config);
+        let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) =
+            initialize_windows(windows, &mut fake_display, &config);
         let mut fake_windows = initialize_fake_windows(&active_windows, &fake_display);
         let mut full_window_states = initialize_full_window_states(&active_windows);
         let mut ui_state_cache = initialize_ui_state_cache(&mut active_windows, &window_id_mapping, &mut app_state, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
 
-        // let event_loop_proxy = fake_display.hidden_event_loop.create_proxy();
+        let FakeDisplay { render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
+        let event_loop_proxy = hidden_event_loop.create_proxy();
 
-        fake_display.hidden_event_loop.run(move |event, _, control_flow| {
+        hidden_event_loop.run(move |event, _, control_flow| {
 
             let now = Instant::now();
 
-            macro_rules! close_window {($window_id:expr) => {
-                    active_windows.remove(&$window_id);
-                    window_id_mapping.remove(&$window_id);
-                    fake_windows.remove(&$window_id);
-                    full_window_states.remove(&$window_id);
-                    ui_state_cache.remove(&$window_id);
-                    ui_description_cache.remove(&$window_id);
+            macro_rules! close_window {($glutin_window_id:expr) => {
+                    active_windows.remove(&$glutin_window_id);
+                    let window_id = window_id_mapping.remove(&$glutin_window_id);
+                    if let Some(wid) = window_id {
+                        reverse_window_id_mapping.remove(&wid);
+                    }
+                    fake_windows.remove(&$glutin_window_id);
+                    full_window_states.remove(&$glutin_window_id);
+                    ui_state_cache.remove(&$glutin_window_id);
+                    ui_description_cache.remove(&$glutin_window_id);
+
                     // TODO: Remove the window pipeline / document from the render_api!
                 };
             }
@@ -334,14 +340,24 @@ impl<T: 'static> App<T> {
                 },
                 Event::NewEvents(StartCause::Init) => {
                     // TODO: Initialize things that only run at startup
+                    /*
+                        // The initial setup can lead to flickering during startup, by default
+                        // the window is hidden until the first frame has been rendered.
+                        if window.create_options.state.flags.is_visible && window.state.flags.is_visible {
+                            window.display.window().set_visible(true);
+                            window.state.flags.is_visible = true;
+                            window.create_options.state.flags.is_visible = false;
+                        }
+                    */
                     for (_, window) in active_windows.iter() {
                         window.display.window().request_redraw();
                     }
                 },
                 Event::UserEvent(AzulUpdateEvent::CreateWindow { window_create_options }) => {
-                    if let Some(window) = Window::new(
-                        &mut fake_display.render_api,
-                        fake_display.hidden_context.headless_context_not_current().unwrap(),
+                    /*
+                    if let Ok(window) = Window::new(
+                        &mut render_api,
+                        hidden_context.headless_context_not_current().unwrap(),
                         &event_loop_proxy,
                         window_create_options,
                         config.background_color,
@@ -349,11 +365,13 @@ impl<T: 'static> App<T> {
                         let glutin_window_id = window.display.window().id();
                         let window_id = window.id;
                         active_windows.insert(glutin_window_id, window);
-                        window_id_mapping.insert(window_id, glutin_window_id);
+                        window_id_mapping.insert(glutin_window_id, window_id);
+                        reverse_window_id_mapping.insert(window_id, glutin_window_id);
                     }
+                    */
                 },
                 Event::UserEvent(AzulUpdateEvent::CloseWindow { window_id }) => {
-                    let glutin_id = window_id_mapping.get(window_id);
+                    let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
                     if let Some(glutin_window_id) = glutin_id {
                         close_window!(glutin_window_id);
                     }
@@ -390,13 +408,13 @@ impl<T: 'static> App<T> {
                 // (likely because the underlying surface has been destroyed). In those cases,
                 // we don't de-initialize the rendered (since this is an application shutdown it
                 // doesn't matter, the resources are going to get cleaned up by the OS).
-                fake_display.hidden_context.make_current();
+                hidden_context.make_current();
 
-                fake_display.gl_context.disable(gl::FRAMEBUFFER_SRGB);
-                fake_display.gl_context.disable(gl::MULTISAMPLE);
-                fake_display.gl_context.disable(gl::POLYGON_SMOOTH);
+                gl_context.disable(gl::FRAMEBUFFER_SRGB);
+                gl_context.disable(gl::MULTISAMPLE);
+                gl_context.disable(gl::POLYGON_SMOOTH);
 
-                if let Some(renderer) = fake_display.renderer.take() {
+                if let Some(renderer) = renderer.take() {
                     renderer.deinit();
                 }
             } else {
@@ -418,9 +436,9 @@ impl<T: 'static> App<T> {
 /// be useful for future refactoring.
 fn initialize_windows<T>(
     windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
-    fake_display: &mut FakeDisplay,
+    fake_display: &mut FakeDisplay<T>,
     config: &AppConfig,
-) -> (BTreeMap<GlutinWindowId, Window<T>>, BTreeMap<GlutinWindowId, WindowId>) {
+) -> (BTreeMap<GlutinWindowId, Window<T>>, BTreeMap<GlutinWindowId, WindowId>, BTreeMap<WindowId, GlutinWindowId>) {
 
     let windows = windows.into_iter().filter_map(|(window_id, window_create_options)| {
         let window = Window::new(
@@ -438,16 +456,20 @@ fn initialize_windows<T>(
         .map(|(window_id, glutin_window_id)| (glutin_window_id, window_id))
         .collect();
 
+    let reverse_window_id_mapping = windows.keys().cloned()
+        .map(|(window_id, glutin_window_id)| (window_id, glutin_window_id))
+        .collect();
+
     let windows = windows.into_iter()
         .map(|((_, glutin_window_id), window)| (glutin_window_id, window))
         .collect();
 
-    (windows, window_id_mapping)
+    (windows, window_id_mapping, reverse_window_id_mapping)
 }
 
 fn initialize_fake_windows<T>(
     windows: &BTreeMap<GlutinWindowId, Window<T>>,
-    fake_display: &FakeDisplay,
+    fake_display: &FakeDisplay<T>,
 ) -> BTreeMap<GlutinWindowId, FakeWindow<T>> {
     windows.iter().map(|(window_id, window)| {
         let fake_window = FakeWindow {
@@ -627,7 +649,7 @@ fn hit_test_single_window<T>(
     window: &mut Window<T>,
     full_window_state: &mut FullWindowState,
     app_state: &mut AppState<T>,
-    fake_display: &mut FakeDisplay,
+    fake_display: &mut FakeDisplay<T>,
     ui_state_cache: &mut BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
 ) -> Result<SingleWindowContentResult, RuntimeError> {
@@ -774,7 +796,7 @@ fn relayout_single_window<T>(
     window: &mut Window<T>,
     full_window_state: &mut FullWindowState,
     app_state: &mut AppState<T>,
-    fake_display: &mut FakeDisplay,
+    fake_display: &mut FakeDisplay<T>,
     ui_state_cache: &mut BTreeMap<WindowId, BTreeMap<DomId, UiState<T>>>,
     ui_description_cache: &mut BTreeMap<WindowId, BTreeMap<DomId, UiDescription<T>>>,
     awakened_tasks: &mut BTreeMap<WindowId, bool>,
@@ -792,7 +814,7 @@ fn relayout_single_window<T>(
             let hovered_nodes = full_window_state.hovered_nodes.get(&dom_id).cloned().unwrap_or_default();
             (dom_id.clone(), UiDescription::match_css_to_dom(
                 ui_state,
-                &window.create_options.css,
+                &window.state.css,
                 &mut full_window_state.focused_node,
                 &mut full_window_state.pending_focus_target,
                 &hovered_nodes,
@@ -836,17 +858,19 @@ fn hot_reload_css<T>(
 
     for window in windows.values_mut() {
 
-        let should_reload = force_reload || match window.create_options.get_reload_interval() {
-            None => true,
-            Some(reload_interval) => now - *last_style_reload > reload_interval,
+        let hot_reload_handler = match window.hot_reload_handler.as_mut() {
+            Some(s) => s,
+            None => continue,
         };
 
+        let reload_interval = hot_reload_handler.get_reload_interval();
+        let should_reload = force_reload || now - *last_style_reload > reload_interval;
+
         if should_reload {
-            let has_window_reloaded = window.create_options.reload_style()?;
-            if has_window_reloaded {
-                has_reloaded = true;
-                *last_style_reload = now;
-            }
+            let new_css = hot_reload_handler.reload_style()?;
+            window.state.css = new_css;
+            has_reloaded = true;
+            *last_style_reload = now;
         }
     }
 
@@ -858,7 +882,7 @@ fn hot_reload_css<T>(
 fn do_hit_test<T>(
     window: &Window<T>,
     full_window_state: &FullWindowState,
-    fake_display: &mut FakeDisplay,
+    fake_display: &mut FakeDisplay<T>,
 ) -> Option<Vec<HitTestItem>> {
 
     use wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
@@ -1023,7 +1047,7 @@ fn update_display_list<T>(
     ui_state: &UiState<T>,
     window: &mut Window<T>,
     fake_window: &mut FakeWindow<T>,
-    fake_display: &mut FakeDisplay,
+    fake_display: &mut FakeDisplay<T>,
     app_resources: &mut AppResources,
 ) {
     use display_list::{
@@ -1205,7 +1229,7 @@ fn increase_epoch(old: Epoch) -> Epoch {
 #[cfg(not(test))]
 fn render_inner<T>(
     window: &mut Window<T>,
-    fake_display: &mut FakeDisplay,
+    fake_display: &mut FakeDisplay<T>,
     mut txn: Transaction,
     background_color: ColorU,
 ) {
@@ -1316,14 +1340,6 @@ fn render_inner<T>(
         gl_context.use_program(current_program[0] as u32);
         fake_display.hidden_context.make_not_current();
     };
-
-    // The initial setup can lead to flickering during startup, by default
-    // the window is hidden until the first frame has been rendered.
-    if window.create_options.state.flags.is_visible && window.state.flags.is_visible {
-        window.display.window().set_visible(true);
-        window.state.flags.is_visible = true;
-        window.create_options.state.flags.is_visible = false;
-    }
 }
 
 /// When called with glDrawArrays(0, 3), generates a simple triangle that
