@@ -14,7 +14,7 @@ use webrender::{
 use glutin::{
     event_loop::EventLoop,
     window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
-    CreationError, ContextBuilder, RawContext, WindowedContext,
+    CreationError, ContextBuilder, Context, WindowedContext,
     NotCurrent, PossiblyCurrent,
 };
 use gleam::gl::{self, Gl};
@@ -255,7 +255,97 @@ pub struct Window<T> {
     /// Stores things like scroll states, display list + epoch for the window
     pub(crate) internal: WindowInternal,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
-    pub(crate) display: WindowedContext<NotCurrent>,
+    pub(crate) display: ContextState,
+}
+
+pub(crate) enum ContextState {
+    Current(WindowedContext<PossiblyCurrent>),
+    NotCurrent(WindowedContext<NotCurrent>),
+}
+
+pub(crate) enum HeadlessContextState {
+    Current(Context<PossiblyCurrent>),
+    NotCurrent(Context<NotCurrent>),
+}
+
+/// Creates a wrapper with `.make_current()` and `.make_not_current()`
+/// around `ContextState` and `HeadlessContextState`
+macro_rules! impl_context_wrapper {($enum_name:ident) => {
+    impl $enum_name {
+        pub fn make_current(&mut self) {
+
+            use std::mem;
+            use self::$enum_name::*;
+
+            let mut self_mem = unsafe { mem::zeroed::<Self>() };
+            mem::swap(&mut self_mem, self); // self -> self_mem
+
+            let mut new_state = match self_mem {
+                Current(c) => Current(c),
+                NotCurrent(nc) => Current(unsafe { nc.make_current().unwrap() }),
+            };
+
+            mem::swap(&mut new_state, self); // self_mem -> self
+            mem::forget(new_state); // can't call the destructor on zeroed memory
+        }
+
+        pub fn make_not_current(&mut self) {
+
+            use std::mem;
+            use self::$enum_name::*;
+
+            let mut self_mem = unsafe { mem::zeroed::<Self>() };
+            mem::swap(&mut self_mem, self); // self -> self_mem
+
+            let mut new_state = match self_mem {
+                Current(c) => NotCurrent(unsafe { c.make_not_current().unwrap() }),
+                NotCurrent(nc) => NotCurrent(nc),
+            };
+
+            mem::swap(&mut new_state, self); // self_mem -> self
+            mem::forget(new_state); // can't call the destructor on zeroed memory
+        }
+    }
+}}
+
+impl_context_wrapper!(ContextState);
+impl_context_wrapper!(HeadlessContextState);
+
+impl ContextState {
+    pub fn window(&self) -> &GlutinWindow {
+        use self::ContextState::*;
+        match &self {
+            Current(c) => c.window(),
+            NotCurrent(nc) => nc.window(),
+        }
+    }
+
+    pub fn context(&self) -> Option<&Context<PossiblyCurrent>> {
+        use self::ContextState::*;
+        match &self {
+            Current(c) => Some(c.context()),
+            NotCurrent(nc) => None,
+        }
+    }
+}
+
+impl HeadlessContextState {
+
+    pub fn headless_context_not_current(&self) -> Option<&Context<NotCurrent>> {
+        use self::HeadlessContextState::*;
+        match &self {
+            Current(_) => None,
+            NotCurrent(nc) => Some(nc),
+        }
+    }
+
+    pub fn headless_context(&self) -> Option<&Context<PossiblyCurrent>> {
+        use self::HeadlessContextState::*;
+        match &self {
+            Current(c) => Some(c),
+            NotCurrent(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -390,7 +480,7 @@ impl<T> Window<T> {
     /// Creates a new window
     pub(crate) fn new(
         render_api: &mut RenderApi,
-        shared_context: &RawContext<NotCurrent>,
+        shared_context: &Context<NotCurrent>,
         events_loop: &EventLoop<AzulUpdateEvent>,
         mut options: WindowCreateOptions<T>,
         background_color: ColorU,
@@ -447,7 +537,7 @@ impl<T> Window<T> {
             id: WindowId::new(),
             create_options: options,
             state: options.state,
-            display: gl_window,
+            display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
                 epoch,
                 pipeline_id,
@@ -459,20 +549,6 @@ impl<T> Window<T> {
             },
         };
 
-        Ok(window)
-    }
-
-    /// Creates a new window that will automatically load a new style from a given HotReloadHandler.
-    /// Only available with debug_assertions enabled.
-    #[cfg(debug_assertions)]
-    pub(crate) fn new_hot_reload(
-        render_api: &mut RenderApi,
-        shared_context: &RawContext<NotCurrent>,
-        events_loop: &EventLoop<AzulUpdateEvent>,
-        options: WindowCreateOptions<T>,
-        background_color: ColorU,
-    ) -> Result<Self, CreationError>  {
-        let mut window = Window::new(render_api, shared_context, events_loop, options, background_color)?;
         Ok(window)
     }
 
@@ -965,11 +1041,9 @@ pub(crate) struct FakeDisplay {
     /// (offscreen rendering is not supported out-of-the-box on many platforms)
     ///
     /// NOTE: The window and the associated context are split into separate fields.
-    pub(crate) hidden_raw_context: RawContext<NotCurrent>,
-    /// The hidden window associated with the root context
-    pub(crate) hidden_window: GlutinWindow,
+    pub(crate) hidden_context: HeadlessContextState,
     /// Event loop that all windows share
-    pub(crate) hidden_events_loop: EventLoop<AzulUpdateEvent>,
+    pub(crate) hidden_event_loop: EventLoop<AzulUpdateEvent>,
     /// Stores the GL context (function pointers) that are shared across all windows
     pub(crate) gl_context: Rc<Gl>,
 }
@@ -979,37 +1053,28 @@ impl FakeDisplay {
     /// Creates a new render + a new display, given a renderer type (software or hardware)
     pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
 
-        use std::mem;
-        use wr_translate::winit_translate::translate_logical_size;
-
         // The events loop is shared across all windows
-        let events_loop = EventLoop::new_user_event();
-        let window = GlutinWindowBuilder::new()
-            .with_inner_size(translate_logical_size(LogicalSize::new(10.0, 10.0)))
-            .with_visible(false);
+        let event_loop = EventLoop::new_user_event();
+        let gl_context = HeadlessContextState::NotCurrent(create_headless_context(&event_loop)?);
 
-        let gl_window = create_gl_window(window, &events_loop, None)?;
-        let (gl_context, window) = unsafe { gl_window.split() };
-        let (dpi_factor, _) = get_hidpi_factor(&window, &events_loop);
-        window.set_visible(false);
+        gl_context.make_current();
+        let gl_function_pointers = get_gl_context(gl_context.headless_context().unwrap())?;
+        gl_context.make_not_current();
 
-        let current_gl_context = gl_context.make_current().unwrap();
-        let gl = get_gl_context(&current_gl_context)?;
-        mem::drop(current_gl_context);
+        const DPI_FACTOR: f32 = 1.0;
 
         // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
         let notifier = Box::new(Notifier { });
-        let (mut renderer, render_api) = create_renderer(gl.clone(), notifier, renderer_type, dpi_factor)?;
+        let (mut renderer, render_api) = create_renderer(gl_function_pointers.clone(), notifier, renderer_type, DPI_FACTOR)?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
         Ok(Self {
             render_api,
             renderer: Some(renderer),
-            hidden_raw_context: gl_context,
-            hidden_window: window,
-            hidden_events_loop: events_loop,
-            gl_context: gl,
+            hidden_context: gl_context,
+            hidden_event_loop: event_loop,
+            gl_context: gl_function_pointers,
         })
     }
 
@@ -1027,15 +1092,7 @@ impl Drop for FakeDisplay {
         // (likely because the underlying surface has been destroyed). In those cases,
         // we don't de-initialize the rendered (since this is an application shutdown it
         // doesn't matter, the resources are going to get cleaned up by the OS).
-        let window = match unsafe { self.hidden_raw_context.make_current() } {
-            Ok(o) => o,
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    error!("Shutdown error: {}", e.1);
-                }
-                return;
-            },
-        };
+        self.hidden_context.make_current();
 
         self.gl_context.disable(gl::FRAMEBUFFER_SRGB);
         self.gl_context.disable(gl::MULTISAMPLE);
@@ -1047,7 +1104,7 @@ impl Drop for FakeDisplay {
     }
 }
 
-fn get_gl_context(gl_window: &RawContext<PossiblyCurrent>) -> Result<Rc<dyn Gl>, CreationError> {
+fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, CreationError> {
     use glutin::Api;
     match gl_window.get_api() {
         Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
@@ -1072,14 +1129,25 @@ fn get_hidpi_factor(window: &GlutinWindow, events_loop: &EventLoop<AzulUpdateEve
 
 fn create_gl_window<'a>(
     window_builder: GlutinWindowBuilder,
-    events_loop: &EventLoop<AzulUpdateEvent>,
-    shared_context: Option<&'a RawContext<NotCurrent>>,
+    event_loop: &EventLoop<AzulUpdateEvent>,
+    shared_context: Option<&'a Context<NotCurrent>>,
 ) -> Result<WindowedContext<NotCurrent>, CreationError> {
-    create_window_context_builder(true, true, shared_context).build_windowed(window_builder.clone(), &events_loop)
-        .or_else(|_| create_window_context_builder(true, false, shared_context).build_windowed(window_builder.clone(), &events_loop))
-        .or_else(|_| create_window_context_builder(false, true, shared_context).build_windowed(window_builder.clone(), &events_loop))
-        .or_else(|_| create_window_context_builder(false, false,shared_context).build_windowed(window_builder, &events_loop))
+    create_window_context_builder(true, true, shared_context).build_windowed(window_builder.clone(), event_loop)
+        .or_else(|_| create_window_context_builder(true, false, shared_context).build_windowed(window_builder.clone(), event_loop))
+        .or_else(|_| create_window_context_builder(false, true, shared_context).build_windowed(window_builder.clone(), event_loop))
+        .or_else(|_| create_window_context_builder(false, false,shared_context).build_windowed(window_builder, event_loop))
 }
+
+fn create_headless_context(
+    event_loop: &EventLoop<AzulUpdateEvent>,
+) -> Result<Context<NotCurrent>, CreationError> {
+    use glutin::dpi::PhysicalSize as GlutinPhysicalSize;
+    create_window_context_builder(true, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0))
+        .or_else(|_| create_window_context_builder(true, false, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0)))
+        .or_else(|_| create_window_context_builder(false, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0)))
+        .or_else(|_| create_window_context_builder(false, false,None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0)))
+}
+
 
 /// ContextBuilder is sadly not clone-able, which is why it has to be re-created
 /// every time you want to create a new context. The goals is to not crash on
@@ -1094,7 +1162,7 @@ fn create_gl_window<'a>(
 fn create_window_context_builder<'a>(
     vsync: bool,
     srgb: bool,
-    shared_context: Option<&'a RawContext<NotCurrent>>
+    shared_context: Option<&'a Context<NotCurrent>>
 ) -> ContextBuilder<'a, NotCurrent> {
 
     // See #33 - specifying a specific OpenGL version
