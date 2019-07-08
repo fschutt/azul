@@ -2,14 +2,14 @@ language: rust
 cache: cargo
 sudo: required
 rust:
-  - 1.31.0
-
-os:
-  - linux
-#  - osx
+  - 1.33.0
 
 matrix:
   fast_finish: true
+  include:
+    - os: linux
+      dist: xenial
+    - os: osx
 
 notifications:
   email: false
@@ -17,14 +17,14 @@ notifications:
 # We can't test OpenGL 3.2 on Travis, the shader compilation fails
 # because glium does a check first if it has a OGL 3.2 context
 script:
-  - cargo check --verbose --all-features
-  - cargo check --verbose --examples
-  - cargo check --no-default-features
-  - cargo check --no-default-features --features="svg"
-  - cargo check --no-default-features --features="image_loading"
-  - cargo check --no-default-features --features="logging"
-  - cargo check --verbose --release --all-features
-  - RUST_BACKTRACE=1 cargo test --verbose --all-features
+  - cargo check --verbose --all-features && 
+    cargo check --verbose --examples && 
+    cargo check --no-default-features && 
+    cargo check --no-default-features --features="svg" && 
+    cargo check --no-default-features --features="image_loading" && 
+    cargo check --no-default-features --features="logging" && 
+    cargo check --verbose --release --all-features && 
+    RUST_BACKTRACE=1 cargo test --verbose --all-features
 
 install:
   - PATH=$PATH:/home/travis/.cargo/bin
@@ -33,6 +33,8 @@ addons:
   apt:
     update: true
     packages:
+      - libfreetype6-dev          # for servo-fontconfig-sys 
+      - libfontconfig1-dev        # for servo-fontconfig-sys 
       - libcurl4-openssl-dev      # for kcov
       - libelf-dev                # for kcov
       - libdw-dev                 # for kcov

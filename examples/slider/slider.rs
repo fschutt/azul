@@ -68,7 +68,7 @@ fn stop_drag(event: Event) -> UpdateScreen {
 }
 
 fn update_drag(event: Event) -> UpdateScreen {
-    let cursor_pos = event.get_window().state.mouse_state.cursor_pos.get_position().unwrap_or(LogicalPosition::new(0.0, 0.0));
+    let cursor_pos = event.window().state.mouse_state.cursor_pos.get_position().unwrap_or(LogicalPosition::new(0.0, 0.0));
     if event.state.data.is_dragging {
         event.state.data.width = Some(cursor_pos.x as f32);
         Redraw
