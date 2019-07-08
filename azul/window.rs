@@ -449,11 +449,11 @@ impl<T> Window<T> {
 
         let display_list_dimensions = translate_logical_size_to_css_layout_size(options.state.size.dimensions);
 
-        let window_state = options.state.clone();
-
         let window = Window {
             id: WindowId::new(),
             renderer_type: options.renderer_type,
+            #[cfg(not(test))]
+            #[cfg(debug_assertions)]
             hot_reload_handler: options.hot_reload_handler,
             state: options.state,
             display: ContextState::NotCurrent(gl_window),
