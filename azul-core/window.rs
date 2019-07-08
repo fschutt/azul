@@ -4,8 +4,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
     ffi::c_void,
     marker::PhantomData,
-    time::Duration,
 };
+#[cfg(not(test))]
+#[cfg(debug_assertions)]
+use std::time::Duration;
 use gleam::gl::Gl;
 use azul_css::Css;
 #[cfg(debug_assertions)]
@@ -592,6 +594,8 @@ impl<T> WindowCreateOptions<T> {
         self
     }
 
+    #[cfg(not(test))]
+    #[cfg(debug_assertions)]
     pub fn new_hot_reload(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
         Self {
             hot_reload_handler: Some(HotReloader::new(hot_reload_handler)),
@@ -600,8 +604,12 @@ impl<T> WindowCreateOptions<T> {
     }
 }
 
+#[cfg(not(test))]
+#[cfg(debug_assertions)]
 pub struct HotReloader(pub Box<dyn HotReloadHandler>);
 
+#[cfg(not(test))]
+#[cfg(debug_assertions)]
 impl HotReloader {
 
     pub fn new(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
