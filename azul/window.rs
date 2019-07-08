@@ -22,7 +22,7 @@ use glium::{
     backend::glutin::DisplayCreationError,
 };
 use gleam::gl::{self, Gl};
-use clipboard2::{Clipboard as ClipboardExt, ClipboardError, SystemClipboard};
+use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use azul_css::{Css, ColorU, LayoutPoint, LayoutRect};
 #[cfg(debug_assertions)]
 use azul_css::HotReloadHandler;

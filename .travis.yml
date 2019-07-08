@@ -2,15 +2,13 @@ language: rust
 cache: cargo
 sudo: required
 rust:
-  - 1.31.0
+  - 1.33.0
 
 matrix:
   fast_finish: true
   include:
     - os: linux
       dist: xenial
-    - os: osx
-  allow_failure:
     - os: osx
 
 notifications:

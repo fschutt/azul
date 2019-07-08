@@ -121,7 +121,7 @@ pub struct SvgTransformId(usize);
 
 impl SvgTransformId {
     pub fn new() -> Self {
-        SvgTransformId(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst))
+        Self(SVG_TRANSFORM_ID.fetch_add(1, Ordering::SeqCst))
     }
 }
 
@@ -130,7 +130,7 @@ pub struct SvgViewBoxId(usize);
 
 impl SvgViewBoxId {
     pub fn new() -> Self {
-        SvgViewBoxId(SVG_VIEW_BOX_ID.fetch_add(1, Ordering::SeqCst))
+        Self(SVG_VIEW_BOX_ID.fetch_add(1, Ordering::SeqCst))
     }
 }
 
@@ -139,7 +139,7 @@ pub struct SvgLayerId(usize);
 
 impl SvgLayerId {
     pub fn new() -> Self {
-        SvgLayerId(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
+        Self(SVG_LAYER_ID.fetch_add(1, Ordering::SeqCst))
     }
 }
 
@@ -148,7 +148,7 @@ pub struct VectorizedFontId(usize);
 
 impl VectorizedFontId {
     pub fn new() -> Self {
-        VectorizedFontId(VECTORIZED_FONT_ID.fetch_add(1, Ordering::SeqCst))
+        Self(VECTORIZED_FONT_ID.fetch_add(1, Ordering::SeqCst))
     }
 }
 
@@ -164,7 +164,7 @@ impl SvgShader {
         let vertex_source_prefixed = prefix_gl_version(SVG_VERTEX_SHADER, current_gl_api);
         let fragment_source_prefixed = prefix_gl_version(SVG_FRAGMENT_SHADER, current_gl_api);
 
-        SvgShader {
+        Self {
             program: GlShader::new(gl_context, &vertex_source_prefixed, &fragment_source_prefixed).unwrap(),
         }
     }
@@ -181,7 +181,7 @@ pub struct SvgCache {
 
 impl Default for SvgCache {
     fn default() -> Self {
-        SvgCache {
+        Self {
             cpu_fill_cache: RefCell::new(FastHashMap::default()),
             cpu_stroke_cache: RefCell::new(FastHashMap::default()),
             gpu_fill_cache: RefCell::new(FastHashMap::default()),
@@ -215,7 +215,7 @@ impl SvgCache {
 
     /// Creates an empty SVG cache
     pub fn empty() -> Self {
-        SvgCache::default()
+        Self::default()
     }
 
     pub fn add_layer(&mut self, layer: SvgLayerResourceDirect) -> (SvgLayerId, SvgStyle) {
