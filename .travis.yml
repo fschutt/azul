@@ -3,25 +3,13 @@ cache: cargo
 sudo: required
 rust:
   - 1.33.0
-  - 1.36.0
-  - nightly
-os:
-  - linux
-  - osx
 
 matrix:
   fast_finish: true
-  allow_failures:
-    - rust: nightly
   include:
     - os: linux
       dist: xenial
     - os: osx
-      osx_image: xcode11
-    - os: osx
-      osx_image: xcode9.4
-    - os: osx
-      osx_image: xcode9.2
 
 notifications:
   email: false
