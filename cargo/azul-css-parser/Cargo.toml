@@ -20,7 +20,7 @@ path = "../../azul-css-parser/lib.rs"
 
 [dependencies]
 azul-css                = { path = "../azul-css",   default-features = false }
-simplecss               = { git = "https://github.com/fschutt/simplecss.git", rev = "0bf3b7800f49a4524b889687d7761b163e8b4101" }
+azul-simplecss          = { version = "0.1.1",      default-features = false }
 serde                   = { version = "1",          default-features = false, optional = true }
 
 [features]

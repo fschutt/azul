@@ -4,8 +4,8 @@ use std::{
     fmt,
     collections::HashMap,
 };
-pub use simplecss::Error as CssSyntaxError;
-use simplecss::Tokenizer;
+pub use azul_simplecss::Error as CssSyntaxError;
+use azul_simplecss::Tokenizer;
 
 use crate::css_parser;
 pub use crate::css_parser::CssParsingError;
@@ -348,7 +348,7 @@ impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
 /// ```
 pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'a>> {
 
-    use simplecss::{Token, Combinator};
+    use azul_simplecss::{Token, Combinator};
 
     let input = input.trim();
     if input.is_empty() {
@@ -426,7 +426,7 @@ pub enum CssParseWarnMsgInner<'a> {
 fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
 -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
 
-    use simplecss::{Token, Combinator};
+    use azul_simplecss::{Token, Combinator};
 
     let mut css_blocks = Vec::new();
 

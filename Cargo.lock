@@ -87,8 +87,8 @@ name = "azul-css-parser"
 version = "0.1.0"
 dependencies = [
  "azul-css 0.1.0",
+ "azul-simplecss 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.91 (registry+https://github.com/rust-lang/crates.io-index)",
- "simplecss 0.1.0 (git+https://github.com/fschutt/simplecss.git?rev=0bf3b7800f49a4524b889687d7761b163e8b4101)",
 ]
 
 [[package]]
@@ -133,6 +133,11 @@ dependencies = [
  "azul-css 0.1.0",
  "azul-css-parser 0.1.0",
 ]
+
+[[package]]
+name = "azul-simplecss"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "azul-widgets"
@@ -1100,11 +1105,6 @@ dependencies = [
 [[package]]
 name = "simplecss"
 version = "0.1.0"
-source = "git+https://github.com/fschutt/simplecss.git?rev=0bf3b7800f49a4524b889687d7761b163e8b4101#0bf3b7800f49a4524b889687d7761b163e8b4101"
-
-[[package]]
-name = "simplecss"
-version = "0.1.0"
 source = "git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457#bf2933b9aac43a7003278862772250398e4fa457"
 
 [[package]]
@@ -1505,6 +1505,7 @@ source = "git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a
 "checksum arrayvec 0.4.8 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
 "checksum autocfg 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a6d640bee2da49f60a4068a7fae53acde8982514ab7bae8b8cea9e88cbcfd799"
 "checksum azul-dependencies 0.1.0 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
+"checksum azul-simplecss 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 "checksum backtrace 0.3.12 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
 "checksum backtrace-sys 0.1.24 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
 "checksum base64 0.9.3 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
@@ -1620,7 +1621,6 @@ source = "git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a
 "checksum servo-freetype-sys 4.0.5 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
 "checksum shared_library 0.1.9 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
 "checksum sid 0.5.2 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
-"checksum simplecss 0.1.0 (git+https://github.com/fschutt/simplecss.git?rev=0bf3b7800f49a4524b889687d7761b163e8b4101)" = "<none>"
 "checksum simplecss 0.1.0 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
 "checksum siphasher 0.2.3 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
 "checksum slab 0.4.1 (git+https://github.com/maps4print/azul-dependencies?rev=bf2933b9aac43a7003278862772250398e4fa457)" = "<none>"
