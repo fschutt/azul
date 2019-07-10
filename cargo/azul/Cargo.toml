@@ -45,9 +45,9 @@ image                   = { version = "0.21.2",         default-features = false
 
 # Linux: Use webrender with freetype feature enabled
 [target.'cfg(target_os = "linux")'.dependencies]
-webrender = { version = "0.58.0", default-features = false }
+webrender = { version = "0.60.0", default-features = false }
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-webrender = { version = "0.58.0", default-features = false }
+webrender = { version = "0.60.0", default-features = false }
 
 [features]
 default = ["logging", "widgets", "native_style", "css_parser"]
