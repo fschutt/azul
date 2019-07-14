@@ -187,13 +187,15 @@ macro_rules! impl_context_wrapper {($enum_name:ident) => {
             use std::mem;
             use self::$enum_name::*;
 
-            let new_state = match mem::replace(self, $enum_name::MakeCurrentInProgress) {
-                Current(c) => Current(c),
-                NotCurrent(nc) => Current(unsafe { nc.make_current().unwrap() }),
-                MakeCurrentInProgress => MakeCurrentInProgress,
+            println!("making current...");
+            let mut new_state = match mem::replace(self, $enum_name::MakeCurrentInProgress) {
+                Current(c) => { println!("already current!"); Current(c) },
+                NotCurrent(nc) => { println!("making current!"); Current(unsafe { nc.make_current().unwrap() }) },
+                MakeCurrentInProgress => { println!("err!"); MakeCurrentInProgress },
             };
+            println!("ok!");
 
-            *self = new_state;
+            mem::swap(self, &mut new_state);
         }
 
         pub fn make_not_current(&mut self) {
@@ -201,13 +203,13 @@ macro_rules! impl_context_wrapper {($enum_name:ident) => {
             use std::mem;
             use self::$enum_name::*;
 
-            let new_state = match mem::replace(self, $enum_name::MakeCurrentInProgress) {
+            let mut new_state = match mem::replace(self, $enum_name::MakeCurrentInProgress) {
                 Current(c) => NotCurrent(unsafe { c.make_not_current().unwrap() }),
                 NotCurrent(nc) => NotCurrent(nc),
                 MakeCurrentInProgress => MakeCurrentInProgress,
             };
 
-            *self = new_state;
+            mem::swap(self, &mut new_state);
         }
     }
 }}
@@ -974,21 +976,22 @@ impl<T> FakeDisplay<T> {
     /// Creates a new render + a new display, given a renderer type (software or hardware)
     pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
 
+        const DPI_FACTOR: f32 = 1.0;
+
         // The events loop is shared across all windows
         let event_loop = EventLoop::new_user_event();
         let mut gl_context = HeadlessContextState::NotCurrent(create_headless_context(&event_loop)?);
 
         gl_context.make_current();
         let gl_function_pointers = get_gl_context(gl_context.headless_context().unwrap())?;
-        gl_context.make_not_current();
-
-        const DPI_FACTOR: f32 = 1.0;
 
         // Note: Notifier is fairly useless, since rendering is completely single-threaded, see comments on RenderNotifier impl
         let notifier = Box::new(Notifier { });
         let (mut renderer, render_api) = create_renderer(gl_function_pointers.clone(), notifier, renderer_type, DPI_FACTOR)?;
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
+
+        gl_context.make_not_current();
 
         Ok(Self {
             render_api,
@@ -1131,18 +1134,24 @@ fn create_renderer(
 
     let (renderer, sender) = match renderer_type {
         Hardware => {
+            println!("hardware renderer!");
             // force hardware renderer
             Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
         },
         Software => {
+            println!("software renderer!");
             // force software renderer
             Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
         },
         Default => {
+            println!("trying hardware renderer...");
             // try hardware first, fall back to software
             match Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
                 Ok(r) => r,
-                Err(_) => Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+                Err(_) => {
+                    println!("fail, trying software renderer...");
+                    Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+                }
             }
         }
     };
