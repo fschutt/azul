@@ -281,7 +281,7 @@ impl<T: 'static> App<T> {
 
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) =
             initialize_windows(windows, &mut fake_display, &config);
-        let mut fake_windows = initialize_fake_windows(&active_windows, &fake_display);
+        app_state.windows = initialize_fake_windows(&active_windows, &fake_display, &window_id_mapping);
         let mut full_window_states = initialize_full_window_states(&active_windows);
         let mut ui_state_cache = initialize_ui_state_cache(&mut active_windows, &window_id_mapping, &mut app_state, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
@@ -294,17 +294,19 @@ impl<T: 'static> App<T> {
             let now = Instant::now();
 
             macro_rules! close_window {($glutin_window_id:expr) => {
-                    active_windows.remove(&$glutin_window_id);
+                    let window = active_windows.remove(&$glutin_window_id);
                     let window_id = window_id_mapping.remove(&$glutin_window_id);
                     if let Some(wid) = window_id {
                         reverse_window_id_mapping.remove(&wid);
+                        app_state.windows.remove(&wid);
                     }
-                    fake_windows.remove(&$glutin_window_id);
                     full_window_states.remove(&$glutin_window_id);
                     ui_state_cache.remove(&$glutin_window_id);
                     ui_description_cache.remove(&$glutin_window_id);
 
                     // TODO: Remove the window pipeline / document from the render_api!
+                    // render_api.remove_pipeline(window.internal.pipeline_id);
+                    // render_api.remove_document(window.internal.document_id);
                 };
             }
 
@@ -364,6 +366,10 @@ impl<T: 'static> App<T> {
                         let glutin_window_id = window.display.window().id();
                         let window_id = window.id;
                         active_windows.insert(glutin_window_id, window);
+                        full_window_states.insert(glutin_window_id, /* ... */);
+                        ui_state_cache.insert(glutin_window_id, /* ... */);
+                        ui_description_cache.insert(glutin_window_id, /* ... */);
+                        app_state.windows.insert(window_id, );
                         window_id_mapping.insert(glutin_window_id, window_id);
                         reverse_window_id_mapping.insert(window_id, glutin_window_id);
                     }
@@ -469,8 +475,10 @@ fn initialize_windows<T>(
 fn initialize_fake_windows<T>(
     windows: &BTreeMap<GlutinWindowId, Window<T>>,
     fake_display: &FakeDisplay<T>,
-) -> BTreeMap<GlutinWindowId, FakeWindow<T>> {
-    windows.iter().map(|(window_id, window)| {
+    window_id_mapping: &BTreeMap<GlutinWindowId, WindowId>,
+) -> BTreeMap<WindowId, FakeWindow<T>> {
+    windows.iter().filter_map(|(window_id, window)| {
+        let window_id = window_id_mapping.get(window_id)?;
         let fake_window = FakeWindow {
             state: window.state.clone(),
             default_callbacks: BTreeMap::new(),
@@ -479,7 +487,7 @@ fn initialize_fake_windows<T>(
             scrolled_nodes: window.internal.scrolled_nodes.clone(),
             layout_result: window.internal.layout_result.clone(),
         };
-        (*window_id, fake_window)
+        Some((*window_id, fake_window))
     }).collect()
 }
 
