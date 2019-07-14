@@ -167,11 +167,13 @@ pub struct Window<T> {
 }
 
 pub(crate) enum ContextState {
+    MakeCurrentInProgress,
     Current(WindowedContext<PossiblyCurrent>),
     NotCurrent(WindowedContext<NotCurrent>),
 }
 
 pub(crate) enum HeadlessContextState {
+    MakeCurrentInProgress,
     Current(Context<PossiblyCurrent>),
     NotCurrent(Context<NotCurrent>),
 }
@@ -185,16 +187,13 @@ macro_rules! impl_context_wrapper {($enum_name:ident) => {
             use std::mem;
             use self::$enum_name::*;
 
-            let mut self_mem = unsafe { mem::zeroed::<Self>() };
-            mem::swap(&mut self_mem, self); // self -> self_mem
-
-            let mut new_state = match self_mem {
+            let new_state = match mem::replace(self, $enum_name::MakeCurrentInProgress) {
                 Current(c) => Current(c),
                 NotCurrent(nc) => Current(unsafe { nc.make_current().unwrap() }),
+                MakeCurrentInProgress => MakeCurrentInProgress,
             };
 
-            mem::swap(&mut new_state, self); // self_mem -> self
-            mem::forget(new_state); // can't call the destructor on zeroed memory
+            *self = new_state;
         }
 
         pub fn make_not_current(&mut self) {
@@ -202,16 +201,13 @@ macro_rules! impl_context_wrapper {($enum_name:ident) => {
             use std::mem;
             use self::$enum_name::*;
 
-            let mut self_mem = unsafe { mem::zeroed::<Self>() };
-            mem::swap(&mut self_mem, self); // self -> self_mem
-
-            let mut new_state = match self_mem {
+            let new_state = match mem::replace(self, $enum_name::MakeCurrentInProgress) {
                 Current(c) => NotCurrent(unsafe { c.make_not_current().unwrap() }),
                 NotCurrent(nc) => NotCurrent(nc),
+                MakeCurrentInProgress => MakeCurrentInProgress,
             };
 
-            mem::swap(&mut new_state, self); // self_mem -> self
-            mem::forget(new_state); // can't call the destructor on zeroed memory
+            *self = new_state;
         }
     }
 }}
@@ -225,6 +221,10 @@ impl ContextState {
         match &self {
             Current(c) => c.window(),
             NotCurrent(nc) => nc.window(),
+            MakeCurrentInProgress => {
+                #[cfg(debug_assertions)] { unreachable!() }
+                #[cfg(not(debug_assertions))] { use std::hint; unsafe{ hint::unreachable_unchecked() } }
+            }
         }
     }
 
@@ -232,7 +232,7 @@ impl ContextState {
         use self::ContextState::*;
         match &self {
             Current(c) => Some(c.context()),
-            NotCurrent(_) => None,
+            NotCurrent(_) | MakeCurrentInProgress => None,
         }
     }
 
@@ -240,7 +240,7 @@ impl ContextState {
         use self::ContextState::*;
         match &self {
             Current(c) => Some(c),
-            NotCurrent(_) => None,
+            NotCurrent(_) | MakeCurrentInProgress => None,
         }
     }
 }
@@ -250,7 +250,7 @@ impl HeadlessContextState {
     pub fn headless_context_not_current(&self) -> Option<&Context<NotCurrent>> {
         use self::HeadlessContextState::*;
         match &self {
-            Current(_) => None,
+            Current(_) | MakeCurrentInProgress => None,
             NotCurrent(nc) => Some(nc),
         }
     }
@@ -259,7 +259,7 @@ impl HeadlessContextState {
         use self::HeadlessContextState::*;
         match &self {
             Current(c) => Some(c),
-            NotCurrent(_) => None,
+            NotCurrent(_) | MakeCurrentInProgress => None,
         }
     }
 }
