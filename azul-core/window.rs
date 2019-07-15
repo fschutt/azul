@@ -668,8 +668,6 @@ impl Default for RendererType {
 /// This is dispatched into the `EventLoop` (to send a "custom" event)
 pub enum AzulUpdateEvent<T> {
     ScrollUpdate,
-    TimerHasFinished,
-    ThreadHasFinished,
     AnimationUpdate,
     DisplayListUpdate,
     CreateWindow { window_create_options: WindowCreateOptions<T> },
