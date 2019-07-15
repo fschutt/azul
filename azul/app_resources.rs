@@ -709,8 +709,16 @@ fn prepare_image(image_decoded: DynamicImage)
     // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
     let (format, bytes) = match image_decoded {
         image::ImageLuma8(bytes) => {
-            let pixels = bytes.into_raw();
-            (RawImageFormat::R8, pixels)
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for grey in bytes.into_iter() {
+                pixels.extend_from_slice(&[
+                    *grey,
+                    *grey,
+                    *grey,
+                    0xff,
+                ]);
+            }
+            (RawImageFormat::BGRA8, pixels)
         },
         image::ImageLumaA8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
