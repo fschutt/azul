@@ -10,7 +10,7 @@ use glutin::{
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
     PipelineInfo, Renderer,
-    api::{LayoutSize, DeviceIntSize, Epoch, Transaction},
+    api::{LayoutSize, DeviceIntSize, Epoch, Transaction, RenderApi},
 };
 use log::LevelFilter;
 use azul_css::{ColorU, LayoutPoint};
@@ -19,7 +19,7 @@ use {
     window::{
         Window, ScrollStates, LogicalPosition, LogicalSize,
         RendererType, WindowSize, DebugState,
-        FullWindowState,
+        FullWindowState, HeadlessContextState,
     },
     dom::{Dom, DomId, NodeId, ScrollTagId},
     gl::GlShader,
@@ -286,7 +286,7 @@ impl<T: 'static> App<T> {
         let mut ui_state_cache = initialize_ui_state_cache(&mut active_windows, &window_id_mapping, &mut app_state, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
 
-        let FakeDisplay { render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
+        let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
         let event_loop_proxy = hidden_event_loop.create_proxy();
 
         hidden_event_loop.run(move |event, _, control_flow| {
@@ -304,9 +304,10 @@ impl<T: 'static> App<T> {
                     ui_state_cache.remove(&$glutin_window_id);
                     ui_description_cache.remove(&$glutin_window_id);
 
-                    // TODO: Remove the window pipeline / document from the render_api!
-                    // render_api.remove_pipeline(window.internal.pipeline_id);
-                    // render_api.remove_document(window.internal.document_id);
+                    if let Some(w) = window {
+                        // render_api.remove_pipeline(w.internal.pipeline_id);
+                        render_api.delete_document(w.internal.document_id);
+                    }
                 };
             }
 
@@ -328,11 +329,39 @@ impl<T: 'static> App<T> {
                         windowed_context.display.make_not_current();
                     },
                     WindowEvent::RedrawRequested => {
+
+                        use app_resources::garbage_collect_fonts_and_images;
+
                         let mut windowed_context = active_windows.get_mut(&window_id);
-                        let windowed_context = windowed_context.as_mut().unwrap();
-                        windowed_context.display.make_current();
-                        windowed_context.display.windowed_context().unwrap().swap_buffers().unwrap();
-                        windowed_context.display.make_not_current();
+                        let mut windowed_context = windowed_context.as_mut().unwrap();
+
+                        // Render + swap the screen (call webrender + draw to texture)
+                        render_inner(
+                            &mut windowed_context,
+                            &mut hidden_context,
+                            &mut render_api,
+                            renderer.as_mut().unwrap(),
+                            gl_context.clone(),
+                            Transaction::new(),
+                            config.background_color,
+                        );
+
+                        // TODO: Only do this cleanup on a per-window basis
+                    /*
+                        clean_up_unused_opengl_textures(self.fake_display.renderer.as_mut().unwrap().flush_pipeline_info());
+
+                        // Automatically remove unused fonts and images from webrender
+                        // Tell the font + image GC to start a new frame
+                        let res = &mut self.app_state.resources;
+
+                        #[cfg(not(test))]
+                        let render_api = &mut self.fake_display.render_api;
+                        #[cfg(test)]
+                        let render_api = &mut self.fake_render_api;
+
+                        garbage_collect_fonts_and_images(res, render_api);
+                    */
+
                     },
                     WindowEvent::CloseRequested => {
                         close_window!(window_id);
@@ -380,16 +409,9 @@ impl<T: 'static> App<T> {
                     if let Some(glutin_window_id) = glutin_id {
                         close_window!(glutin_window_id);
                     }
-                    redraw_all_windows!();
                 },
                 Event::UserEvent(AzulUpdateEvent::ScrollUpdate) => {
                     // update scroll states here ...
-                    redraw_all_windows!();
-                },
-                Event::UserEvent(AzulUpdateEvent::TimerHasFinished) => {
-                    redraw_all_windows!();
-                },
-                Event::UserEvent(AzulUpdateEvent::ThreadHasFinished) => {
                     redraw_all_windows!();
                 },
                 Event::UserEvent(AzulUpdateEvent::AnimationUpdate) => {
@@ -403,7 +425,7 @@ impl<T: 'static> App<T> {
                 _ => { },
             }
 
-            // End of loop
+            // Application shutdown
             if active_windows.is_empty() {
                 *control_flow = ControlFlow::Exit;
 
@@ -423,11 +445,20 @@ impl<T: 'static> App<T> {
                     renderer.deinit();
                 }
             } else {
-                // TODO: if timers / tasks are running, set this to WaitTimeout(60ms) !
+                // If no timers / tasks are running, wait until next user event
                 if app_state.timers.is_empty() && app_state.tasks.is_empty() {
                     *control_flow = ControlFlow::Wait;
                 } else {
-                    *control_flow = ControlFlow::WaitUntil(now + config.min_frame_duration);
+                    // If timers are running, check whether they need to redraw
+                    let should_redraw_timers = app_state_run_all_timers(&mut app_state);
+                    let should_redraw_tasks = app_state_clean_up_finished_tasks(&mut app_state);
+                    let should_redraw_timers_tasks = [should_redraw_timers, should_redraw_tasks].iter().any(|i| *i == Redraw);
+                    if should_redraw_timers_tasks {
+                        *control_flow = ControlFlow::Poll;
+                        redraw_all_windows!();
+                    } else {
+                        *control_flow = ControlFlow::WaitUntil(now + config.min_frame_duration);
+                    }
                 }
             }
         })
@@ -590,7 +621,8 @@ fn app_state_run_all_timers<T>(app_state: &mut AppState<T>) -> UpdateScreen {
 }
 
 /// Remove all tasks that have finished executing
-#[must_use] fn app_state_clean_up_finished_tasks<T>(app_state: &mut AppState<T>) -> UpdateScreen {
+#[must_use]
+fn app_state_clean_up_finished_tasks<T>(app_state: &mut AppState<T>) -> UpdateScreen {
     let old_count = app_state.tasks.len();
     let mut timers_to_add = Vec::new();
     app_state.tasks.retain(|task| {
@@ -1236,7 +1268,10 @@ fn increase_epoch(old: Epoch) -> Epoch {
 #[cfg(not(test))]
 fn render_inner<T>(
     window: &mut Window<T>,
-    fake_display: &mut FakeDisplay<T>,
+    headless_shared_context: &mut HeadlessContextState,
+    render_api: &mut RenderApi,
+    renderer: &mut Renderer,
+    gl_context: Rc<Gl>,
     mut txn: Transaction,
     background_color: ColorU,
 ) {
@@ -1265,18 +1300,14 @@ fn render_inner<T>(
     scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
     txn.generate_frame();
 
-    fake_display.render_api.send_transaction(window.internal.document_id, txn);
+    render_api.send_transaction(window.internal.document_id, txn);
 
     // Update WR texture cache
-    fake_display.renderer.as_mut().unwrap().update();
+    renderer.update();
 
     let background_color_f: ColorF = background_color.into();
 
     unsafe {
-
-        // NOTE: GlContext is the context of the app-global, hidden window
-        // (that shares the renderer), not the context of the window itself.
-        let gl_context = fake_display.get_gl_context();
 
         // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
         // otherwise this will segfault! Use `ContextBuilder::with_shared_lists` to share the
@@ -1285,7 +1316,7 @@ fn render_inner<T>(
         // The context **must** be made current before calling `.bind_framebuffer()`,
         // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
         // hidden_display context, otherwise this will segfault on Windows.
-        fake_display.hidden_context.make_current();
+        headless_shared_context.make_current();
 
         let mut current_program = [0_i32];
         gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
@@ -1328,14 +1359,16 @@ fn render_inner<T>(
         gl_context.clear(gl::COLOR_BUFFER_BIT);
         gl_context.clear_depth(0.0);
         gl_context.clear(gl::DEPTH_BUFFER_BIT);
-        fake_display.renderer.as_mut().unwrap().render(framebuffer_size).unwrap();
+        renderer.render(framebuffer_size).unwrap();
 
         // FBOs can't be shared between windows, but textures can.
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
+        headless_shared_context.make_not_current();
         window.display.make_current();
         draw_texture_to_screen(gl_context.clone(), textures[0], framebuffer_size);
+        window.display.windowed_context().unwrap().swap_buffers().unwrap();
         window.display.make_not_current();
-        fake_display.hidden_context.make_current();
+        headless_shared_context.make_current();
 
         // Only delete the texture here...
         gl_context.delete_framebuffers(&framebuffers);
@@ -1345,7 +1378,7 @@ fn render_inner<T>(
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.bind_texture(gl::TEXTURE_2D, 0);
         gl_context.use_program(current_program[0] as u32);
-        fake_display.hidden_context.make_not_current();
+        headless_shared_context.make_not_current();
     };
 }
 

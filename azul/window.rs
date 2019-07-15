@@ -187,13 +187,11 @@ macro_rules! impl_context_wrapper {($enum_name:ident) => {
             use std::mem;
             use self::$enum_name::*;
 
-            println!("making current...");
             let mut new_state = match mem::replace(self, $enum_name::MakeCurrentInProgress) {
-                Current(c) => { println!("already current!"); Current(c) },
-                NotCurrent(nc) => { println!("making current!"); Current(unsafe { nc.make_current().unwrap() }) },
-                MakeCurrentInProgress => { println!("err!"); MakeCurrentInProgress },
+                Current(c) => Current(c),
+                NotCurrent(nc) => Current(unsafe { nc.make_current().unwrap() }),
+                MakeCurrentInProgress => MakeCurrentInProgress,
             };
-            println!("ok!");
 
             mem::swap(self, &mut new_state);
         }
@@ -1134,22 +1132,18 @@ fn create_renderer(
 
     let (renderer, sender) = match renderer_type {
         Hardware => {
-            println!("hardware renderer!");
             // force hardware renderer
             Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
         },
         Software => {
-            println!("software renderer!");
             // force software renderer
             Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
         },
         Default => {
-            println!("trying hardware renderer...");
             // try hardware first, fall back to software
             match Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
                 Ok(r) => r,
                 Err(_) => {
-                    println!("fail, trying software renderer...");
                     Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
                 }
             }
