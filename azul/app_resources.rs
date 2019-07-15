@@ -732,8 +732,6 @@ fn prepare_image(image_decoded: DynamicImage)
                     alpha,
                 ]);
             }
-            // TODO: necessary for greyscale?
-            premultiply(pixels.as_mut_slice());
             (RawImageFormat::BGRA8, pixels)
         },
         image::ImageRgba8(bytes) => {
