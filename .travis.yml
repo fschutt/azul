@@ -4,6 +4,9 @@ sudo: required
 rust:
   - 1.33.0
   - nightly
+os:
+  - linux
+  - osx
 
 matrix:
   fast_finish: true
