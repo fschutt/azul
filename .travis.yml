@@ -3,6 +3,7 @@ cache: cargo
 sudo: required
 rust:
   - 1.33.0
+  - nightly
 
 matrix:
   fast_finish: true
