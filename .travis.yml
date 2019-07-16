@@ -3,6 +3,7 @@ cache: cargo
 sudo: required
 rust:
   - 1.33.0
+  - 1.37.0
   - nightly
 os:
   - linux
@@ -10,6 +11,8 @@ os:
 
 matrix:
   fast_finish: true
+  allow_failures:
+    - rust: nightly
   include:
     - os: linux
       dist: xenial
