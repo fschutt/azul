@@ -91,7 +91,7 @@ impl Monitor {
         #[cfg(target_os = "windows")]
         use glutin::platform::windows::MonitorHandleExtWindows;
         #[cfg(target_os = "macos")]
-        use glutin::platform::macos::MonitorHandleExtMac;
+        use glutin::platform::macos::MonitorHandleExtMacOS;
 
         match self {
             Primary => None,
