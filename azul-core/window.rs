@@ -700,8 +700,11 @@ pub struct PhysicalSize {
 }
 
 impl LogicalPosition {
-    pub fn new(x: f32, y: f32) -> Self { Self { x, y } }
-
+    #[inline(always)]
+    pub const fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    #[inline(always)]
+    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition {
         PhysicalPosition {
             x: self.x * hidpi_factor,
@@ -711,8 +714,11 @@ impl LogicalPosition {
 }
 
 impl PhysicalPosition {
-    pub fn new(x: f32, y: f32) -> Self { Self { x, y } }
-
+    #[inline(always)]
+    pub const fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    #[inline(always)]
+    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
             x: self.x / hidpi_factor,
@@ -722,8 +728,11 @@ impl PhysicalPosition {
 }
 
 impl LogicalSize {
-    pub fn new(width: f32, height: f32) -> Self { Self { width, height } }
-
+    #[inline(always)]
+    pub const fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    #[inline(always)]
+    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize {
         PhysicalSize {
             width: self.width * hidpi_factor,
@@ -733,8 +742,11 @@ impl LogicalSize {
 }
 
 impl PhysicalSize {
-    pub fn new(width: f32, height: f32) -> Self { Self { width, height } }
-
+    #[inline(always)]
+    pub const fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    #[inline(always)]
+    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
         LogicalSize {
             width: self.width / hidpi_factor,

@@ -92,12 +92,24 @@ pub(crate) mod winit_translate {
     #[cfg(target_os = "linux")]
     use azul_core::window::WaylandTheme;
 
+    #[inline(always)]
     pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
         WinitLogicalPosition::new(input.x as f64, input.y as f64)
     }
 
+    #[inline(always)]
     pub(crate) fn translate_logical_size(input: LogicalSize) -> WinitLogicalSize {
         WinitLogicalSize::new(input.width as f64, input.height as f64)
+    }
+
+    #[inline(always)]
+    pub(crate) const fn translate_winit_logical_position(input: WinitLogicalPosition) -> LogicalPosition {
+        LogicalPosition::new(input.x as f32, input.y as f32)
+    }
+
+    #[inline(always)]
+    pub(crate) const fn translate_winit_logical_size(input: WinitLogicalSize) -> LogicalSize {
+        LogicalSize::new(input.width as f32, input.height as f32)
     }
 
     pub(crate) fn translate_physical_position(input: PhysicalPosition) -> WinitPhysicalPosition {
