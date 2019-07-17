@@ -62,8 +62,6 @@ const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 pub struct App<T: 'static> {
     /// The window create options (only set at startup),
     windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
-    /// Actual state of the window (synchronized with the OS window)
-    window_states: BTreeMap<WindowId, FullWindowState>,
     /// The global application state
     pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
@@ -188,7 +186,6 @@ impl<T: Layout> App<T> {
             }
             Ok(Self {
                 windows: BTreeMap::new(),
-                window_states: BTreeMap::new(),
                 app_state: AppState::new(initial_data),
                 config: app_config,
                 layout_callback: T::layout,
@@ -199,7 +196,6 @@ impl<T: Layout> App<T> {
         #[cfg(test)] {
            Ok(Self {
                windows: BTreeMap::new(),
-               window_states: BTreeMap::new(),
                app_state: AppState::new(initial_data),
                config: app_config,
                layout_callback: T::layout,
@@ -268,13 +264,16 @@ impl<T: 'static> App<T> {
     fn run_inner(self) -> ! {
 
         use glutin::{
-            event::{WindowEvent, Event, StartCause},
+            event::{WindowEvent, Touch, Event, StartCause},
             event_loop::ControlFlow,
         };
-        use azul_core::window::AzulUpdateEvent;
+        use azul_core::window::{AzulUpdateEvent, CursorPosition};
+        use wr_translate::winit_translate::{
+            translate_winit_logical_size, translate_winit_logical_position,
+        };
         // use ui_state::{ui_state_from_dom, ui_state_from_app_state};
 
-        let App { windows, window_states, mut app_state, config, layout_callback, mut fake_display } = self;
+        let App { windows, mut app_state, config, layout_callback, mut fake_display } = self;
 
         // #[cfg(debug_assertions)]
         // let mut last_style_reload = Instant::now();
@@ -324,9 +323,42 @@ impl<T: 'static> App<T> {
                         let mut windowed_context = active_windows.get_mut(&window_id);
                         let windowed_context = windowed_context.as_mut().unwrap();
                         let dpi_factor = windowed_context.display.window().hidpi_factor();
+                        // let dpi_factor = determine_dpi_factor(dpi_factor, is_linux_platform);
                         windowed_context.display.make_current();
                         windowed_context.display.windowed_context().unwrap().resize(logical_size.to_physical(dpi_factor));
                         windowed_context.display.make_not_current();
+                        full_window_states.get_mut(&window_id).unwrap().size.dimensions =
+                            translate_winit_logical_size(*logical_size);
+                    },
+                    WindowEvent::Moved(new_mouse_position) => {
+                        full_window_states.get_mut(&window_id).unwrap().position =
+                            Some(translate_winit_logical_position(*new_mouse_position));
+                        // TODO: hit testing check?
+                    },
+                    WindowEvent::CursorLeft { .. } => {
+                        // TODO: hit testing check?
+                        full_window_states.get_mut(&window_id).unwrap().mouse_state.cursor_position =
+                            CursorPosition::OutOfWindow;
+                    },
+                    WindowEvent::CursorMoved { position, .. } => {
+                        // TODO: hit testing check!
+                        full_window_states.get_mut(&window_id).unwrap().mouse_state.cursor_position =
+                            CursorPosition::InWindow(translate_winit_logical_position(*position));
+                    },
+                    WindowEvent::Touch(Touch { phase, id, location, .. }) => {
+                        // TODO: hit testing check!
+                    },
+                    WindowEvent::MouseInput { state, button, modifiers, .. } => {
+
+                    },
+                    WindowEvent::MouseWheel { delta, phase, modifiers, .. } => {
+
+                    },
+                    WindowEvent::DroppedFile(file_path) => {
+
+                    },
+                    WindowEvent::HoveredFile(file_path) => {
+
                     },
                     WindowEvent::RedrawRequested => {
 
@@ -1281,6 +1313,8 @@ fn render_inner<T>(
     use wr_translate;
 
     let (_, framebuffer_size) = convert_window_size(&window.state.size);
+
+    println!("drawing framebuffer size: {:?}", framebuffer_size);
 
     // Especially during minimization / maximization of a window, it can happen that the window
     // width or height is zero. In that case, no rendering is necessary (doing so would crash
