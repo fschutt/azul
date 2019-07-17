@@ -149,15 +149,6 @@ pub struct Window<T> {
     /// An optional style hot-reloader for the current window, only
     /// available with debug_assertions enabled
     pub(crate) hot_reload_handler: Option<HotReloader>,
-    /// Current state of the window, stores the keyboard / mouse state,
-    /// visibility of the window, etc. of the LAST frame. The user never sets this
-    /// field directly, but rather sets the WindowState he wants to have for the NEXT frame,
-    /// then azul compares the changes (i.e. if we are currently in fullscreen mode and
-    /// the user wants the next screen to be in fullscreen mode, too, simply do nothing), then it
-    /// updates this field to reflect the changes.
-    ///
-    /// This field is initialized from the `WindowCreateOptions`.
-    pub(crate) state: WindowState,
     /// Stores things like scroll states, display list + epoch for the window
     pub(crate) internal: WindowInternal,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
