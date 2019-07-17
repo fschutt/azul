@@ -56,8 +56,6 @@ impl IconKey {
 /// have a direct impact on the actual OS-level window, changes are deferred and
 /// syncronized with the OS window at the end of the frame.
 pub struct FakeWindow<T> {
-    /// The window state for the next frame
-    pub state: WindowState,
     /// Currently active, layouted rectangles
     pub layout_result: BTreeMap<DomId, LayoutResult>,
     /// Nodes that overflow their parents and are able to scroll
