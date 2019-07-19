@@ -1,24 +1,21 @@
 use std::{
     collections::{BTreeMap, HashSet},
-    rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
     ffi::c_void,
     marker::PhantomData,
+    path::PathBuf,
 };
 #[cfg(not(test))]
 #[cfg(debug_assertions)]
 use std::time::Duration;
-use gleam::gl::Gl;
 use azul_css::Css;
 #[cfg(debug_assertions)]
 #[cfg(not(test))]
 use azul_css::HotReloadHandler;
 use {
-    callbacks::{DefaultCallbackId, DefaultCallback, DefaultCallbackTypeUnchecked},
-    stack_checked_pointer::StackCheckedPointer,
-    ui_solver::{LayoutResult, ScrolledNodes},
-    display_list::CachedDisplayList,
     dom::DomId,
+    id_tree::NodeId,
+    callbacks::{HitTestItem, FocusTarget},
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -49,70 +46,6 @@ pub struct IconKey { id: usize }
 impl IconKey {
     pub fn new() -> Self {
         Self { id: LAST_ICON_KEY.fetch_add(1, Ordering::SeqCst) }
-    }
-}
-
-/// User-modifiable fake window: Actions performed on this "fake" window don't
-/// have a direct impact on the actual OS-level window, changes are deferred and
-/// syncronized with the OS window at the end of the frame.
-pub struct FakeWindow<T> {
-    /// Currently active, layouted rectangles
-    pub layout_result: BTreeMap<DomId, LayoutResult>,
-    /// Nodes that overflow their parents and are able to scroll
-    pub scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
-    /// Current display list active in this window (useful for debugging)
-    pub cached_display_list: CachedDisplayList,
-    /// The user can push default callbacks in this `DefaultCallbackSystem`,
-    /// which get called later in the hit-testing logic
-    pub default_callbacks: BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
-    /// An Rc to the original WindowContext - this is only so that
-    /// the user can create textures and other OpenGL content in the window
-    /// but not change any window properties from underneath - this would
-    /// lead to mismatch between the
-    pub gl_context: Rc<dyn Gl>,
-}
-
-impl<T> FakeWindow<T> {
-
-    /// Returns a reference-counted pointer to the OpenGL context
-    pub fn get_gl_context(&self) -> Rc<dyn Gl> {
-        self.gl_context.clone()
-    }
-
-    /// Returns the physical (width, height) in pixel of this window
-    pub fn get_physical_size(&self) -> (usize, usize) {
-        let hidpi = self.get_hidpi_factor();
-        let physical = self.state.size.dimensions.to_physical(hidpi);
-        (physical.width as usize, physical.height as usize)
-    }
-
-    /// Returns the current HiDPI factor for this window.
-    pub fn get_hidpi_factor(&self) -> f32 {
-        self.state.size.hidpi_factor
-    }
-
-    /// Returns the current keyboard keyboard state. We don't want the library
-    /// user to be able to modify this state, only to read it.
-    pub fn get_keyboard_state<'a>(&'a self) -> &'a KeyboardState {
-        &self.state.keyboard_state
-    }
-
-    /// Returns the current windows mouse state. We don't want the library
-    /// user to be able to modify this state, only to read it
-    pub fn get_mouse_state<'a>(&'a self) -> &'a MouseState {
-        &self.state.mouse_state
-    }
-
-    /// Adds a default callback to the window. The default callbacks are
-    /// cleared after every frame, so two-way data binding widgets have to call this
-    /// on every frame they want to insert a default callback.
-    ///
-    /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
-    #[must_use]
-    pub fn add_default_callback(&mut self, callback_fn: DefaultCallbackTypeUnchecked<T>, callback_ptr: StackCheckedPointer<T>) -> DefaultCallbackId {
-        let default_callback_id = DefaultCallbackId::new();
-        self.default_callbacks.insert(default_callback_id, (callback_ptr, DefaultCallback(callback_fn)));
-        default_callback_id
     }
 }
 
@@ -324,6 +257,132 @@ pub struct WindowState {
     pub css: Css,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct FullWindowState {
+    /// Current title of the window
+    pub title: String,
+    /// Size of the window + max width / max height: 800 x 600 by default
+    pub size: WindowSize,
+    /// The x and y position, or None to let the WM decide where to put the window (default)
+    pub position: Option<LogicalPosition>,
+    /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
+    pub flags: WindowFlags,
+    /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
+    /// Used for performance monitoring and displaying frame times (rendering-only).
+    pub debug_state: DebugState,
+    /// Current keyboard state - NOTE: mutating this field (currently) does nothing
+    /// (doesn't get synchronized with OS-level window)!
+    pub keyboard_state: KeyboardState,
+    /// Current mouse state
+    pub mouse_state: MouseState,
+    /// Sets location of IME candidate box in client area coordinates
+    /// relative to the top left of the window.
+    pub ime_position: Option<LogicalPosition>,
+    /// Window options that can only be set on a certain platform
+    /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
+    pub platform_specific_options: PlatformSpecificOptions,
+    /// The style of this window
+    pub css: Css,
+
+    // --
+
+    /// Previous window state, used for determining mouseout, etc. events
+    pub previous_window_state: Option<Box<FullWindowState>>,
+    /// Whether there is a file currently hovering over the window
+    pub hovered_file: Option<PathBuf>,
+    /// What node is currently hovered over, default to None. Only necessary internal
+    /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
+    /// as well as styling `:focus` elements
+    pub focused_node: Option<(DomId, NodeId)>,
+    /// Currently hovered nodes, default to an empty Vec. Important for
+    /// styling `:hover` elements.
+    pub hovered_nodes: BTreeMap<DomId, BTreeMap<NodeId, HitTestItem>>,
+    /// Whether there is a focus field overwrite from the last callback calls.
+    pub pending_focus_target: Option<FocusTarget>,
+}
+
+impl Default for FullWindowState {
+    fn default() -> Self {
+        Self {
+            title: DEFAULT_TITLE.into(),
+            size: WindowSize::default(),
+            position: None,
+            flags: WindowFlags::default(),
+            debug_state: DebugState::default(),
+            keyboard_state: KeyboardState::default(),
+            mouse_state: MouseState::default(),
+            ime_position: None,
+            platform_specific_options: PlatformSpecificOptions::default(),
+            css: Css::default(),
+
+            // --
+
+            previous_window_state: None,
+            hovered_file: None,
+            focused_node: None,
+            hovered_nodes: BTreeMap::default(),
+            pending_focus_target: None,
+        }
+    }
+}
+
+impl FullWindowState {
+
+    pub fn get_mouse_state(&self) -> &MouseState {
+        &self.mouse_state
+    }
+
+    pub fn get_keyboard_state(&self) -> &KeyboardState {
+        &self.keyboard_state
+    }
+
+    pub fn get_hovered_file(&self) -> Option<&PathBuf> {
+        self.hovered_file.as_ref()
+    }
+
+    /// Returns the window state of the previous frame, useful for calculating
+    /// metrics for dragging motions. Note that you can't call this function
+    /// recursively - calling `get_previous_window_state()` on the returned
+    /// `WindowState` will yield a `None` value.
+    pub fn get_previous_window_state(&self) -> Option<&Box<FullWindowState>> {
+        self.previous_window_state.as_ref()
+    }
+}
+
+/// Creates a FullWindowState from a regular WindowState, fills non-available
+/// fields with their default values
+pub fn full_window_state_from_window_state(window_state: WindowState) -> FullWindowState {
+    FullWindowState {
+        title: window_state.title,
+        size: window_state.size,
+        position: window_state.position,
+        flags: window_state.flags,
+        debug_state: window_state.debug_state,
+        keyboard_state: window_state.keyboard_state,
+        mouse_state: window_state.mouse_state,
+        ime_position: window_state.ime_position,
+        platform_specific_options: window_state.platform_specific_options,
+        css: window_state.css,
+        .. Default::default()
+    }
+}
+
+/// Reverse function of `full_window_state_from_window_state`
+pub fn full_window_state_to_window_state(full_window_state: &FullWindowState) -> WindowState {
+    WindowState {
+        title: full_window_state.title.clone(),
+        size: full_window_state.size,
+        position: full_window_state.position,
+        flags: full_window_state.flags,
+        debug_state: full_window_state.debug_state,
+        keyboard_state: full_window_state.keyboard_state.clone(),
+        mouse_state: full_window_state.mouse_state,
+        ime_position: full_window_state.ime_position,
+        platform_specific_options: full_window_state.platform_specific_options.clone(),
+        css: full_window_state.css.clone(),
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct WindowFlags {
     /// Is the window currently maximized
@@ -434,12 +493,28 @@ impl WindowState {
         }
     }
 
+    /// Returns the current keyboard keyboard state. We don't want the library
+    /// user to be able to modify this state, only to read it.
     pub fn get_mouse_state(&self) -> &MouseState {
         &self.mouse_state
     }
 
+    /// Returns the current windows mouse state. We don't want the library
+    /// user to be able to modify this state, only to read it.
     pub fn get_keyboard_state(&self) -> &KeyboardState {
         &self.keyboard_state
+    }
+
+    /// Returns the physical (width, height) in pixel of this window
+    pub fn get_physical_size(&self) -> (usize, usize) {
+        let hidpi = self.get_hidpi_factor();
+        let physical = self.size.dimensions.to_physical(hidpi);
+        (physical.width as usize, physical.height as usize)
+    }
+
+    /// Returns the current HiDPI factor for this window.
+    pub fn get_hidpi_factor(&self) -> f32 {
+        self.size.hidpi_factor
     }
 }
 

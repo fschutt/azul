@@ -2,9 +2,9 @@
 
 use std::ops::Range;
 use azul_core::{
-    callbacks::{Redraw, DontRedraw},
+    callbacks::{LayoutInfo, Redraw, DontRedraw},
     dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
-    window::{FakeWindow, VirtualKeyCode},
+    window::VirtualKeyCode,
     callbacks::{
         StackCheckedPointer, DefaultCallbackInfo,
         DefaultCallbackInfoUnchecked, DefaultCallbackId, CallbackReturn,
@@ -57,7 +57,7 @@ impl TextInput {
         TextInput { on_text_input_callback: None }
     }
 
-    pub fn bind<T>(self, window: &mut FakeWindow<T>, field: &TextInputState, data: &T) -> Self {
+    pub fn bind<T>(self, window: &mut LayoutInfo<T>, field: &TextInputState, data: &T) -> Self {
         let ptr = StackCheckedPointer::new(data, field);
         let on_text_input_callback = ptr.map(|ptr|{(
             window.add_default_callback(text_input_on_text_input_private, ptr),
@@ -99,8 +99,8 @@ fn text_input_on_virtual_key_down_private<T>(info: DefaultCallbackInfoUnchecked<
 
 pub fn text_input_on_text_input<T>(info: DefaultCallbackInfo<T, TextInputState>) -> CallbackReturn {
 
-    let DefaultCallbackInfo { data, state, window_id, .. } = info;
-    let keyboard_state = state.windows[window_id].get_keyboard_state();
+    let DefaultCallbackInfo { data, current_window_state, .. } = info;
+    let keyboard_state = current_window_state.get_keyboard_state();
 
     match keyboard_state.current_char {
         Some(c) => {
@@ -132,8 +132,8 @@ pub fn text_input_on_text_input<T>(info: DefaultCallbackInfo<T, TextInputState>)
 
 pub fn text_input_on_virtual_key_down<T>(info: DefaultCallbackInfo<T, TextInputState>) -> CallbackReturn {
 
-    let DefaultCallbackInfo { data, state, window_id, .. } = info;
-    let keyboard_state = state.windows[window_id].get_keyboard_state();
+    let DefaultCallbackInfo { data, current_window_state, .. } = info;
+    let keyboard_state = current_window_state.get_keyboard_state();
     let last_keycode = keyboard_state.current_virtual_keycode?;
 
     match last_keycode {

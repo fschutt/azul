@@ -5,8 +5,6 @@ use std::{
 use azul_css::CssProperty;
 use {
     FastHashMap,
-    app::AppState,
-    window::WindowId,
     id_tree::NodeId,
     dom::{
         Dom, DomId, TagId, TabIndex, DomString,
@@ -114,8 +112,8 @@ pub enum ActiveHover {
 
 #[allow(unused_imports, unused_variables)]
 pub fn ui_state_from_app_state<T>(
-    app_state: &mut AppState<T>,
-    window_id: &WindowId,
+    data: &T,
+    layout_info: LayoutInfo<T>,
     parent_dom: Option<(DomId, NodeId)>,
     layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>,
 ) -> UiState<T> {
@@ -123,19 +121,7 @@ pub fn ui_state_from_app_state<T>(
     use app::RuntimeError::*;
 
     // Only shortly lock the data to get the dom out
-    let dom: Dom<T> = {
-        #[cfg(test)]{
-            Dom::<T>::div()
-        }
-
-        #[cfg(not(test))]{
-            let window_info = LayoutInfo {
-                window: app_state.windows.get_mut(window_id).unwrap(),
-                resources: &app_state.resources,
-            };
-            (layout_callback)(&app_state.data, window_info)
-        }
-    };
+    let dom = (layout_callback)(data, layout_info);
 
     ui_state_from_dom(dom, parent_dom)
 }
