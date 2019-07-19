@@ -2,14 +2,13 @@
 
 use std::collections::BTreeMap;
 use azul_core::{
-    callbacks::DontRedraw,
+    callbacks::{LayoutInfo, DontRedraw},
     dom::{Dom, On, NodeData, DomString, NodeType},
     callbacks::{
         DefaultCallbackInfo, DefaultCallbackInfoUnchecked, CallbackReturn,
         IFrameCallbackInfo, IFrameCallbackInfoUnchecked, IFrameCallbackReturn,
     },
     callbacks::StackCheckedPointer,
-    window::FakeWindow,
 };
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -59,7 +58,7 @@ impl TableView {
 
     pub fn new() -> Self { Self { } }
 
-    pub fn dom<T>(&self, data: &TableViewState, t: &T, window: &mut FakeWindow<T>) -> Dom<T> {
+    pub fn dom<T>(&self, data: &TableViewState, t: &T, window: &mut LayoutInfo<T>) -> Dom<T> {
         match StackCheckedPointer::new(t, data) {
             Some(ptr) => {
                 let callback_id = window.add_default_callback(default_table_view_on_click, ptr);

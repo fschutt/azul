@@ -136,6 +136,7 @@
 
 extern crate azul_native_style;
 extern crate azul_css;
+#[macro_use(impl_task_api)]
 extern crate azul_core;
 extern crate azul_layout;
 extern crate glutin;

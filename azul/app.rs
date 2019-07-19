@@ -39,10 +39,6 @@ use azul_core::{
 pub use app_resources::AppResources;
 
 #[cfg(not(test))]
-use azul_core::{
-    window::FakeWindow,
-};
-#[cfg(not(test))]
 use window::{ FakeDisplay, WindowCreateOptions };
 #[cfg(not(test))]
 use glutin::CreationError;
@@ -60,12 +56,24 @@ const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 
 /// Graphical application that maintains some kind of application state
 pub struct App<T: 'static> {
-    /// The window create options (only set at startup),
-    windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
+    /// Your data (the global struct which all callbacks will have access to)
+    pub data: T,
+    /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
+    ///
+    /// Accessing this field is often required to load new fonts or images, so instead of
+    /// requiring the `FontHashMap`, a lot of functions just require the whole `AppResources` field.
+    pub resources: AppResources,
+    /// Currently running timers (polling functions, run on the main thread)
+    pub timers: FastHashMap<TimerId, Timer<T>>,
+    /// Currently running tasks (asynchronous functions running each on a different thread)
+    pub tasks: Vec<Task<T>>,
     /// The global application state
     pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
     pub config: AppConfig,
+    /// The window create options (only set at startup), get moved into the `.run_inner()` method
+    /// No window is actually shown until the `.run_inner()` method is called.
+    windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
     /// The `Layout::layout()` callback, stored as a function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
@@ -81,6 +89,10 @@ pub struct App<T: 'static> {
     fake_display: FakeDisplay<T>,
     #[cfg(test)]
     render_api: FakeRenderApi,
+}
+
+impl<T: 'static> App<T> {
+    impl_task_api!();
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
@@ -196,7 +208,10 @@ impl<T: Layout> App<T> {
         #[cfg(test)] {
            Ok(Self {
                windows: BTreeMap::new(),
-               app_state: AppState::new(initial_data),
+               data: initial_data,
+               resources: AppResources::default(),
+               timers: FastHashMap::default(),
+               tasks: Vec::new(),
                config: app_config,
                layout_callback: T::layout,
                render_api: FakeRenderApi::new(),
@@ -213,11 +228,6 @@ impl<T> App<T> {
     #[cfg(not(test))]
     pub fn add_window(&mut self, create_options: WindowCreateOptions<T>) {
         self.windows.insert(WindowId::new(), create_options);
-    }
-
-    /// See `AppState::add_task`.
-    pub fn add_task(&mut self, task: Task<T>) {
-        self.app_state.add_task(task);
     }
 
     /// Toggles debugging flags in webrender, updates `self.config.debug_state`
