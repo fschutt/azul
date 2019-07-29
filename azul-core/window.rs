@@ -48,13 +48,13 @@ pub struct FakeWindow<T> {
     /// the user can create textures and other OpenGL content in the window
     /// but not change any window properties from underneath - this would
     /// lead to mismatch between the
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
 }
 
 impl<T> FakeWindow<T> {
 
     /// Returns a reference-counted pointer to the OpenGL context
-    pub fn get_gl_context(&self) -> Rc<Gl> {
+    pub fn get_gl_context(&self) -> Rc<dyn Gl> {
         self.gl_context.clone()
     }
 

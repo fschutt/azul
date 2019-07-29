@@ -19,7 +19,7 @@ pub struct Texture {
     /// Size of this texture (in pixels)
     pub size: LogicalSize,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
 }
 
 impl ::std::fmt::Display for Texture {
@@ -255,7 +255,7 @@ pub trait VertexLayoutDescription {
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
     pub vao_id: GLuint,
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
 }
 
 impl Drop for VertexArrayObject {
@@ -267,7 +267,7 @@ impl Drop for VertexArrayObject {
 pub struct VertexBuffer<T: VertexLayoutDescription> {
     pub vertex_buffer_id: GLuint,
     pub vertex_buffer_len: usize,
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
     pub vao: VertexArrayObject,
     pub vertex_buffer_type: PhantomData<T>,
 
@@ -372,7 +372,7 @@ pub enum GlApiVersion {
 
 impl GlApiVersion {
     /// Returns the OpenGL version of the context
-    pub fn get(gl_context: &Gl) -> Self {
+    pub fn get(gl_context: &dyn Gl) -> Self {
         let mut major = [0];
         unsafe { gl_context.get_integer_v(gl::MAJOR_VERSION, &mut major) };
         let mut minor = [0];
@@ -440,7 +440,7 @@ pub enum UniformType {
 
 impl UniformType {
     /// Set a specific uniform
-    pub fn set(self, gl_context: &Gl, location: GLint) {
+    pub fn set(self, gl_context: &dyn Gl, location: GLint) {
         use self::UniformType::*;
         match self {
             Float(r) => gl_context.uniform_1f(location, r),
@@ -464,7 +464,7 @@ impl UniformType {
 
 pub struct GlShader {
     pub program_id: GLuint,
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
 }
 
 impl ::std::fmt::Display for GlShader {
@@ -574,7 +574,7 @@ impl GlShader {
     /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader string.
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup necessary.
-    pub fn new(gl_context: Rc<Gl>, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
+    pub fn new(gl_context: Rc<dyn Gl>, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
 
         // Check whether the OpenGL implementation supports a shader compiler...
         let mut shader_compiler_supported = [gl::FALSE];
@@ -779,7 +779,7 @@ impl GlShader {
 }
 
 #[cfg(debug_assertions)]
-fn get_gl_shader_error(context: &Gl, shader_object: GLuint) -> Option<i32> {
+fn get_gl_shader_error(context: &dyn Gl, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     unsafe { context.get_shader_iv(shader_object, gl::COMPILE_STATUS, &mut err) };
     let err_code = err[0];
@@ -787,7 +787,7 @@ fn get_gl_shader_error(context: &Gl, shader_object: GLuint) -> Option<i32> {
 }
 
 #[cfg(debug_assertions)]
-fn get_gl_program_error(context: &Gl, shader_object: GLuint) -> Option<i32> {
+fn get_gl_program_error(context: &dyn Gl, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
     unsafe { context.get_program_iv(shader_object, gl::LINK_STATUS, &mut err) };
     let err_code = err[0];

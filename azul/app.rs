@@ -1384,14 +1384,14 @@ const DISPLAY_FRAGMENT_SHADER: &str = "
 static mut DISPLAY_SHADER: Option<GlShader> = None;
 
 /// Compiles the display vertex / fragment shader, returns the compiled shaders.
-fn compile_screen_shader(context: Rc<Gl>) -> GLuint {
+fn compile_screen_shader(context: Rc<dyn Gl>) -> GLuint {
     unsafe { DISPLAY_SHADER.get_or_insert_with(|| {
         GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER).unwrap()
     }) }.program_id
 }
 
 // Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
-fn draw_texture_to_screen(context: Rc<Gl>, texture: GLuint, framebuffer_size: DeviceIntSize) {
+fn draw_texture_to_screen(context: Rc<dyn Gl>, texture: GLuint, framebuffer_size: DeviceIntSize) {
 
     context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 
