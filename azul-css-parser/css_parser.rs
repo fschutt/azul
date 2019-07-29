@@ -1049,11 +1049,11 @@ pub fn parse_color_rgb<'a>(input: &'a str, parse_alpha: bool)
 }
 
 /// Parse the color components passed as arguments to an rgb(...) CSS color.
-pub fn parse_color_rgb_components<'a>(components: &mut Iterator<Item = &'a str>)
+pub fn parse_color_rgb_components<'a>(components: &mut dyn Iterator<Item = &'a str>)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     #[inline]
-    fn component_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: CssColorComponent)
+    fn component_from_str<'a>(components: &mut dyn Iterator<Item = &'a str>, which: CssColorComponent)
     -> Result<u8, CssColorParseError<'a>>
     {
         let c = components.next().ok_or(CssColorParseError::MissingColorComponent(which))?;
@@ -1090,11 +1090,11 @@ pub fn parse_color_hsl<'a>(input: &'a str, parse_alpha: bool)
 }
 
 /// Parse the color components passed as arguments to an hsl(...) CSS color.
-pub fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
+pub fn parse_color_hsl_components<'a>(components: &mut dyn Iterator<Item = &'a str>)
 -> Result<ColorU, CssColorParseError<'a>>
 {
     #[inline]
-    fn angle_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: CssColorComponent)
+    fn angle_from_str<'a>(components: &mut dyn Iterator<Item = &'a str>, which: CssColorComponent)
     -> Result<f32, CssColorParseError<'a>>
     {
         let c = components.next().ok_or(CssColorParseError::MissingColorComponent(which))?;
@@ -1109,7 +1109,7 @@ pub fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
     }
 
     #[inline]
-    fn percent_from_str<'a>(components: &mut Iterator<Item = &'a str>, which: CssColorComponent)
+    fn percent_from_str<'a>(components: &mut dyn Iterator<Item = &'a str>, which: CssColorComponent)
     -> Result<f32, CssColorParseError<'a>>
     {
         let c = components.next().ok_or(CssColorParseError::MissingColorComponent(which))?;
@@ -1160,7 +1160,7 @@ pub fn parse_color_hsl_components<'a>(components: &mut Iterator<Item = &'a str>)
     Ok(ColorU { r, g, b, a: 255 })
 }
 
-fn parse_alpha_component<'a>(components: &mut Iterator<Item=&'a str>) -> Result<u8, CssColorParseError<'a>> {
+fn parse_alpha_component<'a>(components: &mut dyn Iterator<Item=&'a str>) -> Result<u8, CssColorParseError<'a>> {
     let a = components.next().ok_or(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha))?;
     if a.is_empty() {
         return Err(CssColorParseError::MissingColorComponent(CssColorComponent::Alpha));

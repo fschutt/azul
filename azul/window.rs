@@ -155,7 +155,7 @@ impl_from!(ContextError, WindowCreateError::Context);
 struct Notifier { }
 
 impl RenderNotifier for Notifier {
-    fn clone(&self) -> Box<RenderNotifier> {
+    fn clone(&self) -> Box<dyn RenderNotifier> {
         Box::new(Notifier { })
     }
 
@@ -785,7 +785,7 @@ pub(crate) struct FakeDisplay {
     /// for a window that is never shown
     pub(crate) hidden_events_loop: EventsLoop,
     /// Stores the GL context that is shared across all windows
-    pub(crate) gl_context: Rc<Gl>,
+    pub(crate) gl_context: Rc<dyn Gl>,
 }
 
 impl FakeDisplay {
@@ -831,7 +831,7 @@ impl FakeDisplay {
         })
     }
 
-    pub fn get_gl_context(&self) -> Rc<Gl> {
+    pub fn get_gl_context(&self) -> Rc<dyn Gl> {
         self.gl_context.clone()
     }
 }
@@ -970,7 +970,7 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
 }
 
 fn create_renderer(
-    gl: Rc<Gl>,
+    gl: Rc<dyn Gl>,
     notifier: Box<Notifier>,
     renderer_type: RendererType,
     device_pixel_ratio: f32,
