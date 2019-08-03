@@ -277,7 +277,7 @@ pub mod resources {
 /// Quick exports of common types
 pub mod prelude {
     pub use azul_css::*;
-    pub use app::{App, AppConfig, AppState, AppResources};
+    pub use app::{App, AppConfig, AppResources};
     pub use async::{Task, TerminateTimer, TimerId, Timer, DropCheck};
     pub use resources::{
         RawImageFormat, ImageId, FontId, FontSource, ImageSource,

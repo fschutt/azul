@@ -25,7 +25,7 @@ use {
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
-    async::{Task, TimerId, TerminateTimer},
+    async::{Task, Timer, TimerId, TerminateTimer},
     callbacks::{
         LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
         Redraw, DontRedraw, ScrollPosition,
@@ -67,8 +67,6 @@ pub struct App<T: 'static> {
     pub timers: FastHashMap<TimerId, Timer<T>>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
     pub tasks: Vec<Task<T>>,
-    /// The global application state
-    pub app_state: AppState<T>,
     /// Application configuration, whether to enable logging, etc.
     pub config: AppConfig,
     /// The window create options (only set at startup), get moved into the `.run_inner()` method
@@ -198,7 +196,6 @@ impl<T: Layout> App<T> {
             }
             Ok(Self {
                 windows: BTreeMap::new(),
-                app_state: AppState::new(initial_data),
                 config: app_config,
                 layout_callback: T::layout,
                 fake_display,
@@ -283,14 +280,13 @@ impl<T: 'static> App<T> {
         };
         // use ui_state::{ui_state_from_dom, ui_state_from_app_state};
 
-        let App { windows, mut app_state, config, layout_callback, mut fake_display } = self;
+        let App { windows, config, layout_callback, mut fake_display } = self;
 
         // #[cfg(debug_assertions)]
         // let mut last_style_reload = Instant::now();
 
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) =
             initialize_windows(windows, &mut fake_display, &config);
-        app_state.windows = initialize_fake_windows(&active_windows, &fake_display, &window_id_mapping);
         let mut full_window_states = initialize_full_window_states(&active_windows);
         let mut ui_state_cache = initialize_ui_state_cache(&mut active_windows, &window_id_mapping, &mut app_state, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&ui_state_cache);
@@ -545,30 +541,11 @@ fn initialize_windows<T>(
     (windows, window_id_mapping, reverse_window_id_mapping)
 }
 
-fn initialize_fake_windows<T>(
-    windows: &BTreeMap<GlutinWindowId, Window<T>>,
-    fake_display: &FakeDisplay<T>,
-    window_id_mapping: &BTreeMap<GlutinWindowId, WindowId>,
-) -> BTreeMap<WindowId, FakeWindow<T>> {
-    windows.iter().filter_map(|(window_id, window)| {
-        let window_id = window_id_mapping.get(window_id)?;
-        let fake_window = FakeWindow {
-            state: window.state.clone(),
-            default_callbacks: BTreeMap::new(),
-            gl_context: fake_display.get_gl_context(),
-            cached_display_list: window.internal.cached_display_list.clone(),
-            scrolled_nodes: window.internal.scrolled_nodes.clone(),
-            layout_result: window.internal.layout_result.clone(),
-        };
-        Some((*window_id, fake_window))
-    }).collect()
-}
-
 fn initialize_full_window_states<T>(
     windows: &BTreeMap<GlutinWindowId, Window<T>>,
 ) -> BTreeMap<GlutinWindowId, FullWindowState> {
     windows.iter().map(|(window_id, window)| {
-        use window_state::full_window_state_from_window_state;
+        use azul_core::window::full_window_state_from_window_state;
         let full_window_state = full_window_state_from_window_state(window.state.clone());
         (*window_id, full_window_state)
     }).collect()
