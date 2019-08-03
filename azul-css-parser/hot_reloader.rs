@@ -27,7 +27,7 @@ impl HotReloader {
 }
 
 impl HotReloadHandler for HotReloader {
-    fn reload_style(&mut self) -> Result<Css, String> {
+    fn reload_style(&self) -> Result<Css, String> {
         use std::fs;
         use crate::css;
 
