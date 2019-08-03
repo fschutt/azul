@@ -40,7 +40,7 @@ which closely follows the CSS flexbox model.
 
 Here is what a Hello World application in Azul looks like:
 
-![Hello World Application](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_hello_world_button.png)
+![Hello World Application](https://i.imgur.com/KkqB2E5.png)
 
 This application is created by the following code:
 
@@ -95,7 +95,7 @@ consists of three states that are called over and over again. The framework dete
 exactly when a repaint is necessary, you don't need to worry about manually repainting
 your UI:
 
-![Azul callback model](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_event_model.png)
+![Azul callback model](https://i.imgur.com/cTTULrP.png)
 
 Azul works through composition instead of inheritance - widgets are composed of other
 widgets, instead of inheriting from them (since Rust does not support inheritance).
