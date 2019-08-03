@@ -45,6 +45,8 @@ pub const DontRedraw: Option<()> = None;
 
 static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
 
+pub type DefaultCallbackIdMap<T> = BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>;
+
 /// Each default callback is identified by its ID (not by it's function pointer),
 /// since multiple IDs could point to the same function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]

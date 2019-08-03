@@ -22,7 +22,7 @@ use azul_css::Css;
 pub use azul_core::window::{
     WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
-    WaylandTheme, WindowFlags, PlatformSpecificOptions,
+    WaylandTheme, WindowFlags, PlatformSpecificOptions, FullWindowState,
 };
 
 fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState, state: ModifiersState) {
@@ -441,20 +441,18 @@ pub(crate) fn determine_callbacks<T>(
 }
 
 // Returns the frame events + if the window should close
-pub(crate) fn update_window_state(window_state: &mut FullWindowState, events: &[WindowEvent]) -> (FrameEventInfo, bool) {
+pub(crate) fn update_window_state(window_state: &mut FullWindowState, event: &WindowEvent) -> (FrameEventInfo, bool) {
     let mut frame_event_info = FrameEventInfo::default();
     let mut should_window_close = false;
 
-    for event in events {
-        if window_should_close(event, &mut frame_event_info) {
-            should_window_close = true;
-        }
-        update_mouse_cursor_position(window_state, event);
-        update_scroll_state(window_state, event);
-        update_keyboard_modifiers(window_state, event);
-        update_keyboard_pressed_chars(window_state, event);
-        update_misc_events(window_state, event);
+    if window_should_close(event, &mut frame_event_info) {
+        should_window_close = true;
     }
+    update_mouse_cursor_position(window_state, event);
+    update_scroll_state(window_state, event);
+    update_keyboard_modifiers(window_state, event);
+    update_keyboard_pressed_chars(window_state, event);
+    update_misc_events(window_state, event);
 
     // Correct for the incorrect HiDPI factor
     let winit_hidpi_factor = frame_event_info.new_dpi_factor.unwrap_or(window_state.size.winit_hidpi_factor);
@@ -728,7 +726,7 @@ pub fn keymap<T>(
     events: &[(Vec<AcceleratorKey>, CallbackType<T>)]
 ) -> UpdateScreen {
 
-    let keyboard_state = info.state.windows[info.window_id].get_keyboard_state().clone();
+    let keyboard_state = info.get_keyboard_state().clone();
 
     events
         .iter()
