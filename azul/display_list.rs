@@ -22,7 +22,7 @@ use {
     },
     ui_solver::do_the_layout,
     compositor::new_opengl_texture_id,
-    window::{Window, WindowSize, FakeWindow},
+    window::{Window, WindowSize},
     callbacks::LayoutInfo,
     text_layout::LayoutedGlyphs,
 };

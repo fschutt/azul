@@ -17,7 +17,7 @@ use {
     ui_solver::{PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
-    window::{WindowState, FullWindowState, KeyboardState, MouseState, LogicalSize, PhysicalSize},
+    window::{WindowSize, WindowState, FullWindowState, KeyboardState, MouseState, LogicalSize, PhysicalSize},
     async::{Timer, Task, TimerId},
     gl::Texture,
 };
@@ -742,29 +742,79 @@ pub type TimerCallbackType<T> = fn(TimerCallbackInfo<T>) -> TimerCallbackReturn;
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
-pub struct LayoutInfo<'a, T: 'a> {
-    /// Window state that the `Layout::layout()` function was called on
-    pub window_state: &'a WindowState,
-    /// Currently active, layouted rectangles
-    pub layout_result: &'a BTreeMap<DomId, LayoutResult>,
-    /// Nodes that overflow their parents and are able to scroll
-    pub scrolled_nodes: &'a BTreeMap<DomId, ScrolledNodes>,
-    /// Current display list active in this window (useful for debugging)
-    pub cached_display_list: &'a CachedDisplayList,
+pub struct LayoutInfo<'a, T> {
+    /// Window size (so that apps can return a different UI depending on
+    /// the window size - mobile / desktop view). Should be later removed
+    /// in favor of "resize" handlers and @media queries.
+    window_size: &'a WindowSize,
+    /// Optimization for resizing: If a DOM has no Iframes and the window size
+    /// does not change the state of the UI, then resizing the window will not
+    /// result in calls to the .layout() function (since the resulting UI would
+    /// stay the same).
+    ///
+    /// Stores "stops" in logical pixels where the UI needs to be re-generated
+    /// should the width of the window change.
+    window_size_width_stops: &'a mut Vec<f32>,
+    /// Same as `window_size_width_stops` but for the height of the window.
+    window_size_height_stops: &'a mut Vec<f32>,
     /// The user can push default callbacks in this `DefaultCallbackSystem`,
     /// which get called later in the hit-testing logic
     pub default_callbacks: &'a mut BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
-    /// but not change any window properties from underneath - this would
-    /// lead to mismatch between the
     pub gl_context: Rc<Gl>,
-    /// Allows the layout() function to reference app resources
+    /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
     pub resources: &'a AppResources,
 }
 
-impl<'a, T: 'a> LayoutInfo<'a, T> {
+impl<'a, T> LayoutInfo<'a, T> {
     impl_get_gl_context!();
+}
+
+impl<'a, T> LayoutInfo<'a, T> {
+
+    /// Returns whether the window width is larger than `width`,
+    /// but sets an internal "dirty" flag - so that the UI is re-generated when
+    /// the window is resized above or below `width`.
+    ///
+    /// For example:
+    ///
+    /// ```rust,no_run,ignore
+    /// fn layout(info: LayoutInfo<T>) -> Dom<T> {
+    ///     if info.window_width_larger_than(720.0) {
+    ///         render_desktop_ui()
+    ///     } else {
+    ///         render_mobile_ui()
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Here, the UI is dependent on the width of the window, so if the window
+    /// resizes above or below 720px, the `layout()` function needs to be called again.
+    /// Internally Azul stores the `720.0` and only calls the `.layout()` function
+    /// again if the window resizes above or below the value.
+    ///
+    /// NOTE: This should be later depreceated into `On::Resize` handlers and
+    /// `@media` queries.
+    pub fn window_width_larger_than(&mut self, width: f32) -> bool {
+        self.window_size_width_stops.push(width);
+        self.window_size.get_logical_size().width > width
+    }
+
+    pub fn window_width_smaller_than(&mut self, width: f32) -> bool {
+        self.window_size_width_stops.push(width);
+        self.window_size.get_logical_size().width < width
+    }
+
+    pub fn window_height_larger_than(&mut self, height: f32) -> bool {
+        self.window_size_height_stops.push(height);
+        self.window_size.get_logical_size().height > height
+    }
+
+    pub fn window_height_smaller_than(&mut self, height: f32) -> bool {
+        self.window_size_height_stops.push(height);
+        self.window_size.get_logical_size().height < height
+    }
 }
 
 /// Information about the bounds of a laid-out div rectangle.
