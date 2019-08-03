@@ -5,7 +5,14 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
 };
-use callbacks::{DontRedraw, TimerCallback, TimerCallbackInfo, TimerCallbackReturn, TimerCallbackType};
+use {
+    FastHashMap,
+    callbacks::{
+        Redraw, DontRedraw, TimerCallback, TimerCallbackInfo,
+        TimerCallbackReturn, TimerCallbackType, UpdateScreen,
+    },
+    app_resources::AppResources,
+};
 
 /// Should a timer terminate or not - used to remove active timers
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -334,5 +341,74 @@ impl<T> Drop for Thread<T> {
         if self.join_handle.take().is_some() {
             panic!("Thread has not been await()-ed correctly!");
         }
+    }
+}
+
+/// Run all currently registered timers
+#[must_use]
+pub fn run_all_timers<T>(
+    timers: &mut FastHashMap<TimerId, Timer<T>>,
+    data: &mut T,
+    resources: &mut AppResources,
+) -> UpdateScreen {
+
+    let mut should_update_screen = DontRedraw;
+    let mut timers_to_terminate = Vec::new();
+
+    for (key, timer) in timers.iter_mut() {
+        let (should_update, should_terminate) = timer.invoke(TimerCallbackInfo {
+            state: data,
+            app_resources: resources,
+        });
+
+        if should_update == Redraw {
+            should_update_screen = Redraw;
+        }
+
+        if should_terminate == TerminateTimer::Terminate {
+            timers_to_terminate.push(key.clone());
+        }
+    }
+
+    for key in timers_to_terminate {
+        timers.remove(&key);
+    }
+
+    should_update_screen
+}
+
+/// Remove all tasks that have finished executing
+#[must_use]
+pub fn clean_up_finished_tasks<T>(
+    tasks: &mut Vec<Task<T>>,
+    timers: &mut FastHashMap<TimerId, Timer<T>>,
+) -> UpdateScreen {
+
+    let old_count = tasks.len();
+    let mut timers_to_add = Vec::new();
+
+    tasks.retain(|task| {
+        if task.is_finished() {
+            if let Some(timer) = task.after_completion_timer {
+                timers_to_add.push((TimerId::new(), timer));
+            }
+            false
+        } else {
+            true
+        }
+    });
+
+    let timers_is_empty = timers_to_add.is_empty();
+    let new_count = tasks.len();
+
+    // Start all the timers that should run after the completion of the task
+    for (timer_id, timer) in timers_to_add {
+        timers.insert(timer_id, timer);
+    }
+
+    if old_count == new_count && timers_is_empty {
+        DontRedraw
+    } else {
+        Redraw
     }
 }

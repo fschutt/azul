@@ -13,7 +13,7 @@ pub trait HotReloadHandler {
     /// Reloads the style from the source format. Should return Ok() when the CSS has be correctly
     /// reloaded, and an human-readable error string otherwise (since the error needs to be printed
     /// to stdout when hot-reloading).
-    fn reload_style(&mut self) -> Result<Css, String>;
+    fn reload_style(&self) -> Result<Css, String>;
     /// Returns how quickly the hot-reloader should reload the source format.
     fn get_reload_interval(&self) -> Duration;
 }
@@ -39,7 +39,7 @@ impl HotReloadOverrideHandler {
 }
 
 impl HotReloadHandler for HotReloadOverrideHandler {
-    fn reload_style(&mut self) -> Result<Css, String> {
+    fn reload_style(&self) -> Result<Css, String> {
         let mut css = Css::new();
         for stylesheet in self.base_style.clone().stylesheets {
             css.append_stylesheet(stylesheet);

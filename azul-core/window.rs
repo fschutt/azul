@@ -699,7 +699,7 @@ impl HotReloader {
     ///
     /// - Ok(css) if the CSS has been successfully reloaded
     /// - Err(why) if the CSS failed to hot-reload.
-    pub fn reload_style(&mut self) -> Result<Css, String> {
+    pub fn reload_style(&self) -> Result<Css, String> {
         match self.0.reload_style() {
             Ok(mut new_css) => {
                 new_css.sort_by_specificity();
