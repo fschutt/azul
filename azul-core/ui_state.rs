@@ -11,7 +11,7 @@ use {
         HoverEventFilter, FocusEventFilter, NotEventFilter,
         WindowEventFilter
     },
-    callbacks::{LayoutInfo, Callback, DefaultCallbackId},
+    callbacks::{LayoutInfo, Callback, LayoutCallback, DefaultCallbackId},
 };
 
 pub struct UiState<T> {
@@ -111,11 +111,11 @@ pub enum ActiveHover {
 }
 
 #[allow(unused_imports, unused_variables)]
-pub fn ui_state_from_app_state<T>(
+pub fn ui_state_from_app_state<'a, T>(
     data: &T,
-    layout_info: LayoutInfo<T>,
+    layout_info: LayoutInfo<'a, T>,
     parent_dom: Option<(DomId, NodeId)>,
-    layout_callback: fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>,
+    layout_callback: LayoutCallback<T>,
 ) -> UiState<T> {
 
     use app::RuntimeError::*;
