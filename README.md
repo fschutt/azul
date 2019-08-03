@@ -1,4 +1,3 @@
-
 # Azul - Desktop GUI framework
 
 ## WARNING: The features advertised in this README may not work yet.
@@ -187,7 +186,7 @@ Azul provides a GPU-accelerated 2D renderer, featuring lines drawing (incl. bezi
 rects, circles, arbitrary polygons, text (incl. translation / rotation and text-on-curve
 positioning), hit-testing texts, caching and an (optional) SVG parsing module.
 
-![Azul SVG Tiger drawing](https://raw.githubusercontent.com/maps4print/azul/master/doc/azul_svg_tiger.png)
+![Azul SVG Tiger drawing](https://i.imgur.com/JQvtmxA.png)
 
 [Read more about SVG drawing ...](https://github.com/maps4print/azul/wiki/SVG-drawing)
 
