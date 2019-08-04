@@ -440,28 +440,13 @@ pub(crate) fn determine_callbacks<T>(
     }
 }
 
-// Returns the frame events + if the window should close
-pub(crate) fn update_window_state(window_state: &mut FullWindowState, event: &WindowEvent) -> (FrameEventInfo, bool) {
-    let mut frame_event_info = FrameEventInfo::default();
-    let mut should_window_close = false;
-
-    if window_should_close(event, &mut frame_event_info) {
-        should_window_close = true;
-    }
+// Synchronizes the FullWindowState with the new WindowEvent
+pub(crate) fn update_window_state(window_state: &mut FullWindowState, event: &WindowEvent) {
     update_mouse_cursor_position(window_state, event);
     update_scroll_state(window_state, event);
     update_keyboard_modifiers(window_state, event);
     update_keyboard_pressed_chars(window_state, event);
     update_misc_events(window_state, event);
-
-    // Correct for the incorrect HiDPI factor
-    let winit_hidpi_factor = frame_event_info.new_dpi_factor.unwrap_or(window_state.size.winit_hidpi_factor);
-    if let Some(new_size) = &mut frame_event_info.new_window_size {
-        new_size.width *= winit_hidpi_factor;
-        new_size.height *= winit_hidpi_factor;
-    }
-
-    (frame_event_info, should_window_close)
 }
 
 fn update_keyboard_modifiers(window_state: &mut FullWindowState, event: &WindowEvent) {
@@ -501,20 +486,15 @@ fn update_mouse_cursor_position(window_state: &mut FullWindowState, event: &Wind
     }
 }
 
-fn update_scroll_state(window_state: &mut FullWindowState, event: &WindowEvent) {
-    match event {
-        WindowEvent::MouseWheel { delta, .. } => {
-            const LINE_DELTA: f32 = 38.0;
+fn update_scroll_state(window_state: &mut FullWindowState, delta: MouseScrollDelta) {
+    const LINE_DELTA: f32 = 38.0;
 
-            let (scroll_x_px, scroll_y_px) = match delta {
-                MouseScrollDelta::PixelDelta(WinitLogicalPosition { x, y }) => (*x as f32, *y as f32),
-                MouseScrollDelta::LineDelta(x, y) => (*x * LINE_DELTA, *y * LINE_DELTA),
-            };
-            window_state.mouse_state.scroll_x = -scroll_x_px;
-            window_state.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
-        },
-        _ => { },
-    }
+    let (scroll_x_px, scroll_y_px) = match delta {
+        MouseScrollDelta::PixelDelta(WinitLogicalPosition { x, y }) => (x as f32, y as f32),
+        MouseScrollDelta::LineDelta(x, y) => (x * LINE_DELTA, y * LINE_DELTA),
+    };
+    window_state.mouse_state.scroll_x = -scroll_x_px;
+    window_state.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
 }
 
 /// Updates self.keyboard_state to reflect what characters are currently held down
@@ -668,7 +648,7 @@ fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilt
 ///
 /// `awakened_task` is a special field that should be set to true if the `Task`
 /// system fired a `WindowEvent::Awakened`.
-fn window_should_close(event: &WindowEvent, frame_event_info: &mut FrameEventInfo) -> bool {
+fn R(event: &WindowEvent, frame_event_info: &mut FrameEventInfo) -> bool {
 
     match event {
         WindowEvent::CursorMoved { position, .. } => {

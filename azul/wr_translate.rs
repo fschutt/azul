@@ -716,6 +716,30 @@ fn wr_translate_alpha_type(alpha_type: AlphaType) -> WrAlphaType {
     }
 }
 
+pub(crate) fn set_webrender_debug_flags(r: &mut Renderer, new_flags: &DebugState) {
+
+    use webrender::DebugFlags;
+
+    // Set all flags to false
+    let mut debug_flags = DebugFlags::empty();
+
+    debug_flags.set(DebugFlags::PROFILER_DBG, new_flags.profiler_dbg);
+    debug_flags.set(DebugFlags::RENDER_TARGET_DBG, new_flags.render_target_dbg);
+    debug_flags.set(DebugFlags::TEXTURE_CACHE_DBG, new_flags.texture_cache_dbg);
+    debug_flags.set(DebugFlags::GPU_TIME_QUERIES, new_flags.gpu_time_queries);
+    debug_flags.set(DebugFlags::GPU_SAMPLE_QUERIES, new_flags.gpu_sample_queries);
+    debug_flags.set(DebugFlags::DISABLE_BATCHING, new_flags.disable_batching);
+    debug_flags.set(DebugFlags::EPOCHS, new_flags.epochs);
+    debug_flags.set(DebugFlags::COMPACT_PROFILER, new_flags.compact_profiler);
+    debug_flags.set(DebugFlags::ECHO_DRIVER_MESSAGES, new_flags.echo_driver_messages);
+    debug_flags.set(DebugFlags::NEW_FRAME_INDICATOR, new_flags.new_frame_indicator);
+    debug_flags.set(DebugFlags::NEW_SCENE_INDICATOR, new_flags.new_scene_indicator);
+    debug_flags.set(DebugFlags::SHOW_OVERDRAW, new_flags.show_overdraw);
+    debug_flags.set(DebugFlags::GPU_CACHE_DBG, new_flags.gpu_cache_dbg);
+
+    r.set_debug_flags(debug_flags);
+}
+
 #[inline(always)]
 pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> WrExternalScrollId {
     WrExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
