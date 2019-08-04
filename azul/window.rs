@@ -903,31 +903,6 @@ fn update_full_window_state(
     full_window_state.platform_specific_options = window_state.platform_specific_options.clone();
 }
 
-#[allow(unused_variables)]
-pub(crate) fn update_from_external_window_state<T>(
-    window_state: &mut FullWindowState,
-    frame_event_info: &FrameEventInfo,
-    events_loop: &EventLoop<AzulUpdateEvent<T>>,
-    window: &GlutinWindow,
-) {
-    #[cfg(target_os = "linux")] {
-        if frame_event_info.new_window_size.is_some() || frame_event_info.new_dpi_factor.is_some() {
-            window_state.size.hidpi_factor = linux_get_hidpi_factor(
-                &window.current_monitor(),
-                events_loop
-            );
-        }
-    }
-
-    if let Some(new_size) = frame_event_info.new_window_size {
-        window_state.size.dimensions = new_size;
-    }
-
-    if let Some(dpi) = frame_event_info.new_dpi_factor {
-        window_state.size.winit_hidpi_factor = dpi;
-    }
-}
-
 /// Resets the mouse states `scroll_x` and `scroll_y` to 0
 pub(crate) fn clear_scroll_state(window_state: &mut FullWindowState) {
     window_state.mouse_state.scroll_x = 0.0;

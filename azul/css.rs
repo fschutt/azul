@@ -89,3 +89,32 @@ pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interva
     Box::new(HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
 }
 
+/// Reload the CSS if enough time has passed since the last reload
+#[cfg(debug_assertions)]
+pub(crate) fn hot_reload_css(
+    css: &mut Css,
+    hot_reload_handler: &Option<Box<HotReloadHandler>>,
+    last_style_reload: &mut Instant,
+    force_reload: bool,
+) -> Result<bool, String> {
+
+    let mut has_reloaded = false;
+    let now = Instant::now();
+
+    let hot_reload_handler = match hot_reload_handler.as_ref() {
+        Some(s) => s,
+        None => return Ok(has_reloaded),
+    };
+
+    let reload_interval = hot_reload_handler.get_reload_interval();
+    let should_reload = force_reload || now - *last_style_reload > reload_interval;
+
+    if should_reload {
+        let new_css = hot_reload_handler.reload_style()?;
+        *css = new_css;
+        has_reloaded = true;
+        *last_style_reload = now;
+    }
+
+    Ok(has_reloaded)
+}
