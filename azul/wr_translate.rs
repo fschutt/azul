@@ -49,7 +49,7 @@ use azul_core::{
         StyleBorderRadius,
     },
     ui_solver::ExternalScrollId,
-    window::LogicalSize,
+    window::{LogicalSize, DebugState},
 };
 use azul_css::{
     ColorU as CssColorU,
@@ -64,6 +64,7 @@ use azul_css::{
     LayoutSideOffsets as CssLayoutSideOffsets,
 };
 use app_units::Au as WrAu;
+use webrender::Renderer;
 
 pub(crate) mod winit_translate {
 

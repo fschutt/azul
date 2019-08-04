@@ -472,6 +472,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     display_list: DisplayList<'a, T> ,
     app_data_access: &mut T,
     window: &mut Window<T>,
+    full_window_state: &FullWindowState,
     app_resources: &mut AppResources,
     render_api: &mut U,
 ) -> CachedDisplayListResult {
@@ -482,6 +483,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     let node_hierarchy = &arena.node_layout;
     let node_data = &arena.node_data;
     let root_dom_id = display_list.ui_descr.dom_id.clone();
+    let pipeline_id = window.internal.pipeline_id;
 
     // Scan the styled DOM for image and font keys.
     //
@@ -497,16 +499,17 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     //      - Insert the new font keys and image keys into the render API
     //      - Scan all IFrameCallbacks, generate the DomID for each callback
     //      - Repeat while number_of_iframe_callbacks != 0
-    add_fonts_and_images(app_resources, render_api, &display_list);
+    add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list);
 
     let layout_result = do_the_layout(
         node_hierarchy,
         node_data,
         &display_list.rectangles,
         &*app_resources,
+        &pipeline_id,
         LayoutRect {
             origin: LayoutPoint::new(0.0, 0.0),
-            size: LayoutSize::new(window.state.size.dimensions.width, window.state.size.dimensions.height),
+            size: LayoutSize::new(full_window_state.size.dimensions.width, full_window_state.size.dimensions.height),
         },
     );
 
@@ -530,15 +533,15 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
 
     let root_node = push_rectangles_into_displaylist(
         window.internal.epoch,
-        window.state.size,
+        full_window_state.size,
         rects_in_rendering_order,
         &DisplayListParametersRef {
             dom_id: root_dom_id,
-            pipeline_id: window.internal.pipeline_id,
+            pipeline_id,
             node_hierarchy,
             node_data,
             display_rectangle_arena: &display_list.rectangles,
-            css: &window.state.css,
+            css: &full_window_state.css,
         },
         &mut DisplayListParametersMut {
             app_data: app_data_access,
@@ -653,16 +656,16 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         use azul_css::{CssImageId, StyleBackgroundContent::*};
         use azul_core::display_list::RectBackground;
 
-        fn get_image_info(app_resources: &AppResources, style_image_id: &CssImageId) -> Option<RectBackground> {
+        fn get_image_info(app_resources: &AppResources, pipeline_id: &PipelineId, style_image_id: &CssImageId) -> Option<RectBackground> {
             let image_id = app_resources.get_css_image_id(&style_image_id.0)?;
-            let image_info = app_resources.get_image_info(image_id)?;
+            let image_info = app_resources.get_image_info(pipeline_id, image_id)?;
             Some(RectBackground::Image(*image_info))
         }
 
         let background_content = match bg {
             LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
             RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
-            Image(style_image_id) => get_image_info(referenced_mutable_content.app_resources, style_image_id),
+            Image(style_image_id) => get_image_info(referenced_mutable_content.app_resources, &referenced_content.pipeline_id, style_image_id),
             Color(c) => Some(RectBackground::Color(*c)),
         };
 
@@ -700,7 +703,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
             }
         },
         Image(image_id) => {
-            if let Some(image_info) = referenced_mutable_content.app_resources.get_image_info(image_id) {
+            if let Some(image_info) = referenced_mutable_content.app_resources.get_image_info(pipeline_id, image_id) {
                 frame.content.push(LayoutRectContent::Image {
                     size: LayoutSize::new(bounds.size.width, bounds.size.height),
                     offset: LayoutPoint::new(0.0, 0.0),
@@ -794,12 +797,20 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         rectangle.window_size.winit_hidpi_factor
     );
 
+    // TODO: Unused!
+    let mut window_size_width_stops = Vec::new();
+    let mut window_size_height_stops = Vec::new();
+
     let texture = {
 
         let tex = (texture_callback.0)(GlCallbackInfoUnchecked {
             ptr: *texture_stack_ptr,
             layout_info: LayoutInfo {
-                window: &mut *referenced_mutable_content.fake_window,
+                window_size: ,
+                window_size_width_stops: &mut window_size_width_stops,
+                window_size_height_stops: &mut window_size_height_stops,
+                default_callbacks: ,
+                gl_context: ,
                 resources: &referenced_mutable_content.app_resources,
             },
             bounds,
@@ -898,7 +909,11 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
         let iframe_info = IFrameCallbackInfoUnchecked {
             ptr: *iframe_pointer,
             layout_info: LayoutInfo {
-                window: referenced_mutable_content.fake_window,
+                window_size: ,
+                window_size_width_stops: ,
+                window_size_height_stops: ,
+                default_callbacks: ,
+                gl_context: ,
                 resources: &referenced_mutable_content.app_resources,
             },
             bounds,
@@ -942,6 +957,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
     app_resources::add_fonts_and_images(
         referenced_mutable_content.app_resources,
         referenced_mutable_content.render_api,
+        &referenced_content.pipeline_id,
         &display_list
     );
 
@@ -955,6 +971,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
         &node_data,
         &display_list.rectangles,
         &*referenced_mutable_content.app_resources,
+        referenced_content.pipeline_id,
         rect,
     );
 

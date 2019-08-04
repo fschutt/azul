@@ -13,6 +13,7 @@ use {
 };
 use azul_core::{
     app_resources::{Au, FontInstanceKey},
+    callbacks::PipelineId,
     ui_solver::{PositionedRectangle, InlineTextLayout, LayoutResult, ResolvedTextLayoutOptions},
 };
 use azul_layout::{GetTextLayout, RectContent};
@@ -86,6 +87,7 @@ pub(crate) fn do_the_layout<'a,'b, T>(
     node_data: &NodeDataContainer<NodeData<T>>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
     app_resources: &'b AppResources,
+    pipeline_id: &PipelineId,
     bounding_rect: LayoutRect,
 ) -> LayoutResult {
 
@@ -98,9 +100,9 @@ pub(crate) fn do_the_layout<'a,'b, T>(
     // 5. return to caller, caller will do final text layout (not the job of the layout engine)
 
     let word_cache = create_word_cache(app_resources, node_data);
-    let scaled_words = create_scaled_words(app_resources, &word_cache, display_rects);
+    let scaled_words = create_scaled_words(app_resources, pipeline_id, &word_cache, display_rects);
     let mut solved_ui = {
-        let rect_contents = create_rect_contents_cache(&word_cache, &scaled_words, node_data, app_resources);
+        let rect_contents = create_rect_contents_cache(app_resources, pipeline_id, &word_cache, &scaled_words, node_data);
         SolvedUi::new(bounding_rect, node_hierarchy, display_rects, rect_contents)
     };
 
@@ -143,6 +145,7 @@ fn create_word_cache<T>(
 
 fn create_scaled_words<'a>(
     app_resources: &AppResources,
+    pipeline_id: &PipelineId,
     words: &BTreeMap<NodeId, Words>,
     display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
 ) -> BTreeMap<NodeId, (ScaledWords, FontInstanceKey)> {
@@ -162,7 +165,7 @@ fn create_scaled_words<'a>(
             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
 
-        let loaded_font = app_resources.get_loaded_font(&font_id)?;
+        let loaded_font = app_resources.get_loaded_font(pipeline_id, &font_id)?;
         let font_instance_key = loaded_font.font_instances.get(&font_size_au)?;
 
         let font_bytes = &loaded_font.font_bytes;
@@ -179,16 +182,17 @@ fn create_scaled_words<'a>(
 }
 
 fn create_rect_contents_cache<'a, T>(
+    app_resources: &AppResources,
+    pipeline_id: &PipelineId,
     words: &'a BTreeMap<NodeId, Words>,
     scaled_words: &'a BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
     display_rects: &NodeDataContainer<NodeData<T>>,
-    app_resources: &AppResources,
 ) -> BTreeMap<NodeId, RectContent<InlineText<'a>>> {
     use azul_core::dom::NodeType::*;
     display_rects.linear_iter().filter_map(|node_id| {
         match *display_rects[node_id].get_node_type() {
             Image(id) => {
-                let (w, h) = app_resources.get_image_info(&id)?.get_dimensions();
+                let (w, h) = app_resources.get_image_info(pipeline_id, &id)?.get_dimensions();
                 Some((node_id, RectContent::Image(w, h)))
             },
             Text(_) | Label(_) => {

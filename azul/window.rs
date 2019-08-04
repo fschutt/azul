@@ -391,9 +391,11 @@ impl<T> Window<T> {
         events_loop: &EventLoop<AzulUpdateEvent<T>>,
         mut options: WindowCreateOptions<T>,
         background_color: ColorU,
+        app_resources: &mut AppResources,
     ) -> Result<Self, CreationError> {
 
         use wr_translate::translate_logical_size_to_css_layout_size;
+        use app_resources::register_new_pipeline_id;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
@@ -436,6 +438,8 @@ impl<T> Window<T> {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
+        register_new_pipeline_id(app_resources, pipeline_id);
+
         options.state.css.sort_by_specificity();
 
         let display_list_dimensions = translate_logical_size_to_css_layout_size(options.state.size.dimensions);
@@ -446,7 +450,6 @@ impl<T> Window<T> {
             #[cfg(not(test))]
             #[cfg(debug_assertions)]
             hot_reload_handler: options.hot_reload_handler,
-            state: options.state,
             display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
                 epoch,
