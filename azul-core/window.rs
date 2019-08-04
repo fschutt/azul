@@ -15,7 +15,7 @@ use azul_css::HotReloadHandler;
 use {
     dom::DomId,
     id_tree::NodeId,
-    callbacks::{HitTestItem, FocusTarget},
+    callbacks::{HitTestItem, UpdateScreen, Redraw, FocusTarget},
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -290,6 +290,8 @@ pub struct FullWindowState {
     pub previous_window_state: Option<Box<FullWindowState>>,
     /// Whether there is a file currently hovering over the window
     pub hovered_file: Option<PathBuf>,
+    /// Whether there was a file currently dropped on the window
+    pub dropped_file: Option<PathBuf>,
     /// What node is currently hovered over, default to None. Only necessary internal
     /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
     /// as well as styling `:focus` elements
@@ -319,6 +321,7 @@ impl Default for FullWindowState {
 
             previous_window_state: None,
             hovered_file: None,
+            dropped_file: None,
             focused_node: None,
             hovered_nodes: BTreeMap::default(),
             pending_focus_target: None,
@@ -338,6 +341,10 @@ impl FullWindowState {
 
     pub fn get_hovered_file(&self) -> Option<&PathBuf> {
         self.hovered_file.as_ref()
+    }
+
+    pub fn get_dropped_file(&self) -> Option<&PathBuf> {
+        self.dropped_file.as_ref()
     }
 
     /// Returns the window state of the previous frame, useful for calculating
@@ -380,6 +387,30 @@ pub fn full_window_state_to_window_state(full_window_state: &FullWindowState) ->
         ime_position: full_window_state.ime_position,
         platform_specific_options: full_window_state.platform_specific_options.clone(),
         css: full_window_state.css.clone(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct SingleWindowHitTestResult {
+    pub needs_rerender_hover_active: bool,
+    pub needs_relayout_hover_active: bool,
+    pub should_scroll_render: bool,
+    pub needs_relayout_refresh: bool,
+    pub callbacks_update_screen: UpdateScreen,
+    pub hit_test_results: Option<Vec<HitTestItem>>,
+    pub new_focus_target: Option<FocusTarget>,
+}
+
+impl SingleWindowHitTestResult {
+
+    pub fn should_relayout(&self) -> bool {
+        self.needs_relayout_hover_active ||
+        self.needs_relayout_refresh ||
+        self.callbacks_update_screen == Redraw
+    }
+
+    pub fn should_rerender(&self) -> bool {
+        self.should_relayout() || self.should_scroll_render || self.needs_rerender_hover_active
     }
 }
 
@@ -740,11 +771,15 @@ impl Default for RendererType {
 /// Custom event type, to construct an `EventLoop<AzulWindowUpdateEvent>`.
 /// This is dispatched into the `EventLoop` (to send a "custom" event)
 pub enum AzulUpdateEvent<T> {
-    ScrollUpdate,
-    AnimationUpdate,
-    DisplayListUpdate,
     CreateWindow { window_create_options: WindowCreateOptions<T> },
     CloseWindow { window_id: WindowId },
+    RebuildUi { window_id: WindowId },
+    RestyleUi { window_id: WindowId },
+    RelayoutUi { window_id: WindowId },
+    RebuildDisplayList { window_id: WindowId },
+    UpdateScrollStates { window_id: WindowId },
+    UpdateAnimations { window_id: WindowId },
+    UpdateImages { window_id: WindowId },
     // ... etc.
 }
 

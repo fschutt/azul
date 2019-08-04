@@ -472,7 +472,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     display_list: DisplayList<'a, T> ,
     app_data_access: &mut T,
     window: &mut Window<T>,
-    fake_window: &mut FakeWindow<T>,
     app_resources: &mut AppResources,
     render_api: &mut U,
 ) -> CachedDisplayListResult {
@@ -544,7 +543,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
         &mut DisplayListParametersMut {
             app_data: app_data_access,
             app_resources,
-            fake_window,
             image_resource_updates: &mut image_resource_updates,
             render_api,
             layout_result: &mut layout_result_map,
