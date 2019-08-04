@@ -13,29 +13,32 @@ use webrender::{
     api::{LayoutSize, DeviceIntSize, Epoch, Transaction, RenderApi},
 };
 use log::LevelFilter;
-use azul_css::{ColorU, HotReloadHandler, Css, LayoutPoint};
+use azul_css::{ColorU, LayoutPoint};
 use {
     FastHashMap,
     window::{
-        Window, ScrollStates, LogicalPosition, LogicalSize,
-        RendererType, WindowSize, DebugState, WindowState,
-        FullWindowState, HeadlessContextState,
+        Window, ScrollStates, RendererType, WindowSize,
+        DebugState, WindowState, FullWindowState, HeadlessContextState,
     },
+    window_state::CallbacksOfHitTest,
     dom::{Dom, DomId, NodeId, ScrollTagId},
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
-    async::{Task, Timer, TimerId, TerminateTimer},
+    async::{Task, Timer, TimerId},
     callbacks::{
         LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
         Redraw, DontRedraw, ScrollPosition, DefaultCallbackIdMap,
     },
+    display_list::CachedDisplayListResult,
 };
 use azul_core::{
     ui_solver::ScrolledNodes,
     window::{WindowId, SingleWindowHitTestResult},
     callbacks::PipelineId,
     ui_description::UiDescription,
+    ui_solver::LayoutResult,
+    display_list::CachedDisplayList,
 };
 pub use app_resources::AppResources;
 
@@ -144,26 +147,6 @@ impl Default for AppConfig {
             debug_state: DebugState::default(),
             background_color: COLOR_WHITE,
             min_frame_duration: Duration::from_millis(30),
-        }
-    }
-}
-
-pub(crate) struct FrameEventInfo {
-    pub(crate) should_hittest: bool,
-    pub(crate) cur_cursor_pos: LogicalPosition,
-    pub(crate) new_window_size: Option<LogicalSize>,
-    pub(crate) new_dpi_factor: Option<f32>,
-    pub(crate) is_resize_event: bool,
-}
-
-impl Default for FrameEventInfo {
-    fn default() -> Self {
-        Self {
-            should_hittest: false,
-            cur_cursor_pos: LogicalPosition::new(0.0, 0.0),
-            new_window_size: None,
-            new_dpi_factor: None,
-            is_resize_event: false,
         }
     }
 }
@@ -278,7 +261,7 @@ impl<T: 'static> App<T> {
     fn run_inner(self) -> ! {
 
         use glutin::{
-            event::{WindowEvent, Touch, Event, StartCause},
+            event::{WindowEvent, Touch, Event},
             event_loop::ControlFlow,
         };
         use azul_core::window::{AzulUpdateEvent, CursorPosition};
@@ -291,7 +274,7 @@ impl<T: 'static> App<T> {
 
         let initialized_windows = initialize_windows(windows, &mut fake_display, &mut resources, &config);
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
-        let mut full_window_states = initialize_full_window_states(&windows);
+        let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &windows);
         let (mut ui_state_cache, mut default_callbacks_cache) = initialize_ui_state_cache(&data, gl_context.clone(), &resources, &active_windows, &mut full_window_states, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&mut ui_state_cache, &mut full_window_states);
 
@@ -313,10 +296,9 @@ impl<T: 'static> App<T> {
 
                     if let Some(w) = window {
                         use compositor::remove_active_pipeline;
-                        use wr_translate::wr_translate_pipeline_id;
                         use app_resources::delete_pipeline;
                         remove_active_pipeline(&w.internal.pipeline_id);
-                        delete_pipeline(&w.internal.pipeline_id);
+                        delete_pipeline(&mut resources, &mut render_api, &w.internal.pipeline_id);
                         render_api.delete_document(w.internal.document_id);
                     }
                 };
@@ -351,7 +333,12 @@ impl<T: 'static> App<T> {
                             windowed_context.display.make_not_current();
 
                             // TODO: Only rebuild UI if the resize is going across a resize boundary
-                            event_loop_proxy.send_event(AzulEvent::RebuildUi { window_id });
+                            event_loop_proxy.send_event(AzulUpdateEvent::RebuildUi { window_id });
+                        },
+                        WindowEvent::HiDpiFactorChanged(dpi_factor) => {
+                            let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                            full_window_state.size.winit_hidpi_factor = *dpi_factor as f32;
+                            full_window_state.size.hidpi_factor = *dpi_factor as f32;
                         },
                         WindowEvent::Moved(new_window_position) => {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
@@ -430,7 +417,7 @@ impl<T: 'static> App<T> {
                             // After rendering + swapping, remove the unused OpenGL textures
                             clean_up_unused_opengl_textures(renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
                             // Delete unused font and image keys
-                            garbage_collect_fonts_and_images(&mut resources, &mut render_api, pipeline_id);
+                            garbage_collect_fonts_and_images(&mut resources, &mut render_api, &pipeline_id);
                         },
                         WindowEvent::CloseRequested => {
                             close_window!(glutin_window_id);
@@ -652,7 +639,7 @@ fn initialize_ui_state_cache<T>(
                 let full_window_state = &mut full_window_states[glutin_window_id];
                 let hot_reload_result = hot_reload_css(
                     &mut full_window_state.css,
-                    &window.hot_reload_handler.0,
+                    &window.hot_reload_handler.as_ref().map(|hr| hr.0),
                     &mut Instant::now(),
                     FORCE_CSS_RELOAD
                 );
@@ -741,11 +728,10 @@ fn hit_test_and_call_callbacks<T>(
     resources: &mut AppResources,
 ) -> SingleWindowHitTestResult {
 
-    use azul_core::app::RuntimeError::*;
     use window;
 
     // Update the FullWindowState from user events
-    window::update_window_state(full_window_state, &events);
+    window::update_window_state(full_window_state, event);
 
     let mut ret = SingleWindowHitTestResult {
         needs_rerender_hover_active: false,
@@ -772,7 +758,7 @@ fn hit_test_and_call_callbacks<T>(
     let callback_result = call_callbacks(
         data,
         azul_events,
-        &ui_state_map,
+        &ui_state_cache,
         default_callbacks,
         timers,
         tasks,
@@ -781,6 +767,7 @@ fn hit_test_and_call_callbacks<T>(
         &full_window_state,
         &window.internal.layout_result,
         &window.internal.scrolled_nodes,
+        &ret.hit_test_results,
         &mut nodes_scrolled_in_callbacks,
         &window.internal.cached_display_list,
         fake_display.get_gl_context(),
@@ -847,13 +834,6 @@ fn hit_test_and_call_callbacks<T>(
         &*window.display.window(),
     );
 
-    window::update_from_external_window_state(
-        full_window_state,
-        &mut frame_event_info,
-        &fake_display.hidden_event_loop,
-        &window.display.window()
-    );
-
     // Reset the scroll amount to 0 (for the next frame)
     window::clear_scroll_state(full_window_state);
 
@@ -880,7 +860,7 @@ fn cascade_style<T>(
 
 // Do the layout for a single window
 #[cfg(not(test))]
-fn layout_display_lists(
+fn layout_display_lists<T>(
     data: &mut T,
     app_resources: &mut AppResources,
     window: &mut Window<T>,
@@ -978,6 +958,7 @@ fn call_callbacks<T>(
     current_window_state: &FullWindowState,
     layout_result: &BTreeMap<DomId, LayoutResult>,
     scrolled_nodes: &BTreeMap<DomId, ScrolledNodes>,
+    hit_test_items: &[HitTestItem],
     nodes_scrolled_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
     cached_display_list: &CachedDisplayList,
     gl_context: Rc<Gl>,
@@ -1018,7 +999,7 @@ fn call_callbacks<T>(
                             current_scroll_states: scroll_states,
                             nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
                             hit_dom_node: (dom_id.clone(), *node_id),
-                            hit_test_items: &hit_test_items,
+                            hit_test_items,
                             cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
                             cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
                         })
@@ -1062,7 +1043,7 @@ fn call_callbacks<T>(
                     current_scroll_states: scroll_states,
                     nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
                     hit_dom_node: (dom_id.clone(), *node_id),
-                    hit_test_items: &hit_test_items,
+                    hit_test_items,
                     cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
                     cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
                 }) == Redraw {
@@ -1096,6 +1077,11 @@ fn layout_display_list<T>(
     app_resources: &mut AppResources,
 ) -> CachedDisplayListResult {
 
+    use display_list::{
+        display_list_from_ui_description,
+        display_list_to_cached_display_list,
+    };
+
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
     // Make sure unused scroll states are garbage collected.
@@ -1106,7 +1092,15 @@ fn layout_display_list<T>(
 
     DomId::reset();
 
-    let display_list = display_list_to_cached_display_list(display_list, data, window, full_window_state, app_resources, &mut fake_display.render_api);
+    let display_list = display_list_to_cached_display_list(
+        display_list,
+        data,
+        window,
+        fake_display.get_gl_context(),
+        full_window_state,
+        app_resources,
+        &mut fake_display.render_api
+    );
 
     window.display.make_not_current();
     fake_display.hidden_context.make_current();
@@ -1123,11 +1117,6 @@ fn send_display_list_to_webrender<T>(
     fake_display: &mut FakeDisplay<T>,
     app_resources: &mut AppResources,
 ) {
-    use display_list::{
-        display_list_from_ui_description,
-        display_list_to_cached_display_list,
-        CachedDisplayListResult,
-    };
     use app_resources::add_resources;
     use wr_translate::{
         wr_translate_pipeline_id,
@@ -1224,7 +1213,6 @@ fn update_scroll_state(
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo, pipeline_id: &PipelineId) {
 
     use compositor::remove_epochs_from_pipeline;
-    use wr_translate::wr_translate_pipeline_id;
 
     // TODO: currently active epochs can be empty, why?
     //
