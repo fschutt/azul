@@ -1,7 +1,6 @@
 use std::{
     collections::{HashSet, BTreeMap},
     fmt,
-    path::PathBuf,
 };
 use glutin::{
     event::{
@@ -11,14 +10,11 @@ use glutin::{
     dpi::LogicalPosition as WinitLogicalPosition,
 };
 use {
-    app::FrameEventInfo,
-    dom::{DomId, EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
+    dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
 };
-use azul_core::callbacks::FocusTarget;
-use azul_css::Css;
 pub use azul_core::window::{
     WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
@@ -641,47 +637,6 @@ fn get_hover_events(input: &HashSet<WindowEventFilter>) -> HashSet<HoverEventFil
 
 fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
     input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
-}
-
-/// Pre-filters any events that are not handled by the framework yet, since it would be wasteful
-/// to process them. Modifies the `frame_event_info` so that the
-///
-/// `awakened_task` is a special field that should be set to true if the `Task`
-/// system fired a `WindowEvent::Awakened`.
-fn R(event: &WindowEvent, frame_event_info: &mut FrameEventInfo) -> bool {
-
-    match event {
-        WindowEvent::CursorMoved { position, .. } => {
-            frame_event_info.should_hittest = true;
-            frame_event_info.cur_cursor_pos = LogicalPosition { x: position.x as f32, y: position.y as f32 };
-        },
-        WindowEvent::Resized(wh) => {
-            frame_event_info.new_window_size = Some(LogicalSize { width: wh.width as f32, height: wh.height as f32 });
-            frame_event_info.is_resize_event = true;
-        },
-        WindowEvent::HiDpiFactorChanged(dpi) => {
-            frame_event_info.new_dpi_factor = Some(*dpi as f32);
-            frame_event_info.is_resize_event = true;
-        },
-        WindowEvent::CloseRequested | WindowEvent::Destroyed => {
-            // TODO: Callback the windows onclose method
-            // (ex. for implementing a "do you really want to close" dialog)
-            return true;
-        },
-        WindowEvent::KeyboardInput { .. } |
-        WindowEvent::ReceivedCharacter(_) |
-        WindowEvent::MouseWheel { .. } |
-        WindowEvent::MouseInput { .. } |
-        WindowEvent::Touch(_) => {
-            frame_event_info.should_hittest = true;
-        },
-        _ => { },
-    }
-
-    // TODO: Event::Awakened is never invoked, since that is handled
-    // by force_redraw_cache anyways
-
-    false
 }
 
 /// Utility function that, given the current keyboard state and a list of
