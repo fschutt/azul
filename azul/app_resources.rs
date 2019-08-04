@@ -24,6 +24,7 @@ pub use azul_core::app_resources::{
     RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
     ImageInfo, IdNamespace,
 };
+use azul_core::callbacks::PipelineId;
 
 #[derive(Debug)]
 pub enum ImageReloadError {
@@ -130,18 +131,19 @@ impl FontImageApi for FakeRenderApi {
 pub(crate) fn add_fonts_and_images<T, U: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut U,
+    pipeline_id: &PipelineId,
     display_list: &DisplayList<T>
 ) {
     let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list);
     let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list);
 
-    app_resources.last_frame_font_keys.extend(font_keys.clone().into_iter());
-    app_resources.last_frame_image_keys.extend(image_keys.clone().into_iter());
+    app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
+    app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
 
-    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, &font_keys);
-    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, &image_keys);
+    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, pipeline_id, &font_keys);
+    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, pipeline_id, &image_keys);
 
-    add_resources(app_resources, render_api, add_font_resource_updates, add_image_resource_updates);
+    add_resources(app_resources, render_api, pipeline_id, add_font_resource_updates, add_image_resource_updates);
 }
 
 /// To be called at the end of a frame (after the UI has rendered):
@@ -151,14 +153,15 @@ pub(crate) fn add_fonts_and_images<T, U: FontImageApi>(
 pub(crate) fn garbage_collect_fonts_and_images<U: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut U,
+    pipeline_id: &PipelineId,
 ) {
-    let delete_font_resource_updates = build_delete_font_resource_updates(app_resources);
-    let delete_image_resource_updates = build_delete_image_resource_updates(app_resources);
+    let delete_font_resource_updates = build_delete_font_resource_updates(app_resources, pipeline_id);
+    let delete_image_resource_updates = build_delete_image_resource_updates(app_resources, pipeline_id);
 
-    delete_resources(app_resources, render_api, delete_font_resource_updates, delete_image_resource_updates);
+    delete_resources(app_resources, render_api, pipeline_id, delete_font_resource_updates, delete_image_resource_updates);
 
-    app_resources.last_frame_font_keys.clear();
-    app_resources.last_frame_image_keys.clear();
+    app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().clear();
+    app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().clear();
 }
 
 /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
@@ -347,6 +350,7 @@ impl DeleteImageMsg {
 fn build_add_font_resource_updates<T: FontImageApi>(
     app_resources: &AppResources,
     render_api: &mut T,
+    pipeline_id: &PipelineId,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
@@ -359,7 +363,7 @@ fn build_add_font_resource_updates<T: FontImageApi>(
         macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_index:expr, $font_size:expr) => ({
             use wr_translate::{wr_translate_font_instance_key, wr_translate_font_key, translate_au};
 
-            let font_instance_key_exists = app_resources.currently_registered_fonts
+            let font_instance_key_exists = app_resources.currently_registered_fonts[pipeline_id]
                 .get(&$font_id)
                 .and_then(|loaded_font| loaded_font.font_instances.get(&$font_size))
                 .is_some();
@@ -410,7 +414,7 @@ fn build_add_font_resource_updates<T: FontImageApi>(
             }
         })}
 
-        match app_resources.currently_registered_fonts.get(im_font_id) {
+        match app_resources.currently_registered_fonts[pipeline_id].get(im_font_id) {
             Some(loaded_font) => {
                 for font_size in font_sizes.iter() {
                     insert_font_instances!(im_font_id.clone(), loaded_font.font_key, loaded_font.font_index, *font_size);
@@ -468,13 +472,14 @@ fn build_add_font_resource_updates<T: FontImageApi>(
 fn build_add_image_resource_updates<T: FontImageApi>(
     app_resources: &AppResources,
     render_api: &mut T,
+    pipeline_id: &PipelineId,
     images_in_dom: &FastHashSet<ImageId>,
 ) -> Vec<(ImageId, AddImageMsg)> {
 
     use wr_translate::{wr_translate_image_key, translate_image_descriptor_wr};
 
     images_in_dom.iter()
-    .filter(|image_id| !app_resources.currently_registered_images.contains_key(*image_id))
+    .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
     .filter_map(|image_id| {
         let (data, descriptor) = match image_source_get_bytes(app_resources.image_sources.get(image_id)?) {
             Ok(o) => o,
@@ -500,6 +505,7 @@ fn build_add_image_resource_updates<T: FontImageApi>(
 pub(crate) fn add_resources<T: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut T,
+    pipeline_id: &PipelineId,
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
@@ -517,37 +523,84 @@ pub(crate) fn add_resources<T: FontImageApi>(
     }
 
     for (image_id, add_image_msg) in add_image_resources.iter() {
-        app_resources.currently_registered_images.insert(*image_id, add_image_msg.1);
+        app_resources.currently_registered_images
+        .get_mut(pipeline_id).unwrap()
+        .insert(*image_id, add_image_msg.1);
     }
 
     for (font_id, add_font_msg) in add_font_resources {
         use self::AddFontMsg::*;
         match add_font_msg {
             Font(f) => {
-                app_resources.currently_registered_fonts.insert(font_id, LoadedFont::new(f.font_key, f.font_bytes, f.font_index));
+                app_resources.currently_registered_fonts
+                .get_mut(pipeline_id).unwrap()
+                .insert(font_id, LoadedFont::new(f.font_key, f.font_bytes, f.font_index));
             },
             Instance(fi, size) => {
                 let fi_key = translate_font_instance_key_wr(fi.key);
-                app_resources.currently_registered_fonts.get_mut(&font_id).unwrap().font_instances.insert(size, fi_key);
+                app_resources.currently_registered_fonts
+                    .get_mut(pipeline_id).unwrap()
+                    .get_mut(&font_id).unwrap()
+                    .font_instances.insert(size, fi_key);
             },
         }
     }
 }
 
+/// Add a new pipeline to the app resources
+fn register_new_pipeline(
+    app_resources: &mut AppResources,
+    pipeline_id: PipelineId,
+) {
+    app_resources.currently_registered_fonts.insert(pipeline_id, FastHashMap::default());
+    app_resources.currently_registered_images.insert(pipeline_id, FastHashMap::default());
+    app_resources.last_frame_font_keys.insert(pipeline_id, FastHashMap::default());
+    app_resources.last_frame_image_keys.insert(pipeline_id, FastHashSet::default());
+}
+
+/// Delete and remove all fonts & font instance keys from a given pipeline
+fn delete_pipeline<T: FontImageApi>(
+    app_resources: &mut AppResources,
+    render_api: &mut T,
+    pipeline_id: &PipelineId,
+) {
+    let mut delete_font_resources = Vec::new();
+
+    for (font_id, loaded_font) in app_resources.currently_registered_fonts[&pipeline_id].iter() {
+        delete_font_resources.extend(
+            loaded_font.font_instances.iter()
+            .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
+        );
+        delete_font_resources.push((font_id.clone(), DeleteFontMsg::Font(loaded_font.font_key)));
+    }
+
+    let delete_image_resources = app_resources.currently_registered_images[&pipeline_id].iter()
+    .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
+    .collect();
+
+    delete_resources(app_resources, render_api, pipeline_id, delete_font_resources, delete_image_resources);
+
+    app_resources.currently_registered_fonts.remove(pipeline_id);
+    app_resources.currently_registered_images.remove(pipeline_id);
+    app_resources.last_frame_font_keys.remove(pipeline_id);
+    app_resources.last_frame_image_keys.remove(pipeline_id);
+}
+
 fn build_delete_font_resource_updates(
-    app_resources: &AppResources
+    app_resources: &AppResources,
+    pipeline_id: &PipelineId,
 ) -> Vec<(ImmediateFontId, DeleteFontMsg)> {
 
     let mut resource_updates = Vec::new();
 
     // Delete fonts that were not used in the last frame or have zero font instances
-    for (font_id, loaded_font) in app_resources.currently_registered_fonts.iter() {
+    for (font_id, loaded_font) in app_resources.currently_registered_fonts[pipeline_id].iter() {
         resource_updates.extend(
             loaded_font.font_instances.iter()
-            .filter(|(au, _)| app_resources.last_frame_font_keys[font_id].contains(au))
+            .filter(|(au, _)| app_resources.last_frame_font_keys[pipeline_id][font_id].contains(au))
             .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
         );
-        if !app_resources.last_frame_font_keys.contains_key(font_id) || loaded_font.font_instances.is_empty() {
+        if !app_resources.last_frame_font_keys[&pipeline_id].contains_key(font_id) || loaded_font.font_instances.is_empty() {
             // Delete the font and all instances if there are no more instances of the font
             resource_updates.push((font_id.clone(), DeleteFontMsg::Font(loaded_font.font_key)));
         }
@@ -558,10 +611,11 @@ fn build_delete_font_resource_updates(
 
 /// At the end of the frame, all images that are registered, but weren't used in the last frame
 fn build_delete_image_resource_updates(
-    app_resources: &AppResources
+    app_resources: &AppResources,
+    pipeline_id: &PipelineId,
 ) -> Vec<(ImageId, DeleteImageMsg)> {
-    app_resources.currently_registered_images.iter()
-    .filter(|(id, _info)| !app_resources.last_frame_image_keys.contains(id))
+    app_resources.currently_registered_images[&pipeline_id].iter()
+    .filter(|(id, _info)| !app_resources.last_frame_image_keys[&pipeline_id].contains(id))
     .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
     .collect()
 }
@@ -569,6 +623,7 @@ fn build_delete_image_resource_updates(
 fn delete_resources<T: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut T,
+    pipeline_id: &PipelineId,
     delete_font_resources: Vec<(ImmediateFontId, DeleteFontMsg)>,
     delete_image_resources: Vec<(ImageId, DeleteImageMsg)>,
 ) {
@@ -582,14 +637,25 @@ fn delete_resources<T: FontImageApi>(
     }
 
     for (removed_id, _removed_info) in delete_image_resources {
-        app_resources.currently_registered_images.remove(&removed_id);
+        app_resources.currently_registered_images
+        .get_mut(pipeline_id).unwrap()
+        .remove(&removed_id);
     }
 
     for (font_id, delete_font_msg) in delete_font_resources {
         use self::DeleteFontMsg::*;
         match delete_font_msg {
-            Font(_) => { app_resources.currently_registered_fonts.remove(&font_id); },
-            Instance(_, size) => { app_resources.currently_registered_fonts.get_mut(&font_id).unwrap().delete_font_instance(&size); },
+            Font(_) => {
+                app_resources.currently_registered_fonts
+                .get_mut(pipeline_id).unwrap()
+                .remove(&font_id);
+            },
+            Instance(_, size) => {
+                app_resources.currently_registered_fonts
+                .get_mut(pipeline_id).unwrap()
+                .get_mut(&font_id).unwrap()
+                .delete_font_instance(&size);
+            },
         }
     }
 }
@@ -879,7 +945,7 @@ fn test_font_gc() {
     "#).into_dom());
     let ui_description_frame_3 = UiDescription::match_css_to_dom(&mut ui_state_frame_3, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
     let display_list_frame_3 = DisplayList {
-        ui_descr: &ui_description_frame_3, 
+        ui_descr: &ui_description_frame_3,
         rectangles: &ui_state_frame_3
     };
 
