@@ -548,7 +548,7 @@ pub(crate) fn add_resources<T: FontImageApi>(
 }
 
 /// Add a new pipeline to the app resources
-fn register_new_pipeline(
+pub(crate) fn register_new_pipeline(
     app_resources: &mut AppResources,
     pipeline_id: PipelineId,
 ) {
@@ -559,7 +559,7 @@ fn register_new_pipeline(
 }
 
 /// Delete and remove all fonts & font instance keys from a given pipeline
-fn delete_pipeline<T: FontImageApi>(
+pub(crate) fn delete_pipeline<T: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut T,
     pipeline_id: &PipelineId,

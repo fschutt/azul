@@ -1,8 +1,10 @@
 use std::{
     collections::BTreeMap,
+    rc::Rc,
 };
+use gleam::gl::Gl;
 use webrender::api::{
-    Epoch, ImageData, AddImage, ExternalImageId, ExternalImageData,
+    Epoch, ImageData, AddImage, ExternalImageData,
     ExternalImageType, TextureTarget,
 };
 use azul_css::{
@@ -37,6 +39,7 @@ use azul_core::{
         ImageRendering, AlphaType, DisplayListFrame, StyleBoxShadow, DisplayListScrollFrame,
         StyleBorderStyles, StyleBorderColors, StyleBorderRadius, StyleBorderWidths,
     },
+    window::FullWindowState,
 };
 use azul_layout::{GetStyle, style::Style};
 
@@ -82,8 +85,8 @@ struct DisplayListParametersMut<'a, T: 'a, U: FontImageApi> {
     /// The OpenGL callback can push textures / images into the display list, however,
     /// those texture IDs have to be submitted to the actual Render API before drawing
     pub image_resource_updates: &'a mut BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
-    /// Window access, so that sub-items can register OpenGL textures
-    pub fake_window: &'a mut FakeWindow<T>,
+    /// Access to the GL context so that OpenGL texture callbacks can be invoked
+    pub gl_context: Rc<Gl>,
     /// The render API that fonts and images should be added onto.
     pub render_api: &'a mut U,
     /// Laid out words and rectangles (contains info about content bounds and text layout)
@@ -460,7 +463,7 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
     }
 }
 
-pub(crate) struct CachedDisplayListResult {
+pub struct CachedDisplayListResult {
     pub cached_display_list: CachedDisplayList,
     pub scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
     pub layout_result: BTreeMap<DomId, LayoutResult>,
@@ -472,6 +475,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     display_list: DisplayList<'a, T> ,
     app_data_access: &mut T,
     window: &mut Window<T>,
+    gl_context: Rc<Gl>,
     full_window_state: &FullWindowState,
     app_resources: &mut AppResources,
     render_api: &mut U,
@@ -548,6 +552,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
             app_resources,
             image_resource_updates: &mut image_resource_updates,
             render_api,
+            gl_context,
             layout_result: &mut layout_result_map,
             scrollable_nodes: &mut scrollable_nodes_map,
         },
@@ -806,11 +811,11 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         let tex = (texture_callback.0)(GlCallbackInfoUnchecked {
             ptr: *texture_stack_ptr,
             layout_info: LayoutInfo {
-                window_size: ,
+                window_size: &rectangle.window_size,
                 window_size_width_stops: &mut window_size_width_stops,
                 window_size_height_stops: &mut window_size_height_stops,
                 default_callbacks: ,
-                gl_context: ,
+                gl_context: referenced_mutable_content.gl_context.clone(),
                 resources: &referenced_mutable_content.app_resources,
             },
             bounds,
@@ -905,15 +910,19 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
         rectangle.window_size.hidpi_factor
     );
 
+    // TODO: Unused!
+    let mut window_size_width_stops = Vec::new();
+    let mut window_size_height_stops = Vec::new();
+
     let new_dom = {
         let iframe_info = IFrameCallbackInfoUnchecked {
             ptr: *iframe_pointer,
             layout_info: LayoutInfo {
-                window_size: ,
-                window_size_width_stops: ,
-                window_size_height_stops: ,
+                window_size: &rectangle.window_size,
+                window_size_width_stops: &mut window_size_width_stops,
+                window_size_height_stops: &mut window_size_height_stops,
                 default_callbacks: ,
-                gl_context: ,
+                gl_context: referenced_mutable_content.gl_context.clone(),
                 resources: &referenced_mutable_content.app_resources,
             },
             bounds,
@@ -971,7 +980,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
         &node_data,
         &display_list.rectangles,
         &*referenced_mutable_content.app_resources,
-        referenced_content.pipeline_id,
+        &referenced_content.pipeline_id,
         rect,
     );
 

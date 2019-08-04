@@ -22,7 +22,6 @@ use azul_css::{ColorU, LayoutPoint, LayoutRect};
 use {
     FastHashMap,
     compositor::Compositor,
-    app::FrameEventInfo,
     callbacks::{PipelineId, ScrollPosition},
     dom::{NodeId, DomId},
 };
@@ -31,6 +30,7 @@ use azul_core::{
     display_list::CachedDisplayList,
     ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
     window::{AzulUpdateEvent, WindowId},
+    app_resources::AppResources,
 };
 pub use webrender::api::HitTestItem;
 pub use glutin::monitor::MonitorHandle;
@@ -395,7 +395,7 @@ impl<T> Window<T> {
     ) -> Result<Self, CreationError> {
 
         use wr_translate::translate_logical_size_to_css_layout_size;
-        use app_resources::register_new_pipeline_id;
+        use app_resources::register_new_pipeline;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
@@ -438,7 +438,7 @@ impl<T> Window<T> {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
-        register_new_pipeline_id(app_resources, pipeline_id);
+        register_new_pipeline(app_resources, pipeline_id);
 
         options.state.css.sort_by_specificity();
 
