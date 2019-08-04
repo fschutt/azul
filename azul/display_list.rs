@@ -21,7 +21,6 @@ use {
         NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
     },
     ui_solver::do_the_layout,
-    compositor::new_opengl_texture_id,
     window::{Window, WindowSize},
     callbacks::LayoutInfo,
     text_layout::LayoutedGlyphs,
@@ -606,7 +605,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> DisplayListMsg {
 
-    let DisplayListParametersRef { display_rectangle_arena, dom_id, .. } = referenced_content;
+    let DisplayListParametersRef { display_rectangle_arena, dom_id, pipeline_id, .. } = referenced_content;
     let LayoutRectParams { rect_idx, html_node, window_size, .. } = rectangle;
 
     let rect = &display_rectangle_arena[*rect_idx];
@@ -715,7 +714,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
             }
         },
         GlTexture(callback) => {
-            frame.content.push(call_opengl_callback(callback, bounds, dom_id.clone(), rectangle, referenced_mutable_content));
+            frame.content.push(call_opengl_callback(callback, bounds, dom_id.clone(), rectangle, *pipeline_id, referenced_mutable_content));
         },
         IFrame(callback) => {
             let parent = Some((dom_id.clone(), *rect_idx));
@@ -775,12 +774,13 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
     bounds: LayoutRect,
     dom_id: DomId,
     rectangle: &LayoutRectParams<'a, T>,
+    pipeline_id: PipelineId,
     referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
 ) -> LayoutRectContent {
 
     use gleam::gl;
     use {
-        compositor::get_active_gl_textures,
+        compositor::insert_into_active_gl_textures,
         wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key, wr_translate_image_descriptor},
         app_resources::ImageInfo,
     };
@@ -844,11 +844,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         allow_mipmaps,
     };
     let key = referenced_mutable_content.render_api.new_image_key();
-    let external_image_id = ExternalImageId(new_opengl_texture_id() as u64);
-
-    get_active_gl_textures()
-        .entry(rectangle.epoch).or_insert_with(|| FastHashMap::default())
-        .insert(external_image_id, texture);
+    let external_image_id = insert_into_active_gl_textures(pipeline_id, rectangle.epoch, texture);
 
     let add_img_msg = AddImageMsg(
         AddImage {
