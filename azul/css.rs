@@ -36,6 +36,7 @@
 //! | `border`,  `-top`, `-left`, `-right`, `-bottom`    |              |             |            |                  |
 //! | `box-shadow`, `-top`, `-left`, `-right`, `-bottom` |              |             |            |                  |
 
+use std::time::Instant;
 #[cfg(debug_assertions)]
 use std::time::Duration;
 #[cfg(debug_assertions)]

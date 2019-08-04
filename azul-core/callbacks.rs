@@ -748,7 +748,7 @@ pub struct LayoutInfo<'a, T> {
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
-    window_size: &'a WindowSize,
+    pub window_size: &'a WindowSize,
     /// Optimization for resizing: If a DOM has no Iframes and the window size
     /// does not change the state of the UI, then resizing the window will not
     /// result in calls to the .layout() function (since the resulting UI would
@@ -756,9 +756,9 @@ pub struct LayoutInfo<'a, T> {
     ///
     /// Stores "stops" in logical pixels where the UI needs to be re-generated
     /// should the width of the window change.
-    window_size_width_stops: &'a mut Vec<f32>,
+    pub window_size_width_stops: &'a mut Vec<f32>,
     /// Same as `window_size_width_stops` but for the height of the window.
-    window_size_height_stops: &'a mut Vec<f32>,
+    pub window_size_height_stops: &'a mut Vec<f32>,
     /// The user can push default callbacks in this `DefaultCallbackSystem`,
     /// which get called later in the hit-testing logic
     pub default_callbacks: &'a mut BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,

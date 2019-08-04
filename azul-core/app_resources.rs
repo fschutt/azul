@@ -3,7 +3,8 @@ use azul_css::{LayoutPoint, LayoutSize};
 use {
     FastHashMap, FastHashSet,
     ui_solver::{ResolvedTextLayoutOptions},
-    display_list::GlyphInstance
+    display_list::GlyphInstance,
+    callbacks::PipelineId,
 };
 
 pub type CssImageId = String;
@@ -144,21 +145,21 @@ pub struct AppResources {
     /// Stores where the fonts were loaded from
     pub font_sources: FastHashMap<FontId, FontSource>,
     /// All image keys currently active in the RenderApi
-    pub currently_registered_images: FastHashMap<ImageId, ImageInfo>,
+    pub currently_registered_images: FastHashMap<PipelineId, FastHashMap<ImageId, ImageInfo>>,
     /// All font keys currently active in the RenderApi
-    pub currently_registered_fonts: FastHashMap<ImmediateFontId, LoadedFont>,
+    pub currently_registered_fonts: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, LoadedFont>>,
     /// If an image isn't displayed, it is deleted from memory, only
     /// the `ImageSource` (i.e. the path / source where the image was loaded from) remains.
     ///
     /// This way the image can be re-loaded if necessary but doesn't have to reside in memory at all times.
-    pub last_frame_image_keys: FastHashSet<ImageId>,
+    pub last_frame_image_keys: FastHashMap<PipelineId, FastHashSet<ImageId>>,
     /// If a font does not get used for one frame, the corresponding instance key gets
     /// deleted. If a FontId has no FontInstanceKeys anymore, the font key gets deleted.
     ///
     /// The only thing remaining in memory permanently is the FontSource (which is only
     /// the string of the file path where the font was loaded from, so no huge memory pressure).
     /// The reason for this agressive strategy is that the
-    pub last_frame_font_keys: FastHashMap<ImmediateFontId, FastHashSet<Au>>,
+    pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastHashSet<Au>>>,
     /// Stores long texts across frames
     pub text_cache: TextCache,
 }
@@ -565,8 +566,8 @@ impl AppResources {
         self.css_ids_to_image_ids.remove(css_id)
     }
 
-    pub fn get_image_info(&self, key: &ImageId) -> Option<&ImageInfo> {
-        self.currently_registered_images.get(key)
+    pub fn get_image_info(&self, pipeline_id: &PipelineId, image_key: &ImageId) -> Option<&ImageInfo> {
+        self.currently_registered_images.get(pipeline_id).and_then(|map| map.get(image_key))
     }
 
     // -- FontId cache
@@ -627,7 +628,7 @@ impl AppResources {
         self.text_cache.clear_all_texts();
     }
 
-    pub fn get_loaded_font(&self, font_id: &ImmediateFontId) -> Option<&LoadedFont> {
-        self.currently_registered_fonts.get(font_id)
+    pub fn get_loaded_font(&self, pipeline_id: &PipelineId, font_id: &ImmediateFontId) -> Option<&LoadedFont> {
+        self.currently_registered_fonts.get(pipeline_id).and_then(|map| map.get(font_id))
     }
 }

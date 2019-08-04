@@ -397,7 +397,7 @@ pub struct SingleWindowHitTestResult {
     pub should_scroll_render: bool,
     pub needs_relayout_refresh: bool,
     pub callbacks_update_screen: UpdateScreen,
-    pub hit_test_results: Option<Vec<HitTestItem>>,
+    pub hit_test_results: Vec<HitTestItem>,
     pub new_focus_target: Option<FocusTarget>,
 }
 
@@ -773,6 +773,8 @@ impl Default for RendererType {
 pub enum AzulUpdateEvent<T> {
     CreateWindow { window_create_options: WindowCreateOptions<T> },
     CloseWindow { window_id: WindowId },
+    CallCallbacks { window_id: WindowId },
+    DoHitTest { window_id: WindowId },
     RebuildUi { window_id: WindowId },
     RestyleUi { window_id: WindowId },
     RelayoutUi { window_id: WindowId },
