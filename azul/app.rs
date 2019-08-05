@@ -5,7 +5,10 @@ use std::{
 };
 use glutin::{
     window::WindowId as GlutinWindowId,
-    event::WindowEvent as GlutinWindowEvent,
+    event::{
+        ModifiersState as GlutinModifiersState,
+        WindowEvent as GlutinWindowEvent
+    },
 };
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
@@ -34,7 +37,7 @@ use {
 };
 use azul_core::{
     ui_solver::ScrolledNodes,
-    window::{WindowId, SingleWindowHitTestResult},
+    window::{KeyboardState, WindowId, SingleWindowHitTestResult},
     callbacks::PipelineId,
     ui_description::UiDescription,
     ui_solver::LayoutResult,
@@ -261,22 +264,24 @@ impl<T: 'static> App<T> {
     fn run_inner(self) -> ! {
 
         use glutin::{
-            event::{WindowEvent, Touch, Event},
+            event::{WindowEvent, KeyboardInput, Touch, Event},
             event_loop::ControlFlow,
         };
-        use azul_core::window::{AzulUpdateEvent, CursorPosition};
+        use azul_core::window::{AzulUpdateEvent, CursorPosition, LogicalPosition};
         use wr_translate::winit_translate::{
             translate_winit_logical_size, translate_winit_logical_position,
         };
 
-        let App { data, resources, timers, tasks, config, windows, layout_callback, fake_display } = self;
-        let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
+        let App { mut data, mut resources, mut timers, mut tasks, config, windows, layout_callback, mut fake_display } = self;
 
+        let window_states = get_window_states(&windows);
         let initialized_windows = initialize_windows(windows, &mut fake_display, &mut resources, &config);
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
-        let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &windows);
-        let (mut ui_state_cache, mut default_callbacks_cache) = initialize_ui_state_cache(&data, gl_context.clone(), &resources, &active_windows, &mut full_window_states, layout_callback);
+        let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &window_states);
+        let (mut ui_state_cache, mut default_callbacks_cache) = initialize_ui_state_cache(&data, fake_display.gl_context.clone(), &resources, &active_windows, &mut full_window_states, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&mut ui_state_cache, &mut full_window_states);
+
+        let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
 
         let event_loop_proxy = hidden_event_loop.create_proxy();
 
@@ -311,6 +316,11 @@ impl<T: 'static> App<T> {
             };}
 
             match event {
+                Event::DeviceEvent { .. } => {
+                    // ignore high-frequency events
+                    *control_flow = ControlFlow::Wait;
+                    return;
+                },
                 Event::WindowEvent { event, window_id } => {
 
                     let glutin_window_id = window_id;
@@ -333,7 +343,7 @@ impl<T: 'static> App<T> {
                             windowed_context.display.make_not_current();
 
                             // TODO: Only rebuild UI if the resize is going across a resize boundary
-                            event_loop_proxy.send_event(AzulUpdateEvent::RebuildUi { window_id });
+                            event_loop_proxy.send_event(AzulUpdateEvent::RebuildUi { window_id }).unwrap(); // TODO!
                         },
                         WindowEvent::HiDpiFactorChanged(dpi_factor) => {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
@@ -344,23 +354,84 @@ impl<T: 'static> App<T> {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
                             full_window_state.position = Some(translate_winit_logical_position(*new_window_position));
                         },
+                        WindowEvent::CursorMoved { position, modifiers, .. } => {
+                            let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                            let world_pos_x = position.x as f32 / full_window_state.size.hidpi_factor * full_window_state.size.winit_hidpi_factor;
+                            let world_pos_y = position.y as f32 / full_window_state.size.hidpi_factor * full_window_state.size.winit_hidpi_factor;
+                            full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
+                            update_keyboard_state_from_modifier_state(&mut full_window_state.keyboard_state, modifiers);
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
+                        },
                         WindowEvent::CursorLeft { .. } => {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
                             full_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
-                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id });
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                         },
-                        WindowEvent::CursorMoved { position, .. } => {
+                        WindowEvent::CursorEntered { .. } => {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
-                            full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(translate_winit_logical_position(*position));
-                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id });
+                            full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
+                        },
+                        WindowEvent::KeyboardInput { input: KeyboardInput { state, virtual_keycode, scancode, modifiers, .. }, .. } => {
+
+                            use wr_translate::winit_translate::translate_virtual_keycode;
+                            use glutin::event::ElementState;
+
+                            let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                            update_keyboard_state_from_modifier_state(&mut full_window_state.keyboard_state, modifiers);
+
+                            match state {
+                                ElementState::Pressed => {
+                                    if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
+                                        full_window_state.keyboard_state.pressed_virtual_keycodes.insert(vk);
+                                        full_window_state.keyboard_state.current_virtual_keycode = Some(vk);
+                                    }
+                                    full_window_state.keyboard_state.pressed_scancodes.insert(*scancode);
+                                    full_window_state.keyboard_state.current_char = None;
+                                },
+                                ElementState::Released => {
+                                    if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
+                                        full_window_state.keyboard_state.pressed_virtual_keycodes.remove(&vk);
+                                        full_window_state.keyboard_state.current_virtual_keycode = None;
+                                    }
+                                    full_window_state.keyboard_state.pressed_scancodes.remove(scancode);
+                                    full_window_state.keyboard_state.current_char = None;
+                                },
+                            }
+
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
+                        },
+                        // The char event is sliced inbetween a keydown and a keyup event, so the keyup
+                        // has to clear the character again
+                        WindowEvent::ReceivedCharacter(c) => {
+                            let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                            full_window_state.keyboard_state.current_char = Some(*c);
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                         },
                         WindowEvent::MouseInput { state, button, modifiers, .. } => {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
-                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id });
+                            update_keyboard_state_from_modifier_state(&mut full_window_state.keyboard_state, modifiers);
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                         },
                         WindowEvent::MouseWheel { delta, phase, modifiers, .. } => {
+
+                            use glutin::event::MouseScrollDelta;
+
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
-                            event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id });
+                            update_keyboard_state_from_modifier_state(&mut full_window_state.keyboard_state, modifiers);
+
+                            const LINE_DELTA: f32 = 38.0;
+
+                            let (scroll_x_px, scroll_y_px) = match delta {
+                                MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
+                                MouseScrollDelta::LineDelta(x, y) => (x * LINE_DELTA, y * LINE_DELTA),
+                            };
+
+                            // TODO: "natural scrolling"?
+                            full_window_state.mouse_state.scroll_x = Some(-scroll_x_px);
+                            full_window_state.mouse_state.scroll_y = Some(-scroll_y_px);
+
+                            event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id }).unwrap(); // TODO!
                         },
                         WindowEvent::Touch(Touch { phase, id, location, .. }) => {
                             use glutin::event::TouchPhase::*;
@@ -369,16 +440,16 @@ impl<T: 'static> App<T> {
 
                             match phase {
                                 Started => {
-                                    event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id });
+                                    event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                                 },
                                 Moved => {
-                                    event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id });
+                                    event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id }).unwrap(); // TODO!
                                 },
                                 Ended => {
-                                    event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id });
+                                    event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                                 },
                                 Cancelled => {
-                                    event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id });
+                                    event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                                 },
                             }
                         },
@@ -386,15 +457,28 @@ impl<T: 'static> App<T> {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
                             full_window_state.hovered_file = Some(file_path.clone());
                             full_window_state.dropped_file = None;
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
+                        },
+                        WindowEvent::HoveredFileCancelled => {
+                            let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                            full_window_state.hovered_file = None;
+                            full_window_state.dropped_file = None;
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                         },
                         WindowEvent::DroppedFile(file_path) => {
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
                             full_window_state.hovered_file = None;
                             full_window_state.dropped_file = Some(file_path.clone());
+                            event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
+                        },
+                        WindowEvent::Focused(false) => {
+                            let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                            full_window_state.keyboard_state.current_char = None;
+                            full_window_state.keyboard_state.pressed_virtual_keycodes.clear();
+                            full_window_state.keyboard_state.current_virtual_keycode = None;
+                            full_window_state.keyboard_state.pressed_scancodes.clear();
                         },
                         WindowEvent::RedrawRequested => {
-
-                            use app_resources::garbage_collect_fonts_and_images;
 
                             let full_window_state = full_window_states.get(&glutin_window_id).unwrap();
                             let mut windowed_context = active_windows.get_mut(&glutin_window_id);
@@ -416,8 +500,6 @@ impl<T: 'static> App<T> {
 
                             // After rendering + swapping, remove the unused OpenGL textures
                             clean_up_unused_opengl_textures(renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
-                            // Delete unused font and image keys
-                            garbage_collect_fonts_and_images(&mut resources, &mut render_api, &pipeline_id);
                         },
                         WindowEvent::CloseRequested => {
                             close_window!(glutin_window_id);
@@ -425,71 +507,77 @@ impl<T: 'static> App<T> {
                         _ => { },
                     }
                 },
-                Event::UserEvent(AzulUpdateEvent::CreateWindow { window_create_options }) => {
-                    /*
-                    if let Ok(window) = Window::new(
-                        &mut render_api,
-                        hidden_context.headless_context_not_current().unwrap(),
-                        &event_loop_proxy,
-                        window_create_options,
-                        config.background_color,
-                    ) {
-                        let glutin_window_id = window.display.window().id();
-                        let window_id = window.id;
-                        active_windows.insert(glutin_window_id, window);
-                        full_window_states.insert(glutin_window_id, /* ... */);
-                        ui_state_cache.insert(glutin_window_id, /* ... */);
-                        ui_description_cache.insert(glutin_window_id, /* ... */);
-                        window_id_mapping.insert(glutin_window_id, window_id);
-                        reverse_window_id_mapping.insert(window_id, glutin_window_id);
-                        // app_resources_register_pipeline()
-                    }
-                    */
-                },
-                Event::UserEvent(AzulUpdateEvent::CloseWindow { window_id }) => {
-                    let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
-                    if let Some(glutin_window_id) = glutin_id {
-                        close_window!(glutin_window_id);
-                    }
-                },
-                Event::UserEvent(AzulUpdateEvent::DoHitTest { window_id }) => {
-                    // generate events
-                    // if events > 0 {
-                    //     event.dispatch(AzulUpdateEvent::CallCallbacks { window_id });
-                    // }
-                },
-                Event::UserEvent(AzulUpdateEvent::CallCallbacks { window_id }) => {
-                    // generate events
-                    // if callbacks say screen should update {
-                    for window_id in active_windows.keys() {
-                        //  event.dispatch(AzulUpdateEvent::RebuildUi { window_id });
-                    }
-                    // }
-                },
-                Event::UserEvent(AzulUpdateEvent::RebuildUi { window_id }) => {
-                    // event.dispatch(AzulUpdateEvent::RestyleUi { window_id });
-                },
-                Event::UserEvent(AzulUpdateEvent::RestyleUi { window_id }) => {
-                    // event.dispatch(AzulUpdateEvent::RestyleUi { window_id });
+                Event::UserEvent(event) => {
+                    use azul_core::window::AzulUpdateEvent::*;
 
-                },
-                Event::UserEvent(AzulUpdateEvent::RelayoutUi { window_id }) => {
-                    // event.dispatch(AzulUpdateEvent::RebuildDisplayList { window_id });
-                },
-                Event::UserEvent(AzulUpdateEvent::RebuildDisplayList { window_id }) => {
+                    match event {
+                        CreateWindow { window_create_options } => {
+                            /*
+                            if let Ok(window) = Window::new(
+                                &mut render_api,
+                                hidden_context.headless_context_not_current().unwrap(),
+                                &event_loop_proxy,
+                                window_create_options,
+                                config.background_color,
+                            ) {
+                                let glutin_window_id = window.display.window().id();
+                                let window_id = window.id;
+                                active_windows.insert(glutin_window_id, window);
+                                full_window_states.insert(glutin_window_id, /* ... */);
+                                ui_state_cache.insert(glutin_window_id, /* ... */);
+                                ui_description_cache.insert(glutin_window_id, /* ... */);
+                                window_id_mapping.insert(glutin_window_id, window_id);
+                                reverse_window_id_mapping.insert(window_id, glutin_window_id);
+                                // app_resources_register_pipeline()
+                            }
+                            */
+                        },
+                        CloseWindow { window_id } => {
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
+                            if let Some(glutin_window_id) = glutin_id {
+                                close_window!(glutin_window_id);
+                            }
+                        },
+                        DoHitTest { window_id } => {
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
+                            if let Some(glutin_window_id) = glutin_id {
 
-                    redraw_all_windows!()
-                },
-                Event::UserEvent(AzulUpdateEvent::UpdateScrollStates { window_id }) => {
-                    // TODO: Only do hit test + scroll, then redraw - no UI rebuilding, no callbacks!
-                    event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id });
-                },
-                Event::UserEvent(AzulUpdateEvent::UpdateAnimations { window_id }) => {
-                    // send transaction to update images in WR
+                            }
 
-                },
-                Event::UserEvent(AzulUpdateEvent::UpdateImages { window_id }) => {
-                    // send transaction to update images in WR
+                            // generate events
+                            // if events > 0 {
+                            //      event_loop_proxy.send_event(AzulUpdateEvent::CallCallbacks { window_id });
+                            // }
+                        },
+                        CallCallbacks { window_id } => {
+                            // generate events
+                            // if callbacks say screen should update {
+                            for window_id in active_windows.keys() {
+                                // event_loop_proxy.send_event(AzulUpdateEvent::RebuildUi { window_id });
+                            }
+                        },
+                        RebuildUi { window_id } => {
+
+                        },
+                        RestyleUi { window_id } => {
+
+                        },
+                        RelayoutUi { window_id } => {
+
+                        },
+                        RebuildDisplayList { window_id } => {
+                            redraw_all_windows!()
+                        },
+                        UpdateScrollStates { window_id } => {
+
+                        },
+                        UpdateAnimations { window_id } => {
+                            // send transaction to update animations in WR
+                        },
+                        UpdateImages { window_id } => {
+                            // send transaction to update images in WR
+                        },
+                    }
                 },
                 _ => { },
             }
@@ -543,13 +631,26 @@ impl<T: 'static> App<T> {
     }
 }
 
+fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState, modifiers: &GlutinModifiersState) {
+    keyboard_state.shift_down = modifiers.shift;
+    keyboard_state.ctrl_down = modifiers.ctrl;
+    keyboard_state.alt_down = modifiers.alt;
+    keyboard_state.super_down = modifiers.logo;
+}
+
+fn get_window_states<T>(
+    window_create_options: &BTreeMap<WindowId, WindowCreateOptions<T>>,
+) -> BTreeMap<WindowId, WindowState> {
+    window_create_options.iter().map(|(id, s)| (*id, s.state.clone())).collect()
+}
+
 /// Creates the intial windows on the screen and returns a mapping from
 /// the (azul-internal) WindowId to the (glutin-internal) WindowId.
 ///
 /// Theoretically, this mapping isn't used anywhere else, but it might
 /// be useful for future refactoring.
 fn initialize_windows<T>(
-    windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
+    window_create_options: BTreeMap<WindowId, WindowCreateOptions<T>>,
     fake_display: &mut FakeDisplay<T>,
     app_resources: &mut AppResources,
     config: &AppConfig,
@@ -559,7 +660,7 @@ fn initialize_windows<T>(
     BTreeMap<WindowId, GlutinWindowId>
 ) {
 
-    let windows = windows.into_iter().filter_map(|(window_id, window_create_options)| {
+    let windows = window_create_options.into_iter().filter_map(|(window_id, window_create_options)| {
         let window = Window::new(
             &mut fake_display.render_api,
             fake_display.hidden_context.headless_context_not_current().unwrap(),
@@ -587,15 +688,15 @@ fn initialize_windows<T>(
     (windows, window_id_mapping, reverse_window_id_mapping)
 }
 
-fn initialize_full_window_states<T>(
+fn initialize_full_window_states(
     active_window_ids: &BTreeMap<WindowId, GlutinWindowId>,
-    windows: &BTreeMap<WindowId, WindowCreateOptions<T>>,
+    window_states: &BTreeMap<WindowId, WindowState>,
 ) -> BTreeMap<GlutinWindowId, FullWindowState> {
     use azul_core::window::full_window_state_from_window_state;
 
     active_window_ids.iter().filter_map(|(window_id, glutin_window_id)| {
-        let window_create_options = windows.get(window_id)?;
-        let full_window_state = full_window_state_from_window_state(window_create_options.state.clone());
+        let window_state = window_states.get(window_id)?;
+        let full_window_state = full_window_state_from_window_state(window_state.clone());
         Some((*glutin_window_id, full_window_state))
     }).collect()
 }
@@ -636,10 +737,10 @@ fn initialize_ui_state_cache<T>(
             let css_has_error = {
                 use css::hot_reload_css;
 
-                let full_window_state = &mut full_window_states[glutin_window_id];
+                let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
                 let hot_reload_result = hot_reload_css(
                     &mut full_window_state.css,
-                    &window.hot_reload_handler.as_ref().map(|hr| hr.0),
+                    window.hot_reload_handler.as_ref().map(|hr| &hr.0),
                     &mut Instant::now(),
                     FORCE_CSS_RELOAD
                 );
@@ -708,7 +809,7 @@ fn initialize_ui_description_cache<T>(
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
 ) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription<T>>> {
     ui_states.iter_mut().map(|(glutin_window_id, ui_states)| {
-        let full_window_state = &mut full_window_states[glutin_window_id];
+        let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
         (*glutin_window_id, cascade_style(ui_states, full_window_state))
     }).collect()
 }
@@ -717,7 +818,6 @@ fn initialize_ui_description_cache<T>(
 #[cfg(not(test))]
 fn hit_test_and_call_callbacks<T>(
     data: &mut T,
-    event: &GlutinWindowEvent,
     window: &mut Window<T>,
     fake_display: &mut FakeDisplay<T>,
     full_window_state: &mut FullWindowState,
@@ -729,9 +829,6 @@ fn hit_test_and_call_callbacks<T>(
 ) -> SingleWindowHitTestResult {
 
     use window;
-
-    // Update the FullWindowState from user events
-    window::update_window_state(full_window_state, event);
 
     let mut ret = SingleWindowHitTestResult {
         needs_rerender_hover_active: false,
@@ -745,9 +842,8 @@ fn hit_test_and_call_callbacks<T>(
 
     ret.hit_test_results = do_hit_test(&window, &full_window_state, fake_display);
 
-    // From the event and the current (and last) window state, determines
-    // what nodes need to be called
-    let azul_events = determine_events(event, &ui_state_cache, &ret.hit_test_results, full_window_state);
+    // From the current (and last) window state, determines what event filters apply
+    let azul_events = determine_events(&ret.hit_test_results, full_window_state, &ui_state_cache);
 
     let scroll_states = window.internal.get_current_scroll_states(&ui_state_cache);
 
@@ -797,7 +893,7 @@ fn hit_test_and_call_callbacks<T>(
     let mut should_scroll_render_from_input_events = false;
 
     for (_dom_id, scrolled_nodes) in &window.internal.scrolled_nodes {
-        if update_scroll_state(delta, scrolled_nodes, &mut window.internal.scroll_states, &ret.hit_test_results) {
+        if update_scroll_state(full_window_state, scrolled_nodes, &mut window.internal.scroll_states, &ret.hit_test_results) {
             should_scroll_render_from_input_events = true;
         }
     }
@@ -846,7 +942,7 @@ fn cascade_style<T>(
      ui_states: &mut BTreeMap<DomId, UiState<T>>,
      full_window_state: &mut FullWindowState,
 ) -> BTreeMap<DomId, UiDescription<T>>{
-    ui_states.iter_mut().map(|(dom_id, ui_state)| {
+    ui_states.iter_mut().map(|(dom_id, mut ui_state)| {
         (dom_id.clone(), UiDescription::match_css_to_dom(
             &mut ui_state,
             &full_window_state.css,
@@ -868,10 +964,11 @@ fn layout_display_lists<T>(
     ui_states: &mut BTreeMap<DomId, UiState<T>>,
     ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
     full_window_state: &mut FullWindowState,
-) -> BTreeMap<DomId, CachedDisplayListResult> {
+    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+) -> BTreeMap<DomId, CachedDisplayList> {
     ui_states.iter().map(|(dom_id, ui_state)| {
         let ui_description = &ui_descriptions[dom_id];
-        (*dom_id, layout_display_list(
+        (dom_id.clone(), layout_display_list(
             data,
             ui_description,
             ui_state,
@@ -879,6 +976,7 @@ fn layout_display_lists<T>(
             &full_window_state,
             fake_display,
             app_resources,
+            default_callbacks,
         ))
     }).collect()
 }
@@ -930,17 +1028,16 @@ struct CallCallbackReturn {
     pub needs_relayout_anyways: bool,
 }
 
-/// Given the glutin events of a single window and the hit test results,
+/// Given the current (and previous) window state and the hit test results,
 /// determines which `On::X` filters to actually call.
 fn determine_events<T>(
-    event: &GlutinWindowEvent,
-    ui_state_map: &BTreeMap<DomId, UiState<T>>,
     hit_test_results: &[HitTestItem],
     full_window_state: &mut FullWindowState,
+    ui_state_map: &BTreeMap<DomId, UiState<T>>,
 ) -> BTreeMap<DomId, CallbacksOfHitTest<T>> {
     use window_state::determine_callbacks;
     ui_state_map.iter().map(|(dom_id, ui_state)| {
-        (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, event, ui_state))
+        (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, ui_state))
     }).collect()
 }
 
@@ -997,7 +1094,7 @@ fn call_callbacks<T>(
                             ui_state: ui_state_map,
                             focus_target: &mut new_focus,
                             current_scroll_states: scroll_states,
-                            nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                            nodes_scrolled_in_callback: nodes_scrolled_in_callbacks,
                             hit_dom_node: (dom_id.clone(), *node_id),
                             hit_test_items,
                             cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
@@ -1041,7 +1138,7 @@ fn call_callbacks<T>(
                     ui_state: ui_state_map,
                     focus_target: &mut new_focus,
                     current_scroll_states: scroll_states,
-                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                    nodes_scrolled_in_callback: nodes_scrolled_in_callbacks,
                     hit_dom_node: (dom_id.clone(), *node_id),
                     hit_test_items,
                     cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
@@ -1075,12 +1172,14 @@ fn layout_display_list<T>(
     full_window_state: &FullWindowState,
     fake_display: &mut FakeDisplay<T>,
     app_resources: &mut AppResources,
-) -> CachedDisplayListResult {
+    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+) -> CachedDisplayList {
 
     use display_list::{
         display_list_from_ui_description,
         display_list_to_cached_display_list,
     };
+    use app_resources::{add_resources, garbage_collect_fonts_and_images};
 
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
@@ -1092,6 +1191,7 @@ fn layout_display_list<T>(
 
     DomId::reset();
 
+    // Layout and construct the display list + add all fonts and images
     let display_list = display_list_to_cached_display_list(
         display_list,
         data,
@@ -1099,40 +1199,45 @@ fn layout_display_list<T>(
         fake_display.get_gl_context(),
         full_window_state,
         app_resources,
+        default_callbacks,
         &mut fake_display.render_api
     );
 
     window.display.make_not_current();
     fake_display.hidden_context.make_current();
 
-    display_list
-}
-
-/// Build the display list and send it to webrender
-#[cfg(not(test))]
-fn send_display_list_to_webrender<T>(
-    display_list: CachedDisplayListResult,
-    window: &mut Window<T>,
-    full_window_state: &FullWindowState,
-    fake_display: &mut FakeDisplay<T>,
-    app_resources: &mut AppResources,
-) {
-    use app_resources::add_resources;
-    use wr_translate::{
-        wr_translate_pipeline_id,
-        wr_translate_display_list,
-    };
-
     for (_dom_id, image_resource_updates) in display_list.image_resource_updates {
         add_resources(app_resources, &mut fake_display.render_api, &window.internal.pipeline_id, Vec::new(), image_resource_updates);
     }
+
+    // Delete unused font and image keys (that were not used in this display list)
+    garbage_collect_fonts_and_images(app_resources, &mut fake_display.render_api, &window.internal.pipeline_id);
 
     window.internal.layout_result = display_list.layout_result;
     window.internal.scrolled_nodes = display_list.scrollable_nodes;
     window.internal.cached_display_list = display_list.cached_display_list.clone();
 
+    fake_display.hidden_context.make_not_current();
+
+    display_list.cached_display_list
+}
+
+/// Build the display list and send it to webrender
+#[cfg(not(test))]
+fn send_display_list_to_webrender<T>(
+    cached_display_list: CachedDisplayList,
+    window: &mut Window<T>,
+    full_window_state: &FullWindowState,
+    fake_display: &mut FakeDisplay<T>,
+    app_resources: &mut AppResources,
+) {
+    use wr_translate::{
+        wr_translate_pipeline_id,
+        wr_translate_display_list,
+    };
+
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-    let display_list = wr_translate_display_list(display_list.cached_display_list, window.internal.pipeline_id);
+    let display_list = wr_translate_display_list(cached_display_list, window.internal.pipeline_id);
 
     let (logical_size, _) = convert_window_size(&full_window_state.size);
 
@@ -1146,7 +1251,6 @@ fn send_display_list_to_webrender<T>(
     );
 
     fake_display.render_api.send_transaction(window.internal.document_id, txn);
-    fake_display.hidden_context.make_not_current();
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -1189,8 +1293,12 @@ fn update_scroll_state(
 
     const SCROLL_THRESHOLD: f32 = 0.5; // px
 
-    let scroll_x = full_window_state.mouse_state.scroll_x;
-    let scroll_y = full_window_state.mouse_state.scroll_y;
+    if full_window_state.mouse_state.scroll_x.is_none() && full_window_state.mouse_state.scroll_y.is_none() {
+        return false;
+    }
+
+    let scroll_x = full_window_state.mouse_state.get_scroll_x();
+    let scroll_y = full_window_state.mouse_state.get_scroll_y();
 
     if scroll_x.abs() < SCROLL_THRESHOLD && scroll_y.abs() < SCROLL_THRESHOLD {
         return false;

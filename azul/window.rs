@@ -908,8 +908,8 @@ fn update_full_window_state(
 
 /// Resets the mouse states `scroll_x` and `scroll_y` to 0
 pub(crate) fn clear_scroll_state(window_state: &mut FullWindowState) {
-    window_state.mouse_state.scroll_x = 0.0;
-    window_state.mouse_state.scroll_y = 0.0;
+    window_state.mouse_state.scroll_x = None;
+    window_state.mouse_state.scroll_y = None;
 }
 
 /// Since the rendering is single-th9readed anyways, the renderer is shared across windows.

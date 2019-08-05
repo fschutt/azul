@@ -108,7 +108,7 @@ impl ExternalImageHandler for Compositor {
         // but at least it won't crash. Usually invalid textures are also 0x0
         // pixels large - so it's not like we had anything to draw anyway.
         fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
-            let active_textures = ACTIVE_GL_TEXTURES.as_ref()?;
+            let active_textures = unsafe { ACTIVE_GL_TEXTURES.as_ref()? };
             active_textures.values()
             .flat_map(|active_pipeline| active_pipeline.values())
             .find_map(|active_epoch| active_epoch.get(image_key))
