@@ -21,13 +21,6 @@ pub use azul_core::window::{
     WaylandTheme, WindowFlags, PlatformSpecificOptions, FullWindowState,
 };
 
-fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState, state: ModifiersState) {
-    keyboard_state.shift_down = state.shift;
-    keyboard_state.ctrl_down = state.ctrl;
-    keyboard_state.alt_down = state.alt;
-    keyboard_state.super_down = state.logo;
-}
-
 pub(crate) struct DetermineCallbackResult<T> {
     pub(crate) hit_test_item: Option<HitTestItem>,
     pub(crate) default_callbacks: BTreeMap<EventFilter, DefaultCallbackId>,
@@ -92,30 +85,27 @@ impl<T> Default for CallbacksOfHitTest<T> {
 pub(crate) fn determine_callbacks<T>(
     window_state: &mut FullWindowState,
     hit_test_items: &[HitTestItem],
-    event: &WindowEvent,
     ui_state: &UiState<T>,
 ) -> CallbacksOfHitTest<T> {
 
     use std::collections::BTreeSet;
 
-    // Store the current window state so we can set it in this.previous_window_state later on
-    let mut previous_state = Box::new(window_state.clone());
-    previous_state.previous_window_state = None;
-
     let mut needs_hover_redraw = false;
     let mut needs_hover_relayout = false;
-
-    // BTreeMap<NodeId, DetermineCallbackResult<T>>
     let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>> = BTreeMap::new();
 
-    let current_window_events = get_window_events(window_state, event);
+    let current_window_events = get_window_events(window_state);
     let current_hover_events = get_hover_events(&current_window_events);
     let current_focus_events = get_focus_events(&current_hover_events);
 
-    let event_was_mouse_down = if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = event { true } else { false };
-    let event_was_mouse_release = if let WindowEvent::MouseInput { state: ElementState::Released, .. } = event { true } else { false };
-    let event_was_mouse_enter = if let WindowEvent::CursorEntered { .. } = event { true } else { false };
-    let event_was_mouse_leave = if let WindowEvent::CursorLeft { .. } = event { true } else { false };
+    let event_was_mouse_down    = current_window_events.contains(&WindowEventFilter::MouseDown);
+    let event_was_mouse_release = current_window_events.contains(&WindowEventFilter::MouseUp);
+    let event_was_mouse_enter   = current_window_events.contains(&WindowEventFilter::MouseEnter);
+    let event_was_mouse_leave   = current_window_events.contains(&WindowEventFilter::MouseLeave);
+
+    // Store the current window state so we can set it in this.previous_window_state later on
+    let mut previous_state = Box::new(window_state.clone());
+    previous_state.previous_window_state = None;
 
     // TODO: If the current mouse is down, but the event
     // wasn't a click, that means it was a drag
@@ -436,198 +426,120 @@ pub(crate) fn determine_callbacks<T>(
     }
 }
 
-// Synchronizes the FullWindowState with the new WindowEvent
-pub(crate) fn update_window_state(window_state: &mut FullWindowState, event: &WindowEvent) {
-    update_mouse_cursor_position(window_state, event);
-    update_scroll_state(window_state, event);
-    update_keyboard_modifiers(window_state, event);
-    update_keyboard_pressed_chars(window_state, event);
-    update_misc_events(window_state, event);
-}
+fn get_window_events(window_state: &FullWindowState) -> HashSet<WindowEventFilter> {
 
-fn update_keyboard_modifiers(window_state: &mut FullWindowState, event: &WindowEvent) {
-    let modifiers = match event {
-        WindowEvent::KeyboardInput { input: KeyboardInput { modifiers, .. }, .. } |
-        WindowEvent::CursorMoved { modifiers, .. } |
-        WindowEvent::MouseWheel { modifiers, .. } |
-        WindowEvent::MouseInput { modifiers, .. } => {
-            Some(modifiers)
-        },
-        _ => None,
-    };
-
-    if let Some(modifiers) = modifiers {
-        update_keyboard_state_from_modifier_state(&mut window_state.keyboard_state, *modifiers);
-    }
-}
-
-/// After the initial events are filtered, this will update the mouse
-/// cursor position, if the event is a `CursorMoved` and set it to `None`
-/// if the cursor has left the window
-fn update_mouse_cursor_position(window_state: &mut FullWindowState, event: &WindowEvent) {
-    use azul_core::window::CursorPosition;
-    match event {
-        WindowEvent::CursorMoved { position, .. } => {
-            let world_pos_x = position.x as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
-            let world_pos_y = position.y as f32 / window_state.size.hidpi_factor * window_state.size.winit_hidpi_factor;
-            window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
-        },
-        WindowEvent::CursorLeft { .. } => {
-            window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
-        },
-        WindowEvent::CursorEntered { .. } => {
-            window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
-        },
-        _ => { }
-    }
-}
-
-fn update_scroll_state(window_state: &mut FullWindowState, delta: MouseScrollDelta) {
-    const LINE_DELTA: f32 = 38.0;
-
-    let (scroll_x_px, scroll_y_px) = match delta {
-        MouseScrollDelta::PixelDelta(WinitLogicalPosition { x, y }) => (x as f32, y as f32),
-        MouseScrollDelta::LineDelta(x, y) => (x * LINE_DELTA, y * LINE_DELTA),
-    };
-    window_state.mouse_state.scroll_x = -scroll_x_px;
-    window_state.mouse_state.scroll_y = -scroll_y_px; // TODO: "natural scrolling"?
-}
-
-/// Updates self.keyboard_state to reflect what characters are currently held down
-fn update_keyboard_pressed_chars(window_state: &mut FullWindowState, event: &WindowEvent) {
-    use wr_translate::winit_translate::translate_virtual_keycode;
-    match event {
-        WindowEvent::KeyboardInput {
-            input: KeyboardInput { state: ElementState::Pressed, virtual_keycode, scancode, .. }, ..
-        } => {
-            if let Some(vk) = virtual_keycode {
-                let vk = translate_virtual_keycode(*vk);
-                window_state.keyboard_state.pressed_virtual_keycodes.insert(vk);
-                window_state.keyboard_state.current_virtual_keycode = Some(vk);
-            }
-            window_state.keyboard_state.pressed_scancodes.insert(*scancode);
-        },
-        // The char event is sliced inbetween a keydown and a keyup event
-        // so the keyup has to clear the character again
-        WindowEvent::ReceivedCharacter(c) => {
-            window_state.keyboard_state.current_char = Some(*c);
-        },
-        WindowEvent::KeyboardInput {
-            input: KeyboardInput { state: ElementState::Released, virtual_keycode, scancode, .. }, ..
-        } => {
-            if let Some(vk) = virtual_keycode {
-                let vk = translate_virtual_keycode(*vk);
-                window_state.keyboard_state.pressed_virtual_keycodes.remove(&vk);
-                window_state.keyboard_state.current_virtual_keycode = None;
-            }
-            window_state.keyboard_state.pressed_scancodes.remove(scancode);
-        },
-        WindowEvent::Focused(false) => {
-            window_state.keyboard_state.current_char = None;
-            window_state.keyboard_state.pressed_virtual_keycodes.clear();
-            window_state.keyboard_state.current_virtual_keycode = None;
-            window_state.keyboard_state.pressed_scancodes.clear();
-        },
-        _ => { },
-    }
-}
-
-fn update_misc_events(window_state: &mut FullWindowState, event: &WindowEvent) {
-    match event {
-        WindowEvent::HoveredFile(path) => {
-            window_state.hovered_file = Some(path.clone());
-        },
-        WindowEvent::DroppedFile(path) => {
-            window_state.hovered_file = Some(path.clone());
-        },
-        WindowEvent::HoveredFileCancelled => {
-            window_state.hovered_file = None;
-        },
-        _ => { },
-    }
-}
-
-fn get_window_events(window_state: &mut FullWindowState, event: &WindowEvent) -> HashSet<WindowEventFilter> {
-
-    use glutin::event::MouseButton::*;
+    use azul_core::window::CursorPosition::*;
 
     let mut events_vec = HashSet::<WindowEventFilter>::new();
 
-    match event {
-        WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } => {
-            events_vec.insert(WindowEventFilter::MouseDown);
-            match button {
-                Left => {
-                    events_vec.insert(WindowEventFilter::LeftMouseDown);
-                    window_state.mouse_state.left_down = true;
-                },
-                Right => {
-                    events_vec.insert(WindowEventFilter::RightMouseDown);
-                    window_state.mouse_state.right_down = true;
-                },
-                Middle => {
-                    events_vec.insert(WindowEventFilter::MiddleMouseDown);
-                    window_state.mouse_state.middle_down = true;
-                },
-                _ => { }
-            }
-        },
-        WindowEvent::MouseInput { state: ElementState::Released, button, .. } => {
-            events_vec.insert(WindowEventFilter::MouseUp);
-            match button {
-                Left => {
-                    events_vec.insert(WindowEventFilter::LeftMouseUp);
-                    window_state.mouse_state.left_down = false;
-                },
-                Right => {
-                    events_vec.insert(WindowEventFilter::RightMouseUp);
-                    window_state.mouse_state.right_down = false;
-                },
-                Middle => {
-                    events_vec.insert(WindowEventFilter::MiddleMouseUp);
-                    window_state.mouse_state.middle_down = false;
-                },
-                _ => { }
-            }
-        },
-        WindowEvent::MouseWheel { .. } => {
-            events_vec.insert(WindowEventFilter::Scroll);
-        },
-        WindowEvent::KeyboardInput {
-            input: KeyboardInput { state: ElementState::Pressed, virtual_keycode: Some(_), .. }, ..
-        } => {
-            events_vec.insert(WindowEventFilter::VirtualKeyDown);
-        },
-        WindowEvent::ReceivedCharacter(c) => {
-            if !c.is_control() {
-                events_vec.insert(WindowEventFilter::TextInput);
-            }
-        },
-        WindowEvent::KeyboardInput {
-            input: KeyboardInput { state: ElementState::Released, virtual_keycode: Some(_), .. }, ..
-        } => {
-            events_vec.insert(WindowEventFilter::VirtualKeyUp);
-        },
-        WindowEvent::HoveredFile(_) => {
-            events_vec.insert(WindowEventFilter::HoveredFile);
-        },
-        WindowEvent::DroppedFile(_) => {
-            events_vec.insert(WindowEventFilter::DroppedFile);
-        },
-        WindowEvent::HoveredFileCancelled => {
-            events_vec.insert(WindowEventFilter::HoveredFileCancelled);
-        },
-        WindowEvent::CursorMoved { .. } => {
-            events_vec.insert(WindowEventFilter::MouseOver);
-        },
-        WindowEvent::CursorEntered { .. } => {
-            events_vec.insert(WindowEventFilter::MouseEnter);
-        },
-        WindowEvent::CursorLeft { .. } => {
+    let previous_window_state = match &window_state.previous_window_state {
+        Some(s) => s,
+        None => return events_vec,
+    };
+
+    // mouse move events
+
+    match (previous_window_state.mouse_state.cursor_position, window_state.mouse_state.cursor_position) {
+        (InWindow(_), OutOfWindow) |
+        (InWindow(_), Uninitialized) => {
             events_vec.insert(WindowEventFilter::MouseLeave);
         },
-        _ => { }
+        (OutOfWindow, InWindow(_)) |
+        (Uninitialized, InWindow(_)) => {
+            events_vec.insert(WindowEventFilter::MouseEnter);
+        },
+        (InWindow(a), InWindow(b)) => {
+            if a != b {
+                events_vec.insert(WindowEventFilter::MouseOver);
+            }
+        },
+        _ => { },
     }
+
+    // click events
+
+    if window_state.mouse_state.mouse_down() && !previous_window_state.mouse_state.mouse_down() {
+        events_vec.insert(WindowEventFilter::MouseDown);
+    }
+
+    if window_state.mouse_state.left_down && !previous_window_state.mouse_state.left_down {
+        events_vec.insert(WindowEventFilter::LeftMouseDown);
+    }
+
+    if window_state.mouse_state.right_down && !previous_window_state.mouse_state.right_down {
+        events_vec.insert(WindowEventFilter::RightMouseDown);
+    }
+
+    if window_state.mouse_state.middle_down && !previous_window_state.mouse_state.middle_down {
+        events_vec.insert(WindowEventFilter::MiddleMouseDown);
+    }
+
+    if previous_window_state.mouse_state.mouse_down() && !window_state.mouse_state.mouse_down() {
+        events_vec.insert(WindowEventFilter::MouseDown);
+    }
+
+    if previous_window_state.mouse_state.left_down && !window_state.mouse_state.left_down {
+        events_vec.insert(WindowEventFilter::LeftMouseDown);
+    }
+
+    if previous_window_state.mouse_state.right_down && !window_state.mouse_state.right_down {
+        events_vec.insert(WindowEventFilter::RightMouseDown);
+    }
+
+    if previous_window_state.mouse_state.middle_down && !window_state.mouse_state.middle_down {
+        events_vec.insert(WindowEventFilter::MiddleMouseDown);
+    }
+
+    // scroll events
+
+    let is_scroll_previous =
+        previous_window_state.mouse_state.scroll_x.is_some() ||
+        previous_window_state.mouse_state.scroll_y.is_some();
+
+    let is_scroll_now =
+        window_state.mouse_state.scroll_x.is_some() ||
+        window_state.mouse_state.scroll_y.is_some();
+
+    if !is_scroll_previous && is_scroll_now {
+        events_vec.insert(WindowEventFilter::ScrollStart);
+    }
+
+    if is_scroll_now {
+        events_vec.insert(WindowEventFilter::Scroll);
+    }
+
+    if is_scroll_previous && !is_scroll_now {
+        events_vec.insert(WindowEventFilter::ScrollEnd);
+    }
+
+    // keyboard events
+
+    if previous_window_state.keyboard_state.current_virtual_keycode.is_none() && window_state.keyboard_state.current_virtual_keycode.is_some() {
+        events_vec.insert(WindowEventFilter::VirtualKeyDown);
+    }
+
+    if window_state.keyboard_state.current_char.is_some() {
+        events_vec.insert(WindowEventFilter::TextInput);
+    }
+
+    if previous_window_state.keyboard_state.current_virtual_keycode.is_some() && window_state.keyboard_state.current_virtual_keycode.is_none() {
+        events_vec.insert(WindowEventFilter::VirtualKeyUp);
+    }
+
+    // misc events
+
+    if previous_window_state.hovered_file.is_none() && window_state.hovered_file.is_some() {
+        events_vec.insert(WindowEventFilter::HoveredFile);
+    }
+
+    if previous_window_state.hovered_file.is_some() && window_state.hovered_file.is_none() {
+        if window_state.dropped_file.is_some() {
+            events_vec.insert(WindowEventFilter::DroppedFile);
+        } else {
+            events_vec.insert(WindowEventFilter::HoveredFileCancelled);
+        }
+    }
+
     events_vec
 }
 
