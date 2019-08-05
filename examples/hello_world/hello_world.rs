@@ -12,7 +12,7 @@ impl Layout for DataModel {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
         let label = Label::new(format!("{}", self.counter)).dom();
         let button = Button::with_label("Update counter").dom()
-            .with_callback(On::MouseUp, |cb_info: CallbackInfo<Self>| { cb_info.state.data.counter += 1; Redraw });
+            .with_callback(On::MouseUp, |cb_info: CallbackInfo<Self>| { cb_info.data.counter += 1; Redraw });
 
         let dom = Dom::div()
             .with_child(label)

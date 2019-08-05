@@ -94,7 +94,7 @@ pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interva
 #[cfg(debug_assertions)]
 pub(crate) fn hot_reload_css(
     css: &mut Css,
-    hot_reload_handler: &Option<Box<HotReloadHandler>>,
+    hot_reload_handler: Option<&Box<HotReloadHandler>>,
     last_style_reload: &mut Instant,
     force_reload: bool,
 ) -> Result<bool, String> {
@@ -102,7 +102,7 @@ pub(crate) fn hot_reload_css(
     let mut has_reloaded = false;
     let now = Instant::now();
 
-    let hot_reload_handler = match hot_reload_handler.as_ref() {
+    let hot_reload_handler = match hot_reload_handler {
         Some(s) => s,
         None => return Ok(has_reloaded),
     };

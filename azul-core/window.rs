@@ -147,9 +147,9 @@ pub struct MouseState {
     /// Is the middle mouse button down? (READONLY)
     pub middle_down: bool,
     /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame (READONLY)
-    pub scroll_x: f32,
+    pub scroll_x: Option<f32>,
     /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame (READONLY)
-    pub scroll_y: f32,
+    pub scroll_y: Option<f32>,
 }
 
 impl Default for MouseState {
@@ -161,16 +161,29 @@ impl Default for MouseState {
             left_down: false,
             right_down: false,
             middle_down: false,
-            scroll_x: 0.0,
-            scroll_y: 0.0,
+            scroll_x: None,
+            scroll_y: None,
         }
     }
 }
 
 impl MouseState {
+
     /// Returns whether any mouse button (left, right or center) is currently held down
     pub fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
+    }
+
+    pub fn get_scroll_x(&self) -> f32 {
+        self.scroll_x.unwrap_or(0.0)
+    }
+
+    pub fn get_scroll_y(&self) -> f32 {
+        self.scroll_y.unwrap_or(0.0)
+    }
+
+    pub fn get_scroll(&self) -> (f32, f32) {
+        (self.get_scroll_x(), self.get_scroll_y())
     }
 }
 

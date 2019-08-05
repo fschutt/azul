@@ -28,7 +28,7 @@ use {
     text_layout::LayoutedGlyphs,
 };
 use azul_core::{
-    callbacks::PipelineId,
+    callbacks::{PipelineId, DefaultCallbackIdMap},
     app_resources::{ImageId, FontInstanceKey},
     ui_solver::{
         PositionedRectangle, ResolvedOffsets, ExternalScrollId,
@@ -87,6 +87,8 @@ struct DisplayListParametersMut<'a, T: 'a, U: FontImageApi> {
     pub image_resource_updates: &'a mut BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
     /// Access to the GL context so that OpenGL texture callbacks can be invoked
     pub gl_context: Rc<Gl>,
+    /// Reference to the windows default callbacks
+    pub default_callbacks: &'a mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
     /// The render API that fonts and images should be added onto.
     pub render_api: &'a mut U,
     /// Laid out words and rectangles (contains info about content bounds and text layout)
@@ -463,11 +465,11 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
     }
 }
 
-pub struct CachedDisplayListResult {
-    pub cached_display_list: CachedDisplayList,
-    pub scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
-    pub layout_result: BTreeMap<DomId, LayoutResult>,
-    pub image_resource_updates: BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
+pub(crate) struct CachedDisplayListResult {
+    pub(crate) cached_display_list: CachedDisplayList,
+    pub(crate) scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
+    pub(crate) layout_result: BTreeMap<DomId, LayoutResult>,
+    pub(crate) image_resource_updates: BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
 }
 
 /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
@@ -478,6 +480,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     gl_context: Rc<Gl>,
     full_window_state: &FullWindowState,
     app_resources: &mut AppResources,
+    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
     render_api: &mut U,
 ) -> CachedDisplayListResult {
 
@@ -553,6 +556,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
             image_resource_updates: &mut image_resource_updates,
             render_api,
             gl_context,
+            default_callbacks,
             layout_result: &mut layout_result_map,
             scrollable_nodes: &mut scrollable_nodes_map,
         },
@@ -814,7 +818,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
                 window_size: &rectangle.window_size,
                 window_size_width_stops: &mut window_size_width_stops,
                 window_size_height_stops: &mut window_size_height_stops,
-                default_callbacks: ,
+                default_callbacks: referenced_mutable_content.default_callbacks.get_mut(&dom_id).unwrap(),
                 gl_context: referenced_mutable_content.gl_context.clone(),
                 resources: &referenced_mutable_content.app_resources,
             },
@@ -822,7 +826,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         });
 
         // Reset the framebuffer and SRGB color target to 0
-        let gl_context = &*referenced_mutable_content.fake_window.gl_context;
+        let gl_context = &*referenced_mutable_content.gl_context;
 
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
         gl_context.disable(gl::FRAMEBUFFER_SRGB);
@@ -921,7 +925,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
                 window_size: &rectangle.window_size,
                 window_size_width_stops: &mut window_size_width_stops,
                 window_size_height_stops: &mut window_size_height_stops,
-                default_callbacks: ,
+                default_callbacks: referenced_mutable_content.default_callbacks.get_mut(&referenced_content.dom_id).unwrap(),
                 gl_context: referenced_mutable_content.gl_context.clone(),
                 resources: &referenced_mutable_content.app_resources,
             },
