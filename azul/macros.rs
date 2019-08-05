@@ -124,7 +124,6 @@ impl<T> $struct_name<T> {
     /// See [`AppResources::add_image`]
     ///
     /// [`AppResources::add_image`]: ../app_resources/struct.AppResources.html#method.add_image
-    #[cfg(feature = "image_loading")]
     pub fn add_image(&mut self, image_id: ImageId, image_source: ImageSource) {
         self.$struct_field.add_image(image_id, image_source)
     }
