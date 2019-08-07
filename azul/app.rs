@@ -315,6 +315,8 @@ impl<T: 'static> App<T> {
                 }
             };}
 
+            println!("ok, event: {:?}!", event);
+
             match event {
                 Event::DeviceEvent { .. } => {
                     // ignore high-frequency events
@@ -582,6 +584,8 @@ impl<T: 'static> App<T> {
                 _ => { },
             }
 
+            println!("ok, handled event");
+
             // Application shutdown
             if active_windows.is_empty() {
 
@@ -608,10 +612,12 @@ impl<T: 'static> App<T> {
                 }
 
                 *control_flow = ControlFlow::Exit;
+                println!("shutting down");
             } else {
                 // If no timers / tasks are running, wait until next user event
                 if timers.is_empty() && tasks.is_empty() {
                     *control_flow = ControlFlow::Wait;
+                    println!("wait!");
                 } else {
                     use azul_core::async::{run_all_timers, clean_up_finished_tasks};
 
@@ -620,10 +626,12 @@ impl<T: 'static> App<T> {
                     let should_redraw_tasks = clean_up_finished_tasks(&mut tasks, &mut timers);
                     let should_redraw_timers_tasks = [should_redraw_timers, should_redraw_tasks].iter().any(|i| *i == Redraw);
                     if should_redraw_timers_tasks {
+                        println!("poll!");
                         *control_flow = ControlFlow::Poll;
                         redraw_all_windows!();
                     } else {
                         *control_flow = ControlFlow::WaitUntil(now + config.min_frame_duration);
+                        println!("wait_until!");
                     }
                 }
             }
@@ -948,7 +956,7 @@ fn cascade_style<T>(
             &full_window_state.css,
             &mut full_window_state.focused_node,
             &mut full_window_state.pending_focus_target,
-            &full_window_state.hovered_nodes[dom_id],
+            &full_window_state.hovered_nodes.entry(dom_id.clone()).or_insert_with(|| BTreeMap::default()),
             full_window_state.mouse_state.mouse_down(),
         ))
     }).collect()

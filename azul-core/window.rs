@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     collections::{BTreeMap, HashSet},
     sync::atomic::{AtomicUsize, Ordering},
     ffi::c_void,
@@ -684,6 +685,13 @@ pub struct WindowCreateOptions<T> {
     pub marker: PhantomData<T>,
 }
 
+impl<T> fmt::Debug for WindowCreateOptions<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "WindowCreateOptions {{ state: {:?}, renderer_type: {:?}, hot_reload_handler: {:?} }}",
+               self.state, self.renderer_type, self.hot_reload_handler.is_some())
+    }
+}
+
 impl<T> Default for WindowCreateOptions<T> {
     fn default() -> Self {
         Self {
@@ -796,6 +804,25 @@ pub enum AzulUpdateEvent<T> {
     UpdateAnimations { window_id: WindowId },
     UpdateImages { window_id: WindowId },
     // ... etc.
+}
+
+impl<T> fmt::Debug for AzulUpdateEvent<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::AzulUpdateEvent::*;
+        match self {
+            CreateWindow { window_create_options } => write!(f, "CreateWindow {{ window_create_options: {:?} }}", window_create_options),
+            CloseWindow { window_id } => write!(f, "CloseWindow {{ window_id: {:?} }}", window_id),
+            CallCallbacks { window_id } => write!(f, "CallCallbacks {{ window_id: {:?} }}", window_id),
+            DoHitTest { window_id } => write!(f, "DoHitTest {{ window_id: {:?} }}", window_id),
+            RebuildUi { window_id } => write!(f, "RebuildUi {{ window_id: {:?} }}", window_id),
+            RestyleUi { window_id } => write!(f, "RestyleUi {{ window_id: {:?} }}", window_id),
+            RelayoutUi { window_id } => write!(f, "RelayoutUi {{ window_id: {:?} }}", window_id),
+            RebuildDisplayList { window_id } => write!(f, "RebuildDisplayList {{ window_id: {:?} }}", window_id),
+            UpdateScrollStates { window_id } => write!(f, "UpdateScrollStates {{ window_id: {:?} }}", window_id),
+            UpdateAnimations { window_id } => write!(f, "UpdateAnimations {{ window_id: {:?} }}", window_id),
+            UpdateImages { window_id } => write!(f, "UpdateImages {{ window_id: {:?} }}", window_id),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
