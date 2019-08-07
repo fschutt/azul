@@ -677,7 +677,6 @@ pub struct WindowCreateOptions<T> {
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
     #[cfg(debug_assertions)]
-    #[cfg(not(test))]
     /// An optional style hot-reloader for the current window, only available with debug_assertions
     /// enabled
     pub hot_reload_handler: Option<HotReloader>,
@@ -685,10 +684,18 @@ pub struct WindowCreateOptions<T> {
     pub marker: PhantomData<T>,
 }
 
+#[cfg(debug_assertions)]
 impl<T> fmt::Debug for WindowCreateOptions<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "WindowCreateOptions {{ state: {:?}, renderer_type: {:?}, hot_reload_handler: {:?} }}",
                self.state, self.renderer_type, self.hot_reload_handler.is_some())
+    }
+}
+
+#[cfg(not(debug_assertions))]
+impl<T> fmt::Debug for WindowCreateOptions<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "WindowCreateOptions {{ state: {:?}, renderer_type: {:?} }}", self.state, self.renderer_type)
     }
 }
 

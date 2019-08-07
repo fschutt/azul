@@ -277,6 +277,7 @@ impl<T: 'static> App<T> {
         let window_states = get_window_states(&windows);
         let initialized_windows = initialize_windows(windows, &mut fake_display, &mut resources, &config);
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
+
         let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &window_states);
         let (mut ui_state_cache, mut default_callbacks_cache) = initialize_ui_state_cache(&data, fake_display.gl_context.clone(), &resources, &active_windows, &mut full_window_states, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&mut ui_state_cache, &mut full_window_states);
@@ -284,6 +285,10 @@ impl<T: 'static> App<T> {
         let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
 
         let event_loop_proxy = hidden_event_loop.create_proxy();
+
+        // TODO: When the callbacks are run, rebuild the default callbacks again,
+        // otherwise there could be a memory "leak" as default callbacks only
+        // get added and never removed.
 
         hidden_event_loop.run(move |event, _, control_flow| {
 
@@ -315,8 +320,6 @@ impl<T: 'static> App<T> {
                 }
             };}
 
-            println!("ok, event: {:?}!", event);
-
             match event {
                 Event::DeviceEvent { .. } => {
                     // ignore high-frequency events
@@ -326,7 +329,17 @@ impl<T: 'static> App<T> {
                 Event::WindowEvent { event, window_id } => {
 
                     let glutin_window_id = window_id;
-                    let window_id = window_id_mapping[&glutin_window_id];
+                    let window_id = match window_id_mapping.get(&glutin_window_id) {
+                        Some(s) => *s,
+                        None => {
+                            // glutin also sends events for the root window here!
+                            // However, the root window only exists as a "hidden" window
+                            // to share the same OpenGL context across all windows.
+                            // In this case, simply ignore the event.
+                            *control_flow = ControlFlow::Wait;
+                            return;
+                        }
+                    };
 
                     match &event {
                         WindowEvent::Resized(logical_size) => {
@@ -584,8 +597,6 @@ impl<T: 'static> App<T> {
                 _ => { },
             }
 
-            println!("ok, handled event");
-
             // Application shutdown
             if active_windows.is_empty() {
 
@@ -612,12 +623,10 @@ impl<T: 'static> App<T> {
                 }
 
                 *control_flow = ControlFlow::Exit;
-                println!("shutting down");
             } else {
                 // If no timers / tasks are running, wait until next user event
                 if timers.is_empty() && tasks.is_empty() {
                     *control_flow = ControlFlow::Wait;
-                    println!("wait!");
                 } else {
                     use azul_core::async::{run_all_timers, clean_up_finished_tasks};
 
@@ -626,12 +635,10 @@ impl<T: 'static> App<T> {
                     let should_redraw_tasks = clean_up_finished_tasks(&mut tasks, &mut timers);
                     let should_redraw_timers_tasks = [should_redraw_timers, should_redraw_tasks].iter().any(|i| *i == Redraw);
                     if should_redraw_timers_tasks {
-                        println!("poll!");
                         *control_flow = ControlFlow::Poll;
                         redraw_all_windows!();
                     } else {
                         *control_flow = ControlFlow::WaitUntil(now + config.min_frame_duration);
-                        println!("wait_until!");
                     }
                 }
             }
@@ -784,8 +791,8 @@ fn initialize_ui_state_cache<T>(
             let full_window_state = &full_window_states[glutin_window_id];
             let layout_info = LayoutInfo {
                 window_size: &full_window_state.size,
-                window_size_width_stops: &stop_sizes_width,
-                window_size_height_stops: &stop_sizes_height,
+                window_size_width_stops: &mut stop_sizes_width,
+                window_size_height_stops: &mut stop_sizes_height,
                 default_callbacks: &mut default_callbacks,
                 gl_context: gl_context.clone(),
                 resources: app_resources,
@@ -1494,7 +1501,7 @@ fn render_inner<T>(
 /// When called with glDrawArrays(0, 3), generates a simple triangle that
 /// spans the whole screen.
 const DISPLAY_VERTEX_SHADER: &str = "
-    #version 100
+    #version 130
     out vec2 vTexCoords;
     void main() {
         float x = -1.0 + float((gl_VertexID & 1) << 2);
@@ -1506,7 +1513,7 @@ const DISPLAY_VERTEX_SHADER: &str = "
 
 /// Shader that samples an input texture (`fScreenTex`) to the output FB.
 const DISPLAY_FRAGMENT_SHADER: &str = "
-    #version 100
+    #version 130
     in vec2 vTexCoords;
     uniform sampler2D fScreenTex;
     out vec4 fColorOut;
