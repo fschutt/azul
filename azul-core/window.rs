@@ -481,6 +481,76 @@ pub struct WindowsWindowOptions {
     pub parent_window: Option<*mut c_void>,
 }
 
+use std::slice;
+use std::sync::Arc;
+
+use super::*;
+
+#[derive(Debug)]
+pub enum StateOperation {
+    Remove = 0, // _NET_WM_STATE_REMOVE
+    Add = 1,    // _NET_WM_STATE_ADD
+    Toggle = 2, // _NET_WM_STATE_TOGGLE
+}
+
+impl From<bool> for StateOperation {
+    fn from(op: bool) -> Self {
+        if op {
+            StateOperation::Add
+        } else {
+            StateOperation::Remove
+        }
+    }
+}
+
+/// X window type. Maps directly to
+/// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum XWindowType {
+    /// A desktop feature. This can include a single window containing desktop icons with the same dimensions as the
+    /// screen, allowing the desktop environment to have full control of the desktop, without the need for proxying
+    /// root window clicks.
+    Desktop,
+    /// A dock or panel feature. Typically a Window Manager would keep such windows on top of all other windows.
+    Dock,
+    /// Toolbar windows. "Torn off" from the main application.
+    Toolbar,
+    /// Pinnable menu windows. "Torn off" from the main application.
+    Menu,
+    /// A small persistent utility window, such as a palette or toolbox.
+    Utility,
+    /// The window is a splash screen displayed as an application is starting up.
+    Splash,
+    /// This is a dialog window.
+    Dialog,
+    /// A dropdown menu that usually appears when the user clicks on an item in a menu bar.
+    /// This property is typically used on override-redirect windows.
+    DropdownMenu,
+    /// A popup menu that usually appears when the user right clicks on an object.
+    /// This property is typically used on override-redirect windows.
+    PopupMenu,
+    /// A tooltip window. Usually used to show additional information when hovering over an object with the cursor.
+    /// This property is typically used on override-redirect windows.
+    Tooltip,
+    /// The window is a notification.
+    /// This property is typically used on override-redirect windows.
+    Notification,
+    /// This should be used on the windows that are popped up by combo boxes.
+    /// This property is typically used on override-redirect windows.
+    Combo,
+    /// This indicates the the window is being dragged.
+    /// This property is typically used on override-redirect windows.
+    Dnd,
+    /// This is a normal, top-level window.
+    Normal,
+}
+
+impl Default for XWindowType {
+    fn default() -> Self {
+        XWindowType::Normal
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct LinuxWindowOptions {

@@ -520,23 +520,22 @@ fn create_window_builder(
     has_transparent_background: bool,
     platform_options: &LinuxWindowOptions,
 ) -> GlutinWindowBuilder {
-    use glutin::platform::windows::WindowBuilderExtUnix;
+
+    use glutin::platform::unix::WindowBuilderExtUnix;
+    use wr_translate::winit_translate::{translate_x_window_type, translate_logical_size};
 
     let mut window_builder = GlutinWindowBuilder::new()
-        .with_transparent(has_transparent_background);
+        .with_transparent(has_transparent_background)
+        .with_override_redirect(platform_options.x11_override_redirect);
 
     if let Some(classes) = platform_options.x11_wm_classes {
-        for class in classes {
-            window_builder = window_builder.with_class(class);
+        for (k, v) in classes {
+            window_builder = window_builder.with_class(k, v);
         }
     }
 
-    if let Some(override_redirect) = platform_options.x11_override_redirect {
-        window_builder = window_builder.with_override_redirect(override_redirect);
-    }
-
     if let Some(window_type) = platform_options.x11_window_type {
-        window_builder = window_builder.with_x11_window_type(window_type);
+        window_builder = window_builder.with_x11_window_type(translate_x_window_type(window_type));
     }
 
     if let Some(theme_variant) = platform_options.x11_gtk_theme_variant {
@@ -544,14 +543,14 @@ fn create_window_builder(
     }
 
     if let Some(resize_increments) = platform_options.x11_resize_increments {
-        window_builder = window_builder.with_resize_increments(resize_increments);
+        window_builder = window_builder.with_resize_increments(translate_logical_size(resize_increments));
     }
 
     if let Some(base_size) = platform_options.x11_base_size {
-        window_builder = window_builder.with_base_size(base_size);
+        window_builder = window_builder.with_base_size(translate_logical_size(base_size));
     }
 
-    if let Some(app_id) = platform_options.x11_app_id {
+    if let Some(app_id) = platform_options.wayland_app_id {
         window_builder = window_builder.with_app_id(app_id);
     }
 
@@ -829,7 +828,7 @@ fn synchronize_os_window_linux_extensions(
     }
 
     if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic)));
+        window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
     }
 }
 
@@ -875,7 +874,7 @@ fn initialize_os_window_linux_extensions(
         window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
     }
 
-    window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic)));
+    window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
 }
 
 // Mac-specific window options
