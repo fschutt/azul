@@ -1230,6 +1230,13 @@ fn layout_display_lists<T>(
     }).collect()
 }
 
+/// Does the layout, updates the image + font resources for the RenderAPI
+fn do_layout_for_display_list()
+-> (IFrameCache, GlTextureCache, CachedDisplayListResult)
+{
+
+}
+
 // Do the layout for a single window
 #[cfg(not(test))]
 fn layout_display_list<T>(
