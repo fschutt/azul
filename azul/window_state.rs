@@ -19,64 +19,8 @@ pub use azul_core::window::{
     WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
     LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
     WaylandTheme, WindowFlags, PlatformSpecificOptions, FullWindowState,
+    CallbacksOfHitTest, DetermineCallbackResult,
 };
-
-pub(crate) struct DetermineCallbackResult<T> {
-    pub(crate) hit_test_item: Option<HitTestItem>,
-    pub(crate) default_callbacks: BTreeMap<EventFilter, DefaultCallbackId>,
-    pub(crate) normal_callbacks: BTreeMap<EventFilter, Callback<T>>,
-}
-
-impl<T> Default for DetermineCallbackResult<T> {
-    fn default() -> Self {
-        DetermineCallbackResult {
-            hit_test_item: None,
-            default_callbacks: BTreeMap::new(),
-            normal_callbacks: BTreeMap::new(),
-        }
-    }
-}
-
-impl<T> Clone for DetermineCallbackResult<T> {
-    fn clone(&self) -> Self {
-        DetermineCallbackResult {
-            hit_test_item: self.hit_test_item.clone(),
-            default_callbacks: self.default_callbacks.clone(),
-            normal_callbacks: self.normal_callbacks.clone(),
-        }
-    }
-}
-
-pub(crate) struct CallbacksOfHitTest<T> {
-    /// A BTreeMap where each item is already filtered by the proper hit-testing type,
-    /// meaning in order to get the proper callbacks, you simply have to iterate through
-    /// all node IDs
-    pub nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>>,
-    /// Whether the screen should be redrawn even if no Callback returns an `UpdateScreen::Redraw`.
-    /// This is necessary for `:hover` and `:active` mouseovers - otherwise the screen would
-    /// only update on the next resize.
-    pub needs_redraw_anyways: bool,
-    /// Same as `needs_redraw_anyways`, but for reusing the layout from the previous frame.
-    /// Each `:hover` and `:active` group stores whether it modifies the layout, as
-    /// a performance optimization.
-    pub needs_relayout_anyways: bool,
-}
-
-impl<T> fmt::Debug for DetermineCallbackResult<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}, {:?}, {:?}", self.hit_test_item, self.default_callbacks, self.normal_callbacks)
-    }
-}
-
-impl<T> Default for CallbacksOfHitTest<T> {
-    fn default() -> Self {
-        Self {
-            nodes_with_callbacks: BTreeMap::new(),
-            needs_redraw_anyways: false,
-            needs_relayout_anyways: false,
-        }
-    }
-}
 
 /// Determine which event / which callback(s) should be called and in which order
 ///
