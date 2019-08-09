@@ -72,6 +72,7 @@ pub(crate) mod winit_translate {
         window::{
             LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition,
             WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode,
+            XWindowType,
         },
     };
     use glutin::{
@@ -89,7 +90,10 @@ pub(crate) mod winit_translate {
         },
     };
     #[cfg(target_os = "linux")]
-    use glutin::platform::unix::WaylandTheme as WinitWaylandTheme;
+    use glutin::platform::unix::{
+        WaylandTheme as WinitWaylandTheme,
+        XWindowType as WinitXWindowType,
+    };
     #[cfg(target_os = "linux")]
     use azul_core::window::WaylandTheme;
 
@@ -111,6 +115,27 @@ pub(crate) mod winit_translate {
     #[inline(always)]
     pub(crate) const fn translate_winit_logical_size(input: WinitLogicalSize) -> LogicalSize {
         LogicalSize::new(input.width as f32, input.height as f32)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[inline(always)]
+    pub(crate) fn translate_x_window_type(input: XWindowType) -> WinitXWindowType {
+        match input {
+            XWindowType::Desktop => WinitXWindowType::Desktop,
+            XWindowType::Dock => WinitXWindowType::Dock,
+            XWindowType::Toolbar => WinitXWindowType::Toolbar,
+            XWindowType::Menu => WinitXWindowType::Menu,
+            XWindowType::Utility => WinitXWindowType::Utility,
+            XWindowType::Splash => WinitXWindowType::Splash,
+            XWindowType::Dialog => WinitXWindowType::Dialog,
+            XWindowType::DropdownMenu => WinitXWindowType::DropdownMenu,
+            XWindowType::PopupMenu => WinitXWindowType::PopupMenu,
+            XWindowType::Tooltip => WinitXWindowType::Tooltip,
+            XWindowType::Notification => WinitXWindowType::Notification,
+            XWindowType::Combo => WinitXWindowType::Combo,
+            XWindowType::Dnd => WinitXWindowType::Dnd,
+            XWindowType::Normal => WinitXWindowType::Normal,
+        }
     }
 
     pub(crate) fn translate_physical_position(input: PhysicalPosition) -> WinitPhysicalPosition {
