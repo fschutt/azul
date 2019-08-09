@@ -14,9 +14,12 @@ use azul_css::Css;
 #[cfg(not(test))]
 use azul_css::HotReloadHandler;
 use {
-    dom::DomId,
+    dom::{DomId, EventFilter},
     id_tree::NodeId,
-    callbacks::{HitTestItem, UpdateScreen, Redraw, FocusTarget},
+    callbacks::{
+        Callback, DefaultCallbackId, HitTestItem, UpdateScreen,
+        Redraw, FocusTarget,
+    },
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -405,26 +408,25 @@ pub fn full_window_state_to_window_state(full_window_state: &FullWindowState) ->
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct SingleWindowHitTestResult {
+pub struct CallCallbacksResult {
     pub needs_rerender_hover_active: bool,
     pub needs_relayout_hover_active: bool,
     pub should_scroll_render: bool,
-    pub needs_relayout_refresh: bool,
     pub callbacks_update_screen: UpdateScreen,
-    pub hit_test_results: Vec<HitTestItem>,
     pub new_focus_target: Option<FocusTarget>,
 }
 
-impl SingleWindowHitTestResult {
+impl CallCallbacksResult {
 
     pub fn should_relayout(&self) -> bool {
         self.needs_relayout_hover_active ||
-        self.needs_relayout_refresh ||
         self.callbacks_update_screen == Redraw
     }
 
     pub fn should_rerender(&self) -> bool {
-        self.should_relayout() || self.should_scroll_render || self.needs_rerender_hover_active
+        self.should_relayout() ||
+        self.should_scroll_render ||
+        self.needs_rerender_hover_active
     }
 }
 
@@ -799,17 +801,40 @@ impl Default for RendererType {
 /// Custom event type, to construct an `EventLoop<AzulWindowUpdateEvent>`.
 /// This is dispatched into the `EventLoop` (to send a "custom" event)
 pub enum AzulUpdateEvent<T> {
-    CreateWindow { window_create_options: WindowCreateOptions<T> },
-    CloseWindow { window_id: WindowId },
-    CallCallbacks { window_id: WindowId },
-    DoHitTest { window_id: WindowId },
-    RebuildUi { window_id: WindowId },
-    RestyleUi { window_id: WindowId },
-    RelayoutUi { window_id: WindowId },
-    RebuildDisplayList { window_id: WindowId },
-    UpdateScrollStates { window_id: WindowId },
-    UpdateAnimations { window_id: WindowId },
-    UpdateImages { window_id: WindowId },
+    CreateWindow {
+        window_create_options: WindowCreateOptions<T>,
+    },
+    CloseWindow {
+        window_id: WindowId,
+    },
+    DoHitTest {
+        window_id: WindowId,
+    },
+    RebuildUi {
+        window_id: WindowId,
+    },
+    RestyleUi {
+        window_id: WindowId,
+        skip_layout: bool,
+    },
+    RelayoutUi {
+        window_id: WindowId,
+    },
+    RebuildDisplayList {
+        window_id: WindowId,
+    },
+    SendDisplayListToWebRender {
+        window_id: WindowId,
+    },
+    UpdateScrollStates {
+        window_id: WindowId,
+    },
+    UpdateAnimations {
+        window_id: WindowId,
+    },
+    UpdateImages {
+        window_id: WindowId,
+    },
     // ... etc.
 }
 
@@ -819,16 +844,121 @@ impl<T> fmt::Debug for AzulUpdateEvent<T> {
         match self {
             CreateWindow { window_create_options } => write!(f, "CreateWindow {{ window_create_options: {:?} }}", window_create_options),
             CloseWindow { window_id } => write!(f, "CloseWindow {{ window_id: {:?} }}", window_id),
-            CallCallbacks { window_id } => write!(f, "CallCallbacks {{ window_id: {:?} }}", window_id),
             DoHitTest { window_id } => write!(f, "DoHitTest {{ window_id: {:?} }}", window_id),
             RebuildUi { window_id } => write!(f, "RebuildUi {{ window_id: {:?} }}", window_id),
-            RestyleUi { window_id } => write!(f, "RestyleUi {{ window_id: {:?} }}", window_id),
+            RestyleUi { window_id, skip_layout } => write!(f, "RestyleUi {{ window_id: {:?}, skip_layout: {:?} }}", window_id, skip_layout),
             RelayoutUi { window_id } => write!(f, "RelayoutUi {{ window_id: {:?} }}", window_id),
             RebuildDisplayList { window_id } => write!(f, "RebuildDisplayList {{ window_id: {:?} }}", window_id),
+            SendDisplayListToWebRender { window_id } => write!(f, "SendDisplayListToWebRender {{ window_id: {:?} }}", window_id),
             UpdateScrollStates { window_id } => write!(f, "UpdateScrollStates {{ window_id: {:?} }}", window_id),
             UpdateAnimations { window_id } => write!(f, "UpdateAnimations {{ window_id: {:?} }}", window_id),
             UpdateImages { window_id } => write!(f, "UpdateImages {{ window_id: {:?} }}", window_id),
         }
+    }
+}
+
+pub struct DetermineCallbackResult<T> {
+    pub hit_test_item: Option<HitTestItem>,
+    pub default_callbacks: BTreeMap<EventFilter, DefaultCallbackId>,
+    pub normal_callbacks: BTreeMap<EventFilter, Callback<T>>,
+}
+
+impl<T> DetermineCallbackResult<T> {
+
+    pub fn has_default_callbacks(&self) -> bool {
+        !self.default_callbacks.is_empty()
+    }
+
+    pub fn has_normal_callbacks(&self) -> bool {
+        !self.normal_callbacks.is_empty()
+    }
+
+    pub fn has_any_callbacks(&self) -> bool {
+        self.has_default_callbacks() ||
+        self.has_normal_callbacks()
+    }
+}
+
+impl<T> Default for DetermineCallbackResult<T> {
+    fn default() -> Self {
+        DetermineCallbackResult {
+            hit_test_item: None,
+            default_callbacks: BTreeMap::new(),
+            normal_callbacks: BTreeMap::new(),
+        }
+    }
+}
+
+impl<T> Clone for DetermineCallbackResult<T> {
+    fn clone(&self) -> Self {
+        DetermineCallbackResult {
+            hit_test_item: self.hit_test_item.clone(),
+            default_callbacks: self.default_callbacks.clone(),
+            normal_callbacks: self.normal_callbacks.clone(),
+        }
+    }
+}
+
+impl<T> fmt::Debug for DetermineCallbackResult<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+        "DetermineCallbackResult {{ \
+            hit_test_item: {:?},\
+            default_callbacks: {:#?},\
+            normal_callbacks: {:#?},\
+        }}",
+            self.hit_test_item,
+            self.default_callbacks,
+            self.normal_callbacks.keys().collect::<Vec<_>>(),
+        )
+    }
+}
+
+pub struct CallbacksOfHitTest<T> {
+    /// A BTreeMap where each item is already filtered by the proper hit-testing type,
+    /// meaning in order to get the proper callbacks, you simply have to iterate through
+    /// all node IDs
+    pub nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>>,
+    /// Same as `needs_redraw_anyways`, but for reusing the layout from the previous frame.
+    /// Each `:hover` and `:active` group stores whether it modifies the layout, as
+    /// a performance optimization.
+    pub needs_relayout_anyways: bool,
+    /// Whether the screen should be redrawn even if no Callback returns an `UpdateScreen::Redraw`.
+    /// This is necessary for `:hover` and `:active` mouseovers - otherwise the screen would
+    /// only update on the next resize.
+    pub needs_redraw_anyways: bool,
+}
+
+impl<T> Default for CallbacksOfHitTest<T> {
+    fn default() -> Self {
+        Self {
+            nodes_with_callbacks: BTreeMap::new(),
+            needs_redraw_anyways: false,
+            needs_relayout_anyways: false,
+        }
+    }
+}
+
+impl<T> fmt::Debug for CallbacksOfHitTest<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+        "CallbacksOfHitTest {{ \
+            nodes_with_callbacks: {:#?},
+            needs_relayout_anyways: {:?},
+            needs_redraw_anyways: {:?},
+        }}",
+            self.nodes_with_callbacks,
+            self.needs_relayout_anyways,
+            self.needs_redraw_anyways,
+        )
+    }
+}
+
+impl<T> CallbacksOfHitTest<T> {
+    /// Returns whether there is any
+    pub fn should_call_callbacks(&self) -> bool {
+        !self.nodes_with_callbacks.is_empty() &&
+        self.nodes_with_callbacks.values().any(|n| n.has_any_callbacks())
     }
 }
 
