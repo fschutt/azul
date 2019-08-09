@@ -475,8 +475,6 @@ pub struct DefaultCallbackInfoUnchecked<'a, T> {
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: (DomId, NodeId),
-    /// What items are currently being hit
-    pub hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: Option<(f32, f32)>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -521,8 +519,6 @@ pub struct DefaultCallbackInfo<'a, T, U> {
     /// The ID of the node that was hit. You can use this to query information about
     /// the node, but please don't hard-code any if / else statements based on the `NodeId`
     pub hit_dom_node: (DomId, NodeId),
-    /// What items are currently being hit
-    pub hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: Option<(f32, f32)>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -556,7 +552,6 @@ impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
             current_scroll_states: self.current_scroll_states,
             nodes_scrolled_in_callback: self.nodes_scrolled_in_callback,
             hit_dom_node: self.hit_dom_node,
-            hit_test_items: self.hit_test_items,
             cursor_relative_to_item: self.cursor_relative_to_item,
             cursor_in_viewport: self.cursor_in_viewport,
         };
@@ -617,8 +612,6 @@ pub struct CallbackInfo<'a, T: 'a> {
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
     pub hit_dom_node: (DomId, NodeId),
-    /// What items are currently being hit
-    pub hit_test_items: &'a [HitTestItem],
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
     pub cursor_relative_to_item: Option<(f32, f32)>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
@@ -646,7 +639,6 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
             current_scroll_states: {:?}, \
             nodes_scrolled_in_callback: {:?}, \
             hit_dom_node: {:?}, \
-            hit_test_items: {:?}, \
             cursor_relative_to_item: {:?}, \
             cursor_in_viewport: {:?}, \
         }}",
@@ -661,7 +653,6 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
             self.current_scroll_states,
             self.nodes_scrolled_in_callback,
             self.hit_dom_node,
-            self.hit_test_items,
             self.cursor_relative_to_item,
             self.cursor_in_viewport,
         )

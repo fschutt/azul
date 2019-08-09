@@ -4,7 +4,10 @@ use std::{
     collections::BTreeMap,
 };
 use glutin::{
-    window::WindowId as GlutinWindowId,
+    window::{
+        Window as GlutinWindow,
+        WindowId as GlutinWindowId
+    },
     event::{
         ModifiersState as GlutinModifiersState,
         WindowEvent as GlutinWindowEvent
@@ -16,7 +19,7 @@ use webrender::{
     api::{LayoutSize, DeviceIntSize, Epoch, Transaction, RenderApi},
 };
 use log::LevelFilter;
-use azul_css::{ColorU, LayoutPoint};
+use azul_css::{ColorU, HotReloadHandler, LayoutPoint};
 use {
     FastHashMap,
     window::{
@@ -37,7 +40,7 @@ use {
 };
 use azul_core::{
     ui_solver::ScrolledNodes,
-    window::{KeyboardState, WindowId, SingleWindowHitTestResult},
+    window::{KeyboardState, WindowId, CallCallbacksResult},
     callbacks::PipelineId,
     ui_description::UiDescription,
     ui_solver::LayoutResult,
@@ -432,10 +435,10 @@ impl<T: 'static> App<T> {
 
                             use glutin::event::MouseScrollDelta;
 
+                            const LINE_DELTA: f32 = 38.0;
+
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
                             update_keyboard_state_from_modifier_state(&mut full_window_state.keyboard_state, modifiers);
-
-                            const LINE_DELTA: f32 = 38.0;
 
                             let (scroll_x_px, scroll_y_px) = match delta {
                                 MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
@@ -446,7 +449,17 @@ impl<T: 'static> App<T> {
                             full_window_state.mouse_state.scroll_x = Some(-scroll_x_px);
                             full_window_state.mouse_state.scroll_y = Some(-scroll_y_px);
 
-                            event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id }).unwrap(); // TODO!
+                            let window = active_windows.get_mut(&glutin_window_id).unwrap();
+                            let hit_test_results = do_hit_test(window, &full_window_state, &render_api);
+                            let scrolled_nodes = &window.internal.scrolled_nodes;
+                            let scroll_states = &mut window.internal.scroll_states;
+
+                            let should_scroll_render_from_input_events = scrolled_nodes.values()
+                                .any(|scrolled_node| update_scroll_state(full_window_state, scrolled_node, scroll_states, &hit_test_results));
+
+                            if should_scroll_render_from_input_events {
+                                event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id }).unwrap();
+                            }
                         },
                         WindowEvent::Touch(Touch { phase, id, location, .. }) => {
                             use glutin::event::TouchPhase::*;
@@ -458,6 +471,7 @@ impl<T: 'static> App<T> {
                                     event_loop_proxy.send_event(AzulUpdateEvent::DoHitTest { window_id }).unwrap(); // TODO!
                                 },
                                 Moved => {
+                                    // TODO: Do hit test and update window.internal.scroll_states!
                                     event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id }).unwrap(); // TODO!
                                 },
                                 Ended => {
@@ -554,43 +568,171 @@ impl<T: 'static> App<T> {
                             }
                         },
                         DoHitTest { window_id } => {
+                            // Hit test if any nodes were hit, see if any callbacks need to be called
+
                             let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
+
                             if let Some(glutin_window_id) = glutin_id {
 
-                            }
+                                let events = {
+                                    let full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    let ui_state = &ui_state_cache[&glutin_window_id];
+                                    let window = &active_windows[&glutin_window_id];
+                                    let hit_test_results = do_hit_test(window, &full_window_state, &render_api);
+                                    determine_events(&hit_test_results, full_window_state, ui_state)
+                                };
 
-                            // generate events
-                            // if events > 0 {
-                            //      event_loop_proxy.send_event(AzulUpdateEvent::CallCallbacks { window_id });
-                            // }
-                        },
-                        CallCallbacks { window_id } => {
-                            // generate events
-                            // if callbacks say screen should update {
-                            for window_id in active_windows.keys() {
-                                // event_loop_proxy.send_event(AzulUpdateEvent::RebuildUi { window_id });
+                                // TODO: Add all off-click callbacks for all non-hit windows here!
+
+                                if events.values().any(|e| e.should_call_callbacks()) {
+                                    let ui_state = &ui_state_cache[&glutin_window_id];
+
+                                    // call callbacks
+                                    let call_callbacks_results = active_windows.iter_mut().map(|(window_id, window)| {
+                                        let scroll_states = window.internal.get_current_scroll_states(&ui_state);
+                                        call_callbacks(
+                                            &mut data,
+                                            &events,
+                                            ui_state,
+                                            default_callbacks_cache.get_mut(window_id).unwrap(),
+                                            &mut timers,
+                                            &mut tasks,
+                                            &scroll_states,
+                                            &mut window.internal.scroll_states,
+                                            full_window_states.get_mut(&glutin_window_id).unwrap(),
+                                            &window.internal.layout_result,
+                                            &window.internal.scrolled_nodes,
+                                            &window.internal.cached_display_list,
+                                            gl_context.clone(),
+                                            &mut resources,
+                                            &*window.display.window(),
+                                        )
+                                    }).collect::<Vec<_>>();
+
+                                    // Application state has been updated, now figure out what to update from the callbacks
+
+                                    let callbacks_update_screen = call_callbacks_results.iter().any(|cr| cr.callbacks_update_screen == Redraw);
+                                    let callbacks_set_new_focus_target = call_callbacks_results.iter().any(|cr| cr.new_focus_target.is_some());
+                                    let callbacks_hover_restyle = call_callbacks_results.iter().any(|cr| cr.needs_rerender_hover_active);
+                                    let callbacks_hover_relayout = call_callbacks_results.iter().any(|cr| cr.needs_relayout_hover_active);
+                                    let nodes_were_scrolled_from_callbacks = call_callbacks_results.iter().any(|cr| cr.should_scroll_render);
+
+                                    if callbacks_update_screen {
+                                        reverse_window_id_mapping.keys().for_each(|window_id| {
+                                            event_loop_proxy.send_event(AzulUpdateEvent::RebuildUi { window_id: *window_id }).unwrap();
+                                        });
+                                    } else if callbacks_set_new_focus_target {
+                                        event_loop_proxy.send_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }).unwrap();
+                                    } else if callbacks_hover_restyle {
+                                        event_loop_proxy.send_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: callbacks_hover_relayout }).unwrap();
+                                    }
+
+                                    if nodes_were_scrolled_from_callbacks {
+                                        event_loop_proxy.send_event(AzulUpdateEvent::UpdateScrollStates { window_id }).unwrap();
+                                    }
+                                } else if events.values().any(|e| e.needs_relayout_anyways) {
+                                    event_loop_proxy.send_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }).unwrap();
+                                } else if events.values().any(|e| e.needs_redraw_anyways) {
+                                    event_loop_proxy.send_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: true }).unwrap();
+                                }
                             }
                         },
                         RebuildUi { window_id } => {
+                            // Call the .layout() function, build UiState
 
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
+                            if let Some(glutin_window_id) = glutin_id {
+
+                                let full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                                let window = &active_windows[&glutin_window_id];
+                                let force_css_reload = false;
+                                let (new_ui_state, default_callbacks_map) = call_layout_fn(
+                                    &data,
+                                    gl_context.clone(),
+                                    &resources,
+                                    full_window_state,
+                                    window.hot_reload_handler.as_ref().map(|hr| &hr.0),
+                                    layout_callback,
+                                    force_css_reload,
+                                );
+
+                                *default_callbacks_cache.get_mut(&glutin_window_id).unwrap() = default_callbacks_map;
+                                *ui_state_cache.get_mut(&glutin_window_id).unwrap() = new_ui_state;
+
+                                // optimization: create diff to previous UI State:
+                                // - only restyle the nodes that were added / removed
+                                // - if diff is empty (same UI), skip restyle, go straight to re-layouting
+                                event_loop_proxy.send_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }).unwrap();
+                            }
                         },
-                        RestyleUi { window_id } => {
+                        RestyleUi { window_id, skip_layout } => {
+                            // Cascade the CSS to the HTML nodes
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
 
+                            if let Some(glutin_window_id) = glutin_id {
+
+                                let full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                                let ui_state = ui_state_cache.get_mut(&glutin_window_id).unwrap();
+                                *ui_description_cache.get_mut(&glutin_window_id).unwrap() = cascade_style(ui_state, full_window_state);
+
+                                // in cases like `:hover` and `:active`, layouting can be skipped
+                                // (if it is known that the re-styling doesn't modify the layout)
+                                if skip_layout {
+                                    event_loop_proxy.send_event(AzulUpdateEvent::RebuildDisplayList { window_id }).unwrap();
+                                } else {
+                                    event_loop_proxy.send_event(AzulUpdateEvent::RelayoutUi { window_id }).unwrap();
+                                }
+                            }
                         },
                         RelayoutUi { window_id } => {
+                            // Layout the CSSOM
 
+                            // TODO: Split layout and DL construction into two separate steps!
+/*
+fn layout_display_lists<T>(
+    data: &mut T,
+    app_resources: &mut AppResources,
+    window: &mut Window<T>,
+    fake_display: &mut FakeDisplay<T>,
+    ui_states: &mut BTreeMap<DomId, UiState<T>>,
+    ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
+    full_window_state: &mut FullWindowState,
+    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+) -> BTreeMap<DomId, CachedDisplayList> {
+*/
+                            // optimization with diff:
+                            // - only relayout the nodes that were added / removed
+                            // - if diff is empty (same UI), skip relayout, go straight to rebuilding display list
                         },
                         RebuildDisplayList { window_id } => {
-                            redraw_all_windows!()
+                            // Build the display list
+
+                            // optimization with diff:
+                            // - only rebuild the nodes that were added / removed
+                            // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
+                        },
+                        SendDisplayListToWebRender { window_id } => {
+                            // Build the display list
+                            redraw_all_windows!();
                         },
                         UpdateScrollStates { window_id } => {
+                            // Send all the scroll states from
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
 
+                            if let Some(glutin_window_id) = glutin_id {
+                                let window = active_windows.get_mut(&glutin_window_id).unwrap();
+                                let mut txn = Transaction::new();
+                                scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
+                                render_api.send_transaction(window.internal.document_id, txn);
+                            }
                         },
                         UpdateAnimations { window_id } => {
                             // send transaction to update animations in WR
+                            // if no other events happened, skip to SendDisplayListToWebRender step
                         },
                         UpdateImages { window_id } => {
                             // send transaction to update images in WR
+                            // if no other events happened, skip to SendDisplayListToWebRender step
                         },
                     }
                 },
@@ -727,96 +869,117 @@ fn initialize_ui_state_cache<T>(
     BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
     BTreeMap<GlutinWindowId, BTreeMap<DomId, DefaultCallbackIdMap<T>>>,
 ) {
-
-    use ui_state::{ui_state_from_app_state, ui_state_from_dom};
-    use azul_core::callbacks::LayoutInfo;
-
-    // Any top-level DOM has no "parent", parents are only relevant for IFrames
-    const PARENT_DOM: Option<(DomId, NodeId)> = None;
     const FORCE_CSS_RELOAD: bool = true;
 
     let mut ui_state_map = BTreeMap::new();
     let mut default_callbacks_id_map = BTreeMap::new();
 
     for (glutin_window_id, window) in windows {
-
-        // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
-        let mut stop_sizes_width = Vec::new();
-        let mut stop_sizes_height = Vec::new();
-        let mut default_callbacks = BTreeMap::new();
-
-        // Hot-reload the CSS for this window
-        #[cfg(debug_assertions)]
-        let mut ui_state = {
-
-            let css_has_error = {
-                use css::hot_reload_css;
-
-                let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
-                let hot_reload_result = hot_reload_css(
-                    &mut full_window_state.css,
-                    window.hot_reload_handler.as_ref().map(|hr| &hr.0),
-                    &mut Instant::now(),
-                    FORCE_CSS_RELOAD
-                );
-                let (_, css_has_error) = match hot_reload_result {
-                    Ok(has_reloaded) => (has_reloaded, None),
-                    Err(css_error) => (true, Some(css_error)),
-                };
-                css_has_error
-            };
-
-            match &css_has_error {
-                None => {
-                    let full_window_state = &full_window_states[glutin_window_id];
-                    let layout_info = LayoutInfo {
-                        window_size: &full_window_state.size,
-                        window_size_width_stops: &mut stop_sizes_width,
-                        window_size_height_stops: &mut stop_sizes_height,
-                        default_callbacks: &mut default_callbacks,
-                        gl_context: gl_context.clone(),
-                        resources: app_resources,
-                    };
-                    ui_state_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
-                },
-                Some(s) => {
-                    println!("{}", s);
-                    ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None)
-                },
-            }
-        };
-
-        #[cfg(not(debug_assertions))]
-        let mut ui_state = {
-            let full_window_state = &full_window_states[glutin_window_id];
-            let layout_info = LayoutInfo {
-                window_size: &full_window_state.size,
-                window_size_width_stops: &mut stop_sizes_width,
-                window_size_height_stops: &mut stop_sizes_height,
-                default_callbacks: &mut default_callbacks,
-                gl_context: gl_context.clone(),
-                resources: app_resources,
-            };
-
-            ui_state_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
-        };
-
-        ui_state.dom_id = DomId::ROOT_ID;
-
-        let ui_state_dom_id = ui_state.dom_id.clone();
-
-        let mut dom_id_map = BTreeMap::new();
-        dom_id_map.insert(ui_state_dom_id.clone(), ui_state);
+        let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
+        let (dom_id_map, default_callbacks_map) = call_layout_fn(
+            data,
+            gl_context.clone(),
+            app_resources,
+            full_window_state,
+            window.hot_reload_handler.as_ref().map(|hr| &hr.0),
+            layout_callback,
+            FORCE_CSS_RELOAD,
+        );
         ui_state_map.insert(*glutin_window_id, dom_id_map);
-
-        let mut default_callbacks_map = BTreeMap::new();
-        default_callbacks_map.insert(ui_state_dom_id.clone(), default_callbacks);
         default_callbacks_id_map.insert(*glutin_window_id, default_callbacks_map);
     }
 
     DomId::reset();
 
     (ui_state_map, default_callbacks_id_map)
+}
+
+fn call_layout_fn<T>(
+    data: &T,
+    gl_context: Rc<Gl>,
+    app_resources: &AppResources,
+    full_window_state: &mut FullWindowState,
+    hot_reload_handler: Option<&Box<HotReloadHandler>>,
+    layout_callback: LayoutCallback<T>,
+    force_css_reload: bool,
+) -> (BTreeMap<DomId, UiState<T>>, BTreeMap<DomId, DefaultCallbackIdMap<T>>){
+
+    use ui_state::{ui_state_from_app_state, ui_state_from_dom};
+    use azul_core::callbacks::LayoutInfo;
+
+    // Any top-level DOM has no "parent", parents are only relevant for IFrames
+    const PARENT_DOM: Option<(DomId, NodeId)> = None;
+
+    // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
+    let mut stop_sizes_width = Vec::new();
+    let mut stop_sizes_height = Vec::new();
+    let mut default_callbacks = BTreeMap::new();
+
+    // Hot-reload the CSS for this window
+    #[cfg(debug_assertions)]
+    let mut ui_state = {
+
+        let css_has_error = {
+            use css::hot_reload_css;
+
+            let hot_reload_result = hot_reload_css(
+                &mut full_window_state.css,
+                hot_reload_handler,
+                &mut Instant::now(),
+                force_css_reload,
+            );
+            let (_, css_has_error) = match hot_reload_result {
+                Ok(has_reloaded) => (has_reloaded, None),
+                Err(css_error) => (true, Some(css_error)),
+            };
+            css_has_error
+        };
+
+        match &css_has_error {
+            None => {
+                let layout_info = LayoutInfo {
+                    window_size: &full_window_state.size,
+                    window_size_width_stops: &mut stop_sizes_width,
+                    window_size_height_stops: &mut stop_sizes_height,
+                    default_callbacks: &mut default_callbacks,
+                    gl_context: gl_context.clone(),
+                    resources: app_resources,
+                };
+                ui_state_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
+            },
+            Some(s) => {
+                println!("{}", s);
+                ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None)
+            },
+        }
+    };
+
+    #[cfg(not(debug_assertions))]
+    let mut ui_state = {
+        let full_window_state = &full_window_state;
+        let layout_info = LayoutInfo {
+            window_size: &full_window_state.size,
+            window_size_width_stops: &mut stop_sizes_width,
+            window_size_height_stops: &mut stop_sizes_height,
+            default_callbacks: &mut default_callbacks,
+            gl_context: gl_context.clone(),
+            resources: app_resources,
+        };
+
+        ui_state_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
+    };
+
+    ui_state.dom_id = DomId::ROOT_ID;
+
+    let ui_state_dom_id = ui_state.dom_id.clone();
+
+    let mut dom_id_map = BTreeMap::new();
+    dom_id_map.insert(ui_state_dom_id.clone(), ui_state);
+
+    let mut default_callbacks_map = BTreeMap::new();
+    default_callbacks_map.insert(ui_state_dom_id.clone(), default_callbacks);
+
+    (dom_id_map, default_callbacks_map)
 }
 
 fn initialize_ui_description_cache<T>(
@@ -827,128 +990,6 @@ fn initialize_ui_description_cache<T>(
         let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
         (*glutin_window_id, cascade_style(ui_states, full_window_state))
     }).collect()
-}
-
-/// Do the hit test for a given window event, call all necessary callbacks
-#[cfg(not(test))]
-fn hit_test_and_call_callbacks<T>(
-    data: &mut T,
-    window: &mut Window<T>,
-    fake_display: &mut FakeDisplay<T>,
-    full_window_state: &mut FullWindowState,
-    ui_state_cache: &mut BTreeMap<DomId, UiState<T>>,
-    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-    timers: &mut FastHashMap<TimerId, Timer<T>>,
-    tasks: &mut Vec<Task<T>>,
-    resources: &mut AppResources,
-) -> SingleWindowHitTestResult {
-
-    use window;
-
-    let mut ret = SingleWindowHitTestResult {
-        needs_rerender_hover_active: false,
-        needs_relayout_hover_active: false,
-        should_scroll_render: false,
-        needs_relayout_refresh: false,
-        callbacks_update_screen: DontRedraw,
-        hit_test_results: Vec::new(),
-        new_focus_target: None,
-    };
-
-    ret.hit_test_results = do_hit_test(&window, &full_window_state, fake_display);
-
-    // From the current (and last) window state, determines what event filters apply
-    let azul_events = determine_events(&ret.hit_test_results, full_window_state, &ui_state_cache);
-
-    let scroll_states = window.internal.get_current_scroll_states(&ui_state_cache);
-
-    // Create a "stub" copy of the current window state that the user can modify in the callbacks
-    let mut modifiable_window_state = window::full_window_state_to_window_state(full_window_state);
-    let mut nodes_scrolled_in_callbacks = BTreeMap::new();
-
-    let callback_result = call_callbacks(
-        data,
-        azul_events,
-        &ui_state_cache,
-        default_callbacks,
-        timers,
-        tasks,
-        &scroll_states,
-        &mut modifiable_window_state,
-        &full_window_state,
-        &window.internal.layout_result,
-        &window.internal.scrolled_nodes,
-        &ret.hit_test_results,
-        &mut nodes_scrolled_in_callbacks,
-        &window.internal.cached_display_list,
-        fake_display.get_gl_context(),
-        resources,
-    );
-
-    if callback_result.should_update_screen == Redraw {
-        ret.callbacks_update_screen = Redraw;
-    }
-
-    if callback_result.needs_redraw_anyways {
-        ret.needs_rerender_hover_active = true;
-    }
-
-    if callback_result.needs_relayout_anyways {
-        ret.needs_relayout_hover_active = true;
-    }
-
-    // Note: Don't set `pending_focus_target` directly here, because otherwise
-    // callbacks that return `Some()` would get immediately overwritten again
-    // by callbacks that return `None`.
-    if let Some(overwrites_focus) = callback_result.callbacks_overwrites_focus {
-        ret.new_focus_target = Some(overwrites_focus);
-    }
-
-    // Scroll nodes from input (mouse scroll) events
-    let mut should_scroll_render_from_input_events = false;
-
-    for (_dom_id, scrolled_nodes) in &window.internal.scrolled_nodes {
-        if update_scroll_state(full_window_state, scrolled_nodes, &mut window.internal.scroll_states, &ret.hit_test_results) {
-            should_scroll_render_from_input_events = true;
-        }
-    }
-
-    let mut should_scroll_render_from_callbacks = false;
-
-    // Scroll nodes that were scrolled via the callbacks
-    for (dom_id, callback_scrolled_nodes) in nodes_scrolled_in_callbacks {
-        let scrolled_nodes = match window.internal.scrolled_nodes.get(&dom_id) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        for (scroll_node_id, scroll_position) in &callback_scrolled_nodes {
-            let overflowing_node = match scrolled_nodes.overflowing_nodes.get(&scroll_node_id) {
-                Some(s) => s,
-                None => continue,
-            };
-
-            window.internal.scroll_states.set_scroll_position(&overflowing_node, *scroll_position);
-            should_scroll_render_from_callbacks = true;
-        }
-    }
-
-    ret.should_scroll_render = should_scroll_render_from_input_events || should_scroll_render_from_callbacks;
-
-    // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
-    full_window_state.pending_focus_target = ret.new_focus_target.clone();
-
-    // Update the window state every frame that was set by the user
-    window::synchronize_window_state_with_os_window(
-        full_window_state,
-        &mut modifiable_window_state,
-        &*window.display.window(),
-    );
-
-    // Reset the scroll amount to 0 (for the next frame)
-    window::clear_scroll_state(full_window_state);
-
-    ret
 }
 
 // HTML (UiState) + CSS (FullWindowState) => CSSOM (UiDescription)
@@ -969,7 +1010,200 @@ fn cascade_style<T>(
     }).collect()
 }
 
-// Do the layout for a single window
+/// Returns the currently hit-tested results, in back-to-front order
+#[cfg(not(test))]
+fn do_hit_test<T>(
+    window: &Window<T>,
+    full_window_state: &FullWindowState,
+    render_api: &RenderApi,
+) -> Vec<HitTestItem> {
+
+    use wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
+
+    let cursor_location = match full_window_state.mouse_state.cursor_position.get_position() {
+        Some(pos) => WorldPoint::new(pos.x, pos.y),
+        None => return Vec::new(),
+    };
+
+    let mut hit_test_results: Vec<HitTestItem> = render_api.hit_test(
+        window.internal.document_id,
+        Some(wr_translate_pipeline_id(window.internal.pipeline_id)),
+        cursor_location,
+        HitTestFlags::FIND_ALL
+    ).items.into_iter().map(wr_translate_hittest_item).collect();
+
+    // Execute callbacks back-to-front, not front-to-back
+    hit_test_results.reverse();
+
+    hit_test_results
+}
+
+/// Given the current (and previous) window state and the hit test results,
+/// determines which `On::X` filters to actually call.
+fn determine_events<T>(
+    hit_test_results: &[HitTestItem],
+    full_window_state: &mut FullWindowState,
+    ui_state_map: &BTreeMap<DomId, UiState<T>>,
+) -> BTreeMap<DomId, CallbacksOfHitTest<T>> {
+    use window_state::determine_callbacks;
+    ui_state_map.iter().map(|(dom_id, ui_state)| {
+        (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, ui_state))
+    }).collect()
+}
+
+fn call_callbacks<T>(
+    data: &mut T,
+    callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest<T>>,
+    ui_state_map: &BTreeMap<DomId, UiState<T>>,
+    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+    timers: &mut FastHashMap<TimerId, Timer<T>>,
+    tasks: &mut Vec<Task<T>>,
+    scroll_states: &BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    modifiable_scroll_states: &mut ScrollStates,
+    full_window_state: &mut FullWindowState,
+    layout_result: &BTreeMap<DomId, LayoutResult>,
+    scrolled_nodes: &BTreeMap<DomId, ScrolledNodes>,
+    cached_display_list: &CachedDisplayList,
+    gl_context: Rc<Gl>,
+    resources: &mut AppResources,
+    glutin_window: &GlutinWindow,
+) -> CallCallbacksResult {
+
+    use callbacks::{CallbackInfo, DefaultCallbackInfoUnchecked};
+    use window;
+
+    let mut ret = CallCallbacksResult {
+        needs_rerender_hover_active: callbacks_filter_list.values().any(|v| v.needs_redraw_anyways),
+        needs_relayout_hover_active: callbacks_filter_list.values().any(|v| v.needs_relayout_anyways),
+        should_scroll_render: false,
+        callbacks_update_screen: DontRedraw,
+        new_focus_target: None,
+    };
+
+    let mut nodes_scrolled_in_callbacks = BTreeMap::new();
+    let mut modifiable_window_state = window::full_window_state_to_window_state(full_window_state);
+
+    // Run all default callbacks - **before** the user-defined callbacks are run!
+    for dom_id in ui_state_map.keys().cloned() {
+        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
+            let hit_item = &callback_results.hit_test_item;
+            for default_callback_id in callback_results.default_callbacks.values() {
+
+                let mut new_focus = None;
+
+                let default_callback = default_callbacks.get(&dom_id).and_then(|dc| dc.get(default_callback_id).cloned());
+
+                let default_callback_redraws = match default_callback {
+                    Some((callback_ptr, callback_fn)) => {
+                        (callback_fn.0)(DefaultCallbackInfoUnchecked {
+                            ptr: callback_ptr,
+                            current_window_state: &full_window_state,
+                            modifiable_window_state: &mut modifiable_window_state,
+                            layout_result,
+                            scrolled_nodes,
+                            cached_display_list,
+                            default_callbacks: default_callbacks.get_mut(&dom_id).unwrap(),
+                            gl_context: gl_context.clone(),
+                            resources,
+                            timers,
+                            tasks,
+                            ui_state: ui_state_map,
+                            focus_target: &mut new_focus,
+                            current_scroll_states: scroll_states,
+                            nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                            hit_dom_node: (dom_id.clone(), *node_id),
+                            cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                            cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                        })
+                    },
+                    None => DontRedraw,
+                };
+
+                if default_callback_redraws == Redraw {
+                    ret.callbacks_update_screen = Redraw;
+                }
+
+                // Overwrite the focus from the callback info
+                if let Some(new_focus) = new_focus.clone() {
+                    ret.new_focus_target = Some(new_focus);
+                }
+            }
+        }
+    }
+
+    // Run all regular callbacks
+    for dom_id in ui_state_map.keys().cloned() {
+        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
+            let hit_item = &callback_results.hit_test_item;
+            for callback in callback_results.normal_callbacks.values() {
+
+                let mut new_focus = None;
+
+                if (callback.0)(CallbackInfo {
+                    data,
+                    current_window_state: &full_window_state,
+                    modifiable_window_state: &mut modifiable_window_state,
+                    layout_result,
+                    scrolled_nodes,
+                    cached_display_list,
+                    default_callbacks: default_callbacks.get_mut(&dom_id).unwrap(),
+                    gl_context: gl_context.clone(),
+                    resources,
+                    timers,
+                    tasks,
+                    ui_state: ui_state_map,
+                    focus_target: &mut new_focus,
+                    current_scroll_states: scroll_states,
+                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                    hit_dom_node: (dom_id.clone(), *node_id),
+                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                }) == Redraw {
+                    ret.callbacks_update_screen = Redraw;
+                }
+
+                if let Some(new_focus) = new_focus {
+                    ret.new_focus_target = Some(new_focus);
+                }
+            }
+        }
+    }
+
+    // Scroll nodes from programmatic callbacks
+    for (dom_id, callback_scrolled_nodes) in nodes_scrolled_in_callbacks {
+        let scrolled_nodes = match scrolled_nodes.get(&dom_id) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        for (scroll_node_id, scroll_position) in &callback_scrolled_nodes {
+            let overflowing_node = match scrolled_nodes.overflowing_nodes.get(&scroll_node_id) {
+                Some(s) => s,
+                None => continue,
+            };
+
+            modifiable_scroll_states.set_scroll_position(&overflowing_node, *scroll_position);
+            ret.should_scroll_render = true;
+        }
+    }
+
+    // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
+    full_window_state.pending_focus_target = ret.new_focus_target.clone();
+
+    // Update the window state every frame that was set by the user
+    window::synchronize_window_state_with_os_window(
+        full_window_state,
+        &mut modifiable_window_state,
+        glutin_window,
+    );
+
+    // Reset the scroll amount to 0 (for the next frame)
+    window::clear_scroll_state(full_window_state);
+
+    ret
+}
+
+// Most expensive step: Do the layout + build the actual display list (but don't send it to webrender yet!)
 #[cfg(not(test))]
 fn layout_display_lists<T>(
     data: &mut T,
@@ -996,188 +1230,7 @@ fn layout_display_lists<T>(
     }).collect()
 }
 
-/// Returns the currently hit-tested results, in back-to-front order
-#[cfg(not(test))]
-fn do_hit_test<T>(
-    window: &Window<T>,
-    full_window_state: &FullWindowState,
-    fake_display: &mut FakeDisplay<T>,
-) -> Vec<HitTestItem> {
-
-    use wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
-
-    let cursor_location = match full_window_state.mouse_state.cursor_position.get_position() {
-        Some(pos) => WorldPoint::new(pos.x, pos.y),
-        None => return Vec::new(),
-    };
-
-    let mut hit_test_results: Vec<HitTestItem> = fake_display.render_api.hit_test(
-        window.internal.document_id,
-        Some(wr_translate_pipeline_id(window.internal.pipeline_id)),
-        cursor_location,
-        HitTestFlags::FIND_ALL
-    ).items.into_iter().map(wr_translate_hittest_item).collect();
-
-    // Execute callbacks back-to-front, not front-to-back
-    hit_test_results.reverse();
-
-    hit_test_results
-}
-
-/// Struct returned from the `call_callbacks()` function -
-/// returns important information from the callbacks
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-struct CallCallbackReturn {
-    /// Whether one or more callbacks say to redraw the screen or not
-    pub should_update_screen: UpdateScreen,
-    /// Whether one or more callbacks have messed with the current
-    /// focused element i.e. via `.clear_focus()` or similar.
-    pub callbacks_overwrites_focus: Option<FocusTarget>,
-    /// Whether the screen should be redrawn even if no Callback returns an `UpdateScreen::Redraw`.
-    /// This is necessary for `:hover` and `:active` mouseovers - otherwise the screen would
-    /// only update on the next resize.
-    pub needs_redraw_anyways: bool,
-    /// Same as `needs_redraw_anyways`, but for reusing the layout from the previous frame.
-    /// Each `:hover` and `:active` group stores whether it modifies the layout, as
-    /// a performance optimization.
-    pub needs_relayout_anyways: bool,
-}
-
-/// Given the current (and previous) window state and the hit test results,
-/// determines which `On::X` filters to actually call.
-fn determine_events<T>(
-    hit_test_results: &[HitTestItem],
-    full_window_state: &mut FullWindowState,
-    ui_state_map: &BTreeMap<DomId, UiState<T>>,
-) -> BTreeMap<DomId, CallbacksOfHitTest<T>> {
-    use window_state::determine_callbacks;
-    ui_state_map.iter().map(|(dom_id, ui_state)| {
-        (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, ui_state))
-    }).collect()
-}
-
-/// Returns an bool whether the window should be redrawn or not
-/// (true - redraw the screen, false: don't redraw).
-fn call_callbacks<T>(
-    data: &mut T,
-    callbacks_filter_list: BTreeMap<DomId, CallbacksOfHitTest<T>>,
-    ui_state_map: &BTreeMap<DomId, UiState<T>>,
-    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-    timers: &mut FastHashMap<TimerId, Timer<T>>,
-    tasks: &mut Vec<Task<T>>,
-    scroll_states: &BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
-    modifiable_window_state: &mut WindowState,
-    current_window_state: &FullWindowState,
-    layout_result: &BTreeMap<DomId, LayoutResult>,
-    scrolled_nodes: &BTreeMap<DomId, ScrolledNodes>,
-    hit_test_items: &[HitTestItem],
-    nodes_scrolled_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
-    cached_display_list: &CachedDisplayList,
-    gl_context: Rc<Gl>,
-    resources: &mut AppResources,
-) -> CallCallbackReturn {
-
-    use callbacks::{CallbackInfo, DefaultCallbackInfoUnchecked};
-
-    let mut should_update_screen = DontRedraw;
-    let mut callbacks_overwrites_focus = None;
-
-    // Run all default callbacks - **before** the user-defined callbacks are run!
-    for dom_id in ui_state_map.keys().cloned() {
-        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
-            let hit_item = &callback_results.hit_test_item;
-            for default_callback_id in callback_results.default_callbacks.values() {
-
-                let mut new_focus = None;
-
-                let default_callback = default_callbacks.get(&dom_id).and_then(|dc| dc.get(default_callback_id).cloned());
-
-                let default_callback_redraws = match default_callback {
-                    Some((callback_ptr, callback_fn)) => {
-                        (callback_fn.0)(DefaultCallbackInfoUnchecked {
-                            ptr: callback_ptr,
-                            current_window_state,
-                            modifiable_window_state,
-                            layout_result,
-                            scrolled_nodes,
-                            cached_display_list,
-                            default_callbacks: default_callbacks.get_mut(&dom_id).unwrap(),
-                            gl_context: gl_context.clone(),
-                            resources,
-                            timers,
-                            tasks,
-                            ui_state: ui_state_map,
-                            focus_target: &mut new_focus,
-                            current_scroll_states: scroll_states,
-                            nodes_scrolled_in_callback: nodes_scrolled_in_callbacks,
-                            hit_dom_node: (dom_id.clone(), *node_id),
-                            hit_test_items,
-                            cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                            cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                        })
-                    },
-                    None => DontRedraw,
-                };
-
-                if default_callback_redraws == Redraw {
-                    should_update_screen = Redraw;
-                }
-
-                // Overwrite the focus from the callback info
-                if let Some(new_focus) = new_focus.clone() {
-                    callbacks_overwrites_focus = Some(new_focus);
-                }
-            }
-        }
-    }
-
-    for dom_id in ui_state_map.keys().cloned() {
-        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
-            let hit_item = &callback_results.hit_test_item;
-            for callback in callback_results.normal_callbacks.values() {
-
-                let mut new_focus = None;
-
-                if (callback.0)(CallbackInfo {
-                    data,
-                    current_window_state,
-                    modifiable_window_state,
-                    layout_result,
-                    scrolled_nodes,
-                    cached_display_list,
-                    default_callbacks: default_callbacks.get_mut(&dom_id).unwrap(),
-                    gl_context: gl_context.clone(),
-                    resources,
-                    timers,
-                    tasks,
-                    ui_state: ui_state_map,
-                    focus_target: &mut new_focus,
-                    current_scroll_states: scroll_states,
-                    nodes_scrolled_in_callback: nodes_scrolled_in_callbacks,
-                    hit_dom_node: (dom_id.clone(), *node_id),
-                    hit_test_items,
-                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                }) == Redraw {
-                    should_update_screen = Redraw;
-                }
-
-                if let Some(new_focus) = new_focus {
-                    callbacks_overwrites_focus = Some(new_focus);
-                }
-            }
-        }
-    }
-
-    CallCallbackReturn {
-        should_update_screen,
-        callbacks_overwrites_focus,
-        needs_redraw_anyways: callbacks_filter_list.values().any(|v| v.needs_redraw_anyways),
-        needs_relayout_anyways: callbacks_filter_list.values().any(|v| v.needs_relayout_anyways),
-    }
-}
-
-// Most expensive step: Do the layout + build the actual display list (but don't send it to webrender yet!)
+// Do the layout for a single window
 #[cfg(not(test))]
 fn layout_display_list<T>(
     data: &mut T,
