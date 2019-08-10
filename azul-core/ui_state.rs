@@ -9,9 +9,13 @@ use {
     dom::{
         Dom, DomId, TagId, TabIndex, DomString,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
-        WindowEventFilter
+        WindowEventFilter,
     },
-    callbacks::{LayoutInfo, Callback, LayoutCallback, DefaultCallbackId},
+    callbacks::{
+        LayoutInfo, Callback, LayoutCallback, DefaultCallbackId,
+        IFrameCallback, GlCallback,
+    },
+    stack_checked_pointer::StackCheckedPointer,
 };
 
 pub struct UiState<T> {
@@ -378,4 +382,30 @@ pub fn ui_state_from_dom<T>(dom: Dom<T>, parent_dom_node_id: Option<(DomId, Node
         window_default_callbacks,
 
     }
+}
+
+pub fn scan_ui_state_for_iframe_callbacks<T>(ui_state: &UiState<T>)
+-> Vec<(NodeId, IFrameCallback<T>, StackCheckedPointer<T>)>
+{
+    use dom::NodeType::IFrame;
+    ui_state.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
+        let node_data = &ui_state.dom.arena.node_data[node_id];
+        match node_data.get_node_type() {
+            IFrame((cb, ptr)) => Some((node_id, *cb, *ptr)),
+            _ => None,
+        }
+    }).collect()
+}
+
+pub fn scan_ui_state_for_gltexture_callbacks<T>(ui_state: &UiState<T>)
+-> Vec<(NodeId, GlCallback<T>, StackCheckedPointer<T>)>
+{
+    use dom::NodeType::GlTexture;
+    ui_state.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
+        let node_data = &ui_state.dom.arena.node_data[node_id];
+        match node_data.get_node_type() {
+            GlTexture((cb, ptr)) => Some((node_id, *cb, *ptr)),
+            _ => None,
+        }
+    }).collect()
 }
