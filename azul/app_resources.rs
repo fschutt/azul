@@ -128,11 +128,11 @@ impl FontImageApi for FakeRenderApi {
 
 /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
 /// guaranteed to know about all FontKeys and FontInstanceKey
-pub(crate) fn add_fonts_and_images<T, U: FontImageApi>(
+pub(crate) fn add_fonts_and_images<U: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut U,
     pipeline_id: &PipelineId,
-    display_list: &DisplayList<T>
+    display_list: &DisplayList,
 ) {
     let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list);
     let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list);
@@ -223,9 +223,9 @@ pub fn font_source_get_bytes(font_source: &FontSource) -> Result<(Vec<u8>, i32),
 }
 
 /// Scans the display list for all font IDs + their font size
-fn scan_ui_description_for_font_keys<T>(
+fn scan_ui_description_for_font_keys(
     app_resources: &AppResources,
-    display_list: &DisplayList<T>
+    display_list: &DisplayList,
 ) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
 
     use crate::dom::NodeType::*;
@@ -259,9 +259,9 @@ fn scan_ui_description_for_font_keys<T>(
 }
 
 /// Scans the display list for all image keys
-fn scan_ui_description_for_image_keys<T>(
+fn scan_ui_description_for_image_keys(
     app_resources: &AppResources,
-    display_list: &DisplayList<T>
+    display_list: &DisplayList,
 ) -> FastHashSet<ImageId> {
 
     use crate::dom::NodeType::*;
